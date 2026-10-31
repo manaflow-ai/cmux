@@ -38,8 +38,10 @@ import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { Bot, ChevronRight, TerminalSquare } from "./icons";
 import { Markdown } from "./Markdown";
 import { CardCopy } from "./CardCopy";
-import { AgentMark, knownMark } from "../../shared/AgentMark";
+import { knownMark } from "../../shared/AgentMark";
 import { useSenderChat, useSenderPlace } from "../subagents/subsessions";
+import { AgentIdentity } from "../subagents/AgentIdentity";
+import { agentTone } from "../subagents/agentTones";
 import { useAgentAvatar } from "../agentAvatar";
 import { useChiefFace } from "../chiefFace";
 import { DisclosureRow } from "../subagents/DisclosureRow";
@@ -47,6 +49,8 @@ import "../subagents/AgentCard.css";
 import { MessageScopeContext, type MessageScope } from "../chips/messageScope";
 import { mentionedRepository } from "../../../githubReferences";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
+import { laneNotice } from "./laneReport";
+import "./LaneNoticeBatch.css";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 
@@ -70,7 +74,15 @@ export function SenderName({ message, onOpen }: { message: IncomingMessage; onOp
   const sessionId = message.chief ? undefined : sender.sessionId;
   const avatar = useAgentAvatar(sender.sessionId);
   const from = message.relation ? t(RELATION_LABEL[message.relation], { name }) : name;
-  const harness = knownMark(sender.harness, message.harness, message.name, message.name.split("/")[0]);
+  // The first candidate with a mark today; with none, the sender's own harness id, so a profile icon
+  // that arrives later still replaces the fallback (AgentIdentity stays subscribed to that id).
+  const harness = knownMark(
+    sender.harness,
+    message.harness,
+    message.name,
+    message.name.split("/")[0],
+    sender.harness ?? message.harness,
+  );
   const picture = message.chief ? chief?.src : avatar;
   const icon = picture ? (
     <img className="cv-agent-avatar" src={picture} alt="" width={16} height={16} />
@@ -79,7 +91,13 @@ export function SenderName({ message, onOpen }: { message: IncomingMessage; onOp
       {chief.text}
     </span>
   ) : (
-    <AgentMark agent={harness} size={14} fallback={<Bot size={16} />} />
+    // A sender with no harness mark keeps the robot in its own stable tone, so two such senders tell apart.
+    <AgentIdentity
+      harness={harness}
+      tone={agentTone(sender.sessionId ?? message.sessionId ?? message.name)}
+      size={14}
+      fallbackNode={<Bot size={16} />}
+    />
   );
   // "Open chief-ui (huge-blue)": the chat the name opens, and the other machine it runs on.
   const openTitle = sender.host
@@ -138,6 +156,7 @@ export function IncomingMessageLine({
   githubRepository?: string;
 }) {
   const t = useT();
+  const notice = laneNotice(message);
   const session = useContext(PromptMarksSession);
   const key = `${session ?? ""}\u0000${id}`;
   // Whether the person opened it lasts while the page does (incomingOpened.ts), and the row
@@ -156,13 +175,16 @@ export function IncomingMessageLine({
   const envelope = useAnchoredCollapse({
     open: details,
     onOpenChange: setDetails,
-    animates: () => played.current,
+    animates: () => !notice && played.current,
+    fadeIn: false,
   });
   // Find in Chat opens a closed message that holds its match, as a folded thought opens; a match
   // only in the envelope (Find searches the whole prompt) opens Details too.
   const reveal = useContext(FindReveal);
   const needle = reveal && reveal.rowId === id ? reveal.needle : "";
-  const inText = Boolean(needle && unsigned(message.text, message.name).toLocaleLowerCase().includes(needle));
+  const inText = Boolean(
+    needle && (notice?.body ?? unsigned(message.text, message.name)).toLocaleLowerCase().includes(needle),
+  );
   const inRaw = Boolean(needle && !inText && message.raw.toLocaleLowerCase().includes(needle));
   useLayoutEffect(() => {
     if (!inText && !inRaw) return;
@@ -172,7 +194,7 @@ export function IncomingMessageLine({
     reveal?.repaint();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new match opens, not a new callback
   }, [inText, inRaw, reveal]);
-  const raw = message.raw.trim() === message.text ? undefined : message.raw;
+  const raw = notice?.details ?? (message.raw.trim() === message.text ? undefined : message.raw);
   // A Chief's message names the Chief (chiefFace.ts): its name and avatar as the sidebar shows them.
   // Its turn session is no chat of the list, so no listed chat with its name stands in for it.
   const chief = useChiefFace(message.chief);
@@ -181,13 +203,13 @@ export function IncomingMessageLine({
   const place = useSenderPlace(sender.sessionId);
   // The sender's words without a signature that only repeats its name (incomingMessage.ts reads
   // it on every path; a record from before that, or a queued one, may still have it).
-  const text = unsigned(message.text, message.name);
+  const text = notice?.body ?? unsigned(message.text, message.name);
   // The machine the sender's files are on, when it is another (a peer's relayed message names none).
   const host = message.remote ? (place?.host ?? "") : place?.host;
   const repository = githubRepository ?? mentionedRepository(text);
   const body = useMemo(() => dedupeReferences(text, repository), [text, repository]);
   const scope = useMemo<MessageScope>(() => (host === undefined ? {} : { host }), [host]);
-  const preview = useMemo(() => messagePreview(body), [body]);
+  const preview = useMemo(() => notice?.preview ?? messagePreview(body), [body, notice]);
   // A sub-session family's sender says who it is to this chat.
   const from = message.relation ? t(RELATION_LABEL[message.relation], { name }) : name;
   // A reply needs a chat to go to and the message's id to answer: acpmux's `agent_message`.
@@ -224,10 +246,10 @@ export function IncomingMessageLine({
   };
   return (
     <DisclosureRow
-      className="cv-received"
+      className={notice ? "cv-received cv-lane-notice" : "cv-received"}
       open={open}
       onOpenChange={toggled}
-      animates={() => played.current}
+      animates={() => !notice && played.current}
       leading={<SenderName message={message} onOpen={onOpen} />}
       toggleLabel={t("message.collapsedLabel", { from, preview: preview || t("message.noText") })}
       label={
@@ -288,10 +310,8 @@ export function IncomingMessageLine({
             <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${details ? " is-open" : ""}`} />
           </button>
           {envelope.present && (
-            <div {...envelope.bodyProps}>
-              <pre id={rawId} className="cv-tool-output selectable">
-                {raw}
-              </pre>
+            <div id={rawId} {...envelope.bodyProps}>
+              <pre className="cv-tool-output selectable">{raw}</pre>
             </div>
           )}
         </div>

@@ -39,8 +39,16 @@ final class AgentTabStore {
     var lookup: @MainActor (String) -> (record: AgentSessionRef, store: DaemonStore)? = { _ in nil }
     /// The pane holding tab `key` and its daemon (New side chat opens its fork there first).
     var locate: @MainActor (String) -> (pane: PaneID, daemon: DaemonService)? = { _ in nil }
-    /// The width in points of the pane holding tab `key` (a subagent split's room, ``AgentSubagentPanes``).
-    var paneWidth: @MainActor (String) -> CGFloat? = { _ in nil }
+    /// The right column beside the pane holding chat tab `key`, as ``RightColumnPlacement`` reads it (``LinkOpener/rightColumn(beside:)``).
+    var rightColumn: @MainActor (String) -> RightColumnPlacement.Column = { _ in RightColumnPlacement.Column() }
+    /// Runs an open on the right of chat tab `chat` in its turn (``RightColumnTurns``); unwired: at once.
+    var serially: @MainActor (_ chat: String, _ turn: @escaping RightColumnTurns.Turn) -> Bool = { _, turn in turn({}); return true }
+    /// A right-column pane by its ``RightColumnPlacement/Column`` key (a layout pane id) and its daemon, looked
+    /// up only in the workspace that holds chat tab `chat`, where ``rightColumn`` measured it: a layout pane id
+    /// (`pane:<handle>` without a resource id) is not unique across daemons or workspaces.
+    var locatePane: @MainActor (_ chat: String, _ key: String) -> (pane: PaneID, daemon: DaemonService)? = { _, _ in nil }
+    /// Moves fork tab `key`, opened in chat tab `chat`'s pane, to a new strip column (`left`: before the chat's) or, nil, a new row.
+    var placeFork: @MainActor (_ key: String, _ chat: String, _ left: Bool?) -> Void = { _, _, _ in }
     /// Selects tab `key` in its pane without moving keyboard focus (an unfocused subagent tab).
     var selectInPane: @MainActor (String) -> Void = { _ in }
     /// Main pane layout (``MainPaneLayout``): opens what chat tab `chat` opens beside it (through
@@ -148,6 +156,9 @@ final class AgentTabStore {
     /// The folders of every workspace on the machine of tab `key` (its terminals' folders there),
     /// for the project list of a chat on that machine.
     var remoteFolders: (@MainActor (String) -> [String])?
+    /// The folders the machine of tab `key` lists itself (`agent-session-folders`: its work folder,
+    /// then the folders under it), for the same project list; none from an older daemon.
+    var remoteMachineFolders: (@MainActor (String) async -> [String])?
     /// The display name of a remote daemon's machine, recorded on the tabs of its new chats.
     var remoteMachineName: @MainActor (DaemonService) -> String? = { _ in nil }
     /// Shared conversion and project actions for a direct blank chat, without a chooser page.
@@ -201,6 +212,8 @@ final class AgentTabStore {
     let readAloud = AgentPaneReadAloud()
     /// The Cloud machines each page's environment picker lists (`cloudMachine.*`); the app's peer approver for every host and page.
     let cloudMachines = AgentPaneCloudMachines()
+    /// The iPhone host's Remote Control switch, which every page's Session Info shows (set by the wiring).
+    var remoteControl: AgentPaneRemoteControl?
     let peerApprover: AgentPanePeerApprover?
     /// The device chats every page's New Tab cards show (``AgentPageChats``).
     let pageChats = AgentPageChats()
@@ -242,9 +255,10 @@ final class AgentTabStore {
     var moveAgentToMachine: @MainActor (_ tab: String, _ machine: String) -> Bool = { _, _ in false }
 
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``); else from `AppServices.settings`.
+    /// `daemons` and `updates` are the app's (`AppServices`); a test's store has its own and updates no other machine.
     init(build: BuildIdentity?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment,
-         showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil,
-         openPanel: MadeAheadOpenPanel? = nil, defaults: UserDefaults = .standard, peerApprover: AgentPanePeerApprover? = nil) {
+         showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil, openPanel: MadeAheadOpenPanel? = nil, defaults: UserDefaults = .standard,
+         daemons: AcpmuxLocalDaemons = AcpmuxLocalDaemons(), updates: DaemonUpdates? = nil, peerApprover: AgentPanePeerApprover? = nil) {
         (self.defaults, self.peerApprover) = (defaults, peerApprover)
         if let data = defaults.data(forKey: Self.adoptionsDefaultsKey),
            let saved = try? JSONDecoder().decode([String: String].self, from: data) {
@@ -253,16 +267,16 @@ final class AgentTabStore {
         self.openPanel = openPanel
         actionRegistry = registry
         self.linkScheme = linkScheme
-        let (resolvedSource, resolvedHost) = AgentTabPaneSource.resolvePane(build: build, environment: environment, showcase: showcase, peerApprover: peerApprover)
+        let (resolvedSource, resolvedHost) = AgentTabPaneSource.resolvePane(build: build, environment: environment, showcase: showcase, daemons: daemons, peerApprover: peerApprover)
         host = resolvedHost
         // Start acpmux while the first pane is loading. The page still owns
         // the authenticated WebSocket handshake and session selection. Then
-        // other machines' daemons get this build, in the background (DaemonUpdatePolicy).
+        // other machines' daemons get this build, in the background (DaemonUpdates).
         Task {
             try? await resolvedHost.prewarm()
-            guard resolvedHost is AcpmuxHost else { return }
+            guard resolvedHost is AcpmuxHost, let updates else { return }
             let installer = RemoteInstaller(paths: .standard(bundleID: Bundle.main.bundleIdentifier))
-            DaemonUpdatePolicy.startOnce(build: build, environment: environment) { try await installer.download(artifact: $0, nextTo: $1) }
+            updates.startOnce(build: build, environment: environment) { try await installer.download(artifact: $0, nextTo: $1) }
         }
         #if DEBUG
         switch environment["CMUX_NEXT_AGENT_PANE_FULL_RATE"] {
@@ -412,7 +426,9 @@ final class AgentTabStore {
             model.remoteChat = true
             model.onListRemoteProjects = { [weak self] query in
                 guard let self else { return [] }
-                let folders = remoteFolders?(resolveRemote(key)) ?? []
+                let listed = remoteFolders?(resolveRemote(key)) ?? []
+                let machine = await remoteMachineFolders?(resolveRemote(key)) ?? []
+                let folders = AgentTabRemoteStart.folders(listed: listed, machine: machine)
                 guard let query = query?.lowercased(), !query.isEmpty else { return folders }
                 return folders.filter { $0.lowercased().contains(query) }
             }
@@ -549,7 +565,7 @@ final class AgentTabStore {
     private func makeView(_ model: AgentPaneModel) -> AgentPaneView? {
         AgentPaneNewTabFrame.shared.pageMade(model)
         model.linkScheme = linkScheme
-        (model.readAloud, model.cloudMachines, model.transport.peerApprover) = (readAloud, cloudMachines, peerApprover)
+        (model.readAloud, model.cloudMachines, model.remoteControl, model.transport.peerApprover) = (readAloud, cloudMachines, remoteControl, peerApprover)
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value || AgentPaneTunables.chromium.value, openPanel: openPanel) else { return nil }
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current

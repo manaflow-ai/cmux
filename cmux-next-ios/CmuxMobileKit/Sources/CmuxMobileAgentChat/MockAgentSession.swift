@@ -328,10 +328,20 @@ public final class MockAgentSession: AgentSessionSource {
     private func shortTurn(prompt: String) async throws {
         try await pause(500)
         try await stream("Looking at that now.", thought: true)
+        // A read and a command: one "Read a file, ran a command" group to open (verify/disclosure.md).
         let readID = UUID().uuidString
         try await tool(
             ACPToolCall(id: readID, title: "Read README.md", kind: .read, locations: [.init(path: "README.md")]),
-            runFor: 300, finish: ACPToolCallUpdate(toolCallId: readID, status: .completed)
+            runFor: 300, finish: ACPToolCallUpdate(toolCallId: readID, status: .completed,
+                                                   content: [.content(.text("# cmux\n\nA terminal for coding agents.\n\n- Workspaces\n- Agent chat\n- Feed"))])
+        )
+        let statusID = UUID().uuidString
+        try await tool(
+            ACPToolCall(id: statusID, title: "git status", kind: .execute,
+                        rawInput: .object(["command": .string("git status --short")])),
+            runFor: 300, finish: ACPToolCallUpdate(toolCallId: statusID, status: .completed,
+                                                   content: [.content(.text(" M Sources/Transport/LinkDialer.swift\n?? docs/dialer-notes.md"))],
+                                                   rawOutput: .object(["exit_code": .number(0)]))
         )
         try await stream(MockScript.shortAnswer(for: prompt), messageID: UUID().uuidString)
     }

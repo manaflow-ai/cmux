@@ -93,6 +93,9 @@ extension CloudStartChat {
             /// opens its chat there without copying again, which would overwrite what the chat
             /// already changed (`cmux link sync push` rewrites every file the machine changed).
             var copiedChat: String?
+            /// The folder under the work root this send's copy goes to on that machine, kept from
+            /// before the copy starts (``place(for:on:)``).
+            var place: String?
         }
 
         var defaults: @MainActor () -> UserDefaults? = { nil }
@@ -109,15 +112,40 @@ extension CloudStartChat {
         /// Every machine a kept send ran on.
         var machines: Set<String> { Set(entries().map(\.machineID)) }
 
+        /// Every machine a kept send of the account `account` ran on (sends pinned under
+        /// ``CloudStartChat/pinKey(_:account:)``): what counts as that account's own machine when the
+        /// server names no creator. Another user's sends on this Mac, or another team's, never do.
+        func machines(of account: [String?]) -> Set<String> {
+            let suffix = CloudStartChat.accountSuffix(account).lowercased()
+            return Set(entries().filter { $0.key.hasSuffix(suffix) }.map(\.machineID))
+        }
+
         /// Pins the send `key` to `machineID` (before anything runs there). A pin to the same
         /// machine keeps its finished copy.
         func record(_ machineID: String, for key: String) {
             let key = key.lowercased()
             let all = entries()
-            let copied = all.last { $0.key == key && $0.machineID == machineID }?.copiedChat
+            let same = all.last { $0.key == key && $0.machineID == machineID }
             var kept = all.filter { $0.key != key }
-            kept.append(Entry(key: key, machineID: machineID, copiedChat: copied))
+            kept.append(Entry(key: key, machineID: machineID, copiedChat: same?.copiedChat, place: same?.place))
             save(Array(kept.suffix(Self.limit)))
+        }
+
+        /// The folder under the machine's work root the send `key`'s copy goes to on `machineID`:
+        /// the one kept for it, else a new one (`fresh`, under ``AgentPaneCloudStart/remotePlace``),
+        /// kept now, before anything is copied. A retry finds its own copy's folder; a retry whose
+        /// record is gone (older than ``limit`` sends, another machine) gets a new folder, so its
+        /// copy never writes over a chat that already started in the old one (`cmux link sync push`
+        /// rewrites every file the machine changed).
+        func place(for key: String, on machineID: String, fresh: () -> String) -> String {
+            let lowered = key.lowercased()
+            let all = entries()
+            if let kept = all.last(where: { $0.key == lowered && $0.machineID == machineID })?.place { return kept }
+            let place = fresh()
+            var kept = all.filter { $0.key != lowered }
+            kept.append(Entry(key: lowered, machineID: machineID, copiedChat: nil, place: place))
+            save(Array(kept.suffix(Self.limit)))
+            return place
         }
 
         /// The chat's folder on `machineID` when the send `key`'s copy finished there.
@@ -129,8 +157,10 @@ extension CloudStartChat {
         /// The send `key`'s copy finished on `machineID`, its chat's folder there `chat`.
         func recordCopy(_ chat: String, for key: String, on machineID: String) {
             let key = key.lowercased()
-            var kept = entries().filter { $0.key != key }
-            kept.append(Entry(key: key, machineID: machineID, copiedChat: chat))
+            let all = entries()
+            let place = all.last { $0.key == key && $0.machineID == machineID }?.place
+            var kept = all.filter { $0.key != key }
+            kept.append(Entry(key: key, machineID: machineID, copiedChat: chat, place: place))
             save(Array(kept.suffix(Self.limit)))
         }
 
@@ -160,9 +190,12 @@ extension CloudStartChat {
     /// The create of the machine for the send `start`: sized for the chat, under the send's own
     /// idempotency key (``AgentPaneCloudStart/createKey``), so a retry after a create whose answer
     /// was lost gets the same machine from the server, never a second paid VM.
-    static func createRequest(for start: AgentPaneCloudStart, sizedFor pick: CloudWorkPick?) -> CloudMachineRequest {
+    /// Its team is the send's (`team`, the account's team when the send began), fixed for every try,
+    /// so a team switch during a slow create never makes the machine in the other team.
+    static func createRequest(for start: AgentPaneCloudStart, sizedFor pick: CloudWorkPick?, team: String?) -> CloudMachineRequest {
         var request = CloudChatPick.request(sizedFor: pick)
         request.idempotencyKey = start.createKey
+        request.team = team
         return request
     }
 
@@ -175,22 +208,56 @@ extension CloudStartChat {
     /// Where the send `key` goes: the machine its first try took while that machine exists
     /// (`exists` nil: the list is not loaded yet, so it is kept), else ``pick(_:user:used:)``.
     /// Drops a pin to a machine that is gone, which holds no tab of this send.
+    /// `used`: the machines that count as this person's when the server names no creator; every
+    /// kept send's when nil (tests).
     static func destination(for key: String, destinations: Destinations, candidates: [Candidate], user: String?,
-                            exists: (String) -> Bool?) -> Destination {
+                            used: Set<String>? = nil, exists: (String) -> Bool?) -> Destination {
         if let pinned = destinations.machine(for: key) {
             if exists(pinned) != false { return .machine(pinned) }
             destinations.forget(key)
         }
-        return pick(candidates, user: user, used: destinations.machines).map(Destination.machine) ?? .new
+        return pick(candidates, user: user, used: used ?? destinations.machines).map(Destination.machine) ?? .new
+    }
+
+    /// The key a send's machine is pinned under: the send's key in the account (user and team) it
+    /// was sent in. A team switch keeps the user signed in, so a pin from the previous team is never
+    /// this team's machine, and switching back finds it again.
+    static func pinKey(_ key: String, account: [String?]) -> String {
+        key + accountSuffix(account)
+    }
+
+    /// The end of every ``pinKey(_:account:)`` of the account `account`.
+    static func accountSuffix(_ account: [String?]) -> String {
+        "@" + account.map { $0 ?? "" }.joined(separator: "/")
+    }
+
+    /// Refuses a send whose account changed since it began (`asked`), or whose machine list is not
+    /// the server's answer for the account signed in now (`listCurrent`): after a team switch the
+    /// previous team's machines stay in the store until that list lands, and the chat's folder must
+    /// never be copied to one of them.
+    static func checkAccount(_ asked: [String?], now: [String?], listCurrent: Bool) throws {
+        guard asked == now else { throw CloudMove.Failure(message: CloudMoveStrings.startChatAccountChanged) }
+        guard listCurrent else { throw CloudMove.Failure(message: CloudMoveStrings.startChatListUnread) }
+    }
+
+    /// Whether a send's pinned machine `id` still exists for its account: listed for it (true); in the
+    /// store only (nil, kept: the list may predate its create); else gone (false).
+    static func pinExists(_ id: String, listed: Set<String>, inStore: Bool) -> Bool? {
+        listed.contains(id) ? true : inStore ? nil : false
     }
 
     /// The machine for the send `start`, connected (``destination(for:destinations:candidates:user:exists:)``);
     /// a new one is named for chats and sized for the chat (`pick`). Pins the send to it before
-    /// anything runs there, so a retry of the send names it.
-    func machine(for start: AgentPaneCloudStart, invocation: ActionInvocation,
+    /// anything runs there, so a retry of the send names it. Only a machine of the list the server
+    /// answered for `account`, the account the send began in (``checkAccount(_:now:listCurrent:)``).
+    func machine(for start: AgentPaneCloudStart, account: [String?], invocation: ActionInvocation,
                  pick: () async -> CloudWorkPick?) async throws -> CloudMachineSession {
         let destinations = services.cloud.startChatDestinations, machines = services.machines, cloud = services.cloud
-        let candidates = machines.cloud.map { session in
+        if !cloud.hasLoadedCurrentMachines { await cloud.refresh() }
+        try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
+        let pin = Self.pinKey(start.key, account: account)
+        let listed = cloud.listedMachineIDs
+        let candidates = machines.cloud.filter { listed.contains($0.machineID) }.map { session in
             let connected = session.daemon.connection != nil
             let chats = connected
                 ? session.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).filter { $0.agentSession != nil }.count
@@ -198,19 +265,24 @@ extension CloudStartChat {
             return Candidate(id: session.machineID, title: session.machine.title, slug: session.machine.slug, createdBy: session.machine.createdBy,
                              status: session.machine.status, pauseReason: session.machine.pauseReason, connected: connected, chats: chats)
         }
-        let destination = Self.destination(for: start.key, destinations: destinations, candidates: candidates, user: cloud.auth.user?.id) { id in
-            cloud.hasLoadedMachines ? machines.session(id) != nil : nil
+        let destination = Self.destination(for: pin, destinations: destinations, candidates: candidates, user: cloud.auth.user?.id,
+                                           used: destinations.machines(of: account)) { id in
+            Self.pinExists(id, listed: listed, inStore: machines.session(id) != nil)
         }
         var invocation = invocation
         switch destination {
         case .machine(let id):
-            destinations.record(id, for: start.key)
+            destinations.record(id, for: pin)
             invocation.arguments["machine"] = .string(id)
         case .new:
+            let request = Self.createRequest(for: start, sizedFor: await pick(), team: account.last ?? nil)
+            try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
+            // The account is checked again once the server answered, before the machine joins the list.
             let created = try await cloud.createMachine(name: Self.newMachineName(taken: machines.cloud.map(\.machine.title)),
-                                                        startedByPerson: invocation.origin == .user,
-                                                        request: Self.createRequest(for: start, sizedFor: await pick()))
-            destinations.record(created.machineID, for: start.key)
+                                                        startedByPerson: invocation.origin == .user, request: request) {
+                try Self.checkAccount(account, now: cloud.account, listCurrent: true)
+            }
+            destinations.record(created.machineID, for: pin)
             invocation.arguments["machine"] = .string(created.machineID)
         }
         return try await CloudMove(services: services).machine(invocation, pick: pick)

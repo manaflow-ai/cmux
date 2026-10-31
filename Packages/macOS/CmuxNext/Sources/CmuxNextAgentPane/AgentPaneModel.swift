@@ -30,6 +30,7 @@ public final class AgentPaneModel {
 
     /// Called when the page switches to or creates a session, so the App can keep it with the tab.
     @ObservationIgnored public var onSessionChange: ((String) -> Void)?
+    @ObservationIgnored var onQuestionKeySessionChange: (() -> Void)?
     /// Called when acpmux reports the agent the pane's session runs (its `session/new` or
     /// `_acpmux/attach` reply; ``AcpmuxPaneSessions/harness(of:)``), so the App records the
     /// harness on the tab (cx-w4bbw). Only for the session the pane shows.
@@ -277,6 +278,8 @@ public final class AgentPaneModel {
 
     /// The app's one Read aloud voice (``AgentPaneReadAloud``); nil refuses the page's speaker.
     @ObservationIgnored public var readAloud: AgentPaneReadAloud?
+    /// Session Info's Remote Control switch (``AgentPaneRemoteControl``, the iPhone host's); nil: no row.
+    @ObservationIgnored public var remoteControl: AgentPaneRemoteControl?
     /// The app's Cloud machines for `cloudMachine.*` (``AgentPaneCloudMachines``); nil refuses every method.
     @ObservationIgnored public var cloudMachines: AgentPaneCloudMachines?
     /// Asks the user to confirm a config option that is not free (the view's native sheet).
@@ -397,7 +400,9 @@ public final class AgentPaneModel {
             return await notePicked(pick, startFolders.use(cwd, confirm: confirm, transport: transport))
         case .browseProject where remoteChat: return Self.unsupported("project.browse")
         case .listProjects(let query) where remoteChat:
-            return AgentPaneReply.success(["projects": await onListRemoteProjects?(query) ?? []])
+            // `machine`: the folders are the chat's machine's, so its folder menu lists them and a
+            // pick there goes through `workspace.useFolder` (cmux#29213).
+            return AgentPaneReply.success(["projects": await onListRemoteProjects?(query) ?? [], "machine": true])
         case .browseProject:
             guard let onBrowseProject else { return Self.unsupported("project.browse") }
             guard let cwd = await onBrowseProject() else { return AgentPaneReply.success() }
@@ -516,11 +521,15 @@ public final class AgentPaneModel {
         case .composerSetting(let path, let show): return await setComposer(path, show, userGesture: userGesture)
         case .displaySetting(let path, let value): return await setDisplay(path, value)
         case .featureTips(let tips): return featureTipState(tips)
+        case .remoteControl(let on): return await AgentPaneRemoteControl.reply(on: on, in: self, userGesture: userGesture)
         case .toolCard(let card, let action, let value): return AgentPaneToolCard.respond(card: card, action: action, value: value, in: self)
         case .computerUsePreview(let action): return AgentPaneComputerUsePreview.respond(action, in: self)
         case .upload(let files): return await AgentPaneUpload.respond(files, in: self)
         case .uploadStage(let stage):
-            guard let stager = onUploadStage?(), let sessionId else { return Self.unsupported("chat.upload.stage") }
+            // A chat with no session yet (a new chat, the New Tab page) stages too: its stager says
+            // whether it can take one. Refusing it as unsupported told the page this host is too old
+            // to stream, so a recording over the one-frame size failed with Retry (#28647).
+            guard let stager = onUploadStage?() else { return Self.unsupported("chat.upload.stage") }
             if case .begin(_, _, let batchToken, _) = stage, batchToken == nil, !transport.gestures.consume() { return Self.transportFailure(.gestureRequired) }
             return await stager(stage, sessionId)
         case .unsupported(let method): return Self.unsupported(method)
@@ -533,6 +542,7 @@ public final class AgentPaneModel {
         if sessionId != nil { droppedPaths.clearForSessionChange() }
         sessionId = id
         newTab = nil
+        onQuestionKeySessionChange?()
         onSessionChange?(id)
     }
 

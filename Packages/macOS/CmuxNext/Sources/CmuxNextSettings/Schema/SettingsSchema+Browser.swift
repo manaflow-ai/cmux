@@ -52,6 +52,14 @@ nonisolated enum BrowserSettingsSchema {
                 keywords: ["import", "browser", "chrome", "safari", "arc", "firefox", "bookmarks", "history", "passwords", "cookies", "suggestions"]
             ),
             SettingDescriptor(
+                BrowserCookieBannerSetting().configPath, section: .browser, group: importGroup,
+                title: SettingsText.keyed("settings.browser.importCookieBanner", "Offer to Import Cookies"),
+                help: SettingsText.keyed("settings.browser.importCookieBanner.help",
+                                         "Browser tabs offer to import cookies from your other browsers, so you stay signed in. Nothing imports until you click Import. Don't Show Again on the banner turns this off."),
+                kind: .toggle, default: .bool(BrowserCookieBannerSetting().fallback),
+                keywords: ["import", "cookies", "banner", "card", "sign in", "login", "chrome", "safari", "arc", "dismissed", "reset"]
+            ),
+            SettingDescriptor(
                 AgentCursorSetting().configPath, section: .browser, group: agentInput,
                 title: SettingsText.keyed("settings.browser.showAgentCursor", "Show Agent Cursor"),
                 help: SettingsText.keyed(

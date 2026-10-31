@@ -21,15 +21,27 @@ use std::sync::atomic::Ordering;
 const REBUILDS: usize = 1;
 
 tokio::task_local! {
-    /// The request's id, and whether its reply was sent here: then whether it went whole.
-    static REPLY: RefCell<(Value, Option<bool>)>;
+    /// The request's id and list method ([`list_method`]), and whether its reply was sent here:
+    /// then whether it went whole.
+    static REPLY: RefCell<(Value, Option<&'static str>, Option<bool>)>;
 }
 
-/// Runs request `id`, whose list reply may be sent here: then the option is set, true if the
-/// reply went whole (not as its too-large error).
-pub(super) async fn scope<F: Future>(id: Value, request: F) -> (F::Output, Option<bool>) {
-    let run = async move { (request.await, REPLY.with(|r| r.borrow().1)) };
-    REPLY.scope(RefCell::new((id, None)), run).await
+/// Runs request `id` (of `method`), whose list reply may be sent here: then the option is set,
+/// true if the reply went whole (not as its too-large error).
+pub(super) async fn scope<F: Future>(
+    id: Value,
+    method: &str,
+    request: F,
+) -> (F::Output, Option<bool>) {
+    let run = async move { (request.await, REPLY.with(|r| r.borrow().2)) };
+    REPLY.scope(RefCell::new((id, list_method(method), None)), run).await
+}
+
+/// `method` as the name a list reply sent here goes by in the size watch (`wire_size.rs`):
+/// a constant, so a request costs no copy of its method.
+fn list_method(method: &str) -> Option<&'static str> {
+    use crate::rpc::method::{MUX_SESSIONS, MUX_WATCH, SESSION_LIST};
+    [MUX_SESSIONS, MUX_WATCH, SESSION_LIST].into_iter().find(|known| *known == method)
 }
 
 /// List filters absent, null or empty: the whole list.
@@ -65,11 +77,14 @@ async fn reply(
             }
         };
         let text = make(&list)?;
-        let Ok(id) = REPLY.try_with(|r| r.borrow().0.clone()) else {
+        let Ok((id, method)) = REPLY.try_with(|r| {
+            let r = r.borrow();
+            (r.0.clone(), r.1)
+        }) else {
             return Ok(serde_json::from_str(&text).unwrap_or(Value::Null));
         };
-        if let Some(whole) = conn.send_serialized(&id, &text, seen, reads == REBUILDS) {
-            REPLY.with(|r| r.borrow_mut().1 = Some(whole));
+        if let Some(whole) = conn.send_serialized(&id, method, &text, seen, reads == REBUILDS) {
+            REPLY.with(|r| r.borrow_mut().2 = Some(whole));
             break;
         }
     }

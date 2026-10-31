@@ -37,8 +37,7 @@
   font-weight: 600;
 }
 .acpmux-workflow-task__meta,
-.acpmux-workflow-task__description,
-.acpmux-workflow-task__next {
+.acpmux-workflow-task__description {
   margin: 0;
   padding: 0 8px;
   overflow: hidden;
@@ -48,9 +47,6 @@
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-detail--letter-spacing);
-}
-.acpmux-workflow-task__next {
-  padding-top: 4px;
 }
 .acpmux-workflow-task__phases {
   margin-top: 4px;
@@ -74,7 +70,8 @@
   flex: none;
   color: var(--agent-muted);
 }
-.acpmux-workflow-phase__head:hover {
+/* A phase with no agents yet is a disabled head: no hover, as a line with nothing to open. */
+.acpmux-workflow-phase__head:not(:disabled):hover {
   background: color-mix(in oklab, currentColor 6%, transparent);
 }
 .acpmux-workflow-phase__head:focus-visible {
@@ -206,6 +203,10 @@ button.acpmux-workflow-agent__button:focus-visible {
 }
 .acpmux-workflow-agent__button--compact .acpmux-workflow-agent__text {
   display: block;
+  /* One line, cut with an ellipsis at the panel's edge, never past it. */
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .acpmux-workflow-agent__button--compact .acpmux-workflow-agent__doing {
   margin-left: 6px;

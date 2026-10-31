@@ -48,10 +48,18 @@ pub(crate) struct AutomationMessages {
     pub installed: &'static str,
     pub install_failed: &'static str,
     pub uninstalled: &'static str,
+    pub bad_target: &'static str,
+    pub cloud_local_only: &'static str,
+    pub cloud_no_command: &'static str,
+    pub cloud_no_chief: &'static str,
+    pub cloud_created: &'static str,
+    pub cloud_run_started: &'static str,
+    pub deleted_cloud: &'static str,
+    pub cloud_unknown_verb: &'static str,
 }
 
 pub(super) const ENGLISH: AutomationMessages = AutomationMessages {
-    usage: "usage: cmux automation <verb> [OPTIONS] [--json]\n\nScheduled prompts and commands on this machine. A runner (launchd agent) starts\nthem; runs missed while the Mac slept are caught up once and every miss stays in\nthe history.\n\n  create NAME (--prompt TEXT | --command CMD) SCHEDULE [--folder DIR]\n         [--model HARNESS[/MODEL]] [--timeout 30m] [--catch-up latest|all|none] [--paused]\n  list | show AUTOMATION | run AUTOMATION [--wait] [--key KEY]\n  pause AUTOMATION | resume AUTOMATION | edit AUTOMATION [create options]\n  history [AUTOMATION] [--state failed] [--limit N] | logs RUN|AUTOMATION\n  delete AUTOMATION\n  runner [--once] | runner install | runner uninstall | runner status\n\nSCHEDULE: --hourly, --daily HH:MM, --weekdays HH:MM, --weekly \"fri 17:00\",\n  --every 30m, --at \"2026-11-02 09:00\" (or HH:MM), --in 2h, --cron \"0 9 * * 1-5\",\n  --manual. --tz local (default) or UTC.\nAUTOMATION is an id, a unique id prefix, or the name.\n",
+    usage: "usage: cmux automation <verb> [OPTIONS] [--json]\n\nScheduled prompts and commands on this machine. A runner (launchd agent) starts\nthem; runs missed while the Mac slept are caught up once and every miss stays in\nthe history.\n\n  create NAME (--prompt TEXT | --command CMD) SCHEDULE [--folder DIR]\n         [--model HARNESS[/MODEL]] [--timeout 30m] [--catch-up latest|all|none] [--paused]\n  list | show AUTOMATION | run AUTOMATION [--wait] [--key KEY]\n  pause AUTOMATION | resume AUTOMATION | edit AUTOMATION [create options]\n  history [AUTOMATION] [--state failed] [--limit N] | logs RUN|AUTOMATION\n  delete AUTOMATION\n  runner [--once] | runner install | runner uninstall | runner status\n  show-page                     open the Automations page in the cmux app\n\n--target cloud runs a --prompt in your Cloud Chief on cmux Cloud, with this Mac asleep\ntoo (create, list, show, run, pause, resume, history, delete; schedules --hourly,\n--daily, --weekdays, --weekly, --cron, --webhook, --manual; --tz Area/City, default\nthis Mac's zone). The free plan has one Cloud automation.\n\nSCHEDULE: --hourly, --daily HH:MM, --weekdays HH:MM, --weekly \"fri 17:00\",\n  --every 30m, --at \"2026-11-02 09:00\" (or HH:MM), --in 2h, --cron \"0 9 * * 1-5\",\n  --manual. --tz local (default) or UTC.\nAUTOMATION is an id, a unique id prefix, or the name.\n",
     no_home: "HOME is not set, so the automation store cannot be found (set CMUX_AUTOMATIONS_DIR)",
     missing_value: "--{flag} needs a value",
     unknown_flag: "unknown option \"{flag}\"",
@@ -97,10 +105,18 @@ pub(super) const ENGLISH: AutomationMessages = AutomationMessages {
     installed: "Installed the automation runner (launchd agent com.cmuxterm.automations). It starts at login and restarts if it stops.",
     install_failed: "Could not load the launchd agent; the plist is in ~/Library/LaunchAgents. Run `cmux automation runner` to run it in this terminal.",
     uninstalled: "Removed the automation runner. Automations stay; nothing runs on schedule until it is installed again.",
+    bad_target: "--target takes local or cloud, not \"{value}\"",
+    cloud_local_only: "--{flag} runs on this Mac only; on cmux Cloud use --hourly, --daily, --weekdays, --weekly, --cron, --webhook or --manual",
+    cloud_no_command: "a Cloud automation runs a prompt in your Cloud Chief, not a shell command; use --prompt, or drop --target cloud to run the command on this Mac",
+    cloud_no_chief: "you have no Cloud Chief yet; open Home in the cmux app once to make one",
+    cloud_created: "Created \"{name}\" ({id}) on cmux Cloud. Each run posts its result in your Cloud Chief chat.",
+    cloud_run_started: "Started Cloud run {run}. The result arrives in your Cloud Chief chat.",
+    deleted_cloud: "Deleted {id} on cmux Cloud. Its run history stays.",
+    cloud_unknown_verb: "\"{verb}\" does not work with --target cloud; use create, list, show, run, pause, resume, history or delete",
 };
 
 pub(super) const JAPANESE: AutomationMessages = AutomationMessages {
-    usage: "使い方: cmux automation <動詞> [オプション] [--json]\n\nこのマシンでスケジュール実行するプロンプトとコマンド。ランナー (launchd エージェント) が\n起動します。Mac のスリープ中に逃した実行は 1 回だけ追いつき、逃した回はすべて履歴に\n残ります。\n\n  create 名前 (--prompt テキスト | --command コマンド) スケジュール [--folder フォルダ]\n         [--model ハーネス[/モデル]] [--timeout 30m] [--catch-up latest|all|none] [--paused]\n  list | show 自動化 | run 自動化 [--wait] [--key キー]\n  pause 自動化 | resume 自動化 | edit 自動化 [create のオプション]\n  history [自動化] [--state failed] [--limit N] | logs 実行|自動化\n  delete 自動化\n  runner [--once] | runner install | runner uninstall | runner status\n\nスケジュール: --hourly、--daily HH:MM、--weekdays HH:MM、--weekly \"fri 17:00\"、\n  --every 30m、--at \"2026-11-02 09:00\" (または HH:MM)、--in 2h、--cron \"0 9 * * 1-5\"、\n  --manual。--tz local (既定) または UTC。\n自動化には ID、一意な ID の先頭部分、または名前を指定します。\n",
+    usage: "使い方: cmux automation <動詞> [オプション] [--json]\n\nこのマシンでスケジュール実行するプロンプトとコマンド。ランナー (launchd エージェント) が\n起動します。Mac のスリープ中に逃した実行は 1 回だけ追いつき、逃した回はすべて履歴に\n残ります。\n\n  create 名前 (--prompt テキスト | --command コマンド) スケジュール [--folder フォルダ]\n         [--model ハーネス[/モデル]] [--timeout 30m] [--catch-up latest|all|none] [--paused]\n  list | show 自動化 | run 自動化 [--wait] [--key キー]\n  pause 自動化 | resume 自動化 | edit 自動化 [create のオプション]\n  history [自動化] [--state failed] [--limit N] | logs 実行|自動化\n  delete 自動化\n  runner [--once] | runner install | runner uninstall | runner status\n  show-page                     cmux アプリで自動化ページを開きます\n\n--target cloud は Cloud Chief で --prompt を cmux Cloud 上で実行します (この Mac が\nスリープ中でも動きます。create、list、show、run、pause、resume、history、delete。\nスケジュールは --hourly、--daily、--weekdays、--weekly、--cron、--webhook、--manual。\n--tz 地域/都市、既定はこの Mac のタイムゾーン)。無料プランの Cloud 自動化は 1 つです。\n\nスケジュール: --hourly、--daily HH:MM、--weekdays HH:MM、--weekly \"fri 17:00\"、\n  --every 30m、--at \"2026-11-02 09:00\" (または HH:MM)、--in 2h、--cron \"0 9 * * 1-5\"、\n  --manual。--tz local (既定) または UTC。\n自動化には ID、一意な ID の先頭部分、または名前を指定します。\n",
     no_home: "HOME が設定されていないため自動化の保存先が見つかりません (CMUX_AUTOMATIONS_DIR を設定してください)",
     missing_value: "--{flag} には値が必要です",
     unknown_flag: "不明なオプション「{flag}」",
@@ -146,4 +162,12 @@ pub(super) const JAPANESE: AutomationMessages = AutomationMessages {
     installed: "自動化ランナー (launchd エージェント com.cmuxterm.automations) をインストールしました。ログイン時に起動し、止まると再起動します。",
     install_failed: "launchd エージェントを読み込めませんでした。plist は ~/Library/LaunchAgents にあります。このターミナルで動かすには `cmux automation runner` を実行してください。",
     uninstalled: "自動化ランナーを削除しました。自動化は残りますが、再インストールするまでスケジュール実行はされません。",
+    bad_target: "--target には local か cloud を指定します (「{value}」は不正)",
+    cloud_local_only: "--{flag} はこの Mac でのみ動きます。cmux Cloud では --hourly、--daily、--weekdays、--weekly、--cron、--webhook、--manual を使ってください",
+    cloud_no_command: "Cloud の自動化はシェルコマンドではなく Cloud Chief でプロンプトを実行します。--prompt を使うか、--target cloud を外してこの Mac でコマンドを実行してください",
+    cloud_no_chief: "Cloud Chief がまだありません。cmux アプリで一度ホームを開くと作成されます",
+    cloud_created: "cmux Cloud に「{name}」({id}) を作成しました。各実行の結果は Cloud Chief のチャットに届きます。",
+    cloud_run_started: "Cloud の実行 {run} を開始しました。結果は Cloud Chief のチャットに届きます。",
+    deleted_cloud: "cmux Cloud の {id} を削除しました。実行履歴は残ります。",
+    cloud_unknown_verb: "「{verb}」は --target cloud では使えません。create、list、show、run、pause、resume、history、delete を使ってください",
 };

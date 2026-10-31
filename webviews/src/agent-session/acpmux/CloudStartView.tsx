@@ -107,7 +107,9 @@ function StepList({
   t: Translate;
 }) {
   // No project: nothing is copied, so there is no copy step.
-  const steps = home ? CLOUD_START_STEPS.filter((name) => name !== "folder") : CLOUD_START_STEPS;
+  const steps: readonly CloudStartStep[] = home
+    ? CLOUD_START_STEPS.filter((name) => name !== "folder")
+    : CLOUD_START_STEPS;
   const current = step ? steps.indexOf(step) : -1;
   return (
     <ol className="acpmux-cloud-start__steps">

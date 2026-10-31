@@ -92,7 +92,10 @@ pub(crate) fn base32(bytes: &[u8], len: usize) -> String {
         bits += 8;
         while bits >= 5 && out.len() < len {
             bits -= 5;
-            out.push(ALPHABET[((buffer >> bits) & 31) as usize] as char);
+            // The index is 5 bits, so `get` always finds a letter.
+            if let Some(&letter) = ALPHABET.get(((buffer >> bits) & 31) as usize) {
+                out.push(char::from(letter));
+            }
         }
     }
     out

@@ -140,7 +140,12 @@ fn records_map_to_steps() {
             Some(4)
         ))
     );
-    for kind in ["auto_resume_settled", "auto_resume_exhausted", "auto_resume_skipped"] {
+    for kind in [
+        "auto_resume_settled",
+        "auto_resume_exhausted",
+        "auto_resume_skipped",
+        "auto_resume_stopped",
+    ] {
         assert_eq!(step_of(kind, &json!({"turnId": "t1"})), Some(Step::NoRetry), "{kind}");
     }
     assert_eq!(
@@ -156,6 +161,15 @@ fn records_map_to_steps() {
     assert_eq!(
         step_of("auto_resume_settled", &json!({"promptId": "handoff-9-a", "why": "off"})),
         Some(Step::NoRetryFor { turn: 9, why: "Automatic retry settled (off).".into() })
+    );
+    // A Stop's record names the prompt and turn only (`hub/auto_resume.rs`): it says the
+    // retry was stopped, not that a policy settled it (cmuxterm-hq#5311).
+    assert_eq!(
+        step_of(
+            "auto_resume_stopped",
+            &json!({"turnId": "t1", "promptId": "handoff-9-a~resume-1"})
+        ),
+        Some(Step::NoRetryFor { turn: 9, why: "Automatic retry stopped.".into() })
     );
     assert_eq!(step_of("agent_message_chunk", &json!({})), None);
 }
