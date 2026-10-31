@@ -807,3 +807,24 @@ test("an empty harness list does not claim an empty search had no matches", asyn
   expect(text).toBe("No models yet. Refresh to ask the agent again.");
   expect(text).not.toBe("No matching models");
 });
+
+test("markTwins badges every later tab that draws an earlier tab's mark, counted over the whole list", async () => {
+  // Leo 2026-10-31: "plus all this dumbass shit in the model picker" (three Claude sparks alike).
+  const { markTwins } = await import("./QuickModelMenu");
+  const twins = markTwins([
+    { id: "starred", name: "Starred", starred: true },
+    { id: "claude", name: "Claude Code", mark: "claude" },
+    { id: "codex", name: "Codex", mark: "codex" },
+    { id: "claude-sr", name: "Claude Code (sr)", mark: "claude" },
+    { id: "codex-work", name: "Codex (work)", mark: "codex" },
+    { id: "claude-acp", name: "Claude Code (acp)", mark: "claude" },
+    { id: "box", name: "Box" },
+    { id: "bun", name: "Bun" },
+  ]);
+  expect([...twins.entries()]).toEqual([
+    ["claude-sr", 1],
+    ["codex-work", 1],
+    ["claude-acp", 2],
+    ["bun", 1],
+  ]);
+});

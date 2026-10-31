@@ -90,6 +90,13 @@ export type QuickMenu = {
   /// whose rows name their harness beside the provider.
   searchGroups?: QuickSearchGroups;
   harnessPlacement?: HarnessPlacement;
+  /// How the symbols row tells apart two tabs that draw the same mark (Claude Code and Claude Code
+  /// (sr), Codex and Codex (work)): the first keeps the bare mark, each later one gets a small
+  /// corner badge, never a name (Leo 2026-10-31: "plus all this dumbass shit in the model picker",
+  /// over nine tabs where three Claude sparks and three OpenAI knots read the same). `hue` (the
+  /// default) a dot in its own colour, `shape` a one-colour dot, ring, square or diamond, `index`
+  /// its place among the twins as a small numeral (gallery versions).
+  twinMarks?: TwinMarkLook;
 };
 
 export type QuickSearchGroups = "harness" | "flat";
@@ -113,6 +120,37 @@ function symbolOf(family: { mark?: string }): boolean {
 /// so every tab there is a mark and none is text.
 function initialOf(name: string): string {
   return (name.match(/\p{L}|\p{N}/u)?.[0] ?? "?").toLocaleUpperCase();
+}
+
+export type TwinMarkLook = "hue" | "shape" | "index";
+
+/// What a symbols-row tab draws, as one key: two tabs with one key look the same (a profile's own
+/// icon wins over its brand, as AgentMark picks; a tab with no symbol draws its name's initial).
+function markKey(family: { name: string; mark?: string }): string {
+  const mark = family.mark;
+  if (!mark || !symbolOf(family)) return `initial:${initialOf(family.name)}`;
+  const own = harnessIcon(mark);
+  if (own && (own.source === "profile" || !agentBrand(mark))) {
+    if (own.kind === "brand") return `brand:${agentBrand(own.brand) ?? own.brand}`;
+    if (own.kind !== "glyph") return `${own.kind}:${JSON.stringify({ ...own, source: undefined })}`;
+  }
+  return `brand:${agentBrand(mark)}`;
+}
+
+/// The tabs whose mark an earlier tab already draws, each with its place among them (1 for the
+/// second tab with that mark, 2 for the third). Counted over the whole harness list, so a search
+/// that hides some tabs never renumbers the rest.
+export function markTwins(list: readonly { id: string; name: string; mark?: string; starred?: boolean }[]) {
+  const seen = new Map<string, number>();
+  const twins = new Map<string, number>();
+  for (const family of list) {
+    if (family.starred) continue;
+    const key = markKey(family);
+    const count = seen.get(key) ?? 0;
+    if (count > 0) twins.set(family.id, count);
+    seen.set(key, count + 1);
+  }
+  return twins;
 }
 
 export type QuickSearchField = "always" | "typed" | "long";
@@ -388,6 +426,11 @@ export function QuickModelMenu({
     const matched = new Set(groups.map((group) => group.id));
     return families.list.filter((family) => matched.has(family.id));
   }, [families, groups]);
+  const twinMarks = useMemo(
+    () => (placement === "symbols" && families ? markTwins(families.list) : new Map<string, number>()),
+    [placement, families],
+  );
+  const twinLook = menu.twinMarks ?? "hue";
   // Rows whose name and detail read the same within one harness also show their model id.
   const twins = useMemo(() => twinRows(groups ?? (found ? [{ id: "", name: "", rows: found }] : [])), [groups, found]);
   const providerLook = menu.providers ?? "row";
@@ -1148,6 +1191,18 @@ export function QuickModelMenu({
                       {initialOf(family.name)}
                     </span>
                   ) : null}
+                  {/* A tab whose mark an earlier tab draws too: a corner badge tells them apart at
+                      a glance, and the name stays the tooltip and the accessible name. */}
+                  {twinMarks.has(family.id) && (
+                    <span
+                      className="acpmux-quick-rail-twin"
+                      data-twin-look={twinLook}
+                      data-twin={twinMarks.get(family.id)}
+                      aria-hidden="true"
+                    >
+                      {twinLook === "index" ? twinMarks.get(family.id)! + 1 : null}
+                    </span>
+                  )}
                   {/* The symbols row is marks only, never text on a tab (Leo 2026-10-31: "NOBODY
                       FUCKING ASKED FOR THE HARNESSES TO HAVE FUCKING LABELED FUCKING TEXT ON THEM
                       THAT'S THE POINT"): the name is the tab's accessible name and its tooltip. */}
