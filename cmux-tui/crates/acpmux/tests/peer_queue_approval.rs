@@ -136,3 +136,36 @@ async fn a_held_prompt_goes_only_to_a_peer_that_holds_it() {
     let author = &got[0]["_meta"]["acpmux"]["author"];
     assert_eq!(author["approval"], "owner", "it lost its hold on the way: {author}");
 }
+
+/// A link guest's prompt waits for the owner with `approval` left off (`author.rs`, hq#5528): it
+/// goes only to a peer that holds it, and names its hold there, so a peer that reads only
+/// `approval` holds it too.
+#[tokio::test]
+async fn an_unmarked_guest_prompt_goes_held_and_only_to_a_peer_that_holds_it() {
+    let unmarked = |id: &str| {
+        let mut p = prompt(id, None);
+        p["_meta"]["acpmux"]["author"] = json!({"id": "guest:share.guest", "name": "Theo"});
+        p
+    };
+    let (old_port, old_got) = fake_peer(json!(["trustGate", "filePut"])).await;
+    let old = hub();
+    old.add_peer("old", &format!("ws://127.0.0.1:{old_port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    let refused = call(&old, method::SESSION_PROMPT, unmarked("g-1")).await;
+    assert_eq!(reason(&refused), "queue.approval_unsupported", "{refused}");
+    assert!(prompts(&old_got).is_empty(), "forwarded: {:?}", old_got.lock().unwrap());
+
+    let (new_port, new_got) = fake_peer(json!(["trustGate", "queueApproval"])).await;
+    let new = hub();
+    new.add_peer("new", &format!("ws://127.0.0.1:{new_port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    let sent = call(&new, method::SESSION_PROMPT, unmarked("g-2")).await;
+    assert!(sent.get("error").is_none(), "{sent}");
+    let got = prompts(&new_got);
+    assert_eq!(got.len(), 1, "{:?}", new_got.lock().unwrap());
+    let author = &got[0]["_meta"]["acpmux"]["author"];
+    assert_eq!(author["approval"], "owner", "it went without its hold: {author}");
+    assert_eq!(author["id"], "guest:share.guest", "{author}");
+}
