@@ -156,6 +156,44 @@ async function caretAfterUpdates(page: (onInputReady: (token: string) => void) =
   }
 }
 
+test("a prefilled New Tab location is selected only after the editor is ready", async () => {
+  const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+  const ready: string[] = [];
+  const root: Root = (await import("react-dom/client")).createRoot(host);
+  const location = "https://example.com/a-long-prefilled-location";
+  const render = () =>
+    root.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        location={location}
+        inputToken="token-location"
+        onInputReady={(token) => ready.push(token)}
+        onAsk={noop}
+        onOpen={noop}
+        onSearch={noop}
+        onShell={noop}
+        onJump={noop}
+        onOpenSession={noop}
+        onShowAll={noop}
+      />,
+    );
+  try {
+    await act(async () => render());
+    const field = await fieldIn(".nt-field");
+    expect(field.selection()).toEqual([0, location.length]);
+    expect(ready).toEqual(["token-location"]);
+    field.type("x");
+    await settle();
+    const markdown = host.querySelector<MarkdownFieldElement>(".nt-field")!.acpmuxMarkdownField!;
+    expect(markdown.plainText()).toBe("x");
+    await act(async () => render());
+    await settle();
+    expect(ready).toEqual(["token-location"]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test("the New Tab screen keeps the caret where it is across updates and a click into its field", async () => {
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   const result = await caretAfterUpdates(

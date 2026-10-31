@@ -236,21 +236,23 @@ async function newTabPage(options: { auth?: unknown; onAsk?: (...args: unknown[]
       </QueryClientProvider>,
     ),
   );
-  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-  const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+  const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
+  for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const handle = field.acpmuxMarkdownField!;
+  const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
   const type = async (text: string) =>
     act(async () => {
-      setter.call(field, text);
-      field.dispatchEvent(new window.Event("input", { bubbles: true }));
+      handle.writeText(text, text.length, text.length);
     });
   await type("fix the flaky upload test");
   const pressReturn = async () =>
     act(async () =>
-      field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
+      editor.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
     );
   const status = () => host.querySelector(".nt-composer output.acpmux-composer-remote-note")?.textContent;
   const alert = () => host.querySelector(".nt-composer [role=alert]")?.textContent;
-  return { root, field, asks, type, pressReturn, status, alert };
+  return { root, field: { get value() { return handle.plainText(); } }, asks, type, pressReturn, status, alert };
 }
 
 const READY = { state: "ready", source: "authCheck", evidenceAt: 1, harness: "codex", host: null };

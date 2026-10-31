@@ -20,7 +20,6 @@ const keys = [
   "HTMLElement",
   "IS_REACT_ACT_ENVIRONMENT",
   "Node",
-  "Node",
   "Element",
   "getComputedStyle",
   "requestAnimationFrame",
@@ -88,6 +87,13 @@ afterAll(() => {
 });
 
 const noop = () => {};
+async function writeScreenPrompt(host: HTMLElement, text: string) {
+  const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
+  for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  field.acpmuxMarkdownField!.writeText(text, text.length, text.length);
+  return field;
+}
 const PNG = Uint8Array.from([
   0x89,
   0x50,
@@ -137,12 +143,7 @@ test("a click on the field's Send button asks the agent, as Return does", async 
       />,
     ),
   );
-  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
-  await act(async () => {
-    setValue.call(field, "fix the flaky upload test");
-    field.dispatchEvent(new window.Event("input", { bubbles: true }));
-  });
+  await writeScreenPrompt(host, "fix the flaky upload test");
 
   const send = host.querySelector<HTMLButtonElement>('button[aria-label="Send"]');
   expect(send).not.toBeNull();
@@ -176,12 +177,7 @@ test("New Tab /import opens the transcript flow and never sends the slash token 
       />,
     ),
   );
-  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
-  await act(async () => {
-    setValue.call(field, "/import");
-    field.dispatchEvent(new window.Event("input", { bubbles: true }));
-  });
+  await writeScreenPrompt(host, "/import");
   const input = host.querySelector<HTMLInputElement>('input[aria-label="/import"]')!;
   let opened = false;
   input.click = () => {
@@ -260,7 +256,12 @@ async function commandPage(
     ...(onImportFile ? { onImportFile } : {}),
     ...(importError ? { importError } : {}),
     ...(template === "screen"
-      ? { runMode: { mode: sandboxed ? ("sandboxed" as const) : ("persistent" as const), onMode: noop } }
+      ? {
+          runMode: {
+            mode: sandboxed ? ("sandboxed" as const) : ("persistent" as const),
+            onMode: noop,
+          },
+        }
       : { importSandboxed: sandboxed }),
     onOpenSession: noop,
     onShowAll: noop,
@@ -301,7 +302,7 @@ async function commandPage(
       : host.querySelector<HTMLInputElement>(".acpmux-newtab-field")!;
   const value = () =>
     template === "screen"
-      ? (field as MarkdownFieldElement).acpmuxMarkdownField?.plainText() ?? ""
+      ? ((field as MarkdownFieldElement).acpmuxMarkdownField?.plainText() ?? "")
       : (field as HTMLInputElement).value;
   const edit = async (text: string) => {
     await act(async () => {
@@ -341,7 +342,18 @@ async function commandPage(
       ),
     ).not.toBeNull();
   };
-  return { field: { get value() { return value(); } }, edit, send, paste, prompts, setSandboxed };
+  return {
+    field: {
+      get value() {
+        return value();
+      },
+    },
+    edit,
+    send,
+    paste,
+    prompts,
+    setSandboxed,
+  };
 }
 
 for (const template of ["screen", "classic"] as const) {
@@ -518,7 +530,10 @@ for (const template of ["screen", "classic"] as const) {
       "Transcript import is unavailable in Sandboxed mode",
     );
     // A late picker result must obey the current mode too.
-    Object.defineProperty(input, "files", { configurable: true, value: [new File(["{}"], "transcript.json")] });
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: [new File(["{}"], "transcript.json")],
+    });
     await act(async () => input.dispatchEvent(new window.Event("change", { bubbles: true })));
     expect(imported).toEqual([]);
     expect(page.prompts).toEqual([]);
@@ -538,7 +553,10 @@ for (const template of ["screen", "classic"] as const) {
     await page.send();
     expect(opened).toBe(true);
     await page.setSandboxed(true);
-    Object.defineProperty(input, "files", { configurable: true, value: [new File(["{}"], "transcript.json")] });
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: [new File(["{}"], "transcript.json")],
+    });
     await act(async () => input.dispatchEvent(new window.Event("change", { bubbles: true })));
     expect(imported).toEqual([]);
     expect(page.prompts).toEqual([]);
@@ -554,7 +572,10 @@ for (const template of ["screen", "classic"] as const) {
     await page.edit("/import");
     await page.send();
     const input = host.querySelector<HTMLInputElement>('input[aria-label="/import"]')!;
-    Object.defineProperty(input, "files", { configurable: true, value: [new File(["{}"], "transcript.json")] });
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: [new File(["{}"], "transcript.json")],
+    });
     await act(async () => input.dispatchEvent(new window.Event("change", { bubbles: true })));
     expect(page.prompts).toEqual([]);
     expect(host.querySelector(".acpmux-attachment-note")?.textContent).toContain("Transcript could not be imported");

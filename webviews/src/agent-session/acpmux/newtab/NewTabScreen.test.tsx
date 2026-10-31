@@ -8,6 +8,8 @@ import { NewTabScreen } from "./NewTabScreen";
 import { registerHarnessesPage } from "../harnesses/harnessesPage";
 import type { SavedEnvironment } from "../environments";
 import type { RunMode } from "../sandboxRun";
+import type { MarkdownFieldElement } from "../MarkdownField";
+import { proseMirrorGlobals } from "../promptFieldTesting";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -16,7 +18,9 @@ const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
 beforeEach(() => {
-  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
+  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
+    url: "http://localhost/",
+  });
   const requestAnimationFrame = (callback: FrameRequestCallback) =>
     setTimeout(() => callback(Date.now()), 0) as unknown as number;
   for (const key of [
@@ -25,6 +29,8 @@ beforeEach(() => {
     "navigator",
     "Node",
     "HTMLElement",
+    "MutationObserver",
+    "getSelection",
     "Element",
     "getComputedStyle",
     "ResizeObserver",
@@ -34,6 +40,7 @@ beforeEach(() => {
   ])
     saved.set(key, scope[key]);
   Object.assign(scope, {
+    ...proseMirrorGlobals(dom.window as unknown as Window & typeof globalThis),
     window: dom.window,
     document: dom.window.document,
     navigator: dom.window.navigator,
@@ -67,20 +74,29 @@ afterEach(() => {
   dom = undefined;
 });
 
-async function typePrompt(text: string) {
-  const field = container.querySelector<HTMLTextAreaElement>(".nt-field")!;
-  const setValue = Object.getOwnPropertyDescriptor(dom!.window.HTMLTextAreaElement.prototype, "value")!.set!;
-  await act(async () => {
-    setValue.call(field, text);
-    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
-  });
+async function promptField() {
+  const field = container.querySelector<MarkdownFieldElement>(".nt-field")!;
+  for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   return field;
 }
 
-async function press(field: HTMLTextAreaElement, key: string) {
+async function typePrompt(text: string) {
+  const field = await promptField();
+  field.acpmuxMarkdownField!.writeText(text, text.length, text.length);
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  return field;
+}
+
+async function press(field: MarkdownFieldElement, key: string) {
+  const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
   await act(async () => {
-    field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+    editor.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
   });
+}
+
+function promptValue(field = container.querySelector<MarkdownFieldElement>(".nt-field")) {
+  return field?.acpmuxMarkdownField?.plainText() ?? "";
 }
 
 test("New Tab exposes the chat composer attachment menu", async () => {
@@ -269,12 +285,12 @@ test.each(["", "Implement a todo list"])("Return without a harness opens setup f
         />,
       );
     });
-    const field = draft ? await typePrompt(draft) : container.querySelector<HTMLTextAreaElement>(".nt-field")!;
+    const field = draft ? await typePrompt(draft) : await promptField();
     expect(typed).toEqual(draft ? [draft] : []);
     await press(field, "Enter");
     expect(opened).toBe(1);
     expect(searches).toEqual([]);
-    expect(field.value).toBe(draft);
+    expect(promptValue(field)).toBe(draft);
   } finally {
     unregister();
   }
@@ -417,12 +433,7 @@ test("with Cloud picked, a send goes to onCloud with its prompt, not a new chat;
       />,
     );
   });
-  const field = container.querySelector<HTMLTextAreaElement>("textarea")!;
-  await act(async () => {
-    const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLTextAreaElement.prototype, "value")!.set!;
-    setter.call(field, "fix the flaky test");
-    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
-  });
+  await typePrompt("fix the flaky test");
   answer = "A Cloud chat takes text only for now.";
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
   expect(asks).toEqual([]);
@@ -430,7 +441,7 @@ test("with Cloud picked, a send goes to onCloud with its prompt, not a new chat;
   expect((clouded[0] as unknown[])[1]).toBe("fix the flaky test");
   expect(container.querySelector('[role="alert"]')?.textContent).toBe("A Cloud chat takes text only for now.");
   // A refused send (attachments, or Cloud no longer offered) keeps the prompt to send again.
-  expect(container.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("fix the flaky test");
+  expect(promptValue()).toBe("fix the flaky test");
 });
 
 test("with Cloud picked and Do not work in a project, a send copies nothing: not even the tab's inherited folder", async () => {
@@ -463,16 +474,11 @@ test("with Cloud picked and Do not work in a project, a send copies nothing: not
   expect(noProject).toBeTruthy();
   await act(async () => noProject!.click());
   expect(container.querySelector('.nt-env .nt-stage-row[aria-pressed="true"]')).toBeTruthy();
-  const field = container.querySelector<HTMLTextAreaElement>("textarea")!;
-  await act(async () => {
-    const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLTextAreaElement.prototype, "value")!.set!;
-    setter.call(field, "fix the flaky test");
-    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
-  });
+  await typePrompt("fix the flaky test");
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
   expect(clouded).toEqual([]);
   expect(container.querySelector('[role="alert"]')?.textContent).toBeTruthy();
-  expect(container.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("fix the flaky test");
+  expect(promptValue()).toBe("fix the flaky test");
 });
 
 test("while a Cloud start is out the box takes no edits, and takes them again once it ends", async () => {
@@ -497,22 +503,28 @@ test("while a Cloud start is out the box takes no edits, and takes them again on
     act(async () => {
       container.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
     });
-  const field = () => container.querySelector<HTMLTextAreaElement>("textarea")!;
+  const field = () => promptValue();
   await act(async () => root!.render(page(true)));
   expect(container.querySelector(".nt-box")!.hasAttribute("inert")).toBe(true);
   // Typing on the page (outside the field) goes nowhere while the start is out.
   await typeOnPage("x");
-  expect(field().value).toBe("");
+  expect(field()).toBe("");
   // A failed start keeps the prompt here to edit and send again.
   await act(async () => root!.render(page(false)));
   expect(container.querySelector(".nt-box")!.hasAttribute("inert")).toBe(false);
   await typeOnPage("x");
-  expect(field().value).toBe("x");
+  expect(field()).toBe("x");
 });
 
 test("picking Cloud drops a saved environment picked before: the send names the folder chip's folder, not the tab's inherited one", async () => {
   const clouded: unknown[][] = [];
-  const repoB: SavedEnvironment = { id: "b", name: "Repo B", kind: "local", folder: "/repo/B", updatedAt: 1 };
+  const repoB: SavedEnvironment = {
+    id: "b",
+    name: "Repo B",
+    kind: "local",
+    folder: "/repo/B",
+    updatedAt: 1,
+  };
   function Page() {
     const [mode, setMode] = useState<RunMode>("persistent");
     return (
@@ -528,7 +540,11 @@ test("picking Cloud drops a saved environment picked before: the send names the 
         onOpenSession={() => {}}
         onShowAll={() => {}}
         environments
-        savedEnvironments={{ list: async () => [repoB], save: async () => repoB, remove: async () => {} }}
+        savedEnvironments={{
+          list: async () => [repoB],
+          save: async () => repoB,
+          remove: async () => {},
+        }}
         runMode={{ mode, onMode: setMode }}
         onCloud={(...args) => (clouded.push(args), false)}
       />
@@ -550,12 +566,7 @@ test("picking Cloud drops a saved environment picked before: the send names the 
   expect(computer().getAttribute("aria-label")).toContain("Repo B");
   await choose('[data-mode="cloud"]');
   expect(computer().getAttribute("aria-label")).not.toContain("Repo B");
-  const field = container.querySelector<HTMLTextAreaElement>("textarea")!;
-  await act(async () => {
-    const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLTextAreaElement.prototype, "value")!.set!;
-    setter.call(field, "fix the flaky test");
-    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
-  });
+  await typePrompt("fix the flaky test");
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
   expect(clouded.length).toBe(1);
   expect((clouded[0] as unknown[])[2]).toBe("/repo/A");

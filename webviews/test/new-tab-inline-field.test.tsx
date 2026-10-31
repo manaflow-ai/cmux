@@ -13,6 +13,7 @@ import { noChat } from "../src/gallery/fixtures/acpmux";
 import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
+import { setComposerSettings } from "../src/agent-session/acpmux/composerSettings";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -39,7 +40,10 @@ let root: Root | undefined;
 let host: HTMLElement;
 
 beforeAll(() => {
-  dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "https://cmux.test/" });
+  dom = new JSDOM("<!doctype html><div id=root></div>", {
+    pretendToBeVisual: true,
+    url: "https://cmux.test/",
+  });
   const { window } = dom;
   Object.assign(scope, {
     ResizeObserver: class {
@@ -68,6 +72,7 @@ afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
+  setComposerSettings({ attachmentView: "inline" });
 });
 
 afterAll(() => {
@@ -121,7 +126,12 @@ async function type(field: MarkdownFieldElement, text: string) {
 }
 
 async function press(target: HTMLElement, key: string, init: KeyboardEventInit = {}) {
-  const event = new dom.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init });
+  const event = new dom.window.KeyboardEvent("keydown", {
+    key,
+    bubbles: true,
+    cancelable: true,
+    ...init,
+  });
   await act(async () => target.dispatchEvent(event));
   await settle();
 }
@@ -131,14 +141,18 @@ const LONG_LOG = Array.from({ length: 25 }, (_, index) => `line ${index + 1} of 
 async function pasteText(editor: HTMLElement, text: string) {
   const paste = new dom.window.Event("paste", { bubbles: true, cancelable: true });
   Object.defineProperty(paste, "clipboardData", {
-    value: { files: [], types: ["text/plain"], getData: (type: string) => (type === "text/plain" ? text : "") },
+    value: {
+      files: [],
+      types: ["text/plain"],
+      getData: (type: string) => (type === "text/plain" ? text : ""),
+    },
   });
   await act(async () => editor.dispatchEvent(paste));
   await settle();
 }
 
 function pastedChipCount() {
-  return host.querySelectorAll(".acpmux-attachment-pasted, .acpmux-md-inline-chip[data-kind=\"file\"]").length;
+  return host.querySelectorAll('.acpmux-attachment-pasted, .acpmux-md-inline-chip[data-kind="file"]').length;
 }
 
 test("a file pasted on the field draws in the field with its retry and remove controls, not in the strip", async () => {
@@ -187,7 +201,6 @@ test("a shell command with punctuation runs exactly as typed", async () => {
   expect(calls).toContainEqual(["shell", command]);
 });
 
-
 test("a long text paste is one attachment chip in New Tab", async () => {
   const calls: unknown[][] = [];
   const field = await render(calls);
@@ -209,7 +222,15 @@ test("pasting the same long block again opens its chip once instead of duplicati
   expect(editor.textContent).toContain("line 1 of the build log");
   expect(editor.textContent).toContain("line 25 of the build log");
   await press(editor, "Enter");
-  expect(calls).toContainEqual(["ask", "claude", `before ${LONG_LOG}`, "/Users/you/src/app", "claude-opus-5-5", undefined, undefined]);
+  expect(calls).toContainEqual([
+    "ask",
+    "claude",
+    `before ${LONG_LOG}`,
+    "/Users/you/src/app",
+    "claude-opus-5-5",
+    undefined,
+    undefined,
+  ]);
 });
 
 test("Paste as Plain Text keeps a long New Tab paste as text", async () => {
@@ -231,4 +252,19 @@ test("a long paste in shell mode remains raw command text", async () => {
   expect(editor.textContent).toContain("line 25 of the build log");
   await press(editor, "Enter");
   expect(calls).toContainEqual(["shell", LONG_LOG]);
+});
+
+test("a pasted chip in the strip expands back into the prompt when opened", async () => {
+  setComposerSettings({ attachmentView: "strip" });
+  const calls: unknown[][] = [];
+  const field = await render(calls);
+  const editor = await type(field, "before ");
+  await pasteText(editor, LONG_LOG);
+  const open = host.querySelector<HTMLButtonElement>(".acpmux-attachment-pasted-open");
+  expect(open).not.toBeNull();
+  await act(async () => open!.click());
+  await settle();
+  expect(host.querySelector(".acpmux-attachment-pasted")).toBeNull();
+  expect(editor.textContent).toContain("before");
+  expect(editor.textContent).toContain("line 25 of the build log");
 });

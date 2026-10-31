@@ -197,7 +197,11 @@ export type NewTabScreenActions = NewTabCommandActions & {
 
 /// The agent's model, effort and speed chip (App's composer chips), for the agent and project a
 /// prompt would start in.
-export type NewTabChips = React.ComponentType<{ snapshot: AcpmuxSnapshot; cwd?: string; onAddAgent?(): void }>;
+export type NewTabChips = React.ComponentType<{
+  snapshot: AcpmuxSnapshot;
+  cwd?: string;
+  onAddAgent?(): void;
+}>;
 
 type Props = NewTabScreenActions & {
   snapshot: AcpmuxSnapshot;
@@ -383,7 +387,12 @@ export function NewTabScreen(props: Props) {
   const [fieldReady, setFieldReady] = useState(false);
   const fieldElement = () => field.current?.element() ?? null;
   const fieldText = useCallback(
-    () => field.current?.text() ?? { value: text, selectionStart: text.length, selectionEnd: text.length },
+    () =>
+      field.current?.text() ?? {
+        value: text,
+        selectionStart: text.length,
+        selectionEnd: text.length,
+      },
     [text],
   );
   // Cmd-V anywhere on the page outside a text field (a row, a card, the empty page) goes into the
@@ -427,7 +436,12 @@ export function NewTabScreen(props: Props) {
   });
   const attachmentsRef = useRef<ComposerAttachment[]>(attachments);
   attachmentsRef.current = attachments;
-  const pastedChips = usePastedChips(attachmentsRef, setAttachments, field, (file) => void attach([file], true, "paste"));
+  const pastedChips = usePastedChips(
+    attachmentsRef,
+    setAttachments,
+    field,
+    (file) => void attach([file], true, "paste"),
+  );
   // Unlike a chat's composer, the new tab waits for uploads too (#25191): the page goes when the
   // chat starts, so a file still streaming has no next prompt to go with. A video's read is waited
   // for a few seconds at most (composer/videoAttachments.ts).
@@ -451,7 +465,12 @@ export function NewTabScreen(props: Props) {
   );
   // The draft as it is now, for `onLeaveDraft` when the page goes.
   const leaving = useRef({ text, attachments, typed: false, onLeaveDraft: props.onLeaveDraft });
-  leaving.current = { text, attachments, typed: text !== (location ?? ""), onLeaveDraft: props.onLeaveDraft };
+  leaving.current = {
+    text,
+    attachments,
+    typed: text !== (location ?? ""),
+    onLeaveDraft: props.onLeaveDraft,
+  };
   useEffect(
     () => () => {
       const draft = leaving.current;
@@ -569,7 +588,9 @@ export function NewTabScreen(props: Props) {
   };
   /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
-    const sent = placeInline(prompt, attachments, { dropped: (id) => reading.some((chip) => chip.id === id) });
+    const sent = placeInline(prompt, attachments, {
+      dropped: (id) => reading.some((chip) => chip.id === id),
+    });
     const sentAttachments = sent.attachments;
     // Only a verdict that already says the harness is signed out holds the prompt back. A check
     // still running never does (Leo 2026-10-30: "I SHOULD BE ALWAYS ABLE TO SATRT NEW FUCKGN
@@ -719,7 +740,11 @@ export function NewTabScreen(props: Props) {
             home,
             create: creates,
             ...(ask ? { ask } : {}),
-            createNames: { terminal: nt("create.terminal"), browser: nt("create.browser"), chat: nt("create.chat") },
+            createNames: {
+              terminal: nt("create.terminal"),
+              browser: nt("create.browser"),
+              chat: nt("create.chat"),
+            },
             ...(props.suggestionOrder ? { order: props.suggestionOrder } : {}),
           })
         : [],
@@ -1257,7 +1282,9 @@ export function NewTabScreen(props: Props) {
   ) {
     const extra = sentAttachments?.length ? sentAttachments : undefined;
     if (picked.kind === "ssh")
-      return requestChat(agent, prompt, picked.folder, model, undefined, extra, { peer: picked.host });
+      return requestChat(agent, prompt, picked.folder, model, undefined, extra, {
+        peer: picked.host,
+      });
     if (!picked.worktree || !picked.folder || !props.onNewWorktree)
       return requestChat(agent, prompt, picked.folder, model, undefined, extra, {});
     if (worktreePending.current) return;
@@ -1733,16 +1760,8 @@ export function NewTabScreen(props: Props) {
             <DropOverlay state={drop} onLanded={dropLanded} container={dropHost} landingTarget={dropLandingTarget} />
           )}
           <AttachmentStrip
-            attachments={
-              attachmentView === "inline"
-                ? attachments.filter((item) => !placed.has(item.id))
-                : attachments
-            }
-            pending={
-              attachmentView === "inline"
-                ? reading.filter((item) => !placed.has(item.id))
-                : reading
-            }
+            attachments={attachmentView === "inline" ? attachments.filter((item) => !placed.has(item.id)) : attachments}
+            pending={attachmentView === "inline" ? reading.filter((item) => !placed.has(item.id)) : reading}
             {...(command.error || attachError ? { error: command.error ?? attachError } : {})}
             codex={harness === "codex"}
             // A strip chip's × takes its node out of the text too (the strip view shows placed ones
@@ -1858,7 +1877,11 @@ export function NewTabScreen(props: Props) {
         onEditWidgets
           ? [
               editing.editing
-                ? { id: "edit.done", label: nt("edit.done"), onSelect: () => editing.setEditing(false) }
+                ? {
+                    id: "edit.done",
+                    label: nt("edit.done"),
+                    onSelect: () => editing.setEditing(false),
+                  }
                 : { id: "edit", label: nt("edit.menu"), onSelect: () => editing.setEditing(true) },
             ]
           : []
