@@ -5,7 +5,7 @@
 /// (browser records, the window records, the sidebar, Home's drafts and
 /// unsent sends, the chat composers), the launch pictures after it. Cloud's
 /// network work starts first and runs beside the saves, so a slow network
-/// never delays one. If every step hangs they take ``worstCase``, which fits
+/// never delays one. If every step hangs they take ``worstCase`` (2.6 s), which fits
 /// a keep quit's deadline (``QuitDeadline/keepQuitLimit``) with the quit mark
 /// and ``rememberLimit`` before them; in practice a few hundred ms.
 ///
@@ -91,9 +91,10 @@ public struct QuitSaveSteps {
     }
 
     /// How long the save steps wait for Cloud's step once they are done: it
-    /// began before them. Past it, the quit waits for Cloud with every other
-    /// late step, for what is left of the deadline (``QuitSteps``).
-    public var cloudLimit: Duration { .milliseconds(300) }
+    /// began before them, and past this the quit waits for it with every other
+    /// late step, for what is left of the deadline (``QuitSteps``), so this
+    /// only marks whether Cloud ended with the saves.
+    public var cloudLimit: Duration { .milliseconds(100) }
 
     /// How long the steps take if every one of them hangs.
     public var worstCase: Duration { steps.reduce(cloudLimit) { $0 + $1.limit } }
