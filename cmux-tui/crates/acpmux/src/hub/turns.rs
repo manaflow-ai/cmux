@@ -420,15 +420,30 @@ impl Hub {
         // Read with or without a running turn: one that starts before this reaches the queue is
         // stopped by no agent's interrupt either.
         let review_held = from_agent && super::inbox::review_box(session);
+        // Nor does another agent's steer go in while one of the person's prompts waits behind the
+        // running turn, as no notice does (`inbox.rs`): it kept that turn going past the person's
+        // queued prompt (Leo, 2026-10-29: "but even if im just queueing, your turn should still be
+        // ending"). It queues behind the prompt, and one sent with `interrupt` stops nothing. The
+        // person's own steer and Send now still go in, and so does an inbox digest asked to steer
+        // (`inbox_digest.rs`): its drain asked for it. Checked again as the steer is written
+        // (`steer_end.rs`).
+        let prompt_held = from_agent
+            && running.is_some()
+            && !super::digest::inbox_digest::is_digest(opts.provenance.as_ref())
+            && super::inbox::persons_prompt_waits(session);
         let steer_now = steer
             && session.steering.load(Ordering::SeqCst)
             && running.is_some()
             && !capped
             && !notice_held
-            && !review_held;
+            && !review_held
+            && !prompt_held;
         if steer && opts.steer_only && !steer_now {
             if review_held && running.is_some() {
                 return Err(super::inbox::review_box_steer_refused());
+            }
+            if prompt_held && !capped {
+                return Err(super::inbox::prompt_waits_steer_refused());
             }
             return Err(super::turn_cap::steer_unavailable(capped));
         }
@@ -464,8 +479,9 @@ impl Hub {
             control,
             trust_gate,
             // Held past the cap, it waits: it stops no turn (`turn_cap.rs`); nor does another
-            // agent's message stop a review box's review (`inbox.rs`).
-            interrupt: opts.interrupt && !capped && !review_held,
+            // agent's message stop a review box's review, or go ahead of the person's prompt that
+            // waits (`inbox.rs`).
+            interrupt: opts.interrupt && !capped && !review_held && !prompt_held,
             interrupt_turn: opts.interrupt_turn.as_deref(),
             provenance: opts.provenance.as_ref(),
             agent: agent.as_deref(),
