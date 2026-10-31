@@ -55,6 +55,7 @@ const PANE = `
     <button data-expect="default" data-name="Subagent finished row, nothing to open" type="button" class="cv-tool cv-bgtask cv-subagent-done" disabled>Subagent finished</button>
   </div>
   <button data-expect="pointer" data-name="started chat row" type="button" class="acpmux-started-row">A chat</button>
+  <header class="acpmux-header"><button data-expect="pointer" data-name="chat title menu" type="button" class="acpmux-thread-title-trigger"><span data-expect="pointer" data-name="chat title words">Fix the merge hook</span></button></header>
   <div class="ui-glass cv-link-preview acpmux-pr-card"><button data-expect="pointer" data-name="hover card Open" type="button" class="cv-link-preview__open">Open</button></div>
   <a data-expect="pointer" data-name="inspector pull request" class="acpmux-chat-inspector-pr__link" href="https://github.com/o/r/pull/3">PR</a>
   <a data-expect="pointer" data-name="summary link" class="acpmux-summary-row acpmux-summary-link" href="https://example.com/doc">Doc</a>
@@ -167,7 +168,9 @@ const CLICKABLE_COMPONENT = /(Button|MenuItem|Item|Trigger|Tab|Link|Toggle|Check
 /// Every `className` the sources put on a clickable element (a <button>, a link, a clickable role,
 /// an element with a click handler, or a component that renders one), with the file and line it
 /// sits on. A component's `rowClassName` or `itemClassName` goes on its rows or items, which take
-/// the click (ui/Tree's treeitem rows, a combobox's options).
+/// the click (ui/Tree's treeitem rows, a combobox's options), and its `triggerClassName`,
+/// `buttonClassName` or `crumbClassName` on the button it renders (the chat title's menu button,
+/// ui/Select's button, ui/Breadcrumbs' crumbs).
 function clickableClassNames(): { file: string; line: number; value: string }[] {
   const found: { file: string; line: number; value: string }[] = [];
   for (const file of new Glob("**/*.{ts,tsx}").scanSync(src)) {
@@ -175,7 +178,7 @@ function clickableClassNames(): { file: string; line: number; value: string }[] 
     const text = readFileSync(join(src, file), "utf8");
     // A literal, a template, or an expression (`cx("ui-menu-item", …)`), whose string parts count.
     for (const match of text.matchAll(
-      /\b(className|rowClassName|itemClassName)=(?:"([^"]*)"|\{`([^`]*)`\}|\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\})/g,
+      /\b(className|rowClassName|itemClassName|triggerClassName|buttonClassName|crumbClassName)=(?:"([^"]*)"|\{`([^`]*)`\}|\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\})/g,
     )) {
       const value =
         match[2] ??
