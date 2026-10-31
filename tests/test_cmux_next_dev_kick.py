@@ -29,6 +29,9 @@ check('gh workflow run cmux-next-dev-daily-dispatch.yml --repo "$GH_REPO" --ref 
 check(text.count("gh workflow run") == 1 and "cmux-next.yml" not in text.replace("cmux-next-dev-", ""),
       "the kick starts no DEV build itself")
 
+check("vars.LINUX_RUNNER" not in text and "'blacksmith-2vcpu-ubuntu-2404'" in text and
+      "'ubuntu-24.04'" in text, "DEV kick dispatch uses the 2-vCPU ephemeral Linux pool, not the shared compiler")
+
 if failures:
     print("FAIL: cmux NEXT DEV kick\n  " + "\n  ".join(failures))
     sys.exit(1)

@@ -494,5 +494,18 @@ class GitHubApiTests(unittest.TestCase):
         self.assertEqual(gh.calls, 1)
 
 
+class TriggerRunnerTests(unittest.TestCase):
+    def test_push_decision_uses_small_ephemeral_linux(self):
+        workflow = (ROOT / ".github/workflows/ios-internal-nightly-trigger.yml").read_text()
+        runs_on = next(line.strip() for line in workflow.splitlines()
+                       if line.strip().startswith("runs-on:"))
+        self.assertIn("'blacksmith-2vcpu-ubuntu-2404'", runs_on)
+        self.assertIn("'ubuntu-24.04'", runs_on)
+        self.assertNotIn("vars.LINUX_RUNNER", runs_on)
+        # Retain the manual run's fallback choice and the existing decision,
+        # even when the iOS builder is held or its shared packages drift.
+        self.assertIn("CI_CLOUD_OVERFLOW_SAVED", runs_on)
+
+
 if __name__ == "__main__":
     unittest.main()
