@@ -205,7 +205,6 @@
 				<string>minimal</string>
 				<string>cards</string>
 				<string>default</string>
-				<string>composer</string>
 				<string>threads</string>
 				<string>console</string>
 				<string>classic</string>
@@ -727,6 +726,18 @@
 			<string>updates.showWhatsNew</string>
 			<key>pfm_title</key>
 			<string>Show What's New After Updates</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Now and then, a small tip points at a feature an update added. Close it or use the feature and it never comes back.</string>
+			<key>pfm_name</key>
+			<string>updates.showFeatureTips</string>
+			<key>pfm_title</key>
+			<string>Show Feature Tips</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -1824,7 +1835,7 @@
 		</dict>
 		<dict>
 			<key>pfm_description</key>
-			<string>Colors for cmux and its terminals. A space, workspace or terminal theme overrides it.</string>
+			<string>Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it.</string>
 			<key>pfm_name</key>
 			<string>appearance.theme</string>
 			<key>pfm_title</key>
@@ -1836,7 +1847,7 @@
 			<key>pfm_default</key>
 			<string>followTerminal</string>
 			<key>pfm_description</key>
-			<string>Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast.</string>
+			<string>Colors for the window, sidebar, tabs and cmux's pages. Terminals keep the Terminal Theme. Every color meets WCAG AA contrast.</string>
 			<key>pfm_name</key>
 			<string>appearance.appTheme</string>
 			<key>pfm_title</key>
@@ -4627,7 +4638,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
 			<string>Lists tabs beneath each workspace in the sidebar.</string>
 			<key>pfm_name</key>
@@ -4786,6 +4797,24 @@
 			</array>
 			<key>pfm_title</key>
 			<string>Sidebar Density</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>default</string>
+			<key>pfm_description</key>
+			<string>Makes the sidebar's names, headers, icons and rows larger together. Larger matches the ChatGPT app's sidebar.</string>
+			<key>pfm_name</key>
+			<string>sidebar.textSize</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>default</string>
+				<string>large</string>
+				<string>larger</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Sidebar Text Size</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>

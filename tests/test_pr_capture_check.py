@@ -133,10 +133,36 @@ class CaptureCheckTests(unittest.TestCase):
         self.assertEqual(module.evidence(CAPTURE, set(), "42"), ("capture", SHA))
         self.assertEqual(module.evidence(CAPTURE, set(), "43"), ("", None))  # copied from another PR
         far = CAPTURE.replace("| Light", "x" * 2500 + "\n| Light")
-        self.assertEqual(module.evidence(far, set(), "42"), ("", None))
+        # Too far from the marker to be its capture: still this PR's own stills, with no sha (pr-media stills)
+        self.assertEqual(module.evidence(far, set(), "42"), ("pr-media stills", None))
         hidden = CAPTURE.replace("| ![light]", "<!-- ![light]").replace("-light.png) ", "-light.png) -->")
         hidden = hidden.replace("| ![dark](", "`").replace("-dark.png) |", "-dark.png`")
         self.assertEqual(module.evidence(hidden, set(), "42"), ("", None))
+
+    def test_this_pull_requests_own_pr_media_stills_pass_with_review_proof(self):
+        # #27786: four of its own pr-media stills and the review lines, but no cmux-capture marker
+        stills = ("Before: ![before](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/{pr}/before-light.png)\n"
+                  "After: ![after](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/{pr}/after-light.png)\n")
+        own = stills.format(pr=42)
+        self.assertEqual(module.evidence(own, set(), "42"), ("pr-media stills", None))
+        code, out = self.run_check("## Proof\n\n" + REVIEW + "\n" + own, [SWIFT])
+        self.assertEqual(code, 0)
+        self.assertIn("shown by: pr-media stills", out)
+        self.assertIn("::warning::The pr-media stills carry no capture marker", out)
+        # Another PR's folder is not this change's
+        self.assertEqual(module.evidence(stills.format(pr=43), set(), "42"), ("", None))
+        self.assertEqual(self.run_check(REVIEW + stills.format(pr=43), [SWIFT])[0], 1)
+        # The stills still need the after-image review lines
+        code, out = self.run_check(own, [SWIFT])
+        self.assertEqual(code, 1)
+        self.assertIn("Viewed after image: yes", out)
+        # Stills in a code fence, an HTML comment or inline code are not shown
+        self.assertEqual(self.run_check(REVIEW + "```\n" + own + "```\n", [SWIFT])[0], 1)
+        self.assertEqual(self.run_check(REVIEW + "<!--\n" + own + "-->\n", [SWIFT])[0], 1)
+        self.assertEqual(self.run_check(REVIEW + "`https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/42/a.png`\n",
+                                        [SWIFT])[0], 1)
+        # With no PR number the folder can't be told apart from another PR's
+        self.assertEqual(module.evidence(own, set(), "N"), ("", None))
 
     def test_tour_label_or_a_reason_passes(self):
         self.assertEqual(self.run_check(REVIEW, [SWIFT], labels="risk:normal,media-tour")[0], 0)

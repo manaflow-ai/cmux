@@ -62,7 +62,7 @@ public final class AgentPaneView: NSView {
     /// The app's made-ahead open panel (Add Files, Attach, a page's file input); nil: no file picker (tests).
     private let openPanel: MadeAheadOpenPanel?
     /// The page's file chooser over ``openPanel`` (the web view holds its UI delegate weakly).
-    private let fileChooser: PageOpenPanel?
+    let fileChooser: PageOpenPanel?
     /// On the shared page host (`cmux-page://cmux.agent/`, the `agent.pageHost` tunable): the page
     /// view and the provider that answers its calls and carries the host's pushes. Nil on the old
     /// host (`cmux-agent://pane`, deleted with P5 of the agent pane move).
@@ -134,12 +134,13 @@ public final class AgentPaneView: NSView {
     ///     do on a loaded machine (#16471).
     ///   - pageHost: Host the page on the shared page host (``PageWebView``) instead of this
     ///     view's own WebKit host. Only a bundled page can move; a dev-server page stays.
+    ///   - testRoot: The bundled page is a test's own fixture, which the page host serves (DEBUG only; ``PageWebView``).
     ///   - chromium: Makes the page host's Chromium view when the chat shows in Chromium (the app's
     ///     ``PageWebView/chromiumHosting`` by default; tests pass a fake).
     ///   - openPanel: The app's made-ahead open panel (`AppServices.openPanel`) for Add Files, Attach and a page's
     ///     file input, warmed when the pane reaches a window; nil (tests) shows no file picker and warms none.
     public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
-                 pageHost: Bool = false, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
+                 pageHost: Bool = false, testRoot: Bool = false, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
                  openPanel: MadeAheadOpenPanel? = nil) {
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         self.openPanel = openPanel
@@ -153,7 +154,7 @@ public final class AgentPaneView: NSView {
             let provider = AgentPageProvider { [weak model] _ in model }
             // Needs you reads the pane's own acpmux (a Chief chat's is the Chief home's), never another.
             provider.pendingAsksSocket = { [weak model] in model?.pendingAsksSocket }
-            guard let page = AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), provider: provider, renderRate: renderRate,
+            guard let page = AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), testRoot: testRoot, provider: provider, renderRate: renderRate,
                                                                  chromium: chromium)
             else { return nil }
             self.page = page

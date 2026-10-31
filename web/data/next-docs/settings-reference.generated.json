@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 529,
+  "count": 531,
   "sections": [
     {
       "id": "general",
@@ -1090,7 +1090,6 @@
             "minimal",
             "cards",
             "default",
-            "composer",
             "threads",
             "console",
             "classic",
@@ -1372,6 +1371,14 @@
             "badge",
             "silent"
           ]
+        },
+        {
+          "key": "updates.showFeatureTips",
+          "title": "Show Feature Tips",
+          "help": "Now and then, a small tip points at a feature an update added. Close it or use the feature and it never comes back.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Updates"
         },
         {
           "key": "updates.showWhatsNew",
@@ -1669,7 +1676,7 @@
         {
           "key": "appearance.appTheme",
           "title": "App Theme",
-          "help": "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast.",
+          "help": "Colors for the window, sidebar, tabs and cmux's pages. Terminals keep the Terminal Theme. Every color meets WCAG AA contrast.",
           "kind": "theme",
           "default": "followTerminal",
           "group": "App Theme"
@@ -2630,7 +2637,7 @@
         {
           "key": "appearance.theme",
           "title": "Theme",
-          "help": "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it.",
+          "help": "Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it.",
           "kind": "theme",
           "default": null,
           "group": "App Theme"
@@ -3499,7 +3506,7 @@
           "title": "Show Workspace Tabs",
           "help": "Lists tabs beneath each workspace in the sidebar.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Sidebar"
         },
         {
@@ -3568,6 +3575,19 @@
           "values": [
             "standard",
             "rail"
+          ]
+        },
+        {
+          "key": "sidebar.textSize",
+          "title": "Sidebar Text Size",
+          "help": "Makes the sidebar's names, headers, icons and rows larger together. Larger matches the ChatGPT app's sidebar.",
+          "kind": "choice",
+          "default": "default",
+          "group": "Sidebar",
+          "values": [
+            "default",
+            "large",
+            "larger"
           ]
         },
         {
