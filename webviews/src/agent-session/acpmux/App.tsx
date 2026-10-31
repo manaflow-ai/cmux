@@ -8359,10 +8359,11 @@ function AcpmuxPane() {
   /// Settings' Start New Chats In (`agentPane.newChatsIn`) set to Cloud makes it Cloud whatever the
   /// folder's history says (newChatRunLocation); This Mac in the composer's picker still wins.
   /// Never in a tab on another machine (SSH, Cloud): its chat stays on that machine, and the host
-  /// refuses `cloud.startChat` from it.
+  /// refuses `cloud.startChat` from it. A fresh connection has its origin before any summary.
+  const onOtherMachine = remoteChat || snapshot.origin === "remote" || snapshot.origin === "peer";
   const folderRunDefault = useMemo(
     () =>
-      sandboxOffered && !remoteChat
+      sandboxOffered && !onOtherMachine
         ? newChatRunLocation(
             newChatsIn,
             folderRunLocation(composerSnapshot.summary?.cwd ?? newTab?.cwd, snapshot.sessions, snapshot.peerKinds),
@@ -8370,7 +8371,7 @@ function AcpmuxPane() {
         : undefined,
     [
       sandboxOffered,
-      remoteChat,
+      onOtherMachine,
       newChatsIn,
       composerSnapshot.summary?.cwd,
       newTab?.cwd,

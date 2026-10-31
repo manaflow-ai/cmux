@@ -327,8 +327,6 @@ extension SettingsSchema {
         // A reply's file link outside the project, and a reply's web image (D4, D5).
         "agentPane.links.outsideRoots": .privacy,
         "agentPane.images.remote": .network,
-        // Whether a new chat starts on a Cloud machine, its project copied there: what leaves the machine.
-        "agentPane.newChatsIn": .privacy,
         "app.quitBehavior": .destructive,
         // Voice Room records mic and screen text and posts it to the configured room.
         "labs.voiceRoom": .privacy,
