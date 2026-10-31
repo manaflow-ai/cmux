@@ -4,7 +4,7 @@
 // Each gets the cmux MCP server behind mcp-log.mjs, so the run is graded on what it called,
 // and a clean home (no skills, memory or MCP servers of this machine).
 import { execFileSync, spawn } from "node:child_process";
-import { chmodSync, copyFileSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { agentProfile } from "./live-guard.mjs";
@@ -109,6 +109,11 @@ export async function runClaudeSdk({ model, prompt, cwd, mcp, env, home, own, ef
 
 const tomlString = (value) => JSON.stringify(String(value));
 
+/** One shell word, single-quoted. */
+function shellQuote(text) {
+  return `'${String(text).replaceAll("'", "'\\''")}'`;
+}
+
 /** A clean CODEX_HOME: the model route and login of this machine's config, nothing else. */
 export function codexHome(home) {
   mkdirSync(home, { recursive: true });
@@ -116,7 +121,11 @@ export function codexHome(home) {
   const top = config.split("\n[")[0].split("\n").filter((l) => /^(openai_base_url|model_provider|service_tier)\s*=/.test(l));
   const providers = [...config.matchAll(/\n\[model_providers\.[^\]]+\][\s\S]*?(?=\n\[|$)/g)].map((m) => m[0]);
   writeFileSync(join(home, "config.toml"), `${top.join("\n")}\napproval_policy = "never"\nsandbox_mode = "danger-full-access"\nnotify = []\n${providers.join("\n")}\n`);
-  copyFileSync(join(homedir(), ".codex/auth.json"), join(home, "auth.json"));
+  // Never a copy of this machine's ChatGPT login: the router ignores the client token, and
+  // a copied refresh token that one sample's Codex refreshes is spent for every other copy
+  // and for the original (r5c: "your refresh token was already used"). An API-key login
+  // with a placeholder never refreshes.
+  writeFileSync(join(home, "auth.json"), JSON.stringify({ auth_mode: "apikey", OPENAI_API_KEY: "tool-evals-placeholder" }));
   return home;
 }
 
@@ -136,8 +145,16 @@ export async function runCodexAppServer({ model, prompt, cwd, mcp, env, home, ow
   // A scratch HOME too: Codex reads ~/.agents/skills, which holds this machine's own skills.
   const scratchHome = join(home, "home");
   mkdirSync(scratchHome, { recursive: true });
+  // Codex runs each command as `zsh -lc`: a login shell, whose /etc/zprofile (path_helper)
+  // puts /opt/homebrew/bin, and this Mac's own `cmux`, before the sample's bin. The scratch
+  // home's .zprofile, read after it, puts the sample's PATH back (r5a: 66 of 68 GPT 6 Astra
+  // samples ran the installed cmux, not the build under test).
+  const profile = `export PATH=${shellQuote(env.PATH ?? "")}\n`;
+  writeFileSync(join(scratchHome, ".zprofile"), profile);
+  writeFileSync(join(scratchHome, ".bash_profile"), profile);
   const child = spawn(...guarded(home, own, "codex", ["app-server", ...mcpConfig]), {
-    cwd, env: { ...env, HOME: scratchHome, CODEX_HOME: home }, stdio: ["pipe", "pipe", "pipe"],
+    // ZDOTDIR too: an operator's own ZDOTDIR would skip the scratch .zprofile.
+    cwd, env: { ...env, HOME: scratchHome, ZDOTDIR: scratchHome, CODEX_HOME: home }, stdio: ["pipe", "pipe", "pipe"],
   });
   let next = 1;
   const waiting = new Map();
@@ -179,7 +196,9 @@ export async function runCodexAppServer({ model, prompt, cwd, mcp, env, home, ow
         usage = msg.params?.tokenUsage?.total ?? msg.params?.tokenUsage ?? usage;
       } else if (msg.method === "turn/completed") {
         done(msg.params?.turn);
-      } else if (msg.method === "error") {
+      } else if (msg.method === "error" && !msg.params?.willRetry) {
+        // A stream drop Codex retries itself ("Reconnecting... 2/5", willRetry) is not the
+        // end of the turn: 19 of 32 GPT 6 Astra samples stopped on one at step 1.
         done({ error: msg.params });
       }
     }
@@ -192,7 +211,10 @@ export async function runCodexAppServer({ model, prompt, cwd, mcp, env, home, ow
   try {
     await request("initialize", { clientInfo: { name: "cmux-tool-evals", version: "1" } });
     send({ jsonrpc: "2.0", method: "initialized" });
-    const started = await request("thread/start", { model, cwd, approvalPolicy: "never", sandbox: "danger-full-access", ephemeral: true });
+    // CMUX_EVAL_CODEX_DEVELOPER: developer instructions for an A/B run (a real cmux Codex
+    // chat gets none; cmux's rules arrive only as the MCP server's instructions).
+    const developerInstructions = process.env.CMUX_EVAL_CODEX_DEVELOPER || undefined;
+    const started = await request("thread/start", { model, cwd, approvalPolicy: "never", sandbox: "danger-full-access", ephemeral: true, developerInstructions });
     const threadId = started?.thread?.id ?? started?.threadId;
     await request("turn/start", { threadId, input: [{ type: "text", text: prompt }], effort });
     turn = await finished;
@@ -207,7 +229,9 @@ export async function runCodexAppServer({ model, prompt, cwd, mcp, env, home, ow
   return {
     text: text.trim(),
     steps: Math.max(0, steps - 1),
-    usage: { input: usage.inputTokens ?? 0, output: usage.outputTokens ?? 0, cacheRead: usage.cachedInputTokens ?? 0, cost: 0 },
+    // Codex's inputTokens includes the cached ones (codex-rs TokenUsage::non_cached_input);
+    // `input` here is the uncached part, as the Claude SDK reports it.
+    usage: { input: Math.max(0, (usage.inputTokens ?? 0) - (usage.cachedInputTokens ?? 0)), output: usage.outputTokens ?? 0, cacheRead: usage.cachedInputTokens ?? 0, cost: 0 },
     shell,
     error,
   };

@@ -25,6 +25,9 @@ enum RemoteStrings {
     static var machineHasNoTerminal: String { String(localized: "remote.terminal.noResource", defaultValue: "That machine's cmux-tui cannot name the terminal. Update it first.", table: "Remote", bundle: .module) }
     static var signInToCheck: String { String(localized: "remote.joined.signInToCheck", defaultValue: "Sign in to cmux to check this machine.", table: "Remote", bundle: .module) }
     static var checkStopped: String { String(localized: "remote.joined.checkStopped", defaultValue: "The check stopped before it finished. Try again.", table: "Remote", bundle: .module) }
+    // The Touch ID or password confirm's reasons for Settings' switches that widen another machine's access (SettingsPageProvider.widen).
+    static var fullAccessConfirmReason: String { String(localized: "settings.personGate.fullAccessReason", defaultValue: "turn on Full access, so another machine's chats can edit files and run commands on this Mac without asking", table: "Remote", bundle: .module) }
+    static var vmHostConfirmReason: String { String(localized: "settings.personGate.vmHostReason", defaultValue: "turn on Dedicated agent machine, so this Mac's chats run on that Cloud machine without the sandbox", table: "Remote", bundle: .module) }
     static var noClient: String { String(localized: "remote.unavailable.noClient", defaultValue: "The bundled cmux-tui is missing, so SSH machines cannot connect.", table: "Remote", bundle: .module) }
     static var noMachine: String { String(localized: "remote.failed.noMachine", defaultValue: "No SSH machine is selected. Choose Connect to Machine in the command palette, or pass --machine <name>.", table: "Remote", bundle: .module) }
     static var workspaceNotOnSSHMachine: String { String(localized: "remote.failed.workspaceNotSSH", defaultValue: "This workspace does not run on an SSH machine.", table: "Remote", bundle: .module) }

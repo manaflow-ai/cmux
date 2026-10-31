@@ -5,13 +5,35 @@ use cmux_json::JsonSet as _;
 
 mod host_load;
 
-/// Strip the inventory from census rows, including rows supplied by older peers.
+/// A peer's summary as a census row (`Hub::session_list_summary`): no inventory, and a long
+/// title cut (`TITLE_CHARS`), including in rows supplied by older peers.
 pub(crate) fn without_summary_tools(mut summary: Value) -> Value {
     if let Some(row) = summary.as_object_mut() {
         row.remove("tools");
         row.remove("toolsMutable");
+        if let Some(Value::String(title)) = row.get_mut("title") {
+            *title = summary_title(title);
+        }
     }
     summary
+}
+
+/// The most of a chat's title a census row shows. A harness may title a chat with its whole first
+/// prompt: one fleet host's list rows came to 4 KB each with them, and its list of 3,700 to more
+/// than one message holds (2026-10-30). The list and the `session_changed` rows a watch without
+/// tools hears cut the same (both are `session_list_summary`), so they never show one chat under
+/// two titles; `session info` and attach keep the whole title.
+const TITLE_CHARS: usize = 200;
+
+/// `title`, or for a longer one its first [`TITLE_CHARS`], folded, and masked before it is cut
+/// as a lane's title is ([`masked_cut`]): a secret the cut would split is masked whole, never
+/// left as a head a peer's masking no longer knows (`peer_text.rs`).
+fn summary_title(title: &str) -> String {
+    if title.chars().nth(TITLE_CHARS).is_none() {
+        title.to_owned()
+    } else {
+        masked_cut(title, TITLE_CHARS)
+    }
 }
 
 /// The tag naming the session whose agent started this one (`Hub::spawned_by`).
@@ -108,7 +130,9 @@ impl Hub {
 /// `step` is what it is doing now (hq#2509), see `lane_step`; `title` is the
 /// session's title, else its latest prompt. The lane's error, step and title
 /// are masked (`secret_scan`), so a view that reads only the lane never shows
-/// a pasted secret. The summary's other fields (`turn.prompt`, `lastPrompt`,
+/// a pasted secret. So are the running turn's `activity` and `planStep`
+/// (`hub/activity.rs`): a tool call's title is often a command with its
+/// arguments. The summary's other fields (`turn.prompt`, `lastPrompt`,
 /// `lastMessage`, `preview`, `title`) carry the raw text, masked only on the
 /// way to a peer daemon (`server/peer_text.rs`).
 ///
@@ -174,12 +198,17 @@ fn lane_title(summary: &Value) -> Value {
     line.filter(|l| !l.is_empty()).map_or(Value::Null, Value::String)
 }
 
-/// `text` folded to one line, masked and cut to `LANE_STEP_CHARS`. Only the
+/// `text` folded to one line, masked and cut to `LANE_STEP_CHARS`.
+fn masked_line(text: &str) -> String {
+    masked_cut(text, LANE_STEP_CHARS)
+}
+
+/// `text` folded to one line, masked and cut to `max` characters. Only the
 /// head of the folded text is scanned (a pasted log can be megabytes), and it
 /// is masked before the cut, so a cut never leaves part of a secret unmasked.
 /// The head is cut after folding: a raw cut inside a token behind a blank run
 /// would leave the token's head unmasked once the run folds away.
-fn masked_line(text: &str) -> String {
+fn masked_cut(text: &str, max: usize) -> String {
     let (mut head, mut chars) = (String::new(), 0);
     for word in text.split_whitespace() {
         if chars > 0 {
@@ -193,7 +222,7 @@ fn masked_line(text: &str) -> String {
             break;
         }
     }
-    super::session::short_text(&crate::secret_scan::mask(&head), LANE_STEP_CHARS)
+    super::session::short_text(&crate::secret_scan::mask(&head), max)
 }
 
 /// A turn's error masked, lines kept. An error can be a whole pasted log, so
@@ -301,7 +330,8 @@ impl Hub {
         self.summary_with_tools(session, true)
     }
 
-    /// Census rows omit the inventory; `_acpmux/info` and attach keep it.
+    /// Census rows omit the inventory and cut a long title (`TITLE_CHARS`); `_acpmux/info` and
+    /// attach keep both.
     pub(crate) fn session_list_summary(&self, session: &Session) -> Value {
         self.summary_with_tools(session, false)
     }
@@ -327,6 +357,7 @@ impl Hub {
         let summary = SessionSummary {
             session_id: m.id.clone(),
             name: m.name.clone(),
+            name_given: m.name_given,
             harness: m.harness.clone(),
             family: m.family.clone(),
             cwd: m.cwd.to_string_lossy().into_owned(),
@@ -360,7 +391,7 @@ impl Hub {
             short_name: m.subsession.as_ref().map(|l| l.short_name.clone()),
             depth: lineage.as_ref().map_or(0, |l| l.depth),
             children: self.subsessions.open_count(&m.id),
-            title: m.title.clone(),
+            title: if with_tools { m.title.clone() } else { m.title.as_deref().map(summary_title) },
             title_source: m.title_source.clone(),
             last_prompt: m.last_prompt.clone(),
             preview: m.preview.as_deref().map(|p| short_text(p, 160)),
@@ -470,6 +501,8 @@ impl Hub {
             lane: None,
             lifecycle_receipt: None,
             peer: None,
+            // What its harness spent and holds, as the last read found it (`usage_view.rs`).
+            usage_stats: self.usage_stats_of(session, &m),
         };
         let receipt = SessionReceipt::new(
             LOCAL_HOST_ID,
@@ -485,6 +518,10 @@ impl Hub {
         summary.set("gitBranch", json!(self.git_branch_now(&m)));
         // Since when work it started runs on past its own turn (`work_below.rs`).
         summary.set("subagentsWorkingSince", json!(self.work_below_since(session)));
+        // The usage rules it breaks (`usage_warnings.rs`), read from `usageStats` above.
+        let limits = *self.usage_limits.lock().unwrap_or_else(|e| e.into_inner());
+        let warnings = super::usage_warnings::usage_warnings(&summary, &limits);
+        summary.set("usageWarnings", json!(warnings));
         decide(&mut summary);
         summary
     }

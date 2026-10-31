@@ -20,9 +20,20 @@ public actor CloudLinkSession {
     }
 
     public nonisolated let key: CloudLinkKey
+    /// ``ownerLink`` != nil for the main actor (Settings > Machines' row), on the same link.
+    public nonisolated let ownership = CloudLinkOwnership()
     private let resolver: any CloudLinkResolver
     private let makeIntent: @Sendable () -> String
-    private var state = State.idle
+    private var state = State.idle {
+        didSet {
+            published += 1
+            let (ownership, owns, link) = (ownership, ownerLink != nil, published)
+            // task-owner: one main-actor hop; CloudLinkOwnership drops one a newer hop overtook
+            Task { @MainActor in ownership.publish(owns, link: link) }
+        }
+    }
+    /// Counts state changes: the order of the ``ownership`` hops.
+    private var published = 0
     /// Counts connects and ends; the current connect's ticket id.
     private var attempt: UInt64 = 0
     /// A revoke that came while the current connect was in flight: the
