@@ -260,14 +260,40 @@ fn stale_child_hooks_cannot_hold_a_new_sessions_finish() {
         mux.apply_agent_hook_record(&old_child, 2).unwrap();
         mux.apply_agent_hook_record(&ingress("SessionEnd", "old", 300), 3).unwrap();
         mux.apply_agent_hook_record(&ingress("SessionStart", new_session, 400), 4).unwrap();
-        mux.apply_agent_hook_record(&ingress("UserPromptSubmit", new_session, 500), 5)
-            .unwrap();
+        mux.apply_agent_hook_record(&ingress("UserPromptSubmit", new_session, 500), 5).unwrap();
         mux.apply_agent_hook_record(&old_child, replay_sequence).unwrap();
         mux.apply_agent_hook_record(&ingress("Stop", new_session, 700), 7).unwrap();
         let posted = mux.resource_notifications(16);
         assert_eq!(posted.len(), 1, "{new_session}, replay sequence {replay_sequence}");
         assert_eq!(posted[0].title, "Claude finished");
     }
+}
+
+#[test]
+fn a_child_completion_projected_after_its_parents_stop_releases_the_finish() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal = surface.terminal_public_id().cloned().unwrap();
+    let apply = |event: &str, sequence| {
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            event,
+            Some(&terminal.to_string()),
+            serde_json::json!({"session_id": "session", "agent_id": "child"}),
+        )
+        .unwrap();
+        mux.apply_agent_hook_record(&ingress, sequence).unwrap();
+    };
+    apply("SessionStart", 1);
+    apply("UserPromptSubmit", 2);
+    apply("SubagentStart", 3);
+    apply("Stop", 5);
+    assert!(mux.resource_notifications(16).is_empty());
+    // Journal commits are ordered, but independent ingress projections can finish out of order.
+    apply("SubagentStop", 4);
+    assert_eq!(mux.resource_notifications(16).len(), 1);
+    apply("SubagentStop", 4);
+    assert_eq!(mux.resource_notifications(16).len(), 1, "a retry still posts once");
 }
 
 fn assert_held_agent_finish_retries(release_event: &str) {
