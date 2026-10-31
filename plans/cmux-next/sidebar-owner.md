@@ -10,6 +10,15 @@
   https://github.com/manaflow-ai/cmux/pull/28059#issuecomment-6536962266.
   This record adds no UI change and does not replace the required capture verdict.
 
+- 2026-10-30 (https://github.com/manaflow-ai/cmux/issues/28663): Settings has a Sidebar category (Look and Feel,
+  after Appearance). Its first card, Size and Spacing, holds `sidebar.textSize`, `sidebar.density` and the new
+  `sidebar.rowSpacing`; the Sidebar, Sidebar Workspaces, Buttons and Spaces, the two hover-card cards and
+  Workspace Rows moved there from Appearance (same keys and sections). The ask: "Add a Sidebar section in
+  Settings (font size, density compact/comfortable, spacing) ... Sidebar defaults must be no smaller than the
+  user's current settings". `SidebarDensityTokens.rowSpacing` is `sidebar.rowSpacing`, else the fixed `space1`;
+  an explicit value also spaces the pinned band's rows (`SidebarRegionMetrics.rowGap`, 0 when unset, as
+  before). Text size reuses `sidebar.textSize` (Default keeps today's size), density stays compact by default.
+  Interface Scale (`app.uiScale`) 100% draws at the old 1.2 (`DesignSettings.uiScaleBase`). Regression: `SidebarSizeSettingsTests`.
 - 2026-10-30: `sidebar.textSize` (Settings > Appearance > Sidebar Text Size; palette, `cmux settings set
   sidebar.textSize larger`, MCP `settings_set`). Lawrence msg 17752 (a ChatGPT sidebar screenshot): "we also need
   option for sidebar text to be very significantly bigger. this is how big chatgpt is by default, let's match them".

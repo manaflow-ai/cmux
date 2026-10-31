@@ -25,7 +25,7 @@ import CoreGraphics
 /// `sidebar.textSize` own the text size); `sidebar.textSize` (``SidebarTextSize``) adds its
 /// `rowStep` to every row and header height here, on top of any density. A group header's name
 /// keeps its existing rule and follows its bar (`SidebarStyle.groupHeaderFont`: 11 pt on the 24 pt row,
-/// 12 pt on the 28 pt row). Row spacing stays `space1` so selection fills
+/// 12 pt on the 28 pt row). Row spacing is `sidebar.rowSpacing`, else `space1` so selection fills
 /// keep their rhythm, and it is the only gap between rows: a group's or the
 /// Pinned block's last row adds no padding (Leo 2026-10-21). Values are read at layout time, never cached, so a
 /// change applies live.
@@ -36,6 +36,13 @@ enum SidebarDensityTokens {
     static var textSize: SidebarTextSize { DesignSettings.shared.sidebarSections.textSize }
     /// The extra height of a comfortable row or header, plus the text size's.
     private static var extra: CGFloat { (isComfortable ? Metrics.space2 : 0) + textSize.rowStep }
+    /// The gap between consecutive rows: `sidebar.rowSpacing` (#28663, points at the interface
+    /// scale, like `space1`), else the density's `space1`.
+    static var rowSpacing: CGFloat { explicitRowSpacing ?? Metrics.space1 }
+    /// `sidebar.rowSpacing` when set, at the interface scale; nil follows the density.
+    static var explicitRowSpacing: CGFloat? {
+        DesignSettings.shared.sidebarSections.rowSpacing.map { Metrics.scale(CGFloat($0)) }
+    }
 
     /// A one-line workspace row, tab row, group header or band row.
     static var rowHeight: CGFloat { Metrics.sidebarRowHeight + extra }

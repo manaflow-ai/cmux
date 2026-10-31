@@ -16,7 +16,7 @@ test("stored values come first, unknown values drop, missing choices follow in o
 });
 
 test("the second line order lists every item and writes the moved order", async () => {
-  const page = await renderPage({ path: "/settings/appearance", mock: { values: { [key]: ["branch"] } } });
+  const page = await renderPage({ path: "/settings/sidebar", mock: { values: { [key]: ["branch"] } } });
   const row = () => rowElement(page.container, key);
   const order = () => [...row().querySelectorAll("[data-choice]")].map((item) => item.getAttribute("data-choice"));
   expect(order()).toEqual(["branch", "notification", "directory", "process", "agentStatus", "ports", "lastActivity"]);

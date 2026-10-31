@@ -3415,6 +3415,19 @@
           "group": "Sidebar"
         },
         {
+          "key": "sidebar.rowSpacing",
+          "title": "Row Spacing",
+          "help": "The space between rows in the sidebar.",
+          "kind": "number",
+          "default": null,
+          "group": "Sidebar",
+          "range": {
+            "min": 0,
+            "max": 12,
+            "unit": "points"
+          }
+        },
+        {
           "key": "sidebar.sectionLook",
           "title": "Section Look",
           "help": "How the sections above and below the workspace list draw.",

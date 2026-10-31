@@ -1256,7 +1256,7 @@ variants["play-select-scroll"] = variant("appearance", {
   note: "A select opened near the bottom, then the content scrolled: one scroller, the pop-up stays at its row.",
   play: async (ctx) => {
     const content = ctx.find({ selector: ".content" });
-    const control = `${row("sidebar.sectionLook")} .ui-select-button`;
+    const control = `${row("appearance.statusIndicator.style")} .ui-select-button`;
     const bottom = ctx.find({ selector: control }).getBoundingClientRect().bottom;
     // Near the bottom of what shows: above the Appearance bar that sits over the content's foot.
     const floor =

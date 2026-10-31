@@ -3846,6 +3846,13 @@
       "title" : "Show Priority View",
       "type" : "boolean"
     },
+    "sidebar.rowSpacing" : {
+      "description" : "The space between rows in the sidebar.",
+      "maximum" : 12,
+      "minimum" : 0,
+      "title" : "Row Spacing",
+      "type" : "number"
+    },
     "sidebar.sectionLook" : {
       "default" : "quiet",
       "description" : "How the sections above and below the workspace list draw.",

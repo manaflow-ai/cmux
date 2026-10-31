@@ -120,6 +120,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// How large the list's text, leading glyphs and rows are (`sidebar.textSize`, ``SidebarTextSize``):
     /// the original size by default; Larger matches the ChatGPT app's sidebar.
     public var textSize: SidebarTextSize = .standard
+    /// `sidebar.rowSpacing` (#28663): the gap between consecutive rows in points. nil (the default)
+    /// is the app density's `space1`.
+    public var rowSpacing: Double?
     /// Pinned bands that hide until the pointer is over the sidebar (R54).
     /// Off by default: a fresh profile's sidebar is pinned, its Settings and
     /// account band always shown; hover-reveal is opt-in (Leo 2026-10-11).
@@ -154,6 +157,8 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     }
 
     public static let defaults = SidebarSectionsPreferences()
+    /// `sidebar.rowSpacing`'s range.
+    public static let rowSpacingRange: ClosedRange<Double> = 0...12
     public static let shareRange: ClosedRange<Double> = 0.1...0.9
     /// The two shares together leave at least this much for the list.
     public static let maxShareSum = 0.8

@@ -15,7 +15,7 @@ extension SidebarRegionMetrics {
     }
 
     @MainActor private static func standard(rowHeight row: CGFloat) -> SidebarRegionMetrics {
-        SidebarRegionMetrics(
+        var metrics = SidebarRegionMetrics(
             rowHeight: row, headerHeight: SidebarDensityTokens.headerHeight,
             // Keep the pinned footer clear of the window's rounded lower
             // corner. The same grid step as the row's horizontal breathing
@@ -29,5 +29,8 @@ extension SidebarRegionMetrics {
             // A row glyph's center from a line's leading edge (the line
             // starts at the inset; the row glyph at twice the inset).
             glyphColumn: SidebarStyle.horizontalInset + SidebarStyle.iconBox / 2)
+        // An explicit `sidebar.rowSpacing` spaces the pinned rows too (#28663); unset keeps them flush.
+        metrics.rowGap = SidebarDensityTokens.explicitRowSpacing ?? 0
+        return metrics
     }
 }

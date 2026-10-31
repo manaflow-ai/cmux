@@ -52,9 +52,15 @@ public final class DesignSettings {
         get { densityTokens.family }
         set { densityTokens = newValue == .compact ? .compact : DensityPreset.comfortable.tokens }
     }
-    /// `app.uiScale`, the content/page scale. Chrome uses `interfaceScale`.
-    /// Terminal content deliberately remains owned by Ghostty's font size.
-    public var uiScale: CGFloat = 1
+    /// The drawn content/page scale: `app.uiScale` (the value Settings shows) times ``uiScaleBase``.
+    /// Chrome uses `interfaceScale`. Terminal content deliberately remains owned by Ghostty's font size.
+    /// Starts at 100% shown (``uiScaleBase``) until the settings apply.
+    public var uiScale: CGFloat = DesignSettings.uiScaleBase
+    /// What `app.uiScale` 100% draws at (#28663): the old 120%, so the default is two Cmd+= steps
+    /// larger than before while Settings still says 100%.
+    public static let uiScaleBase: CGFloat = 1.2
+    /// The `app.uiScale` value Settings shows for the drawn ``uiScale``.
+    public var uiScaleSetting: CGFloat { uiScale / Self.uiScaleBase }
     /// `appearance.interfaceScale`: the opt-in multiplier for the app chrome. A single token
     /// multiplier drives type, spacing and control heights across native surfaces.
     public var interfaceScale: CGFloat = 1
@@ -329,6 +335,11 @@ public final class DesignSettings {
     /// Clamps the app-wide interface scale to the supported range.
     public static func clampedUIScale(_ value: CGFloat) -> CGFloat {
         min(max(value, 0.85), 1.5)
+    }
+
+    /// The drawn scale for an `app.uiScale` value: clamped to the setting's range, times ``uiScaleBase``.
+    public static func drawnUIScale(_ setting: CGFloat) -> CGFloat {
+        clampedUIScale(setting) * uiScaleBase
     }
 
     public static func clampedInterfaceScale(_ value: CGFloat) -> CGFloat {
