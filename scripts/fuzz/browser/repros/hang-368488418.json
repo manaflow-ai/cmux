@@ -1,0 +1,939 @@
+{
+ "target": "browser",
+ "id": "hang-368488418",
+ "seed": 368488418,
+ "ops_per_seed": 150,
+ "oracle": "hang",
+ "detail": "after op 149 of 150 (all ops done in 166 s) the run never returns; no line for 45 min; the controller stops the step",
+ "where": "the end of the seed: Session.close (quitEndSessions, end_bundle, cleanup) or op 149's own checks; not yet separated",
+ "jobs": {
+  "78618b4ec57bde51c8195e4a": "cmux24-perf, feat 3017ef199804, old driver (no op lines)",
+  "580e82955ed057521e78eca4": "cmux18-perf, #29662 dc14227bc41, last line 'op 149/150 move_new_split (t+166 s)'"
+ },
+ "ops": [
+  {
+   "op": "open",
+   "url": "{origin}/page?id=0",
+   "category": "local",
+   "settle_ms": 600
+  },
+  {
+   "op": "move_new_split",
+   "slot": 61,
+   "settle_ms": 0,
+   "direction": "right"
+  },
+  {
+   "op": "navigate",
+   "slot": 15,
+   "settle_ms": 1500,
+   "url": "/etc/hosts",
+   "category": "file"
+  },
+  {
+   "op": "move_workspace",
+   "slot": 63,
+   "settle_ms": 1500,
+   "to": 8
+  },
+  {
+   "op": "new_workspace",
+   "slot": 26,
+   "settle_ms": 50
+  },
+  {
+   "op": "open",
+   "slot": 29,
+   "settle_ms": 0,
+   "url": "{origin}/history?n=2",
+   "category": "local"
+  },
+  {
+   "op": "navigate",
+   "slot": 40,
+   "settle_ms": 1500,
+   "url": "facetime:fuzz@example.test",
+   "category": "external"
+  },
+  {
+   "op": "open",
+   "slot": 39,
+   "settle_ms": 600,
+   "url": "{origin}/big?kb=64",
+   "category": "local"
+  },
+  {
+   "op": "forward",
+   "slot": 60,
+   "settle_ms": 600
+  },
+  {
+   "op": "open",
+   "slot": 29,
+   "settle_ms": 600,
+   "url": "{origin}/beforeunload",
+   "category": "local"
+  },
+  {
+   "op": "focus",
+   "slot": 37,
+   "settle_ms": 50
+  },
+  {
+   "op": "crash_page",
+   "slot": 39,
+   "settle_ms": 0
+  },
+  {
+   "op": "kill_renderer",
+   "slot": 49,
+   "settle_ms": 0
+  },
+  {
+   "op": "navigate",
+   "slot": 24,
+   "settle_ms": 50,
+   "url": "{origin}/page?id=118#frag",
+   "category": "local"
+  },
+  {
+   "op": "kill_renderer",
+   "slot": 31,
+   "settle_ms": 0
+  },
+  {
+   "op": "navigate",
+   "slot": 29,
+   "settle_ms": 50,
+   "url": "https://\u0430\u0440\u0440\u04cf\u0435.test/",
+   "category": "idn"
+  },
+  {
+   "op": "open",
+   "slot": 59,
+   "settle_ms": 600,
+   "url": "{origin}/history?n=5",
+   "category": "local"
+  },
+  {
+   "op": "forward",
+   "slot": 42,
+   "settle_ms": 200
+  },
+  {
+   "op": "move_workspace",
+   "slot": 40,
+   "settle_ms": 600,
+   "to": 4
+  },
+  {
+   "op": "navigate",
+   "slot": 16,
+   "settle_ms": 50,
+   "url": "chrome://downloads",
+   "category": "internal"
+  },
+  {
+   "op": "download",
+   "slot": 42,
+   "settle_ms": 0,
+   "kb": 4096,
+   "name": "fz15f6afe2-281573-\u4f8b\u3048.bin"
+  },
+  {
+   "op": "reload",
+   "slot": 20,
+   "settle_ms": 1500
+  },
+  {
+   "op": "forward",
+   "slot": 57,
+   "settle_ms": 200
+  },
+  {
+   "op": "open",
+   "slot": 13,
+   "settle_ms": 0,
+   "url": "file:///etc/hosts",
+   "category": "file"
+  },
+  {
+   "op": "forward",
+   "slot": 8,
+   "settle_ms": 0
+  },
+  {
+   "op": "reload",
+   "slot": 6,
+   "settle_ms": 600
+  },
+  {
+   "op": "move_new_split",
+   "slot": 18,
+   "settle_ms": 600,
+   "direction": "down"
+  },
+  {
+   "op": "back",
+   "slot": 46,
+   "settle_ms": 200
+  },
+  {
+   "op": "forward",
+   "slot": 56,
+   "settle_ms": 1500
+  },
+  {
+   "op": "back",
+   "slot": 13,
+   "settle_ms": 0
+  },
+  {
+   "op": "close",
+   "slot": 50,
+   "settle_ms": 200
+  },
+  {
+   "op": "close",
+   "slot": 62,
+   "settle_ms": 600
+  },
+  {
+   "op": "open",
+   "slot": 3,
+   "settle_ms": 0,
+   "url": "java\tscript:document.title='FUZZPWNED'",
+   "category": "script"
+  },
+  {
+   "op": "omnibar",
+   "slot": 24,
+   "settle_ms": 0,
+   "url": "{origin}/popups?n=2",
+   "category": "local"
+  },
+  {
+   "op": "move_new_workspace",
+   "slot": 26,
+   "settle_ms": 0
+  },
+  {
+   "op": "open",
+   "slot": 39,
+   "settle_ms": 50,
+   "url": "{origin}/page?id=115#frag",
+   "category": "local"
+  },
+  {
+   "op": "navigate",
+   "slot": 24,
+   "settle_ms": 0,
+   "url": "{origin}/redirect?n=6&to=/page%3Fid%3D266",
+   "category": "local"
+  },
+  {
+   "op": "new_workspace",
+   "slot": 60,
+   "settle_ms": 50
+  },
+  {
+   "op": "open",
+   "slot": 43,
+   "settle_ms": 0,
+   "url": "{origin}/page?id=197",
+   "category": "local"
+  },
+  {
+   "op": "focus",
+   "slot": 39,
+   "settle_ms": 0
+  },
+  {
+   "op": "navigate",
+   "slot": 47,
+   "settle_ms": 1500,
+   "url": "{origin}/redirect?n=1&to=view-source%3Ahttp%3A%2F%2F127.0.0.1%2F",
+   "category": "local"
+  },
+  {
+   "op": "move_next_pane",
+   "slot": 1,
+   "settle_ms": 600
+  },
+  {
+   "op": "focus",
+   "slot": 55,
+   "settle_ms": 50
+  },
+  {
+   "op": "open",
+   "slot": 22,
+   "settle_ms": 0,
+   "url": "http://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.test/",
+   "category": "huge"
+  },
+  {
+   "op": "open",
+   "slot": 22,
+   "settle_ms": 1500,
+   "url": "\\\\server\\share",
+   "category": "malformed"
+  },
+  {
+   "op": "close",
+   "slot": 27,
+   "settle_ms": 0
+  },
+  {
+   "op": "open",
+   "slot": 55,
+   "settle_ms": 50,
+   "url": "x-apple.systempreferences:com.apple.preference.security",
+   "category": "external"
+  },
+  {
+   "op": "open",
+   "slot": 54,
+   "settle_ms": 0,
+   "url": "{origin}/redirect?n=1&to=view-source%3Ahttp%3A%2F%2F127.0.0.1%2F",
+   "category": "local"
+  },
+  {
+   "op": "open",
+   "slot": 5,
+   "settle_ms": 600,
+   "url": "{origin}/page?id=25#frag",
+   "category": "local"
+  },
+  {
+   "op": "navigate",
+   "slot": 48,
+   "settle_ms": 0,
+   "url": "https://\u2603.invalid/",
+   "category": "idn"
+  },
+  {
+   "op": "navigate",
+   "slot": 50,
+   "settle_ms": 600,
+   "url": "sms:+15555550100",
+   "category": "external"
+  },
+  {
+   "op": "move_next_pane",
+   "slot": 7,
+   "settle_ms": 1500
+  },
+  {
+   "op": "devtools",
+   "slot": 44,
+   "settle_ms": 0,
+   "hold_ms": 2500
+  },
+  {
+   "op": "omnibar",
+   "slot": 9,
+   "settle_ms": 200,
+   "url": "JAVASCRIPT:document.title='FUZZPWNED'",
+   "category": "script"
+  },
+  {
+   "op": "stop",
+   "slot": 49,
+   "settle_ms": 0
+  },
+  {
+   "op": "reload",
+   "slot": 62,
+   "settle_ms": 200
+  },
+  {
+   "op": "kill_renderer",
+   "slot": 0,
+   "settle_ms": 0
+  },
+  {
+   "op": "open",
+   "slot": 14,
+   "settle_ms": 1500,
+   "url": "itms-apps://x",
+   "category": "external"
+  },
+  {
+   "op": "open",
+   "slot": 48,
+   "settle_ms": 0,
+   "url": "blob:chrome://settings/x",
+   "category": "internal"
+  },
+  {
+   "op": "omnibar",
+   "slot": 53,
+   "settle_ms": 50,
+   "url": "{origin}/status?code=418",
+   "category": "local"
+  },
+  {
+   "op": "open",
+   "slot": 63,
+   "settle_ms": 200,
+   "url": "{origin}/redirect?n=25&to=/page",
+   "category": "local"
+  },
+  {
+   "op": "forward",
+   "slot": 10,
+   "settle_ms": 1500
+  },
+  {
+   "op": "navigate",
+   "slot": 32,
+   "settle_ms": 0,
+   "url": "http://-x-.test/",
+   "category": "malformed"
+  },
+  {
+   "op": "navigate",
+   "slot": 42,
+   "settle_ms": 200,
+   "url": "{origin}/redirect?n=1&to=cmux%3A%2F%2Fhistory",
+   "category": "local"
+  },
+  {
+   "op": "focus",
+   "slot": 48,
+   "settle_ms": 0
+  },
+  {
+   "op": "close",
+   "slot": 57,
+   "settle_ms": 0
+  },
+  {
+   "op": "focus",
+   "slot": 47,
+   "settle_ms": 1500
+  },
+  {
+   "op": "open",
+   "slot": 7,
+   "settle_ms": 50,
+   "url": "https://\u4f8b\u3048.\u30c6\u30b9\u30c8/",
+   "category": "idn"
+  },
+  {
+   "op": "navigate",
+   "slot": 57,
+   "settle_ms": 0,
+   "url": "file://localhost/etc/hosts",
+   "category": "file"
+  },
+  {
+   "op": "hard_reload",
+   "slot": 18,
+   "settle_ms": 0
+  },
+  {
+   "op": "navigate",
+   "slot": 49,
+   "settle_ms": 0,
+   "url": "{origin}/page?id=518#frag",
+   "category": "local"
+  },
+  {
+   "op": "omnibar",
+   "slot": 29,
+   "settle_ms": 0,
+   "url": "{origin}/redirect?n=25&to=/page",
+   "category": "local"
+  },
+  {
+   "op": "move_new_window",
+   "slot": 8,
+   "settle_ms": 200
+  },
+  {
+   "op": "navigate",
+   "slot": 15,
+   "settle_ms": 0,
+   "url": "blob:chrome://settings/x",
+   "category": "internal"
+  },
+  {
+   "op": "navigate",
+   "slot": 49,
+   "settle_ms": 600,
+   "url": "https://\u0645\u062b\u0627\u0644.\u0625\u062e\u062a\u0628\u0627\u0631/",
+   "category": "idn"
+  },
+  {
+   "op": "omnibar",
+   "slot": 2,
+   "settle_ms": 0,
+   "url": "about:settings",
+   "category": "internal"
+  },
+  {
+   "op": "open",
+   "slot": 45,
+   "settle_ms": 1500,
+   "url": "http://a\u202eb.test/",
+   "category": "malformed"
+  },
+  {
+   "op": "focus",
+   "slot": 26,
+   "settle_ms": 0
+  },
+  {
+   "op": "new_window",
+   "slot": 2,
+   "settle_ms": 1500
+  },
+  {
+   "op": "move_workspace",
+   "slot": 24,
+   "settle_ms": 600,
+   "to": 8
+  },
+  {
+   "op": "focus",
+   "slot": 16,
+   "settle_ms": 600
+  },
+  {
+   "op": "navigate",
+   "slot": 14,
+   "settle_ms": 200,
+   "url": "x-apple.systempreferences:com.apple.preference.security",
+   "category": "external"
+  },
+  {
+   "op": "open",
+   "slot": 58,
+   "settle_ms": 600,
+   "url": "file:///nonexistent-fuzz",
+   "category": "file"
+  },
+  {
+   "op": "download",
+   "slot": 40,
+   "settle_ms": 0,
+   "kb": 4096,
+   "name": "fz15f6afe2-951002-/etc/fuzz-abs.bin"
+  },
+  {
+   "op": "hard_reload",
+   "slot": 23,
+   "settle_ms": 1500
+  },
+  {
+   "op": "close",
+   "slot": 61,
+   "settle_ms": 600
+  },
+  {
+   "op": "download",
+   "slot": 17,
+   "settle_ms": 1500,
+   "kb": 4096,
+   "name": "fz15f6afe2-142122-fuzz.bin"
+  },
+  {
+   "op": "open",
+   "slot": 2,
+   "settle_ms": 50,
+   "url": "cmux-no-handler-fuzz:x",
+   "category": "external"
+  },
+  {
+   "op": "open",
+   "slot": 60,
+   "settle_ms": 200,
+   "url": "file:///",
+   "category": "file"
+  },
+  {
+   "op": "navigate",
+   "slot": 29,
+   "settle_ms": 1500,
+   "url": "/etc/hosts",
+   "category": "file"
+  },
+  {
+   "op": "move_next_pane",
+   "slot": 31,
+   "settle_ms": 1500
+  },
+  {
+   "op": "open",
+   "slot": 23,
+   "settle_ms": 1500,
+   "url": "file:///etc/hosts",
+   "category": "file"
+  },
+  {
+   "op": "navigate",
+   "slot": 1,
+   "settle_ms": 0,
+   "url": "chrome://downloads",
+   "category": "internal"
+  },
+  {
+   "op": "new_workspace",
+   "slot": 35,
+   "settle_ms": 600
+  },
+  {
+   "op": "navigate",
+   "slot": 31,
+   "settle_ms": 600,
+   "url": "DATA:text/html,<title>FUZZPWNED</title>",
+   "category": "script"
+  },
+  {
+   "op": "omnibar",
+   "slot": 53,
+   "settle_ms": 0,
+   "url": "{origin}/history?n=3",
+   "category": "local"
+  },
+  {
+   "op": "move_storm",
+   "slot": 50,
+   "settle_ms": 1500,
+   "n": 5,
+   "seeds": [
+    54,
+    7,
+    7,
+    4,
+    41
+   ]
+  },
+  {
+   "op": "close_storm",
+   "slot": 54,
+   "settle_ms": 200,
+   "n": 5,
+   "seeds": [
+    22,
+    45,
+    15,
+    28,
+    35
+   ]
+  },
+  {
+   "op": "oom_page",
+   "slot": 60,
+   "settle_ms": 200
+  },
+  {
+   "op": "forward",
+   "slot": 59,
+   "settle_ms": 0
+  },
+  {
+   "op": "open",
+   "slot": 59,
+   "settle_ms": 50,
+   "url": "{origin}/script-nav?to=chrome%3A%2F%2Fsettings",
+   "category": "local"
+  },
+  {
+   "op": "navigate",
+   "slot": 45,
+   "settle_ms": 1500,
+   "url": "{origin}/history?n=2",
+   "category": "local"
+  },
+  {
+   "op": "close_storm",
+   "slot": 44,
+   "settle_ms": 1500,
+   "n": 6,
+   "seeds": [
+    38,
+    0,
+    12,
+    42,
+    10,
+    32
+   ]
+  },
+  {
+   "op": "close",
+   "slot": 24,
+   "settle_ms": 0
+  },
+  {
+   "op": "open",
+   "slot": 6,
+   "settle_ms": 0,
+   "url": "/etc/hosts",
+   "category": "file"
+  },
+  {
+   "op": "reload",
+   "slot": 59,
+   "settle_ms": 1500
+  },
+  {
+   "op": "devtools",
+   "slot": 29,
+   "settle_ms": 50,
+   "hold_ms": 2500
+  },
+  {
+   "op": "new_window",
+   "slot": 38,
+   "settle_ms": 1500
+  },
+  {
+   "op": "open_storm",
+   "slot": 26,
+   "settle_ms": 600,
+   "n": 15
+  },
+  {
+   "op": "oom_page",
+   "slot": 39,
+   "settle_ms": 1500
+  },
+  {
+   "op": "close",
+   "slot": 41,
+   "settle_ms": 200
+  },
+  {
+   "op": "close",
+   "slot": 12,
+   "settle_ms": 0
+  },
+  {
+   "op": "open",
+   "slot": 6,
+   "settle_ms": 0,
+   "url": "{origin}/popups?n=2",
+   "category": "local"
+  },
+  {
+   "op": "move_workspace",
+   "slot": 48,
+   "settle_ms": 600,
+   "to": 1
+  },
+  {
+   "op": "open",
+   "slot": 8,
+   "settle_ms": 0,
+   "url": "{origin}/script-nav?to=javascript%3Adocument.title%3D%27FUZZPWNED%27",
+   "category": "local"
+  },
+  {
+   "op": "reload",
+   "slot": 29,
+   "settle_ms": 200
+  },
+  {
+   "op": "download",
+   "slot": 60,
+   "settle_ms": 200,
+   "kb": 4096,
+   "name": "fz15f6afe2-602007-con.bin"
+  },
+  {
+   "op": "navigate",
+   "slot": 18,
+   "settle_ms": 1500,
+   "url": "{origin}/script-nav?to=view-source%3Ahttp%3A%2F%2F127.0.0.1%2F",
+   "category": "local"
+  },
+  {
+   "op": "open",
+   "slot": 38,
+   "settle_ms": 1500,
+   "url": "{origin}/history?n=4",
+   "category": "local"
+  },
+  {
+   "op": "forward",
+   "slot": 48,
+   "settle_ms": 1500
+  },
+  {
+   "op": "close",
+   "slot": 46,
+   "settle_ms": 1500
+  },
+  {
+   "op": "focus",
+   "slot": 47,
+   "settle_ms": 600
+  },
+  {
+   "op": "download",
+   "slot": 17,
+   "settle_ms": 1500,
+   "kb": 64,
+   "name": "fz15f6afe2-852000-/etc/fuzz-abs.bin"
+  },
+  {
+   "op": "open_storm",
+   "slot": 16,
+   "settle_ms": 200,
+   "n": 13
+  },
+  {
+   "op": "reload",
+   "slot": 41,
+   "settle_ms": 0
+  },
+  {
+   "op": "close",
+   "slot": 0,
+   "settle_ms": 600
+  },
+  {
+   "op": "back",
+   "slot": 37,
+   "settle_ms": 0
+  },
+  {
+   "op": "devtools",
+   "slot": 8,
+   "settle_ms": 0,
+   "hold_ms": 0
+  },
+  {
+   "op": "focus",
+   "slot": 13,
+   "settle_ms": 50
+  },
+  {
+   "op": "move_workspace",
+   "slot": 46,
+   "settle_ms": 50,
+   "to": 13
+  },
+  {
+   "op": "navigate",
+   "slot": 28,
+   "settle_ms": 0,
+   "url": "{origin}/history?n=3",
+   "category": "local"
+  },
+  {
+   "op": "move_new_workspace",
+   "slot": 59,
+   "settle_ms": 50
+  },
+  {
+   "op": "download",
+   "slot": 18,
+   "settle_ms": 50,
+   "kb": 4096,
+   "name": "fz15f6afe2-401073-../../fuzz-escape.bin"
+  },
+  {
+   "op": "hard_reload",
+   "slot": 54,
+   "settle_ms": 0
+  },
+  {
+   "op": "move_new_workspace",
+   "slot": 38,
+   "settle_ms": 1500
+  },
+  {
+   "op": "back",
+   "slot": 31,
+   "settle_ms": 0
+  },
+  {
+   "op": "open",
+   "slot": 40,
+   "settle_ms": 0,
+   "url": "{origin}/big?kb=8192",
+   "category": "local"
+  },
+  {
+   "op": "back",
+   "slot": 48,
+   "settle_ms": 0
+  },
+  {
+   "op": "focus",
+   "slot": 6,
+   "settle_ms": 0
+  },
+  {
+   "op": "omnibar",
+   "slot": 15,
+   "settle_ms": 50,
+   "url": "http://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+   "category": "huge"
+  },
+  {
+   "op": "navigate",
+   "slot": 8,
+   "settle_ms": 0,
+   "url": "{origin}/redirect?n=1&to=/page%3Fid%3D553",
+   "category": "local"
+  },
+  {
+   "op": "navigate",
+   "slot": 39,
+   "settle_ms": 200,
+   "url": "https://\u0645\u062b\u0627\u0644.\u0625\u062e\u062a\u0628\u0627\u0631/",
+   "category": "idn"
+  },
+  {
+   "op": "open_storm",
+   "slot": 19,
+   "settle_ms": 200,
+   "n": 6
+  },
+  {
+   "op": "focus",
+   "slot": 40,
+   "settle_ms": 0
+  },
+  {
+   "op": "move_new_split",
+   "slot": 60,
+   "settle_ms": 200,
+   "direction": "down"
+  },
+  {
+   "op": "close",
+   "slot": 14,
+   "settle_ms": 0
+  },
+  {
+   "op": "devtools",
+   "slot": 63,
+   "settle_ms": 1500,
+   "hold_ms": 100
+  },
+  {
+   "op": "open",
+   "slot": 12,
+   "settle_ms": 200,
+   "url": "{origin}/page?id=907",
+   "category": "local"
+  },
+  {
+   "op": "reload",
+   "slot": 45,
+   "settle_ms": 0
+  },
+  {
+   "op": "move_new_split",
+   "slot": 25,
+   "settle_ms": 0,
+   "direction": "up"
+  }
+ ]
+}
