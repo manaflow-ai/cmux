@@ -108,10 +108,32 @@ extension LayoutRootView: ScrollGestureOwning {
         // The strip scrollbar takes its own clicks.
         if let scrollbar = view.scrollbar, !scrollbar.isHidden,
            scrollbar.hitTest(view.convert(locationInWindow, from: nil)) != nil { return }
-        // Mid render-server spring, the pane drawn under the press, as AppKit's hit test.
-        if let pane = view.pressedPane(at: view.convert(locationInWindow, from: nil)) {
+        // Mid render-server spring, the pane drawn under the press, as AppKit's hit test. Only the pane AppKit
+        // gives the press to takes the focus (cmux-ad P0 2026-10-31): a press the window frame keeps (a resize
+        // at an edge or corner, inside the frame too), a divider's hit area, the sidebar's resize band or the
+        // titlebar's buttons reaches no pane, although it lies over one, so the focus stays where the person typed.
+        // Both must name the same pane. Mid render-server spring the pane drawn under the press and the model's
+        // pane there can differ: `pressedPane` reads the drawn layers, and the frame view's hit test reaches the
+        // drawn view only through `ScreenContentView.hitTest`. A press that the two answers do not agree on
+        // focuses nothing, so a spring never moves the keys to a pane the press did not reach.
+        if let pane = view.pressedPane(at: view.convert(locationInWindow, from: nil)),
+           paneReceivingPress(at: locationInWindow, in: view) == pane {
             model.focus(pane, source: .pointer)
         }
+    }
+
+    /// The pane a press at `locationInWindow` reaches: the one whose host holds the view AppKit
+    /// dispatches the press to, by its hit test from the window's frame view (mid render-server spring
+    /// ``ScreenContentView`` answers it where the views are drawn). Nil when the press reaches no pane of
+    /// `screen` (the frame view, a divider, a view over the layout such as the sidebar's resize band).
+    func paneReceivingPress(at locationInWindow: NSPoint, in screen: ScreenContentView) -> PaneID? {
+        guard let frameView = window?.contentView?.superview,
+              let hit = frameView.hitTest(frameView.convert(locationInWindow, from: nil)) else { return nil }
+        for view in sequence(first: hit, next: \.superview) {
+            if view === screen { return nil }
+            if let host = view as? PaneHostView, context.hosts[host.pane] === host, host.isDescendant(of: screen) { return host.pane }
+        }
+        return nil
     }
 
     /// The intercept's scroll routing: `event` as `eventWindow`, the window AppKit sent it to, has it
