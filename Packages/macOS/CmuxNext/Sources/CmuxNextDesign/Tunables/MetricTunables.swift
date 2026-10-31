@@ -14,25 +14,29 @@ public nonisolated struct MetricTunable: Sendable {
     /// The compact value under Compact tabs (`Metrics.compactTabs`), when it differs.
     public let tight: CGFloat?
     public let key: MetricKey?
+    /// The custom density's `tokens` key for this metric.
+    public let token: String
     public let tunable: DerivedTunable<CGFloat>
 
     /// The value chrome uses now. Observation-tracked (density, cmux.json
     /// override and Debug Settings override).
-    @MainActor public var value: CGFloat { Metrics.scale(tunable.resolve(Metrics.pick(compactValue, comfortable, key, token: name))) }
+    @MainActor public var value: CGFloat { Metrics.scale(tunable.resolve(Metrics.pick(compactValue, comfortable, key, token: token))) }
     /// The compact value in effect: `tight` under Compact tabs, else `compact`.
     @MainActor var compactValue: CGFloat { tight.flatMap { Metrics.compactTabs ? $0 : nil } ?? compact }
     public var descriptor: TunableDescriptor { tunable.descriptor }
 
+    /// `token` is the custom density's `tokens` key that sets it exactly (`name` unless given).
     static func make(_ name: String, _ section: TunableSection, _ label: String, help: String,
                      compact: CGFloat, comfortable: CGFloat, tight: CGFloat? = nil, key: MetricKey? = nil,
-                     range: ClosedRange<Double>? = nil) -> MetricTunable {
+                     token: String? = nil, range: ClosedRange<Double>? = nil) -> MetricTunable {
+        let token = token ?? name
         let upper = max((Double(comfortable) * 2.5).rounded(.up), 24)
         let step = comfortable < 10 ? 0.5 : 1
         let note = compact == comfortable ? "" : " Default \(TunableExport.format(Double(compact))) compact, \(TunableExport.format(Double(comfortable))) comfortable."
         let tunable = DerivedTunable<CGFloat>.number(
             "metrics.\(name)", section, label, help: help + note, range: range ?? 0...upper, step: step, unit: .points,
-            code: "MetricTunables.\(name)") { Metrics.pick(tight.flatMap { Metrics.compactTabs ? $0 : nil } ?? compact, comfortable, key, token: name) }
-        return MetricTunable(name: name, compact: compact, comfortable: comfortable, tight: tight, key: key, tunable: tunable)
+            code: "MetricTunables.\(name)") { Metrics.pick(tight.flatMap { Metrics.compactTabs ? $0 : nil } ?? compact, comfortable, key, token: token) }
+        return MetricTunable(name: name, compact: compact, comfortable: comfortable, tight: tight, key: key, token: token, tunable: tunable)
     }
 }
 
@@ -50,6 +54,14 @@ public nonisolated enum MetricTunables {
     public static let sidebarRowHeightWithSubtitle = MetricTunable.make(
         "sidebarRowHeightWithSubtitle", .sidebar, "Sidebar row height (subtitle)", help: "A workspace row with a cwd, branch or agent line.",
         compact: 36, comfortable: 46)
+    /// A one-line row in the sidebar list and its bands (workspace, pinned, band and tab rows, group headers): the
+    /// Codex desktop sidebar's 30 pt row pitch less the list's `space1` row gap (issue 28793). The rest of the chrome
+    /// that sizes from a sidebar row (Settings rows, Home rows, titlebar band buttons, the footer) keeps
+    /// `sidebarRowHeight`. `appearance.metrics.sidebarRowHeight` and a custom density's `sidebarRowHeight` token set
+    /// both, so a person's row height still wins.
+    public static let sidebarListRowHeight = MetricTunable.make(
+        "sidebarListRowHeight", .sidebar, "Sidebar list row height", help: "A one-line row in the sidebar list (workspaces, pinned and band rows).",
+        compact: 28, comfortable: 32, key: .sidebarRowHeight, token: "sidebarRowHeight")
     public static let sidebarHeaderHeight = MetricTunable.make("sidebarHeaderHeight", .sidebar, "Sidebar header height", help: "Group and machine headers.",
                                                                compact: 22, comfortable: 26)
     public static let roomDotDiameter = MetricTunable.make("roomDotDiameter", .sidebar, "Room dot size", help: "Drawn size of a room dot at the sidebar bottom.",
@@ -128,7 +140,7 @@ public nonisolated enum MetricTunables {
 
     /// Every density metric, in Debug Settings order.
     public static var metrics: [MetricTunable] {
-        [sidebarWidth, titlebarHeight, sidebarRowHeight, sidebarRowHeightWithSubtitle, sidebarHeaderHeight, roomDotDiameter, roomDotSlot,
+        [sidebarWidth, titlebarHeight, sidebarRowHeight, sidebarListRowHeight, sidebarRowHeightWithSubtitle, sidebarHeaderHeight, roomDotDiameter, roomDotSlot,
          tabStripHeight, tabHeight, controlHeight, tabMaxWidth, tabMinActiveWidth, tabMinInactiveWidth, tabPinnedWidth, tabMinWidth, paletteRowHeight, paletteSearchHeight, paletteWidth, panelInset,
          columnGap, dividerThickness, dividerHitWidth, densityPaneCornerRadius, panelCornerRadius, itemCornerRadius, iconSize, smallIconSize, scrollEdgeFade]
     }

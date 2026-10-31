@@ -58,6 +58,8 @@ public nonisolated struct TypeScale: Sendable {
 
     /// Everything by default.
     public static let regular: NSFont.Weight = .regular
+    /// Sidebar row titles: the Codex desktop sidebar's UI weight (cmux issue 28793).
+    public static let sidebar: NSFont.Weight = NSFont.Weight(rawValue: NSFont.Weight.regular.rawValue + (NSFont.Weight.medium.rawValue - NSFont.Weight.regular.rawValue) * 0.3)
     /// Titles, headings, selected or unread rows, group labels.
     public static let emphasis: NSFont.Weight = .semibold
     /// Monogram initials drawn in an avatar circle.

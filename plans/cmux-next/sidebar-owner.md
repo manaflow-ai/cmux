@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-30: the default sidebar text and rows match the Codex desktop sidebar (issue
+  https://github.com/manaflow-ai/cmux/issues/28793: "cmux NEXT's default sidebar text should match the Codex desktop
+  app's sidebar"). At compact app density and `sidebar.density` compact, list, pinned, band and tab rows draw 13 pt Inter
+  titles at weight 430 (`Typography.sidebarRow`, new type-scale weight `TypeScale.sidebar`), 12 pt detail lines and tab
+  titles (`Typography.sidebarDetail`), 28 pt one-line rows with the 2 pt gap (a 30 pt pitch,
+  `MetricTunables.sidebarListRowHeight`) and an 8 pt inset (10 pt comfortable; comfortable rows 32 pt). Other chrome keeps
+  `Typography.body` and `Metrics.sidebarRowHeight` (footer, search, Settings, Home). `appearance.metrics.sidebarRowHeight`
+  and a custom density's `sidebarRowHeight` token still set the list rows. Regression: `SidebarCodexTextDefaultsTests`.
 - 2026-10-30: `sidebar.textSize` (Settings > Appearance > Sidebar Text Size; palette, `cmux settings set
   sidebar.textSize larger`, MCP `settings_set`). Lawrence msg 17752 (a ChatGPT sidebar screenshot): "we also need
   option for sidebar text to be very significantly bigger. this is how big chatgpt is by default, let's match them".

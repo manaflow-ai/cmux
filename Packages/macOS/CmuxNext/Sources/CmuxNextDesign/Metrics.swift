@@ -54,6 +54,8 @@ public struct Metrics {
 
     /// Sidebar workspace row with one line of text.
     public static var sidebarRowHeight: CGFloat { MetricTunables.sidebarRowHeight.value }
+    /// A one-line row in the sidebar list itself (`MetricTunables.sidebarListRowHeight`, issue 28793).
+    public static var sidebarListRowHeight: CGFloat { MetricTunables.sidebarListRowHeight.value }
     /// Sidebar workspace row with a subtitle line (cwd, branch, agent status).
     public static var sidebarRowHeightWithSubtitle: CGFloat { MetricTunables.sidebarRowHeightWithSubtitle.value }
     /// Sidebar group / machine section header.
@@ -266,4 +268,10 @@ public struct Typography {
     public static var title: NSFont { system(.default, size: size(20, 22), weight: .semibold) }
     /// The line under a page title.
     public static var subtitle: NSFont { system(.default, size: size(13, 14), weight: .regular) }
+    /// Sidebar list row titles (workspace, pinned and band rows): the Codex desktop sidebar's 13 pt at
+    /// its 430 UI weight (`TypeScale.sidebar`), one step above chrome's `body` (issue 28793). It follows
+    /// density, Interface Size and the chrome font size like every style here.
+    public static var sidebarRow: NSFont { system(.default, size: size(13, 14), weight: TypeScale.sidebar) }
+    /// A sidebar row's secondary line (folder, branch, agent line, a listed tab): Codex's 12 pt detail.
+    public static var sidebarDetail: NSFont { system(.default, size: size(12, 13), weight: .regular) }
 }

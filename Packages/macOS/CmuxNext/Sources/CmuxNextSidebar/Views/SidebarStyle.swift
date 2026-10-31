@@ -23,9 +23,10 @@ enum SidebarStyle {
     /// The title inset for a disclosed tab, measured from its workspace title column. Tabs are
     /// children of the workspace row, so this is deliberately larger than the old icon well gap.
     static var tabChildIndent: CGFloat { Metrics.space6 }
-    /// Tab titles stay at the caption scale so the workspace remains the visual root of the list.
-    static var tabTitleFont: NSFont { sized(Typography.caption, weight: .regular) }
-    static var tabDetailFont: NSFont { sized(Typography.caption, weight: .regular) }
+    /// Tab titles take the detail size, a step under the workspace title, so the workspace remains
+    /// the visual root of the list.
+    static var tabTitleFont: NSFont { sized(Typography.sidebarDetail, weight: .regular) }
+    static var tabDetailFont: NSFont { sized(Typography.sidebarDetail, weight: .regular) }
     /// Height of a placeholder row's bar (about a caption's x-height).
     static var placeholderBarHeight: CGFloat { Metrics.space3 }
     /// Placeholder bar widths, as shares of the title width.
@@ -128,15 +129,16 @@ enum SidebarStyle {
     /// edge does not park and come back on every small scroll.
     static var pruneMargin: CGFloat { Metrics.sidebarRowHeightWithSubtitle }
 
-    /// Workspace titles: regular weight, read or unread, selected or not
-    /// (Lawrence 2026-10-14: "sidebar text should not be bold by default"),
+    /// Workspace titles: the Codex sidebar's 13 pt at its 430 UI weight (issue 28793), not bold, read
+    /// or unread, selected or not (Lawrence 2026-10-14: "sidebar text should not be bold by default"),
     /// and every title in the primary text color ("All titles primary"):
     /// unread shows by the badge, selection by the fill.
-    static var titleFont: NSFont { sized(Typography.body, weight: .regular) }
+    static var titleFont: NSFont { sized(Typography.sidebarRow, weight: TypeScale.sidebar) }
     /// Length of the fade that ends a clipped row title (no ellipsis): 24 pt at Compact. At
     /// 16 pt the fade ended at a word gap and read as a hard cut.
     static var titleFadeWidth: CGFloat { Metrics.space6 + Metrics.space4 }
-    static var subtitleFont: NSFont { sized(Typography.caption, weight: .regular) }
+    /// A row's detail line: Codex's 12 pt secondary text.
+    static var subtitleFont: NSFont { sized(Typography.sidebarDetail, weight: .regular) }
     /// One detail line under a row's title (the folder, branch or agent line), as its label lays it out.
     static var detailLineHeight: CGFloat {
         let font = subtitleFont

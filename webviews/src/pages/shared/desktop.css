@@ -551,6 +551,7 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --text-content: var(--cv-font-size, 14px);
   --text-content--line-height: var(--cv-line-height, 22.75px);
   --weight-regular: 400; /* everything by default */
+  --weight-sidebar: 430; /* sidebar row titles: the Codex desktop sidebar's UI weight (cmux issue 28793) */
   --weight-emphasis: 600; /* titles, headings, selected or unread rows, group labels */
   --weight-strong: 700; /* monogram initials drawn in an avatar circle */
 }
