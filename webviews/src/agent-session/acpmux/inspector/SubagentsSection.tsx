@@ -178,7 +178,7 @@ export function SubagentsSection({
       identity: agent.id,
       agent,
       name: agent.name,
-      progress: subagentProgress(t, language, agent).join(" · "),
+      progress: subagentProgress(t, language, agent, { usage: false }).join(" · "),
       detail: live(status)
         ? (agent.action ?? (isRepeatedAgentKind(agent.kind) ? undefined : agent.kind))
         : isRepeatedAgentKind(agent.kind)
