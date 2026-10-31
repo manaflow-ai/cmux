@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 760,
-    "mcp": 678
+    "verbs": 775,
+    "mcp": 691
   },
   "nouns": [
     {
@@ -549,6 +549,18 @@
       ]
     },
     {
+      "noun": "automation",
+      "verbs": [
+        {
+          "command": "cmux automation show-page",
+          "title": "Automations",
+          "id": "automations.show",
+          "mcp": true,
+          "mcpTool": "app_automation_show_page"
+        }
+      ]
+    },
+    {
       "noun": "bookmark",
       "verbs": [
         {
@@ -886,6 +898,13 @@
           "mcpTool": "app_browser_set_site_permission"
         },
         {
+          "command": "cmux browser show-cookie-banner",
+          "title": "Show Import Cookies Banner",
+          "id": "browser.showCookieImportBanner",
+          "mcp": true,
+          "mcpTool": "app_browser_show_cookie_banner"
+        },
+        {
           "command": "cmux browser split-down",
           "title": "Split Browser Down",
           "id": "splitBrowserDown",
@@ -1083,17 +1102,59 @@
       "noun": "chief",
       "verbs": [
         {
+          "command": "cmux chief look-at-screen",
+          "title": "Chief: Look at Screen Now",
+          "id": "chief.screenShare.look",
+          "mcp": true,
+          "mcpTool": "app_chief_look_at_screen"
+        },
+        {
           "command": "cmux chief memory",
           "title": "Chief: Open Memory Inspector",
           "id": "chief.openMemoryInspector",
           "mcp": true,
           "mcpTool": "app_chief_memory"
+        },
+        {
+          "command": "cmux chief share-screen",
+          "title": "Share Screen with Chief",
+          "id": "chief.screenShare.start",
+          "mcp": false,
+          "mcpTool": null
+        },
+        {
+          "command": "cmux chief stop-sharing-screen",
+          "title": "Stop Sharing Screen with Chief",
+          "id": "chief.screenShare.stop",
+          "mcp": true,
+          "mcpTool": "app_chief_stop_sharing_screen"
+        },
+        {
+          "command": "cmux chief toggle-screen-share",
+          "title": "Chief: Toggle Screen Sharing",
+          "id": "chief.screenShare.toggle",
+          "mcp": false,
+          "mcpTool": null
         }
       ]
     },
     {
       "noun": "cloud",
       "verbs": [
+        {
+          "command": "cmux cloud api-key-list",
+          "title": "List Cloud API Keys",
+          "id": "cloudAPIKeyList",
+          "mcp": true,
+          "mcpTool": "app_cloud_api_key_list"
+        },
+        {
+          "command": "cmux cloud api-key-revoke",
+          "title": "Revoke Cloud API Key",
+          "id": "cloudAPIKeyRevoke",
+          "mcp": true,
+          "mcpTool": "app_cloud_api_key_revoke"
+        },
         {
           "command": "cmux cloud apply-machine-config",
           "title": "Apply Machine Config",
@@ -1368,6 +1429,13 @@
           "mcpTool": "app_cloud_promote_machine_to_template"
         },
         {
+          "command": "cmux cloud provision-api",
+          "title": "Provision API on Machine…",
+          "id": "cloudProvisionAPI",
+          "mcp": true,
+          "mcpTool": "app_cloud_provision_api"
+        },
+        {
           "command": "cmux cloud publication-list",
           "title": "List Cloud Publications",
           "id": "cloudPublicationList",
@@ -1408,6 +1476,13 @@
           "id": "cloudSetIdlePause",
           "mcp": true,
           "mcpTool": "app_cloud_set_idle_pause"
+        },
+        {
+          "command": "cmux cloud set-network-access",
+          "title": "Internet Access…",
+          "id": "cloudSetNetworkAccess",
+          "mcp": true,
+          "mcpTool": "app_cloud_set_network_access"
         },
         {
           "command": "cmux cloud setup-github",
@@ -1713,6 +1788,13 @@
           "id": "file.open",
           "mcp": true,
           "mcpTool": "app_file_open"
+        },
+        {
+          "command": "cmux file open-as-page",
+          "title": "Open as Page",
+          "id": "file.openAsPage",
+          "mcp": true,
+          "mcpTool": "app_file_open_as_page"
         }
       ]
     },
@@ -3511,6 +3593,39 @@
           "id": "appearance.chromeStyle.twoTone",
           "mcp": false,
           "mcpTool": null
+        }
+      ]
+    },
+    {
+      "noun": "share",
+      "verbs": [
+        {
+          "command": "cmux share chat",
+          "title": "Share Chat with Guest…",
+          "id": "agent.share",
+          "mcp": true,
+          "mcpTool": "app_share_chat"
+        },
+        {
+          "command": "cmux share kick",
+          "title": "Remove Guest",
+          "id": "agent.share.kick",
+          "mcp": true,
+          "mcpTool": "app_share_kick"
+        },
+        {
+          "command": "cmux share list",
+          "title": "List Guest Links",
+          "id": "agent.share.list",
+          "mcp": true,
+          "mcpTool": "app_share_list"
+        },
+        {
+          "command": "cmux share revoke",
+          "title": "Revoke Guest Link",
+          "id": "agent.share.revoke",
+          "mcp": true,
+          "mcpTool": "app_share_revoke"
         }
       ]
     },
@@ -5549,6 +5664,6 @@
   "mcpExempt": {
     "credentials": 6,
     "endsApp": 4,
-    "systemChange": 72
+    "systemChange": 74
   }
 }

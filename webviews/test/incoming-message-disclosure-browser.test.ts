@@ -488,8 +488,11 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
           .map((node) => node.getBoundingClientRect());
         return controls.slice(1).map((box, index) => Math.round(box.left - controls[index]!.right));
       });
-      expect(gaps.length).toBeGreaterThanOrEqual(1);
-      expect(new Set(gaps).size).toBe(1);
+      // Another session's waiting message has its ⋯ alone: no Pin and no hover Copy beside it (Leo,
+      // 2026-10-30: "weird to be able to pin them etc"), so no gap is left to differ.
+      expect(new Set(gaps).size).toBeLessThanOrEqual(1);
+      expect(await rows.locator(".cv-received__hover .cv-message-pin").count()).toBe(0);
+      expect(await rows.locator('.cv-received__hover .cv-message-footer-row [aria-label="Copy"]').count()).toBe(0);
       expect(hovered.plate).not.toBe("rgba(0, 0, 0, 0)");
       expect(hovered.shown).toBe("1");
       expect(hovered.right).toBe(lines[1]!.right);

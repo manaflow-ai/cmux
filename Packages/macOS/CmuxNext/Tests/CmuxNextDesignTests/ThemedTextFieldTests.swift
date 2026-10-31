@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextTestSupport
 import CmuxTheme
 @testable import CmuxNextDesign
 import Testing
@@ -8,7 +9,7 @@ import CmuxNextDesignTokens
 /// room's theme, and the editors' placeholders were macOS's `placeholderTextColor`. In a themed
 /// scope a field's text is the scope's primary ink, its placeholder the scope's tertiary ink, and
 /// a dialog field sits on the theme's field fill instead of the system bezel.
-@MainActor @Suite(.serialized) struct ThemedTextFieldTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct ThemedTextFieldTests {
     /// A dark purple room theme: its inks are far from any system gray.
     private static func purpleScope() throws -> ThemeScope {
         let input = ThemeInput(background: ThemeRGB(hex: 0x2B1650), foreground: ThemeRGB(hex: 0xF4E3FF))
