@@ -107,4 +107,11 @@ fn a_turn_names_the_chief_and_whose_children_it_messages() {
         tags.get(CHILDREN_TAG).map(String::as_str),
         Some(optchat_chief::brain::PARENT)
     );
+    // Which Chief it is: a message it sends another chat shows that Chief
+    // (manaflow-ai/cmux#27914).
+    assert_eq!(
+        tags.get(optchat_chief::acpmux::CHIEF_PARTICIPANT_TAG)
+            .map(String::as_str),
+        Some("agent_mux")
+    );
 }

@@ -21,9 +21,11 @@
 // Drawn as the turn's last row (`row.below`, Debug Settings `agentPane.debug.liveLineBelow`), it
 // has no rule under it and its clock never stops while the turn runs, and before any output
 // (`row.thinkingNow`) it reads "Thinking" beside the time.
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext } from "react";
 import { type Translate, useT } from "../i18n";
 import type { AcpmuxRow, TurnTokenSplit } from "../model";
+import { usePageNow as useTicking } from "../../../ui/pageClock";
+export { usePageNow as useTicking } from "../../../ui/pageClock";
 import { TerminalSquare } from "./icons";
 import { BackgroundHint } from "./BackgroundHint";
 import { TimedLabel, TurnTokens } from "./TurnTokens";
@@ -73,18 +75,6 @@ export function workingParts(t: Translate, counts: WorkingCounts): { key: string
 }
 
 export const WorkingCountsContext = createContext<WorkingCounts | undefined>(undefined);
-
-/// `now()`, again each second while `running`.
-export function useTicking(running: boolean, now: () => number = Date.now): number {
-  const [time, setTime] = useState(now);
-  useEffect(() => {
-    if (!running) return;
-    setTime(now());
-    const timer = setInterval(() => setTime(now()), 1000);
-    return () => clearInterval(timer);
-  }, [now, running]);
-  return time;
-}
 
 export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () => number }) {
   const t = useT();

@@ -306,7 +306,7 @@ test("a diff Find reveals through its row opens past the cut too", async () => {
 });
 
 test("a call's output has Wrap lines and the same preview", async () => {
-  await openRow("fetch", lines(12));
+  await openRow("other", lines(12));
   const card = host.querySelector(".cv-tool-output-card")!;
   expect(wrapOf(card)?.getAttribute("aria-pressed")).toBe("true");
   expect(card.querySelector(".cv-tool-output")?.getAttribute("data-preview")).toBe("cut");

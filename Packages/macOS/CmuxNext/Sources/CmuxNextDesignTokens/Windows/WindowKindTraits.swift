@@ -7,7 +7,7 @@ public nonisolated enum WindowCloseSemantics: Equatable, Sendable {
     case window
 }
 
-/// The background a window of a kind gets from ``NSWindow/install(kind:content:scope:)``.
+/// The background a window of a kind gets from ``NSWindow/install(kind:content:scope:activeLook:)``.
 /// Every kind has the one backdrop of the main window (the material and
 /// the tint at the theme's opacity); only who draws it differs.
 public nonisolated enum WindowSurface: Equatable, Sendable {

@@ -115,6 +115,11 @@ public final class HomeChiefSettingsView: NSView {
     /// Choose Picture… runs its open panel over this window (the popover's
     /// parent), since the popover closes when the panel takes the keys.
     public var pictureWindow: () -> NSWindow? = { nil }
+    /// Move and Scale for a chosen or dropped picture.
+    let cropPanel = HomeChiefPictureCropPanel()
+    /// The last picture write and whether it saved (Debug: `debug.home.api edit_picture`).
+    private var pictureWrite: Task<Void, Never>?
+    private var pictureSaved = false
 
     /// The harness items the picker offers: the official engines (``ChiefBackend/official``:
     /// the user's own Claude login, Codex, Muse Code, and UniiChat, acpmux's built-in `unii`); the
@@ -343,13 +348,48 @@ public final class HomeChiefSettingsView: NSView {
         panel.canChooseDirectories = false
         let use = { [weak self] (response: NSApplication.ModalResponse) in
             guard response == .OK, let url = panel.url else { return }
-            self?.usePicture(url)
+            self?.editPicture(url)
         }
         if let window = pictureWindow() ?? window { panel.beginSheetModal(for: window, completionHandler: use) } else { use(panel.runModal()) }
     }
 
     @objc func useDefaultPicture() {
         usePicture(nil)
+    }
+
+    /// A chosen or dropped picture opens in Move and Scale (``HomeChiefPictureCropPanel``), as
+    /// Messages edits a contact photo; Save makes the circle's square the Chief's picture. A GIF
+    /// is kept whole (its frames move); a file that is no picture says so.
+    @discardableResult
+    func editPicture(_ source: URL) -> Task<Void, Never> {
+        changeFailed = false
+        // task-owner: one picture read for the editor (off the main actor); ends when the editor shows
+        return Task { [weak self] in
+            // The person waits for the editor: the read runs at their priority, off the main actor.
+            // nil: a GIF, kept whole; .some(nil): no picture ImageIO reads.
+            let image = await Task.detached(priority: .high) { () -> CGImage?? in
+                HomeChiefPictureCrop.isAnimated(source) ? nil : .some(HomeChiefPictureCrop.editorImage(at: source))
+            }.value
+            guard let image else {
+                self?.usePicture(source)  // a GIF: kept whole
+                return
+            }
+            guard let self else { return }
+            guard let image else {
+                NSSound.beep()
+                note(HomeEngineStrings.pictureUnreadable, kept: true)
+                return
+            }
+            cropPanel.show(image, over: pictureWindow() ?? window) { [weak self] picture in
+                self?.usePicture(picture)
+            }
+        }
+    }
+
+    /// Makes `picture` (a crop saved in Move and Scale) the shown Chief's picture.
+    @discardableResult
+    func usePicture(_ picture: ChiefAvatarPicture) -> Task<Void, Never> {
+        writePicture { try await $0.avatars.setPicture(picture, chief: $0.chief) }
     }
 
     /// Says `text` on the card's note line (another part's refused change, such as an upload),
@@ -365,20 +405,27 @@ public final class HomeChiefSettingsView: NSView {
     /// next open).
     @discardableResult
     func usePicture(_ source: URL?) -> Task<Void, Never> {
+        writePicture { store in
+            if let source { try await store.avatars.setPicture(from: source, chief: store.chief) } else {
+                try await store.avatars.clearPicture(chief: store.chief)
+            }
+        }
+    }
+
+    private func writePicture(_ write: @escaping @MainActor ((avatars: HomeChiefAvatars, chief: String)) async throws -> Void) -> Task<Void, Never> {
         let store = pictureStore ?? (avatars: HomeChiefAvatars(muxHome: muxHome), chief: HomeChiefAvatars.defaultChief)
         changeFailed = false
         // task-owner: one picture write (registry or files), then the header reads it
-        return Task { [weak self] in
+        let task = Task { [weak self] in
             let written: Bool
             do {
-                if let source { try await store.avatars.setPicture(from: source, chief: store.chief) } else {
-                    try await store.avatars.clearPicture(chief: store.chief)
-                }
+                try await write(store)
                 written = true
             } catch {
                 written = false
             }
             guard let self else { return }
+            pictureSaved = written
             if written {
                 hideNote()
                 onAvatar()
@@ -387,7 +434,25 @@ public final class HomeChiefSettingsView: NSView {
                 note(HomeEngineStrings.pictureUnreadable, kept: true)
             }
         }
+        pictureWrite = task
+        return task
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Opens `source` in Move and Scale as a pick or a drop does, at `zoom`, and with `save`
+    /// presses Save and waits for the write. Nil when the editor did not open, else whether the
+    /// picture was saved (false when not asked to save).
+    public func debugEditPicture(_ source: URL, zoom: CGFloat?, save: Bool) async -> Bool? {
+        await editPicture(source).value
+        guard let editor = cropPanel.view else { return nil }
+        if let zoom { editor.canvas.setZoom(zoom) }
+        guard save else { return false }
+        pictureSaved = false
+        editor.saved()
+        await pictureWrite?.value
+        return pictureSaved
+    }
+    #endif
 
     @objc func showMemory() {
         onShowMemory()

@@ -77,9 +77,48 @@ struct CloudWorkspaceRestoreTests {
         windows.rememberMachines(of: WindowStateDocument(windows: [record]))
         #expect(!windows.isDead(Self.cloudWorkspace), "its machine is paused, not gone: the workspace waits for it")
 
-        // A machine that left the account takes its workspaces with it.
+        // Signed out, a machine missing from the registry is not connected, not gone (P-AUSTIN B7b):
+        // the workspace stays. A machine that left the account (a loaded list of the signed-in
+        // account without it) takes its workspaces with it: `aMachineLeftOnlyWhenTheAccountListSaysSo`.
         _ = services.machines.remove(machine.machineID)
-        #expect(windows.isDead(Self.cloudWorkspace))
+        #expect(!windows.isDead(Self.cloudWorkspace), "signed out, a Cloud workspace is pruned for its connection state")
+    }
+
+    /// P-AUSTIN B7b: Cloud VM workspaces stay in the window record, shown as disconnected, while the
+    /// Cloud is not connected (signed out, Cloud turned off, its list not loaded) at save or restore
+    /// time. They are never pruned because of connection state; only a machine that left the account
+    /// takes its workspaces with it.
+    @Test func aMachineLeftOnlyWhenTheAccountListSaysSo() {
+        #expect(!WindowManager.remoteMachineLeft(listed: false, accountListLoaded: false),
+                "signed out or the list not loaded: the machine is only not connected")
+        #expect(!WindowManager.remoteMachineLeft(listed: true, accountListLoaded: true),
+                "listed with its feature turned off: not connected, not gone")
+        #expect(!WindowManager.remoteMachineLeft(listed: true, accountListLoaded: false))
+        #expect(WindowManager.remoteMachineLeft(listed: false, accountListLoaded: true),
+                "the signed-in account's loaded list does not have it: it left the account")
+    }
+
+    @Test func aCloudWorkspaceSavedWhileSignedOutStaysAndWaitsForItsMachine() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        try #require(!services.cloud.isSignedIn && !services.cloud.auth.isRestoring, "the test runs signed out")
+        services.machines.local.store.apply(snapshot: DaemonTree(registryID: "s-local"))
+        let windows = services.windows
+        var record = WindowRecord(id: "w1", workspaceKey: WorkspaceKey(rawValue: Self.cloudWorkspace),
+                                  workspaceKeys: [WorkspaceKey(rawValue: Self.cloudWorkspace)], machine: "vm-signed-out")
+        record.workspaceMachines = [Self.cloudWorkspace: "vm-signed-out"]
+        windows.rememberMachines(of: WindowStateDocument(windows: [record]))
+        // Signed out: no Cloud machine is in the registry at all (sign-out drops them all).
+        #expect(!windows.isDead(Self.cloudWorkspace), "a Cloud workspace is dropped because the Cloud is not connected")
+        var document = WindowStateDocument(windows: [record])
+        let live = Set([WorkspaceKey(rawValue: Self.cloudWorkspace)].filter { !windows.isDead($0.rawValue) })
+        document.prune(liveWorkspaces: live)
+        #expect(document.windows.first?.workspaceKeys == [WorkspaceKey(rawValue: Self.cloudWorkspace)],
+                "the saved window record lost its Cloud workspace")
+        #expect(document.windows.first?.workspaceMachines == [Self.cloudWorkspace: "vm-signed-out"])
+        // The Cloud connects again: its machine is back in the registry and the workspace waits for it.
+        _ = Self.pausedMachine(services, id: "vm-signed-out")
+        #expect(!windows.isDead(Self.cloudWorkspace))
     }
 
     @Test func theShownWorkspaceOfAnOlderRecordWaitsForItsMachineToo() throws {
@@ -103,5 +142,29 @@ struct CloudWorkspaceRestoreTests {
         let session = CloudMachineSession(machine: CloudMachine(id: id, status: .paused, displayName: "Restore VM"), link: link, mainWork: services.mainWork)
         services.machines.add(session)
         return session
+    }
+
+    /// Review of #28358: the account-list rule is for Cloud machines only. A forgotten SSH machine
+    /// or server is not in any Cloud list, so while signed out of Cloud its workspaces must still
+    /// be gone, as before B7b.
+    @Test func aForgottenSSHOrServerMachinesWorkspaceIsStillGoneWhileSignedOutOfCloud() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        try #require(!services.cloud.isSignedIn && !services.cloud.auth.isRestoring, "the test runs signed out")
+        services.machines.local.store.apply(snapshot: DaemonTree(registryID: "s-local"))
+        let windows = services.windows
+        var record = WindowRecord(id: "w1", workspaceKey: WorkspaceKey(rawValue: "ws-ssh"),
+                                  workspaceKeys: [WorkspaceKey(rawValue: "ws-ssh"), WorkspaceKey(rawValue: "ws-server")])
+        record.workspaceMachines = ["ws-ssh": "ssh-0a1b2c3d4e5f", "ws-server": "server-host-1"]
+        windows.rememberMachines(of: WindowStateDocument(windows: [record]))
+        #expect(windows.isDead("ws-ssh"), "a forgotten SSH machine's workspace is kept while signed out of Cloud")
+        #expect(windows.isDead("ws-server"), "a forgotten server's workspace is kept while signed out of Cloud")
+    }
+
+    @Test func onlyCloudMachineIDsAreCloud() {
+        #expect(MachineRegistry.isCloudMachineID("vm-restore"))
+        #expect(!MachineRegistry.isCloudMachineID("ssh-0a1b2c3d4e5f"))
+        #expect(!MachineRegistry.isCloudMachineID("server-host-1"))
+        #expect(!MachineRegistry.isCloudMachineID(MachineRegistry.localID))
     }
 }

@@ -15,7 +15,8 @@ import Testing
 /// Each display frame runs what the main thread runs in it: the work the view
 /// scheduled for the frame (`ChatController.nextFrame`), a token (the store's
 /// change and `HomeProjection.refresh`, as its observation runs it), the input
-/// event, a second token, then one layout pass and a Core Animation flush.
+/// event (a keystroke, or a live-scroll step as responsive scrolling delivers it), a
+/// second token, then one layout pass and a Core Animation flush.
 ///
 /// The rules (plans/cmux-next/home-streaming-perf-DESIGN.md):
 /// - a streaming frame's main-thread time stays under 12 ms at p95, 20 ms at
@@ -71,13 +72,6 @@ import Testing
             tokens.append("\n\n")
         }
         return Array(tokens.prefix(count))
-    }
-
-    /// A trackpad scroll step (continuous, pixel deltas), as AppKit delivers it to the scroll view.
-    private static func scrollEvent(dy: Int32) -> NSEvent? {
-        guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: dy, wheel2: 0, wheel3: 0) else { return nil }
-        cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
-        return NSEvent(cgEvent: cg)
     }
 
     struct Frames {
@@ -136,15 +130,29 @@ import Testing
             typed += 1
             return Self.ms(k0)
         }
+        // A trackpad scroll as responsive scrolling hands it to the main thread: a live scroll
+        // (will start, one clip move and didLiveScroll per step, did end), 60 steps up, then 60
+        // down, so the stream never pins the view back. Not a synthetic `scrollWheel(with:)`:
+        // with responsive scrolling (NSScrollingBehaviorConcurrentVBL, on hosts that have it)
+        // AppKit reads the gesture from the window server through `NSApp`, which a test process
+        // does not run. A phase-less event there stops the main run loop, so the async test
+        // runner's `CFRunLoopRun` returns and the process exits 0 with no result; a phased one
+        // blocks the main thread forever.
         var scrolls = 0
-        let canScroll = Self.scrollEvent(dy: -4) != nil
+        let clip = scrollView.contentView
         func scroll() -> Double {
-            // Up 60 steps, down 60 steps, so the stream never pins the view back.
-            let dy: Int32 = (scrolls / 60) % 2 == 0 ? 6 : -6
+            let step = scrolls % 60
+            let dy: CGFloat = (scrolls / 60) % 2 == 0 ? -6 : 6
             scrolls += 1
-            guard let e = Self.scrollEvent(dy: dy) else { return 0 }
+            let nc = NotificationCenter.default
             let s0 = CACurrentMediaTime()
-            scrollView.scrollWheel(with: e)
+            if step == 0 { nc.post(name: NSScrollView.willStartLiveScrollNotification, object: scrollView) }
+            var to = clip.bounds
+            to.origin.y += dy
+            clip.scroll(to: clip.constrainBoundsRect(to).origin)
+            scrollView.reflectScrolledClipView(clip)
+            nc.post(name: NSScrollView.didLiveScrollNotification, object: scrollView)
+            if step == 59 { nc.post(name: NSScrollView.didEndLiveScrollNotification, object: scrollView) }
             return Self.ms(s0)
         }
 
@@ -184,11 +192,9 @@ import Testing
             let f = frame(stream: false, typing: true)
             idle.typing.frame.append(f.frame); idle.typing.input.append(f.input)
         }
-        if canScroll {
-            for _ in 0..<240 {
-                let f = frame(stream: false, typing: false)
-                idle.scrolling.frame.append(f.frame); idle.scrolling.input.append(f.input)
-            }
+        for _ in 0..<240 {
+            let f = frame(stream: false, typing: false)
+            idle.scrolling.frame.append(f.frame); idle.scrolling.input.append(f.input)
         }
         // Back at the newest row for the stream's typing phase.
         view.controller.demo?.pinToBottom()
@@ -210,7 +216,7 @@ import Testing
             frameIndex += 1
             MessagesWindowView.commitLog = logged ? [] : nil
             // The first half: typing in the message box; the second: scrolling the transcript.
-            let typingPhase = i < tokens.count / 2 || !canScroll
+            let typingPhase = i < tokens.count / 2
             let f = frame(stream: true, typing: typingPhase)
             for entry in MessagesWindowView.commitLog ?? [] {
                 commits += 1
@@ -249,7 +255,7 @@ import Testing
         print("HOMESTREAM \(label) scrolling \(Self.line("stream work", scrolling.token))")
         print("HOMESTREAM \(label) scrolling \(Self.line("scroll", scrolling.input))")
         print("HOMESTREAM \(label) idle scrolling \(Self.line("frame", idle.scrolling.frame))")
-        print("HOMESTREAM \(label) idle \(Self.line("scroll", idle.scrolling.input)) canScroll \(canScroll)")
+        print("HOMESTREAM \(label) idle \(Self.line("scroll", idle.scrolling.input))")
         let n = frames.count
         for b in stride(from: 0, to: n, by: 250) {
             print("HOMESTREAM \(label) frames \(b)..<\(min(n, b + 250)) \(Self.line("frame", Array(frames[b..<min(n, b + 250)])))")
@@ -273,9 +279,7 @@ import Testing
                 "a frame at the end of the reply costs \(Self.p(tail, 0.5)) ms p50, at the start \(Self.p(head, 0.5)) ms")
         #expect(Self.p(typing.input, 0.95) < Self.p(idle.typing.input, 0.95) + 1,
                 "a keystroke while streaming p95 \(Self.p(typing.input, 0.95)) ms, idle \(Self.p(idle.typing.input, 0.95)) ms")
-        if canScroll {
-            #expect(Self.p(scrolling.input, 0.95) < Self.p(idle.scrolling.input, 0.95) + 1,
-                    "a scroll step while streaming p95 \(Self.p(scrolling.input, 0.95)) ms, idle \(Self.p(idle.scrolling.input, 0.95)) ms")
-        }
+        #expect(Self.p(scrolling.input, 0.95) < Self.p(idle.scrolling.input, 0.95) + 1,
+                "a scroll step while streaming p95 \(Self.p(scrolling.input, 0.95)) ms, idle \(Self.p(idle.scrolling.input, 0.95)) ms")
     }
 }

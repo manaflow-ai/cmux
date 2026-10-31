@@ -116,6 +116,8 @@ Fixed in dc5cb26c16d (failing idle test `cmux_next_daemon_idle_has_no_periodic_w
 | Local PTY reader | WouldBlock slept 1 ms | Interrupted retries, WouldBlock backs off |
 | Remote runtime bootstrap (50 ms), browser proxy parent check (250 ms), parent-exit wait (100 ms) | polls | select on the owner channel and signal pipe; kqueue NOTE_EXIT / pidfd |
 | Writer waiting on a full stream | 100 ms re-check | left: only while a stream is full (backpressure), not idle |
+| Agent chat notices (`mux-agent-chat-notices`, issue 23087) | reconnect to acpmux every 1-10 s for as long as acpmux is not running, which on most machines is always (it starts with the first agent chat) | a file watch of the acpmux socket (`cmux_config::watch`) hints when it appears or changes; a hint with the socket present gets 3 connects (at once, 1 s and 2 s later), then the thread waits for the next hint |
+| Journal maintenance (`cmux-journal-maintenance`, issue 23087) | a tick every 30 s for good, with nothing to do on an idle daemon | ticks at least 30 s apart while work remains (ledger batches, checkpoint, sealing, free pages); a tick that finds none sleeps until a journal event is published (or a frontend projection write, which fills a ledger without one), or at most the hourly ledger scan interval |
 
 ## 7. Measurements
 
