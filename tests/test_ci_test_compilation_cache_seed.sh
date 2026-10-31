@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Regression test for the Debug compilation cache that nightly seeds from main
-# and the pull request compile admission job restores.
+# Regression test for the app-host test build that nightly's DerivedData seeder
+# and the pull request compile admission job share. Neither restores or saves
+# the Debug compilation cache (xcode-compilation-test-*): nothing read it.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -58,14 +59,6 @@ for line in \
 done
 echo "PASS: admission and the seeder build from the same paths"
 
-KEY_PREFIX='xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-'
-if ! grep -Fq -- "$KEY_PREFIX" "$NIGHTLY_FILE" \
-  || grep -F 'xcode-compilation-test-' "$NIGHTLY_FILE" | grep -vqF -- "$KEY_PREFIX"; then
-  echo "FAIL: nightly.yml must key the test compilation cache on the canonical fingerprint"
-  exit 1
-fi
-echo "PASS: the seeder keys the test compilation cache on the canonical fingerprint"
-
 # Pull-request compile admission does not restore the test compilation cache.
 # Swift keys every compile job on its whole module, so the one-module `cmux`
 # app target (and cmuxUITests) missed on every file: 581 of 581 and 566 of 566
@@ -86,40 +79,16 @@ if ! grep -Fq 'steps.compilation-cache-key.outputs.fingerprint' <<<"$ADMISSION";
 fi
 echo "PASS: pull requests skip the test compilation cache and keep the fingerprint for the seed"
 
-if ! awk '
-  /^      - name: Restore test compilation cache/ { step="restore" }
-  /^      - name: Bound test compilation cache size/ { step="bound" }
-  /^      - name: Save test compilation cache/ { step="save" }
-  step == "restore" && /id: compilation-cache-restore/ { saw_restore_id=1 }
-  step == "restore" && /needs\.decide\.outputs\.head_sha/ { saw_revision_key=1 }
-  step == "bound" && /prune-xcode-compilation-cache\.py/ { saw_prune=1 }
-  step == "save" && /uses: (actions\/cache\/save@|\.\/\.github\/actions\/cache-save$)/ { saw_save=1 }
-  step == "save" && /cache-hit != '\''true'\'' && steps\.compilation-cache-bound\.outputs\.save == '\''true'\''/ { saw_gate=1 }
-  END { exit !(saw_restore_id && saw_revision_key && saw_prune && saw_save && saw_gate) }
-' <<<"$SEEDER"; then
-  echo "FAIL: refresh-test-compilation-cache must key the seed by main revision, prune it, and save only a new, bounded cache"
+# Nothing reads the Debug compilation cache, so the seeder no longer restores,
+# bounds or saves it. Each run uploaded a multi-GB CAS
+# that no job restored. Its local CAS stays: the build still takes a path.
+if grep -Fq 'xcode-compilation-test-' "$NIGHTLY_FILE" \
+  || grep -Eq '^      - name: (Restore|Bound|Save) test compilation cache' <<<"$SEEDER"; then
+  echo "FAIL: refresh-test-compilation-cache must not restore, bound or save the test compilation cache;"
+  echo "      no job reads it. The DerivedData seed is what admission adopts."
   exit 1
 fi
-echo "PASS: the seeder rolls the cache forward by main revision and bounds what it saves"
-
-# The seed must come from one clean build. The seeder used to restore its own
-# last seed by prefix, so each run stacked another build's objects onto the
-# CAS; Xcode keeps the primary generation and the upstream it faults from, and
-# that pair crossed the 5 GiB save bound on 2026-09-22 after climbing 3.5 -> 5.0
-# GiB in eight runs. Past the bound nothing is saved, so the next run restores
-# the same older entry and lands past it again and the seed freezes for good.
-# A cold build covers all of main anyway, and it measured smaller (3.5 GiB) and
-# faster (18 min, against 19-25 warm) than a stacked one.
-if awk '
-  /^      - name: / { step = $0 }
-  step ~ /Restore test compilation cache/ && /^[[:space:]]+restore-keys:/ { found = 1 }
-  END { exit !found }
-' <<<"$SEEDER"; then
-  echo "FAIL: refresh-test-compilation-cache must not restore an earlier seed by prefix:"
-  echo "      stacking builds onto one CAS grows it past the save bound, and then the seed freezes."
-  exit 1
-fi
-echo "PASS: the seeder seeds from one clean build"
+echo "PASS: the seeder writes only the DerivedData seed, not the unread test compilation cache"
 
 if ! grep -Eq "if: github\.event_name == 'schedule'" <<<"$SEEDER"; then
   echo "FAIL: refresh-test-compilation-cache must stay on the cache-warming schedule so it does not take a macOS slot per merge"

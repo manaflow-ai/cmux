@@ -9,6 +9,7 @@ import {
   AGENT_REQUIRED_PARAMS,
   agentLink,
   agentLinkModel,
+  agentReference,
 } from "./deeplink-agent";
 
 type SearchValue = string | string[] | undefined;
@@ -367,6 +368,9 @@ export default async function DeeplinkPage({
   // or a hint it cannot use, is ignored by name and the session still opens
   // (schemas/deeplinks/agent-link.json). The other kinds carry commands and stay strict.
   const agent = kind === "agent" ? agentLink(resolvedSearchParams) : null;
+  // A private reference in place of a session: say what it is, offer no Open.
+  const reference =
+    agent && !agent.model ? agentReference(resolvedSearchParams) : null;
   const issues: LinkIssues = agent
     ? {
         unsupported: [],
@@ -390,7 +394,9 @@ export default async function DeeplinkPage({
       ? t("ignoredParams", { params: agent.ignored.join(", ") })
       : null;
   const issue = firstIssue(issues);
-  const errorMessage = t(issue.message, { params: issue.params });
+  const errorMessage = reference
+    ? t("agent.reference")
+    : t(issue.message, { params: issue.params });
 
   return (
     <div className="min-h-screen">
@@ -450,18 +456,22 @@ export default async function DeeplinkPage({
           </div>
         )}
 
-        <div className="rounded-lg border border-border">
-          <div className="border-b border-border px-4 py-3 text-[13px] font-medium text-muted">
-            {t("nativeURL")}
-          </div>
-          <pre className="overflow-x-auto p-4 text-[13px] leading-relaxed">
-            <code>{href}</code>
-          </pre>
-        </div>
+        {reference ? null : (
+          <>
+            <div className="rounded-lg border border-border">
+              <div className="border-b border-border px-4 py-3 text-[13px] font-medium text-muted">
+                {t("nativeURL")}
+              </div>
+              <pre className="overflow-x-auto p-4 text-[13px] leading-relaxed">
+                <code>{href}</code>
+              </pre>
+            </div>
 
-        <p className="mt-5 text-[14px] leading-6 text-muted">
-          {canOpen ? t(`${kind}.fallback`) : t("fixParams")}
-        </p>
+            <p className="mt-5 text-[14px] leading-6 text-muted">
+              {canOpen ? t(`${kind}.fallback`) : t("fixParams")}
+            </p>
+          </>
+        )}
 
         <p className="mt-6 text-[14px] leading-6 text-muted">
           {t("examplePrefix")}{" "}
