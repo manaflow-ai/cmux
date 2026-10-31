@@ -27,7 +27,7 @@ pub struct ConnectionStats {
     accepted: AtomicU64,
     hung_up: AtomicU64,
     reclaimed: AtomicU64,
-    leases: std::sync::Mutex<Vec<std::sync::Weak<ConnectionLease>>>,
+    leases: std::sync::Mutex<Vec<loom_arc::Weak<ConnectionLease>>>,
 }
 
 impl ConnectionStats {
@@ -49,10 +49,97 @@ impl ConnectionStats {
 mod connection_leases;
 use connection_leases::{ConnectionLease, PeerClosed};
 
-use std::sync::Arc;
+/// `Arc` and `Weak` with loom-visible counts: the release decrement and the
+/// acquire fence before the last drop, as std's, so loom sees the order the
+/// real refcount gives (a std `Arc` here made loom read a stale `hung_up` in
+/// the last drop: a model artifact, `active` wrapped below 0).
+mod loom_arc {
+    use loom::sync::atomic::{AtomicUsize, Ordering, fence};
+    use std::cell::UnsafeCell;
+    use std::mem::ManuallyDrop;
+
+    struct Inner<T> {
+        strong: AtomicUsize,
+        value: UnsafeCell<ManuallyDrop<T>>,
+    }
+
+    pub struct Arc<T>(std::sync::Arc<Inner<T>>);
+    pub struct Weak<T>(std::sync::Arc<Inner<T>>);
+
+    // SAFETY: as std's Arc and Weak: the value is shared only behind &T and
+    // dropped once, by the thread that takes the count to zero.
+    unsafe impl<T: Send + Sync> Send for Arc<T> {}
+    unsafe impl<T: Send + Sync> Sync for Arc<T> {}
+    unsafe impl<T: Send + Sync> Send for Weak<T> {}
+    unsafe impl<T: Send + Sync> Sync for Weak<T> {}
+
+    impl<T> Arc<T> {
+        pub fn new(value: T) -> Self {
+            Self(std::sync::Arc::new(Inner {
+                strong: AtomicUsize::new(1),
+                value: UnsafeCell::new(ManuallyDrop::new(value)),
+            }))
+        }
+
+        pub fn downgrade(this: &Self) -> Weak<T> {
+            Weak(this.0.clone())
+        }
+    }
+
+    impl<T> Clone for Arc<T> {
+        fn clone(&self) -> Self {
+            self.0.strong.fetch_add(1, Ordering::Relaxed);
+            Self(self.0.clone())
+        }
+    }
+
+    impl<T> std::ops::Deref for Arc<T> {
+        type Target = T;
+
+        fn deref(&self) -> &T {
+            // SAFETY: the count is above zero while this Arc lives.
+            unsafe { &*self.0.value.get() }
+        }
+    }
+
+    impl<T> Drop for Arc<T> {
+        fn drop(&mut self) {
+            if self.0.strong.fetch_sub(1, Ordering::Release) == 1 {
+                fence(Ordering::Acquire);
+                // SAFETY: the count reached zero: no other Arc reads the value.
+                unsafe { ManuallyDrop::drop(&mut *self.0.value.get()) };
+            }
+        }
+    }
+
+    impl<T> Weak<T> {
+        pub fn upgrade(&self) -> Option<Arc<T>> {
+            let mut count = self.0.strong.load(Ordering::Relaxed);
+            loop {
+                if count == 0 {
+                    return None;
+                }
+                match self.0.strong.compare_exchange(
+                    count,
+                    count + 1,
+                    Ordering::Acquire,
+                    Ordering::Relaxed,
+                ) {
+                    Ok(_) => return Some(Arc(self.0.clone())),
+                    Err(now) => count = now,
+                }
+            }
+        }
+
+        pub fn strong_count(&self) -> usize {
+            self.0.strong.load(Ordering::Relaxed)
+        }
+    }
+}
 
 use loom::sync::atomic::{AtomicBool, Ordering};
 use loom::thread;
+use loom_arc::Arc;
 
 fn explore(model: impl Fn() + Sync + Send + 'static) {
     let mut builder = loom::model::Builder::new();

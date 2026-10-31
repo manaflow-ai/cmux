@@ -31,7 +31,7 @@
 //! The result is one line, `WIRE-FUZZ-RESULT {json}`, with the seed. Repeat a
 //! run with `CMUX_WIRE_FUZZ_SEED=<seed>`.
 
-use std::io::{BufRead, BufReader, ErrorKind, Read, Write};
+use std::io::{BufRead, BufReader, ErrorKind, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -528,13 +528,26 @@ fn the_socket_survives_garbage_and_a_full_house() {
         ));
     }
     held.truncate(held.len().saturating_sub(8));
-    let mut back = 0;
+    // Their slots come back: at once by the hang-up reclaim (#27669), or
+    // within a second as their threads end. A busy first try is counted.
+    let (mut back, mut back_first_try) = (0, 0);
     for index in 0..8 {
-        let mut conn = connect(&path).expect("connect");
-        let _ = writeln!(conn.get_mut(), "{}", json!({"id": index, "cmd": "identify"}));
-        if matches!(read_line(&mut conn), Ok(Some(line)) if !is_busy(&line)) {
-            back += 1;
-            held.push(conn);
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let mut first_try = true;
+        loop {
+            let mut conn = connect(&path).expect("connect");
+            let _ = writeln!(conn.get_mut(), "{}", json!({"id": index, "cmd": "identify"}));
+            if matches!(read_line(&mut conn), Ok(Some(ref line)) if !is_busy(line)) {
+                back += 1;
+                back_first_try += usize::from(first_try);
+                held.push(conn);
+                break;
+            }
+            if Instant::now() > deadline {
+                break;
+            }
+            first_try = false;
+            std::thread::sleep(Duration::from_millis(50));
         }
     }
     if back != 8 {
@@ -588,7 +601,8 @@ fn the_socket_survives_garbage_and_a_full_house() {
     failures.extend(panics.iter().map(|p| format!("daemon panic: {p}")));
     let result = json!({
         "seed": seed, "rounds": rounds, "limit": limit,
-        "limit_phase": {"served": served, "refused": refused, "back_after_hangup": back},
+        "limit_phase": {"served": served, "refused": refused, "back_after_hangup": back,
+                        "back_first_try": back_first_try},
         "storm": {"answered": tally.answered, "refused_busy": tally.refused_busy,
                   "reset": tally.reset, "closed": tally.closed},
         "witness": {"probes": log.probes, "max_latency_ms": log.max_latency.as_millis() as u64,

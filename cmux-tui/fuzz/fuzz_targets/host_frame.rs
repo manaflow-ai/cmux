@@ -7,7 +7,8 @@
 //! chunks and through `read_frame` on one reader.
 //!
 //! Oracle: no panic; the incremental and blocking decoders return the same
-//! frames and agree on the first error kind; the decoder never holds more than
+//! frames (a prefix when the incremental one failed) and agree on the first
+//! error kind; the decoder never holds more than
 //! one header plus the payload limit; a decoder that failed stays failed;
 //! every decoded frame encodes back to the bytes it came from; the payload
 //! decoders (exit, launch failure, snapshot, colors) on each frame's payload
@@ -84,7 +85,14 @@ fuzz_target!(|data: &[u8]| {
         }
     }
 
-    assert_eq!(incremental.len(), blocking.len(), "the two decoders found different frames");
+    // A push that fails returns no frames, also those before the bad header
+    // in the same chunk (the stream is dead): the incremental frames are then
+    // a prefix of the blocking ones.
+    if incremental_error.is_some() {
+        assert!(incremental.len() <= blocking.len(), "the incremental decoder found extra frames");
+    } else {
+        assert_eq!(incremental.len(), blocking.len(), "the two decoders found different frames");
+    }
     for (a, b) in incremental.iter().zip(&blocking) {
         assert!(a == b, "the two decoders decoded one frame differently");
     }

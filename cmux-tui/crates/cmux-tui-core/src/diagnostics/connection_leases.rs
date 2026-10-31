@@ -17,13 +17,19 @@
 //! pool instead of the limit. Linux reports it once both halves are closed.
 
 // The loom model of admission (cmux-tui/fuzz/loom/tests/admission.rs) builds
-// this file with loom's atomics; the lease list stays a std lock (it holds no
-// atomic operation while locked) and std `Arc`/`Weak` (loom has no `Weak`).
+// this file with loom's atomics and the model's `Arc`/`Weak`, whose reference
+// counts are loom atomics (loom has no `Weak`, and cannot see the ordering std
+// `Arc`'s count gives the last drop). The lease list stays a std lock: it holds
+// no atomic operation while locked.
+#[cfg(loom)]
+use super::loom_arc::{Arc, Weak};
 #[cfg(loom)]
 use loom::sync::atomic::{AtomicBool, Ordering};
+use std::sync::PoisonError;
 #[cfg(not(loom))]
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, PoisonError, Weak};
+#[cfg(not(loom))]
+use std::sync::{Arc, Weak};
 
 use super::ConnectionStats;
 
