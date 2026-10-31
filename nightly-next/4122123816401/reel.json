@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "build": "4122123816401",
+  "notes": "notes/4122123816401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 29261,
+      "title": "base red: generate-nightly-deltas holds the whole Mac before the Sparkle key; stable-next jobs in runners.json",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29164,
+      "title": "Cloud page: follow the app's sign-in live, and name machines as the sidebar does",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28898,
+      "title": "base red: toolpack MCP launchers take their secret store from main, so toolpack_mcp passes on macOS",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29514,
+      "title": "base red: the window registry (pure membership model) moves to CmuxNextLayout (app_lines)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27889,
+      "title": "cmux NEXT model picker: themed harness symbols on top, stars, ⌘N, Legacy models (on #27948)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29383,
+      "title": "chat-open bench: keep the click reply's clicked flag, name the subagent apart",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29168,
+      "title": "Agent chat: one thought branch in toolGroups; a capture fixture for the organized turn",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29275,
+      "title": "agent pane: move the acpmux executable choice and its team-signature refusal into its own file, graded risk:high (stacked on #29220)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29501,
+      "title": "fix(cef): key the merged framework and shim caches by content, and bound the merged cache",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29492,
+      "title": "fix(acpmux): box the cold start in the start retry loop, so hub_integration's codex btw test no longer overflows the stack",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29478,
+      "title": "base red: a Forget's acpmux peer removal moves to CmuxNextServer (app_lines)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29476,
+      "title": "fix(cmux-tui): the terminal reap grace runs across daemon restarts (P0 terminal-host leak)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29420,
+      "title": "ci: a whole-lane display step asserts its screen too",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28952,
+      "title": "Session Info is on by default again, and never called Inspector",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28562,
+      "title": "ci: fast tier builds in a SwiftPM root every mini slot shares",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28136,
+      "title": "carry of #24241: sidebar pull request marks are quiet",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28324,
+      "title": "agent transcript: toggle holds last a fixed minimum, a sideways wheel keeps them, and a stale press is never reused (follow-up to #28780)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28834,
+      "title": "gallery: expired harness sign-in states (Harness health notice, Settings Agents) (carry #27742)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
