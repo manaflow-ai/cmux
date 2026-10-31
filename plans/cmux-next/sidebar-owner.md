@@ -187,6 +187,13 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 
 ## Target look (Lawrence's words win)
 
+Workspace tab disclosures sit immediately after the visible workspace name, with `space1` between
+the name and caret, and stay in place when hover controls appear. User request, 2026-10-28:
+"too mcuh space between the directory name and the expansion caret". This changes the trailing
+disclosure placement from the Oct 27 tab-group controls; close, menu and status keep their slots.
+Long names reserve the caret inside the title's available span, preserving the space for time,
+audio and other persistent trailing marks even when hover actions are hidden.
+
 | Part | Target | Source |
 | --- | --- | --- |
 | Hover preview first show | After the existing dwell delay, a sidebar row's hover preview appears at full opacity at its final position. Switching between shown cards keeps its existing motion. | Leo 2026-10-28, ask-067e9aa217 ("there's no fade-in animation for the hover. We can just have it instantly come in on the first load; the delay that we have is fine, maybe.") |

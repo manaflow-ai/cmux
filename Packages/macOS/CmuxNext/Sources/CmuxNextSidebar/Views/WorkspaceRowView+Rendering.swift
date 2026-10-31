@@ -186,6 +186,9 @@ extension WorkspaceRowView {
         // show; VoiceOver uses the row's custom action.
         setHoverShown(moreButton, showMore, fades: controlFades)
         moreButton.frame = closeButton.frame.offsetBy(dx: isClosable && !isShowingPlaceholder ? -(control + Metrics.space1) : 0, dy: 0)
+        let disclosureMaximumX = disclosureButton.frame.minX
+        let disclosureActionStart = min(isClosable ? closeButton.frame.minX : .greatestFiniteMagnitude,
+                                        onMore != nil ? moreButton.frame.minX - (isExpanded && isPinned != nil ? control + Metrics.space1 : 0) : .greatestFiniteMagnitude)
         let markGivesWay = placeCloseSpot(columnMark: columnMark?.view, rowWidth: b.width, cy: cy, control: control,
                                           showClose: showClose, showMore: showMore)
         let pinStart = layoutPin(showMore: showMore, control: control, fades: controlFades)
@@ -247,6 +250,7 @@ extension WorkspaceRowView {
         title.fadeWidth = SidebarStyle.titleFadeWidth
         let titleWidth = max(0, textW - inset) // draws at its edge, so it runs to `trailing`
         layoutTextLines(x: textX, inset: inset, titleWidth: titleWidth, width: textW, head: b, top: top, title: th, line: sh)
+        layoutDisclosureBesideTitle(before: disclosureActionStart, maximumX: disclosureMaximumX)
         // The hover actions draw over the text's end: the title and second
         // line fade out before them (alpha masks, every backdrop), and the
         // marks they cover hide while they show.
