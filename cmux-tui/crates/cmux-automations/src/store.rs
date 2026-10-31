@@ -87,8 +87,8 @@ impl RunnerLock {
         // LockFileEx on Windows.
         match file.try_lock() {
             Ok(()) => Ok(Some(RunnerLock { _file: file })),
-            Err(std::fs::TryLockError::WouldBlock) => Ok(None),
-            Err(std::fs::TryLockError::Error(e)) => Err(e.into()),
+            Err(fs::TryLockError::WouldBlock) => Ok(None),
+            Err(fs::TryLockError::Error(e)) => Err(e.into()),
         }
     }
 }

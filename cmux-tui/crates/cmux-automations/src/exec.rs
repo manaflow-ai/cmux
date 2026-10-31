@@ -28,6 +28,10 @@ use crate::sys::private_file;
 const KILL_GRACE: Duration = Duration::from_secs(10);
 
 /// Starts `program args… <automation> <run>` per job and reaps it.
+#[cfg_attr(
+    not(unix),
+    expect(dead_code, reason = "Windows refuses to start a run, so it reads no field")
+)]
 pub struct ProcessExecutor {
     program: PathBuf,
     args: Vec<String>,

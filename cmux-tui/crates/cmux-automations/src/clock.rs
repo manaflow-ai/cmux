@@ -46,7 +46,7 @@ unsafe extern "C" {
     fn tzset();
 }
 
-/// The CRT's 64-bit `mktime` and `timegm` (libc declares neither for Windows).
+// The CRT's 64-bit `mktime` and `timegm` (libc declares neither for Windows).
 #[cfg(windows)]
 unsafe extern "C" {
     #[link_name = "_mktime64"]
