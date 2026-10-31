@@ -148,4 +148,22 @@ import Testing
         await registration.submit(session: "remote-1", record: "a", machine: "build-box", epoch: 1) { throw refusal }?.value
         #expect(notices.shown.count == 2, "the refusal of a session that came back is not shown again")
     }
+
+    /// Review 6: dropping a pending "no answer" notice must not make a refusal the person already
+    /// saw show again.
+    @Test func aDroppedNoAnswerNoticeDoesNotShowASeenRefusalAgain() async {
+        let notices = Notices()
+        let registration = registration(notices, timedRetries: 0)
+        let refusal = refusal
+        await registration.submit(session: "remote-1", record: "a", machine: "build-box", epoch: 1) { throw refusal }?.value
+        #expect(notices.shown.count == 1)
+        notices.windowShows = false
+        await registration.submit(session: "remote-1", record: "a", machine: "build-box", epoch: 2) {
+            throw DaemonError.timedOut("put-session")
+        }?.value
+        await registration.submit(session: "remote-1", record: "a", machine: "build-box", epoch: 3) { throw refusal }?.value
+        notices.windowShows = true
+        registration.showPendingNotices()
+        #expect(notices.shown.count == 1, "a refusal the person already saw shows again: \(notices.shown)")
+    }
 }
