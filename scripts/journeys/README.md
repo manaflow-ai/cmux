@@ -292,6 +292,8 @@ when `journeys/dogfood/smoke-dogfood.json` passed every round (10 of 10). Each r
 
 - `--exclusive`: the lease owns the whole mini (`capture-host acquire --slot --exclusive`), so no
   fleet step runs there during the round (the fleet rule for evidence).
+  The perf minis are owner-only for pool `perf-lead`, so the gate sets `CAPTURE_HOST_POOL=perf-lead`
+  (capture-host passes it as `--owner-pool`; hq #5153: an older hq-tools install gets HTTP 409).
 - `--hog-swap-gb`: the Austin's-day memory hog (`smoke_hog.py`, a copy of feat's
   `scripts/cmux-next/austins-day/hog.py` until perf has it) holds incompressible memory until swap
   used is that much above the start, gives memory back near the edge, and ends by its own

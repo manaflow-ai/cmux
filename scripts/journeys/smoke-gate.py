@@ -35,6 +35,7 @@ ROOT = HERE.parent.parent
 JOURNEY = "smoke-dogfood"
 HANDOFF = Path("/Users/lawrence/fun/wt/handoff/dogfood-smoke")
 # Everything run.py ships to the mini: a change in any of them means the gate is not its commit.
+OWNER_POOL = "perf-lead"
 GATE_PATHS = ("scripts/journeys", "scripts/cmux-next/build_names.py", "scripts/ci/pr_media_ocr.swift")
 # The gate cmux-ad set (2026-10-30): a .pass file needs at least this many rounds under at least this much hog.
 GATE_ROUNDS = 10
@@ -157,7 +158,11 @@ def main(argv=None):
         # The drain budget is bounded too (capture-host's default is an hour per acquire), so a round on a fleet
         # whose minis run hours-long steps ends as not run instead of waiting for them.
         env = {**os.environ, "CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS": os.environ.get("CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS", "600"),
-               "CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS": os.environ.get("CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS", "900")}
+               "CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS": os.environ.get("CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS", "900"),
+               # The perf minis are owner-only for pool perf-lead (hq fleet.json owner_only_hosts): the controller
+               # refuses an exclusive lease there unless it names that owner pool (HTTP 409, trial 4, 2026-10-31).
+               # capture-host passes it as `cmux-ci reserve --owner-pool` (hq #5153; refresh an older install).
+               "CAPTURE_HOST_POOL": os.environ.get("CAPTURE_HOST_POOL", OWNER_POOL)}
         hosts = idle_first(opts.hosts)
         env["CAPTURE_HOST_HOSTS"] = env["CAPTURE_HOST_SLOT_HOSTS"] = hosts
         done = subprocess.run([sys.executable, opts.runner, "--build", opts.build, "--journey", JOURNEY,

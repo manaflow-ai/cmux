@@ -44,6 +44,8 @@ if status == "fail":
               open(os.path.join(out, "smoke-dogfood", "result.json"), "w"))
 open(os.path.join(out, "results.jsonl"), "w").write(json.dumps(row) + "\n")
 print("leased slot-cmux99-abc")
+open(os.path.join(out, "env.json"), "w").write(json.dumps({k: os.environ.get(k) for k in
+    ("CAPTURE_HOST_POOL", "CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS", "CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS")}))
 '''
 
 
@@ -51,7 +53,8 @@ def gate(plan, tmp, extra=(), env_extra=None, rounds=None):
     runner = os.path.join(tmp, "fake_run.py")
     with open(runner, "w") as f:
         f.write(FAKE)
-    env = {**os.environ, "SMOKE_PLAN": json.dumps(plan), "SMOKE_GATE_CMUX_CI": "/bin/false", **(env_extra or {})}
+    env = {k: v for k, v in os.environ.items() if not k.startswith("CAPTURE_HOST_")}
+    env.update({"SMOKE_PLAN": json.dumps(plan), "SMOKE_GATE_CMUX_CI": "/bin/false", **(env_extra or {})})
     done = subprocess.run([sys.executable, str(GATE), "--build", "job123", "--rounds", str(rounds or len(plan)), "--runner", runner,
                            "--out", os.path.join(tmp, "out"), "--handoff", os.path.join(tmp, "handoff"), *extra],
                           capture_output=True, text=True, env=env, timeout=120)
@@ -65,6 +68,12 @@ class Verdicts(unittest.TestCase):
             code, summary = gate(["pass"] * 10, tmp)
             self.assertEqual(summary["verdict"], "PASS")
             self.assertTrue(summary["rounds_detail"][0]["pressure"]["ok"])
+            with open(os.path.join(tmp, "out", "round-01", "env.json")) as f:
+                env = json.load(f)
+            # The perf minis' owner pool (the controller refuses an exclusive lease there without it) and the
+            # fleet rules' acquire and drain bounds.
+            self.assertEqual(env, {"CAPTURE_HOST_POOL": "perf-lead", "CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS": "600",
+                                   "CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS": "900"})
             self.assertEqual(summary["rounds_detail"][0]["leases"], ["slot-cmux99-abc"])
             written = os.path.exists(os.path.join(tmp, "handoff", "job123.pass"))
             # The gate's own folder may have uncommitted edits while it is developed: then no .pass file.
