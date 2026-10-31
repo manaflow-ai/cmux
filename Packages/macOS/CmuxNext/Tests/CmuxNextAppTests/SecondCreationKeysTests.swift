@@ -515,11 +515,14 @@ struct SecondCreationKeysTests {
             held.append(try Self.press("\u{3}", [.control], keyCode: 8, ignoring: "c", in: p))
             try #require(held.allSatisfy { $0 }, "the test needs the keys held for the first creation: \(held)")
 
-            // Another workspace shows, and the first terminal's hidden view is evicted: only the daemon can type the keys.
+            // Another workspace shows, and the first one hibernates (the product's own path: unmounted, its surfaces freed),
+            // so the first terminal has no view and only the daemon can type the keys.
+            let store = p.services.machines.local.store
+            let firstWorkspace = try #require(store.workspace(containing: p.first.pane.pane.handle)?.id, "the first terminal's pane is in no workspace")
             #expect(p.services.registry.perform("newTab", invocation: ActionInvocation(origin: .user)))
             try await PinnedPageTests.until({ p.services.windows.active?.workspaceContent !== p.content },
                                             report: { "waited for another workspace in the window; it still shows the first one" })
-            p.services.cache.evictHiddenTerminal(p.first.tab)
+            p.services.hibernateWorkspace(firstWorkspace)
             try await PinnedPageTests.until({ p.services.cache.existingTerminal(p.first.tab) == nil }, within: .seconds(5), report: {
                 "waited for the first terminal's view to be evicted; it is still in the content cache"
             })
