@@ -372,4 +372,63 @@ struct SecondCreationKeysTests {
             }
         }
     }
+
+    /// P0 1193 follow-up (review finding 1): a held Control shortcut typed for a terminal that is not focused at the
+    /// hold's end runs as that shortcut on that terminal's pane, as a key press there would; it is never typed into the
+    /// terminal as a byte (Ctrl-` is New Terminal Tab; before, only Command chords went through app dispatch).
+    @Test func aHeldControlShortcutRunsOnTheTerminalItWasTypedFor() async throws {
+        try await Self.withTwoTerminals { p in
+            let coordinator = Self.replayInTestWindow(p)
+            try await Self.focus(p.first.pane, tab: p.first.tab, in: p)
+            let firstTabs = p.first.pane.pane.tabs.count, secondTabs = p.second.pane.pane.tabs.count
+            // The first creation has no early view: the key typed for it waits for it, on any build.
+            let creation = try #require(coordinator.begin(in: p.window, generation: p.content.beginFocusIntent(), tab: p.first.tab))
+            let held = try Self.press("`", [.control], keyCode: 50, in: p)
+            try #require(held, "the test needs Ctrl-` held for the first creation")
+            // The hold ends with the keyboard on the second terminal.
+            try await Self.focus(p.second.pane, tab: p.second.tab, in: p)
+            coordinator.resolve(creation, landed: true, in: p.window)
+            try await PinnedPageTests.until({ p.first.pane.pane.tabs.count == firstTabs + 1 || p.second.pane.pane.tabs.count != secondTabs },
+                                            within: .seconds(10), report: {
+                "waited for a new tab in the first terminal's pane; saw first \(p.first.pane.pane.tabs.count) tabs (was \(firstTabs)), second \(p.second.pane.pane.tabs.count) (was \(secondTabs))"
+            })
+            #expect(p.second.pane.pane.tabs.count == secondTabs, "the held Ctrl-` opened a tab in the focused pane, not in the pane it was typed for")
+            #expect(p.first.pane.pane.tabs.count == firstTabs + 1, "the held Ctrl-` did not run as New Terminal Tab in the first terminal's pane")
+        }
+    }
+
+    /// P0 1193 follow-up (review finding 2): keys held for two creations, and a replayed key of the first opens a new
+    /// creation (a held Cmd-D). The keys typed after it for the OTHER terminal stay that terminal's: each key goes to the
+    /// terminal the focus named when it was typed. Before, every key after the replayed Cmd-D went to the new split.
+    @Test func aReplayedCreationKeepsTheOtherTerminalsKeys() async throws {
+        try await Self.withTwoTerminals { p in
+            let coordinator = Self.replayInTestWindow(p)
+            let nonce = String(UInt32.random(in: 100_000...999_999))
+            try await Self.focus(p.first.pane, tab: p.first.tab, in: p)
+            // Two creations, neither with an early view: every key below waits, on any build.
+            let firstCreation = try #require(coordinator.begin(in: p.window, generation: p.content.beginFocusIntent(), tab: p.first.tab))
+            let secondCreation = try #require(coordinator.begin(in: p.window, generation: p.content.beginFocusIntent(), tab: p.second.tab))
+            var held = [try Self.press("d", [.command], keyCode: 2, in: p)] // for the first terminal
+            try await Self.focus(p.second.pane, tab: p.second.tab, in: p)
+            held += try Self.type("echo l2x\(nonce)x$((6*7))\r", in: p) // for the second terminal
+            try #require(held.allSatisfy { $0 }, "the test needs every key held: \(held)")
+
+            let before = Set(p.content.panes.keys)
+            coordinator.resolve(firstCreation, landed: true, in: p.window)
+            coordinator.resolve(secondCreation, landed: true, in: p.window)
+            @MainActor func split() -> SurfaceID? {
+                p.content.panes.filter { !before.contains($0.key) }.values.compactMap { pane in
+                    pane.pane.tabs.first { $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) }?.surface
+                }.first
+            }
+            let inSecond = try await Self.ran("l2x\(nonce)x42", on: p.second.surface, in: p)
+            let made = split()
+            let madeScreen = if let made { await Self.screen(made, in: p) } else { "" }
+            let second = await Self.screen(p.second.surface, in: p)
+            // The outcome the person sees first.
+            #expect(!madeScreen.contains("l2x\(nonce)"), "the line typed for the second terminal ran in the new split: \(madeScreen.suffix(300))")
+            #expect(inSecond, "the line typed for the second terminal did not run there: \(second.suffix(300))")
+            #expect(made != nil, "the held Cmd-D made no pane")
+        }
+    }
 }
