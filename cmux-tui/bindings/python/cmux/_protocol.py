@@ -21,6 +21,7 @@ from typing import (
 
 from ._operations import Operations
 from .errors import (
+    _DispatchTimeoutError,
     CancelledError,
     CmuxConnectionError,
     ConfirmationRequiredDetails,
@@ -471,8 +472,9 @@ class ProtocolConnection:
                         raise CancelledError(operation, dispatched=False)
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
-                        raise TimeoutError(
-                            f"{operation} did not dispatch before the deadline"
+                        raise _DispatchTimeoutError(
+                            f"{operation} did not dispatch before the deadline",
+                            write_started=False,
                         )
                     self._request_cleanup_condition.wait(
                         min(remaining, 0.01)
@@ -482,8 +484,9 @@ class ProtocolConnection:
             if cancel_event is not None and cancel_event.is_set():
                 raise CancelledError(operation, dispatched=False)
             if deadline - time.monotonic() <= 0:
-                raise TimeoutError(
-                    f"{operation} did not dispatch before the deadline"
+                raise _DispatchTimeoutError(
+                    f"{operation} did not dispatch before the deadline",
+                    write_started=False,
                 )
             if not _skip_request_cleanup_gate:
                 self._active_request_dispatches += 1
@@ -494,8 +497,9 @@ class ProtocolConnection:
                 if _bounded_dispatch:
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
-                        raise TimeoutError(
-                            f"{operation} did not dispatch before the deadline"
+                        raise _DispatchTimeoutError(
+                            f"{operation} did not dispatch before the deadline",
+                            write_started=False,
                         )
                     if _dispatch_guard is None:
                         self._wire.send_bounded(envelope, remaining)
@@ -508,7 +512,17 @@ class ProtocolConnection:
                             self._pending.pop(request_id, None)
                         return _REQUEST_NOT_DISPATCHED
                 else:
-                    self._wire.send(envelope, on_sent=_on_dispatched)
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise _DispatchTimeoutError(
+                            f"{operation} did not dispatch before the deadline",
+                            write_started=False,
+                        )
+                    self._wire.send(
+                        envelope,
+                        on_sent=_on_dispatched,
+                        timeout=remaining,
+                    )
             finally:
                 if claimed_dispatch:
                     with self._request_cleanup_condition:
@@ -519,7 +533,11 @@ class ProtocolConnection:
                 self._pending.pop(request_id, None)
             if _on_send_error is not None:
                 _on_send_error(error)
-            self._fail(error, attempt_cleanup=False)
+            if not (
+                isinstance(error, _DispatchTimeoutError)
+                and not error.write_started
+            ):
+                self._fail(error, attempt_cleanup=False)
             raise
         while not pending.event.is_set():
             if cancel_event is not None and cancel_event.is_set():
