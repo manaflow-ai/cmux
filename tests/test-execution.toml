@@ -2322,3 +2322,7 @@ reason = "Run by hand (cmux-ci) before changing the devbox bubblewrap recipe: it
 [[test]]
 path = "tests/test_chromium_staleness.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_instant_bench_warm_arm.py"
+lane = "linux-guard"
