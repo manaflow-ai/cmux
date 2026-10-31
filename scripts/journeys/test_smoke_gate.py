@@ -856,6 +856,42 @@ class NewTerminals(unittest.TestCase):
         ok, detail = self.ext.cond_smoke_key_window(j, {}, {})
         self.assertFalse(ok, detail)
 
+    def test_a_page_step_passes_when_the_chromium_page_child_of_a_main_window_holds_the_keys(self):
+        # cmux21 tip smoke 18:22Z-21:25Z (builds 2ee98d9c, a6f13ca1, aae61943): after Cmd-T in a browser tab the
+        # New Tab page's CefNSWindow, a child of the cmux window, was key, as the app is built to do
+        # (ChromiumPageWindowMain). The check counted only a key main window and failed every debug.key round.
+        j = self.journey([("w", "p1", "a", "T0", True)], {}, "p1")
+        j.smoke_key_ok = True
+        page = [{"id": 1, "kind": "main", "key": False, "parent": None},
+                {"id": 2, "kind": "CefNSWindow", "class": "CefNSWindow", "key": True, "visible": True, "parent": 1}]
+        j.app.rpc = lambda method, params=None: {"windows": page}
+        ok, detail = self.ext.cond_smoke_key_window(j, {"page": True}, {})
+        self.assertTrue(ok, detail)
+        self.assertEqual(detail.get("holder"), {"page": 2, "of_main": 1})
+        # Without "page" the step still wants the main window itself key (a terminal step: keys to a page are wrong).
+        self.assertFalse(self.ext.cond_smoke_key_window(j, {}, {})[0])
+        # A page window that is the child of no main window of the app, or a key panel, never passes.
+        for other in ({"id": 2, "kind": "CefNSWindow", "key": True, "visible": True, "parent": 9},
+                      {"id": 2, "kind": "panel", "key": True, "visible": True, "parent": 1},
+                      {"id": 2, "kind": "CefNSWindow", "key": True, "visible": False, "parent": 1}):
+            j.app.rpc = lambda method, params=None, o=other: {"windows": [page[0], o]}
+            self.assertFalse(self.ext.cond_smoke_key_window(j, {"page": True}, {})[0], other)
+        # Typing at once into a terminal still refuses a key page window.
+        j.app.rpc = lambda method, params=None: {"windows": page}
+        j.key = lambda *a: None
+        with self.assertRaises(self.StepError):
+            self.ext.step_smoke_type_now(j, {"text": "x"})
+
+    def test_the_cmd_t_step_lets_the_new_tab_page_hold_the_keys(self):
+        spec = json.loads((Path(__file__).resolve().parent / "journeys" / "dogfood" / "smoke-dogfood.json").read_text())
+        cmdt = [s for s in spec["steps"] if s.get("since") == "cmdt" and s.get("do") == "expect"]
+        self.assertEqual(len(cmdt), 1)
+        self.assertIn({"smoke_key_window": {"page": True}}, cmdt[0]["all"])
+        # Every other key-window check still wants a main window key.
+        others = [c for s in spec["steps"] if s is not cmdt[0] for c in s.get("all", []) if "smoke_key_window" in c]
+        self.assertTrue(others)
+        self.assertTrue(all(c == {"smoke_key_window": {}} for c in others), others)
+
     def test_a_key_window_lost_to_a_prompt_that_was_already_there_is_not_judged_not_a_fail(self):
         j = self.journey([("w", "p1", "a", "T0", True)], {}, "p1")
         j.smoke_key_ok = True  # the window was key, then the console's system prompt took the keys back
