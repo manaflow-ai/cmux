@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextFeed
 @testable import CmuxNextTasks
+import CmuxNextTestSupport
 import Foundation
 import SwiftUI
 import Testing
@@ -12,7 +13,7 @@ import Testing
 /// macOS's gray, and their text and caret the appearance's, whatever the room's theme: the new-task
 /// field, the app store search, the feed inbox filter, the feed's reply field and an app scene's
 /// text field. Hosted in a purple room, each draws the scope's text and hint inks.
-@MainActor @Suite(.serialized) struct ThemedPlainFieldsTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct ThemedPlainFieldsTests {
     /// `view` hosted in a window whose content roots the purple room.
     private static func host(_ view: some View, _ scope: ThemeScope, size: NSSize = NSSize(width: 520, height: 320)) -> (NSWindow, NSView) {
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false)

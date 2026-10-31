@@ -111,6 +111,14 @@ remote-hosting grant, the app's machine record, a phone pairing, a server's team
 (`server.revoke`). A removed device cannot reconnect without a new add. The confirmation says what
 stops working, in plain words, before it runs.
 
+A computer added with Add Device is in two lists: the sidebar's SSH machine and the acpmux peer
+enroll added at the same `ssh://[user@]host`. Removing it from either removes both (HQ #4877
+break 8): Settings > Devices Remove of a peer also forgets the SSH machines at that exact route,
+and Forget Machine (`remote.forget`) also runs `acp host rm` for the peer at its route once its
+Undo toast ends (so Undo brings both back: the peer was never removed), unless another of the
+app's SSH sessions still uses that route. Routes match only exactly: the same host (any case),
+the same user, and no ssh port on the machine.
+
 ### 2.6 One audit
 
 Every add, approve, deny, remove, invite and failed join appends one line to the host audit log

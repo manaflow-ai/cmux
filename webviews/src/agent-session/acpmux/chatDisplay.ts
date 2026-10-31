@@ -68,6 +68,9 @@ export const MINIMAL_MODE_KEY = "sidebar.minimal";
 export const CHAT_MINIMAP_KEY = "agentPane.display.vscodeMinimap";
 /// Settings > Agent Chat > Chat Minimap (Swift AgentPaneDisplaySettingsSchema has the same row).
 export const MINIMAP_KEY = "agentPane.display.minimap";
+/// Settings > Updates > Show Feature Tips (featureTips.tsx), on unless set false. The host sends it
+/// with the chat's keys (Swift AgentPaneDisplaySetting.followedAppPaths). Not part of ChatDisplay.
+export const FEATURE_TIPS_KEY = "updates.showFeatureTips";
 
 /// Each option: its cmux.json key, its range and default. The Swift schema has the same rows
 /// (AgentPaneDisplaySettingsSchema).
@@ -230,6 +233,7 @@ let current = DEFAULT_CHAT_DISPLAY;
 let raw: Values = {};
 let minimapOn = false;
 let threadMinimapArm: ThreadMinimapArm | null = null;
+let featureTipsOn = true;
 const listeners = new Set<() => void>();
 
 /// Sets the variables on `root` (the document's root in the page).
@@ -246,10 +250,12 @@ export function setChatDisplay(value: unknown): void {
   const next = resolveChatDisplay(raw);
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
   const threadMinimap = resolveThreadMinimapArm(raw);
+  const tips = raw[FEATURE_TIPS_KEY] !== false;
   const same = JSON.stringify(next) === JSON.stringify(current);
-  if (same && minimap === minimapOn && threadMinimap === threadMinimapArm) return;
+  if (same && minimap === minimapOn && threadMinimap === threadMinimapArm && tips === featureTipsOn) return;
   minimapOn = minimap;
   threadMinimapArm = threadMinimap;
+  featureTipsOn = tips;
   if (same) {
     for (const listener of listeners) listener();
     return;
@@ -309,10 +315,14 @@ const subscribe = (listener: () => void) => {
 const snapshot = () => current;
 const minimapSnapshot = () => minimapOn;
 const threadMinimapSnapshot = () => threadMinimapArm;
+const featureTipsSnapshot = () => featureTipsOn;
 /// Whether the chat minimap is on (CHAT_MINIMAP_KEY).
 export const useChatMinimap = (): boolean => useSyncExternalStore(subscribe, minimapSnapshot, minimapSnapshot);
 /// The rail's arm, separate from the measured chat look so switching it remeasures no transcript row.
 export const useThreadMinimapArm = (): ThreadMinimapArm | null =>
   useSyncExternalStore(subscribe, threadMinimapSnapshot, threadMinimapSnapshot);
+/// Whether feature tips may show (FEATURE_TIPS_KEY).
+export const useFeatureTipsOn = (): boolean =>
+  useSyncExternalStore(subscribe, featureTipsSnapshot, featureTipsSnapshot);
 /// The live look, so layouts measured at the old metrics are measured again.
 export const useChatDisplay = (): ChatDisplay => useSyncExternalStore(subscribe, snapshot, snapshot);
