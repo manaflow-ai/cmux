@@ -38,11 +38,11 @@ nonisolated public struct UpdateBuildIdentity: Sendable, Equatable {
             bundleIdentifier: info["CFBundleIdentifier"] as? String,
             shortVersion: info["CFBundleShortVersionString"] as? String ?? "0",
             build: info["CFBundleVersion"] as? String ?? "0",
-            sourceCommit: Self.normalizedCommit(info["CMUXCommit"] as? String),
             minimumSystemVersion: (info["LSMinimumSystemVersion"] as? String).flatMap(SystemVersion.init),
             infoFeedURL: info["SUFeedURL"] as? String,
             // An unsubstituted `$(SPARKLE_PUBLIC_KEY)` is not a key.
-            hasPublicKey: !key.isEmpty && !key.hasPrefix("$(")
+            hasPublicKey: !key.isEmpty && !key.hasPrefix("$("),
+            sourceCommit: Self.normalizedCommit(info["CMUXCommit"] as? String)
         )
     }
 
