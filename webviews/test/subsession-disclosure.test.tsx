@@ -262,7 +262,7 @@ test("standalone agent-run Show more is scoped to its parent chat across switche
     state: "completed",
     startedAt: 0,
     endedAt: 1_000,
-    result: "First paragraph.\\n\\nSecond paragraph.\\n\\nFinal checkpoint.",
+    result: "First paragraph.\n\nSecond paragraph.\n\nFinal checkpoint.",
   };
   root = createRoot(container);
   const render = (sessionId: string) =>
