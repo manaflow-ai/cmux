@@ -5,16 +5,20 @@ import CmuxNextActions
 import Foundation
 import Testing
 
-/// P0 candidate (STATUS 1584, found by the P0 1193 owner on feat bcec3ce42ba): Cmd-D, keys, Cmd-W, Cmd-D in one burst
-/// made NO pane at the second Cmd-D. Cmd-W closed the pending split (its creation was cancelled and the store took its
-/// stand-in out at once), but the window still showed the stand-in and kept the focus on its pane id until its store
-/// observation ran in a later turn. So the second Cmd-D split the closed stand-in, which no daemon pane takes over, and
-/// nothing came. A close of a pending split puts the focus on a live pane in its own turn (the pane the split was made
-/// from), so the next key of the burst acts there.
+/// STATUS 1584 (found by the P0 1193 owner on feat bcec3ce42ba): Cmd-D, Cmd-W, Cmd-D in ONE main-actor turn made no pane
+/// at the second Cmd-D. Cmd-W cancelled the pending split and the store took its stand-in out at once, but the window
+/// still showed the stand-in and kept the focus on it until its store observation ran in a later turn, so the second
+/// Cmd-D split the closed stand-in, which no daemon pane takes over.
+///
+/// Not a person's bug: a person's keys each run in their own turn, and the observation runs between them (the base
+/// journey close-pending-split-then-split passed in a real key window). It is a same-turn guarantee for any burst that
+/// runs in one turn (a batch of scripted actions): a close of a pending split shows in its own turn.
 ///
 /// Every key goes through the app's key path (the key router, then the window, as `CmuxApplication.sendEvent` runs a
-/// key), all in one main-actor turn, so no reply and no store observation can come between them. Both terminals are new
-/// panes made by splits: the test app's first pane is an agent chat, where Cmd-D and Cmd-W mean other things.
+/// key), all in one turn. No key is HELD at the checked steps: a test window is never key, so a key the creation hold
+/// keeps is replayed through `NSApp.sendEvent` to no window (the test would fail for the rig, not the app; the first red
+/// did). Each check first proves the key ran (`held` false). Both terminals are new panes made by splits: the test app's
+/// first pane is an agent chat, where Cmd-D and Cmd-W mean other things.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct ClosedPendingSplitFocusTests {
     @Test func cmdDAfterCmdWClosedAPendingSplitMakesANewPaneWithTheFocus() async throws {
@@ -23,18 +27,23 @@ struct ClosedPendingSplitFocusTests {
             let window = try #require(content.layoutView.window)
             let original = try await Self.startingTerminal(services: services, content: content, window: window)
             let before = Set(content.panes.keys)
-            let nonce = String(UInt32.random(in: 100_000...999_999))
-
             // One main-actor turn, no await, from Cmd-D up to the second Cmd-D.
             let firstSplit = try Self.press("d", .command, keyCode: 2, services: services, window: window)
             let first = try #require(content.panes.first { !before.contains($0.key) }?.value,
                                      "the first Cmd-D shows no pane in its turn (held: \(firstSplit)): \(Self.describe(content, services))")
             let firstKey = first.paneKey
-            for character in "echo c5x\(nonce)" {
-                _ = try Self.press(String(character), [], keyCode: 0, services: services, window: window)
-            }
+            // The focus on the new pane in this turn, as when its focus landed before Cmd-W (the path the P0 1193 owner
+            // saw: Cmd-W closes the stand-in's own tab). A person's focus on a pane is a new intent: it ends the wait for
+            // the split's tab, so Cmd-W is no close of a creation still on its way. Whether the focus landed by itself in
+            // the key's turn depended on timing (the first red took the other path, and its second Cmd-D was held).
+            PaneHandlers.focus(first.layoutPaneID, in: content)
+            try #require(content.focus.state.pane == firstKey && content.focus.state.expectation == nil,
+                         "the test needs the focus on the split's stand-in and no focus wait: \(Self.describe(content, services))")
             _ = try Self.press("w", .command, keyCode: 13, services: services, window: window)
             let afterClose = Self.describe(content, services)
+            // A key the creation hold keeps is replayed to no window in a test: the second Cmd-D must run now.
+            try #require(!services.keyRouter.creationInputCoordinator.isHolding(in: window),
+                         "a creation hold is still open after Cmd-W, so the second Cmd-D would wait (not a result): \(afterClose)")
             let secondSplit = try Self.press("d", .command, keyCode: 2, services: services, window: window)
 
             // In the same turn: the focus names a pane the store has (never the closed stand-in's id), and the second
