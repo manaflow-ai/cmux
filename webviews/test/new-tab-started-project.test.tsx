@@ -113,7 +113,9 @@ async function startChat(
     runShell: noop,
     ...(options.startsHere === false ? { startsHere: () => false } : {}),
   });
-  actions.onAsk("claude", "fix the flaky upload test", picked, undefined, options.noProject);
+  await Promise.resolve(
+    actions.onAsk("claude", "fix the flaky upload test", picked, undefined, options.noProject),
+  ).catch(() => undefined);
   // The start settles, and what follows it runs.
   await starting.catch(() => undefined);
   await Promise.resolve();
