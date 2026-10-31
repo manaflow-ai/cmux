@@ -1,0 +1,182 @@
+{
+ "title": "Pinned in group: three marks for a workspace pinned inside its group",
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Loose workspace inbox",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "inbox"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "Group Release with its first workspace",
+   "cmux": [
+    "action",
+    "run",
+    "workspace.newInNewGroup",
+    "--name",
+    "Release"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "Name it deploy-checklist",
+   "cmux": [
+    "workspace",
+    "current",
+    "rename",
+    "deploy-checklist"
+   ],
+   "shot": false,
+   "wait": 1,
+   "optional": "the current selector resolves to the focused workspace"
+  },
+  {
+   "title": "Pin deploy-checklist inside Release",
+   "cmux": [
+    "action",
+    "run",
+    "palette.toggleWorkspacePin"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "Second member",
+   "cmux": [
+    "action",
+    "run",
+    "workspaceGroup.newWorkspace"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "Name it changelog",
+   "cmux": [
+    "workspace",
+    "current",
+    "rename",
+    "changelog"
+   ],
+   "shot": false,
+   "wait": 1,
+   "optional": "the current selector resolves to the focused workspace"
+  },
+  {
+   "title": "Pin changelog inside Release",
+   "cmux": [
+    "action",
+    "run",
+    "palette.toggleWorkspacePin"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "Third member",
+   "cmux": [
+    "action",
+    "run",
+    "workspaceGroup.newWorkspace"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "Name it flaky-tests",
+   "cmux": [
+    "workspace",
+    "current",
+    "rename",
+    "flaky-tests"
+   ],
+   "shot": false,
+   "wait": 1,
+   "optional": "the current selector resolves to the focused workspace"
+  },
+  {
+   "title": "Fourth member",
+   "cmux": [
+    "action",
+    "run",
+    "workspaceGroup.newWorkspace"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "Name it ci-dashboard",
+   "cmux": [
+    "workspace",
+    "current",
+    "rename",
+    "ci-dashboard"
+   ],
+   "shot": false,
+   "wait": 1,
+   "optional": "the current selector resolves to the focused workspace"
+  },
+  {
+   "title": "Loose workspace scratch takes the selection",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "scratch"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "Before: Off, pinned members look like the rest",
+   "cmux": [
+    "settings",
+    "set",
+    "sidebar.groupPinMark",
+    "off"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "Look 1: Pin After Name",
+   "cmux": [
+    "settings",
+    "set",
+    "sidebar.groupPinMark",
+    "trailing"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "Look 2: Pin Before Name in the group color",
+   "cmux": [
+    "settings",
+    "set",
+    "sidebar.groupPinMark",
+    "leading"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "Look 3: Tinted Rows",
+   "cmux": [
+    "settings",
+    "set",
+    "sidebar.groupPinMark",
+    "shelf"
+   ],
+   "wait": 2
+  }
+ ]
+}

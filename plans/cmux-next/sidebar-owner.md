@@ -1,5 +1,15 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-30: a workspace pinned inside its group shows it at rest. Aziz: "create a better indicator for pinned
+  items under a workspace group ... come up with 3 different ways to present it". Until now a member pinned in its
+  group drew its pin only on an expanded row's hover (pinning-DESIGN.md), so it looked like the other members.
+  New setting `sidebar.groupPinMark` (Settings > Appearance, palette, CLI, MCP): `trailing` (default for now) a
+  small filled pin among the trailing marks in the tertiary ink, left of the status column; `leading` a small
+  filled pin before the name in the group's color (the machine mark's slot); `shelf` a faint wash of the group's
+  color behind the pinned members at rest (hover, selection and on-screen fills still win); `off` the old look.
+  The trailing column, the icon column and the row gaps are unchanged; the pin gives way to the hover controls as
+  the other marks do. The row's label says "Pinned in group" whatever the look. The default waits on Aziz's pick
+  among the three (tour `group-pin-mark`). Regression: `SidebarGroupPinMarkTests`.
 - 2026-10-30: a workspace row has no second line of its own. Leo, of a row titled "claude-sr2-coord"
   over "local · claude-sr2-coord": "and yes ofc remove the second line". The compact and comfortable
   row's second line used to lead with the computer (another machine in the one-list sidebar), its

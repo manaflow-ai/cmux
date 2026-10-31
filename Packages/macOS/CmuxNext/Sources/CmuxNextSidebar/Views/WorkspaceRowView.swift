@@ -37,6 +37,11 @@ final class WorkspaceRowView: SidebarRowView {
     /// The computer the workspace runs on (`WorkspaceRowContent.machine`): its icon in its
     /// color, small, before the title; hidden while the sidebar lists one machine.
     let machineMark = DecorativeImageView() // the row's label names the machine
+    /// A workspace pinned inside its group, at rest (`sidebar.groupPinMark`, WorkspaceRowView+GroupPin): the
+    /// look, the group's tint it draws in, and the pin (before the name or among the trailing marks).
+    let groupPin = DecorativeImageView() // the row's label says it is pinned
+    var groupPinLook = SidebarGroupPinMark.off, groupPinTint: GroupTint?, isPinnedInGroup = false
+    var groupPinStyle: ((SidebarRow) -> (SidebarGroupPinMark, GroupTint?))? // the list's (`SidebarListView.groupPinStyle`)
     internal(set) var machine: SidebarMachineMark?
     /// The side `machineMark`'s image was drawn at.
     private var machineMarkSize: CGFloat = 0
@@ -160,7 +165,7 @@ final class WorkspaceRowView: SidebarRowView {
         usageWarningMark.setAccessibilityElement(false)
         machineMark.imageScaling = .scaleProportionallyDown
         machineMark.isHidden = true
-        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, usageWarningMark, machineMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock,
+        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, usageWarningMark, machineMark, groupPin, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock,
          treeLine, pullRequests, keycap, treeFoldButton, rollUp].forEach(addSubview)
         setUpSessionTree()
         disclosureButton.isHidden = true
@@ -244,17 +249,19 @@ final class WorkspaceRowView: SidebarRowView {
         var rowTitle: SidebarRowTitleMode, rowTitleSingleChat: Bool
         var disclosure: SidebarTabDisclosure?
         var row: WorkspaceRowContent?
+        var groupPin: SidebarGroupPinMark, groupTint: GroupTint?
     }
 
     func configure(_ ws: SidebarWorkspace, row: SidebarRow, badgeStyle: SidebarRowBadgeStyle? = nil) {
         lastConfiguration = (ws, row, badgeStyle)
+        (groupPinLook, groupPinTint) = ws.isPinnedInGroup ? groupPinStyle?(row) ?? (.off, nil) : (.off, nil)
         let tunables = observedTunables()
         let content = Content(
             ws: ws, group: row.group,
             fontSize: SidebarStyle.titleFont.pointSize, iconSize: Metrics.smallIconSize,
             agentMark: tunables.agentMark, presenceDots: tunables.presenceDots, rowBadge: badgeStyle ?? tunables.rowBadge, stackLimit: tunables.stackCap.limit,
             rowTitle: tunables.rowTitle, rowTitleSingleChat: tunables.rowTitleSingleChat,
-            disclosure: row.tabDisclosure, row: row.content
+            disclosure: row.tabDisclosure, row: row.content, groupPin: groupPinLook, groupTint: groupPinTint
         )
         guard needsConfigure(content) else { return }
         // A placeholder with a title (a connecting SSH machine, cx-gaq9) draws its text, not the bar.
@@ -338,6 +345,7 @@ final class WorkspaceRowView: SidebarRowView {
             machineMark.image = machine.map { Self.machineMarkImage($0, side: machineSize) }
         }
         machineMark.isHidden = machineMark.image == nil
+        configureGroupPin(pinned: ws.isPinnedInGroup && row.group != nil)
         audio = isShowingPlaceholder ? nil : ws.audio
         audioButton.isHidden = audio == nil
         audioButton.icon = audio == .muted ? .browserTabMuted : .browserTabAudio

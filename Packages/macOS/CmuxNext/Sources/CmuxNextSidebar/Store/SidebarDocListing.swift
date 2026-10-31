@@ -72,14 +72,17 @@ extension SidebarDocProjection {
         return Self.markingArchived(Self.withMemberItems(arranged, projection, drag: drag), projection, drag: drag)
     }
 
-    /// `sections` with each archived row marked (`isArchived`): it draws dimmed (archiving-DESIGN.md).
+    /// `sections` with each archived row marked (`isArchived`): it draws dimmed (archiving-DESIGN.md); and each
+    /// workspace pinned inside its group (`isPinnedInGroup`): it draws `sidebar.groupPinMark`.
     @MainActor private static func markingArchived(_ sections: [SidebarSection], _ projection: SidebarDocProjection,
                                                    drag: SidebarDocDrag) -> [SidebarSection] {
         // Every row, also with none archived: a list arranged before (a fold) may carry an old mark.
-        let archived = projection.archived
+        let (archived, pinned) = (projection.archived, projection.pinnedInGroup)
         func mark(_ workspace: SidebarWorkspace) -> SidebarWorkspace {
             var workspace = workspace
-            workspace.isArchived = drag.item(.workspace(workspace.id)).map { archived.contains($0) } ?? false
+            let item = drag.item(.workspace(workspace.id))
+            workspace.isArchived = item.map { archived.contains($0) } ?? false
+            workspace.isPinnedInGroup = item.map { pinned.contains($0) } ?? false
             return workspace
         }
         func mark(_ item: SidebarListItem) -> SidebarListItem {

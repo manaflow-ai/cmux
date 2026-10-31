@@ -32,6 +32,7 @@ public nonisolated enum SidebarSectionsSetting {
     public static let showTimestampsPath = ["sidebar", "showTimestamps"]
     public static let showColorsPath = ["sidebar", "showColors"]
     public static let showLocalMachinePath = ["sidebar", "showLocalMachine"]
+    public static let groupPinMarkPath = ["sidebar", "groupPinMark"]
     public static let groupHeaderMemberCountPath = ["sidebar", "groupHeader", "memberCount"]
     public static let groupHeaderUnreadCountPath = ["sidebar", "groupHeader", "unreadCount"]
 
@@ -71,6 +72,23 @@ public nonisolated enum SidebarSectionsSetting {
                                                    "With workspaces on more than one computer, a workspace on another computer shows that computer's icon in its color. On, this Mac's workspaces show its icon too."),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showLocalMachine),
                           keywords: ["sidebar", "machine", "computer", "this mac", "local", "icon", "color", "remote", "identity"])
+    }
+
+    static func groupPinMarkDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(groupPinMarkPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.groupPinMark", "Pinned in Group Mark"),
+                          help: SettingsText.keyed("settings.sidebar.groupPinMark.help",
+                                                   "How a workspace pinned inside its group shows it. A pin after the name, a pin before the name in the group's color, or a light wash of the group's color behind the pinned workspaces. Off, the pin shows only when you point at an expanded row."),
+                          kind: .choice(SidebarGroupPinMark.allCases.map { mark in
+                              switch mark {
+                              case .off: SettingChoice(mark.rawValue, SettingsText.keyed("settings.choice.off", "Off"))
+                              case .trailing: SettingChoice(mark.rawValue, SettingsText.keyed("settings.choice.groupPinTrailing", "Pin After Name"))
+                              case .leading: SettingChoice(mark.rawValue, SettingsText.keyed("settings.choice.groupPinLeading", "Pin Before Name"))
+                              case .shelf: SettingChoice(mark.rawValue, SettingsText.keyed("settings.choice.groupPinShelf", "Tinted Rows"))
+                              }
+                          }),
+                          default: .string(SidebarSectionsPreferences.defaults.groupPinMark.rawValue),
+                          keywords: ["sidebar", "group", "groups", "pin", "pinned", "pins", "mark", "indicator", "badge", "icon", "tint", "workspace"])
     }
 
     static func showColorsDescriptor(group: SettingText) -> SettingDescriptor {
@@ -298,6 +316,14 @@ public nonisolated enum SidebarSectionsSetting {
         result.showTimestamps = flag(root, showTimestampsPath, fallback: result.showTimestamps, &diagnostics)
         result.showColors = flag(root, showColorsPath, fallback: result.showColors, &diagnostics)
         result.showLocalMachine = flag(root, showLocalMachinePath, fallback: result.showLocalMachine, &diagnostics)
+        if let value = root.value(at: groupPinMarkPath) {
+            if let text = value.stringValue, let mark = SidebarGroupPinMark(rawValue: text) {
+                result.groupPinMark = mark
+            } else {
+                let choices = SidebarGroupPinMark.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.groupPinMark", message: "expected one of " + choices))
+            }
+        }
         result.groupHeaderMemberCount = flag(root, groupHeaderMemberCountPath, fallback: result.groupHeaderMemberCount, &diagnostics)
         result.groupHeaderUnreadCount = flag(root, groupHeaderUnreadCountPath, fallback: result.groupHeaderUnreadCount, &diagnostics)
         result.priorityViewEnabled = flag(root, SidebarPriorityViewSetting.enabledPath, fallback: result.priorityViewEnabled, &diagnostics)

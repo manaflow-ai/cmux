@@ -184861,6 +184861,661 @@
           }
         }
       }
+    },
+    "settings.sidebar.groupPinMark": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinned in Group Mark"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "グループ内ピン留めの表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "علامة التثبيت في المجموعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oznaka zakačenog u grupi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markering af fastgjort i gruppe"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markierung für in Gruppe angeheftet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Marca de fijado en grupo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Marque d’épinglage dans un groupe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indicatore fissato nel gruppo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សញ្ញាខ្ទាស់ក្នុងក្រុម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그룹 내 고정 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Merke for festet i gruppe"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oznaczenie przypięcia w grupie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Marca de fixado no grupo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Метка закрепления в группе"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องหมายปักหมุดในกลุ่ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupta sabitleme işareti"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Позначка закріплення в групі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dấu ghim trong nhóm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "组内置顶标记"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "群組內釘選標記"
+          }
+        }
+      }
+    },
+    "settings.sidebar.groupPinMark.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How a workspace pinned inside its group shows it. A pin after the name, a pin before the name in the group's color, or a light wash of the group's color behind the pinned workspaces. Off, the pin shows only when you point at an expanded row."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "グループ内でピン留めしたワークスペースの表示方法です。名前の後ろのピン、名前の前にグループの色で表示するピン、またはピン留めしたワークスペースの背景にグループの色を薄く敷く表示から選べます。オフにすると、展開した行にポインタを合わせたときだけピンが表示されます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كيف تُظهر مساحة العمل المثبّتة داخل مجموعتها ذلك: دبوس بعد الاسم، أو دبوس قبل الاسم بلون المجموعة، أو لون خفيف من لون المجموعة خلف مساحات العمل المثبّتة. عند الإيقاف، يظهر الدبوس فقط عند الإشارة إلى صف موسّع."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kako radni prostor zakačen unutar svoje grupe to pokazuje: igla iza naziva, igla ispred naziva u boji grupe ili blaga nijansa boje grupe iza zakačenih radnih prostora. Isključeno, igla se prikazuje samo kada pokažete na prošireni red."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sådan viser et arbejdsområde, der er fastgjort i sin gruppe, det: en nål efter navnet, en nål før navnet i gruppens farve eller et let skær af gruppens farve bag de fastgjorte arbejdsområder. Slået fra vises nålen kun, når du peger på en udvidet række."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wie ein in seiner Gruppe angehefteter Workspace das zeigt: eine Nadel nach dem Namen, eine Nadel vor dem Namen in der Gruppenfarbe oder ein leichter Hauch der Gruppenfarbe hinter den angehefteten Workspaces. Aus zeigt sich die Nadel nur, wenn du auf eine erweiterte Zeile zeigst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cómo muestra un espacio de trabajo fijado dentro de su grupo que lo está: un alfiler después del nombre, un alfiler antes del nombre en el color del grupo o un tono suave del color del grupo detrás de los espacios fijados. Desactivado, el alfiler solo aparece al señalar una fila expandida."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comment un espace de travail épinglé dans son groupe l’indique : une épingle après le nom, une épingle avant le nom dans la couleur du groupe, ou un léger voile de la couleur du groupe derrière les espaces épinglés. Désactivé, l’épingle n’apparaît qu’au survol d’une ligne développée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Come un workspace fissato nel suo gruppo lo mostra: una puntina dopo il nome, una puntina prima del nome nel colore del gruppo o una leggera tinta del colore del gruppo dietro i workspace fissati. Disattivato, la puntina appare solo puntando una riga espansa."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "របៀបដែលកន្លែងធ្វើការដែលបានខ្ទាស់ក្នុងក្រុមបង្ហាញវា៖ ម្ជុលនៅក្រោយឈ្មោះ ម្ជុលនៅមុខឈ្មោះជាពណ៌ក្រុម ឬពណ៌ក្រុមស្រាលៗនៅពីក្រោយកន្លែងធ្វើការដែលបានខ្ទាស់។ ពេលបិទ ម្ជុលបង្ហាញតែពេលអ្នកចង្អុលលើជួរដែលបានពង្រីក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그룹 안에 고정한 워크스페이스를 표시하는 방법입니다. 이름 뒤의 핀, 이름 앞에 그룹 색으로 표시되는 핀, 또는 고정한 워크스페이스 뒤에 깔리는 옅은 그룹 색 중에서 고릅니다. 끄면 펼친 행을 가리킬 때만 핀이 보입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvordan et arbeidsområde som er festet i gruppen sin viser det: en nål etter navnet, en nål før navnet i gruppens farge, eller et lett skjær av gruppens farge bak de festede arbeidsområdene. Av vises nålen bare når du peker på en utvidet rad."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jak obszar roboczy przypięty w swojej grupie to pokazuje: pinezka po nazwie, pinezka przed nazwą w kolorze grupy lub delikatne tło w kolorze grupy za przypiętymi obszarami. Gdy wyłączone, pinezka pojawia się tylko po wskazaniu rozwiniętego wiersza."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Como um espaço de trabalho fixado dentro do grupo mostra isso: um alfinete depois do nome, um alfinete antes do nome na cor do grupo ou um tom leve da cor do grupo atrás dos espaços fixados. Desativado, o alfinete só aparece ao apontar para uma linha expandida."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Как рабочее пространство, закреплённое внутри своей группы, показывает это: булавка после имени, булавка перед именем в цвете группы или лёгкий оттенок цвета группы за закреплёнными пространствами. Если выключено, булавка видна только при наведении на развёрнутую строку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "วิธีที่เวิร์กสเปซที่ปักหมุดในกลุ่มแสดงสถานะ: หมุดหลังชื่อ หมุดหน้าชื่อในสีของกลุ่ม หรือสีของกลุ่มจาง ๆ ด้านหลังเวิร์กสเปซที่ปักหมุด เมื่อปิด หมุดจะแสดงเฉพาะเมื่อชี้ที่แถวที่ขยาย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grubunda sabitlenen bir çalışma alanının bunu nasıl gösterdiği: adın ardından bir iğne, adın önünde grup renginde bir iğne veya sabitlenen çalışma alanlarının arkasında grubun renginden hafif bir ton. Kapalıyken iğne yalnızca genişletilmiş bir satırın üzerine gelindiğinde görünür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Як робочий простір, закріплений у своїй групі, це показує: шпилька після назви, шпилька перед назвою в кольорі групи або легкий відтінок кольору групи за закріпленими просторами. Якщо вимкнено, шпилька видна лише при наведенні на розгорнутий рядок."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cách một không gian làm việc được ghim trong nhóm thể hiện điều đó: ghim sau tên, ghim trước tên theo màu của nhóm, hoặc lớp màu nhạt của nhóm phía sau các không gian đã ghim. Khi tắt, ghim chỉ hiện khi bạn trỏ vào một hàng mở rộng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "组内置顶的工作区如何显示：名称后的图钉、名称前使用组颜色的图钉，或在置顶工作区后面铺一层浅浅的组颜色。关闭时，只有指向展开的行时才显示图钉。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "群組內釘選的工作區如何顯示：名稱後的圖釘、名稱前使用群組顏色的圖釘，或在釘選工作區後方鋪一層淡淡的群組顏色。關閉時，只有指向展開的列時才顯示圖釘。"
+          }
+        }
+      }
+    },
+    "settings.choice.groupPinTrailing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pin After Name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "名前の後ろにピン"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "دبوس بعد الاسم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Igla iza naziva"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nål efter navn"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nadel nach dem Namen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alfiler tras el nombre"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Épingle après le nom"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Puntina dopo il nome"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម្ជុលក្រោយឈ្មោះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이름 뒤에 핀"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nål etter navn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pinezka po nazwie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alfinete após o nome"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Булавка после имени"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หมุดหลังชื่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Addan sonra iğne"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шпилька після назви"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghim sau tên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "名称后显示图钉"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "名稱後顯示圖釘"
+          }
+        }
+      }
+    },
+    "settings.choice.groupPinLeading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pin Before Name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "名前の前にピン"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "دبوس قبل الاسم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Igla ispred naziva"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nål før navn"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nadel vor dem Namen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alfiler antes del nombre"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Épingle avant le nom"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Puntina prima del nome"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម្ជុលមុខឈ្មោះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이름 앞에 핀"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nål før navn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pinezka przed nazwą"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alfinete antes do nome"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Булавка перед именем"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หมุดหน้าชื่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Addan önce iğne"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шпилька перед назвою"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghim trước tên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "名称前显示图钉"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "名稱前顯示圖釘"
+          }
+        }
+      }
+    },
+    "settings.choice.groupPinShelf": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tinted Rows"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "行に色を付ける"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "صفوف ملوّنة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obojeni redovi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Farvede rækker"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Getönte Zeilen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Filas tintadas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lignes teintées"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Righe colorate"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជួរមានពណ៌"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "색이 입혀진 행"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fargede rader"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zabarwione wiersze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Linhas coloridas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Окрашенные строки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แถวที่มีสี"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Renkli satırlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тоновані рядки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hàng tô màu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "着色行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "著色列"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

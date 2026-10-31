@@ -238,6 +238,7 @@ public final class SidebarModel {
     public var showsColors = true
     /// This Mac's rows carry its machine mark too (`sidebar.showLocalMachine`, off by default).
     public var showsLocalMachine = false
+    public var groupPinMark: SidebarGroupPinMark = .trailing // what a workspace pinned in its group draws (`sidebar.groupPinMark`)
     /// What a collapsed group header shows beside its loading spinner
     /// (`sidebar.groupHeader.*`, all off by default; `sidebar.detailedStatusIcons`
     /// adds its members' other states).
@@ -457,7 +458,7 @@ public final class SidebarModel {
             let old = SidebarRowIndex.workspace(at: path, in: storedSections)
             row.rowState = old.rowState
             row.machineID = old.machineID
-            row.isArchived = old.isArchived // the document's, set by `arrange`; the feed does not know it
+            (row.isArchived, row.isPinnedInGroup) = (old.isArchived, old.isPinnedInGroup) // the document's (`arrange`); not the feed's
             guard row != old else { continue }
             guard !movesRows(from: old, to: row) else { return false }
             for path in paths {
@@ -559,11 +560,10 @@ public final class SidebarModel {
         detailedStatus = preferences.detailedStatusIcons
         showsTimestamps = preferences.showTimestamps
         showsColors = preferences.showColors
-        showsLocalMachine = preferences.showLocalMachine
+        (showsLocalMachine, groupPinMark) = (preferences.showLocalMachine, preferences.groupPinMark)
         groupHeaderDetails = GroupHeaderDetails(memberCount: preferences.groupHeaderMemberCount,
                                                 unreadCount: preferences.groupHeaderUnreadCount)
-        hidesWorkspaces = !preferences.showProjects
-        grouping.by = preferences.groupBy
+        (hidesWorkspaces, grouping.by) = (!preferences.showProjects, preferences.groupBy)
         groupsByComputer = preferences.groupsByComputer
         if style != preferences.style { (style, isRailOpen) = (preferences.style, false) }
     }
