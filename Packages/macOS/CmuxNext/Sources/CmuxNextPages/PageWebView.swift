@@ -124,6 +124,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// ``PageCrashReloads`` allows: the page is not reloaded, and the host shows its notice (with a
     /// button that calls ``reloadAfterCrashes()``).
     public var onCrash: ((PageWebView, _ reloading: Bool) -> Void)?
+    /// A document finished loading in the page (either engine): the page lives, so a host that
+    /// shows a crash notice for it takes the notice away (a host route, a retarget or a WebKit
+    /// fallback can load the page again without the notice's Reload).
+    public var onDocumentLoaded: (@MainActor () -> Void)?
     /// Why the last crash reported to ``onCrash`` ended the page's process (WebKit's reason and
     /// pid); nil before any crash.
     public internal(set) var lastTermination: PageTermination?
@@ -426,7 +430,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     private func observeUIScale() {
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, DesignSettings.shared.interfaceScale, DesignSettings.shared.interfaceScaleEnabled) }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.userScale) }) {
                 guard let self else { return }
                 self.applyUIScale()
             }
@@ -522,7 +526,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     func receive(_ message: PageHostMessage) async -> Any? {
         guard PageHostTrust.isTrusted(message, page: descriptor) else {
-            logger.error("page \(self.descriptor.id, privacy: .public) message from an untrusted frame refused")
+            logger.error("page \(self.descriptor.id, privacy: .public) message from an untrusted frame refused: main=\(message.isMainFrame, privacy: .public) url=\(message.frameURL?.absoluteString ?? "-", privacy: .public)")
             return nil
         }
         // The message conversion stays here: `handle` must start in the order the page posted, and
@@ -624,9 +628,14 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     /// The page theme from this view's scope and ``themeSurface``: the surface's override (from
     /// `backgrounds`, the app's) replaces the page background; nil keeps the scope's own.
+    /// Built in this view's scope (`performWithTheme`): whether the window is see-through here
+    /// comes from that scope's picture and tint, not the app's. Built outside it, a workspace's
+    /// picture over an opaque theme painted the page solid, a black chat over the wallpaper (#28867).
     func currentTheme(backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds) -> WebTheme {
-        WebTheme(themeTokens, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
-                 surface: themeSurface ?? .internalPage, backgrounds: backgrounds)
+        performWithTheme {
+            WebTheme(themeTokens, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
+                     surface: themeSurface ?? .internalPage, backgrounds: backgrounds)
+        }
     }
 
     // MARK: WKNavigationDelegate

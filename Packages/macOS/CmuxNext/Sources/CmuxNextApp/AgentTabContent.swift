@@ -1,6 +1,7 @@
 import CmuxNextActions
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextPages
 import CmuxNextWakeups
 import Foundation
 
@@ -49,8 +50,8 @@ struct AgentTabContent {
         }
         if !view.model.hasPainted { drawLastPage(key, until: view) }
         if view.model.newTab != nil { AgentPaneNewTabFrame.shared.capture(view, in: pane.view.contentHost) }
-        if view.model.newTab != nil { BenchSpans.mark(view.superview is NewTabSpareParking ? "newTab.show.parked" : "newTab.show") }
-        if view.model.hasPainted, view.superview is NewTabSpareParking { coverMove(of: view) }
+        if view.model.newTab != nil { BenchSpans.mark(view.superview is PageOffscreenParking ? "newTab.show.parked" : "newTab.show") }
+        if view.model.hasPainted, view.superview is PageOffscreenParking { coverMove(of: view) }
         AgentReplySites(services: services).wire(view.model.replyLinks)
         return .agent(view)
     }

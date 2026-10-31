@@ -1,6 +1,6 @@
 public import AppKit
 public import CmuxHomeCore
-import CmuxNextDesign
+public import CmuxNextDesign
 import MessagesLabSidebar
 
 /// The Home page's left column: MessagesLab's conversation list
@@ -11,7 +11,7 @@ import MessagesLabSidebar
 /// sidebar bg and chief header bg needs to be same as rest of the bgs"; a 35% scrim of
 /// its own made it a third grey). No vibrancy material (it drew a solid gray panel). It owns no data: the page gives it the model
 /// after every change and handles the choices.
-public final class HomeSidebarView: NSView {
+public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     public var onSelect: (ConversationID) -> Void = { _ in }
     /// The person opened a conversation: a plain click on its row or pinned tile (the selected one
     /// too) or Return on the highlighted one. Called after ``onSelect``; Up/Down and Command- or
@@ -337,7 +337,7 @@ public final class HomeSidebarView: NSView {
     /// Re-reads the traffic lights after the list moved in its window without a resize of its
     /// header (the window's sidebar opened or closed beside the Home page); relays out the header
     /// only when what lies over it changed. `HomeSidebarSplitView` calls it on every layout.
-    func updateWindowControlsAvoidance() {
+    public func updateWindowControlsAvoidance() {
         guard list.headerView.homeWindowControls(band: HomeSidebarHeaderLayout.band) != windowControls else { return }
         // The header's layout also places the list under it (its height may change). Laid out
         // now, not at the next display pass: an occluded window gets none until it shows, and
@@ -494,8 +494,15 @@ public final class HomeSidebarView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        WindowControlsAvoiders.join(self)
         applyColors()
         // A new window has its own traffic lights (or none, in full screen).
+        updateWindowControlsAvoidance()
+    }
+
+    /// A hidden workspace skipped window updates; re-read its position when shown.
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
         updateWindowControlsAvoidance()
     }
 

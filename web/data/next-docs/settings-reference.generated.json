@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 531,
+  "count": 532,
   "sections": [
     {
       "id": "general",
@@ -1237,14 +1237,6 @@
           "group": "Tabs"
         },
         {
-          "key": "tabs.terminalFirst",
-          "title": "cmux Classic Mode",
-          "help": "New tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic, instead of the New Tab page. To open the New Tab page while this is on, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P). Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Tabs"
-        },
-        {
           "key": "tasks.layout",
           "title": "Tasks Layout",
           "help": "Inbox lists what needs you first, with the task beside it. Changes apply at once.",
@@ -1443,7 +1435,7 @@
           "title": "Idle Workspaces",
           "help": "What cmux does with workspaces you have not used for a while. Archived workspaces stay in their group, dimmed and last, and come back when you open them.",
           "kind": "choice",
-          "default": "suggest",
+          "default": "manual",
           "group": "Auto-Archive",
           "values": [
             "suggest",
@@ -3503,14 +3495,6 @@
           "group": "Sidebar"
         },
         {
-          "key": "sidebar.showWorkspaceTabs",
-          "title": "Show Workspace Tabs",
-          "help": "Lists tabs beneath each workspace in the sidebar.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Sidebar"
-        },
-        {
           "key": "sidebar.side",
           "title": "Sidebar Side",
           "help": "The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar.",
@@ -4572,6 +4556,14 @@
           "group": "Opening Links"
         },
         {
+          "key": "browser.import.cookieBanner",
+          "title": "Offer to Import Cookies",
+          "help": "Browser tabs offer to import cookies from your other browsers, so you stay signed in. Nothing imports until you click Import. Don't Show Again on the banner turns this off.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Import"
+        },
+        {
           "key": "browser.import.enabled",
           "title": "Import from Other Browsers",
           "help": "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays.",
@@ -4710,6 +4702,14 @@
           "group": "Address Bar"
         },
         {
+          "key": "browser.omnibar.fontSize",
+          "title": "Address Bar Text Size",
+          "help": "The size of the address and the suggestions. Match Density follows the density.",
+          "kind": "choice_or_number",
+          "default": "density",
+          "group": "Address Bar"
+        },
+        {
           "key": "browser.omnibar.glass",
           "title": "Address Bar Glass",
           "help": "The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color.",
@@ -4748,6 +4748,14 @@
             "max": 1,
             "unit": "fraction"
           }
+        },
+        {
+          "key": "browser.omnibar.height",
+          "title": "Address Bar Height",
+          "help": "Match Density follows the density. The bar always grows to fit its text.",
+          "kind": "choice_or_number",
+          "default": "density",
+          "group": "Address Bar"
         },
         {
           "key": "browser.omnibar.inlineAutocomplete",
