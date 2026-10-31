@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 import CmuxNextDesignTokens
 
@@ -7,7 +8,7 @@ import CmuxNextDesignTokens
 /// gap in between." A card at rest touches its target: no empty band for the pointer to cross
 /// between a tab and its card, at any display scale and for a target on a fractional point.
 /// A sub-pixel overlap is allowed (the touching edge snaps toward the target); a gap is not.
-@MainActor @Suite(.serialized) struct HoverCardFlushTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct HoverCardFlushTests {
     private static func parent() -> NSWindow {
         _ = NSApplication.shared
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 700, height: 500), styleMask: [.borderless],
@@ -34,7 +35,7 @@ import CmuxNextDesignTokens
         let parent = parent()
         let panel = HoverCardPanel()
         defer {
-            panel.orderOut(nil)
+            panel.closeAfterTest()
             parent.close()
         }
         let target = anchor(parent)
