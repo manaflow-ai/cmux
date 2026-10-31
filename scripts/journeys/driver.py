@@ -957,7 +957,12 @@ class Journey:
     def step_focused_terminal(self, step):
         """After a key that makes a terminal (Ctrl-` New Terminal Tab, Cmd-D split, Home's Open a terminal):
         waits for a focused terminal pane showing a terminal the journey has not seen, adopts it (`as` names
-        it) and waits for its shell's first prompt in the daemon's screen."""
+        it) and waits for its shell's first prompt in the daemon's screen.
+
+        Ctrl-` first shows a stand-in tab (`pending_tab_...`) whose topology `terminal` is the host id the app chose
+        for the create; the daemon resolves only the public id (`term_...`) its own tab brings about 0.3 s later. The
+        step re-reads the topology until the selected tab's terminal is one the daemon answers for (its screen reads),
+        so it never adopts the stand-in's id; a terminal the daemon never knows still fails, naming the tab."""
         end = now() + float(step.get("timeout", 20))
         last = None
         while now() < end:
@@ -971,9 +976,15 @@ class Journey:
                 topo = self.topology()
                 for ws, pane, tab, term in self.places(topo):
                     if pane.get("id") == view.get("pane") and tab.get("id") == pane.get("selected_tab") and term:
-                        place = (ws, pane, term)
+                        place = (ws, pane, term, tab.get("id"))
                 if not place:
                     last = f"pane {view.get('pane')} has no selected terminal tab in the topology yet"
+                    continue
+                try:
+                    self.app.screen(place[2])
+                except StepError as error:
+                    standin = " (the Ctrl-` stand-in, not the daemon's tab yet)" if str(place[3]).startswith("pending_tab_") else ""
+                    last = f"the daemon does not know terminal {place[2]} of pane {view.get('pane')}'s tab {place[3]}{standin}: {str(error)[-200:]}"
                     continue
                 self.known_views.add(view["terminal_id"])
                 adopted = self.adopt(place[2], view.get("pane"), int(view["host_pid"]) if view.get("host_pid") else None)
