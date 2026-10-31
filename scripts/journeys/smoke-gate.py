@@ -179,6 +179,18 @@ def missing_checks(found):
     return out
 
 
+def key_gaps(out):
+    """The "known gap" texts of key-window checks the round could not judge (a system prompt on the console took the
+    keys): a round with any is never a pass."""
+    path = out / JOURNEY / "result.json"
+    try:
+        evidence = json.loads(path.read_text()).get("evidence", []) if path.is_file() else []
+    except ValueError:
+        return []
+    return sorted({str((e.get("detail") or {}).get("not_checked")) for e in evidence
+                   if isinstance(e.get("detail"), dict) and (e["detail"] or {}).get("not_checked")})
+
+
 def typed_steps(out):
     """The results of the round's smoke_type_now steps (each says `at_once`)."""
     path = out / JOURNEY / "result.json"
@@ -289,6 +301,9 @@ def main(argv=None):
         if row.get("status") == "pass" and not opts.diagnostic and late:
             row = dict(row, status="not run", reason=f"{len(late)} smoke_type_now steps were not typed at once "
                                                       "(a diagnostic round is never a gate pass)")
+        gaps = key_gaps(round_out)
+        if row.get("status") == "pass" and gaps:
+            row = dict(row, status="not run", reason=gaps[0] + f" ({len(gaps)} key-window checks not judged)")
         exclusive = exclusive_line(round_out)
         if row.get("status") == "pass" and not exclusive:
             row = dict(row, status="not run", reason="capture-host did not say the lease's mini was exclusive (acquire.log)")
@@ -298,7 +313,8 @@ def main(argv=None):
                   "seconds": round(time.time() - started), "failing_step": failing_step(round_out),
                   "frames": frames(round_out), "hog_logs": sorted(p.name for p in round_out.glob("hog-*.jsonl")), "pressure": hog, "hosts_offered": hosts, "exclusive": exclusive,
                   "required_checks": checks, "required_missing": missing,
-                  "known_gap": "known gap" in str(row.get("reason") or ""), "leases": leases}
+                  "known_gap": "known gap" in str(row.get("reason") or ""),
+                  "key_gaps": gaps, "leases": leases}
         rounds.append(record)
         print(f"round {n}: {record['status']}" + (f" ({record['reason'][:160]})" if record.get("reason") else "")
               + (f" step {record['failing_step']['do']}: {record['failing_step']['error'][:160]}" if record["failing_step"] else ""),

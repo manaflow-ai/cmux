@@ -59,7 +59,10 @@ if status == "pass" and "--journey-option" not in args:
     if r3 == "duplicated":
         checks[5] = (checks[2][0], True)  # the New Column check twice stands in for Split Down
     typed += [{"do": "expect", "title": title, "ok": ok} for title, ok in checks]
-    json.dump({"steps": typed},
+    evidence = ([{"kind": "app", "check": "smoke_key_window", "pass": True,
+                  "detail": {"not_checked": "known gap: another app has the key window on this host (UNC)"}}]
+                if os.environ.get("SMOKE_KEY_GAP") == "yes" else [])
+    json.dump({"steps": typed, "evidence": evidence},
               open(os.path.join(out, "smoke-dogfood", "result.json"), "w"))
 if "--journey-option" in args:
     open(os.path.join(out, "options.txt"), "w").write(args[args.index("--journey-option") + 1])
@@ -175,6 +178,12 @@ class Verdicts(unittest.TestCase):
                 self.assertEqual((code, summary["verdict"], summary["passed"]), (1, "FAIL", 0), r3)
                 self.assertIn(want, summary["rounds_detail"][0]["reason"], r3)
                 self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
+
+    def test_a_passed_round_with_a_key_gap_is_not_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code, summary = gate(["pass"] * 10, tmp, env_extra={"SMOKE_KEY_GAP": "yes"})
+            self.assertEqual((code, summary["verdict"], summary["passed"]), (75, "NOT JUDGED", 0))
+            self.assertIn("known gap: another app", summary["rounds_detail"][0]["reason"])
 
     def test_a_strict_pass_whose_lines_were_not_typed_at_once_does_not_count(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -446,22 +455,28 @@ class NewTerminals(unittest.TestCase):
         ok, detail = self.ext.cond_smoke_key_window(j, {}, {})
         self.assertFalse(ok, detail)
 
-    def test_a_key_window_lost_to_another_app_is_a_known_gap_not_a_fail(self):
+    def test_a_key_window_lost_to_a_prompt_that_was_already_there_is_not_judged_not_a_fail(self):
         j = self.journey([("w", "p1", "a", "T0", True)], {}, "p1")
-        j.smoke_key_ok = True  # the window was key, then a system prompt on the console took the keys
+        j.smoke_key_ok = True  # the window was key, then the console's system prompt took the keys back
         j.app.rpc = lambda method, params=None: {"windows": [{"id": 1, "kind": "main", "key": False}]}
         j.app.identity = {"bundle_id": "com.cmuxterm.app.debug.x"}
         front = self.ext._front_app
+        prompt = ("UserNotificationCenter", "com.apple.UserNotificationCenter")
         try:
-            self.ext._front_app = lambda: ("UserNotificationCenter", "com.apple.UserNotificationCenter")
-            with self.assertRaises(self.NotRun) as caught:
-                self.ext.cond_smoke_key_window(j, {}, {})
-            self.assertIn("UserNotificationCenter", str(caught.exception))
-            # The app itself is front and has no key window: the app's fault, a fail.
-            self.ext._front_app = lambda: ("cmux DEV", "com.cmuxterm.app.debug.x")
-            ok, _detail = self.ext.cond_smoke_key_window(j, {}, {})
-            self.assertFalse(ok)
-            # The front app cannot be read: no proof the host took the keys, a fail.
+            self.ext._front_app = lambda: prompt
+            j.smoke_front_before = prompt  # the prompt was front before smoke_make_key
+            ok, detail = self.ext.cond_smoke_key_window(j, {}, {})
+            self.assertTrue(ok)  # holds for this step, so the step's other checks are still judged
+            self.assertIn("UserNotificationCenter", detail["not_checked"])
+            self.assertEqual(len(j.smoke_key_gaps), 1)
+            # The same prompt appeared only during the journey (the app may have raised it): a fail.
+            j.smoke_front_before = (None, None)
+            self.assertFalse(self.ext.cond_smoke_key_window(j, {}, {})[0])
+            # The app's own helper is front: the app's fault, a fail.
+            self.ext._front_app = lambda: ("cmux helper", "com.cmuxterm.app.debug.x.helper")
+            j.smoke_front_before = ("cmux helper", "com.cmuxterm.app.debug.x.helper")
+            self.assertFalse(self.ext.cond_smoke_key_window(j, {}, {})[0])
+            # The front app cannot be read: a fail.
             self.ext._front_app = lambda: (None, None)
             self.assertFalse(self.ext.cond_smoke_key_window(j, {}, {})[0])
         finally:
@@ -897,6 +912,46 @@ class SettleThroughTheDriver(unittest.TestCase):
             self.run_step(0.0, shell_pid=999999, back_after=0.6)
         self.assertIn("TERMINAL GONE", str(caught.exception))
         self.assertIn("999999", str(caught.exception))
+
+    def test_a_key_gap_never_hides_a_failing_check_in_the_same_step(self):
+        sys.path.insert(0, str(HERE))
+        sys.path.insert(0, str(HERE.parent / "cmux-next"))
+        import driver
+        import ext_smoke
+        ext_smoke.install(driver)
+
+        class App:
+            snapshot_window = None
+            identity = {"bundle_id": "com.cmuxterm.app.debug.x"}
+
+            def rpc(self_, method, params=None):
+                if method == "debug.window_list":
+                    return {"windows": [{"id": 1, "kind": "main", "key": False}]}
+                return {}
+
+            def panes(self_):
+                return []
+
+        prompt = ("UserNotificationCenter", "com.apple.UserNotificationCenter")
+        front = ext_smoke._front_app
+        ext_smoke._front_app = lambda: prompt
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                j = driver.Journey({"id": "gap-test", "steps": []}, App(), tmp, driver.now() + 60, 1.0)
+                j.smoke_key_ok, j.smoke_front_before = True, prompt
+                j.marks["m"] = driver.now()
+                # The key gap plus a check that fails (no such workspaces): the step FAILS, the gap does not hide it.
+                j.smoke_baseline = set()
+                j.topology = lambda: {"workspaces": []}
+                with self.assertRaises(driver.StepError) as caught:
+                    j.step_expect({"title": "gap", "since": "m", "timeout": 1,
+                                   "all": [{"smoke_key_window": {}}, {"smoke_workspaces": {"new": 3}}]})
+                self.assertIn("smoke_workspaces", str(caught.exception))
+                # The key gap alone: the step passes and the gap is recorded for smoke-gate.py.
+                j.step_expect({"title": "gap2", "since": "m", "timeout": 1, "all": [{"smoke_key_window": {}}]})
+                self.assertTrue(any(e["detail"].get("not_checked") for e in j.evidence if isinstance(e.get("detail"), dict)))
+        finally:
+            ext_smoke._front_app = front
 
     def test_a_frame_never_lost_passes(self):
         result, _driver = self.run_step(None)

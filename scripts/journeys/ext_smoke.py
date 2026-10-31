@@ -105,12 +105,15 @@ def _journey_window(j):
 
 
 def step_smoke_make_key(j, step):
+    # The frontmost app before the journey takes the keys: a foreign app front then (a system prompt left on the
+    # console) is host noise if it takes the keys back later (_key_lost_to_another_app).
+    j.smoke_front_before = _front_app()
     window = _journey_window(j)
     reply = j.app.rpc("debug.window.focus", {"window": window}) or {}
     took = isinstance(reply, dict) and reply.get("key") == window
     j.smoke_key_ok = took
     j.smoke_key_reply = reply
-    return {"window": window, "reply": reply, "key_window_now": took}
+    return {"window": window, "reply": reply, "key_window_now": took, "front_before": list(j.smoke_front_before)}
 
 
 def _diagnostic(j):
@@ -369,41 +372,53 @@ def cond_smoke_panes(j, want, cache):
 
 
 def _front_app():
-    """(name, bundle id) of the Mac's frontmost app (`lsappinfo`, on the mini; no privacy grant needed), or (None, None)."""
+    """(name, bundle id) of the Mac's frontmost app (/usr/bin/lsappinfo, on the mini; no privacy grant needed), or
+    (None, None) when it cannot be read."""
+    def info(asn, field):
+        out = subprocess.run(["/usr/bin/lsappinfo", "info", "-only", field, asn], capture_output=True, text=True,
+                             timeout=5).stdout
+        for line in out.splitlines():
+            key, sep, value = line.partition("=")
+            if sep:
+                value = value.strip().strip('"')
+                return None if value in ("", "[ NULL ]") else value
+        return None
     try:
-        asn = subprocess.run(["lsappinfo", "front"], capture_output=True, text=True, timeout=5).stdout.strip()
-        info = subprocess.run(["lsappinfo", "info", "-only", "name", "-only", "bundleID", asn], capture_output=True,
-                              text=True, timeout=5).stdout
+        asn = subprocess.run(["/usr/bin/lsappinfo", "front"], capture_output=True, text=True, timeout=5).stdout.strip()
+        if not asn:
+            return None, None
+        return info(asn, "name"), info(asn, "bundleID")
     except (OSError, subprocess.SubprocessError):
         return None, None
-    fields = {}
-    for line in info.splitlines():
-        key, sep, value = line.partition("=")
-        if sep:
-            fields[key.strip().strip('"').lower()] = value.strip().strip('"')
-    name = fields.get("lsdisplayname") or fields.get("name")
-    bundle = fields.get("cfbundleidentifier") or fields.get("bundleid")
-    return name, (bundle if bundle and bundle != "[ NULL ]" else None)
+
+
+def _ours(j, bundle):
+    """Whether BUNDLE is this app or one of its helpers (same bundle id, or a bundle id under it)."""
+    mine = str((getattr(j.app, "identity", None) or {}).get("bundle_id") or "")
+    return bool(mine) and (bundle == mine or bundle.startswith(mine + "."))
 
 
 def _key_lost_to_another_app(j, windows):
-    """When no window of the app is key: the frontmost app, if it is not this app (a system prompt, another app's
-    dialog on the mini's console): the host's limit, a known gap naming that app; else None (the app itself is front
-    and has no key window: the app's fault)."""
+    """When no window of the app is key: the frontmost app, if it is a foreign app that was ALREADY frontmost before the
+    journey made its window key (smoke_make_key recorded it: a system prompt or another app's dialog left on the mini's
+    console). That is the host's limit: a known gap naming that app. Else None (the app's fault): the app itself or
+    its helper is front, a foreign app appeared during the journey (a panel or prompt the app may have raised), the
+    app has no main window, or the front app cannot be read."""
     if any(w["key"] is True for w in windows) or not any(w["kind"] == "main" for w in windows):
-        return None  # another app window is key (the app's fault), or the app has no main window (the app's fault)
+        return None
     name, bundle = _front_app()
-    ours = str((getattr(j.app, "identity", None) or {}).get("bundle_id") or "")
-    if not bundle or not ours or bundle == ours:
-        return None  # the front app is unknown, or it is this app: no proof the host took the keys
-    return f"known gap: another app has the key window on this host ({name or '?'} {bundle or ''}): not a pass"
+    before = getattr(j, "smoke_front_before", (None, None))
+    if not bundle or _ours(j, bundle) or bundle != before[1]:
+        return None
+    return f"known gap: another app has the key window on this host ({name or '?'} {bundle}, frontmost before the journey): not a pass"
 
 
 def cond_smoke_key_window(j, want, cache):
     """A main window is the app's key window: a read (debug.window_list), so the check does not make it key. When no
-    window of the app is key because another app is frontmost (a system prompt on the mini's console), the round is a
-    known gap (not run), never a fail: that is the host, not the build. A non-main app window key, or the app front
-    with no key window, fails."""
+    window of the app is key because a foreign app that was frontmost before the journey is front again (a system
+    prompt left on the mini's console), the check is not judged: it holds for this step (so the step's other checks
+    are still judged) and records the gap; smoke-gate.py then makes a passed round "not run", never a pass. A non-main
+    app window key, the app front with no key window, or a foreign app that appeared during the journey fails."""
     key_now, windows = _main_key(j)
     if not key_now and _diagnostic(j) and not getattr(j, "smoke_key_ok", False) \
             and not any(w["key"] is True for w in windows) and any(w["kind"] == "main" for w in windows):
@@ -412,7 +427,11 @@ def cond_smoke_key_window(j, want, cache):
     if not key_now:
         gap = _key_lost_to_another_app(j, windows)
         if gap:
-            raise D.NotRun(gap + f" (windows {json.dumps(windows)[:200]})")
+            gaps = getattr(j, "smoke_key_gaps", [])
+            j.smoke_key_gaps = gaps
+            if gap not in gaps:
+                gaps.append(gap)
+            return True, {"windows": windows, "not_checked": gap}
     return key_now, {"windows": windows}
 
 
@@ -756,8 +775,15 @@ def _frame_loss(j, panes, again=True):
     an answer that is not JSON, a timeout) proves nothing: that pane counts as hidden-but-unproven, and the gate
     reads once more before a GONE verdict. Returns ({pane: evidence}, [gone panes])."""
     rows = {p.get("pane"): p for p in j.app.panes()}
-    places = {}
-    for _ws, pane, tab, term in j.places(j.topology()):
+    places, topo_panes = {}, {}
+    topology = j.topology()
+    for _ws, pane, _tab, _term in j.places(topology):
+        topo_panes.setdefault(pane.get("id"), pane)
+    for ws in topology.get("workspaces", []):  # panes with no tabs are panes too (never GONE for having no tab)
+        for screen in ws.get("screens", []):
+            for pane in screen.get("panes", []):
+                topo_panes.setdefault(pane.get("id"), pane)
+    for _ws, pane, tab, term in j.places(topology):
         if pane.get("id") in panes and pane.get("selected_tab") == tab.get("id"):
             places[pane.get("id")] = (term, tab)
     try:
@@ -776,7 +802,7 @@ def _frame_loss(j, panes, again=True):
         reasons, unproven = [], []
         term, tab = places.get(pane, (None, {}))
         ev["terminal"], ev["tab_dead"] = term, tab.get("dead") if isinstance(tab, dict) else None
-        topo_pane = next((pn for _w, pn, _t, _tm in j.places(j.topology()) if pn.get("id") == pane), None)
+        topo_pane = topo_panes.get(pane)
         if topo_pane is None:
             reasons.append("the daemon topology has no such pane")
         elif pane not in places:
