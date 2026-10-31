@@ -196,6 +196,7 @@ nonisolated extension ActionSurfaceCatalog {
         "cloudPauseMachine": [p(.cloudMachine, .connection, 208, folder: .connection)],
         "cloudResumeMachine": [p(.cloudMachine, .connection, 209, folder: .connection)],
         "cloudSetIdlePause": [p(.cloudMachine, .connection, 210, folder: .connection)],
+        "cloudSetNetworkAccess": [p(.cloudMachine, .connection, 211, folder: .connection)],
         "cloudCopyLink": [p(.cloudMachine, .inspect, 101, folder: .copy)],
         "cloudCopyPort": [p(.cloudMachine, .inspect, 102, folder: .copy)],
         "cloudCopyMachineID": [p(.cloudMachine, .inspect, 100, folder: .copy)],

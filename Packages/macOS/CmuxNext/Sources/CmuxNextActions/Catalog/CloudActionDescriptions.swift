@@ -259,6 +259,13 @@ nonisolated enum CloudActionDescriptions {
             forwarded) before cmux Cloud pauses it: --minutes off, 15, 30, 60 or 120. Returns machine_id \
             and idle_pause_minutes (0 for off).
             """,
+        "cloudSetNetworkAccess": """
+            Sets what the machine (--target machine:<id>) may reach on the internet: --access full (every \
+            public address), trusted (only GitHub, the package registries and the model providers the server \
+            lists as presets) or none (only the hosts cmux itself needs). Applies live, with no restart, and \
+            keeps the machine's own allowed ranges and domains. An agent may only choose none (turn access off). \
+            Returns machine_id, network_access, mode and applied (applied, pending or failed).
+            """,
         "palette.cloud.deleteSnapshot": """
             Deletes a snapshot of the machine (--target machine:<id> --snapshot <snapshot id>). Destructive: \
             a CLI or agent run needs --confirm. Returns no fields.
