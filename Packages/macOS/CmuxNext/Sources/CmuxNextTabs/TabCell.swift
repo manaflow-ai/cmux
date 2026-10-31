@@ -182,6 +182,9 @@ final class TabCell {
         backgroundLayer.cornerCurve = .continuous
         iconLayer.contentsGravity = .resizeAspect
         titleLayer.font = titleFont
+        // Keep a tab's distinguishing suffix visible when its chip is narrow (for example,
+        // "Helper 1" and "Helper 2"). The hover marquee still expands to the full title.
+        titleLayer.truncation = .middle
         for sublayer in [backgroundLayer, separatorLayer, iconLayer, titleLayer] {
             sublayer.actions = Self.noActions
             root.addSublayer(sublayer)
