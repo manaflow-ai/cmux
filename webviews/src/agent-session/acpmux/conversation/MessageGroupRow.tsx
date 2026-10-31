@@ -21,6 +21,7 @@ import { AgentNamesContext, recipientName, shortId } from "./agentNames";
 import { useFindReveal } from "./chatFind";
 import { ChevronRight, Envelope, Spinner } from "./icons";
 import { useMessageGroupLook } from "./messageGroupLook";
+import { sendKey } from "./SentMessageLine";
 import { leadingVerb, ToolLabel } from "./ToolVerb";
 import { isRunning, type MessageEntry } from "./toolGroups";
 import { formatDuration } from "./turns";
@@ -42,6 +43,12 @@ export function memberSending(member: MessageEntry): boolean {
     case "message":
       return isRunning(member.item.tool!);
   }
+}
+
+/// A member's React key: its call's id, and for one message of a batch its place in the batch.
+function memberKey(member: MessageEntry): string {
+  const id = member.item.tool!.id;
+  return member.type === "send" ? sendKey(id, member.send.index) : id;
 }
 
 /// The member's target as its own row names it; `session` is a sub-session's listed name.
@@ -136,7 +143,7 @@ export function MessageGroupRow({
   const bodyId = useId();
   const label = [line.before, line.target, line.after].join("").replace(/\s+/g, " ").trim();
   const entries = children.map((child, at) => (
-    <div key={members[at]!.item.tool!.id || at} className="cv-msggroup__entry">
+    <div key={memberKey(members[at]!) || at} className="cv-msggroup__entry">
       {child}
     </div>
   ));

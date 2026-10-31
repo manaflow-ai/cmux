@@ -221,7 +221,8 @@
     display: none;
   }
 }
-.acpmux-composer[data-composer-look="codex"]:has(.acpmux-composer-bar:hover) .acpmux-look-dots {
+.acpmux-composer[data-composer-look="codex"]:has(.acpmux-composer-bar:hover) .acpmux-look-dots,
+.acpmux-composer[data-composer-look="codex"]:has(.acpmux-composer-bar:has([data-popup-open])) .acpmux-look-dots {
   opacity: 1;
   transition: none;
 }
