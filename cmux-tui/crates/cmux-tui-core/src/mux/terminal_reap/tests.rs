@@ -132,8 +132,10 @@ fn terminal_reap_ends_unplaced_terminals_after_grace_but_not_kept_ones() {
 
     close_workspace_of(&mux, &doomed);
     close_workspace_of(&mux, &kept);
-    assert!(mux.reapable_terminals().unwrap().contains(&doomed_id));
-    assert!(!mux.reapable_terminals().unwrap().contains(&kept_id));
+    let (reapable, retained) = mux.reapable_and_retained_terminals().unwrap();
+    assert!(reapable.contains(&doomed_id));
+    assert!(!reapable.contains(&kept_id));
+    assert!(retained.contains(&kept_id), "a kept terminal is retained");
     assert!(mux.reap_unplaced_terminals(&mut schedule, start).is_empty());
     let almost = start + grace - Duration::from_millis(1);
     assert!(mux.reap_unplaced_terminals(&mut schedule, almost).is_empty());
@@ -157,6 +159,33 @@ fn terminal_reap_ends_unplaced_terminals_after_grace_but_not_kept_ones() {
     assert_eq!(mux.reap_unplaced_terminals(&mut schedule, unkept + grace), vec![kept_id]);
     assert_eq!(lifecycle(&mux, &host_id(&mux, &scratch)), TerminalLifecycle::Running);
     mux.close_surface(scratch.id).unwrap();
+}
+
+/// P0 TERMINAL-HOST LEAK: the grace runs across an owner restart. The
+/// restarted owner's schedule starts empty, but the registry keeps when the
+/// terminal was closed: closed a full grace ago, it is reaped on the first
+/// pass, and the placed terminal is not.
+#[test]
+fn terminal_reap_grace_runs_across_an_owner_restart() {
+    let mux = Mux::new_for_test("terminal-reap-restart", SurfaceOptions::default());
+    let grace = mux.terminal_reap_grace();
+    let placed = mux.new_workspace(Some("placed".into()), Some((80, 24))).unwrap();
+    let closed = mux.new_workspace(Some("closed".into()), Some((80, 24))).unwrap();
+    let closed_id = host_id(&mux, &closed);
+    close_workspace_of(&mux, &closed);
+    let mut schedule = ReapSchedule::default();
+    assert!(mux.reap_unplaced_terminals(&mut schedule, Instant::now()).is_empty());
+    // A restart: a new schedule; the terminal was closed a grace ago.
+    mux.workspace_registry.lock().unwrap().backdate_terminal_unplaced(&closed_id, grace).unwrap();
+    let mut restarted = ReapSchedule::default();
+    assert_eq!(
+        mux.reap_unplaced_terminals(&mut restarted, Instant::now()),
+        vec![closed_id.clone()],
+        "a restart must not count the grace again from zero"
+    );
+    assert_eq!(lifecycle(&mux, &closed_id), TerminalLifecycle::Tombstoned);
+    assert_eq!(lifecycle(&mux, &host_id(&mux, &placed)), TerminalLifecycle::Running);
+    mux.close_surface(placed.id).unwrap();
 }
 
 #[test]
