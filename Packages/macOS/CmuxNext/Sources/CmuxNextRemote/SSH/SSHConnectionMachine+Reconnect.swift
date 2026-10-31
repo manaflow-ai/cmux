@@ -1,10 +1,14 @@
 extension SSHConnectionMachine.Status {
     /// What Reconnect does for a link in this status.
-    public enum ReconnectStep: Equatable, Sendable { case connect, reconnectDaemon, wake, newAttempt, nothing }
+    /// `restart`: stop the link client and the daemon connection, then connect with a new retry budget.
+    public enum ReconnectStep: Equatable, Sendable { case connect, restart, reconnectDaemon, wake, newAttempt, nothing }
 
     /// What Reconnect does for a link in this status whose daemon startup is connected
-    /// (`daemonConnected`) and whose daemon handshake failed (`daemonFailed`).
-    public func reconnectStep(daemonConnected: Bool, daemonFailed: Bool) -> ReconnectStep {
+    /// (`daemonConnected`) and whose daemon handshake failed (`daemonFailed`). `retriesSpent`: a later
+    /// daemon reconnect spent its timed retries; nothing tries any more, so a wake would try once on the
+    /// same link client (HQ #4877 G4).
+    public func reconnectStep(daemonConnected: Bool, daemonFailed: Bool, retriesSpent: Bool = false) -> ReconnectStep {
+        if retriesSpent, self == .connecting || self == .connected || self == .reconnecting { return .restart }
         switch self {
         case .offline, .unreachable, .failed:
             // These failures leave the gate open for automatic backoff, so a user
