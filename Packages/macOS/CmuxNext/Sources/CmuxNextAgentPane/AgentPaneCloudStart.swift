@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextSettings
 public import Foundation
 
@@ -58,12 +59,13 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     /// `CloudMoveFolder` picks it). Reads the disk.
     public nonisolated static func uploadRoot(of folder: String) -> String {
         var current = folder
-        while true {
-            if FileManager.default.fileExists(atPath: (current as NSString).appendingPathComponent(".git")) { return current }
+        while !current.isEmpty {
+            if FileManager.checked.fileExists(atPath: (current as NSString).appendingPathComponent(".git")) { return current }
             let parent = (current as NSString).deletingLastPathComponent
             if parent == current || parent.isEmpty { return folder }
             current = parent
         }
+        return folder
     }
 
     /// The seed of the chat on the Cloud machine, in `cwd` (the folder's copy there): the person's
