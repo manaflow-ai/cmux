@@ -67,6 +67,13 @@ class ClassifyTests(unittest.TestCase):
             NEXT + "CmuxNextBrowser/CEF/SecCodeCEFCodeSignatureChecker.swift",
             NEXT + "CmuxNextBrowser/CEF/CEFCodeSignatureChecking.swift",
             NEXT + "CmuxNextChromiumRuntime/SecCodeChromiumRuntimeSignatureChecker.swift",
+            NEXT + "CmuxNextChromiumRuntime/ChromiumRuntimeSignatureChecking.swift",
+            "Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/Admission.swift",
+            "cmux-tui/crates/acpmux/src/agent_tools/cua_helper.rs",
+            "scripts/cmux-cua-helper-trust.sh",
+            NEXT + "CmuxNextComputerUse/ComputerUseHelperStaging.swift",
+            NEXT + "CmuxNextServerHelper/ServerHelperListener.swift",
+            NEXT + "CmuxNextServerHelper/ServerHelperProtocol.swift",
         ):
             with self.subTest(path=path):
                 self.assertEqual(risk.classify_path(path), ("high", "peer identity or code-signature trust"))
