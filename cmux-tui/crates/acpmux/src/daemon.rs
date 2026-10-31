@@ -31,6 +31,7 @@ pub(crate) mod login_session;
 #[cfg(unix)]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod cloud_handoff;
+mod dev_orphan;
 mod handover;
 mod home_watch;
 mod notify;
@@ -518,6 +519,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     };
     #[cfg(not(unix))]
     let ctrl_c = tokio::signal::ctrl_c();
+    // A DEV build's daemon whose app is gone (`daemon/dev_orphan.rs`); its
+    // bundle is read before the ready line.
+    let dev_orphan = dev_orphan::watch();
     // Before the ready line: a launcher may remove the home as soon as it reads it
     // (`daemon/home_watch.rs`). Its own task, so it keeps watching through a shutdown that began
     // on a signal: a home replaced while the agents drain is still marked lost before their last
@@ -624,6 +628,13 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 },
                 _ = next_signal(int.as_mut()) => {},
                 _ = hub.shutdown.notified() => {},
+                // Its build is gone too: nothing is left to adopt its agents, so they end with
+                // it. An app that only quit keeps them, as its Quit does (`daemon/dev_orphan.rs`).
+                executable_gone = dev_orphan => {
+                    if executable_gone {
+                        let _ = hub.end_agents_at_shutdown(Default::default());
+                    }
+                },
                 // A normal stop, not a restart handoff: nothing can reach this daemon again.
                 Ok(why) = &mut home_gone => tracing::warn!("stopping: {why}"),
                 why = &mut unused => tracing::info!("stopping: {why}"),
@@ -634,6 +645,13 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             tokio::select! {
                 _ = ctrl_c => {},
                 _ = hub.shutdown.notified() => {},
+                // Its build is gone too: nothing is left to adopt its agents, so they end with
+                // it. An app that only quit keeps them, as its Quit does (`daemon/dev_orphan.rs`).
+                executable_gone = dev_orphan => {
+                    if executable_gone {
+                        let _ = hub.end_agents_at_shutdown(Default::default());
+                    }
+                },
                 Ok(why) = &mut home_gone => tracing::warn!("stopping: {why}"),
                 why = &mut unused => tracing::info!("stopping: {why}"),
             }

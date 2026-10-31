@@ -16,6 +16,9 @@ export {};
 {
   const { writeStrings } = await import("../scripts/pages/gen-strings.mjs");
   writeStrings({ ifStale: true, bestEffort: true, log: () => {} });
+  // The feature tips table is build output too (gen-feature-tips.mjs): made from this tree's highlights.
+  const { writeFeatureTips } = await import("../scripts/pages/gen-feature-tips.mjs");
+  writeFeatureTips({ log: () => {} });
 }
 
 // react-dom picks the animationend event name once, when it first loads: without
