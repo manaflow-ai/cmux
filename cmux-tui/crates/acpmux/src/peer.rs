@@ -26,6 +26,9 @@ mod health;
 
 #[path = "peer_ssh.rs"]
 mod ssh_errors;
+#[path = "peer_wanted.rs"]
+mod wanted;
+use wanted::BackoffWait;
 
 #[cfg(test)]
 #[path = "peer_state_tests.rs"]
@@ -82,17 +85,6 @@ pub enum PeerNotice {
         /// The link it came on (`Peer::link_epoch` when it was read).
         link: u64,
     },
-}
-
-/// How a backoff wait between attempts ended (`Peer::wait_backoff`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BackoffWait {
-    /// The delay passed.
-    Done,
-    /// This computer slept through it: the attempt goes now.
-    Woke,
-    /// The peer was stopped.
-    Stopped,
 }
 
 /// A deliberate restart is not a transport failure and does not advance retry backoff.
@@ -212,6 +204,8 @@ pub struct Peer {
     retry_immediately: AtomicBool,
     /// Wakes `serve` so `stop` closes the live connection.
     stop_signal: Notify,
+    /// A client waits on the peer: reconnects come within seconds (`peer_wanted.rs`).
+    wanted: wanted::Wanted,
     /// Counts connect attempts that settled (ready or failed), bumped by the
     /// hub once it applied the outcome, so a caller can await the next one.
     settled: tokio::sync::watch::Sender<u64>,
@@ -298,6 +292,7 @@ impl Peer {
             stop: AtomicBool::new(false),
             retry_immediately: AtomicBool::new(false),
             stop_signal: Notify::new(),
+            wanted: Default::default(),
             settled: tokio::sync::watch::channel(0).0,
             link: StdMutex::new(Link::default()),
             states: StdMutex::new(None),
@@ -988,44 +983,27 @@ impl Peer {
         }
     }
 
-    /// Waits out one backoff delay. A wait that this
-    /// computer slept through ends at the wake, with the backoff started over: the delay ran on
-    /// the monotonic clock, which stood still, so the attempt would otherwise come up to a
-    /// minute after the wake, while the network that failed before the sleep is likely back.
-    async fn wait_backoff(&self, delay: Duration) -> BackoffWait {
-        let deadline = tokio::time::Instant::now() + delay;
-        let mut watch = SleepWatch::now();
-        loop {
-            let check = (tokio::time::Instant::now() + SleepWatch::EVERY).min(deadline);
-            tokio::select! {
-                _ = tokio::time::sleep_until(check) => {
-                    if let Some(slept) = watch.check() {
-                        tracing::info!(peer = %self.name, "this computer slept {}s; reconnecting now", slept.as_secs());
-                        return BackoffWait::Woke;
-                    }
-                    if tokio::time::Instant::now() >= deadline {
-                        return BackoffWait::Done;
-                    }
-                }
-                _ = self.stop_signal.notified() => return BackoffWait::Stopped,
-            }
-        }
-    }
-
     /// Publish the link ending before settling requests. Restart neither increments failed
-    /// attempts nor resets/draws from backoff, even when the previous link was stable.
+    /// attempts nor draws from backoff; it starts backoff over when the previous link was stable.
     fn finish_link(
         &self,
         outcome: Result<LinkEnd, String>,
         backoff: &mut Backoff,
     ) -> Option<PeerNotice> {
         *self.last_error.lock_or_recover() = outcome.as_ref().err().cloned();
+        self.link_ending(matches!(&outcome, Ok(LinkEnd::Restarting)));
         // The epoch moves first: a finishing handshake cannot leave a dead link ready.
         self.link_ended();
         self.open.store(false, Ordering::SeqCst);
         self.connected.store(false, Ordering::SeqCst);
         if matches!(&outcome, Ok(LinkEnd::Restarting)) {
-            self.with_link(|l| l.restarting(crate::store::now_ms()));
+            // The peer's daemon restarts (an update): a stable link's backoff starts over, as at
+            // its drop, or each restart's failures add up and the next waits out a minute.
+            let now = crate::store::now_ms();
+            if self.link().ready_for(now).is_some_and(|up| up >= self.timings.stable_after) {
+                backoff.reset();
+            }
+            self.with_link(|l| l.restarting(now));
             return Some(PeerNotice::Restarting);
         }
         // A genuinely stable link starts failure backoff over; a flapping one does not.
