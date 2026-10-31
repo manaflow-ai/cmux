@@ -14,8 +14,10 @@
 //! this folder's project entry) and the folder's `.mcp.json`; for Codex its `config.toml`. The
 //! `mcpServers` acpmux gave an ACP harness are added. A config edited later never changes them. A
 //! file that is missing or does not parse adds nothing, so a server only it names keeps the
-//! harness up. For a harness another daemon started none are known: it ends only when nothing
-//! runs under it.
+//! harness up. A harness another daemon started (adopted after a restart: every app update) has
+//! the servers its host's hello carries (`agent_host::HostServers`: what the daemon that started
+//! it read, and the ACP ones its sessions opened with). A host of an older build, or one started
+//! while idle hibernation was off, carries none: its harness ends only when nothing runs under it.
 //!
 //! Only a child of the harness can be a server, and only when its argv is exactly the server's:
 //! its program (as configured, or what `PATH` runs for a name), or an interpreter running that
@@ -24,8 +26,11 @@
 //! (acpmux's own, from `/Applications/cmux NIGHTLY.app`) matches, and one process's words can
 //! never pass for another's. Argv is the process's own to rewrite (`exec -a`, `process.title`), so
 //! the executable the kernel says it runs (`tree::exe`) must be the server's program too, or for
-//! a script the interpreter its argv names. A child whose executable or argv cannot be read is not
-//! a server. What runs under a server is the server's. A launcher (an interpreter running a
+//! a script the interpreter its argv names. An app update moves the bundle a running server was
+//! started from aside (the old one goes to the updater's cache, the new one takes its path), so
+//! the kernel then names a file elsewhere: a server started as its program's path whose moved
+//! file kept its name still is that server (`moved_from`). A child whose executable or argv
+//! cannot be read is not a server. What runs under a server is the server's. A launcher (an interpreter running a
 //! script by path: npm's `node .../bin/codex ARGS`) whose child runs a program of the script's
 //! name with exactly the same args relays to that child, which is then the harness too: its
 //! children may be servers, and a program beside it named after it (`codex-code-mode-host`) is its
@@ -126,9 +131,9 @@ impl Hub {
 
     /// The MCP servers `child`, the session's harness, runs: what its configs named as it
     /// started (`LaunchServers::read`) and the `mcpServers` acpmux gave it. None when its configs
-    /// were not read in time: the harness stays up. For a
-    /// harness another daemon started none are known, so it ends only when nothing at all runs
-    /// under it.
+    /// were not read in time: the harness stays up. For a harness another daemon started, the
+    /// ones its host's hello named (`agent_host::HostServers`); when it named none, none are
+    /// known, so it ends only when nothing at all runs under it.
     pub(super) async fn sidecars(&self, child: &ChildAgent) -> Option<Servers> {
         let state = child.launch.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let (mut servers, path, cwd) = match state {
@@ -191,6 +196,15 @@ impl LaunchServers {
             cwd: cwd.clone(),
             ..e
         })
+    }
+
+    /// What a host's hello carries (`agent_host::HostServers`), for a harness this daemon adopted.
+    pub(crate) fn from_host(host: &crate::agent_host::HostServers) -> Self {
+        Self::Known {
+            servers: host.servers.clone(),
+            path: host.path.clone(),
+            cwd: host.cwd.clone(),
+        }
     }
 
     /// Reads, once and before the harness of `family` is started as `launch`, the MCP servers
@@ -367,6 +381,16 @@ fn from_json(servers: Option<&Value>) -> Vec<Sidecar> {
         .collect()
 }
 
+/// The ACP `mcpServers` `given` as the census reads them (`from_json`): each stdio server's
+/// command and args, and nothing else (its env may hold a token). For a host's hello
+/// (`agent_host::HostServers`).
+pub(crate) fn census_servers(given: &Value) -> Value {
+    let servers = from_json(Some(given));
+    Value::Array(
+        servers.into_iter().map(|s| json!({"command": s.command, "args": s.args})).collect(),
+    )
+}
+
 /// Codex's `[mcp_servers.<name>]` tables.
 fn from_toml(text: &str) -> Vec<Sidecar> {
     let Ok(table) = text.parse::<toml::Table>() else { return Vec::new() };
@@ -447,7 +471,19 @@ fn runs(who: &crate::agent_host::tree::Identity, s: &Sidecar) -> bool {
 #[cfg(unix)]
 fn runs_file(who: &crate::agent_host::tree::Identity, w: &str) -> bool {
     let w = Path::new(w);
-    w == who.exe || (w.is_absolute() && same_file(w, &who.exe))
+    w == who.exe || (w.is_absolute() && same_file(w, &who.exe)) || moved_from(who, w)
+}
+
+/// Whether `who` was started as `w` and runs that program moved aside. An app update moves the
+/// bundle a running server was started from (`/Applications/cmux NIGHTLY.app` goes to the
+/// updater's cache) and puts the new one at its path, so the kernel names the moved file, and
+/// the file now at `w` is another one. The path it was started as (`tree::Identity::started_as`,
+/// which the kernel recorded at exec; `exec -a` and `process.title` leave it) is still `w`, and
+/// the moved file kept its name. Before this, every MCP server older than an update kept its idle
+/// harness up for good.
+#[cfg(unix)]
+fn moved_from(who: &crate::agent_host::tree::Identity, w: &Path) -> bool {
+    who.started_as.as_deref() == Some(w) && w.file_name().is_some_and(|n| who.exe.ends_with(n))
 }
 
 /// Whether `a` and `b` are one file once both are canonical; false when either is not there.

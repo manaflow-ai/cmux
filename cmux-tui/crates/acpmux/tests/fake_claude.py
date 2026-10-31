@@ -122,6 +122,8 @@ def stored(sid):
 SESSION = "fake-claude-session"
 RESUME = None
 FLAG_SETTINGS = []
+# The MCP servers FAKE_CLAUDE_START_MCP started: held, so their pipes stay open.
+MCP_CHILDREN = []
 if STORE:
     for flag in ("--session-id", "--resume"):
         if flag in sys.argv[:-1]:
@@ -608,6 +610,23 @@ while True:
         if request.get("subtype") == "set_permission_mode" and os.environ.get("FAKE_CLAUDE_MODE_DELAY_MS"):
             import time
             time.sleep(int(os.environ["FAKE_CLAUDE_MODE_DELAY_MS"]) / 1000)
+        # FAKE_CLAUDE_START_MCP=<file>: as Claude Code does at its start, the harness starts each stdio
+        # server of its folder's .mcp.json (its stdin and stdout piped to it, and held open), and
+        # writes their pids there by name.
+        if request.get("subtype") == "initialize" and os.environ.get("FAKE_CLAUDE_START_MCP"):
+            import subprocess
+            with open(os.path.join(os.getcwd(), ".mcp.json")) as f:
+                servers = json.load(f)["mcpServers"]
+            pids = {}
+            for name, server in servers.items():
+                child = subprocess.Popen([server["command"], *server.get("args", [])], stdin=subprocess.PIPE,
+                                         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                MCP_CHILDREN.append(child)
+                pids[name] = child.pid
+            out = os.environ["FAKE_CLAUDE_START_MCP"]
+            with open(f"{out}.tmp", "w") as f:
+                f.write(json.dumps(pids))
+            os.replace(f"{out}.tmp", out)
         # FAKE_CLAUDE_IDLE_CHILDREN=<file>: the harness starts a worker in its group, one that left
         # it (setsid) and an MCP server (`sleep 3599`), and writes their pids there.
         if request.get("subtype") == "initialize" and os.environ.get("FAKE_CLAUDE_IDLE_CHILDREN"):
