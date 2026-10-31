@@ -114,7 +114,8 @@ test("a pull request bar opens the pull request card", async () => {
   const { act } = await import("react");
   const { createRoot } = await import("react-dom/client");
   const { UiProvider } = await import("../src/ui/UiProvider");
-  const { PullRequestDock } = await import("../src/agent-session/acpmux/summary/PullRequestDock");
+  const { PullRequestDock, RowPullRequests } = await import("../src/agent-session/acpmux/summary/PullRequestDock");
+  const { transcriptPullRequests } = await import("../src/agent-session/acpmux/summary/transcriptPullRequests");
   const host = await rig();
   const element = dom.window.document.getElementById("root")!;
   const root = createRoot(element);
@@ -124,7 +125,9 @@ test("a pull request bar opens the pull request card", async () => {
   await act(async () =>
     root.render(
       <UiProvider container={element}>
-        <PullRequestDock rows={rows as never} sessionId="card" />
+        <RowPullRequests.Provider value={transcriptPullRequests(rows as never)}>
+          <PullRequestDock />
+        </RowPullRequests.Provider>
       </UiProvider>,
     ),
   );

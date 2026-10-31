@@ -2,11 +2,12 @@ public import AppKit
 public import CmuxHomeCore
 import CmuxNextDesign
 
-/// The frame of the Home page's sheets (New Message, Invite, New Chief): a
+/// The frame of the Home page's sheets (Invite, Invite to Team, New Chief): a
 /// title, the sheet's own content, a status line that says why an action
 /// did not finish, and Cancel plus a default button. `run` disables the
 /// buttons while the action runs; an opened conversation or a sent invite
-/// closes the sheet and reaches `onFinish`.
+/// closes the sheet and reaches `onFinish`. ``HomeSheetPresenter`` shows it as
+/// the window's dialog overlay.
 public class HomeSheetController: NSViewController {
     /// The sheet finished with a conversation to show (nil: nothing to show).
     public var onFinish: (ConversationID?) -> Void = { _ in }
@@ -19,8 +20,13 @@ public class HomeSheetController: NSViewController {
     let buttons = NSStackView()
     /// The sheet's material, under its content: this Mac's glass with no card fill, like every
     /// overlay, solid only under Reduce Transparency (Leo 2026-10-21: "glass is never opaque (the
-    /// only exception is the Reduce Transparency fallback)").
-    let surface = OverlaySurfaceView(interactive: true, cornerRadius: 0)
+    /// only exception is the Reduce Transparency fallback)"). A dialog overlay has no window to
+    /// shape it: the glass carries the panel's corners.
+    let surface = OverlaySurfaceView(interactive: true)
+    /// Ends the presentation (``HomeSheetPresenter`` sets it): the overlay's dismiss.
+    var dismissPresentation: (() -> Void)?
+    /// `onFinish` ran: a Cancel and the overlay's own Escape end the sheet once.
+    private var finished = false
     private(set) var isRunning = false
     // task-owner: the sheet's one running action; cancelled when the sheet closes
     private var work: Task<Void, Never>?
@@ -82,6 +88,9 @@ public class HomeSheetController: NSViewController {
         refreshPrimary()
     }
 
+    /// The control that takes the keyboard when the sheet shows (subclasses name their first field).
+    var initialResponder: NSView? { nil }
+
     /// Subclasses add their fields between the title and the status line.
     func addContent(to stack: NSStackView) {}
 
@@ -132,11 +141,28 @@ public class HomeSheetController: NSViewController {
 
     func close(showing id: ConversationID?) {
         work?.cancel()
-        if let presenting = presentingViewController {
+        if let dismissPresentation {
+            self.dismissPresentation = nil
+            dismissPresentation()
+        } else if let presenting = presentingViewController {
             presenting.dismiss(self)
         } else if let window = view.window, let parent = window.sheetParent {
             parent.endSheet(window)
         }
+        end(showing: id)
+    }
+
+    /// The overlay ended on its own (Escape, its window closed): the action stops and
+    /// `onFinish` hears nothing to show.
+    func presentationEnded() {
+        dismissPresentation = nil
+        work?.cancel()
+        end(showing: nil)
+    }
+
+    private func end(showing id: ConversationID?) {
+        guard !finished else { return }
+        finished = true
         onFinish(id)
     }
 

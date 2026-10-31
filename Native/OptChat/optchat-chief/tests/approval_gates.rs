@@ -591,6 +591,7 @@ fn subagent_asking(h: &mut Harness, workspace: bool) -> String {
             id: "a1".into(),
             key: "workspace:7".into(),
             name: "deploy the docs".into(),
+            ws: None,
         });
     }
     h.brain.step(permission_in(
@@ -736,6 +737,7 @@ fn a_prompt_whose_workspace_opens_after_it_asked_waits_for_the_person() {
         id: "a1".into(),
         key: "workspace:7".into(),
         name: "deploy the docs".into(),
+        ws: None,
     });
     assert!(h.brain.unanswered_permissions().is_empty());
     h.brain.deny_overdue_permissions_at(T0 + 3_600_000);

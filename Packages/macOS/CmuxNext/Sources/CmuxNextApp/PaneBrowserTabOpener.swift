@@ -34,7 +34,7 @@ struct PaneBrowserTabOpener {
     /// page unless the caller waits for the tab, and media Chromium cannot play opens in WebKit.
     func open(url: URL?, engine requested: String?, inherited: String?, adopting child: (any BrowserTab)?, // perf-hot: 10ms new-tab (the key's turn of every new browser tab)
               background: Bool, profile: String?, notice: String?, opener: SurfaceID?,
-              then: (@MainActor (SurfaceID) -> Void)?) -> Bool {
+              placementOwner: Bool = false, then: (@MainActor (SurfaceID) -> Void)?) -> Bool {
         let services = controller.services
         var target = url
         // chrome://history and chrome://bookmarks open cmux's pages; chrome://settings opens Settings
@@ -89,19 +89,28 @@ struct PaneBrowserTabOpener {
             if child != nil { choice = BrowserPageRequests.choice(adopting: child, inherited: inherited, browserTabs: browserTabs) }
             let pageRequests = services.cache.pageRequests
             let newTabAddress = services.newTabAddress(for: choice)
-            // A person's foreground tab: shown with its page in this turn (openStandIn).
-            if standInApplies(child: child, opener: opener, background: background) {
+            let controller = controller, model = controller.pane
+            // Home's pinned dock takes dragged tabs (`allow_tabs`, Leo 2026-10-21) but opens nothing in
+            // itself (HomeDockOpens): a new browser tab aimed at it (History, Bookmarks, a URL from another
+            // app, Split Browser, Duplicate Tab, a popup, the update card's Release Notes) is made there and
+            // moves to a column on its right, as the daemon reroutes it for a dock closed to tabs. A caller's
+            // `then` places it itself (LinkOpener, AgentBesidePlacement, a script's HomeDockOpens.placing).
+            let beside = then == nil && controller.isOpenPinnedDockPane
+            // Keep a Home-dock tab out of the dock strip until it lands beside the dock.
+            let outbound = beside ? OutboundTab.begin(in: controller) : nil
+            // A caller-supplied callback is HomeDockOpens.placing (or another placement owner).
+            // It starts the move and owns the OutboundTab hold; selecting here after that callback
+            // begins would release the hold and briefly restore Home's strip.
+            let callerOwnsHomePlacement = controller.isOpenPinnedDockPane && placementOwner
+            // A person's foreground tab: shown with its page in this turn (openStandIn). Not one aimed
+            // at Home: the stand-in selects it in Home's dock, and its strip would come back (Lawrence
+            // 2026-10-29: "chief in home should not have horizontal tabbar").
+            if !beside, standInApplies(child: child, opener: opener, background: background,
+                                        placementOwner: placementOwner) {
                 openStandIn(choice, address: url?.absoluteString ?? newTabAddress, focusesAddressBar: url == nil,
                             profile: profile, notice: notice, then: then)
                 return true
             }
-            let controller = controller, model = controller.pane
-            // Home's pinned dock takes dragged tabs (`allow_tabs`, Leo 2026-10-21) but opens nothing in
-            // itself (HomeDockOpens): a new browser tab aimed at it (History, Bookmarks, a URL from another
-            // app, Split Browser, Duplicate Tab, a popup) is made there and moves to a column on its right,
-            // as the daemon reroutes it for a dock closed to tabs. A caller's `then` places it itself
-            // (LinkOpener, AgentBesidePlacement, a script's HomeDockOpens.placing).
-            let beside = then == nil && controller.isOpenPinnedDockPane
             let linkOpener = services.linkOpener
             let intent = background || beside ? nil : controller.workspace?.beginFocusIntent()
             services.registry.track(Task {
@@ -112,19 +121,23 @@ struct PaneBrowserTabOpener {
                     let surface = try await pageRequests.openers.open(opener, foreground: !background, in: model,
                                                                       browserTabs: browserTabs) { after in
                         try await browserTabs.open(choice, in: model, url: address, profile: profile, notice: notice,
-                                                   activate: !background, after: after)
+                                                   activate: !background && !beside, after: after)
                     }
                     if let child { pageRequests.adopt(child, surface: surface) }
                     if beside {
-                        linkOpener.moveBeside(surface, from: controller, focus: !background, target: url == nil ? .addressBar : .content)
+                        linkOpener.moveBeside(surface, from: controller, focus: !background, target: url == nil ? .addressBar : .content,
+                                              outbound: outbound)
                         return nil
                     }
                     then?(surface)
                     guard !background else { return nil }
+                    if callerOwnsHomePlacement { return nil }
                     controller.selectWhenReported(surface: surface)
                     controller.workspace?.expectFocus(on: surface, target: url == nil ? .addressBar : .content, generation: intent)
                     return nil
                 } catch {
+                    outbound?.finish(moved: false)
+                    if callerOwnsHomePlacement { OutboundTab.cancelLatest(in: controller) }
                     child?.close()
                     controller.daemon.logger.error("new-frontend-browser-tab failed: \(String(describing: error), privacy: .public)")
                     return "new-frontend-browser-tab: \(error)"
@@ -172,8 +185,9 @@ struct PaneBrowserTabOpener {
 extension PaneBrowserTabOpener {
     /// A person's foreground tab of this Mac's daemon in a normal window, with no popup page to
     /// adopt and no opener slot (decided after the reply).
-    private func standInApplies(child: (any BrowserTab)?, opener: SurfaceID?, background: Bool) -> Bool {
-        child == nil && opener == nil && !background && controller.daemon.isLocal && controller.daemon.connection != nil
+    private func standInApplies(child: (any BrowserTab)?, opener: SurfaceID?, background: Bool,
+                                 placementOwner: Bool) -> Bool {
+        child == nil && opener == nil && !background && !placementOwner && controller.daemon.isLocal && controller.daemon.connection != nil
             && ActionRunScope.viewChangeAllowed() && !controller.services.cache.browserTabs.isIncognitoPane(controller.pane)
     }
 

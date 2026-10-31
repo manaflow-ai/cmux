@@ -13,13 +13,16 @@ import { setDeviceChats } from "./newtab/deviceChats";
 import { setToolCards } from "./toolCards/toolCardStore";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
+import { setReadAloudState } from "./conversation/readAloud";
 import { setHeaderState } from "./header/headerState";
 import { setTabRow } from "./header/tabRow";
+import { receiveNativeRowToolInvocation } from "./header/nativeRowTools";
 import { setFloatingState } from "./floatingState";
 import { configureNativeSidebarPreviewVariant } from "./sidebarPreview";
 import { setSessionStatus } from "./sessionStatus";
 import { receivePromptUploadState } from "./promptUploadState";
 import { setComputerUsePreview } from "./computerUse/computerUsePreview";
+import { setMachineLink } from "./machineLink";
 
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
@@ -104,6 +107,8 @@ export function applyHostEvent(event: HostEvent): void {
     case "sessionStatus":
       // Direct, like editedFiles: a push before the chat mounts is kept.
       return setSessionStatus(event.value);
+    case "machineLink":
+      return setMachineLink(event.value);
     case "editedFiles":
       // Direct, not through window.cmuxAcpmuxEditedFiles: an event that arrives before the card
       // module loads still sets the value the card then reads.
@@ -123,6 +128,9 @@ export function applyHostEvent(event: HostEvent): void {
     case "nowPlaying":
       // Direct, like recentlyClosed: a push before the New Tab screen mounts is kept.
       return setNowPlaying(event.value);
+    case "readAloud":
+      // The app's voice (conversation/readAloud.ts): which message it reads, on every change.
+      return setReadAloudState(event.value);
     case "toolCards":
       // Direct, like deviceChats: a push before the chat mounts is kept.
       return setToolCards(event.value);
@@ -133,6 +141,8 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.applyCustomization(value);
     case "headerState":
       return setHeaderState(event.value);
+    case "tabRowToolInvoked":
+      return receiveNativeRowToolInvocation(event.value);
     case "tabRow":
       return setTabRow(event.value);
     case "floatingState":
@@ -147,6 +157,8 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.command?.(String(event.value));
     case "stopTurn":
       return bridge?.command?.("stopTurn", String(event.value));
+    case "sideQuestion":
+      return bridge?.command?.("sideQuestion", String(event.value));
     case "focusLocation":
       window.dispatchEvent(new Event(FOCUS_LOCATION));
       return;

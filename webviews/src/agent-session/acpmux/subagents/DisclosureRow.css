@@ -1,7 +1,11 @@
 /* The transcript family row: one quiet line by default, with its panel growing below the anchored
    header. Incoming messages use the same DisclosureRow API when their shared bridge lands. */
+/* A row's line has the tool rows' 26px height in 2px margins and their regular weight, as the
+   received-message line it sits among does (conversation.css .cv-received): consecutive rows of the
+   family stack with no extra gap and none of them is bold (Leo, 2026-10-29: "why is one of these
+   bold? And why is there space, a fucking gap in between them?"). */
 .cv-disclosure {
-  margin: 4px 0 6px;
+  margin: 2px 0;
   min-width: 0;
   color: var(--cv-text);
 }
@@ -9,22 +13,43 @@
   display: flex;
   align-items: center;
   min-width: 0;
-  min-height: var(--ds-control-compact);
+  min-height: var(--cv-disclosure-line-height);
   gap: calc(var(--ds-space-1) + 2px);
 }
-.cv-disclosure__toggle {
+.cv-disclosure__toggle,
+.cv-disclosure__open {
   all: unset;
   display: flex;
   align-items: center;
   flex: 1 1 auto;
   min-width: 0;
   gap: calc(var(--ds-space-1) + 2px);
-  cursor: pointer;
+  box-sizing: border-box;
+  min-height: var(--cv-disclosure-line-height);
+  cursor: default;
   border-radius: 6px;
-  padding: calc(var(--ds-space-1) - 1px) var(--ds-space-1);
+  padding: 0 var(--ds-space-1);
+}
+/* A line that opens a chat (`.cv-disclosure__open`) ends at its status; its chevron is the panel's
+   own toggle right after it. */
+.cv-disclosure__open {
+  flex: 0 1 auto;
+}
+.cv-disclosure__line > .cv-disclosure__toggle.is-chevron {
+  flex: none;
+  justify-content: center;
+  width: 20px;
+  min-height: 20px;
+  height: 20px;
+  padding: 0;
+  margin-inline-start: calc(-1 * var(--ds-space-1));
+  border-radius: 5px;
+  color: var(--cv-text-muted);
 }
 .cv-disclosure__toggle:hover,
-.cv-disclosure__toggle:focus-visible {
+.cv-disclosure__toggle:focus-visible,
+.cv-disclosure__open:hover,
+.cv-disclosure__open:focus-visible {
   background: color-mix(in srgb, var(--cv-text) 6%, transparent);
 }
 .cv-disclosure__icon {
@@ -39,7 +64,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 500;
+  font-weight: 400;
 }
 .cv-disclosure__meta,
 .cv-disclosure__status {
@@ -66,26 +91,6 @@
 .cv-disclosure__status [data-state="failed"],
 .cv-disclosure[data-state="failed"] .cv-disclosure__status {
   color: var(--agent-status-failure);
-}
-.cv-disclosure__open {
-  all: unset;
-  flex: none;
-  cursor: pointer;
-  color: var(--cv-text-muted);
-  font-size: var(--text-detail);
-  letter-spacing: var(--text-detail--letter-spacing);
-  opacity: 0;
-  transition: opacity 100ms ease;
-}
-.cv-disclosure__line:hover .cv-disclosure__open,
-.cv-disclosure__open:focus-visible {
-  opacity: 1;
-}
-.cv-disclosure__open:hover,
-.cv-disclosure__open:focus-visible {
-  color: var(--cv-text);
-  text-decoration: underline;
-  text-underline-offset: 2px;
 }
 .cv-disclosure__panel {
   margin: calc(var(--ds-space-1) / 2) 0 var(--ds-space-1) 24px;

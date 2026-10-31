@@ -18,6 +18,10 @@ use crate::rpc::method;
 /// One capability: its id and the wire names (methods and notifications) the
 /// web pane uses under it. Every name is in the protocol registry
 /// (`protocol::registry`); the tests check that.
+/// Session-to-session message events; a daemon with it names, in each prompt acceptance, the
+/// message its journal kept (`hub/message_events.rs` `name_message`).
+pub const SESSION_MESSAGES: &str = "session-messages-v1";
+
 pub struct Capability {
     pub id: &'static str,
     pub wire: &'static [&'static str],
@@ -71,11 +75,15 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_SECRET_SUBMIT,
         ],
     },
+    // Server-side local/non-closed session-list filters used by native quit
+    // census callers. Older daemons keep serving the unfiltered list.
+    Capability { id: "session-list-filters-v1", wire: &[method::MUX_SESSIONS] },
     Capability { id: "machine.join.stdin.v1", wire: &[] },
     Capability {
         id: "machine-consent-v1",
         wire: &[method::MUX_MACHINE_CONSENT_SET, method::MUX_MACHINE_CONSENT_GET],
     },
+    Capability { id: SESSION_MESSAGES, wire: &[method::MUX_MESSAGE] },
     // Inline `/btw` answers: the pane may send `inline: true` and receive `{text}`;
     // older daemons treat that field as legacy side-session input, so this id gates the shape.
     Capability { id: "btw-inline-v1", wire: &[method::MUX_BTW] },
@@ -93,6 +101,8 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "chat-presence-v1", wire: &[method::MUX_TYPING, method::MUX_PRESENCE] },
     // Edit or remove a queued prompt, and send a steer now (`hub/queue_edit.rs`).
     Capability { id: "queue-edit-v1", wire: &[method::MUX_QUEUE_EDIT, method::MUX_QUEUE_REMOVE] },
+    // One queued prompt's whole text, read on demand (`hub/queue_text.rs`).
+    Capability { id: "queue-text-v1", wire: &[method::MUX_QUEUE_TEXT] },
     // One answer for a group of permission asks, and revoking a chat's grants.
     Capability {
         id: "permission-groups-v1",
@@ -160,6 +170,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // agent's or background agent's, from the files Claude Code writes
     // (`claude_stdio/agent_transcript.rs`).
     Capability { id: "subagent-transcript-v1", wire: &[method::MUX_SUBAGENT_TRANSCRIPT] },
+    // A chat adopted or watched from Claude Code pages its older turns in from the transcript,
+    // past the newest page its log was seeded with (`hub/native_history.rs`).
+    Capability { id: "native-history-v1", wire: &[method::MUX_NATIVE_HISTORY] },
     Capability {
         id: "durable-watches-v1",
         wire: &[method::MUX_WATCH_ADD, method::MUX_WATCH_LS, method::MUX_WATCH_RM],
