@@ -22,11 +22,10 @@ public final class AppWebPaneView: NSView, WKNavigationDelegate {
     let bridge: AppWebPaneBridge
     private let schemeHandler: AppWebPaneSchemeHandler
     private weak var client: AppsClient?
-    /// The hot reload watch; dropping it (the view gone, or out of its window) ends it.
+    /// Follows eligibility even while cached outside a window: disabled code must stop there too.
     private var reloads: ReloadWatch?
-    /// The app's file revision the page last loaded (nil before the first watch).
-    private var seenRevision: Int?
-    /// Times the page reloaded for a file change (tests read it).
+    private var seenState: PaneState?
+    /// Times the page reloaded for an app or file change (tests read it).
     private(set) var hotReloads = 0
     /// Called for each navigation the pane refused (tests wait on it).
     var onRefusedNavigation: (() -> Void)?
@@ -44,6 +43,7 @@ public final class AppWebPaneView: NSView, WKNavigationDelegate {
     public convenience init(pane: AppWebPane, client: AppsClient, work: BackgroundWork) {
         self.init(pane: pane, calls: client, work: work)
         self.client = client
+        watchApp()
     }
 
     init(pane: AppWebPane, calls: any AppWebPaneCalls, work: BackgroundWork) {
@@ -96,29 +96,22 @@ public final class AppWebPaneView: NSView, WKNavigationDelegate {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    override public func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if window == nil {
-            reloads = nil
-        } else if reloads == nil {
-            watchFiles()
-        }
-    }
-
-    /// Reloads the page each time the app's file count moves.
-    private func watchFiles() {
+    /// The renderer follows the same authoritative eligibility as the supervisor.
+    private func watchApp() {
         guard let client else { return }
         let app = pane.appID
-        let (first, later) = ObservationStream.current { [weak client] in client?.fileRevisions[app] ?? 0 }
-        // task-owner: this view, through ReloadWatch; cancelled when the view leaves its window or goes
-        // Files saved while the pane was out of its window reload it on the way back.
-        if let seenRevision, seenRevision != first { filesChanged() }
-        seenRevision = first
+        let (first, later) = ObservationStream.current { [weak client] in
+            PaneState(client: client, app: app)
+        }
+        // task-owner: this view, through ReloadWatch; cancelled when the view is released.
+        // A cached view can still execute JavaScript, so it retains its eligibility watch.
+        if first.pane != pane { filesChanged() }
+        seenState = first
         reloads = ReloadWatch(task: Task { [weak self] in
-            for await revision in later {
+            for await state in later {
                 guard let self else { return }
-                guard revision != seenRevision else { continue }
-                seenRevision = revision
+                guard state != seenState else { continue }
+                seenState = state
                 filesChanged()
             }
         })
@@ -130,13 +123,11 @@ public final class AppWebPaneView: NSView, WKNavigationDelegate {
         crashReloads = 0
         webView.stopLoading()
         if let client {
-            guard let app = client.app(pane.appID), app.isActive,
+            guard client.isListed, let app = client.app(pane.appID), app.isActive, app.available,
                   let bundle = client.bundleDirectory(for: app.id),
                   let latest = AppWebPane(manifest: app.manifest, bundle: bundle)
             else {
-                schemeHandler.pane = nil
-                bridge.enabled = false
-                webView.loadHTMLString("", baseURL: nil)
+                revoke()
                 return
             }
             pane = latest
@@ -148,8 +139,35 @@ public final class AppWebPaneView: NSView, WKNavigationDelegate {
 
     /// Loads the entry page, once the offline rule list is in place.
     private func load() {
+        // Offline-rule completion and crash callbacks may race the observation task.
+        if let client, PaneState(client: client, app: pane.appID).pane == nil {
+            revoke()
+            return
+        }
         guard offline, networkClosed, schemeHandler.pane != nil else { return }
         webView.load(URLRequest(url: pane.entryURL))
+    }
+
+    private func revoke() {
+        webView.stopLoading()
+        schemeHandler.pane = nil
+        bridge.enabled = false
+        webView.loadHTMLString("", baseURL: nil)
+    }
+
+    private struct PaneState: Equatable, Sendable {
+        let revision: Int
+        let pane: AppWebPane?
+
+        init(client: AppsClient?, app: String) {
+            revision = client?.fileRevisions[app] ?? 0
+            if let client, client.isListed, let record = client.app(app), record.isActive, record.available,
+               let bundle = client.bundleDirectory(for: app) {
+                pane = AppWebPane(manifest: record.manifest, bundle: bundle)
+            } else {
+                pane = nil
+            }
+        }
     }
 
     /// Blocks every request outside the pane's own scheme (and the local `about:`, `data:` and
