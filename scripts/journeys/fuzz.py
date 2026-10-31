@@ -148,6 +148,12 @@ def journey_row(out):
     return {"status": "not run", "reason": "no action-fuzz line"}
 
 
+def replay_options(seq, opts):
+    """The journey options of one replay of SEQ (no shrink in the app, the run's set, the size trace on)."""
+    return {"fuzz_sequence": json.dumps(seq, separators=(",", ":")), "fuzz_shrink": "false", "fuzz_set": opts.set,
+            "fuzz_trace": "1"}
+
+
 def repro_journey(failure, sequence, seed, build):
     """A regression journey that plays SEQUENCE once (no shrink) and must stay clean: red on the build it was found on."""
     ident = f"found-{failure['oracle']}-{seed}".lower()
@@ -189,9 +195,19 @@ class Runner:
             argv += ["--journey-option", "fuzz_mode=diagnostic"]
         out.mkdir(parents=True, exist_ok=True)
         with open(out / "run.log", "w") as log:  # live, so a long round can be followed
-            done = subprocess.run(argv, stdout=log, stderr=subprocess.STDOUT, text=True, env=env)
+            proc = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT, text=True, env=env)
+            try:
+                code = proc.wait()
+            except BaseException:
+                # fuzz.py was stopped: TERM to run.py (never KILL), whose handler releases the lease, then wait.
+                proc.terminate()
+                try:
+                    proc.wait(timeout=180)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                raise
         row = journey_row(out)
-        return done.returncode, row, fuzz_report(out), (row.get("host") or None)
+        return code, row, fuzz_report(out), (row.get("host") or None)
 
 
 def summarize(rounds, opts, started):
@@ -233,8 +249,8 @@ def summarize(rounds, opts, started):
             "rounds": len(rounds), "test_rounds": len(test), "not_run": len(not_run), "actions": actions,
             "fuzz_seconds": round(fuzz_s), "wall_seconds": round(time.time() - started),
             "seeds": sorted({r["seed"] for r in test if r.get("seed") is not None}),
-            "failures": [{k: r.get(k) for k in ("round", "seed", "host", "failure", "shrunk", "confirmed", "repro", "corpus",
-                                                "also_on_base")} for r in fails],
+            "failures": [{k: r.get(k) for k in ("round", "seed", "host", "failure", "shrunk", "shrink_leases", "confirmed",
+                                                "repro", "corpus", "also_on_base")} for r in fails],
             "findings": sorted(findings.values(), key=lambda f: (f["on_base"], f["oracle"])),
             "broken_rounds": [{k: r.get(k) for k in ("round", "seed", "host", "status", "reason", "journey_problems")} for r in broken],
             "base_failures": [{k: r.get(k) for k in ("round", "seed", "host", "failure", "shrunk", "corpus")} for r in base_fails],
@@ -278,7 +294,19 @@ def text_of(summary):
     return "\n".join(lines)
 
 
+class Stopped(BaseException):
+    """SIGTERM of fuzz.py: raised so the round's run.py gets TERM and releases its lease (Runner.lease)."""
+
+
+def _stopped(signum, frame):
+    raise Stopped(f"signal {signum}")
+
+
 def main(argv=None):
+    import signal
+    import threading
+    if threading.current_thread() is threading.main_thread():
+        signal.signal(signal.SIGTERM, _stopped)
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0], formatter_class=argparse.RawDescriptionHelpFormatter,
                                  epilog=__doc__.split("\n\n", 1)[1])
     ap.add_argument("--build", help="the fleet build job id under test")
@@ -295,6 +323,7 @@ def main(argv=None):
     ap.add_argument("--hosts", default=DEFAULT_HOSTS)
     ap.add_argument("--host", help="pin every round to this mini (the A/B is then on one host for the whole run)")
     ap.add_argument("--allow-cmux17", action="store_true", help="only after STATUS says CUA GRANTED cmux17")
+    ap.add_argument("--shrink-tries", type=int, default=10, help="ddmin tries per failure (one short lease each)")
     ap.add_argument("--replay", help="a repro JSON (a sequence list, or a file with `shrunk`/`sequence`): one round")
     ap.add_argument("--plan", action="store_true", help="print the plan of --seed and exit (no fleet)")
     ap.add_argument("--out")
@@ -325,8 +354,7 @@ def main(argv=None):
     if opts.replay:
         data = json.loads(Path(opts.replay).read_text())
         seq = data if isinstance(data, list) else (data.get("shrunk") or data.get("sequence"))
-        work.append(("replay", {"fuzz_sequence": json.dumps(seq, separators=(",", ":")), "fuzz_shrink": "false",
-                                "fuzz_set": opts.set, "fuzz_trace": "1"}, None))
+        work.append(("replay", replay_options(seq, opts), None))
     else:
         if opts.corpus:
             # Lawrence's reported bugs, one round (a close-all between them): ext_fuzz.CORPUS_SETS[--set].
@@ -374,25 +402,49 @@ def main(argv=None):
                 print("fuzz: the wall clock is six times the fuzz budget; stopping", flush=True)
                 break
 
-    # Confirm each failure of the build in a fresh lease with its shrunk sequence, and write it as a journey.
-    repros = out / "repros"
+    # Shrink each failure of the build OUTSIDE its lease (cmux-ad 09:05Z: a lease is held only while journey steps
+    # run): ddmin, each try one short replay lease with a fresh app, at most --shrink-tries; the smallest failing
+    # sequence is then confirmed (a try that failed with the same oracle, else one more lease) and written as a
+    # regression journey. The same failure is shrunk once (by oracle and signature), not per round.
+    repros, done_sigs, k = out / "repros", set(), 0
     for r in [r for r in rounds if r["build"] == "test" and r.get("failure")]:
-        seq = r.get("shrunk") or None
-        if not seq:
-            report = fuzz_report(out / f"round-{r['round']:03d}-test") or {}
-            seq = report.get("sequence")
-        if not seq:
+        sig = ext_fuzz.signature(r["failure"]["oracle"], r["failure"]["detail"])
+        report = fuzz_report(out / f"round-{r['round']:03d}-test") or {}
+        seq = r.get("shrunk") or report.get("sequence") or []
+        if not seq or sig in done_sigs:
             continue
+        done_sigs.add(sig)
+        failed, tries = set(), [0]
+
+        def fails(cand, r=r):
+            if tries[0] >= opts.shrink_tries:
+                return None
+            tries[0] += 1
+            nonlocal k
+            k += 1
+            code, row, rep_, used = runner.lease(opts.build, out / f"shrink-{r['round']:03d}-{k:02d}", replay_options(cand, opts))
+            got = (rep_ or {}).get("failure")
+            if rep_ is None or row.get("status") == "not run":
+                return None
+            hit = bool(got) and got.get("oracle") == r["failure"]["oracle"]
+            if hit:
+                failed.add(json.dumps(cand, sort_keys=True))
+            return hit
+        small, _ = ext_fuzz.ddmin(seq, fails) if len(seq) > 1 else (seq, 0)
+        r["shrunk"], r["shrink_leases"] = small, tries[0]
+        r["confirmed"] = json.dumps(small, sort_keys=True) in failed
+        if not r["confirmed"]:
+            code, row, rep_, used = runner.lease(opts.build, out / f"confirm-{r['round']:03d}", replay_options(small, opts))
+            again = (rep_ or {}).get("failure")
+            r["confirmed"] = bool(again) and again.get("oracle") == r["failure"]["oracle"]
+            r["confirm_detail"] = (again or {}).get("detail") or row.get("reason")
         repros.mkdir(exist_ok=True)
-        ident, spec = repro_journey(r["failure"], seq, r["seed"], opts.build)
+        ident, spec = repro_journey(r["failure"], small, r["seed"], opts.build)
+        for st in spec["steps"]:
+            if st["do"] == "fuzz_run":
+                st["set"] = opts.set
         (repros / f"{ident}.json").write_text(json.dumps(spec, indent=1) + "\n")
         r["repro"] = str(repros / f"{ident}.json")
-        c_out = out / f"confirm-{r['round']:03d}"
-        code, row, report, used = runner.lease(opts.build, c_out, {"fuzz_sequence": json.dumps(seq, separators=(",", ":")),
-                                                                    "fuzz_shrink": "false"})
-        again = (report or {}).get("failure")
-        r["confirmed"] = bool(again) and again.get("oracle") == r["failure"]["oracle"]
-        r["confirm_detail"] = (again or {}).get("detail") or row.get("reason")
 
     summary = summarize(rounds, opts, started)
     summary["out"] = str(out)

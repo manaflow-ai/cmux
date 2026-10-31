@@ -375,10 +375,17 @@ tabs, terminals and panes. After every burst it runs the oracles, which reuse th
 | `crash` | the app lives, its daemon is connected, a quit's relaunch is clean |
 | `leak` | after close-all, PTYs and non-helper processes at the first close-all's count; fds and browser helpers within a margin |
 
+Leases (cmux-ad 09:05Z, binding): a capture lease is held only while journey steps run. Each round is one lease
+(acquire right before the round, release right after it, on every path: run.py turns SIGTERM into an exception so its
+`finally` releases, an acquire stopped by a signal is ended so capture-host unreserves, and fuzz.py passes its own
+SIGTERM to run.py as TERM, never KILL; `test_run_release.py`). The build comes from a per-mini cache outside the slot
+(`~/.cache/cmux-journeys/builds/<job>/`, the newest 3 jobs), so only the first round of a job on a mini downloads it.
+Nothing is shrunk inside a lease: fuzz.py runs ddmin with one short replay lease per try (`--shrink-tries`, default 10).
+
 Sets: `layout` (fuzz-catalog row m, the first mode: New Column, Cmd-D, Split Down, Ctrl-`, close pane, divider drag,
 window resize, relaunch) and `full` (also Cmd-T, Cmd-N, closes, workspace switches, typing, paste, a browser URL,
-close all). A failure is shrunk in the same app (ddmin; each try starts from the baseline workspaces), replayed in a
-fresh lease, and written as a regression journey (`OUT/repros/found-<oracle>-<seed>.json`, red on that build). The
+close all). A failure is shrunk by fuzz.py (ddmin, each try a fresh app in its own short lease; the layout set starts every run
+with all workspaces closed and one fresh Ctrl-` workspace), confirmed, and written as a regression journey (`OUT/repros/found-<oracle>-<seed>.json`, red on that build). The
 corpus `journeys/fuzz/lawrence-*.json` (`--corpus`) plays Lawrence's reported bugs as fixed sequences.
 
 Speed: each create records `shown_ms` (key to the new terminal's pane drawn, not blank) and `typeable_ms` (key to its

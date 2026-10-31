@@ -362,7 +362,9 @@ class Fuzz:
         self.count = int(opts.get("fuzz_count") or step.get("count", 300))
         budget = float(opts.get("fuzz_budget_s") or step.get("budget_s", 200))
         self.end = min(D.now() + budget, j.deadline - 25)
-        self.shrink = str(opts.get("fuzz_shrink", step.get("shrink", True))).lower() not in ("false", "0", "no")
+        # Shrinking inside the app keeps the lease while no new journey step runs (cmux-ad 09:05Z: never hold a lease
+        # while you shrink): off by default; fuzz.py shrinks with one short lease per ddmin try. On only on request.
+        self.shrink = str(opts.get("fuzz_shrink", step.get("shrink", False))).lower() in ("true", "1", "yes")
         seq = step.get("sequence")
         if opts.get("fuzz_sequence"):
             seq = json.loads(opts["fuzz_sequence"])

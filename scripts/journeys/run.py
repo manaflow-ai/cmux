@@ -30,6 +30,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import struct
 import subprocess
 import sys
@@ -279,13 +280,23 @@ def acquire_lease(ch, exclusive, log_path=None, whole_host=False):
                 out, err = b"", b"(no output: the acquire's children still hold its pipes)"
         raise RuntimeError(f"capture-host acquire gave no lease within {bound}s: "
                            f"{err.decode(errors='replace').strip()[-400:]}")
+    except BaseException:
+        # This run.py was stopped (SIGTERM, see main, or ^C) while it waited: end the acquire, whose trap unreserves.
+        proc.terminate()
+        try:
+            proc.wait(timeout=60)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        raise
     if proc.returncode != 0:
         raise RuntimeError(f"capture-host acquire exited {proc.returncode}: "
                            f"{(err or out).decode(errors='replace').strip()[-500:]}")
     return out.decode().split()
 
 
-HOG_WARMUP_SECONDS = 45  # at least this long from the hog's start (before the download) to the first journey
+HOG_WARMUP_SECONDS = 45
+# Builds kept in each mini's journeys build cache (about 1 GB each).
+BUILD_CACHE_KEEP = 3  # at least this long from the hog's start (before the download) to the first journey
 
 
 def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.0, whole_host=False):
@@ -326,12 +337,21 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         # One compiled text reader per mini and source version, outside the slot (release removes the slot).
         digest = hashlib.sha256(OCR_SOURCE.read_bytes()).hexdigest()[:16]
         ocr = f"$HOME/.cache/cmux-journeys/ocr-{digest}"
-        log(f"downloading build {build['id']} on {host} (and the text reader, once per mini)")
-        app = remote(host, f"set -e; cd {q(work)}; mkdir -p $HOME/.cache/cmux-journeys; "
+        # The build, once per mini and job, outside the slot (cmux-ad 09:05Z: a lease is held only while journey steps
+        # run): ~/.cache/cmux-journeys/builds/<job>/, filled atomically by the first lease of that job on the mini and
+        # reused by every later round (the newest BUILD_CACHE_KEEP jobs are kept). capture-host launch clones it into
+        # the slot, so the slot never changes it.
+        cache = f"$HOME/.cache/cmux-journeys/builds/{build['id']}"
+        log(f"build {build['id']} on {host}: cached there, else downloaded once (and the text reader, once per mini)")
+        app = remote(host, f"set -e; cd {q(work)}; mkdir -p $HOME/.cache/cmux-journeys/builds; "
                            f"( [ -x {ocr} ] || {{ swiftc -O kit/ocr.swift -o {ocr}.$$ && mv -f {ocr}.$$ {ocr}; }} ) >ocr.log 2>&1 & "
-                           f"cmux-ci artifact {q(build['id'])} app.zip >&2; ditto -x -k app.zip build; rm -f app.zip; wait || true; "
+                           f"c={cache}; if [ -f \"$c/ok\" ]; then echo 'journeys: build cache hit' >&2; touch \"$c/ok\"; else "
+                           f"t=\"$c.tmp.$$\"; rm -rf \"$t\"; mkdir -p \"$t\"; cmux-ci artifact {q(build['id'])} \"$t/app.zip\" >&2; "
+                           f"ditto -x -k \"$t/app.zip\" \"$t/build\"; rm -f \"$t/app.zip\"; rm -rf \"$c\"; mv \"$t\" \"$c\"; touch \"$c/ok\"; "
+                           f"ls -1t $HOME/.cache/cmux-journeys/builds | grep -v '\\.tmp\\.' | tail -n +{BUILD_CACHE_KEEP + 1} | "
+                           f"while read -r old; do rm -rf \"$HOME/.cache/cmux-journeys/builds/$old\"; done; fi; wait || true; "
                            f"[ -x {ocr} ] || {{ cat ocr.log >&2; exit 3; }}; "
-                           f"a=$(find \"$PWD/build\" -maxdepth 2 -name '*.app' -type d | head -1); "
+                           f"a=$(find \"$c/build\" -maxdepth 2 -name '*.app' -type d | head -1); "
                            # The commit the build job names, beside the bundle unpacked from that job's artifact:
                            # capture-host launch --commit checks it (and the bundle's own CMUXCommit, if any, must agree).
                            f"[ -z \"$a\" ] || {{ [ {len(str(build.get('commit') or ''))} -ne 40 ] || "
@@ -502,7 +522,23 @@ def compact(evidence):
     return rows
 
 
+def threading_main():
+    import threading
+    return threading.current_thread() is threading.main_thread()
+
+
+class Terminated(BaseException):
+    """SIGTERM of run.py (fuzz.py or the gate stopping a round): raised so every `finally` runs, above all the lease
+    release in run_lease (cmux-ad 09:05Z: an error or a stop inside a round must still release the lease)."""
+
+
+def _terminated(signum, frame):
+    raise Terminated(f"signal {signum}")
+
+
 def main(argv=None):
+    if threading_main():
+        signal.signal(signal.SIGTERM, _terminated)
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0], formatter_class=argparse.RawDescriptionHelpFormatter,
                                  epilog=__doc__.split("\n\n", 1)[1])
     target = ap.add_mutually_exclusive_group()

@@ -52,7 +52,7 @@
      "t": "slow"
     }
    ],
-   "shrink": true,
+   "shrink": false,
    "budget_s": 190
   },
   {

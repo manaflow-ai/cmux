@@ -149,11 +149,12 @@ class Verdicts(unittest.TestCase):
         self.assertEqual(done.returncode, 1)
         f = summary["failures"][0]
         self.assertEqual((f["seed"], f["failure"]["oracle"]), (101, "create"))
-        self.assertEqual(len(f["shrunk"]), 2)
+        self.assertEqual(len(f["shrunk"]), 1)  # the stand-in fails every replayed sequence: ddmin goes to one action
+        self.assertGreater(f["shrink_leases"], 0)  # ddmin ran outside the round, one lease per try
         self.assertTrue(f["confirmed"])
         repro = json.loads(Path(f["repro"]).read_text())
         run = next(s for s in repro["steps"] if s["do"] == "fuzz_run")
-        self.assertEqual((run["shrink"], len(run["sequence"])), (False, 2))
+        self.assertEqual((run["shrink"], len(run["sequence"])), (False, 1))
         self.assertFalse((tmp / "handoff" / "jobT.clean").exists())
         self.assertTrue(any("fuzz_sequence" in c["opts"] for c in calls[-1:]))
 
