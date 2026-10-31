@@ -80,6 +80,17 @@ import Foundation
         return store.panesByHandle[handle] != nil ? handle : nil
     }
 
+    /// A create pressed on a pending create's stand-in (a split's, a New Terminal Tab's): remember the stand-in's public
+    /// id, so the target stays found once the daemon's pane takes the stand-in over under a new handle.
+    static func rememberStandInTarget(_ target: PaneID, in store: DaemonStore) {
+        guard target.rawValue >= ProvisionalPane.firstHandle, store.standInTargets[target] == nil,
+              let paneID = store.panesByHandle[target]?.resourceID?.rawValue else { return }
+        store.standInTargets[target] = paneID
+    }
+
+    /// The pane that shows `target` now: `target` itself, or the daemon's pane that took a stand-in target over.
+    static func shownPane(_ target: PaneID, in store: DaemonStore) -> PaneID? { shownTarget(target, in: store) }
+
     /// The pane the overlay places beside: `target`, or the pane that shows a stand-in target now
     /// (the stand-in itself while it is pending, the daemon's pane once it took it over).
     private static func shownTarget(_ target: PaneID, in store: DaemonStore) -> PaneID? {
@@ -97,12 +108,7 @@ import Foundation
         let daemon = daemonPane(provisional, in: store)
         guard !daemonPlaces(provisional, in: store) else { return nil }
         let leaf = daemon?.handle ?? provisional.handle
-        // A create pressed on a pending create's stand-in: remember its public id, so the target
-        // stays found once the daemon's pane takes the stand-in over under a new handle.
-        if target.rawValue >= ProvisionalPane.firstHandle, store.standInTargets[target] == nil,
-           let paneID = store.panesByHandle[target]?.resourceID?.rawValue {
-            store.standInTargets[target] = paneID
-        }
+        rememberStandInTarget(target, in: store)
         guard let target = shownTarget(target, in: store), store.panesByHandle[target] != nil,
               daemon != nil || (store.panesByHandle[provisional.handle] == nil && store.tabsBySurface[provisional.surface] == nil),
               let screen = store.screen(containing: target) else { return nil }
@@ -151,7 +157,8 @@ import Foundation
     }
 
     /// New Column's overlay (`new-pane-right`, cmux-tui `new_pane_right`): a column holding `leaf`
-    /// right after the target's column, at the column's width, with the width changes it brings.
+    /// right after the target's column (right before it for New Column Left, `side: "left"`), at
+    /// the column's width, with the width changes it brings.
     /// A screen that is still a split tree becomes two columns, the tree and the new one, as the
     /// daemon wraps its root in a viewport split.
     private static func applyColumn(_ column: ProvisionalColumn, after target: PaneID, leaf: PaneID, daemon: PaneModel?,
@@ -172,16 +179,20 @@ import Foundation
         // The target's column: its index places the new column, its panes place the new pane.
         guard let index = columns.firstIndex(where: { $0.layout.paneIDs.contains(target) }),
               let anchor = columns[checked: index]?.layout.paneIDs else { return nil }
-        columns.insert(ColumnSnapshot(id: column.handle, width: column.width, layout: .leaf(leaf)), at: index + 1)
+        columns.insert(ColumnSnapshot(id: column.handle, width: column.width, layout: .leaf(leaf)), at: column.left ? index : index + 1)
         let undo = IntentUndo.splitPane(screen: screen.handle, layout: screen.layout, columns: screen.columns,
                                         pane: daemon == nil ? provisional.handle : nil)
-        // The compat tree the daemon keeps beside its columns: the screen's tree with the new leaf on its right.
-        screen.layout = .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: screen.layout, b: .leaf(leaf))
+        // The compat tree the daemon keeps beside its columns: the screen's tree with the new leaf on its side.
+        screen.layout = column.left
+            ? .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(leaf), b: screen.layout)
+            : .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: screen.layout, b: .leaf(leaf))
         screen.columns = columns
         guard daemon == nil else { return undo }
         let pane = model(of: provisional, in: store)
-        let after = (screen.panes.lastIndex { anchor.contains($0.handle) } ?? screen.panes.count - 1) + 1
-        screen.panes.insert(pane, at: min(after, screen.panes.count))
+        let at = column.left
+            ? (screen.panes.firstIndex { anchor.contains($0.handle) } ?? 0)
+            : (screen.panes.lastIndex { anchor.contains($0.handle) } ?? screen.panes.count - 1) + 1
+        screen.panes.insert(pane, at: min(at, screen.panes.count))
         store.index.insert(pane, in: screen)
         return undo
     }

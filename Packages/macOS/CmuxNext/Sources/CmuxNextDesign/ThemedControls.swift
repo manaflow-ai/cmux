@@ -19,7 +19,7 @@ public final class ThemedTableRowView: NSTableRowView {
 
 /// A button whose bezel is a theme color instead of the system accent (cx-wqn5), re-resolved in
 /// its view's scope when it moves into a window and on every theme change.
-public class ThemedBezelButton: NSButton {
+public class ThemedBezelButton: ClickableButton {
     /// The bezel; runs inside `performWithTheme`. theme-scoped
     var themeBezel: NSColor { Palette.selectionFill }
 

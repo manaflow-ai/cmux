@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextServer
 import CmuxNextSidebar
 
 /// Workspace groups (sidebar sections): every verb from architecture.md 7
@@ -72,8 +73,10 @@ enum WorkspaceGroupHandlers {
         registry.bind("workspaceGroup.newSubgroup", run: { invocation in
             // A document group (a nested one too) may have no personal-store row: the target's id is enough.
             let explicit = [invocation.target, invocation["group"]?.targetValue].compactMap { $0 }.first { $0.kind == .workspaceGroup }
-            let parent = try explicit.map { CmuxNextSidebar.GroupID($0.id) } ?? sidebarID(context.group(invocation), context)
-            try newSubgroup(in: parent, byUser: invocation.origin == .user, context)
+            // A personal group's id or exact name (`cmux workspace group create --parent Fleet`) names its document item.
+            let parent = try explicit.map { ref in (try? context.sidebar())?.model.groupID(personal: context.services.machines.local.store.personal.groups.first { $0.id.rawValue == ref.id || $0.name == ref.id }?.id.rawValue ?? ref.id) ?? CmuxNextSidebar.GroupID(ref.id) } ?? sidebarID(context.group(invocation), context)
+            let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            try newSubgroup(in: parent, name: name, byUser: invocation.origin == .user, context)
         })
         registry.bind("workspaceGroup.markRead", requires: DaemonCapability.profiles.rawValue, daemon: home, run: { invocation in try acknowledge(invocation, context) })
         registry.bind("workspaceGroup.clearNotifications", requires: DaemonCapability.profiles.rawValue, daemon: home, run: { invocation in try acknowledge(invocation, context) })
@@ -205,7 +208,7 @@ enum WorkspaceGroupHandlers {
         // and is placed once the daemon lists it. Setting the group right after the create raced that listing:
         // without the workspace's public id the place went out as the raw command, and it stayed outside the group.
         let slot = windows.controller(for: target).flatMap { controller in
-            shownGroupID(id, in: controller.sidebar.model).map { groupSlot($0, in: controller.sidebar.model, context) }
+            shownGroupID(id, in: controller.sidebar.model).map { groupSlot($0, in: controller.sidebar.model, window: target, context) }
         }
         spawn.slot = slot
         spawn.onListed = { key, bridge in
@@ -230,18 +233,23 @@ enum WorkspaceGroupHandlers {
         }
     }
 
-    /// Where New Workspace in Group puts the new workspace in group `shown` (cmux.json
-    /// `workspaceGroups`, by the group's anchor folder): after its first workspace (`top`, and
-    /// `afterCurrent`, whose reference is the anchor for the header's + and the CLI), else last.
-    private static func groupSlot(_ shown: CmuxNextSidebar.GroupID, in model: SidebarModel, _ context: AppActionContext) -> WorkspaceSlot {
+    /// Where New Workspace in Group puts the new workspace in group `shown`. cmux.json
+    /// `workspaceGroups` (by the group's anchor folder), when it names a placement: after its first
+    /// workspace (`top`, and `afterCurrent`, whose reference is the anchor for the header's + and the
+    /// CLI), else last. Else `workspaces.newPlacement`, as for every new workspace made in a group
+    /// (`NewWorkspaceDefaultSlot.slot(inGroup:members:)`): the group's top under the default `top`.
+    private static func groupSlot(_ shown: CmuxNextSidebar.GroupID, in model: SidebarModel, window: String?,
+                                  _ context: AppActionContext) -> WorkspaceSlot {
         let members = model.group(shown)?.workspaces.map(\.id.rawValue) ?? []
         let config = context.services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig()
         let anchor = WorkspaceGroupConfigLook.anchorDirectory(of: members.compactMap { context.services.machines.workspace(id: $0)?.0 })
-        switch config.placement(for: anchor) {
-        case .top, .afterCurrent:
+        switch config.configuredPlacement(for: anchor) {
+        case .top?, .afterCurrent?:
             return members.first.map(WorkspaceSlot.below) ?? .endOfGroup(shown)
-        case .end:
+        case .end?:
             return .endOfGroup(shown)
+        case nil:
+            return NewWorkspacePlacements.rule(for: window, in: context.services.windows).slot(inGroup: shown, members: members)
         }
     }
 
@@ -253,13 +261,13 @@ enum WorkspaceGroupHandlers {
 
     /// A new group inside `parent` on the sidebar document (remote-groups-DESIGN.md slice 3), with the
     /// next palette color; a person's new subgroup opens its name editor, as New Group does.
-    private static func newSubgroup(in parent: CmuxNextSidebar.GroupID, byUser: Bool, _ context: AppActionContext) throws {
+    private static func newSubgroup(in parent: CmuxNextSidebar.GroupID, name: String, byUser: Bool, _ context: AppActionContext) throws {
         guard let store = SidebarDocStore.current, SidebarDocWiring.isActive else {
             throw ActionFailure.invalidTarget(WorkspaceVerbStrings.subgroupNeedsDocument)
         }
         let id = CmuxNextSidebar.GroupID.make()
         let used = Set(context.services.machines.local.store.personal.groups.compactMap(\.color))
-        let plan = SidebarDocSubgroupPlan(parent: parent, id: id, name: "", color: GroupColor.automatic(used: used) ?? .grey,
+        let plan = SidebarDocSubgroupPlan(parent: parent, id: id, name: name, color: GroupColor.automatic(used: used) ?? .grey,
                                           records: store.records)
         guard let ops = plan.ops else {
             throw ActionFailure.invalidTarget(plan.refusal == .tooDeep ? WorkspaceVerbStrings.subgroupTooDeep : RefusalStrings.groupRequired)
@@ -269,7 +277,8 @@ enum WorkspaceGroupHandlers {
         } catch {
             throw ActionFailure.invalidTarget(error.message)
         }
-        if byUser { try context.sidebar().groupFlow.editGroup(WorkspaceGroupID(rawValue: id.rawValue)) }
+        // A person names it in the editor; a name given by the CLI or MCP is already set.
+        if byUser, name.isEmpty { try context.sidebar().groupFlow.editGroup(WorkspaceGroupID(rawValue: id.rawValue)) }
     }
 
     /// The id the active sidebar shows `group` under (its sidebar document item on sidebar-v2).

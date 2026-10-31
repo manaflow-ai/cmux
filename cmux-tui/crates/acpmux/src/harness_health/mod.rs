@@ -41,6 +41,7 @@ const LATEST_TTL_MS: u64 = (6 * 3600 - 600) * 1000;
 pub enum Auth {
     SignedIn,
     SignedOut,
+    Expired,
     Unknown,
 }
 
@@ -161,13 +162,14 @@ fn now_ms() -> u64 {
 
 /// Login commands for the harnesses acpmux finds on PATH, which carry no
 /// profile (`config/discover.rs`). A profile's `auth.login` comes first.
-fn builtin_login(family: &str) -> Option<&'static str> {
+pub(crate) fn builtin_login(family: &str) -> Option<&'static str> {
     Some(match family {
         "codex" => "codex login",
         "claude" => "claude auth login",
         "gemini" => "gemini",
         "opencode" => "opencode auth login",
         "unii" => "unii login",
+        "hermes" => "hermes model",
         _ => return None,
     })
 }
@@ -296,6 +298,49 @@ pub fn keychain_sign_in(id: &str, profile: &crate::config::HarnessProfile) -> Op
         .then_some("Codex's `cli_auth_credentials_store` does not keep its login in a file")
 }
 
+/// A failed auth check is expired only when its own output says a credential expired
+/// (`claude_auth::is_expired_credential`, the matcher a failed turn uses too), and unknown
+/// when it says the provider had no capacity or the connection dropped: a transport error is
+/// never a sign-in state (`turn_errors::says_unreachable`, as `recovery::auth_kind`).
+fn auth_failure(output: &str) -> Auth {
+    if crate::hub::turn_errors::says_unreachable(output) {
+        Auth::Unknown
+    } else if crate::claude_auth::is_expired_credential(output) {
+        Auth::Expired
+    } else {
+        Auth::SignedOut
+    }
+}
+
+/// One harness's sign-in, asked now for `_acpmux/session/auth {refresh}` (`hub/session_auth.rs`),
+/// never from the saved check: the profile's `auth.check` when starting it cannot read the login
+/// keychain ([`keychain_sign_in`]), else the built-in evidence that reads only files and
+/// `codex login status` with a file login ([`builtin_auth`]). `profile` carries the chat's own
+/// account home. Err: nothing here could answer without the keychain, or the check failed to
+/// run; a failure to run is never a sign-in state.
+pub(crate) fn fresh_auth(
+    id: &str,
+    profile: &crate::config::HarnessProfile,
+    notes: Option<&crate::config::profiles::AuthNotes>,
+) -> Result<(Auth, String), String> {
+    let s = Subject::of(id, profile, notes).ok_or("the harness has no command")?;
+    let keychain = keychain_sign_in(id, profile);
+    if !s.check.is_empty() && keychain.is_none() {
+        let check = s.check.join(" ");
+        return match probe::auth_check(&s.check, &s.env, &s.family)? {
+            (true, _) => Ok((Auth::SignedIn, format!("`{check}` passed"))),
+            (false, output) => Ok((auth_failure(&output), format!("`{check}` failed"))),
+        };
+    }
+    match builtin_auth(&s) {
+        Some((auth, detail)) if auth != Auth::Unknown => Ok((auth, detail.unwrap_or_default())),
+        _ => Err(match keychain {
+            Some(why) => format!("no check ran: {why}, which acpmux does not read"),
+            None => "the harness has no sign-in check acpmux can run".to_owned(),
+        }),
+    }
+}
+
 static SIGN_IN: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
     regex::Regex::new(r"(?i)\b(not (logged|signed) in|log ?in|sign ?in|unauthenticated|authentication required|auth required|unauthorized)\b")
         .expect("sign-in pattern") // crash-allow: constant pattern
@@ -363,8 +408,18 @@ impl HealthService {
     /// daemon's own, or the first caller's) instead of each running a full check.
     pub async fn first_check(&self, subjects: Vec<Subject>) -> Vec<HarnessHealth> {
         drop(self.checking.lock().await);
-        let rows = self.rows();
+        let rows = self.rows_for_subjects(&subjects);
         if rows.is_empty() { self.check(subjects, false).await } else { rows }
+    }
+
+    /// Cached observations with login commands from the current profiles. Never write
+    /// this projection back: a check may publish newer observations concurrently.
+    pub(crate) fn rows_for_subjects(&self, subjects: &[Subject]) -> Vec<HarnessHealth> {
+        let mut rows = self.rows();
+        if !self.fixed() {
+            rebind_cached_logins(&mut rows, subjects);
+        }
+        rows
     }
 
     /// Checks every subject on this machine, and asks each channel for its
@@ -438,6 +493,20 @@ impl HealthService {
     }
 }
 
+fn rebind_cached_logins(rows: &mut [HarnessHealth], subjects: &[Subject]) {
+    for row in rows {
+        let Some(subject) = subjects.iter().find(|subject| subject.id == row.id) else {
+            row.login = None;
+            continue;
+        };
+        row.login = crate::route_account::login_command(
+            subject.login.clone().or_else(|| builtin_login(&subject.family).map(str::to_owned)),
+            crate::route_account::home_var(&subject.family)
+                .and_then(|var| subject.env.get(var).map(|home| (var, Path::new(home.as_str())))),
+        );
+    }
+}
+
 fn save(path: &Path, rows: &[HarnessHealth]) {
     let Ok(body) = serde_json::to_vec_pretty(rows) else { return };
     // Owner-only whatever the umask, through a new temporary file each time.
@@ -480,20 +549,38 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
     let (auth, auth_detail) = match &s.probe_error {
         _ if !s.check.is_empty() && found.is_some() => {
             match probe::auth_check(&s.check, &s.env, &s.family) {
-                Ok(true) => (Auth::SignedIn, Some(format!("`{}` passed", s.check.join(" ")))),
-                Ok(false) => (Auth::SignedOut, Some(format!("`{}` failed", s.check.join(" ")))),
+                Ok((true, _)) => (Auth::SignedIn, Some(format!("`{}` passed", s.check.join(" ")))),
+                Ok((false, output)) => {
+                    let auth = auth_failure(&output);
+                    let detail = match auth {
+                        Auth::Expired => "credential expired".to_owned(),
+                        Auth::Unknown => {
+                            format!("`{}` could not reach its provider", s.check.join(" "))
+                        }
+                        _ => format!("`{}` failed", s.check.join(" ")),
+                    };
+                    (auth, Some(detail))
+                }
                 Err(e) => (Auth::Unknown, Some(e)),
             }
         }
         _ if builtin.as_ref().is_some_and(|(auth, _)| *auth != Auth::SignedOut) => {
             builtin.unwrap_or((Auth::Unknown, None))
         }
-        Some(e) if SIGN_IN.is_match(e) => (Auth::SignedOut, Some(e.clone())),
+        Some(e) if SIGN_IN.is_match(e) || auth_failure(e) == Auth::Expired => {
+            (auth_failure(e), Some(e.clone()))
+        }
         _ => builtin.unwrap_or((Auth::Unknown, None)),
     };
     HarnessHealth {
         id: s.id,
-        login: s.login.or_else(|| builtin_login(&s.family).map(str::to_owned)),
+        // In the account home the check read (`CODEX_HOME`, `CLAUDE_CONFIG_DIR`), so Log In
+        // signs that login in, not the default one.
+        login: crate::route_account::login_command(
+            s.login.or_else(|| builtin_login(&s.family).map(str::to_owned)),
+            crate::route_account::home_var(&s.family)
+                .and_then(|var| s.env.get(var).map(|home| (var, Path::new(home.as_str())))),
+        ),
         program: s.program,
         path: found,
         channel: install.channel,
@@ -514,9 +601,121 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
 
 #[cfg(test)]
 mod tests {
-    use super::codex_login_in_file;
+    use super::{
+        Auth, Channel, HarnessHealth, HealthService, Subject, auth_failure, codex_login_in_file,
+    };
     use serde_json::json;
     use std::collections::BTreeMap;
+
+    /// Hermes keeps its provider and model in ~/.hermes: `hermes model` picks
+    /// them (an API key or a provider sign-in), which is the sign-in a Chief on
+    /// Hermes needs.
+    #[test]
+    fn hermes_signs_in_with_hermes_model() {
+        assert_eq!(super::builtin_login("hermes"), Some("hermes model"));
+    }
+
+    #[test]
+    fn expired_login_probe_is_not_just_signed_out() {
+        assert_eq!(auth_failure("OAuth token has expired"), Auth::Expired);
+        assert_eq!(auth_failure("Not logged in"), Auth::SignedOut);
+        assert_eq!(auth_failure("check failed"), Auth::SignedOut);
+        assert_eq!(auth_failure("HTTP 503"), Auth::Unknown);
+        assert_eq!(auth_failure("HTTP 502: authentication_failed"), Auth::Unknown);
+        assert_eq!(auth_failure("Not logged in? HTTP 503: authentication_failed"), Auth::Unknown);
+        assert_eq!(auth_failure("token expired? connection refused"), Auth::Unknown);
+        assert_eq!(auth_failure("Your refresh token has expired; run codex login"), Auth::Expired);
+        assert_eq!(auth_failure("the MCP session expired"), Auth::SignedOut);
+        assert_eq!(auth_failure("Provided authentication token is expired."), Auth::Expired);
+        assert_eq!(auth_failure("credential expired"), Auth::Expired);
+        // Only a statement that a credential expired: not its expiry field, not a future one.
+        assert_eq!(auth_failure("HTTP 400: invalid token expiry value"), Auth::SignedOut);
+        assert_eq!(
+            auth_failure("Not logged in; the credential expires in 30 days"),
+            Auth::SignedOut
+        );
+        assert_eq!(serde_json::to_value(Auth::Expired).unwrap(), json!("expired"));
+    }
+
+    /// A profile whose CLI keeps its login in an account home of its own (`CODEX_HOME`,
+    /// `CLAUDE_CONFIG_DIR`) is checked there, so its Log In signs in there too, not the
+    /// default home.
+    #[test]
+    fn log_in_signs_in_the_account_home_the_check_reads() {
+        let subject =
+            |id: &str, family: &str, env: &[(&str, &str)], login: Option<&str>| super::Subject {
+                id: id.into(),
+                program: format!("/nonexistent/{family}"),
+                family: family.into(),
+                check: vec![],
+                env: env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect(),
+                login: login.map(str::to_owned),
+                unresolved: vec![],
+                probe_error: None,
+            };
+        let home = std::path::Path::new("/nonexistent-home");
+        let login = |s| super::local(s, home).login;
+        assert_eq!(
+            login(subject("codex-work", "codex", &[("CODEX_HOME", "/Users/me/.codex-work")], None)),
+            Some("CODEX_HOME=/Users/me/.codex-work codex login".into())
+        );
+        assert_eq!(
+            login(subject(
+                "claude-two",
+                "claude",
+                &[("CLAUDE_CONFIG_DIR", "/Users/me/claude two")],
+                None
+            )),
+            Some("CLAUDE_CONFIG_DIR='/Users/me/claude two' claude auth login".into())
+        );
+        // A profile's own login, in the same home.
+        assert_eq!(
+            login(subject("codex-sr", "codex", &[("CODEX_HOME", "~/.codex-sr")], Some("sr login"))),
+            Some("CODEX_HOME=~/.codex-sr sr login".into())
+        );
+        // No account home: unchanged.
+        assert_eq!(login(subject("codex", "codex", &[], None)), Some("codex login".into()));
+        assert_eq!(
+            login(subject("gemini", "gemini", &[("CODEX_HOME", "/elsewhere")], None)),
+            Some("gemini".into())
+        );
+    }
+
+    #[tokio::test]
+    async fn first_check_rebinds_a_cached_login_to_the_current_profile_home() {
+        let service = HealthService::new();
+        service.replace_rows(vec![HarnessHealth {
+            id: "codex-sr".into(),
+            program: "codex".into(),
+            path: None,
+            channel: Channel::Standalone,
+            package: None,
+            version: None,
+            latest: None,
+            latest_checked_at: None,
+            outdated: false,
+            auth: Auth::SignedOut,
+            auth_detail: None,
+            login: Some("codex login".into()),
+            update: None,
+            problem: None,
+            checked_at: 1,
+            auto_update: false,
+            last_auto_update: None,
+        }]);
+        let subject = Subject {
+            id: "codex-sr".into(),
+            program: "codex".into(),
+            family: "codex".into(),
+            check: vec![],
+            env: BTreeMap::from([(String::from("CODEX_HOME"), String::from("/tmp/codex-sr"))]),
+            login: Some("codex login".into()),
+            unresolved: vec![],
+            probe_error: None,
+        };
+        let rows = service.first_check(vec![subject]).await;
+        assert_eq!(rows[0].login.as_deref(), Some("CODEX_HOME=/tmp/codex-sr codex login"));
+    }
 
     fn home_with(n: usize, config: Option<&str>) -> (std::path::PathBuf, BTreeMap<String, String>) {
         let dir = std::env::temp_dir().join(format!("amx-codex-store-{}-{n}", std::process::id()));

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { chromium } from "playwright";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { collectGeometry } from "./geometry-collector";
+import { collectGeometry, parseSelectorMap, parseSelections } from "./geometry-collector";
 import { parseArtifact } from "./geometry";
 
 const fleetTest = process.env.CMUX_GALLERY_IN_VM === "1" ? test : test.skip;
@@ -43,4 +43,17 @@ test("collector rejects ambiguous container/child groups before creating evidenc
   const identity = {} as Parameters<typeof collectGeometry>[2];
   await expect(collectGeometry(page, [{ group: "rows", selector: "button", containerSelector: ".row", containerGroup: "rows" }], identity, ".")).rejects.toThrow("must be distinct");
   await expect(collectGeometry(page, [{ group: "parts", selector: "button", containerSelector: ".row", containerGroup: "rows" }, { group: "rows", selector: "section" }], identity, ".")).rejects.toThrow("must be distinct");
+});
+
+test("selector JSON rejects unknown measurements and keys instead of measuring element boxes", async () => {
+  const page = {} as Parameters<typeof collectGeometry>[0];
+  const identity = {} as Parameters<typeof collectGeometry>[2];
+  // A typo must never fall back to the element box while recording a bogus rectSource.
+  await expect(collectGeometry(page, JSON.parse('[{"group":"labels","selector":"button","measurement":"text_range"}]'), identity, ".")).rejects.toThrow("measurement must be one of element, text-range");
+  expect(() => parseSelections([{ group: "labels", selector: "button", measurment: "text-range" }])).toThrow('unknown selection key "measurment"');
+  expect(() => parseSelections([{ group: "labels", selector: "button", secondary: "yes" }])).toThrow("secondary must be a boolean");
+  expect(() => parseSelections([{ group: "labels", selector: "" }])).toThrow("selector must be a non-empty string");
+  expect(() => parseSelections([{ group: "labels", selector: "button", containerSelector: ".row" }])).toThrow("must be paired");
+  expect(() => parseSelectorMap({ fixture: [{ group: "labels", selector: "button", measurement: "range" }] }, "selectors.json")).toThrow("selectors.json.fixture[0]: measurement");
+  expect(parseSelections([{ group: "labels", selector: "button", measurement: "text-range" }])).toEqual([{ group: "labels", selector: "button", measurement: "text-range" }]);
 });

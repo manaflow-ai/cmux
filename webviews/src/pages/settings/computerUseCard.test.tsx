@@ -45,6 +45,38 @@ test("off, the grants are unknown and the card says to turn Computer Use on", as
   page.unmount();
 });
 
+test("a cmux build the legacy helper can't verify says legacy Computer Use is off", async () => {
+  const page = await renderPage({ path: "/settings/agents" });
+  const state: ComputerUseState = {
+    phase: "ready",
+    accessibility: true,
+    screen_recording: true,
+    helper: "cmux Computer Use",
+    host_unverified: true,
+  };
+  await act(async () => page.provider.setHost({ ...page.provider.host, computer_use: state }));
+  await settle();
+  expect(card(page.container)!.textContent).toContain("Legacy Computer Use is off");
+  page.unmount();
+});
+
+test("driver upstream in a build without its helper says Legacy runs instead", async () => {
+  const page = await renderPage({ path: "/settings/agents" });
+  const state: ComputerUseState = {
+    phase: "ready",
+    accessibility: true,
+    screen_recording: true,
+    helper: "cmux Computer Use",
+    upstream_fallback: true,
+  };
+  await act(async () => page.provider.setHost({ ...page.provider.host, computer_use: state }));
+  await settle();
+  const text = card(page.container)!.textContent ?? "";
+  expect(text).toContain("Upstream helper isn't in this build; using Legacy.");
+  expect(text).not.toContain("Starting");
+  page.unmount();
+});
+
 test("the buttons run the shared actions; a policy lock hides the card", async () => {
   const page = await renderPage({ path: "/settings/agents" });
   await settle();

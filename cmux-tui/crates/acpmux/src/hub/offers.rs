@@ -30,6 +30,7 @@
 use super::{Hub, Session};
 use crate::rpc::RpcError;
 use crate::store::EventRecord;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -99,7 +100,7 @@ fn offer_record(session: &Session, params: &Value) -> Result<Value, RpcError> {
     match params.get("groupId") {
         None | Some(Value::Null) => {}
         Some(Value::String(group)) if one_line(group, MAX_GROUP_BYTES) => {
-            record["groupId"] = Value::String(group.clone());
+            record.set("groupId", Value::String(group.clone()));
         }
         Some(_) => {
             return Err(RpcError::invalid_params(format!(
@@ -208,9 +209,7 @@ impl Hub {
                 if meta.lineage.is_none() {
                     meta.lineage = lineage;
                 }
-                if meta.status != super::SessionStatus::Closed {
-                    self.subsessions.set_open(&session.id, &child.id, true);
-                }
+                self.subsessions.note_status(&session.id, &child.id, meta.status);
             }
         } else if !self.with_open_offers(session, |open| Ok(open.remove(offer_id).is_some()))? {
             return Err(no_offer());
@@ -220,7 +219,7 @@ impl Hub {
             self.save_meta(child);
             // A running chat linked as a sub-session works below its new parent.
             self.refresh_parent_work_below(child);
-            decision["childSessionId"] = Value::String(child.id.clone());
+            decision.set("childSessionId", Value::String(child.id.clone()));
         }
         self.append(session, "mux", "session_offer_decision", decision.clone());
         // A chat whose first turn ended before this answer sends its result now.

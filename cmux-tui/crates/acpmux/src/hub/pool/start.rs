@@ -94,15 +94,20 @@ impl Hub {
         let preview = crate::agent::pinned_preview_format(&cmd);
         let std_cmd = cmd.as_std();
         let dir = pool_dir();
-        let host_spec = agent_host::SpawnSpec {
+        let env = if draft.remote_origin {
+            crate::agent::command_env_cleared(&cmd)
+        } else {
+            crate::agent::command_env(&cmd)
+        };
+        // From the harness's own env: its profile's value as resolved (`cpu_class.rs`).
+        let cpu_class = crate::cpu_class::CpuClass::for_session(
+            env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+        );
+        let mut host_spec = agent_host::SpawnSpec {
             session_id: session_id.clone(),
             program: std_cmd.get_program().to_string_lossy().into_owned(),
             args: std_cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect(),
-            env: if draft.remote_origin {
-                crate::agent::command_env_cleared(&cmd)
-            } else {
-                crate::agent::command_env(&cmd)
-            },
+            env,
             cwd: draft.cwd.clone(),
             codex_bridge: !claude && crate::codex_app_server::is_profile_launch(&profile.argv),
             translator,
@@ -112,17 +117,40 @@ impl Hub {
             router_owner_fifo: crate::daemon::router_owner_path(),
             // Never a sub-session's checked folder: a sub-session start takes no pooled harness.
             cwd_pin: None,
+            cpu_class,
+            orphan_exit: None,
         };
         // No host starts once `stop_pool` began: it could not end it.
         if self.pool.stopping.load(Ordering::SeqCst) {
             anyhow::bail!("the daemon is stopping");
         }
         let launcher = agent_host::link::HostLauncher::current()?;
-        let record = agent_host::program_wait::spawn(&launcher, &host_spec).await?;
+        // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).
+        let launch = crate::agent::Launch::new(
+            &host_spec.program,
+            &host_spec.args,
+            &host_spec.env,
+            &host_spec.cwd,
+        );
+        let servers =
+            crate::hub::LaunchServers::read(&launch, spec.draft.family.clone().unwrap_or_default())
+                .await;
+        host_spec.orphan_exit = servers.orphan_exit(self.orphan_exit());
+        // The start itself has no time budget (`link::spawn`); the pool is its caller and gives
+        // up after its own `START_BUDGET`, as for its later stages. Giving up ends the host.
+        let record = tokio::time::timeout(
+            START_BUDGET,
+            agent_host::program_wait::spawn(&launcher, &host_spec),
+        )
+        .await
+        .unwrap_or_else(|_| Err(anyhow::anyhow!("no pooled agent host within {START_BUDGET:?}")))?;
         lock(&self.pool.starting).insert(session_id.clone(), record.clone());
         let started =
             self.start_pooled(session_id.clone(), name, record.clone(), spec, claude, off).await;
-        let started = started.map(|p| Pooled { preview, ..p });
+        let started = started.map(|p| {
+            p.child.record_launch(servers);
+            Pooled { preview, ..p }
+        });
         if started.is_err() {
             lock(&self.pool.starting).remove(&session_id);
         }

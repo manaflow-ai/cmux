@@ -29,6 +29,7 @@ use super::super::command::{self, CommandPlan, RequestPlan};
 use super::super::mcp::{Backend, CallFailure, FailureKind};
 use super::reply::{self, Reply};
 use super::roster::{self, AgentState};
+use cmux_json::JsonSet as _;
 
 pub(in crate::cli) const DEFAULT_TIMEOUT: Duration = Duration::from_secs(300);
 pub(in crate::cli) const DEFAULT_SETTLE: Duration = Duration::from_secs(3);
@@ -360,7 +361,7 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
         "wait": request.wait.as_str(),
     });
     if request.wait == Wait::None {
-        receipt["sent"] = Value::Bool(true);
+        receipt.set("sent", Value::Bool(true));
         return Ok(receipt);
     }
     let (verdict, screen) = wait(backend, session, &id, request, sent_at, sent_ms)?;
@@ -371,12 +372,12 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
         Verdict::Exited => ("exited", false),
         Verdict::Pending => ("busy", true),
     };
-    receipt["sent"] = Value::Bool(true);
-    receipt["state"] = Value::String(state.to_owned());
-    receipt["timed_out"] = Value::Bool(timed_out);
-    receipt["waited_ms"] = json!(sent_at.elapsed().as_millis().to_string());
-    receipt["anchored"] = Value::Bool(anchored);
-    receipt["output"] = Value::String(text);
+    receipt.set("sent", Value::Bool(true));
+    receipt.set("state", Value::String(state.to_owned()));
+    receipt.set("timed_out", Value::Bool(timed_out));
+    receipt.set("waited_ms", json!(sent_at.elapsed().as_millis().to_string()));
+    receipt.set("anchored", Value::Bool(anchored));
+    receipt.set("output", Value::String(text));
     Ok(receipt)
 }
 

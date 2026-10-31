@@ -171,25 +171,44 @@ fn ephemeral_run_with_a_bad_flag_value_leaves_no_session() {
     daemon.assert_no_session_within(Duration::from_secs(10), "after a usage error");
 }
 
-/// A session an agent's shell starts (`ACPMUX_SESSION_ID` set) folds under that agent's chat,
-/// unless it is a throwaway check: a probe runs ephemeral and leaves no chat at all.
+/// The variables an agent's shell has that prove its session to the daemon (`hub/person.rs`
+/// (a)): the daemon records lineage only from a proven caller (`hub/lineage.rs`), never from
+/// `ACPMUX_SESSION_ID` alone.
+const CALLER_ENV: [&str; 3] =
+    ["ACPMUX_SESSION_ID", "ACPMUX_SESSION_TOKEN", "ACPMUX_SESSION_TOKEN_SOCKET"];
+
+/// A session an agent's shell starts folds under that agent's chat, unless it is a throwaway
+/// check: a probe runs ephemeral and leaves no chat at all.
 #[test]
 fn a_probe_from_an_agents_shell_is_not_its_subagent() {
     let daemon = Daemon::start("parent");
-    let started = |prompt: &str, parent: Option<&str>| -> String {
+    let run = |prompt: &str, shell: &[(String, String)]| -> Value {
         let mut cmd = daemon.cmd();
-        if let Some(parent) = parent {
-            cmd.env("ACPMUX_SESSION_ID", parent);
-        }
+        cmd.envs(shell.iter().map(|(k, v)| (k, v)));
         let out = cmd.args(["--json", "run", "--timeout", "60", prompt]).output().expect("run");
         assert!(out.status.success(), "run {prompt:?} failed: {}", text(&out));
-        let v: Value = serde_json::from_slice(&out.stdout)
-            .unwrap_or_else(|e| panic!("run printed no JSON ({e}): {}", text(&out)));
-        v["sessionId"].as_str().expect("sessionId").to_owned()
+        serde_json::from_slice(&out.stdout)
+            .unwrap_or_else(|e| panic!("run printed no JSON ({e}): {}", text(&out)))
     };
-    let parent = started("Plan the release", None);
-    let probe = started("Reply with only: OK", Some(&parent));
-    let child = started("Review the release diff", Some(&parent));
+    let id = |v: &Value| v["sessionId"].as_str().expect("sessionId").to_owned();
+    // The parent's agent reports its own environment: the shell it runs commands in.
+    let reply = run(&format!("envs: {}", CALLER_ENV.join(",")), &[]);
+    let parent = id(&reply);
+    let env: Value = serde_json::from_str(reply["reply"].as_str().expect("reply"))
+        .unwrap_or_else(|e| panic!("the agent printed no environment ({e}): {reply}"));
+    let shell: Vec<(String, String)> = CALLER_ENV
+        .iter()
+        .map(|k| {
+            let v = env[k].as_str().filter(|v| !v.is_empty());
+            (
+                k.to_string(),
+                v.unwrap_or_else(|| panic!("the agent's shell lacks {k}: {env}")).into(),
+            )
+        })
+        .collect();
+    assert_eq!(shell[0].1, parent, "the agent's shell names its own session");
+    let probe = id(&run("Reply with only: OK", &shell));
+    let child = id(&run("Review the release diff", &shell));
     let listed = daemon.sessions();
     let find = |id: &str| listed.iter().find(|s| s["sessionId"] == id);
     let child = find(&child).unwrap_or_else(|| panic!("{child} is not listed: {listed:?}"));

@@ -11,6 +11,7 @@ import { mainToolRunCategory, toolRunSummary, type ToolRunCategory } from "./too
 import { useToolRunLook } from "../toolRunLook";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
+import { ToolLabel } from "./ToolVerb";
 
 /// The summary's glyph: its main kind of work's, with searches and reads both as the magnifier.
 function runIcon(category: ToolRunCategory | undefined): ReactNode {
@@ -71,7 +72,7 @@ export function ToolRun({
       >
         <span className="cv-tool__icon">{running ? <Spinner size={16} /> : runIcon(pencil ? "edited" : main)}</span>
         <span className="cv-tool__text" data-find-skip>
-          {summary}
+          <ToolLabel text={summary} />
           {failures > 0 && <span className="cv-tool__failed"> {t("tools.failedCount", { n: failures })}</span>}
         </span>
         <ChevronRight

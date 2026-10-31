@@ -25,7 +25,7 @@ extension UpdaterService {
 
     /// The staged update's pill when the user asked to check while it waits.
     private var askedWhileStaged: UpdateFooterPill? {
-        guard flow.userAsked, case .ready = flow.phase else { return nil }
+        guard flow.userAsked, case .ready = flow.phase, !stagedPulledHeld else { return nil }
         return .ready
     }
 
@@ -75,7 +75,7 @@ extension UpdaterService {
 
     /// DEV/NIGHTLY screenshots (`debug.updater {action: "available"}`): shows found `version`, not
     /// downloaded; `asked` shows it as a Check for Updates' result (the notice card), else as a
-    /// scheduled check's (the titlebar's Update Available). Nothing downloads.
+    /// scheduled check's (the sidebar footer's Update Available). Nothing downloads.
     public func debugShowFound(version: String, asked: Bool) {
         if asked {
             send(.checkRequested)
@@ -88,6 +88,7 @@ extension UpdaterService {
     /// staged `version` with `notes`, no download; nil clears it.
     public func debugStage(version: String?, notes: ReleaseNotes?) {
         guard let version else {
+            newestFetch = nil
             debugIndicatorPhase = nil
             return
         }

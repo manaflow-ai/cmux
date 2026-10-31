@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "revision": {
     "sha": "025db075fae19040c3d3c3eb686e2aca4f353b81",
-    "source": "fleet capture 0e45b912aef01d3b17ad0eb4; product tree from 92c51f49804f48da9f46a86bbebea2bc11cd7f99"
+    "source": "src/agent-session/acpmux/inspector/ChatInspector.gallery.tsx"
   },
   "required": [
     {
@@ -18,42 +18,50 @@
     {
       "caseId": "session-status-claude-light",
       "engine": "chromium",
-      "theme": "light"
+      "theme": "light",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
     },
     {
       "caseId": "session-status-claude-dark",
       "engine": "chromium",
-      "theme": "dark"
+      "theme": "dark",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
     },
     {
       "caseId": "session-status-codex-light",
       "engine": "chromium",
-      "theme": "light"
+      "theme": "light",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
     },
     {
       "caseId": "session-status-codex-dark",
       "engine": "chromium",
-      "theme": "dark"
+      "theme": "dark",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
     },
     {
       "caseId": "session-status-opencode-light",
       "engine": "chromium",
-      "theme": "light"
+      "theme": "light",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
     },
     {
       "caseId": "session-status-opencode-dark",
       "engine": "chromium",
-      "theme": "dark"
+      "theme": "dark",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
     },
     {
       "caseId": "session-status-header-light",
       "engine": "chromium",
-      "theme": "light"
+      "theme": "light",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
     },
     {
       "caseId": "session-status-header-dark",
       "engine": "chromium",
-      "theme": "dark"
+      "theme": "dark",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
     }
   ],
   "rules": [
@@ -115,11 +123,11 @@
     }
   ],
   "acceptedFindings": {
-    "session-info-top-block-label-column:session-info-light:chromium:light:top-block-label:0,top-block-label:1,top-block-label:2,top-block-label:3,top-block-label:4,top-block-label:5,top-block-label:6": {
+    "[\"session-info-top-block-label-column\",\"session-info-light\",\"chromium\",\"light\",[\"top-block-label:0\",\"top-block-label:1\",\"top-block-label:2\",\"top-block-label:3\",\"top-block-label:4\",\"top-block-label:5\",\"top-block-label:6\"]]": {
       "maxDeltaPx": 2,
       "reason": "Audit 2026-10-28: Context/Connectors start at126px; five Environment labels at128px (header6px vsrow8px gap). Measured in fleet capture0e45b912; surface owner fixes separately."
     },
-    "session-info-top-block-label-column:session-info-dark:chromium:dark:top-block-label:0,top-block-label:1,top-block-label:2,top-block-label:3,top-block-label:4,top-block-label:5,top-block-label:6": {
+    "[\"session-info-top-block-label-column\",\"session-info-dark\",\"chromium\",\"dark\",[\"top-block-label:0\",\"top-block-label:1\",\"top-block-label:2\",\"top-block-label:3\",\"top-block-label:4\",\"top-block-label:5\",\"top-block-label:6\"]]": {
       "maxDeltaPx": 2,
       "reason": "Audit 2026-10-28: Context/Connectors start at126px; five Environment labels at128px (header6px vsrow8px gap). Measured in fleet capture0e45b912; surface owner fixes separately."
     }

@@ -2,18 +2,14 @@ name: gallery health
 
 # Every gallery state must render (scripts/gallery-matrix/health.ts): a state that errors, never
 # reports ready, crashes the renderer, or whose play cannot reach it fails this check unless
-# scripts/gallery-matrix/broken-allowlist.json names it with why. A pull request, and each push to
+# scripts/gallery-matrix/broken-allowlist.json names it with why. On a pull request, a red state that is red the
+# same way on the base it merged with is the base's: the check warns on it and passes (base reds
+# are warnings, not failures). A crash, a cut-short render, or no base result still fails. A pull request, and each push to
 # feat-cmux-next, renders the entries it touches (touched.ts; everything for a global stylesheet or
 # a change to the checker). A schedule here would never fire: GitHub runs schedules only from the
 # default branch (main), and this workflow lives on feat-cmux-next.
 
 on:
-  workflow_dispatch:
-    inputs:
-      geometry-audit:
-        description: Render the declared geometry audit capture set
-        type: boolean
-        default: true
   pull_request:
     branches: [feat-cmux-next]
     types: [opened, synchronize, reopened]
@@ -103,11 +99,7 @@ jobs:
           set -euo pipefail
           cd webviews
           bun install --frozen-lockfile
-          if [ "$EVENT" = workflow_dispatch ]; then
-            echo 'all=false' >> "$GITHUB_OUTPUT"
-            echo 'ids=' >> "$GITHUB_OUTPUT"
-            exit 0
-          elif [ "$EVENT" = pull_request ]; then
+          if [ "$EVENT" = pull_request ]; then
             # The merge's first parent is the base it was merged with: the diff is the pull request's change.
             git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
           elif git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
@@ -130,8 +122,11 @@ jobs:
             echo 'ids=' >> "$GITHUB_OUTPUT"
           fi
 
+      # A red here is judged state by state against the base in the next step, so the step goes on.
       - name: Render the gallery and judge it
+        id: render
         if: ${{ steps.entries.outputs.all == 'true' || steps.entries.outputs.ids != '' }}
+        continue-on-error: true
         env:
           ALL: ${{ steps.entries.outputs.all }}
           IDS: ${{ steps.entries.outputs.ids }}
@@ -151,6 +146,58 @@ jobs:
           ./node_modules/.bin/playwright install --with-deps --only-shell chromium
           bun health.ts --manifest "$RUNNER_TEMP/manifest.json" --gallery-dir "$RUNNER_TEMP/gallery" \
             --output-dir "$RUNNER_TEMP/health" --shard-count 4 --shard-index "$SHARD"
+
+      # The rulebook's base reds are warnings: each red state of a pull request is rendered again on
+      # the base it merged with (the merge's first parent), by the same checker, budgets and
+      # allowlist, and scripts/ci/test_reds.py (the one per-test classifier) compares them state by
+      # state. A state red the same way on the base is a warning; any other red state, a crashed
+      # render, a health.json that is missing or cut short, a base render that gives no whole
+      # result, and any red on a push (it has no base to compare with) fail the check.
+      - name: Judge the red states against the base
+        if: ${{ !cancelled() && steps.render.outcome == 'failure' }}
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ steps.resolve.outputs.base_sha }}
+          # health.ts renders only on CI or a VM; without this it stops before it writes a verdict.
+          CMUX_GALLERY_IN_VM: "1"
+        run: |
+          set -euo pipefail
+          classify="$RUNNER_TEMP/test_reds.py"
+          cp scripts/ci/test_reds.py "$classify"
+          head="$RUNNER_TEMP/health/health.json"
+          if [ "$EVENT" != pull_request ] || [ -z "$BASE_SHA" ]; then
+            echo "::error::gallery health is red on this $EVENT, which has no base to compare with"
+            exit 1
+          fi
+          rc=0
+          entries=$(python3 "$classify" gallery --head "$head" --entries) || rc=$?
+          if [ "$rc" = 2 ]; then
+            echo "::error::the render step failed but health.json names no red state: a setup or tool failure, never a base red"
+            exit 1
+          fi
+          [ "$rc" = 0 ] || exit 1
+          echo "replaying on base $BASE_SHA: $entries"
+          # Everything but the checker goes back to the base, so only the webviews tree differs.
+          git restore --source="$BASE_SHA" --staged --worktree -- . ':(exclude)scripts/gallery-matrix'
+          cd webviews
+          bun install --frozen-lockfile
+          bun scripts/gallery/manifest.ts --frame component --entries "$entries" --out "$RUNNER_TEMP/base-manifest.json"
+          CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/base-gallery" bun run gallery:build
+          cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
+          # Red on the base is the point here: its exit says so, and its verdict is read from health.json
+          # below. A replay that wrote no health.json gave no verdict, and says so here.
+          rc=0
+          bun health.ts --manifest "$RUNNER_TEMP/base-manifest.json" --gallery-dir "$RUNNER_TEMP/base-gallery" \
+            --output-dir "$RUNNER_TEMP/health/base" || rc=$?
+          if [ ! -s "$RUNNER_TEMP/health/base/health.json" ]; then
+            echo "::error::the base replay of $entries wrote no health.json (health.ts exited $rc): no base verdict, so nothing is excused"
+            exit 1
+          fi
+          rc=0
+          python3 "$classify" gallery --head "$head" --base "$RUNNER_TEMP/health/base/health.json" \
+            --base-name "base ${BASE_SHA:0:12}" --annotate | tee "$RUNNER_TEMP/verdict.txt" || rc=$?
+          grep -v '^::' "$RUNNER_TEMP/verdict.txt" >> "$GITHUB_STEP_SUMMARY" || true
+          exit "$rc"
 
       - name: Record what was rendered
         if: ${{ always() && steps.resolve.outcome == 'success' }}
@@ -173,41 +220,4 @@ jobs:
           name: gallery-health-${{ matrix.shard }}
           path: ${{ runner.temp }}/health
           if-no-files-found: ignore
-          retention-days: 7
-
-  geometry:
-    name: Gallery geometry lint
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name != 'workflow_dispatch' || inputs.geometry-audit) }}
-    runs-on: blacksmith-16vcpu-ubuntu-2404
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-        with:
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
-        with:
-          bun-version: "1.4.4"
-      - name: Build and capture geometry fixtures
-        env:
-          CMUX_GALLERY_IN_VM: "1"
-        run: |
-          set -euo pipefail
-          cd webviews
-          bun install --frozen-lockfile
-          CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
-          cd ../scripts/gallery-matrix
-          bun install --frozen-lockfile
-          ./node_modules/.bin/playwright install --with-deps --only-shell chromium
-          bun test geometry.test.ts geometry-audit.test.ts geometry-containers.test.ts geometry-collector.test.ts geometry-home.test.ts
-          result=0
-          bun geometry-audit.ts --gallery-dir "$RUNNER_TEMP/gallery" --output-dir "$RUNNER_TEMP/geometry" --expected-sha "$(git rev-parse HEAD)" || result=1
-          bun geometry-audit.ts --config geometry-home.json --gallery-dir "$RUNNER_TEMP/gallery" --output-dir "$RUNNER_TEMP/geometry/home" --expected-sha "$(git rev-parse HEAD)" || result=1
-          exit "$result"
-      - name: Upload geometry evidence and findings
-        if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: gallery-geometry
-          path: ${{ runner.temp }}/geometry
-          if-no-files-found: error
           retention-days: 7

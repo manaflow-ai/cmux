@@ -3,13 +3,14 @@ import CmuxNextBridge
 @testable import CmuxNextDaemon
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// While the display sleeps nothing draws, so an AppKit animation never advances: a sidebar row
 /// inserted then (a session seeded over the socket) stayed at alpha 0 until Reduce Motion was
 /// turned on. An animation completes or is skipped when nothing draws, and one already running
 /// when the display goes to sleep ends at once.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarInsertWhileDisplayAsleepTests {
     /// The local machine's section with the workspaces `ids`.
     private static func sections(_ ids: [Int]) -> [CmuxNextSidebar.SidebarSection] {
@@ -69,7 +70,7 @@ struct SidebarInsertWhileDisplayAsleepTests {
     @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") { await Self.animatesHere() })
     func aRowInsertedWhileTheDisplaySleepsShowsWhole() throws {
         let (model, sidebar, window) = try Self.sidebar()
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         let restoreKinds = Self.newWorkspaceMotionOn()
         defer { restoreKinds() }
         try #require(window.screen != nil)
@@ -91,7 +92,7 @@ struct SidebarInsertWhileDisplayAsleepTests {
     @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") { await Self.animatesHere() })
     func rowsStillMovingWhenTheDisplaySleepsEndAtOnce() throws {
         let (model, sidebar, window) = try Self.sidebar()
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         let restoreKinds = Self.newWorkspaceMotionOn()
         defer { restoreKinds() }
         try #require(window.screen != nil)
@@ -124,7 +125,7 @@ struct SidebarInsertWhileDisplayAsleepTests {
     @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") { await Self.animatesHere() })
     func rowsANewerReloadPlacedKeepTheirPlacesWhenTheDisplaySleeps() throws {
         let (model, sidebar, window) = try Self.sidebar()
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         let restoreKinds = Self.newWorkspaceMotionOn()
         defer { restoreKinds() }
         try #require(window.screen != nil)
@@ -158,7 +159,7 @@ struct SidebarInsertWhileDisplayAsleepTests {
     @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") { await Self.animatesHere() })
     func aClosingRowLeavesEvenAfterItsReplayExpired() async throws {
         let (model, sidebar, window) = try Self.sidebar()
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         let restoreKinds = Self.newWorkspaceMotionOn()
         defer { restoreKinds() }
         try #require(window.screen != nil)
@@ -187,7 +188,7 @@ struct SidebarInsertWhileDisplayAsleepTests {
     @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") { await Self.animatesHere() })
     func aRowInsertedWhileTheDisplayIsAwakeStillOpens() throws {
         let (model, sidebar, window) = try Self.sidebar()
-        defer { window.orderOut(nil) }
+        defer { window.close() }
         let restoreKinds = Self.newWorkspaceMotionOn()
         defer { restoreKinds() }
         try #require(window.screen != nil)

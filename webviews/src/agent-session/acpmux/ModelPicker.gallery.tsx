@@ -5,7 +5,9 @@ import type { ModelPickerProps } from "./modelPickerLayout";
 import type { Play } from "../../gallery/play";
 import { BUNDLED_MODEL_CATALOG } from "./modelCatalogData";
 import { topModelsFor } from "./topModels";
+import { mergeModelCatalog } from "./modelCatalog";
 import { type UpdateOffer, UpdateOfferContext } from "./HarnessHealthNotice";
+import { SOL_SEARCH_CATALOG, SOL_SEARCH_QUERY } from "../../gallery/fixtures/modelSearch";
 
 /// The chat's agent CLI update on offer (hq#2569 #12), which the pane hands the chip by context.
 type GalleryProps = ModelPickerProps & { update?: UpdateOffer };
@@ -77,6 +79,78 @@ const curated: ModelPickerProps = {
     })),
 };
 
+/// Provider-family recommendation states: synthetic harness reports make each family and its
+/// newest release visible, including a newly shipped Codex family and older releases in More.
+const familyRecommendationCatalog: ModelPickerProps["catalog"] = [
+  {
+    id: "claude",
+    name: "Claude Code",
+    top: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"],
+    models: [
+      // Catalog order deliberately differs from both the explicit top list and older-version order.
+      { id: "claude-haiku-4-5", name: "Haiku 4.5", family: "Haiku" },
+      { id: "claude-opus-4-6", name: "Opus 4.6", family: "Opus" },
+      { id: "claude-fable-5-1", name: "Fable 5.1", family: "Fable" },
+      { id: "claude-sonnet-5-5", name: "Sonnet 5.5", family: "Sonnet" },
+      { id: "claude-haiku-5-5", name: "Haiku 5.5", family: "Haiku" },
+      { id: "claude-opus-5-5", name: "Opus 5.5", family: "Opus" },
+    ],
+  },
+  {
+    id: "codex",
+    name: "Codex",
+    top: ["gpt-6.1-sol", "gpt-6.1-terra", "gpt-6.1-luna", "gpt-6-astra"],
+    models: [
+      { id: "gpt-6-sol", name: "GPT-6 Sol", family: "Sol" },
+      { id: "gpt-6-astra", name: "GPT-6 Astra", family: "Astra" },
+      { id: "gpt-6.1-luna", name: "GPT-6.1 Luna", family: "Luna" },
+      { id: "gpt-6.1-terra", name: "GPT-6.1 Terra", family: "Terra" },
+      { id: "gpt-6.1-sol", name: "GPT-6.1 Sol", family: "Sol" },
+    ],
+  },
+];
+
+const recommendationPlay =
+  (top: readonly string[], more: readonly string[]): Play =>
+  async (ctx) => {
+    const rows = () =>
+      [...ctx.document.querySelectorAll<HTMLButtonElement>('.acpmux-mp button[data-key^="model:"]')].map((button) =>
+        button.getAttribute("data-key")!.slice("model:".length),
+      );
+    const assertOrder = (expected: readonly string[], state: string) => {
+      const actual = rows();
+      if (actual.length !== expected.length || actual.some((id, index) => id !== expected[index]))
+        throw new Error(`${state}: expected ${JSON.stringify(expected)}, received ${JSON.stringify(actual)}`);
+    };
+    await ctx.click({ role: "button", name: "Model" });
+    await ctx.waitFor(() => rows().length > 0);
+    assertOrder(top, "Recommended models");
+    await ctx.click({ selector: ".acpmux-mp-older" });
+    await ctx.waitFor(() => ctx.document.querySelector('.acpmux-mp-older[aria-expanded="true"]') !== null);
+    assertOrder([...top, ...more], "Expanded models");
+  };
+
+// These direct ModelPicker inputs omit top rather than borrowing the bundled harness lists.
+const fallbackRecommendationCatalog = familyRecommendationCatalog.map(({ top: _top, ...entry }) => entry);
+
+const familyRecommendationsClaude: ModelPickerProps = {
+  ...base,
+  catalog: familyRecommendationCatalog,
+  harness: "claude",
+  model: "claude-sonnet-5-5",
+  label: "Sonnet 5.5",
+};
+
+const familyRecommendationsCodex: ModelPickerProps = {
+  ...base,
+  catalog: familyRecommendationCatalog,
+  harness: "codex",
+  // A current family away from the first position must not reorder the harness's list.
+  model: "gpt-6.1-terra",
+  label: "GPT-6.1 Terra",
+  harnessFixed: true,
+};
+
 /// A machine with many agents installed (Lawrence 2026-10-13: the picker grew to the window's
 /// height): each is its own harness profile, several of one brand (Claude Code, Claude Agent,
 /// the subrouter and CodeRouter Claude routes).
@@ -110,18 +184,49 @@ const manyHarnesses: ModelPickerProps["catalog"] = [
   ].map(([id, name]) => ({ id: id!, name: name!, models: [{ id: `${id}-default`, name: "Default" }] })),
 ];
 
-/// The open picker stays at most MODEL_PICKER_MAX_HEIGHT (480px) on a tall stage, and its content
+/// The open picker stays within the available anchor room on a tall stage, and its content
 /// scrolls inside it (the harness rail) instead of stretching the menu.
-const cappedHeight: Play = async (ctx) => {
+const openPicker: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: "Model" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp") !== null);
+};
+
+/// A machine with many harnesses keeps the picker visible and the entire harness rail available.
+/// The gallery stage is intentionally tall; its capped-height assumption belonged to the old
+/// short-stage fixture and made this play fail identically on base and head.
+const manyHarnessesVisible: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Model" });
   await ctx.waitFor(() => {
     const menu = ctx.document.querySelector<HTMLElement>(".acpmux-mp");
-    if (!menu || menu.style.visibility !== "visible") return false;
-    const height = menu.getBoundingClientRect().height;
-    const scrolls = [menu, ...menu.querySelectorAll<HTMLElement>("*")].some(
-      (node) => node.scrollHeight > node.clientHeight + 100,
+    const view = ctx.document.defaultView;
+    if (!menu || !view || menu.style.visibility !== "visible") return false;
+    const box = menu.getBoundingClientRect();
+    // The whole picker sits inside the window: nothing clipped off an edge.
+    const inWindow =
+      box.top >= -1 && box.left >= -1 && box.bottom <= view.innerHeight + 1 && box.right <= view.innerWidth + 1;
+    return (
+      inWindow &&
+      box.height > 300 &&
+      menu.querySelectorAll(".acpmux-mp-harness").length >= 20 &&
+      menu.querySelector(".acpmux-mp-content") !== null
     );
-    return height > 300 && height <= 481 && scrolls;
+  });
+  // Every harness stays reachable: scrolling the rail to its end brings the last harness fully
+  // into the rail's view, and the rail itself ends inside the picker.
+  await ctx.waitFor(() => {
+    const menu = ctx.document.querySelector<HTMLElement>(".acpmux-mp");
+    const rail = menu?.querySelector<HTMLElement>(".acpmux-mp-rail-viewport");
+    const last = [...(menu?.querySelectorAll<HTMLElement>(".acpmux-mp-harness") ?? [])].at(-1);
+    if (!menu || !rail || !last) return false;
+    rail.scrollTop = rail.scrollHeight;
+    const railBox = rail.getBoundingClientRect();
+    const lastBox = last.getBoundingClientRect();
+    return (
+      lastBox.height > 0 &&
+      lastBox.top >= railBox.top - 1 &&
+      lastBox.bottom <= railBox.bottom + 1 &&
+      railBox.bottom <= menu.getBoundingClientRect().bottom + 1
+    );
   });
 };
 
@@ -147,8 +252,8 @@ const numericSearch: Play = async (ctx) => {
 const accounts: ChatAccounts = {
   list: async () => ({
     accounts: [
-      { id: "max", name: "Claude Max", kind: "subscription" },
-      { id: "api", name: "Anthropic API key", kind: "api-key" },
+      { id: "max", name: "Claude Max", kind: "direct-subscription" },
+      { id: "api", name: "Anthropic API key", kind: "direct-api-key" },
       { id: "subrouter", name: "subrouter", kind: "subrouter" },
     ],
     active: "max",
@@ -193,6 +298,30 @@ const startedFork: ModelPickerProps = {
   ],
   harnessFixed: true,
   fork: { to: () => undefined, ready: true },
+};
+
+/// A short New Tab/chat pane with 48 installed accounts: the menu must cap to its window and
+/// let the Account list scroll to its last row without an empty spacer.
+const manyProfiles: ModelPickerProps = {
+  ...quick,
+  catalog: startedFork.catalog,
+  quick: {
+    ...quick.quick,
+    account: {
+      sessionId: "gallery-many-accounts",
+      accounts: {
+        list: async () => ({
+          accounts: Array.from({ length: 48 }, (_, index) => ({
+            id: "claude-account-" + (index + 1),
+            name: "Claude account " + (index + 1),
+            kind: "direct-subscription" as const,
+          })),
+          active: "claude-account-1",
+        }),
+        set: async () => undefined,
+      },
+    },
+  },
 };
 
 const openQuick: Play = async (ctx) => {
@@ -337,9 +466,19 @@ const typeSearch =
     await ctx.waitFor(() => ctx.document.querySelector(searchField.selector) !== null);
     await ctx.type(text, searchField);
     await ctx.waitFor(
-      () => ctx.document.querySelector(".acpmux-quick-menu .ui-menu-group-label")?.textContent === `“${text}”`,
+      () =>
+        ctx.document.querySelector<HTMLInputElement>(searchField.selector)?.value === text &&
+        ctx.document.querySelector(".acpmux-quick-found, .acpmux-quick-note") !== null,
     );
   };
+
+/// Lawrence's machine (via Leo 2026-10-28: "lawrence says search feels confusing here in the model
+/// picker"), searched for "sol 6.1", in each search look: `harness` ships.
+const solSearch = (searchGroups: "harness" | "flat", placement?: "left" | "top"): ModelPickerProps => ({
+  ...quick,
+  catalog: SOL_SEARCH_CATALOG,
+  quick: { ...quick.quick, searchGroups, ...(placement ? { harnessPlacement: placement } : {}) },
+});
 
 export default componentEntry<GalleryProps>({
   id: "agent-pane.model-picker",
@@ -347,7 +486,7 @@ export default componentEntry<GalleryProps>({
   area: "Agent pane",
   pane: true,
   height: 560,
-  widths: { narrow: 420, normal: 560, wide: 760 },
+  widths: { narrow: 360, normal: 560, wide: 760 },
   anchors: [{ selector: ".acpmux-model" }],
   covers: [
     "agent-session/acpmux/ModelPicker.tsx#ModelPicker",
@@ -392,6 +531,30 @@ export default componentEntry<GalleryProps>({
       },
     },
     curated: { props: curated, play: openModels },
+    // Explicit harness order wins over the scrambled catalog and the current family.
+    "family-recommendations-claude": {
+      props: familyRecommendationsClaude,
+      play: recommendationPlay(
+        ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"],
+        ["claude-opus-4-6", "claude-haiku-4-5"],
+      ),
+    },
+    "family-recommendations-codex": {
+      props: familyRecommendationsCodex,
+      play: recommendationPlay(["gpt-6.1-sol", "gpt-6.1-terra", "gpt-6.1-luna", "gpt-6-astra"], ["gpt-6-sol"]),
+    },
+    // Without top, keep each family's newest release in source order, then older versions newest-first.
+    "family-recommendations-claude-fallback": {
+      props: { ...familyRecommendationsClaude, catalog: fallbackRecommendationCatalog },
+      play: recommendationPlay(
+        ["claude-fable-5-1", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"],
+        ["claude-opus-4-6", "claude-haiku-4-5"],
+      ),
+    },
+    "family-recommendations-codex-fallback": {
+      props: { ...familyRecommendationsCodex, catalog: fallbackRecommendationCatalog },
+      play: recommendationPlay(["gpt-6-astra", "gpt-6.1-luna", "gpt-6.1-terra", "gpt-6.1-sol"], ["gpt-6-sol"]),
+    },
     // A Codex chat with a message (Leo 2026-10-19): its harness is fixed, so the menu is search,
     // Codex's models and More models, with no harness rail and no Add harness….
     "started-chat": {
@@ -432,9 +595,12 @@ export default componentEntry<GalleryProps>({
       props: startedFork,
       play: async (ctx) => {
         await openQuick(ctx);
-        await ctx.click({ role: "menuitem", name: /^Account/ });
+        // Keyboard activation is stable on a started chat even when the pointer-hover timer races
+        // the async account list. Keep checking the real signed-in routes, not just a popup count.
+        await ctx.focus({ role: "menuitem", name: /^Account/ });
+        await ctx.press("Enter");
         await ctx.waitFor(() =>
-          Array.from(ctx.document.querySelectorAll('[role="menuitemradio"]')).some(
+          Array.from(ctx.document.querySelectorAll("[role=menuitemradio]")).some(
             (row) => row.textContent === "Anthropic API key",
           ),
         );
@@ -447,6 +613,17 @@ export default componentEntry<GalleryProps>({
     "relevant-many": { props: relevantMany, play: openQuick },
     "reported-claude-menu": { props: reportedClaude, play: openQuick },
     "reported-codex-menu": { props: reportedCodex, play: openQuick },
+    // A short window with many accounts (Lawrence: "model picker too tall"): the Account submenu
+    // remains inside the window and scrolls to the final row.
+    "quick-menu-many-profiles": {
+      props: { ...manyProfiles, update },
+      height: 360,
+      play: async (ctx) => {
+        await openQuick(ctx);
+        await ctx.hover({ role: "menuitem", name: /^Account/ });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-quick-menu").length > 1);
+      },
+    },
     // An agent CLI update on offer: a quiet footer below the model choices, out of the numbered list.
     "quick-update-offer": { props: { ...quick, update }, play: openQuick },
     // The same footer on a started chat's menu, which has no rail.
@@ -467,12 +644,8 @@ export default componentEntry<GalleryProps>({
       props: { ...quick, catalog: startedFork.catalog, onHarness: () => undefined },
       play: async (ctx) => {
         await openQuick(ctx);
-        await ctx.click({ role: "menuitem", name: /^Account/ });
-        await ctx.waitFor(() =>
-          Array.from(ctx.document.querySelectorAll('[role="menuitemradio"]')).some(
-            (row) => row.textContent === "Anthropic API key",
-          ),
-        );
+        await ctx.hover({ role: "menuitem", name: /^Account/ });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-quick-menu").length > 1);
       },
     },
     // The rail's Codex tab: Codex's models in place; Effort and Account stay with the chat's harness.
@@ -519,7 +692,9 @@ export default componentEntry<GalleryProps>({
         await ctx.waitFor(() => ctx.document.querySelector(searchField.selector) !== null);
         await ctx.type("on", searchField);
         await ctx.waitFor(
-          () => ctx.document.querySelector(".acpmux-quick-menu .ui-menu-group-label")?.textContent === "“son”",
+          () =>
+            ctx.document.querySelector<HTMLInputElement>(searchField.selector)?.value === "son" &&
+            ctx.document.querySelector(".acpmux-quick-found, .acpmux-quick-note") !== null,
         );
       },
     },
@@ -536,6 +711,12 @@ export default componentEntry<GalleryProps>({
     },
     // Typing filters every harness's models in place, each row naming its harness.
     "quick-menu-filter": { props: quick, play: typeSearch("son") },
+    // The search looks for Lawrence's "sol 6.1" (via Leo 2026-10-28). Grouped by harness ships.
+    "search-grouped": { props: solSearch("harness"), play: typeSearch(SOL_SEARCH_QUERY) },
+    "search-grouped-top-rail": { props: solSearch("harness", "top"), play: typeSearch(SOL_SEARCH_QUERY) },
+    "search-flat": { props: solSearch("flat"), play: typeSearch(SOL_SEARCH_QUERY) },
+    // A search that finds nothing says what to do next.
+    "search-empty": { props: solSearch("harness"), play: typeSearch("sol 9.9") },
     "more-models": {
       props: curated,
       play: async (ctx) => {
@@ -543,13 +724,30 @@ export default componentEntry<GalleryProps>({
         await ctx.click({ selector: ".acpmux-mp-older" });
       },
     },
+    // Narrow horizontal strip variants: the harness families keep even gaps and whole-item
+    // snapping at both ends for the small, medium and crowded catalogs Leo asked to compare.
+    "strip-3-harnesses": {
+      note: "Horizontal strip, 3 harness families: all items fit without a scroll.",
+      props: { ...base, catalog: manyHarnesses.slice(0, 3) },
+      play: openPicker,
+    },
+    "strip-8-harnesses": {
+      note: "Horizontal strip, 8 harness families: whole-item snapping with an edge fade.",
+      props: { ...base, catalog: manyHarnesses.slice(0, 8) },
+      play: openPicker,
+    },
+    "strip-15-harnesses": {
+      note: "Horizontal strip, 15 harness families: whole-item snapping with an edge fade.",
+      props: { ...base, catalog: manyHarnesses.slice(0, 15) },
+      play: openPicker,
+    },
     // Many installed agents on a tall stage: the menu is capped and the harness rail scrolls.
     "many-harnesses": {
       props: { ...base, catalog: manyHarnesses },
       height: 1000,
-      play: cappedHeight,
+      play: manyHarnessesVisible,
     },
-    // The agent CLI is outdated: a dot on the chip, and Update and Skip This Version in the
+    // The agent CLI is outdated: no dot on the chip (Leo 2026-10-21), and Update and Skip This Version in the
     // picker, never a banner over the chat (hq#2569 #12).
     "update-offer": {
       props: { ...base, update },
@@ -571,6 +769,43 @@ export default componentEntry<GalleryProps>({
         await ctx.click({ selector: ".acpmux-mp-harness[data-signed-out]" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp-login") !== null);
       },
+    },
+    // acpmux's discovered `cmux` profile (Claude Code on the cmux model router) is Claude's
+    // automatic fallback, marked `pickerHidden`: the rail shows Claude Code and Codex only, no
+    // "Cmux" (user 2026-10-28). The catalog comes from the daemon's reply shapes.
+    "router-fallback-hidden": {
+      props: {
+        ...base,
+        catalog: mergeModelCatalog(
+          {
+            defaultHarness: "claude",
+            harnesses: {
+              claude: { family: "claude", kind: "claude-stdio" },
+              cmux: { family: "claude", kind: "claude-stdio", pickerHidden: true },
+              codex: { family: "codex", kind: "acp" },
+            },
+          },
+          {
+            harnesses: [
+              { harness: "claude", models: catalog[0]!.models },
+              {
+                harness: "cmux",
+                pickerHidden: true,
+                models: [
+                  { id: "deepseek/deepseek-v4-flash", name: "DeepSeek V4 Flash" },
+                  { id: "qwen/qwen3.7-flash", name: "Qwen3.7 Flash" },
+                  { id: "z-ai/glm-5.3", name: "GLM-5.3" },
+                ],
+              },
+              { harness: "codex", models: catalog[1]!.models },
+            ],
+          },
+        ),
+        harness: "claude",
+        model: "claude-opus-5-5",
+        label: "Opus 5.5",
+      },
+      play: openPicker,
     },
     // A folder profile is a machine choice, not a harness: it remains the selected model source,
     // while the rail contains only Claude/Codex harnesses.

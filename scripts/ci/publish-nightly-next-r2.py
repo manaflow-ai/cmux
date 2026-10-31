@@ -9,7 +9,8 @@ follow-up job that never holds the feed.
 
   upload --file F [--file ...]
       Writes each file to <prefix><name>, write-once, all at once (one thread
-      per file), then reads each back from the public base and checks its size.
+      per file), then reads each back from R2 and checks its size and SHA-256
+      against the local file's, and checks the public base serves it at that size.
   rewrite --feed F --name N [--name ...]
       Points every enclosure <github-prefix><N> in F at <public-base>/<N>.
       --if-public rewrites only names the public base serves at the enclosure's
@@ -19,7 +20,11 @@ follow-up job that never holds the feed.
       below this feed's newest build, with If-Match on the bytes it read, so two
       runs never move the feed back (a lost race re-reads and decides again).
       --same-build (the delta republish): only while the live feed's newest
-      build is this feed's.
+      build is this feed's. Either way the feed written keeps the live feed's
+      newest earlier builds until it holds KEEP_BUILDS (2) builds, so a pull
+      (nightly-next-rollback.yml) always has a published build to fall back
+      to: every build on the live feed passed the publish gate, and a pulled
+      one is no longer on it.
 
 Environment: AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (the nightly-next scoped
 token), R2_ENDPOINT, NIGHTLY_NEXT_R2_BUCKET, NIGHTLY_NEXT_R2_PREFIX,
@@ -37,6 +42,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -50,6 +56,12 @@ SPARKLE_NS = "http://www.andymatuschak.org/xml-namespaces/sparkle"
 IMMUTABLE_CACHE = "public, max-age=31536000, immutable"
 FEED_CACHE = "no-cache, no-store, must-revalidate"
 CONFLICT = 3
+# The feed keeps this many builds: the new one and the newest earlier one, so a rollback can serve it.
+KEEP_BUILDS = 2
+ITEM = re.compile(rb"[ \t]*<item>.*?</item>[ \t]*\n?", re.S)
+ITEM_VERSION = re.compile(rb"<sparkle:version>\s*(\d+)\s*</sparkle:version>")
+ITEM_CHANNEL = re.compile(rb"<sparkle:channel>\s*([^<]*?)\s*</sparkle:channel>")
+NIGHTLY_CHANNELS = (None, b"cmux-next")  # what a Nightly-ring app is offered (untagged or cmux-next)
 _sleep = time.sleep
 
 
@@ -89,6 +101,27 @@ def public_length(url: str, attempts: int = 5) -> int | None:
     return None
 
 
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def stored_digest(key: str) -> tuple[int, str]:
+    """(size, SHA-256) of the object's bytes as R2 stores them, read back through the S3 API.
+
+    Straight from R2, not the public base: a CDN read can trickle (files.cmux.com served a binary at
+    4-35 KB/s), and upload-r2-object.py --download-to bounds each attempt and retries."""
+    with tempfile.TemporaryDirectory(prefix="nightly-next-r2-readback-") as scratch:
+        copy = Path(scratch) / "object"
+        subprocess.run([sys.executable, str(UPLOADER), "--endpoint-url", env("R2_ENDPOINT"),
+                        "--bucket", env("NIGHTLY_NEXT_R2_BUCKET"), "--key", key, "--download-to", str(copy)],
+                       check=True)
+        return copy.stat().st_size, file_sha256(copy)
+
+
 def upload_one(path: Path) -> str:
     key = env("NIGHTLY_NEXT_R2_PREFIX") + path.name
     guard_key(key)
@@ -99,12 +132,18 @@ def upload_one(path: Path) -> str:
     elif path.suffix == ".txt":
         content_type = "text/plain; charset=utf-8"
     subprocess.run(uploader_args(path, key, IMMUTABLE_CACHE, content_type) + ["--write-once"], check=True)
-    size = path.stat().st_size
+    size, sha256 = path.stat().st_size, file_sha256(path)
+    # The stored bytes, not only a length: an object of the right length with other bytes (stale or
+    # corrupt) must not pass the readback.
+    stored = stored_digest(key)
+    if stored != (size, sha256):
+        raise RuntimeError(f"s3://{env('NIGHTLY_NEXT_R2_BUCKET')}/{key} holds {stored[0]} bytes with SHA-256 "
+                           f"{stored[1]}, expected {size} bytes with SHA-256 {sha256}")
     url = public_base() + path.name
     served = public_length(url)
     if served != size:
         raise RuntimeError(f"{url} serves {served} bytes, expected {size}")
-    return f"{path.name}: {size} bytes in {time.monotonic() - started:.1f} s, live at {url}"
+    return f"{path.name}: {size} bytes, SHA-256 {sha256}, in {time.monotonic() - started:.1f} s, live at {url}"
 
 
 def upload(files: list[Path]) -> int:
@@ -181,6 +220,57 @@ def newest_build(xml: bytes) -> int:
     return max(builds)
 
 
+def item_builds(xml: bytes) -> list[tuple[re.Match, int]]:
+    found = []
+    for match in ITEM.finditer(xml):
+        version = ITEM_VERSION.search(match.group(0))
+        if version is not None:
+            found.append((match, int(version.group(1))))
+    return found
+
+
+def nightly_item(item: bytes) -> bool:
+    channel = ITEM_CHANNEL.search(item)
+    return (channel.group(1) if channel else None) in NIGHTLY_CHANNELS
+
+
+def keep_earlier_builds(ours: bytes, live: bytes, keep: int = KEEP_BUILDS) -> bytes:
+    """OURS, holding a Nightly-ring item (untagged or cmux-next) for each of the KEEP - 1 newest builds
+    below OURS' newest that either feed offers Nightly apps, taken from the live feed when OURS lacks it.
+
+    Counting over both feeds means a feed combined from an older read (a lost race) still takes a
+    build that landed meanwhile. A Dev-tagged (cmux-next-dev) item never counts: a Nightly app rejects
+    it, so it could not serve a rollback. Where OURS has a wanted build only as Dev items (a promotion
+    raced this write), those items give way to the live feed's Nightly item. Kept items are the live
+    feed's bytes, after OURS' last item."""
+    mine = item_builds(ours)
+    if not mine:
+        return ours
+    newest = max(build for _, build in mine)
+    nightly_mine = {build for match, build in mine if nightly_item(match.group(0))}
+    theirs = [(match, build) for match, build in item_builds(live) if nightly_item(match.group(0))]
+    earlier = {build for build in nightly_mine if build < newest} | {build for _, build in theirs if build < newest}
+    wanted = set(sorted(earlier, reverse=True)[:keep - 1]) - nightly_mine
+    added, taken = [], set()
+    for match, build in sorted(theirs, key=lambda entry: entry[1], reverse=True):
+        if build in wanted and build not in taken:
+            item = match.group(0)
+            added.append(item if item.endswith(b"\n") else item + b"\n")
+            taken.add(build)
+    if not added:
+        return ours
+    kept, cursor = [], 0
+    for match, build in mine:
+        kept.append(ours[cursor:match.start()])
+        if build not in taken:  # a Dev item of a build whose Nightly item is added gives way to it
+            kept.append(match.group(0))
+        cursor = match.end()
+    end = len(b"".join(kept))
+    kept.append(ours[cursor:])
+    body = b"".join(kept)
+    return body[:end] + b"".join(added) + body[end:]
+
+
 def _uploader_module():
     spec = importlib.util.spec_from_file_location("upload_r2_object", UPLOADER)
     module = importlib.util.module_from_spec(spec)
@@ -207,7 +297,8 @@ def read_live(key: str) -> bytes | None:
 def write_feed(feed: Path, github_output: str | None, same_build: bool = False, attempts: int = 5) -> int:
     key = env("NIGHTLY_NEXT_R2_PREFIX") + feed.name
     guard_key(key)
-    ours = newest_build(feed.read_bytes())
+    original = feed.read_bytes()
+    ours = newest_build(original)
     for _ in range(attempts):
         live = read_live(key)
         if live is None and same_build:
@@ -223,7 +314,14 @@ def write_feed(feed: Path, github_output: str | None, same_build: bool = False, 
                         out.write("feed_written=false\n")
                 return 0
             mode = ["--replace-sha256", hashlib.sha256(live).hexdigest(), "--conflict-exit-code", str(CONFLICT)]
+            merged = keep_earlier_builds(original, live)
+            if merged != original:
+                kept = sorted({b for _, b in item_builds(merged)} - {b for _, b in item_builds(original)}, reverse=True)
+                print(f"{feed.name}: keeps the live feed's build {', '.join(map(str, kept))} beside {ours}, "
+                      "for a rollback to serve")
+            feed.write_bytes(merged)
         else:
+            feed.write_bytes(original)
             mode = ["--write-once", "--conflict-exit-code", str(CONFLICT)]
         result = subprocess.run(uploader_args(feed, key, FEED_CACHE, "application/xml") + mode)
         if result.returncode == 0:

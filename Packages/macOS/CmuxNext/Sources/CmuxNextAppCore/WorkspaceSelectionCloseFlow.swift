@@ -9,9 +9,11 @@ import CmuxNextSidebar
 /// it's missing a LOT... and it's also 2 lines tall". Each row used to run its own Close
 /// Workspace: its own question, titled with its name (a long name wraps to two lines), queued
 /// behind the others and not confirmed by Return, then its own turn in the window's lane, which
-/// waited for the daemon and the store before the next row's close started. Now every row leaves
-/// in one sidebar pass (`hide`), one question covers them all (`question`: "Close N
-/// workspaces?"), every close goes out at once in one lane turn, and "Closed N workspaces" with
+/// waited for the daemon and the store before the next row's close started. Now one question covers
+/// them all (`question`: "Close N workspaces?"), asked while the rows stay in place when it likely
+/// shows (`mayAsk`); once it is answered Close every row leaves in one sidebar pass (`hide`). Otherwise
+/// the rows leave at the press and the terminals are still asked behind them (Cancel: `restore`).
+/// Every close goes out at once in one lane turn, and "Closed N workspaces" with
 /// Undo brings them all back (`offerUndo`), as the other bulk closes do. The App wires it
 /// (`WorkspaceSelectionClose`); the flow lives here so CmuxNextApp does not grow (SW14).
 @MainActor
@@ -19,15 +21,36 @@ public struct WorkspaceSelectionCloseFlow {
     public typealias Member = (WorkspaceModel, DaemonService)
 
     /// Rows whose batch close has started and not settled (each leaves as its own close settles): a second
-    /// press (this batch, or Close Workspace on the row the window keeps) sends nothing for them.
-    public private(set) static var running: Set<String> = []
+    /// press (this batch, or Close Workspace on the row the window keeps) sends nothing for them. The app
+    /// has one (`AppServices.selectionCloses`), passed to every batch close and to Close Workspace.
+    @MainActor public final class Running {
+        public private(set) var ids: Set<String> = []
+
+        public init() {}
+
+        /// Whether workspace `id` may join a batch: no close of it has started.
+        public func canStart(_ id: String) -> Bool {
+            !ids.contains(id) && !ClosingWorkspaces.shared.ids.contains(id) && !WorkspaceCloseFlow.running.contains(id)
+        }
+
+        func formUnion(_ closing: [String]) { ids.formUnion(closing) }
+        func subtract(_ settled: [String]) { ids.subtract(settled) }
+        func remove(_ id: String) { ids.remove(id) }
+    }
+
+    /// The app's batch closes under way.
+    public let running: Running
 
     /// Every row leaves and the selection moves, in one sidebar pass (InstantClose): the ids that left.
     public var hide: @MainActor ([String]) -> [String]
+    /// Whether the batch will likely ask, read in the press's turn from the store. True: the rows stay
+    /// until the answer; false: they leave at once.
+    public var mayAsk: @MainActor () -> Bool
     /// Asks the terminals for a running program: nil to close without asking, else the one question
-    /// for the whole selection (true: Close), asked after the rows left (as WorkspaceCloseFlow does).
+    /// for the whole selection (true: Close), asked while the rows stay (as WorkspaceCloseFlow does).
     public var question: @MainActor () async -> (@MainActor () async -> Bool)?
-    /// The person cancelled: the window shows its workspace again unless the person moved on meanwhile.
+    /// The person cancelled rows that left at the press: the window shows its workspace again unless
+    /// the person moved on meanwhile.
     public var restore: @MainActor () -> Void
     /// Whether a workspace is still listed (it may close another way while the question is up).
     public var listed: @MainActor (String) -> Bool
@@ -40,12 +63,15 @@ public struct WorkspaceSelectionCloseFlow {
     public var window: String
     public var toastWindow: NSWindow?
 
-    public init(hide: @escaping @MainActor ([String]) -> [String], question: @escaping @MainActor () async -> (@MainActor () async -> Bool)?,
+    public init(hide: @escaping @MainActor ([String]) -> [String], mayAsk: @escaping @MainActor () -> Bool,
+                question: @escaping @MainActor () async -> (@MainActor () async -> Bool)?,
                 restore: @escaping @MainActor () -> Void, listed: @escaping @MainActor (String) -> Bool,
                 machines: @escaping @MainActor @Sendable () -> [DaemonService],
                 offerUndo: @escaping @MainActor (_ names: [String], _ undone: @escaping @MainActor () -> Void) -> Void,
-                window: String, toastWindow: NSWindow?) {
+                window: String, toastWindow: NSWindow?, running: Running) {
+        self.running = running
         self.hide = hide
+        self.mayAsk = mayAsk
         self.question = question
         self.restore = restore
         self.listed = listed
@@ -55,31 +81,31 @@ public struct WorkspaceSelectionCloseFlow {
         self.toastWindow = toastWindow
     }
 
-    /// Whether workspace `id` may join a batch: no close of it has started.
-    public static func canStart(_ id: String) -> Bool {
-        !running.contains(id) && !ClosingWorkspaces.shared.ids.contains(id) && !WorkspaceCloseFlow.running.contains(id)
-    }
-
     /// Starts the close of `members` (each `canStart`); nil when there is none.
     public func start(_ members: [Member]) -> ActionWork? {
         guard !members.isEmpty else { return nil }
         let closing = members.map(\.0.id)
-        // Every close path tells `willClose` before it closes (WorkspaceClose); in press order.
-        let terminals = members.map { WorkspaceClose.closing($0.0, on: $0.1) }
-        Self.running.formUnion(closing)
-        let hidden = hide(closing)
+        running.formUnion(closing)
+        // Every close path tells `willClose` before it closes (WorkspaceClose); in press order. A question
+        // that likely shows keeps the rows (and tells nobody) until it is answered.
+        let early = mayAsk() ? nil : (terminals: members.map { WorkspaceClose.closing($0.0, on: $0.1) }, hidden: hide(closing))
         return Task { @MainActor in
             if let ask = await question(), !(await ask()) {
-                Self.running.subtract(closing)
-                for id in hidden { ClosingWorkspaces.shared.end(id, refused: false, in: nil) }
-                restore()
+                running.subtract(closing)
+                // Rows that never moved: nothing to bring back.
+                if let early {
+                    for id in early.hidden { ClosingWorkspaces.shared.end(id, refused: false, in: nil) }
+                    restore()
+                }
                 return nil
             }
+            let terminals = early?.terminals ?? members.map { WorkspaceClose.closing($0.0, on: $0.1) }
+            let hidden = early?.hidden ?? hide(closing)
             // Closed another way while the question was up (the CLI, another window): nothing to send, and
             // its row is no longer closing.
             let batch = zip(members, terminals).filter { listed($0.0.0.id) }
             let sent = Set(batch.map { $0.0.0.id })
-            Self.running.subtract(closing.filter { !sent.contains($0) })
+            running.subtract(closing.filter { !sent.contains($0) })
             for id in hidden where !sent.contains(id) { ClosingWorkspaces.shared.end(id, refused: false, in: nil) }
             let live = batch.filter { $0.0.1.isLive }, offline = batch.filter { !$0.0.1.isLive }
             // Every row of the batch that closed, the offline ones too, under one toast and one Undo: shown once
@@ -140,7 +166,7 @@ public struct WorkspaceSelectionCloseFlow {
         let firstRefused = results.first { $0.1 != nil }?.0.0.id
         for (member, failure) in results {
             // Settled: a refused row can be closed again at once.
-            Self.running.remove(member.0.id)
+            running.remove(member.0.id)
             ClosingWorkspaces.shared.end(member.0.id, refused: failure != nil, in: member.0.id == firstRefused ? toastWindow : nil)
         }
         return results.filter { $0.1 == nil }.map { $0.0.0.name }

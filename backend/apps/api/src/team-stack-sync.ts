@@ -31,6 +31,8 @@ export interface StackEvent {
   readonly type: string
   readonly stack_team: string
   readonly stack_user?: string
+  /** A person waits on this sync (user.teams.list found the team in Stack): it never takes the low lane. */
+  readonly urgent?: true
 }
 
 export type StackSyncReply = { readonly ok: true; readonly outcome: string; readonly duplicate?: true } | { readonly ok: false; readonly reason: string }
@@ -47,6 +49,11 @@ export interface StackSyncDeps {
   readonly revokeStuck: (user: string) => void
   /** The shared pace of sign-in reads (STACK_READ_LIMIT): one token before each sync's reads; false = not now (cx-f5tk4). */
   readonly pace?: () => Promise<boolean>
+  /**
+   * The low lane (stackLowReadPace): a sync of a team not mirrored here whose deliveries carry no membership and
+   * no urgent flag takes a token here first, then one of `pace`. Absent: no low cap.
+   */
+  readonly lowPace?: () => Promise<boolean>
 }
 
 const SEEN_RETENTION_MS = 30 * 24 * 60 * 60_000
@@ -57,16 +64,25 @@ const RECHECK_DELAYS_MS = [60_000, 5 * 60_000, 30 * 60_000, 2 * 60 * 60_000, 6 *
 /** A member whose removal made no progress this many times is set aside (logged) until the object restarts. */
 const DRAIN_MAX_ATTEMPTS = 3
 /**
- * A sync that could not read Stack now (no pace token, a 429 or another read failure) waits 1 min doubling
- * to 1 h with ±20 % jitter (cx-f5tk4), then tries again from the alarm; after SYNC_MAX_FAILS (about two
+ * A sync that could not read Stack (a 429 or another read failure) waits 1 min doubling to 1 h with ±20 %
+ * jitter (cx-f5tk4; one without a pace token waits less first, pacedBackoffMs), then tries again from the alarm; after SYNC_MAX_FAILS (about two
  * days) it ends, logged. The delivery itself was already answered 200 `queued`.
  */
 export const SYNC_BACKOFF_MS = { first: 60_000, max: 60 * 60_000 } as const
 export const SYNC_MAX_FAILS = 50
 export const syncBackoffMs = (fails: number, random: () => number = Math.random) =>
   Math.round(Math.min(SYNC_BACKOFF_MS.max, SYNC_BACKOFF_MS.first * 2 ** Math.max(0, fails - 1)) * (0.8 + 0.4 * random()))
+/**
+ * A sync that found the shared pace full (no token; Stack was not asked) waits 5, 10, 20 and 40 s first, ±20 %:
+ * the pace frees a token within its 60 s window and a person waits on a join (prod 2026-10-29: a new team listed
+ * after 67 s). After PACED_QUICK_TRIES it follows syncBackoffMs, so a pace that stays full still ends in about two days.
+ */
+export const PACED_QUICK_TRIES = 4
+const PACED_FIRST_MS = 5_000
+export const pacedBackoffMs = (fails: number, random: () => number = Math.random) =>
+  fails <= PACED_QUICK_TRIES ? Math.round(PACED_FIRST_MS * 2 ** Math.max(0, fails - 1) * (0.8 + 0.4 * random())) : syncBackoffMs(fails - PACED_QUICK_TRIES, random)
 
-type QueueRow = { k: string; type: string; stack_team: string; stack_user: string | null; due_at: number; attempts: number; fails: number; gen: number; merged: number }
+type QueueRow = { k: string; type: string; stack_team: string; stack_user: string | null; due_at: number; attempts: number; fails: number; gen: number; merged: number; urgent: number }
 /** While a row's Stack read runs, the row waits this long (a lease): a restart mid-read leaves it for the alarm. */
 export const SYNC_LEASE_MS = 5 * 60_000
 
@@ -130,7 +146,13 @@ export class StackTeamSync {
   private async runRow(deps: StackSyncDeps, k: string, ev: StackEvent | undefined, clock?: number): Promise<string | undefined> {
     // The alarm's time (tests inject it) or now, whichever is later: a long alarm batch never backs off into the past.
     const at = () => Math.max(clock ?? 0, Date.now())
-    const paced = deps.pace ? await deps.pace().catch(() => false) : true
+    const before = readRow(deps.sql, k)
+    if (!before) return undefined
+    // A team never mirrored here whose deliveries name no member and no waiting person (cmux.com visitors'
+    // sign-up teams, in production) takes the low lane first, so it never uses the whole pace.
+    const low = deps.state().team == null && before.urgent === 0 && deps.lowPace !== undefined
+    const take = () => (deps.pace ? deps.pace().catch(() => false) : Promise.resolve(true))
+    const paced = low ? (await deps.lowPace!().catch(() => false)) && (await take()) : await take()
     // Read again after the await: a delivery may have merged in, or another run synced it.
     const row = readRow(deps.sql, k)
     if (!row) return undefined
@@ -344,7 +366,7 @@ const ensureTables = (sql: SqlStorage) => {
   // second delivery merged in. `attempts` stays the team-missing re-check count. Checked once per instance.
   if (!migrated.has(sql)) {
     const have = new Set(sql.exec<{ name: string }>(`PRAGMA table_info(stack_team_recheck)`).toArray().map((c) => c.name))
-    for (const c of ["fails", "gen", "merged"]) if (!have.has(c)) sql.exec(`ALTER TABLE stack_team_recheck ADD COLUMN ${c} INTEGER NOT NULL DEFAULT 0`)
+    for (const c of ["fails", "gen", "merged", "urgent"]) if (!have.has(c)) sql.exec(`ALTER TABLE stack_team_recheck ADD COLUMN ${c} INTEGER NOT NULL DEFAULT 0`)
     migrated.add(sql)
   }
 }
@@ -353,7 +375,7 @@ const migrated = new WeakSet<SqlStorage>()
 const syncKey = (stackTeam: string) => `sync|${stackTeam}|`
 
 const readRow = (sql: SqlStorage, k: string): QueueRow | undefined =>
-  sql.exec<QueueRow>(`SELECT k, type, stack_team, stack_user, due_at, attempts, fails, gen, merged FROM stack_team_recheck WHERE k = ?`, k).toArray()[0]
+  sql.exec<QueueRow>(`SELECT k, type, stack_team, stack_user, due_at, attempts, fails, gen, merged, urgent FROM stack_team_recheck WHERE k = ?`, k).toArray()[0]
 
 /**
  * Records a delivery's pending sync, durably, before any Stack read (cx-f5tk4). A team.deleted keeps its own
@@ -363,7 +385,9 @@ const readRow = (sql: SqlStorage, k: string): QueueRow | undefined =>
  */
 const enqueue = (sql: SqlStorage, ev: StackEvent, now: number): string => {
   const [k, type] = ev.type === "team.deleted" ? [`team.deleted|${ev.stack_team}|`, "team.deleted"] : [syncKey(ev.stack_team), "sync"]
-  sql.exec(`INSERT INTO stack_team_recheck (k, type, stack_team, stack_user, due_at, attempts, fails, gen, merged) VALUES (?, ?, ?, NULL, ?, -1, 0, 0, 0) ON CONFLICT(k) DO UPDATE SET gen = gen + 1, merged = 1`, k, type, ev.stack_team, now)
+  // A membership event or a waiting person marks the row urgent for good: it never takes the low lane.
+  const urgent = ev.urgent === true || ev.type.startsWith("team_membership") ? 1 : 0
+  sql.exec(`INSERT INTO stack_team_recheck (k, type, stack_team, stack_user, due_at, attempts, fails, gen, merged, urgent) VALUES (?, ?, ?, NULL, ?, -1, 0, 0, 0, ?) ON CONFLICT(k) DO UPDATE SET gen = gen + 1, merged = 1, urgent = MAX(urgent, excluded.urgent)`, k, type, ev.stack_team, now, urgent)
   return k
 }
 
@@ -376,7 +400,7 @@ const backoff = (deps: StackSyncDeps, row: QueueRow, why: "paced" | "lookup", at
     console.error(JSON.stringify({ msg: "stack team sync abandoned", team: deps.team, type: row.type, code: why, fails: row.fails }))
     return
   }
-  deps.sql.exec(`UPDATE stack_team_recheck SET due_at = ?, fails = ? WHERE k = ?`, at + syncBackoffMs(fails), fails, row.k)
+  deps.sql.exec(`UPDATE stack_team_recheck SET due_at = ?, fails = ? WHERE k = ?`, at + (why === "paced" ? pacedBackoffMs(fails) : syncBackoffMs(fails)), fails, row.k)
 }
 
 /** Asks Stack again later (attempt+1); false once the schedule is spent (logged). */
