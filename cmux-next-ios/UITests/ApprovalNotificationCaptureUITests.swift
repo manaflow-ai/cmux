@@ -87,11 +87,16 @@ final class ApprovalNotificationCaptureUITests: XCTestCase {
         let down = springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.6))
         top.press(forDuration: 0.1, thenDragTo: down)
         sleep(2)
-        // The notification's own cell (a button), not the list around it, whose label holds every notification's.
-        let match = NSPredicate(format: "label CONTAINS[c] %@", "rm -rf build")
-        let button = springboard.buttons.matching(match).firstMatch
-        let cell = button.waitForExistence(timeout: 10)
-            ? button : springboard.descendants(matching: .any).matching(match).element(boundBy: 0)
+        // The cmux notification's own platter. A stack (another app's notice on top) is
+        // expanded first by tapping it, so the cmux one is its own cell.
+        let match = NSPredicate(format: "label CONTAINS[c] %@", "Claude Code")
+        let platter = springboard.descendants(matching: .any).matching(identifier: "NotificationShortLookView").matching(match).firstMatch
+        if !platter.waitForExistence(timeout: 6) {
+            let stack = springboard.buttons.matching(identifier: "ListCell").matching(NSPredicate(format: "label != ''")).firstMatch
+            if stack.exists { stack.tap(); sleep(2) }
+        }
+        let cell = platter.waitForExistence(timeout: 6)
+            ? platter : springboard.buttons.matching(identifier: "ListCell").matching(match).firstMatch
         note(springboard, "cell", extra: cell.debugDescription)
         if !cell.exists {
             attach(XCUIScreen.main.screenshot(), "no-notification")
