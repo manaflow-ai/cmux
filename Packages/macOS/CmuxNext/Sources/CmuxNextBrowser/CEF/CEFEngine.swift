@@ -78,7 +78,7 @@ public final class CEFEngine: BrowserEngine {
     public var unavailableReason: CEFUnavailableReason? {
         if let pending = runtimeSource.unavailableReason { return pending }
         switch CEFRuntime.shared.state {
-        case .failed(let message): return .startFailed(message)
+        case .failed(let message): return CEFRuntime.shared.refusal ?? .startFailed(message)
         case .shutDown: return .shutDown
         case .idle, .loading, .ready: return nil
         }

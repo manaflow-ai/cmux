@@ -37,6 +37,20 @@ import Testing
                                             openFiles: Self.limit(soft: 61_440, hard: 61_440))
         if case .failure(.openFileLimit) = result { Issue.record("a raised limit refused Chromium") }
     }
+
+    /// The refusal is visible and typed: Chromium tabs wait in place with the text that names the limit
+    /// (WebKit would open them signed out), and nothing asks for a download.
+    @Test func theRefusalNamesTheLimitAndKeepsTabsOutOfWebKit() throws {
+        let reason = CEFUnavailableReason.openFileLimit(256)
+        #expect(reason.code == "openFileLimit")
+        #expect(reason.keepsChromiumTabsOutOfWebKit)
+        #expect(!reason.isAwaitingDownload)
+        let detail = try #require(reason.detail)
+        #expect(detail.contains("256"))
+        #expect(detail.contains("ulimit -n"))
+        #expect(reason.waitingTabNotice == detail)
+        #expect(CEFUnavailableReason.startFailed("x").waitingTabNotice == nil)
+    }
 }
 
 private struct AcceptingCEFCodeSignatures: CEFCodeSignatureChecking {

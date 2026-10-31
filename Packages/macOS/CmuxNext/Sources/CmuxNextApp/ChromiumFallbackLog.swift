@@ -54,7 +54,7 @@ final class ChromiumFallbackLog {
         case .notBundled: BrowserEngineStrings.fallbackNotBundled
         case .downloading: BrowserEngineStrings.fallbackDownloading
         case .downloadFailed: BrowserEngineStrings.fallbackDownloadFailed
-        case .startFailed, .shutDown: BrowserEngineStrings.fallbackStartFailed
+        case .startFailed, .shutDown, .openFileLimit: BrowserEngineStrings.fallbackStartFailed
         }
     }
 
@@ -65,7 +65,7 @@ final class ChromiumFallbackLog {
         switch reason {
         case .downloading(let fraction): BrowserEngineStrings.downloading(fraction)
         case .downloadFailed: BrowserEngineStrings.downloadFailed
-        case .notBundled, .startFailed, .shutDown: nil
+        case .notBundled, .startFailed, .shutDown, .openFileLimit: nil
         }
     }
 }
