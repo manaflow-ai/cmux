@@ -92,6 +92,6 @@ struct PaletteMemberPickerTests {
             return
         }
         #expect(next.tokens.map(\.title) == ["aziz@manaflow.com"])
-        #expect(page.queryItems?("  ")?.isEmpty ?? true)
+        #expect(page.queryItems?("  ").isEmpty ?? true)
     }
 }
