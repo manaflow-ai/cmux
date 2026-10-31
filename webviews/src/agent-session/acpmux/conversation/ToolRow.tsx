@@ -206,13 +206,14 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
 
 /// The images a call returned or wrote, shown under its row whether or not it is open: a returned
 /// image draws at once, a file loads through the host (ReplyImage, ReplyMedia for video and audio),
-/// and a click opens the viewer.
+/// and a click opens the viewer. Images draw in the fixed-shape thumbnail (at most 320px wide), so
+/// one that loads never moves the transcript; a file that is not there draws nothing.
 export function ToolImages({ sources }: { sources: string[] }) {
   return (
     <div className="cv-tool-images">
       {sources.map((source) =>
         source.startsWith("data:") ? (
-          <OpenableImage key={source} src={source} alt="" />
+          <OpenableImage key={source} src={source} alt="" thumb />
         ) : mediaKind(source) ? (
           <ReplyMedia key={source} path={source} alt="" />
         ) : (
@@ -221,6 +222,8 @@ export function ToolImages({ sources }: { sources: string[] }) {
             src={source}
             alt=""
             fallback={<span className="cv-chip-plain">{pathName(source)}</span>}
+            thumb
+            hideMissing
           />
         ),
       )}
