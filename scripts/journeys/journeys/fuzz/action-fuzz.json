@@ -1,0 +1,48 @@
+{
+ "id": "action-fuzz",
+ "priority": "P2",
+ "title": "Model-based action fuzz: seeded random user actions at mixed timings (set `layout`: New Column, Cmd-D, Split Down, Ctrl-`, close pane, divider drag, window resize, relaunch; set `full`: also Cmd-T, Cmd-N, closes, switches, typing, paste, a browser URL, close all), with every oracle after each burst",
+ "why": "cmux-ad 2026-10-31 (Lawrence: \"we need to fuzz greater for both correctness and speed\"): one fuzzer with the smoke gate's action layer and oracles. A create that gives no terminal and no refusal, R3a (grid == fit == PTY == daemon), R3b (a new column never resizes an old one), focus != first responder, daemon != app topology, a main-thread stall over 100 ms in cmux code, a crash or a leak after close-all fails it; fuzz.py compares the speed marks against the base build.",
+ "source": "scripts/journeys/fuzz.py (ext_fuzz.py); the seed and the sequence come from the journey options fuzz_seed, fuzz_count, fuzz_sequence, fuzz_budget_s, fuzz_mode",
+ "budget_seconds": 255,
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_remember_workspaces"
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "fuzz_run",
+   "count": 300,
+   "budget_s": 190
+  },
+  {
+   "do": "expect",
+   "title": "the fuzz found no failure, the daemon agrees with the app, and the window is not blank",
+   "timeout": 20,
+   "all": [
+    {
+     "fuzz_clean": {}
+    },
+    {
+     "fuzz_daemon_agrees": {}
+    },
+    {
+     "smoke_frame": {
+      "min_lines": 1
+     }
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "smoke_close_all"
+  }
+ ]
+}
