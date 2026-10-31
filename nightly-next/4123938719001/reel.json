@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "build": "4123938719001",
+  "notes": "notes/4123938719001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 29653,
+      "title": "cmux NEXT: cancel the update download; text left, a bigger cancel on the right, vertically centred",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29650,
+      "title": "ci(nightly-next): decide takes the owned nightly slot first, Blacksmith Linux only on the rescue's re-run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29635,
+      "title": "fix(next): delete the agent pane loading skeleton (revert #27615)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29620,
+      "title": "pr-perf-section-check: small changes take the light path (no Performance table)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29619,
+      "title": "iOS: accent colour theme (Settings > Appearance > Accent color)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29108,
+      "title": "cmux-next-ios: approval notification uses the Mac's streaming-device prompt style (carries #25598)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29633,
+      "title": "cmux NEXT sidebar: the blue unread dot is 8 pt, one token",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29614,
+      "title": "Agent chat: remove the PR chip row from transcript messages",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28688,
+      "title": "fix(next tabs): show close on hovered pinned and crowded tabs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29356,
+      "title": "cmux NEXT: a relaunched chat keeps its last frame instead of going black while it loads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28787,
+      "title": "cmux-tui-core: a new release stamp no longer recompiles cmux-tui-core",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28709,
+      "title": "acpmux MCP: initialize negotiates its version; offer titles carry the 80-char limit; suggest_tasks offers all or none",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28649,
+      "title": "fix(sidebar): include chat history placement in layout identity",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28060,
+      "title": "test(auth): isolate native account capture fixtures (carries #26587)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29621,
+      "title": "fix(cmux-tui): base red: cmux closed reopen --workspace (closed.reopen {workspace} had no CLI path)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29084,
+      "title": "scripts/measure/quiet-host.sh: Spotlight off for a measurement's dirs and volumes, and a CPU record of other processes",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28698,
+      "title": "agent pane: a cmux_exec row says what its script did, and opens to JavaScript and a result tree",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
