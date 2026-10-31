@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextSettings
 public import Foundation
 
@@ -57,12 +58,52 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     /// above it holding `.git` (a Git working copy's top), else `folder` itself (as
     /// `CloudMoveFolder` picks it). Reads the disk.
     public nonisolated static func uploadRoot(of folder: String) -> String {
-        var current = folder
-        while true {
-            if FileManager.default.fileExists(atPath: (current as NSString).appendingPathComponent(".git")) { return current }
-            let parent = (current as NSString).deletingLastPathComponent
-            if parent == current || parent.isEmpty { return folder }
-            current = parent
+        // The folder and each one above it, up to `/`: a bounded walk, one step per path component.
+        let components = (folder as NSString).pathComponents
+        for count in stride(from: components.count, through: 1, by: -1) {
+            let current = NSString.path(withComponents: Array(components.prefix(count)))
+            if FileManager.checked.fileExists(atPath: (current as NSString).appendingPathComponent(".git")) { return current }
+        }
+        return folder
+    }
+
+    /// The git folders `cmux link sync push` copies with the working copy at `root` (its objects and
+    /// refs): `root/.git` when it is a folder, else the folder a `.git` file names (`gitdir: X`, a
+    /// linked worktree or `--separate-git-dir`), plus the common folder that one's `commondir` names.
+    /// Each may lie outside `root`, so the send checks them against the pane's roots too. Empty
+    /// outside git. Reads the disk.
+    public nonisolated static func gitFolders(of root: String) -> [String] {
+        let dotGit = (root as NSString).appendingPathComponent(".git")
+        var isFolder: ObjCBool = false
+        guard FileManager.checked.fileExists(atPath: dotGit, isDirectory: &isFolder) else { return [] }
+        func resolved(_ path: String, against base: String) -> String {
+            let path = path.trimmingCharacters(in: .whitespacesAndNewlines)
+            return ((path.hasPrefix("/") ? path : (base as NSString).appendingPathComponent(path)) as NSString).standardizingPath
+        }
+        let own: String
+        if isFolder.boolValue {
+            own = dotGit
+        } else {
+            guard let text = try? String(blockingContentsOf: URL(fileURLWithPath: dotGit), encoding: .utf8),
+                  let line = text.split(whereSeparator: \.isNewline).first, line.hasPrefix("gitdir:") else { return [dotGit] }
+            own = resolved(String(line.dropFirst("gitdir:".count)), against: root)
+        }
+        var folders = [own]
+        let commonFile = URL(fileURLWithPath: (own as NSString).appendingPathComponent("commondir"))
+        if let common = try? String(blockingContentsOf: commonFile, encoding: .utf8), !common.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            folders.append(resolved(common, against: own))
+        }
+        return folders
+    }
+
+    /// Whether every one of `root`'s ``gitFolders(of:)`` is `root` or below it (by canonical path
+    /// components): a folder copied with no pane check behind it (a tab's own folder) never uploads
+    /// a repository a `.git` file or `commondir` names elsewhere. Reads the disk.
+    public nonisolated static func gitFoldersAreInside(_ root: String) -> Bool {
+        let base = ((AcpmuxPathPolicy.canonical(root) ?? root) as NSString).pathComponents
+        return gitFolders(of: root).allSatisfy { folder in
+            let parts = ((AcpmuxPathPolicy.canonical(folder) ?? (folder as NSString).standardizingPath) as NSString).pathComponents
+            return parts.count >= base.count && Array(parts.prefix(base.count)) == base
         }
     }
 
@@ -110,6 +151,13 @@ struct AgentPaneHandOff {
                 let checked = await Self.folderInScope(root, transport: model.transport)
                 guard checked == root else { return AgentPaneModel.transportFailure(.pathOutsideRoots) }
             }
+            // Its git folders are copied too (history, refs): a `.git` file or `commondir` that names a
+            // repository outside the pane's roots never uploads it.
+            let gitFolders = await Task.detached(priority: .userInitiated) { AgentPaneCloudStart.gitFolders(of: root) }.value
+            for gitFolder in gitFolders {
+                let checked = await Self.folderInScope(gitFolder, transport: model.transport)
+                guard checked != nil else { return AgentPaneModel.transportFailure(.pathOutsideRoots) }
+            }
             start.cwd = folder
             start.uploadRoot = root
         }
@@ -123,11 +171,12 @@ struct AgentPaneHandOff {
     }
 
     /// `cwd` canonical when it is a folder under one of the pane's roots and not the home folder
-    /// or above it; nil otherwise. The roots are AcpmuxPathPolicy's: the pane's own and the New Tab
-    /// page's scan (which the Send's gesture picks), never home or above it, and the folders the
-    /// person added, as given.
+    /// or above it; nil otherwise. The roots are the pane's own (never home or above it) and the
+    /// folders the person added or picked, as given. Never the New Tab page's scan and open folders
+    /// (`gestureRoots`) by the Send's gesture alone: a folder there becomes a root only once the
+    /// person picks it, and this send copies the folder off this Mac.
     static func folderInScope(_ cwd: String, transport: AgentPaneTransport) async -> String? {
-        let roots = transport.roots() + transport.gestureRoots(), granted = transport.addedRoots
+        let roots = transport.roots(), granted = transport.addedRoots
         let home = transport.homeFolder
         return await Task.detached(priority: .userInitiated) { () -> String? in
             guard let folder = AcpmuxPathPolicy.canonical(cwd), AcpmuxPathPolicy.isDirectory(folder) else { return nil }

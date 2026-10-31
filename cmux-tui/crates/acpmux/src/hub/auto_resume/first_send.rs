@@ -22,6 +22,7 @@
 use super::retry_turn::RetryBy;
 use super::{CutTurn, split_attempt};
 use crate::hub::{Hub, Session, SessionStatus};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Duration;
@@ -75,7 +76,7 @@ impl Hub {
             let skipped = |why: &str, error: Option<&str>| {
                 let mut msg = json!({"promptId": root, "attempt": 1, "turnId": cut_turn, "skipped": why, "firstSend": true});
                 if let Some(error) = error {
-                    msg["error"] = json!(error);
+                    msg.set("error", json!(error));
                 }
                 msg
             };

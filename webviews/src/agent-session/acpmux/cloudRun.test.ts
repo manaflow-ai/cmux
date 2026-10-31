@@ -30,7 +30,7 @@ test("a refusal keeps its code and the host's words; only a start the host ran w
   );
   expect(failed).toEqual({ ok: false, code: "cloud_start_failed", message: "Could not copy the folder." });
   expect(cloudStartToasted(failed)).toBe(true);
-  const off = await startCloudChat(async () => Promise.reject({ code: "labs_off" }), { task: "t" });
+  const off = await startCloudChat(async () => Promise.reject({ code: "not_signed_in" }), { task: "t" });
   expect(cloudStartToasted(off)).toBe(false);
   const lost = await startCloudChat(async () => Promise.reject(new Error("bridge gone")), { task: "t" });
   expect(lost.ok).toBe(false);

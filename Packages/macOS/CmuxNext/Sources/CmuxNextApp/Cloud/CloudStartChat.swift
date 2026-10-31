@@ -14,7 +14,7 @@ import Foundation
 /// gesture, as onboarding's first task). This Mac's tab, which never started a chat, then closes.
 ///
 /// Progress and failures are Move to Cloud's toasts, and the page gets the failure's message.
-/// Behind Labs preview features, like the picker's Cloud row.
+/// Not behind Labs: it needs Cloud allowed and a signed-in account (``refusal(_:)``).
 @MainActor
 struct CloudStartChat {
     let services: AppServices
@@ -53,17 +53,39 @@ struct CloudStartChat {
         }
     }
 
-    /// Why no Cloud chat can start at all now, the sandbox's codes (`AgentPageChats.wireSandbox`).
+    /// Why no Cloud chat can start at all now, the sandbox's codes (`AgentPageChats.wireSandbox`):
+    /// Cloud off by policy, not signed in, or the Cloud app server's link, whose machines serve one
+    /// connection (the app's own) and so take no folder copy (``CloudMove``'s `linkUnsupported`):
+    /// refused before any machine is created for it. Not behind Labs (Leo, 2026-10-30: "that seems
+    /// dumb. i dont like putting so much stuff in labs"): the person picked Cloud for this send.
     static func refusal(_ services: AppServices) -> String? {
-        if services.registry.disabledFeatures.contains(.cloud) || !services.cloud.mayCallCloud { return "cloud_disabled" }
-        if services.settings?.snapshot.previewFeatures != true { return "labs_off" }
-        return services.cloud.isSignedIn ? nil : "not_signed_in"
+        refusal(cloudDisabled: services.registry.disabledFeatures.contains(.cloud) || !services.cloud.mayCallCloud,
+                signedIn: services.cloud.isSignedIn, appServerLink: services.cloud.configuration.linkSource == .appServer)
+    }
+
+    nonisolated static func refusal(cloudDisabled: Bool, signedIn: Bool, appServerLink: Bool = false) -> String? {
+        if cloudDisabled { return "cloud_disabled" }
+        guard signedIn else { return "not_signed_in" }
+        return appServerLink ? "unavailable" : nil
     }
 
     /// Whether `folder` is what the send may copy: for a folder the page named, exactly the upload
-    /// root the pane checked against its roots; the tab's own folder (no `cwd`) as Move to Cloud copies it.
-    nonisolated static func uploads(_ folder: CloudMoveFolder, as start: AgentPaneCloudStart) -> Bool {
-        guard start.cwd != nil else { return true }
+    /// root the pane checked against its roots; for the tab's own folder (no `cwd`), only that folder
+    /// itself, never a Git working copy found above it, which no check covered (a tab in
+    /// /repo/project never uploads /repo, its siblings and its history).
+    /// The tab's own folder also never when it is the home folder or above it, by its canonical
+    /// path too (a tab in /Users would copy every home folder's credentials).
+    nonisolated static func uploads(_ folder: CloudMoveFolder, as start: AgentPaneCloudStart,
+                                    home: String? = NSHomeDirectory()) -> Bool {
+        guard start.cwd != nil else {
+            guard folder.subpath.isEmpty else { return false }
+            let canonicalHome = home.flatMap(AgentHome.canonical) ?? home
+            for path in [folder.root, AgentHome.canonical(folder.root)].compactMap({ $0 })
+            where AgentHome.isHomeOrAbove(path, home: canonicalHome) || AgentHome.isHomeOrAbove(path, home: home) {
+                return false
+            }
+            return AgentPaneCloudStart.gitFoldersAreInside(folder.root) // its git folders are copied too
+        }
         return start.uploadRoot == folder.root
     }
 
@@ -104,24 +126,34 @@ struct CloudStartChat {
         let folderName = URL(fileURLWithPath: chat).lastPathComponent
         report(Step(name: "machine", folder: folderName))
         // This person's free machine (or one for chats), else a new one; a retry stays on its first try's (+Machine).
-        let machine = try await self.machine(for: start, invocation: invocation) { await CloudChatPick(services: services).read(folder: chat, tab: tab) }
+        let account = services.cloud.account
+        let machine = try await self.machine(for: start, account: account, invocation: invocation) { await CloudChatPick(services: services).read(folder: chat, tab: tab) }
         let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)
         guard let socket = await machine.daemon.connection?.endpoint?.socketPath else {
             throw CloudMove.Failure(message: CloudMoveStrings.notConnected(name))
         }
+        // The account may have changed while the machine connected: copy nothing then.
+        try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
         let size = Self.sizeText(machine.machine.size)
         report(Step(name: "folder", folder: folderName, machine: name, size: size))
         // A retry whose copy finished opens its chat (by its tab key) without copying again: a
         // second push would overwrite what the chat already changed there.
         let destinations = services.cloud.startChatDestinations
+        // Under the same account-scoped key as its machine pin (``pinKey(_:account:)``): one ledger
+        // entry per send, so its pin and its copy record are evicted together.
+        let pin = Self.pinKey(start.key, account: account)
         let remoteChat: String
-        if let copied = destinations.copiedChat(for: start.key, on: machine.machineID) {
+        if let copied = destinations.copiedChat(for: pin, on: machine.machineID) {
             remoteChat = copied
         } else {
-            remoteChat = try await move.sync(folder, to: socket, machine: name, cli: cli, retry: again, place: start.remotePlace).chat
-            destinations.recordCopy(remoteChat, for: start.key, on: machine.machineID)
+            let place = destinations.place(for: pin, on: machine.machineID) { start.remotePlace + "/" + UUID().uuidString.prefix(8).lowercased() }
+            remoteChat = try await move.sync(folder, to: socket, machine: name, cli: cli, retry: again, place: place).chat
+            destinations.recordCopy(remoteChat, for: pin, on: machine.machineID)
         }
+        // The copy may take long: a chat whose account changed meanwhile opens nowhere, and this
+        // Mac's tab stays.
+        try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         let context = AppActionContext(services: services)
         let anchor = try await CloudHandlers.terminalAnchor(on: machine, context)
         report(Step(name: "opening", folder: folderName, machine: name, size: size))

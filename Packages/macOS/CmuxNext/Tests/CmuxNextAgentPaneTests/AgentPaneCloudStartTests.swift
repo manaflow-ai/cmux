@@ -187,6 +187,51 @@ struct AgentPaneCloudStartTests {
         #expect(AgentPaneCloudStart.uploadRoot(of: canonicalFolder) == Self.canonical(repo))
     }
 
+    /// Router review at 7149eba: a `.git` file (a linked worktree, `--separate-git-dir`) can name a
+    /// repository outside the pane's roots, whose history the copy would upload. Such a send is
+    /// refused; one whose git folders are in scope starts.
+    @Test func aWorkingCopyWhoseGitFolderIsOutsideTheRootsIsNeverCopied() async throws {
+        let starts = Starts()
+        let (project, _) = try Self.project()
+        let (outside, _) = try Self.project()
+        defer { for path in [project, outside] { try? FileManager.default.removeItem(atPath: path) } }
+        let external = (outside as NSString).appendingPathComponent("repo.git")
+        let worktree = (external as NSString).appendingPathComponent("worktrees/project")
+        try FileManager.default.createDirectory(atPath: worktree, withIntermediateDirectories: true)
+        try "../..\n".write(toFile: (worktree as NSString).appendingPathComponent("commondir"), atomically: true, encoding: .utf8)
+        try "gitdir: \(worktree)\n".write(toFile: (project as NSString).appendingPathComponent(".git"), atomically: true, encoding: .utf8)
+        #expect(AgentPaneCloudStart.gitFolders(of: project) == [worktree, external])
+
+        let narrow = Self.pane(starts, root: project)
+        narrow.transport.gestures.record()
+        let refused = await narrow.respond(to: Self.start(Self.good.merging(["cwd": project]) { $1 }))
+        #expect(refused["ok"] as? Bool != true)
+        #expect(starts.seen.isEmpty)
+
+        let both = Self.pane(starts)
+        both.transport.roots = { [project, outside] }
+        both.transport.gestures.record()
+        #expect(await both.respond(to: Self.start(Self.good.merging(["cwd": project]) { $1 }))["ok"] as? Bool == true)
+    }
+
+    /// A folder of the New Tab page's scan is not the pane's to copy by the Send's gesture alone:
+    /// only once the person picked it (a root of the pane, or one they added).
+    @Test func aScannedProjectTheSendDidNotPickIsNeverCopied() async throws {
+        let starts = Starts()
+        let (root, folder) = try Self.project()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let model = Self.pane(starts)
+        model.transport.gestureRoots = { [root] }
+        model.transport.gestures.record()
+        let refused = await model.respond(to: Self.start(Self.good.merging(["cwd": folder]) { $1 }))
+        #expect(refused["ok"] as? Bool != true)
+        #expect(starts.seen.isEmpty)
+        // Picked (now one of the pane's roots): it starts.
+        model.transport.roots = { [root] }
+        model.transport.gestures.record()
+        #expect(await model.respond(to: Self.start(Self.good.merging(["cwd": folder]) { $1 }))["ok"] as? Bool == true)
+    }
+
     /// The create's key is the send's: a retry after a lost create answer gets the same machine.
     @Test func aRetryOfTheSameSendCreatesUnderTheSameKey() throws {
         let key = UUID().uuidString
