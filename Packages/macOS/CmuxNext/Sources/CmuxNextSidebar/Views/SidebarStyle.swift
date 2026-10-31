@@ -54,7 +54,10 @@ enum SidebarStyle {
     /// the row-height square, so its click target scales with the display density. #23757 grew it
     /// to the square but a hairline (22 pt); Lawrence 2026-10-21 reverted that: "bottom footer
     /// thing too big, revert to old icon sizes".
-    static var avatarDiameter: CGFloat { iconBox }
+    static var avatarDiameter: CGFloat { chromeIconBox }
+    /// The icon box of the sidebar's chrome outside the row columns (the footer's avatar and glyph column,
+    /// chips): base's app-density size, which the rows' density-dependent `iconBox` does not change.
+    static var chromeIconBox: CGFloat { Metrics.smallIconSize + Metrics.space2 }
     static var footerHeight: CGFloat { Metrics.sidebarRowHeightWithSubtitle - Metrics.space2 }
     /// The margin under everything the sidebar draws: the 4 pt grid step (space2 at compact). It was
     /// space4 (8 pt) since Leo 2026-10-20. Lawrence 2026-10-27 (message 13901): the footer is still too

@@ -231,7 +231,9 @@ class SidebarItemRowView: NSView {
         let inset = SidebarStyle.horizontalInset
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let side = isRailButton ? SidebarStyle.railIconBox : SidebarStyle.iconBox
+        // Chips and icon-only items are chrome, not list rows: they keep base's icon box at every density.
+        let side = isRailButton ? SidebarStyle.railIconBox
+            : style == .chip || style.isIconOnly ? SidebarStyle.chromeIconBox : SidebarStyle.iconBox
         // A text-only workspace item beside its title draws no glyph (WORKSPACE-ROWS-NO-DEFAULT-ICON).
         let bare = info.textOnly && !style.isIconOnly
         // One leading inset for every row (Lawrence 2026-10-28, "home and pinned are not aligned"): the first ink

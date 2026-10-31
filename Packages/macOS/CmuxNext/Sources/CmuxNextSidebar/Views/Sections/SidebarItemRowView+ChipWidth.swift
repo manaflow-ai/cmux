@@ -14,7 +14,7 @@ extension SidebarItemRowView {
         // points between window contexts (seen in offscreen renders).
         let label = NSTextField(labelWithString: title)
         label.font = font
-        var width = Metrics.space2 + SidebarStyle.iconBox + Metrics.space2 + ceil(label.intrinsicContentSize.width) + Metrics.space2 * 2
+        var width = Metrics.space2 + SidebarStyle.chromeIconBox + Metrics.space2 + ceil(label.intrinsicContentSize.width) + Metrics.space2 * 2
         if let badge, badge > 0 { width += UnreadBadgeView.width(count: badge) + Metrics.space2 }
         // The dot's cell: a workspace row's lone glyph with its padding (`RowBadgeView`).
         if dot { width += RowBadgeView.glyphSide + 4 + Metrics.space2 }
