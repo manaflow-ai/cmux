@@ -38,7 +38,9 @@ extension DaemonService {
     }
 
     /// After End Sessions, Keep Layout: restarts a shell in every kept tab
-    /// (a dead tab with the store's `relaunch` record) in place (`restart-tab`),
+    /// that does not wait for its first show (a dead tab with the store's
+    /// `relaunch` record and no `onShow`: one whose terminal ran an agent; the
+    /// rest start in `wakeParkedTabs`) in place (`restart-tab`),
     /// in its recorded directory, else home. One relaunch runs at a time per
     /// service (a reconnect while it runs does not start a second), and a
     /// closed connection cancels it.
