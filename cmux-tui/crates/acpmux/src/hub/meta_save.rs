@@ -26,7 +26,10 @@
 //! `hold-<session id>`, the writer's next commit for that chat takes the file (renames it to
 //! `held-<session id>`) after it copied the metadata and before it writes the copy, and waits until
 //! `release-<session id>` exists (at most 30 s). A test so holds an older copy of a chat's
-//! metadata while other requests change it (`tests/meta_save_order.rs`).
+//! metadata while other requests change it (`tests/meta_save_order.rs`). When the folder holds
+//! `kill-<session id>`, that commit removes the file and the daemon kills itself with SIGKILL at
+//! the same point: after the change is made in memory and copied, before its write
+//! (`tests/meta_save_kill_point.rs`).
 
 use super::*;
 use std::sync::Condvar;
@@ -206,6 +209,11 @@ fn off_worker<T>(wait: impl FnOnce() -> T) -> T {
 fn hold_seam(session_id: &str) {
     let Some(dir) = std::env::var_os("ACPMUX_TEST_SAVE_META_HOLD_DIR") else { return };
     let dir = std::path::PathBuf::from(dir);
+    // Removed first, so the next daemon does not kill itself again.
+    if std::fs::remove_file(dir.join(format!("kill-{session_id}"))).is_ok() {
+        // SAFETY: a signal to this process; the test that asked for it restarts the daemon.
+        unsafe { libc::kill(libc::getpid(), libc::SIGKILL) };
+    }
     let hold = dir.join(format!("hold-{session_id}"));
     if std::fs::rename(&hold, dir.join(format!("held-{session_id}"))).is_err() {
         return;
