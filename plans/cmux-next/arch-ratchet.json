@@ -736,7 +736,7 @@
       "date": "2026-10-31",
       "row": "observer_sites",
       "allow": 1,
-      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/FrameScheduler+Sight.swift:53: the one app-wide NSWindow.didChangeOcclusionStateNotification observer (started once by watchSight, held by FrameScheduler.app). Its handler finds the posting window's SightNote and its existing scheduler through associated objects (O(1)) and tells only that scheduler to end its animations (scheduler(of:) makes none). The row's fix shape: one observation per app in an adapter that tells only the affected subscriber. It lets a window out of sight get no animation frames (Chrome's hidden-tab rule; base-red hang of the feat tip Swift suite, 41190088925).",
+      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/FrameScheduler+Sight.swift:53: the one app-wide NSWindow.didChangeOcclusionStateNotification observer (started once by watchSight, held by FrameScheduler.app). Its handler finds the posting window's SightNote and its existing scheduler through associated objects (O(1)) and tells only that scheduler to end its animations (scheduler(of:) makes none). The row's fix shape: one observation per app in an adapter that tells only the affected subscriber. It lets a window out of sight get no animation frames (Chrome's hidden-tab rule; found while triaging the feat tip Swift suite 41190088925, whose hang it does not change: the test process gets no occlusion reports).",
       "author": "lead base-red owner (claude, triage of feat reds 2026-10-31)",
       "owner": "Performance Lead (Wakeups)",
       "receipt": "Review (independent review subagent, Opus 5.5 claude-opus-5-5, read-only): SHIP at 663aaac4021910486e5c921cda36f0ddde13511b",
