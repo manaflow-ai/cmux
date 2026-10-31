@@ -6,6 +6,7 @@ import CmuxTabsKit
 import Foundation
 import Testing
 import UIKit
+import WebKit
 @testable import CmuxMobileWorkspaces
 
 /// A Mac that streams browser tabs: each open records the tab and keeps its stream,
@@ -239,6 +240,7 @@ final class DevServerChannel: LinkChannel, @unchecked Sendable {
             return DevServerChannel(page: "<!doctype html><title>Forwarded from the Mac</title><p>dev server")
         }
         native.macForwardsLocalhost = { $0 == "mac-studio" }
+        await Self.warmWebKit()
         // 127.0.0.1: the test runner has no App Transport Security exception for `localhost`.
         let port = try freePort()
         let (source, _, _) = try await linked(at: "http://127.0.0.1:\(port)/", native: native)
@@ -284,6 +286,18 @@ final class DevServerChannel: LinkChannel, @unchecked Sendable {
         #expect(other.problem?.detail?.contains("Another Mac's tab") == true)
         native.drop(tab: "s1", macID: "mac-a")
         native.drop(tab: "s2", macID: "mac-b")
+    }
+
+    /// WebKit's first page in a freshly booted simulator waits for its web content and
+    /// networking processes to launch, which on a busy fleet Mac took longer than this
+    /// suite's 10 s waits: run alone, the forwarding test saw no navigation at all (no
+    /// port, no request served, no problem). One local page loaded first takes that launch
+    /// out of what the waits measure. It needs no network and no forwarder.
+    static func warmWebKit() async {
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+        web.loadHTMLString("<!doctype html><title>warm</title>", baseURL: nil)
+        // test: the launch has no completion to await; bounded so a broken WebKit fails the test below.
+        for _ in 0..<12_000 where web.title != "warm" { try? await Task.sleep(for: .milliseconds(5)) }
     }
 
     /// A port nothing on this machine listens on (the simulator shares the host's loopback):
