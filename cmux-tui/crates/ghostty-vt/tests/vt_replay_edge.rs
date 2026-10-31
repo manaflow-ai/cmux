@@ -133,18 +133,12 @@ fn vt_replay_edge_probe_e2_prefix() {
     let replay = term.vt_replay_bytes().unwrap();
     let text = String::from_utf8_lossy(&replay);
     let tail: String = text.rsplit("\u{1b}\\").next().unwrap_or("").chars().collect();
-    println!(
-        "PROBE first differing prefix {len} of {}; last bytes {:?}",
+    let difference = replay_difference(20, 5, &full[..len]).unwrap_or_default();
+    panic!(
+        "PROBE first differing prefix {len} of {}; last bytes {:?}\nPROBE replay text tail {:?}\nPROBE {}",
         full.len(),
-        &full[len.saturating_sub(12)..len]
-    );
-    println!("PROBE replay text tail {:?}", tail);
-    println!(
-        "PROBE {}",
-        replay_difference(20, 5, &full[..len])
-            .unwrap_or_default()
-            .split("\n replay")
-            .next()
-            .unwrap_or("")
+        &full[len.saturating_sub(12)..len],
+        tail,
+        difference.split("\n replay").next().unwrap_or("")
     );
 }
