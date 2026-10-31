@@ -1623,6 +1623,7 @@ fn start(
         home_view: Some(home_view),
         membership: membership.clone(),
         keep_turn_session: env("CHIEF_KEEP_TURN_SESSION").as_deref() != Some("0"),
+        screen_share: Some(paths.screen.clone()),
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));
     // Section 10: persist after each turn.

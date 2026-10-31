@@ -131,6 +131,23 @@ export interface Env {
   readonly CLOUD_VM_API_IMAGE_REVISION?: string
   /** The https API origin written into each VM's bind file (the image's bind agent calls it). */
   readonly CLOUD_API_ORIGIN?: string
+  /**
+   * `upstash` runs new Chief jobs (`chief-auto`) on Upstash Workflow (chief-brain-cc/jobs-upstash.ts): the
+   * records in each team's `<team>/chief-jobs` brain object, a QStash schedule per cron job, a workflow run
+   * per fire, and webhook and provider-event (CI failed) triggers. Anything else (the default) keeps them on
+   * the SchedulerDO. Needs all four settings below; with any missing, jobs stay on the SchedulerDO. Jobs made
+   * on the SchedulerDO keep running there either way.
+   */
+  readonly CHIEF_JOBS_ENGINE?: string
+  /** This Worker's public URL of POST /v1/hooks/upstash/chief-job (where QStash delivers each fire). */
+  readonly CHIEF_JOBS_WORKFLOW_URL?: string
+  /** Secret: the QStash token of the cmux Upstash account. */
+  readonly QSTASH_TOKEN?: string
+  /** Optional QStash API origin (a regional or local QStash). */
+  readonly QSTASH_URL?: string
+  /** Secrets: QStash's request signing keys; every workflow request is verified with them. */
+  readonly QSTASH_CURRENT_SIGNING_KEY?: string
+  readonly QSTASH_NEXT_SIGNING_KEY?: string
   /** Prepaid credits top-up range in USD (paid-plans-DESIGN.md §6.2); defaults 5 and 2500. */
   readonly CREDITS_TOPUP_MIN_USD?: string
   readonly CREDITS_TOPUP_MAX_USD?: string
@@ -153,6 +170,10 @@ export interface Env {
   readonly PLATFORM_MACHINES?: string
   /** Named AgentGateway binding: on only in development; every MCP write still requires exact approval. */
   readonly PLATFORM_AGENT_GATEWAY?: string
+  /** Service binding to cmux-platform-<env> (platform-forward.ts); absent in every environment until its cutover deploy. */
+  readonly PLATFORM?: Fetcher
+  /** Var: comma-separated surfaces the platform serves ("cloud"); unset or empty = every request stays in this Worker. */
+  readonly PLATFORM_SURFACES?: string
   /**
    * Secret: link-token signing keys (LINK-TOKEN-FORMAT) as JSON {active: kid, keys: {kid: private Ed25519 JWK}}, at most 2 kids.
    * Per environment; never logged, never in a response, error, event or storage. Without it bind and link_token refuse.
