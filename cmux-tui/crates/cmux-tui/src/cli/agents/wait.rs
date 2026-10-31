@@ -407,11 +407,16 @@ fn chat_activity<B: Backend>(
     };
     let state = &info["result"];
     let chat = state["chat"].as_str().ok_or_else(|| {
-        AgentFailure::Owner(CallFailure::local(
-            FailureKind::NotRun,
-            "chat.invalid_state",
-            "acpmux returned no chat identity for its activity",
-        ))
+        AgentFailure::Owner(CallFailure {
+            kind: FailureKind::NotRun,
+            error: json!({
+                "code": "chat.invalid_state",
+                "message": "acpmux returned no chat identity for its activity",
+                "details": {},
+                "retryable": true,
+            }),
+            idempotency_key: None,
+        })
     })?;
     let pending = has_pending(&state["pending_permissions"]);
     let status = state["status"].as_str().unwrap_or_default();
