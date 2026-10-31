@@ -54,8 +54,40 @@ pub fn inbox(screen: &Path) -> PathBuf {
 /// it holds no entry. The files are not deleted here; the caller deletes
 /// [`Taken::files`] once the note is logged, so a failed append retries.
 pub fn take(screen: &Path) -> Option<Taken> {
-    let _ = inbox(screen);
-    None
+    let dir = inbox(screen);
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .ok()?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|x| x == "json"))
+        .collect();
+    if files.is_empty() {
+        return None;
+    }
+    // Names are epoch milliseconds: sort by number, not by text.
+    files.sort_by_key(|p| {
+        p.file_stem()
+            .and_then(|s| s.to_str())
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(u64::MAX)
+    });
+    let entries: Vec<Entry> = files
+        .iter()
+        .filter_map(|p| std::fs::read(p).ok())
+        .filter_map(|bytes| serde_json::from_slice(&bytes).ok())
+        .collect();
+    let name = |p: Option<&PathBuf>| {
+        p.and_then(|p| p.file_stem())
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let key = format!("screen:{}-{}", name(files.first()), name(files.last()));
+    let note = if entries.is_empty() {
+        String::new()
+    } else {
+        note(&entries)
+    };
+    Some(Taken { note, key, files })
 }
 
 /// The note for `entries`, oldest first (at least one).

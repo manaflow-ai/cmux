@@ -50,6 +50,7 @@ public struct ChiefScreenShareActions {
         let share = share
         let notSharing: @MainActor () -> String? = { share.isOn ? nil : ChiefScreenShareStrings.notSharing }
         registry.bindEffect(Self.toggleID) { _ in
+            if share.isOn { share.stop() } else { share.start() }
             return .done
         }
         registry.bindEffect(Self.startID) { _ in
@@ -63,8 +64,7 @@ public struct ChiefScreenShareActions {
         registry.bindEffect(Self.lookID, unavailable: notSharing) { _ in
             .applied(result: {
                 do throws(ChiefScreenShareError) {
-                    _ = try await share.look()
-                    return .success([:])
+                    return .success(Self.fields(try await share.look()))
                 } catch {
                     return .failure(ActionWorkFailure(refusal: .unavailable, reason: ChiefScreenShareStrings.text(error)))
                 }
@@ -91,11 +91,13 @@ public struct ChiefScreenShareActions {
             guard let share else { return }
             var last = ChiefScreenShare.State.off
             for await state in ObservationStream({ [weak share] in share?.state ?? .off }) {
+                indicator.setVisible(state == .sharing || state == .starting)
                 defer { last = state }
                 guard state != last else { continue }
                 switch state {
                 case .needsPermission:
                     registry?.refuse(ChiefScreenShareStrings.needsPermission)
+                    openSettings()
                 case .failed:
                     registry?.refuse(ChiefScreenShareStrings.failed)
                 case .off, .starting, .sharing:

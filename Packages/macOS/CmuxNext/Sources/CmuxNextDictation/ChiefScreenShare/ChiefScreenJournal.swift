@@ -65,7 +65,31 @@ public actor ChiefScreenJournal: ChiefScreenJournaling {
     }
 
     public func record(_ frame: ChiefScreenFrame, at: Date, remember: Bool) -> ChiefScreenObservation? {
-        nil
+        guard sharing else { return nil }
+        let day = dayFormat.string(from: at)
+        let source = remember
+            ? frames.appending(path: day, directoryHint: .isDirectory).appending(path: "\(fileFormat.string(from: at)).jpg")
+            : latestFrame
+        let observation = ChiefScreenObservation(at: at, day: day, time: timeFormat.string(from: at), app: frame.app,
+                                                 window: frame.window, text: frame.text, frame: source.path)
+        do {
+            try makeDirectory(directory)
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = [.sortedKeys]
+            try frame.jpeg.blockingWrite(to: latestFrame, options: .atomic)
+            try encoder.encode(observation).blockingWrite(to: latestEntry, options: .atomic)
+            guard remember else { return observation }
+            try makeDirectory(source.deletingLastPathComponent())
+            try frame.jpeg.blockingWrite(to: source, options: .atomic)
+            try makeDirectory(inbox)
+            let name = "\(Int64((at.timeIntervalSince1970 * 1000).rounded())).json"
+            try encoder.encode(observation).blockingWrite(to: inbox.appending(path: name), options: .atomic)
+            prune()
+            return observation
+        } catch {
+            return nil
+        }
     }
 
     private func makeDirectory(_ url: URL) throws {

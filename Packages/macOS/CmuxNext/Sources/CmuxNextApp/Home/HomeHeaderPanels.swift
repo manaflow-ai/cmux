@@ -86,8 +86,7 @@ enum HomeHeaderPanels {
     static func items(_ context: HomeHeaderPanelContext, panels: [HomeHeaderPanel] = all,
                       enabled: Bool = HomeTunables.headerPanelToggles.value) -> [HomeHeaderPanelItem] {
         let registry = context.services.registry
-        guard enabled else { return [] }
-        return panels.filter { $0.isShown(context) }.map { panel in
+        return panels.filter { (enabled || $0.alwaysShown) && $0.isShown(context) }.map { panel in
             HomeHeaderPanelItem(id: panel.id, symbol: panel.symbol, onSymbol: panel.onSymbol, label: panel.label(),
                                 shortcut: registry.shortcutDisplay(for: panel.action), isOn: panel.isOpen(context))
         }
