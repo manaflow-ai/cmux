@@ -303,9 +303,9 @@ def summarize(rounds, opts, started):
     for f in fails:
         f["also_on_base"] = (f.get("failure") or {}).get("oracle") in base_fail_oracles
     split = {k: sum(((r.get("split_type") or {}).get(k) or 0) for r in test) for k in
-             ("played", "hold", "red", "pass_hold", "pass_not_judged")}
+             ("played", "hold", "red", "pass_hold", "pass_not_judged", "refused", "creation_hold")}
     split_base = {k: sum(((r.get("split_type") or {}).get(k) or 0) for r in rounds if r["build"] == "base") for k in
-                  ("played", "hold", "red", "pass_hold", "pass_not_judged")}
+                  ("played", "hold", "red", "pass_hold", "pass_not_judged", "refused", "creation_hold")}
     speed = speed_table([dict(s, build=r["build"], seed=r["seed"]) for r in rounds for s in r.get("speed") or []])
     reds = [s for s in speed if s["red"]]
     fuzz_s = sum(r.get("seconds") or 0 for r in test)
@@ -348,7 +348,8 @@ def text_of(summary):
     for name, sp in (("build", s.get("split_type") or {}), ("base", s.get("split_type_base") or {})):
         if sp.get("played"):
             lines.append(f"  split + type at once ({name}): n(hold)/n(rounds) = {sp['hold']}/{sp['played']}; red {sp['red']}, "
-                         f"pass on the hold path {sp['pass_hold']}, pass not judged (no key held) {sp['pass_not_judged']}"
+                         f"pass on the hold path {sp['pass_hold']}, pass not judged (no key held) {sp['pass_not_judged']}; "
+                         f"creation-hold hook rounds {sp.get('creation_hold', 0)}, refused by the app {sp.get('refused', 0)}"
                          + ("; HOLD PATH NOT PROVEN: no pass of this action is judged" if not sp["hold"] else ""))
     if s["weak_oracles"]:
         lines.append("DIAGNOSTIC (no key window on a slot): weak oracles: " + "; ".join(s["weak_oracles"]))

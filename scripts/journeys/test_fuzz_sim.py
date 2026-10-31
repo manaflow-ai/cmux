@@ -102,6 +102,16 @@ class FakeApp:
                 tab = {"id": f"tab_{next(ids)}", "kind": "terminal", "term": self.new_term()}
                 pane["tabs"].append(tab)
                 pane["selected"] = tab["id"]
+        elif key == "l" and mods == {"cmd", "shift"} and pane:
+            if "late_close_browser" in self.bugs:
+                for p in self.ws()["panes"]:
+                    for tb in list(p["tabs"]):
+                        if tb["kind"] == "browser" and len(p["tabs"]) > 1:
+                            p["tabs"].remove(tb)
+                            break
+            tab = {"id": f"tab_{next(ids)}", "kind": "browser", "term": None}
+            pane["tabs"].append(tab)
+            pane["selected"] = tab["id"]
         elif key == "t" and mods == {"cmd"} and pane:
             tab = {"id": f"tab_{next(ids)}", "kind": "page", "term": None}
             pane["tabs"].append(tab)
@@ -110,6 +120,12 @@ class FakeApp:
             if "second_split_lost" in self.bugs and time.monotonic() - self.last_split < 0.5:
                 return {"handled_by": "keyRouter"}
             self.last_split = time.monotonic()
+            if getattr(self, "hook", None):
+                self.hook["started"] = self.hook.get("started", 0) + 1
+            if "no_room" in self.bugs and getattr(self, "splits_made", 0) >= 1:
+                self.toasts.append("Not enough room to split this column")
+                return {"handled_by": "app"}
+            self.splits_made = getattr(self, "splits_made", 0) + 1
             ws = self.ws()
             column = mods == {"control", "cmd"}  # New Column adds a column; Cmd-D and Cmd-Shift-D split inside one
             new = {"id": f"pane_{next(ids)}", "column": (max(p["column"] for p in ws["panes"]) + 1) if column else pane["column"],
@@ -227,6 +243,16 @@ class FakeApp:
             return {"windows": [{"id": "win_1", "consistent": True, "mismatches": [], "model": {"resolved": "terminal"}}]}
         if method == "debug.hangs":
             return {"records": [h for h in self.hangs if h["sequence"] > int(params.get("after") or 0)]}
+        if method in ("debug.creation.hold", "debug.creation.release"):
+            if "hook" not in self.bugs:
+                raise driver.StepError(f"{method}: {{'code': 'method_not_found'}}")
+            if method.endswith("hold"):
+                self.hook = {"armed": [1], "started": 0, "resumed": []}
+                return {"armed": [1], "started": 0, "held": [], "released": [], "resumed": []}
+            hk = getattr(self, "hook", {"started": 0})
+            resumed = [1] if hk.get("started", 0) >= 1 else []
+            self.hook = {}
+            return {"armed": [], "started": hk.get("started", 0), "held": [], "released": [1], "resumed": resumed}
         if method == "debug.toast":
             return {"refusals": list(self.toasts)}
         if method == "debug.desync":
@@ -360,7 +386,8 @@ class Sim(unittest.TestCase):
         seq = [{"a": "new_terminal", "t": "slow"}, {"a": "split_type", "t": "slow"}, {"a": "split_type", "t": "slow"}]
         report, error = run(seq=seq, shrink=False, actions="layout")
         self.assertIsNone(error)
-        self.assertEqual(report["split_type"], {"played": 2, "hold": 0, "red": 0, "pass_hold": 0, "pass_not_judged": 2})
+        self.assertEqual({k: report["split_type"][k] for k in ("played", "hold", "red", "pass_hold", "pass_not_judged")},
+                         {"played": 2, "hold": 0, "red": 0, "pass_hold": 0, "pass_not_judged": 2})
         report, error = run(bugs={"hold_path"}, seq=seq, shrink=False, actions="layout")
         self.assertIsNone(error, json.dumps(report["log"][-1:])[:800])
         self.assertEqual(report["split_type"]["hold"], 2)
@@ -371,6 +398,26 @@ class Sim(unittest.TestCase):
         app_holder = {}
         seq = [{"a": "new_terminal", "t": "slow"}, {"a": "new_column", "t": "slow"}, {"a": "new_column", "t": "slow"}]
         report, error = run(bugs={"late_close"}, seq=seq, shrink=False, actions="layout")
+        self.assertIsNone(error, json.dumps(report["log"][-1:])[:800])
+
+    def test_creation_hold_hook_proves_the_hold_every_round(self):
+        seq = [{"a": "new_terminal", "t": "slow"}, {"a": "split_type", "t": "slow"}, {"a": "split_type", "t": "slow"}]
+        report, error = run(bugs={"hook"}, seq=seq, shrink=False, actions="layout")
+        self.assertIsNone(error, json.dumps(report["log"][-1:])[:800])
+        st = report["split_type"]
+        self.assertEqual((st["played"], st["hold"], st["creation_hold"], st["pass_hold"]), (2, 2, 2, 2))
+        report, error = run(seq=seq, shrink=False, actions="layout")  # no hook: the plain variant
+        self.assertEqual((report["split_type"]["creation_hold"], report["split_type"]["played"]), (0, 2))
+
+    def test_a_refused_split_is_not_judged(self):
+        seq = [{"a": "new_terminal", "t": "slow"}, {"a": "split_type", "t": "slow"}]
+        report, error = run(bugs={"no_room"}, seq=seq, shrink=False, actions="layout")
+        self.assertIsNone(error, json.dumps(report["log"][-1:])[:800])
+        self.assertEqual((report["split_type"]["refused"], report["split_type"]["red"]), (1, 0))
+
+    def test_a_late_browser_close_does_not_hide_a_browser_create(self):
+        seq = [{"a": "new_terminal", "t": "slow"}, {"a": "open_url", "t": "slow"}, {"a": "open_url", "t": "slow"}]
+        report, error = run(bugs={"late_close_browser"}, seq=seq, shrink=False, actions="full")
         self.assertIsNone(error, json.dumps(report["log"][-1:])[:800])
 
     def test_split_type_red_is_counted_on_either_path(self):

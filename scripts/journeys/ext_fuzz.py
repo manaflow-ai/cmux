@@ -284,7 +284,7 @@ def _rpc(j, method, params=None, timeout=10):
 def state(j):
     """The app's topology now, reduced to what the model predicts."""
     topo = j.topology()
-    out = {"workspaces": [], "tabs": [], "terminals": {}, "panes": {}, "browsers": 0, "focus": topo.get("focus") or {},
+    out = {"workspaces": [], "tabs": [], "terminals": {}, "panes": {}, "browsers": [], "focus": topo.get("focus") or {},
            "daemon_state": topo.get("daemon_state"), "columns": {}}
     for ws in topo.get("workspaces") or []:
         out["workspaces"].append(ws.get("id"))
@@ -301,7 +301,7 @@ def state(j):
                         out["terminals"][str(tab.get("terminal_key") or term)] = {"term": str(term), "ws": ws.get("id"),
                                                                                   "pane": pane.get("id"), "tab": tab.get("id")}
                     if tab.get("kind") == "browser" or (tab.get("url") and not term):
-                        out["browsers"] += 1
+                        out["browsers"].append(tab.get("id"))
     return out
 
 
@@ -420,7 +420,8 @@ class Fuzz:
         self.findings = {}  # signature -> {oracle, signature, detail, count, first_n, sequence}
         # split + type at once: plays, plays whose keys took the hold path, reds, passes on the hold path (judged),
         # passes with no held key (not judged: the hold path was not exercised).
-        self.split_stats = {"played": 0, "hold": 0, "red": 0, "pass_hold": 0, "pass_not_judged": 0}
+        self.split_stats = {"played": 0, "hold": 0, "red": 0, "pass_hold": 0, "pass_not_judged": 0, "refused": 0,
+                            "creation_hold": 0}
         # Size history per terminal (journey option fuzz_trace=1; on in replays): every change of the daemon's size
         # (`cmux terminal list`), of the app's grid / fit_grid / drawn grid (debug.surfaces) and every SIGWINCH the
         # shell saw (a trap prints `FZW rows cols`), each with its ms since the run began: whether a size reached
@@ -528,9 +529,41 @@ class Fuzz:
             rec["dialog"] = self.answer_dialog()
         return rec
 
+    def creation_hook(self, action, n=None):
+        """The P0 1193 owner's DEBUG hook (#29301, `debug.creation.hold {n}` / `debug.creation.release {n?}`): its reply,
+        or None on a build without it (remembered for the run: the plain timing variant is used there)."""
+        if getattr(self, "has_creation_hook", None) is False:
+            return None
+        try:
+            reply = self.j.app.rpc("debug.creation." + action, {} if n is None else {"n": n}, timeout=10)
+        except (D.StepError, OSError, ValueError) as error:
+            text = str(error).lower()
+            if "method_not_found" in text or "unknown method" in text or "not found" in text:
+                self.has_creation_hook = False
+                return None
+            raise
+        self.has_creation_hook = True
+        return reply if isinstance(reply, dict) else {}
+
+    def wait_new_view(self, known, timeout=5.0):
+        """Until a pane shows a terminal view not in KNOWN and that pane is focused (ext_smoke's
+        smoke_wait_new_view): the new pane's early view has the keyboard while its creation is held."""
+        end = D.now() + timeout
+        while D.now() < end:
+            if any(p.get("focused") and p.get("terminal_id") and p["terminal_id"] not in known for p in surfaces(self.j)):
+                return True
+            time.sleep(0.02)
+        return False
+
     def split_type(self, item):
         """Two splits, each followed at once by its own line (see ACTIONS["split_type"]); returns the record with the
-        lines and the snapshot name the oracle reads."""
+        lines and the snapshot name the oracle reads.
+
+        On a build with the creation hold hook (#29301, cmux-ad 11:4xZ), creation 1 is held (its daemon reply waits)
+        while line 1, the second split and line 2 are typed, then released: the race of TIP RED 1193 every round, as
+        pa-d's tipred-1193-creation-hold journey plays it. The hold is proven by the release reply (creation 1 was in
+        `resumed` and a second creation started), never assumed. On a build without the hook: the plain timing, where
+        the hold path is proven only by a key the router held (handled_by "app")."""
         import ext_smoke  # beside this file
         j = self.j
         if not self.focused_terminal():
@@ -540,29 +573,53 @@ class Fuzz:
         self.splits = getattr(self, "splits", 0) + 1
         snap = f"fz-split-{self.splits}"
         ext_smoke.step_smoke_snapshot(j, {"name": snap})
-        lines, at, paths = [], None, []
-        for k, down in enumerate(item.get("down") or [False, False]):
-            if k:
-                time.sleep(SPLIT_GAP)
-            t, _ = self.press("d", ["cmd", "shift"] if down else ["cmd"])
-            at = at or t
-            self.last_create = t
-            line = f"st{j.nonce}-{self.splits}-{k + 1}"
-            # At once in normal mode (type_text waits out the creation hold only in --diagnostic).
-            paths.append(self.type_text(f"echo {line}"))
-            lines.append(line)
-        # The hold-path rule of pa-d's TIP RED 1193 journey (ext_smoke smoke_hold_path, 90e79d90d35; cmux-ad 11:05Z):
-        # this action's pass counts only when at least one key typed at once after a split was held by the app's
-        # router (handled_by "app"); a failure counts on any path.
+        refused_before = len(refusals(j))
+        known = {p.get("terminal_id") for p in surfaces(j) if p.get("terminal_id")}
+        hold = None if self.diagnostic else self.creation_hook("hold", [1])
+        lines, at, paths, release, reached = [], None, [], None, None
+        try:
+            for k, down in enumerate(item.get("down") or [False, False]):
+                if k:
+                    time.sleep(SPLIT_GAP)
+                t, _ = self.press("d", ["cmd", "shift"] if down else ["cmd"])
+                at = at or t
+                self.last_create = t
+                if k == 0 and hold is not None:
+                    reached = self.wait_new_view(known)
+                line = f"st{j.nonce}-{self.splits}-{k + 1}"
+                # At once in normal mode (type_text waits out the creation hold only in --diagnostic).
+                paths.append(self.type_text(f"echo {line}"))
+                lines.append(line)
+        finally:
+            if hold is not None:
+                release = self.creation_hook("release")  # every held creation, and the hook disarmed, on any path
+        rec = {"at": at, "split_lines": lines, "split_snapshot": snap, "at_once": not self.diagnostic,
+               "split_paths": [{"line": ln, "held": p.count("app"), "paths": sorted(set(p))} for ln, p in zip(lines, paths)],
+               "refused_before": refused_before}
         held = sum(p.count("app") for p in paths)
-        return {"at": at, "split_lines": lines, "split_snapshot": snap, "at_once": not self.diagnostic,
-                "split_paths": [{"line": ln, "held": p.count("app"), "paths": sorted(set(p))} for ln, p in zip(lines, paths)],
-                "hold_path": held > 0, "held_keys": held}
+        if hold is not None:
+            # The hook's own report (pa-d's _creation_proof with `resumed`): creation 1 waited for this release, and
+            # the second split started while it was held.
+            ints = lambda key: [int(x) for x in (release or {}).get(key) or [] if isinstance(x, (int, float))]
+            proven = int((release or {}).get("started") or 0) >= 2 and 1 in ints("resumed")
+            rec.update(variant="creation-hold", hold_path=proven, held_keys=held, creation_release=release,
+                       new_view_focused=reached)
+        else:
+            # The hold-path rule of pa-d's TIP RED 1193 journey (ext_smoke smoke_hold_path, 90e79d90d35; cmux-ad
+            # 11:05Z): a pass counts only when at least one key typed at once after a split was held by the router.
+            rec.update(variant="plain", hold_path=held > 0, held_keys=held)
+        return rec
 
     def split_lines(self, rec):
         """The split_type oracle: ext_smoke.cond_smoke_new_terminals (placement new_panes, the last line on the focused
         terminal), polled until it holds or SPLIT_LINES_TIMEOUT."""
         import ext_smoke
+        refused = refusals(self.j)[rec.get("refused_before", 0):]
+        if refused:
+            # A split the app refused with a visible message ("Not enough room to split this column"): its line goes to
+            # the pane that has the keys, as it should. Not judged; the create oracle records the refusal.
+            rec["refused"] = refused[-2:]
+            return []
         want = {"since": rec["split_snapshot"], "lines": rec["split_lines"], "focused": rec["split_lines"][-1],
                 "placement": "new_panes"}
         end, detail = D.now() + SPLIT_LINES_TIMEOUT, {}
@@ -677,7 +734,7 @@ class Fuzz:
         return {"workspaces": len(set(after["workspaces"]) - set(before["workspaces"])),
                 "tabs": len(set(after["tabs"]) - set(before["tabs"])),
                 "terminals": len(set(after["terminals"]) - set(before["terminals"])),
-                "browsers": max(0, after["browsers"] - before["browsers"]),
+                "browsers": len(set(after["browsers"]) - set(before["browsers"])),
                 "panes": len(set(after["panes"].get(ws, [])) - old_panes)}
 
     def trace_sizes(self, st=None):
@@ -1034,8 +1091,12 @@ class Fuzz:
             elif r.get("split_lines"):
                 found = self.split_lines(r)
                 problems += found
+                if r.get("refused"):
+                    self.split_stats["refused"] += 1
+                    continue
                 # n(hold)/n(rounds): a pass counts only on the hold path; a red counts on any path.
                 self.split_stats["played"] += 1
+                self.split_stats["creation_hold"] += 1 if r.get("variant") == "creation-hold" else 0
                 self.split_stats["hold"] += 1 if r.get("hold_path") else 0
                 if found:
                     self.split_stats["red"] += 1
