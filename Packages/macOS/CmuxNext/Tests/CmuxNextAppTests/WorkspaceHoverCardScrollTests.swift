@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 import CmuxNextWakeupsTestSupport
 
@@ -8,7 +9,7 @@ import CmuxNextWakeupsTestSupport
 /// card just disappears." A wheel scroll with the pointer on the shown workspace card belongs to
 /// the card: it stays, and the scroll never reaches the sidebar under it. A scroll off the card
 /// still ends it, as before.
-@MainActor @Suite(.serialized) struct WorkspaceHoverCardScrollTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct WorkspaceHoverCardScrollTests {
     private static func sidebar(clock: ManualClock) -> (SidebarListView, NSWindow, HoverCardCoordinator, [SidebarRow]) {
         _ = NSApplication.shared
         let workspaces = (1...3).map {
@@ -90,10 +91,13 @@ import CmuxNextWakeupsTestSupport
         list.hoverCard.timelineSource = { _, limit in
             (0..<min(limit, 40)).map { SidebarTimelineEntry(kind: .prompt, date: now.addingTimeInterval(-Double($0) * 60), text: "Prompt \($0)") }
         }
-        let card = try await Self.showCard(list, coordinator, clock, row: try #require(rows.first))
+        _ = try await Self.showCard(list, coordinator, clock, row: try #require(rows.first))
         let shown = try #require(coordinator.machine.shownTarget)
         let body = try #require(coordinator.panel?.glass.contentView.subviews.compactMap { $0 as? WorkspaceHoverCardView }.first)
+        // The card opens tabs-first; Show details reveals the history and refits the card in place.
+        body.detailsToggle.performClick(nil)
         try #require(!body.timeline.isHidden, "the card shows no history")
+        let card = try #require(coordinator.panel).cardFrame
         #expect(body.timeline.scrollOffset == 0)
         let history = body.timeline.scrollView
         let frame = try #require(history.window).convertToScreen(history.convert(history.bounds, to: nil))
@@ -102,6 +106,30 @@ import CmuxNextWakeupsTestSupport
         for _ in 0..<5 { _ = coordinator.handleMonitoredEvent(try Self.scrollEvent(dy: -40)) }
         #expect(body.timeline.scrollOffset > 0, "the wheel did not scroll the history")
         #expect(coordinator.isShowing(shown.id), "scrolling the history dismissed the card")
+        try await Self.tearDown(window, coordinator)
+    }
+
+    /// Show details is a press the card accepts; its release never reaches the monitor, so the
+    /// card stays and expands in place.
+    @Test func pressingShowDetailsKeepsTheCardAndItsReleaseIsNeverMonitored() async throws {
+        #expect(!HoverCardCoordinator.monitoredEvents.contains(.leftMouseUp), "the card's monitor would dismiss on a release")
+        let clock = ManualClock()
+        let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
+        list.hoverCard.timelineSource = { _, _ in [SidebarTimelineEntry(kind: .prompt, date: Date(), text: "Prompt")] }
+        _ = try await Self.showCard(list, coordinator, clock, row: try #require(rows.first))
+        let shown = try #require(coordinator.machine.shownTarget)
+        let panel = try #require(coordinator.panel)
+        let body = try #require(panel.glass.contentView.subviews.compactMap { $0 as? WorkspaceHoverCardView }.first)
+        let toggle = body.detailsToggle
+        let point = try #require(toggle.window).convertPoint(toScreen: toggle.convert(NSPoint(x: toggle.bounds.midX, y: toggle.bounds.midY), to: nil))
+        coordinator.pointerMoved(to: point)
+        let press = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                    windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        #expect(coordinator.handleMonitoredEvent(press) != nil, "the press on Show details was swallowed")
+        #expect(coordinator.isShowing(shown.id), "pressing Show details dismissed the card (\(coordinator.machine.phase))")
+        toggle.performClick(nil)
+        #expect(body.isDetailsExpanded)
+        #expect(coordinator.isShowing(shown.id), "Show details did not expand the card in place")
         try await Self.tearDown(window, coordinator)
     }
 

@@ -50,6 +50,8 @@
         "libghostty-vt Zig packages are covered by the notices": {"pr": "cmux-next-guards.yml:vt-link-graph:The nightly's Ghostty license checks pass on fixtures", "note": "check_ghostty_vt_notices.py --license-manifest on fixture manifests; the real manifests come from the source archive"},
         "Strip the Ghostty CLI helper": {"nightly_only": "Apple strip -S -x of the Zig-built helper (the pass prepare-nightly-variant made, now on Linux); only the nightly builds this helper for macOS"}},
       "build-nightly-app": {
+        "Mint the routing token for the light-job placement": {"plumbing": true},
+        "Place the light jobs on a free mini": {"pr": "ci-guards.yml:workflow-guard-tests:Validate universal nightly workflow"},
         "Resolve immutable SSH daemon metadata": {"nightly_only": "reads the compiled Release app version and checks the current nightly feed build floors"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Restore the original unsigned nightly inputs": {"pr": "ci-guards.yml:workflow-guard-tests:Validate unsigned nightly resume provenance and routing"},
@@ -142,7 +144,7 @@
         "Finish the browser-data import proof": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly API tag finalization"},
         "Put llvm-lipo on PATH as lipo": {"plumbing": true},
         "Require the cmux-tui client build-nightly-app bundled": {"nightly_only": "compares the cmux-tui.version build-nightly-app wrote with the commit resolve-nightly-cmux-tui-client chose; only the nightly installs a resolved client into a Release app"}},
-      "prepare-nightly-variant-fallback": {
+      "prepare-nightly-variant": {
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Reuse a successful primary preparation": {"plumbing": true, "note": "fallback leg only: skips a preparation the primary leg already uploaded (the primary's result or this run's artifacts)"},
         "Clear stale git locks (self-hosted reused workspace)": {"plumbing": true},
@@ -159,8 +161,6 @@
         "Finish the browser-data import proof": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly API tag finalization"},
         "Put llvm-lipo on PATH as lipo": {"plumbing": true},
         "Require the cmux-tui client build-nightly-app bundled": {"nightly_only": "compares the cmux-tui.version build-nightly-app wrote with the commit resolve-nightly-cmux-tui-client chose; only the nightly installs a resolved client into a Release app"}},
-      "prepare-nightly-variant": {
-        "Accept primary or fallback preparation": {"plumbing": true, "note": "aggregate job: succeeds when the primary or fallback preparation did, so downstream jobs keep one need"}},
       "build-sign-notarize-nightly": {
         "Clear stale git locks (self-hosted reused workspace)": {"plumbing": true},
         "Install the current signing keychain controls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate unsigned nightly resume provenance and routing"},
