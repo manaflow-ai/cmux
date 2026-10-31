@@ -27,7 +27,7 @@ struct PointerMenuTrimTests {
             "agentChat.copyIdentifier", "agentChat.subagentLimit", "agentPane.togglePointerInspector",
             "browser.editSource", "browser.openInChromium", "browserProfile.duplicateTab", "browserProfile.moveTab",
             "closeOtherTabsInPane", "closeTab", "closeTabsToLeft",
-            "closeTabsToRight", "disconnectRemoteTab", "duplicateTab",
+            "closeTabsToRight", "disconnectRemoteTab", "duplicateTab", "file.openAsPage",
             "home.messageAbout", "moveSurfaceLeft", "moveSurfaceRight",
             "moveSurfaceToNextPane", "moveSurfaceToPaneDown", "moveSurfaceToPaneLeft",
             "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPreviousPane",
