@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// The omnibar follows density and `browser.omnibar.height` / `fontSize`
@@ -8,7 +9,7 @@ import Testing
 /// stays today's 28 pt bar with 14 pt text, Comfortable is Chrome's roomier 34 pt bar with 15 pt
 /// text, an override beats density and is clamped, and at every density and override the bar's
 /// text, chip, star, toolbar buttons and suggestion rows stay inside their bounds.
-@MainActor @Suite(.serialized) struct OmnibarDensityTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct OmnibarDensityTests {
     // MARK: Tokens
 
     /// Fractional sizes round to whole points, so the bar stays on the pixel grid.
@@ -133,6 +134,7 @@ import Testing
 
         func tearDown() {
             chrome.addressBar.dismissRows()
+            chrome.closePopupPanels()
             window.orderOut(nil)
             window.close()
             page.close()

@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import CmuxTheme
 import Foundation
 import Testing
@@ -10,7 +11,7 @@ import Testing
 /// nested group), one member hovered so its close shows, at every `sidebar.density`, dark and light.
 /// Written under `sidebar-look-gallery/` with `all.png` (dark on top, light below), bundled to
 /// `sidebar-look-gallery.tar` for `cmux-ci run --artifact`, so a before and an after run compare.
-@MainActor @Suite(.serialized) struct AASidebarLookGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AASidebarLookGalleryTests {
     static let hovered = SidebarRowKey.workspace(WorkspaceID("w-align"))
 
     static func sections() -> [SidebarSection] {
