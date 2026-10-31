@@ -30,8 +30,9 @@ type PaneWindow = Window & {
   cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => unknown>;
   cmuxAcpmuxDebug?: { pickFolder(cwd: string): unknown };
 };
-type NativeHandler = { postMessage(message: Message): Promise<unknown> };
-type Message = { method?: string; params?: Record<string, unknown> };
+/// How long the host takes to answer `workspace.useFolder`: long enough for a newer request to
+/// replace the send's before its reply lands.
+const FOLDER_DELAY_MS = 1200;
 
 const field = (ctx: PlayContext) => ctx.document.querySelector<HTMLTextAreaElement>(".nt-field");
 const notice = (ctx: PlayContext) => ctx.document.querySelector('.nt-composer .acpmux-switch-notice[role="alert"]');
@@ -71,40 +72,24 @@ async function notNow(ctx: PlayContext) {
 
 async function staleFolder(ctx: PlayContext) {
   const view = await ready(ctx);
-  // The host holds its first answer for folder A until the pane has asked about folder B.
-  const handler = (view as unknown as { webkit: { messageHandlers: { agentSession: NativeHandler } } }).webkit
-    .messageHandlers.agentSession;
-  const post = handler.postMessage.bind(handler);
-  let release: (() => void) | undefined;
-  const asked: string[] = [];
-  handler.postMessage = (message) => {
-    if (message.method === "project.browse") return Promise.resolve({ ok: true, value: { cwd: FOLDER_A } });
-    if (message.method !== "workspace.useFolder") return post(message);
-    const cwd = String(message.params?.cwd);
-    asked.push(cwd);
-    const reply = { ok: true, value: { status: "ok", cwd } };
-    if (cwd === FOLDER_A && asked.length === 1) return new Promise((done) => (release = () => done(reply)));
-    return Promise.resolve(reply);
-  };
+  const chip = () => ctx.document.querySelector('[aria-label="Folder"]')?.textContent ?? "";
+  // Choose folder… takes atlas-web through the host (`project.browse`, then `workspace.useFolder`,
+  // which answers after FOLDER_DELAY_MS).
   await ctx.click({ selector: '[aria-label="Folder"]' });
   await ctx.click({ role: "option", name: "Choose folder…" });
-  await ctx.waitFor(() => ctx.document.querySelector('[aria-label="Folder"]')?.textContent === "atlas-web");
+  await ctx.waitFor(() => chip().includes("atlas-web"), { capMs: 10_000 });
   await ctx.type(DRAFT, { selector: ".nt-field" });
+  // Return asks the host about atlas-web again for this send; before it answers, a newer folder
+  // request (the pane's own pick of relay) replaces it. The send's late reply is stale.
   await ctx.press("Enter");
-  await ctx.waitFor(() => !!release, { capMs: 10_000 });
-  // A newer folder request (the pane's own pick of B) replaces the send's before A's reply lands.
   view.cmuxAcpmuxDebug!.pickFolder(FOLDER_B);
-  await ctx.waitFor(() => asked.includes(FOLDER_B), { capMs: 10_000 });
-  release!();
+  await ctx.waitFor(() => chip().includes("relay"), { capMs: 10_000 });
   await frames(ctx);
   if (notice(ctx)) throw new Error(`a stale folder reply shows a failure notice: ${notice(ctx)!.textContent}`);
-  // Not stuck asking: the next Return asks the host again and starts the chat.
-  const before = asked.length;
-  if (field(ctx)) {
-    await ctx.click({ selector: ".nt-field" });
-    await ctx.press("Enter");
-  }
-  await ctx.waitFor(() => asked.length > before, { capMs: 5_000 });
+  if (ctx.document.querySelector(".cv-user__bubble")) throw new Error("the stale reply started a chat");
+  // Not stuck asking: the next Return starts the chat (in relay).
+  if (!field(ctx)?.value) await ctx.type(DRAFT, { selector: ".nt-field" });
+  await ctx.press("Enter");
   await ctx.waitFor(() => ctx.document.querySelector(".cv-user__bubble"), { capMs: 10_000 });
 }
 
@@ -115,6 +100,13 @@ export default agentPaneEntry({
   height: 520,
   widths: { narrow: 420, normal: 640, wide: 860 },
   covers: ["agent-session/acpmux/newtab/NewTabScreen.tsx#NewTabScreen"],
+  checks: {
+    layoutShiftMax: {
+      value: 0.1,
+      reason:
+        "The Trust question opens above the composer on Return and its Undo line replaces it on Not now; the composer below moves with it by design.",
+    },
+  },
   variants: {
     "not-now-keeps-draft": {
       note: "Return, then Not now on the folder's Trust question: the draft stays in the field and no failure notice shows (#28815).",
@@ -126,6 +118,8 @@ export default agentPaneEntry({
     "stale-folder-reply-ready": {
       note: "The send's folder reply lands after a newer folder request: it uses nothing and ends the send, so the next Return starts the chat (#28815).",
       ready: newTab,
+      native: { "project.browse": { cwd: FOLDER_A }, "workspace.useFolder": { status: "ok" } },
+      nativeDelayMs: { "workspace.useFolder": FOLDER_DELAY_MS },
       snapshot: noChat([], { listedSessions: true }),
       play: staleFolder,
     },
