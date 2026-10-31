@@ -207,7 +207,7 @@ impl Snapshot {
             picked.get("sessions").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
         let row = |key: &Value| row_text(text, spans, key, budget);
         let whole = cursor.is_none() && {
-            let bytes: usize = rows.iter().map(|key| row(key).len() + 1).sum();
+            let bytes: usize = rows.iter().map(|key| row(key).len().saturating_add(1)).sum();
             bytes <= budget
         };
         let (page, next) = if whole {
