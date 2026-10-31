@@ -10,6 +10,61 @@ import WebKit
 @MainActor
 @Suite(.closesItsWindows)
 struct AppWebPaneUpdateTests {
+    @Test(.timeLimit(.minutes(1)), arguments: Revocation.allCases)
+    func anOpenPaneStopsWhenItsAppCannotRun(_ reason: Revocation) async throws {
+        let bundle = FileManager.default.temporaryDirectory.appendingPathComponent("pane-revoke-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: bundle) }
+        try writePage(root: bundle.appendingPathComponent("web"), entry: "index.html", version: "one")
+        let original = try record(bundle: bundle, root: "web", entry: "index.html", version: "1.0.0")
+        let transport = UpdatingPaneTransport(record: original)
+        let client = AppsClient(transport: transport)
+        client.start()
+        await waitForVersion("1.0.0", client: client, app: original.id)
+        let pane = try #require(AppWebPane(manifest: original.manifest, bundle: bundle))
+        let view = AppWebPaneView(pane: pane, client: client, work: BackgroundWork())
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: false)
+        window.contentView = view
+        defer {
+            window.contentView = nil
+            window.closeAfterTest()
+        }
+        await transport.waitForLog("ready one")
+        if reason == .detached { window.contentView = nil }
+        let (loaded, didLoad) = AsyncStream.makeStream(of: Void.self)
+        view.onLoaded = { didLoad.yield() }
+        switch reason {
+        case .disabled, .detached: transport.record.enabled = false
+        case .removed: transport.record.installed = false
+        case .forgotten: transport.includesRecord = false
+        case .missingPackage: transport.record.available = false
+        case .disconnected: transport.onEvent?(.availability(.unavailable(.notConnected)))
+        case .policy: transport.onEvent?(.availability(.unavailable(.turnedOff("apps"))))
+        }
+        // The normal install/enablement transaction does not change files.
+        transport.onEvent?(.changed(revision: 2, app: original.id, transaction: "set"))
+        for await _ in loaded { break }
+        #expect(!view.bridge.enabled)
+        #expect(client.fileRevisions[original.id, default: 0] == 0)
+        #expect(view.webView.url?.absoluteString == "about:blank")
+        #expect(try await view.webView.evaluateJavaScript("document.title") as? String == "")
+        // A crash callback must not revive the revoked app document.
+        view.webViewWebContentProcessDidTerminate(view.webView)
+        #expect(!view.bridge.enabled)
+
+        transport.record = original
+        transport.includesRecord = true
+        transport.onEvent?(.availability(.available(epoch: 2)))
+        transport.onEvent?(.changed(revision: 3, app: original.id, transaction: "set"))
+        for await _ in loaded { break }
+        #expect(view.bridge.enabled)
+        #expect(view.webView.url == pane.entryURL)
+        #expect(try await view.webView.evaluateJavaScript("document.title") as? String == "one")
+    }
+
+    enum Revocation: CaseIterable, Sendable {
+        case disabled, removed, forgotten, missingPackage, disconnected, policy, detached
+    }
+
     @Test(.timeLimit(.minutes(1))) func anOpenPaneFollowsTheReplacedManifest() async throws {
         let bundle = FileManager.default.temporaryDirectory.appendingPathComponent("pane-update-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: bundle) }
@@ -104,12 +159,13 @@ private final class UpdatingPaneTransport: AppsTransport {
     let availability: AppsAvailability = .available(epoch: 1)
     var onEvent: ((AppsTransportEvent) -> Void)?
     var record: AppRecord
+    var includesRecord = true
     private var messages: [String] = []
     private let (lines, line) = AsyncStream.makeStream(of: String.self)
 
     init(record: AppRecord) { self.record = record }
     func start() {}
-    func list() async throws(AppsTransportError) -> AppsListReply { AppsListReply(revision: nil, apps: [record]) }
+    func list() async throws(AppsTransportError) -> AppsListReply { AppsListReply(revision: nil, apps: includesRecord ? [record] : []) }
     func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord { record }
     func mount(app: String, interface: String, mountID: String, context: AppJSON) async throws(AppsTransportError) {}
     func unmount(mountID: String) async throws(AppsTransportError) {}
