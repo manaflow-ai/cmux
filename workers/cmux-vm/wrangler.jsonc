@@ -72,6 +72,10 @@
         "ENVIRONMENT": "staging",
         "STACK_API_URL": "https://api.stack-auth.com",
         "UPSTREAM_API_URL": "https://api.freestyle.sh",
+        // Immutable development image approved for the Cloud backend service.
+        "VM_BOOT_IMAGES": "[{\"id\":\"cloud-standard\",\"revision\":\"ci-41026036265-1\",\"displayName\":\"Cloud development\",\"snapshotId\":\"sh-0afbb63e9a6046b4a58068dfe30a5bc7\",\"services\":[\"cloud-driver\"]}]",
+        // The Cloud guest's coderouter.cmux.internal proxy targets this exact origin.
+        "VM_HTTPS_PROXY_ORIGINS": "[\"https://cmux-staging.vercel.app\"]",
         // Mesh experiment (cx-0op): on for internal manaflow dogfood teams only (coordinator, 2026-10-07),
         // ids checked against the staging Stack project: "cmux-agent-dev@manaflow.ai's Team" and
         // "Lawrence Chen's Team". No customer team. Production stays off.

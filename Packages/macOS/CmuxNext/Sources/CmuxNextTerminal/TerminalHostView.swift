@@ -388,7 +388,8 @@ public final class TerminalHostView: NSView {
     /// `GhosttyRuntime.backgroundColor`. Where the window is see-through
     /// (translucent, glass, or over art) the window root paints the one
     /// sheet and the host stays clear, as the panes around it do, unless the
-    /// terminal's theme differs from theirs: its background then lies over
+    /// terminal's colors differ from theirs (its own theme, or the terminal theme
+    /// beside an App Theme's panes): its background then lies over
     /// the glass at the window's tint (`WindowBackdrop.tintOpacity`). The user's terminal
     /// background (`appearance.surfaces.terminal`) replaces all of these;
     /// the surfaces then draw a transparent default background.
@@ -413,7 +414,10 @@ public final class TerminalHostView: NSView {
         }
         let around = superview?.themeTokens.surfaceBackground.withAlpha(1)
         let own = tokens.surfaceBackground.withAlpha(1)
-        layer?.backgroundColor = theme == nil || own == around ? nil : own.withAlpha(backdrop.tintOpacity).cgColor
+        // An App Theme colors the panes around while this terminal keeps the terminal theme: its
+        // background lies over the glass too, or its text would draw on the App Theme's tint.
+        let ownColors = theme != nil || scope.store.appTheme != nil
+        layer?.backgroundColor = !ownColors || own == around ? nil : own.withAlpha(backdrop.tintOpacity).cgColor
     }
 }
 

@@ -3,7 +3,13 @@
 // Not shipped.
 import type { ContextMenuState, ContextMenusHostState, MenuLayout, MenuNode, MenuRow } from "./ops";
 
-const row = (key: string, title: string, symbol: string | null, home: string | null = null, kind: MenuRow["kind"] = "item"): MenuRow => ({
+const row = (
+  key: string,
+  title: string,
+  symbol: string | null,
+  home: string | null = null,
+  kind: MenuRow["kind"] = "item",
+): MenuRow => ({
   key,
   title,
   kind,
@@ -96,13 +102,25 @@ export function mockContextMenus(): ContextMenusHostState {
     menus: [
       menu("workspaceRow", "Workspace", "workspace", workspaceRows, workspaceTree),
       menu("tab", "Tab", "tabs", tabRows, tabTree),
-      menu("terminalSelection", "Terminal", "terminal", terminalRows, ["copy", "paste", "-", "splitRight", "splitDown", "-", "clearTerminal"]),
+      menu("terminalSelection", "Terminal", "terminal", terminalRows, [
+        "copy",
+        "paste",
+        "-",
+        "splitRight",
+        "splitDown",
+        "-",
+        "clearTerminal",
+      ]),
     ],
   };
 }
 
 /** The mock's `cmux.settings.context_menus.set`: the layout as saved, or the generated one on Reset. */
-export function setMockMenuLayout(state: ContextMenusHostState, id: string, layout: MenuLayout | null): ContextMenusHostState {
+export function setMockMenuLayout(
+  state: ContextMenusHostState,
+  id: string,
+  layout: MenuLayout | null,
+): ContextMenusHostState {
   return {
     ...state,
     menus: state.menus.map((item) =>

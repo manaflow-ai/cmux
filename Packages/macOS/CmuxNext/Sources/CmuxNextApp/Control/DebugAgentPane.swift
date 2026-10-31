@@ -34,9 +34,11 @@ import WebKit
 /// action a click or key runs, so a no-activate window can be driven end to
 /// end): `chat_state`, `send_prompt` (`text`), `new_chat` (`harness`, `cwd`),
 /// `select_session` (`session`), `pick_folder` (`cwd`: the folder chip's pick), `answer_permission` (`option`, `allow`,
-/// `decision`), `open_changes` (the latest turn's changes view),
+/// `decision`), `open_changes` (the latest turn's changes view), `set_files` (`paths`, `selector` default
+/// `.acpmux-attach-input`: the composer's file input gets those files as a pick in Chromium's open panel),
 /// `models` (the harness's models), `set_model` (`model`, `effort`), `layout_watch` (`ms`, `tolerance`; layoutWatch.ts),
-/// `readiness` (page body, transcript and composer metrics), `engine` (`cef` or `webkit:<reason>`), `focus_composer`, `composer_focused`, `click` (`selector`
+/// `readiness` (page body, transcript and composer metrics), `cloud_auth` (the native
+/// `cloudMachine.list` reply consumed by the picker), `engine` (`cef` or `webkit:<reason>`), `focus_composer`, `composer_focused`, `click` (`selector`
 /// or `text`: a native click on that element, DebugAgentPaneClick), `open_subagent` (`index`, from 1, and `focus`, default
 /// false: the `subagents` fixture's subagent at `index` opens in its own pane as a tray click's `chat.subagentPane` opens
 /// it, DebugAgentPaneSubagent), `pid` (the WebContent process, for profiling), or
@@ -177,6 +179,10 @@ enum DebugAgentPane {
         if action == "readiness" {
             return await readiness(pane: pane, view: view, waitForAnimations: params["wait_animations"]?.boolValue == true)
         }
+        if action == "cloud_auth" {
+            let reply = await view.model.respond(to: .cloudMachine(.list))
+            return .object(["pane": .string(pane), "reply": JSONValue(foundation: reply) ?? .null])
+        }
         if action == "close_menus" {
             let script = """
             const target = document.activeElement || document.body;
@@ -203,9 +209,10 @@ enum DebugAgentPane {
         if action == "click" {
             return await DebugAgentPaneClick.click(params, pane: pane, view: view, services: services)
         }
-        if action == "hover" {
-            return await DebugAgentPaneClick.hover(params, pane: pane, view: view)
-        }
+        if action == "set_files" {
+            return .object(["pane": .string(pane), "error": await view.debugSetFiles(selector: params["selector"]?.stringValue ?? ".acpmux-attach-input", paths: params["paths"]?.arrayValue?.compactMap(\.stringValue) ?? []).map(JSONValue.string) ?? .null]) }
+        if action == "hover" { return await DebugAgentPaneClick.hover(params, pane: pane, view: view) }
+        if action == "pacer" { return .object(["pane": .string(pane), "pacer": JSONValue(foundation: view.debugPacerState) ?? .null]) }
         if action == "inspector" {
             return await toggleInspector(view, open: params["open"]?.boolValue, pane: pane)
         }
@@ -215,7 +222,7 @@ enum DebugAgentPane {
             }
         }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, answer_permission, open_changes, set_model, models, stream, layout_watch, readiness, engine, focus_composer, composer_focused, click, open_subagent, pid, full_rate, gesture_state or inspector")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, answer_permission, open_changes, set_model, models, stream, layout_watch, readiness, cloud_auth, engine, focus_composer, composer_focused, click, open_subagent, pid, full_rate, gesture_state or inspector")])
         }
         do {
             let result = try await view.callPageScript(script, arguments: ["fn": function, "args": arguments(action, params)])

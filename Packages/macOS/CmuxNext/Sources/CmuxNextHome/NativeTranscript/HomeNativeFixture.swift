@@ -132,6 +132,41 @@ public final class HomeNativeFixture {
         return true
     }
 
+    /// Shows the Chief's messages to its agents and their reports as a real run brings them: my
+    /// question, the Chief's reply, then one run with five messages to agents and one report, which
+    /// Home folds into one row under the reply (a click expands it). False before the conversation shows.
+    public func debugAgentMessages() -> Bool {
+        guard let shown else { return false }
+        let source = self.source
+        let turn = IdempotencyKey("debug-agent-messages-\(UUID().uuidString)")
+        let start = Date()
+        // task-owner: three mock events, ends when the mock source has published them
+        Task {
+            let me = await source.me.id
+            _ = await source.post("What did you tell the agents just now?", from: me, in: shown.conversation, key: .make())
+            _ = await source.post("I sent five messages and got one report back.", from: shown.chief, in: shown.conversation, key: turn)
+            let messages = Self.agentMessages.enumerated().map { index, m in
+                HomeAgentRun.Message(id: "step-\(index)", sequence: UInt64(index + 1), revision: 1, peer: m.peer,
+                                     outgoing: m.outgoing, text: m.text, date: start.addingTimeInterval(Double(index)))
+            }
+            let run = HomeAgentRun(conversation: shown.conversation, id: turn.rawValue, author: shown.chief, turn: turn,
+                                   answers: [], revision: 1, messages: messages)
+            await source.streamLive(.run(HomeLiveRunChange(conversation: shown.conversation, author: shown.chief, run: turn.rawValue,
+                                                           turn: turn, status: "done", agentRun: run)))
+        }
+        return true
+    }
+
+    /// The fixture run's messages (made-up agents and work, in the Chief's real wording).
+    private static let agentMessages: [(peer: String, outgoing: Bool, text: String)] = [
+        ("a938", true, "Buttons respond first click: test every button with one click, active and inactive window; fix the causes; add a CI guard."),
+        ("a917", true, "Default picked: reserve one Mac mini's nightly slot so PR jobs stay off it, then land slice 2 with a plain push."),
+        ("a934", true, "Add auto-archive: off by default, 3 days idle, in the Tidy Up dialog and Settings."),
+        ("a929", true, "Hold the push until the fleet runs finish, then plain push to feat-cmux-next."),
+        ("a888", true, "Check Text Size in the app and post light and dark shots.\n[Error: outcome: refused: agent was cancelled]"),
+        ("a891", false, "Fixed the stuck nightly feed: the feed and the installed NIGHTLY are on the same build. [run 41156389247](https://github.com/manaflow-ai/cmux/actions/runs/41156389247)"),
+    ]
+
     private func addAttachments(in id: ConversationID) async {
         guard let files = try? await HomeFixtureMedia.make(), !Task.isCancelled else { return }
         for file in files {
