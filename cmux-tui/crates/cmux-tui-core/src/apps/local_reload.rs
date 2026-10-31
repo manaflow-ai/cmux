@@ -76,7 +76,7 @@ impl Supervisor {
     ) -> Prints {
         let before = PrintsBefore::take(&self.config.sources);
         let catalog = load(&self.config.sources);
-        let next = before.of(&catalog);
+        let next = before.of(&self.config.sources, &catalog);
         let changed: Vec<String> = next
             .iter()
             .filter(|(id, print)| prints.get(*id) != Some(*print))
@@ -182,20 +182,32 @@ impl PrintsBefore {
         Self(prints.collect())
     }
 
-    /// The fingerprints of `catalog`'s local packages, by app id. A local
-    /// package outside the watched folders (a `local/` id in an apps
-    /// directory) is not watched; its fingerprint is taken now.
-    pub(super) fn of(&self, catalog: &catalog::Catalog) -> Prints {
+    /// The fingerprints of `catalog`'s local packages, by app id, for a
+    /// catalog read after `take`. A watched folder made during the read has
+    /// no fingerprint from before it: it gets `UNREAD`, which no fingerprint
+    /// equals, so the next event reads it again. A local package outside the
+    /// watched folders (a `local/` id in an apps directory) is not watched;
+    /// its fingerprint is taken now.
+    pub(super) fn of(&self, sources: &catalog::Sources, catalog: &catalog::Catalog) -> Prints {
         catalog
             .packages
             .values()
             .filter(|p| p.source == Source::Local)
             .map(|p| {
-                (p.id.clone(), self.0.get(&p.dir).copied().unwrap_or_else(|| fingerprint(&p.dir)))
+                let print = match self.0.get(&p.dir) {
+                    Some(print) => *print,
+                    None if is_local_dir(sources, &p.dir) => UNREAD,
+                    None => fingerprint(&p.dir),
+                };
+                (p.id.clone(), print)
             })
             .collect()
     }
 }
+
+/// The fingerprint of a watched folder that had none before the catalog
+/// read (`PrintsBefore::of`); `fingerprint` never returns it.
+const UNREAD: u64 = 0;
 
 /// Every file's path, size and contents under `dir` (dot folders and
 /// node_modules skipped), hashed. Contents, not the modification time: a
@@ -209,14 +221,15 @@ fn fingerprint(dir: &Path) -> u64 {
     let mut budget = MAX_HASHED_BYTES;
     for (path, len, modified) in files {
         (&path, len).hash(&mut hasher);
-        if len <= budget {
-            budget -= len;
+        if let Some(rest) = budget.checked_sub(len) {
+            budget = rest;
             hash_contents(&path, len, &mut hasher);
         } else {
             modified.hash(&mut hasher);
         }
     }
-    hasher.finish()
+    // UNREAD is reserved (a 1 in 2^64 collision costs one more read).
+    hasher.finish().max(1)
 }
 
 /// Feeds at most `len` of `path`'s bytes to `hasher` (fewer when it cannot be
@@ -229,7 +242,7 @@ fn hash_contents(path: &Path, len: u64, hasher: &mut DefaultHasher) {
     loop {
         match file.read(&mut buffer) {
             Ok(0) | Err(_) => return,
-            Ok(n) => hasher.write(&buffer[..n]),
+            Ok(n) => hasher.write(buffer.get(..n).unwrap_or(&buffer)),
         }
     }
 }
