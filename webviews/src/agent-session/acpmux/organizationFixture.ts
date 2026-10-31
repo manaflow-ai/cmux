@@ -30,9 +30,21 @@ const ANSWERED: AgentQuestion = {
       header: "Auth method",
       prompt: "Which auth method should the API use?",
       options: [
-        { id: "OAuth 2.0", label: "OAuth 2.0", detail: "Delegated sign-in through the identity provider; best for third-party clients." },
-        { id: "API keys", label: "API keys", detail: "One static key per integration. Simple, but keys must be rotated by hand." },
-        { id: "Passkeys", label: "Passkeys", detail: "WebAuthn credentials bound to the device. No shared secret on the server." },
+        {
+          id: "OAuth 2.0",
+          label: "OAuth 2.0",
+          detail: "Delegated sign-in through the identity provider; best for third-party clients.",
+        },
+        {
+          id: "API keys",
+          label: "API keys",
+          detail: "One static key per integration. Simple, but keys must be rotated by hand.",
+        },
+        {
+          id: "Passkeys",
+          label: "Passkeys",
+          detail: "WebAuthn credentials bound to the device. No shared secret on the server.",
+        },
       ],
       multiSelect: false,
       allowsOther: true,
@@ -128,7 +140,12 @@ export function organizationRows(at: number): AcpmuxRow[] {
           "rg -n 'retry' src/net/fetchWithRetry.ts",
           "12:export async function fetchWithRetry(url, options = {}) {\n18:  for (let attempt = 0; attempt < retries; attempt++) {\n24:    if (!response.ok) await delay(backoff(attempt));\n",
         ),
-        step(2, "Listed every caller of fetchWithRetry", "rg -l fetchWithRetry src", "src/net/fetchWithRetry.ts\nsrc/api/orders.ts\nsrc/api/profile.ts\nsrc/api/search.ts\n"),
+        step(
+          2,
+          "Listed every caller of fetchWithRetry",
+          "rg -l fetchWithRetry src",
+          "src/net/fetchWithRetry.ts\nsrc/api/orders.ts\nsrc/api/profile.ts\nsrc/api/search.ts\n",
+        ),
         thought(
           "None of the callers handle a 404 themselves, so a client error waiting through every backoff is what the reader sees as a slow page. The check belongs in the loop.",
           30,
@@ -151,6 +168,13 @@ export function organizationRows(at: number): AcpmuxRow[] {
       kind: "assistant",
       text: "The loop retries any response that isn't ok. I'll stop it at 4xx statuses other than 408 and 429, which are worth another try, then add a test for a 404.",
     },
-    { id: "organization-summary", version: 1, at: at + 46 * SECOND, kind: "turnSummary", durationMs: 46_000, toolCount: 5 },
+    {
+      id: "organization-summary",
+      version: 1,
+      at: at + 46 * SECOND,
+      kind: "turnSummary",
+      durationMs: 46_000,
+      toolCount: 5,
+    },
   ] as AcpmuxRow[];
 }
