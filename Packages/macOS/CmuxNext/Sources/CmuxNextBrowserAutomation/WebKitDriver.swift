@@ -21,7 +21,7 @@ public final class WebKitDriver: DriverCallHandler {
     /// Where `cookies.clear` keeps what it deletes (undo); nil: no clear runs.
     public var cookieBackups: CookieBackups?
     let frameCodePolicy: BrowserFrameCodePolicy?
-    let frameScriptSyntax = WebKitFunctionBodySyntax()
+    let frameScriptSyntax = BrowserFunctionBodySyntax()
     var sessions: [BrowserTabID: TabSession] = [:]
     lazy var dialogs = DialogBroker { [weak self] name, payload in self?.emit(name, payload) }
 

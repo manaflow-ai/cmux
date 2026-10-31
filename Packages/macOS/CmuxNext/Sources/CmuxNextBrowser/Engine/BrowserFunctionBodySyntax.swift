@@ -1,9 +1,9 @@
 import JavaScriptCore
 
-/// Parses the complete body WebKit will wrap in an async function, off the main actor.
+/// Parses the complete body a browser will wrap in an async function, off the main actor.
 /// Constructing a function parses to EOF without invoking it. Source therefore cannot
-/// close WebKit's generated function and execute outside a prefixed origin guard.
-public actor WebKitFunctionBodySyntax {
+/// close the generated function and execute outside a prefixed origin guard.
+public actor BrowserFunctionBodySyntax {
     /// Creates a parser whose JavaScriptCore objects never leave its executor.
     public init() {}
 
