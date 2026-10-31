@@ -193,3 +193,27 @@ fn a_new_column_out_of_range_or_on_a_used_id_is_rejected() {
         Err(Reject::UnknownPane(99))
     );
 }
+
+/// The layout fuzzer's R3b finding (feat acfd69382dc, job
+/// f2f3083bac80ab71101d03ac): Cmd-N, Ctrl-` (a second terminal tab in the
+/// workspace's one pane), then New Column. The old column was 872 pt and
+/// became 291 pt, a third: the app's fixed width rule shrank a lone
+/// full-width column to 1 - 2/3. In the model the workspace's split tree
+/// stays the full-width column (1000) beside the new 2/3 column.
+#[test]
+fn new_column_after_a_new_workspace_and_a_terminal_keeps_the_first_column_full_width() {
+    let mut state = LayoutState::default();
+    state.tabs.insert(4, tab(4));
+    state.tabs.insert(5, tab(5));
+    state.panes.insert(3, vec![4, 5]);
+    state.workspaces.push(Workspace {
+        id: 1,
+        screens: vec![Screen {
+            id: 2,
+            columns: vec![Column::single(0, vec![3])],
+            columns_active: false,
+        }],
+    });
+    let next = applied(&state, insert(3, false));
+    assert_eq!(widths(&next), vec![(102, 1000), (101, NEW)]);
+}
