@@ -20,17 +20,21 @@ public nonisolated struct AppImplementation: Sendable, Hashable, Identifiable {
     public var export: String?
     /// A pane cmux draws itself (`native`, for example `home`): no scene.
     public var native: String?
+    /// The page that renders it (`web`, a package path under `runtime.web.root`):
+    /// a custom pane in a sandboxed web view (custom-panes-DESIGN.md 2).
+    public var web: String?
     /// `options` (v2) or the whole entry (v1): `defaultRegion`, `maxRows`, `placement`.
     public var options: [String: AppJSON]
 
     public init(interface: String, id: String? = nil, title: AppLocalizedText? = nil, symbol: String? = nil,
-                export: String? = nil, native: String? = nil, options: [String: AppJSON] = [:]) {
+                export: String? = nil, native: String? = nil, web: String? = nil, options: [String: AppJSON] = [:]) {
         self.interface = interface
         self.id = id ?? interface
         self.title = title
         self.symbol = symbol
         self.export = export
         self.native = native
+        self.web = web
         self.options = options
     }
 
@@ -39,6 +43,8 @@ public nonisolated struct AppImplementation: Sendable, Hashable, Identifiable {
     public var isPane: Bool { interface == Self.pane }
     /// Rendered from a scene the app host streams (not a native pane).
     public var hasScene: Bool { native == nil && export != nil }
+    /// Rendered from the app's own web page.
+    public var hasWeb: Bool { native == nil && export == nil && web != nil }
     /// Sections and status items render as scenes the store can preview.
     public var isPreviewable: Bool { (isSection || isStatusItem) && hasScene }
     /// `defaultRegion` of a sidebar section (`middle` when absent).

@@ -128,6 +128,8 @@ export default defineConfig({
           CLOUD_ADMIN_KEY: "test-cloud-admin-key-0123456789abcdef",
           // userIdFor(STACK_PROJECT_ID, "ops_person_1"): the only person the abandoned-clear route accepts in tests.
           CLOUD_ADMIN_USERS: "user_6412abe5b2830d00012b",
+          // The app registry reviewers (test/app-registry.test.ts).
+          APP_REVIEWERS: [testUser("app_reviewer_1"), testUser("app_reviewer_2")].join(","),
           CLOUD_NAME_PREFIX: "cmuxnp-test-cld-",
           // PlatformMachines answers (test/platform-machines.test.ts); development only among the deployments.
           PLATFORM_MACHINES: "on",

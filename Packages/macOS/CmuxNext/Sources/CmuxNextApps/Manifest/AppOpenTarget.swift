@@ -4,14 +4,14 @@ public import Foundation
 /// App Store's Open button).
 ///
 /// One rule for every entry point: an app's own scene page (`cmux.pane/1` with a scene export)
-/// wins; a remote pane (`cmux.pane/1` with `remote: instance`) opens its running instance's URL in
+/// wins; a packaged web pane (`cmux.pane/1` with `web`) opens its sandboxed page; a remote pane (`cmux.pane/1` with `remote: instance`) opens its running instance's URL in
 /// a browser tab, or has nothing to open yet while it is not deployed; else a web app
 /// (`presentation.web`, https only) opens as a browser tab; else the app has nothing to open
 /// (a command-only app).
 ///
 /// ```swift
 /// switch AppOpenTarget(record) {
-/// case .scenePane: showPanePage(record)
+/// case .scenePane, .webPane: showPanePage(record)
 /// case .web(let url): openBrowserTab(url)
 /// case .notDeployed: throw AppsServiceError.notDeployed
 /// case .none: throw AppsServiceError.noPage
@@ -20,6 +20,8 @@ public import Foundation
 public nonisolated enum AppOpenTarget: Sendable, Hashable {
     /// The app's scene pane, rendered natively as a page tab.
     case scenePane
+    /// The app's packaged web pane, rendered in its sandboxed internal page.
+    case webPane
     /// This URL in a browser tab of the active workspace: a web app's https URL, or a remote
     /// pane's running instance.
     case web(URL)
@@ -48,6 +50,8 @@ public nonisolated enum AppOpenTarget: Sendable, Hashable {
     public init(_ manifest: AppManifest) {
         if manifest.scenePane != nil {
             self = .scenePane
+        } else if manifest.webPane != nil {
+            self = .webPane
         } else if manifest.remotePane {
             self = .notDeployed
         } else if let url = manifest.presentation?.web?.url, url.scheme?.lowercased() == "https", url.host?.isEmpty == false {

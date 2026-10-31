@@ -9,7 +9,8 @@ export const RiskLabel: Record<ScopeRisk, string> = {
   restricted: "store.risk.restricted",
 };
 
-export type StoreTab = "discover" | "installed";
+/** `review` is shown only to a registry reviewer (custom-panes-DESIGN.md 6.4). */
+export type StoreTab = "discover" | "installed" | "review";
 
 /** `apps.store.layout` (Debug Settings): grid is the default; list and split are DEV variants. */
 export type StoreLayout = "grid" | "list" | "split";
@@ -36,7 +37,7 @@ export function itemState(app: { installed: boolean; enabled?: boolean }): ItemS
   return app.enabled === false ? "off" : "installed";
 }
 
-/** The page's route from its URL fragment: `#/discover?layout=list&app=<id>`, `#/installed`. */
+/** The page's route from its URL fragment: `#/discover?layout=list&app=<id>`, `#/installed`, `#/review`. */
 export interface StoreRoute {
   tab: StoreTab;
   layout: StoreLayout;
@@ -49,7 +50,7 @@ export function parseRoute(hash: string): StoreRoute {
   const [path, query = ""] = text.split("?", 2);
   const params = new URLSearchParams(query);
   const name = path.replace(/^\//, "");
-  const tab: StoreTab = name === "installed" ? "installed" : "discover";
+  const tab: StoreTab = name === "installed" || name === "review" ? name : "discover";
   return {
     tab,
     layout: parseLayout(params.get("layout")),

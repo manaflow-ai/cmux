@@ -3,6 +3,7 @@ import type { ConversationDO } from "./conversation-do.ts"
 import type { MuxDO } from "./mux-do.ts"
 import type { ChiefBrainDO } from "./chief-brain/brain-do.ts"
 import type { OpencodeBrainDO } from "./chief-brain-opencode/brain-do.ts"
+import type { AppRegistryDO } from "./app-registry-do.ts"
 import type { ChiefDurableDO } from "./chief-durable/durable-do.ts"
 import type { AccountIndexDO } from "./account-index-do.ts"
 import type { DomainDO } from "./domain-do.ts"
@@ -150,6 +151,10 @@ export interface Env {
   readonly CLOUD_ADMIN_KEY?: string
   /** Comma-separated user ids who may use the Cloud admin routes (with CLOUD_ADMIN_KEY and their own verified session). */
   readonly CLOUD_ADMIN_USERS?: string
+  /** One AppRegistryDO ("global"): the reviewed app registry (custom-panes-DESIGN.md 6). Absent: the registry routes answer 503. */
+  readonly APP_REGISTRY_DO?: DurableObjectNamespace<AppRegistryDO>
+  /** Comma-separated user ids who may review app submissions (with their own verified session). Unset: the review routes answer 404. */
+  readonly APP_REVIEWERS?: string
   readonly CLOUD_FREESTYLE_API_URL?: string
   /** Var: the image every Cloud machine boots from; must start with cmuxnp-<env>-vmimg- (CLOUD-DEV-SNAPSHOT). */
   readonly CLOUD_FREESTYLE_SNAPSHOT?: string

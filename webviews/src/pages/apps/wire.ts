@@ -221,3 +221,57 @@ export async function listUpdates(client: Pick<PageClient, "call">): Promise<Upd
   const list = await client.call<WireUpdatesList>(AppsOps.updatesList, {});
   return { updates: list.updates.map(fromUpdate), revision: list.revision };
 }
+
+/** What the review and Community views show of a manifest v2: its name, version and scopes. */
+export interface ManifestSummary {
+  name?: string;
+  version?: string;
+  description?: string;
+  /** The manifest's `icon.symbol`, which the host draws (`glyph/<symbol>`). */
+  symbol?: string;
+  scopes: { scope: string; reason: string; optional: boolean }[];
+}
+
+/**
+ * Reads the fields a reviewer decides on from a submitted manifest (`scopes` and `optionalScopes`
+ * are `{scope: reason}` maps). The manifest is the submitter's text, so every field is checked.
+ */
+export function manifestSummary(manifest: unknown): ManifestSummary {
+  const record = isRecord(manifest) ? manifest : {};
+  const text = (value: unknown) => (typeof value === "string" ? value : undefined);
+  const scopes = (value: unknown, optional: boolean) =>
+    isRecord(value)
+      ? Object.entries(value).map(([scope, reason]) => ({ scope, reason: text(reason) ?? "", optional }))
+      : [];
+  return {
+    name: text(record.name),
+    version: text(record.version),
+    description: text(record.description),
+    symbol: isRecord(record.icon) ? text(record.icon.symbol) || undefined : undefined,
+    scopes: [...scopes(record.scopes, false), ...scopes(record.optionalScopes, true)],
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** A reviewed file: UTF-8 text when it decodes as text, else only its size. */
+export type DecodedFile = { kind: "text"; text: string; size: number } | { kind: "binary"; size: number };
+
+export function decodeFile(base64: string): DecodedFile {
+  let bytes: Uint8Array;
+  try {
+    const binary = atob(base64);
+    bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  } catch {
+    return { kind: "binary", size: 0 };
+  }
+  // A NUL byte or invalid UTF-8 means the file is not text a reviewer can read here.
+  if (bytes.includes(0)) return { kind: "binary", size: bytes.length };
+  try {
+    return { kind: "text", text: new TextDecoder("utf-8", { fatal: true }).decode(bytes), size: bytes.length };
+  } catch {
+    return { kind: "binary", size: bytes.length };
+  }
+}

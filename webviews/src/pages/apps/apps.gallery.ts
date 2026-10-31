@@ -1,6 +1,7 @@
 // l10n-allow-file: gallery fixtures (public-safe sample app data), not shipped UI.
 import { appsPageEntry, type AppsPageVariant } from "../../gallery/format";
-import { sampleApps } from "./mockProvider";
+import { sampleApps, sampleLocalApp, sampleRegistry } from "./mockProvider";
+import type { RegistryMe } from "./types";
 
 const base = sampleApps();
 const empty = { details: {}, installed: {}, grants: {} } satisfies AppsPageVariant["data"];
@@ -16,6 +17,32 @@ for (let index = 1; index <= 28; index += 1) {
     publisher: "Sample Publisher",
   };
 }
+
+// The community registry (custom-panes-DESIGN.md 6.4). A person who is not a reviewer sees no Review tab.
+const person: RegistryMe = { signedIn: true, user: "user_sample", reviewer: false, publishers: ["sample-studio"] };
+const community = { ...structuredClone(base), registry: sampleRegistry(person) };
+const communityInstalled = { ...structuredClone(base), registry: sampleRegistry(person) };
+communityInstalled.details["sample-studio/workspace-board"] = {
+  ...structuredClone(communityInstalled.registry.bundles["sample-studio/workspace-board"]!),
+  latest_version: "0.1.0",
+  installed: true,
+};
+communityInstalled.installed["sample-studio/workspace-board"] = {
+  id: "sample-studio/workspace-board",
+  name: "Workspace Board",
+  version: "0.1.0",
+  enabled: true,
+  hidden: false,
+  sandboxed: true,
+  source: "user",
+  tier: "unverified",
+};
+const publishing = (me: RegistryMe = person) => {
+  const data = { ...structuredClone(base), registry: sampleRegistry(me) };
+  data.installed["local/notes-pane"] = sampleLocalApp();
+  return data;
+};
+const reviewing = { ...structuredClone(base), registry: sampleRegistry() };
 
 // Hello Deploy (install = deploy + pin): its listing names where it runs, and once installed its
 // row shows the running instance. The machine is a sample name, never a fleet host.
@@ -71,6 +98,9 @@ export default appsPageEntry({
     "pages/apps/GrantsPanel.tsx",
     "pages/apps/parts.tsx",
     "pages/apps/items.tsx",
+    "pages/apps/Community.tsx",
+    "pages/apps/Submissions.tsx",
+    "pages/apps/ReviewView.tsx",
   ],
   variants: {
     list: {
@@ -146,6 +176,39 @@ export default appsPageEntry({
       note: "A deep link names an app that is no longer in the catalog.",
       hash: "#/discover?layout=split&app=sample.missing",
       data: base,
+    },
+    community: {
+      note: "Discover's Community section: approved registry apps with Get, under the catalog.",
+      hash: "#/discover?layout=grid",
+      data: community,
+    },
+    "community-installed": {
+      note: "A community app already installed at an older version offers its newer approved version.",
+      hash: "#/discover?layout=grid",
+      data: communityInstalled,
+    },
+    submissions: {
+      note: "Installed with a local app's Submit for Review and My Submissions: in review, approved, rejected with a reason.",
+      hash: "#/installed",
+      data: publishing(),
+    },
+    "submit-form": {
+      note: "The Submit for Review form with the publisher prefilled from the person's first publisher.",
+      action: "submit",
+      hash: "#/installed",
+      data: publishing(),
+    },
+    "submit-signed-out": {
+      note: "Signed out: Submit for Review shows the sign-in hint instead of the form.",
+      action: "submit",
+      hash: "#/installed",
+      data: publishing({ signedIn: false, user: null, reviewer: false, publishers: [] }),
+    },
+    review: {
+      note: "The reviewer's Review tab: the queue, the manifest summary, files, a file open as text, Approve and Reject.",
+      action: "review-file",
+      hash: "#/review",
+      data: reviewing,
     },
     "detail-error": {
       note: "The selected app detail fails once, then can be retried without losing selection.",

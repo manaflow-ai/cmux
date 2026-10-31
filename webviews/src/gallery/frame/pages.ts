@@ -4,8 +4,8 @@
 // and the code font (`appearance`), and for markdown the `markdown` settings (font family, size).
 import { HostError, installMockHost, type HostOp } from "../../../test/latency/mock-host";
 import type { PageClient } from "../../pages/shared/pageClient";
-import { AppsOps, OPEN_ACTION } from "../../pages/apps/types";
-import { sampleApps, MockAppsProvider } from "../../pages/apps/mockProvider";
+import { AppsOps, OPEN_ACTION, RegistryOps } from "../../pages/apps/types";
+import { MockAppsProvider } from "../../pages/apps/mockProvider";
 import type { PortForward } from "../../pages/cloud/ops";
 import { CloudOps, ACTION_RUN as CLOUD_ACTION_RUN, PAGE_COMMAND as CLOUD_PAGE_COMMAND } from "../../pages/cloud/ops";
 import { MockCloudProvider } from "../../pages/cloud/mockProvider";
@@ -307,16 +307,26 @@ function clickLater(selector: string): void {
 }
 
 export async function mountAppsPage(state: AppsPageVariant, _context: StageContext): Promise<void> {
-  const provider = new MockAppsProvider(JSON.parse(JSON.stringify(state.data)) as ReturnType<typeof sampleApps>);
+  const provider = new MockAppsProvider(JSON.parse(JSON.stringify(state.data)) as AppsPageVariant["data"]);
   if (state.detailError) {
     provider.failNext(AppsOps.catalogGet, new HostError(state.detailError.code, state.detailError.message));
   }
   const host = installMockHost(
-    pageOps(provider, [...Object.values(AppsOps), OPEN_ACTION.op, "cmux.page.connection", "cmux.page.command"], {
-      mode: state.mode === "normal" ? undefined : state.mode,
-      firstOperation: AppsOps.catalogList,
-      error: state.error,
-    }),
+    pageOps(
+      provider,
+      [
+        ...Object.values(AppsOps),
+        ...Object.values(RegistryOps),
+        OPEN_ACTION.op,
+        "cmux.page.connection",
+        "cmux.page.command",
+      ],
+      {
+        mode: state.mode === "normal" ? undefined : state.mode,
+        firstOperation: AppsOps.catalogList,
+        error: state.error,
+      },
+    ),
     [AppsOps.watch, "cmux.page.connection", "cmux.page.command"],
   );
   host.delayMs = 0;
@@ -325,6 +335,28 @@ export async function mountAppsPage(state: AppsPageVariant, _context: StageConte
   document.documentElement.dataset.cmuxWebviewKind = "apps";
   await import("../../pages/apps/main");
   if (state.action === "install") clickLater(".apps-button.primary");
+  if (state.action === "submit")
+    void clickWhenShown('.apps-installed-actions [aria-pressed="false"].apps-submit-toggle');
+  if (state.action === "review-file")
+    void clickWhenShown(".apps-review .apps-row-open").then(() => clickWhenShown(".apps-review-file"));
+}
+
+/** Clicks the first element matching `selector` once the page renders it (no fixed wait). */
+function clickWhenShown(selector: string): Promise<void> {
+  return new Promise((resolve) => {
+    const click = (): boolean => {
+      const element = document.querySelector<HTMLElement>(selector);
+      if (!element) return false;
+      element.click();
+      resolve();
+      return true;
+    };
+    if (click()) return;
+    const observer = new MutationObserver(() => {
+      if (click()) observer.disconnect();
+    });
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+  });
 }
 
 export async function mountCloudPage(state: CloudPageVariant, _context: StageContext): Promise<void> {

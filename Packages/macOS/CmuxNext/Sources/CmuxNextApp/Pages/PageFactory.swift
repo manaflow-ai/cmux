@@ -44,9 +44,34 @@ struct PageFactory {
     func appsWebPage(route: String?) -> PageWebView? {
         let confirming = appsStoreProvider()
         let native = AppPageNativeProvider(services: services, page: .apps)
-        let routes = [PageRoute(prefix: "cmux.apps.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: native)]
+        // `cmux.registry.` is the community (custom-panes-DESIGN.md 6.4) over the person's Cloud session.
+        let api = AppRegistryAPI(baseURL: services.cloud.configuration.ownerAPIBaseURL(),
+                                 accessToken: { [auth = services.cloud.auth] in try await auth.tokens().access })
+        let client = services.apps.client
+        let provider = AppRegistryPageProvider(api: api, pack: { [weak client] app, publisher throws(PageError) in
+            guard let client else { throw PageError(code: "apps.unavailable", message: "the App Store is closing") }
+            do throws(AppRegistrySubmission.Failure) {
+                let packed = try await client.registrySubmission(app: app, publisher: publisher)
+                return (packed.manifest.settingsValue, packed.files)
+            } catch { throw PageError(code: "registry.package", message: error.message) }
+        }, put: { [weak client] app, version, sha256, files throws(PageError) in
+            do throws(AppsClientError) {
+                guard let client else { throw .unavailable(.notConnected) }
+                try await client.registryPut(app: app, version: version, sha256: sha256, files: files)
+            } catch {
+                guard case .refused(let refusal) = error else { throw PageError(code: "apps.unavailable", message: error.description) }
+                throw PageError(code: refusal.code ?? "apps.registry.failed", message: refusal.message)
+            }
+        })
+        let community = PolicyGatedPageProvider(inner: provider) { [weak apps = services.apps] in apps?.transport.turnedOff }
+        let registry = ConfirmingPageProvider(inner: community, presenter: DialogPageConfirmationPresenter()) { op, params in
+            PageConfirmation.appRegistry(op: op, params: params)
+        }
+        let routes = [PageRoute(prefix: "cmux.apps.", provider: confirming), PageRoute(prefix: AppRegistryPageProvider.prefix, provider: registry),
+                      PageRoute(prefix: "cmux.app.", provider: native)]
         guard let page = PageWebView(descriptor: .apps, routes: routes, route: route, dynamicResources: AppsGlyphResource()) else { return nil }
         confirming.anchor = { [weak page] in page }
+        registry.anchor = { [weak page] in page }
         native.anchor = { [weak page] in page }
         PageConnectionWatch(page: page, store: services.machines.local.store).start()
         return page

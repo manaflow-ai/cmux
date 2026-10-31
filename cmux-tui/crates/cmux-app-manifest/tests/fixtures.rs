@@ -137,3 +137,20 @@ fn package_paths_are_checked() {
     assert_eq!(got, vec![("/runtime/main", "path.notInFiles"), ("/catalog", "path.missing")]);
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn a_web_pane_policy_may_only_narrow_what_the_page_loads() {
+    let pane = |csp: &str| {
+        manifest(json!({ "implements": { "cmux.pane/1": { "web": "web/index.html" } },
+            "runtime": { "web": { "root": "web", "csp": csp } } }))
+    };
+    assert!(codes(&pane("img-src 'self'; connect-src 'none'")).is_empty());
+    assert!(codes(&pane("sandbox allow-scripts, default-src 'self'")).is_empty());
+    for csp in [
+        "img-src 'self'; report-uri https://evil.example/r",
+        "report-to leak",
+        "default-src 'self', Navigate-To https://evil.example",
+    ] {
+        assert_eq!(codes(&pane(csp)), vec!["csp.directive"], "{csp}");
+    }
+}

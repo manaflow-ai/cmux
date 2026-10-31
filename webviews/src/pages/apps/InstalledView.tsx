@@ -1,20 +1,26 @@
 // Installed: every installed app with Enabled, Update, Permissions, Logs, Hide/Show and Remove (Swift
 // AppInstalledView); first-party apps have no Remove (FIRST-PARTY-APPS). Logs show the owner's last lines.
+// A local app (`local/<name>`) also has Submit for Review, and My Submissions lists what the person
+// sent to the community registry (custom-panes-DESIGN.md 6.4).
 import type { Strings } from "../shared/i18n";
 import { GrantsPanel } from "./GrantsPanel";
 import { isRemovable } from "./model";
 import { AppIcon, Badge, Switch } from "./parts";
-import type { AppsSnapshot, AppsStore } from "./store";
+import { NO_REGISTRY, type AppsSnapshot, type AppsStore } from "./store";
+import { MySubmissions, SubmitForm } from "./Submissions";
+import { isLocalApp } from "./types";
 import { UpdatesView } from "./UpdatesView";
 
 export function InstalledView({ snap, store, strings }: { snap: AppsSnapshot; store: AppsStore; strings: Strings }) {
   const { t, format } = strings;
+  const submitFor = (snap.registry ?? NO_REGISTRY).submitFor;
   if (snap.installed.length === 0)
     return <div className="apps-empty">{snap.loading ? "" : t("store.empty.noneInstalled")}</div>;
   return (
     <div className="apps-scroll">
       <div className="apps-installed">
         <UpdatesView snap={snap} store={store} strings={strings} />
+        <MySubmissions snap={snap} strings={strings} />
         {snap.installed.map((app) => {
           const grants = snap.grants[app.id];
           const logs = snap.logs[app.id] ?? [];
@@ -74,6 +80,16 @@ export function InstalledView({ snap, store, strings }: { snap: AppsSnapshot; st
                   >
                     {t(app.hidden ? "store.action.show" : "store.action.hide")}
                   </button>
+                  {isLocalApp(app.id) && (
+                    <button
+                      type="button"
+                      className={`apps-button apps-submit-toggle${submitFor === app.id ? " pressed" : ""}`}
+                      aria-pressed={submitFor === app.id}
+                      onClick={() => store.toggleSubmit(app.id)}
+                    >
+                      {t("store.registry.submit")}
+                    </button>
+                  )}
                   {isRemovable(app) && (
                     <button type="button" className="apps-button" onClick={() => void store.uninstall(app.id)}>
                       {t("store.action.remove")}
@@ -81,6 +97,7 @@ export function InstalledView({ snap, store, strings }: { snap: AppsSnapshot; st
                   )}
                 </div>
               </div>
+              {submitFor === app.id && <SubmitForm app={app.id} snap={snap} store={store} strings={strings} />}
               {snap.grantsShown === app.id && grants && <GrantsPanel grants={grants} store={store} strings={strings} />}
               {snap.logsShown === app.id && (
                 <pre className="apps-logs selectable">

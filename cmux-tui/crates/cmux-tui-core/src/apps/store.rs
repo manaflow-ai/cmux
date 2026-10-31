@@ -305,6 +305,7 @@ pub(crate) fn store_op_mutates(op: &str) -> bool {
             | "apps.hidden.set"
             | "apps.grant.set"
             | "apps.grant.revoke"
+            | "apps.registry.put"
     )
 }
 
@@ -331,6 +332,7 @@ impl Supervisor {
             "apps.uninstall" => {
                 params(args).and_then(|p| self.store_install(client, p, origin, false))
             }
+            "apps.registry.put" => params(args).and_then(|p| self.registry_put(p)),
             other => self.panel_call(client, other, args, origin).unwrap_or_else(|| {
                 Err(ApiError::new("apps.op.unknown", format!("{op} is not an App Store op")))
             }),

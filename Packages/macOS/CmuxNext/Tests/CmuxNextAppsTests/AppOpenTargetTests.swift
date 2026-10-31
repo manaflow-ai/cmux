@@ -32,6 +32,17 @@ struct AppOpenTargetTests {
         #expect(AppOpenTarget(manifest) == .scenePane)
     }
 
+    @Test func aPackagedWebPaneOpensItsSandboxedPage() throws {
+        let manifest = try #require(AppManifest(json: [
+            "id": "local/board", "manifestVersion": 2,
+            "runtime": ["web": ["root": "web/"]],
+            "implements": ["cmux.pane/1": ["web": "web/index.html"]],
+            "presentation": ["web": ["url": "https://acme.example/"]],
+        ]))
+        #expect(AppOpenTarget(manifest) == .webPane)
+        #expect(AppOpenTarget(AppRecord(manifest: manifest, tier: .unverified, installed: true, source: .user)) == .webPane)
+    }
+
     @Test func onlyHTTPSWebAppsOpen() throws {
         let manifest = try #require(AppManifest(json: [
             "id": "acme/plain", "manifestVersion": 2,
