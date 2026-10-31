@@ -234,6 +234,11 @@ struct ControlCommandExecutionPolicyTests {
         )
     }
 
+    @Test(arguments: ["surface.icon.set", "surface.icon.clear"])
+    func surfaceIconMutationsRunOffMain(method: String) {
+        #expect(ControlCommandExecutionPolicy(forMethod: method) == .socketWorker(mainThreadCallable: false))
+    }
+
     @Test func terminalReadsRunOnTheWorkerAndAreNotMainThreadCallable() {
         // Tranche C (issue #5757): the Ghostty capture is one v2MainSync hop,
         // the (possibly multi-MB) scrollback formatting runs on the worker.
