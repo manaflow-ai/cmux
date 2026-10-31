@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-31: the Tidy Up card no longer pops up on its own. Lawrence (msgs 18515, 18517, a shot of "1 workspaces
+  look idle"): "should have option to turn on auto-archive, think of how to make ui as minimal as possible" and "this
+  thing annoying pls fix faster". `workspaces.autoArchive.style` now defaults to `manual` (nothing in the background;
+  Archive Idle Workspaces in the sidebar menu and palette still archives). With `suggest` the card is one line,
+  "Archive 2 idle workspaces?" (singular for one), the names, **Archive** and **Always Archive** (writes `quiet`);
+  no "Tidy Up" heading, no paragraph; the x is Not Now. Settings > General > Auto-Archive is the one setting.
+  Regression: `AutoArchiveCoordinatorTests.theDefaultStyleNeverPopsACardOrArchivesOnItsOwn`,
+  `theCardIsOneQuestionWithArchiveAndAlwaysArchive`.
 - 2026-10-31: record the terminal cwd-title change in b648fd2d603 (#28059).
   The reported defect was: "Two terminal tabs in one workspace are both titled
   \"Terminal\" / \"~\"." Non-home cwd-derived titles remain visible in sidebar
