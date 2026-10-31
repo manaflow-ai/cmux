@@ -143,6 +143,34 @@ class MakeVideoTests(unittest.TestCase):
         self.assertIsNotNone(gif)
         self.assertEqual(envs, [{"PATH": "/usr/bin"}] * 2)
 
+    def argv_for(self, manifest):
+        calls = []
+
+        def run(argv, **kwargs):
+            calls.append(argv)
+            Path(argv[-1]).write_bytes(b"x")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as scratch, \
+                mock.patch.object(publish.shutil, "which", return_value="/usr/bin/ffmpeg"):
+            publish.make_video(Path(scratch), manifest, Path(scratch), FakePrMedia(), run=run)
+        return calls[0]
+
+    def seconds(self, frames, interval):
+        argv = self.argv_for({"frames": list(range(frames)), "frame_interval": interval})
+        return frames / float(argv[argv.index("-framerate") + 1])
+
+    def test_a_15_second_tour_makes_a_15_second_video(self):
+        # Leo, 2026-10-31: "you guys always only ever seem to be able to record 5 second videos".
+        self.assertAlmostEqual(self.seconds(30, 0.5), 15.0)  # display route, a frame every 0.5 s
+        self.assertAlmostEqual(self.seconds(15, 1.0), 15.0)  # app-window route, a frame every 1.0 s
+
+    def test_a_missing_or_bad_interval_uses_the_default(self):
+        for manifest in ({"frames": [1, 2]}, {"frames": [1, 2], "frame_interval": "fast"},
+                         {"frames": [1, 2], "frame_interval": 0}, {"frames": [1, 2], "frame_interval": True}):
+            argv = self.argv_for(manifest)
+            self.assertEqual(argv[argv.index("-framerate") + 1], "2")
+
 
 if __name__ == "__main__":
     unittest.main()

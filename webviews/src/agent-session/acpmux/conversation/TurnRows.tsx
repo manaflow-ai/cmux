@@ -1,4 +1,3 @@
-import { PullRequestDock, useHasPullRequestDock } from "../summary/PullRequestDock";
 // Turn rows for the pane's transcript: the "Worked for" disclosure, tool rows and the
 // footer under an answer. Markup and metrics from reference prototype (messages.tsx,
 // TurnMessage.tsx); each component takes the pane's row and draws one transcript entry.
@@ -312,7 +311,6 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
 /// count here first.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
-  const prDock = useHasPullRequestDock();
   const {
     fork,
     forkSeq,
@@ -409,7 +407,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
                 ? "cv-turn-actions cv-turn-actions--empty"
                 : "cv-turn-actions"
         }
-        data-pr-dock={prDock ? "" : undefined}
       >
         <MessageFooterRow className="cv-turn-footer-row">
           {label && (
@@ -481,7 +478,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           </span>
           <MessageTime at={row.at} className="cv-turn-time" />
         </MessageFooterRow>
-        <PullRequestDock />
       </div>
     </>
   );
