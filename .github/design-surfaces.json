@@ -50,7 +50,10 @@
         "webviews/src/ui/FeatureTip.tsx",
         "webviews/src/ui/featureTip.css",
         "webviews/src/ui/featureTips/",
-        "webviews/src/agent-session/acpmux/featureTips.tsx"
+        "webviews/src/agent-session/acpmux/featureTips.tsx",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneFeatureTips.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/FeatureTipBudget.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Tips/"
       ]
     },
     "new-tab": {
