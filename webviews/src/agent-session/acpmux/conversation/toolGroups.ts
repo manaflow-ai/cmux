@@ -180,13 +180,15 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     held = [];
   };
   for (const item of mergeThoughts(items)) {
-    if (run && run.kind !== "edits" && isThought(item)) {
-      held.push(item);
-      continue;
-    }
+    // A thought inside an open run of commands, reads or searches waits in `held` for the run's
+    // next call; any other thought (none open, or an edits run) closes what is open and waits in
+    // `lead` to open the next run.
     if (isThought(item)) {
-      close(true);
-      lead.push(item);
+      if (run && run.kind !== "edits") held.push(item);
+      else {
+        close(true);
+        lead.push(item);
+      }
       continue;
     }
     const tool = item.tool;

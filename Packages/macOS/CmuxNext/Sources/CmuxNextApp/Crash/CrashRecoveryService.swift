@@ -152,7 +152,7 @@ final class CrashRecoveryService {
     /// A requested quit has begun (`AppRunMarker.markQuitting`); returns
     /// once that is on disk or its deadline passed.
     func quitBegan() async {
-        await marker?.markQuitting()
+        await marker?.markQuitting(timeout: QuitDeadline.quitMarkLimit)
     }
 
     /// A normal quit.
