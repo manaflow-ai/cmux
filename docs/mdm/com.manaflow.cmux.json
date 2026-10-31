@@ -1426,6 +1426,12 @@
       "title" : "Hosts to Open in Embedded Browser",
       "type" : "array"
     },
+    "browser.import.cookieBanner" : {
+      "default" : true,
+      "description" : "Browser tabs offer to import cookies from your other browsers, so you stay signed in. Nothing imports until you click Import. Don't Show Again on the banner turns this off.",
+      "title" : "Offer to Import Cookies",
+      "type" : "boolean"
+    },
     "browser.import.enabled" : {
       "default" : true,
       "description" : "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays.",
@@ -1540,6 +1546,15 @@
       "title" : "Address Bar Corners",
       "type" : "string"
     },
+    "browser.omnibar.fontSize" : {
+      "default" : "density",
+      "description" : "The size of the address and the suggestions. Match Density follows the density. Also accepts a number from 10 to 24 in a raw profile.",
+      "enum" : [
+        "density"
+      ],
+      "title" : "Address Bar Text Size",
+      "type" : "string"
+    },
     "browser.omnibar.glass" : {
       "default" : "off",
       "description" : "The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color.",
@@ -1570,6 +1585,15 @@
       "minimum" : 0,
       "title" : "Tint Strength",
       "type" : "number"
+    },
+    "browser.omnibar.height" : {
+      "default" : "density",
+      "description" : "Match Density follows the density. The bar always grows to fit its text. Also accepts a number from 20 to 56 in a raw profile.",
+      "enum" : [
+        "density"
+      ],
+      "title" : "Address Bar Height",
+      "type" : "string"
     },
     "browser.omnibar.inlineAutocomplete" : {
       "default" : true,
@@ -3859,6 +3883,12 @@
       "title" : "Mark This Mac's Workspaces",
       "type" : "boolean"
     },
+    "sidebar.showNewWorkspaceChooser" : {
+      "default" : false,
+      "description" : "A chevron beside the + in the sidebar's titlebar opens the New Workspace menu. Off, right-click the + for the same menu.",
+      "title" : "Show New Workspace Menu Button",
+      "type" : "boolean"
+    },
     "sidebar.showProfileControl" : {
       "default" : true,
       "description" : "sidebar.showProfileControl",
@@ -3887,12 +3917,6 @@
       "default" : false,
       "description" : "Workspace rows show when they last changed: a time today, else an age such as 3d. Off, rows show no times; the hover card still does.",
       "title" : "Show Timestamps",
-      "type" : "boolean"
-    },
-    "sidebar.showWorkspaceTabs" : {
-      "default" : false,
-      "description" : "Lists tabs beneath each workspace in the sidebar.",
-      "title" : "Show Workspace Tabs",
       "type" : "boolean"
     },
     "sidebar.side" : {
@@ -4631,12 +4655,6 @@
       "title" : "Swap Cmd-T and Cmd-N",
       "type" : "boolean"
     },
-    "tabs.terminalFirst" : {
-      "default" : false,
-      "description" : "New tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic, instead of the New Tab page. To open the New Tab page while this is on, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P). Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab.",
-      "title" : "cmux Classic Mode",
-      "type" : "boolean"
-    },
     "tabs.toolbarButtons" : {
       "default" : [
 
@@ -4962,7 +4980,7 @@
       "type" : "number"
     },
     "workspaces.autoArchive.style" : {
-      "default" : "suggest",
+      "default" : "manual",
       "description" : "What cmux does with workspaces you have not used for a while. Archived workspaces stay in their group, dimmed and last, and come back when you open them.",
       "enum" : [
         "suggest",

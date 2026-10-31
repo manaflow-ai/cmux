@@ -21,8 +21,8 @@ struct DaemonClosedBrowserPageTests {
             try await PinnedPageTests.until({ surfaces.allSatisfy { store.tab(surface: $0)?.resourceID != nil } })
             let tabs = try surfaces.map { try #require(store.tab(surface: $0)) }
             for tab in tabs { _ = services.cache.browser(for: tab) }
-            // The tab left open lets its page go when the test ends, as a closed tab's does.
-            defer { services.cache.release(tabs[0].id) }
+            // Release both even if the close request or its wait fails; an already retired tab is harmless.
+            defer { for tab in tabs { services.cache.release(tab.id) } }
             #expect(tabs.allSatisfy { services.cache.hasContent(for: $0.id) }, "each tab has its page")
 
             let closing = tabs[1]

@@ -122,6 +122,50 @@ struct AgentPageTerminationsTests {
         #expect(chat.showsCrashNotice && chat.crashReloadCount == 0)
     }
 
+    /// The user's report (2026-10-30, "i see agent pane crashed but it looks fine"): the notice
+    /// stayed over a chat that was live again. Nothing but the person's Reload took it away, so a
+    /// page that loaded a document again after the end (the host opened a route, a pooled page was
+    /// retargeted, Chromium fell back to WebKit and loaded) kept "The agent pane crashed." on top of
+    /// a working chat. A finished document load is proof the page lives: the notice goes, the chat
+    /// leaves its crash group, and nothing reloads it.
+    @Test func aChatThatLoadsAgainDropsTheNotice() throws {
+        let (file, cleanup) = try Self.pageFile()
+        defer { cleanup() }
+        let terminations = Self.terminations(Markers())
+        let live = try Self.chat("s-live", file: file, terminations: terminations)
+        let dead = try Self.chat("s-dead", file: file, terminations: terminations)
+        live.webContentProcessDidTerminate(PageTermination(reason: .crash, pid: 80_001))
+        dead.webContentProcessDidTerminate(PageTermination(reason: .crash, pid: 80_001))
+        #expect(live.showsCrashNotice && dead.showsCrashNotice)
+
+        let navigation = try #require(live.webView.navigationDelegate as? AgentPaneNavigation)
+        navigation.webView(live.webView, didFinish: nil)
+        #expect(!live.showsCrashNotice, "the notice stayed over a chat whose page loaded again")
+        #expect(terminations.event(of: live) == nil, "a live chat stayed in its crash group")
+        #expect(live.crashReloadCount == 0, "a chat that recovered was reloaded")
+        #expect(dead.showsCrashNotice, "a chat that did not load again lost its notice")
+
+        // The sibling's Reload no longer reloads the chat that came back by itself.
+        #expect(dead.debugPressCrashNoticeReload())
+        #expect(live.crashReloadCount == 0 && dead.crashReloadCount == 1)
+    }
+
+    /// The same on the shared page host: the page finished a document after its end (either
+    /// engine reports it through ``PageWebView/documentFinished()``), so its pane drops the notice.
+    @Test func aPageHostChatThatLoadsAgainDropsTheNotice() throws {
+        let file = try #require(AgentPageTestRoot.page)
+        let terminations = Self.terminations(Markers())
+        let chat = try Self.chat("s-page-live", file: file, pageHost: true, terminations: terminations)
+        let page = try #require(chat.page)
+        page.webContentEnded(PageTermination(reason: .crash, pid: 80_002))
+        #expect(chat.showsCrashNotice)
+        page.webView(page.webKitView, didFinish: nil)
+        #expect(!chat.showsCrashNotice, "the notice stayed over a page host chat that loaded again")
+        #expect(terminations.event(of: chat) == nil)
+        #expect(chat.crashReloadCount == 0)
+        page.close()
+    }
+
     /// A chat closed while its crash group waits is not reloaded by a sibling's Reload.
     @Test func aClosedChatLeavesItsGroup() throws {
         let (file, cleanup) = try Self.pageFile()
