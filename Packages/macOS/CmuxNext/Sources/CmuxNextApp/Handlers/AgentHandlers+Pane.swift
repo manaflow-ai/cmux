@@ -15,13 +15,16 @@ extension AgentHandlers {
     /// still fail normally instead of switching panes.
     static func withAgentPane(_ invocation: ActionInvocation, context: AppActionContext, seed: AgentPaneSeed,
                               _ open: @escaping @MainActor (PaneController) -> Void) {
-        if let pane = context.scope(invocation).pane { return open(pane) }
+        // A shown pane target may allow a view change (for example, a context-menu action).
+        // Resolve that explicit target before applying the untargeted top-page route.
+        if invocation.target != nil, let pane = context.scope(invocation).pane { return open(pane) }
         guard invocation.target == nil else { return context.refuse(MiscHandlerStrings.noPane) }
         // Over a top page the parked workspace's panes never mount: a new workspace, or a refusal now.
         if context.activeWindow?.state.page != nil {
             if !openChatWorkspaceOverTopPage(invocation, context: context, seed: seed) { context.refuse(MiscHandlerStrings.noPane) }
             return
         }
+        if let pane = context.scope(invocation).pane { return open(pane) }
         guard let workspace = context.scope(invocation).workspace else { return context.refuse(MiscHandlerStrings.noPane) }
         _ = context.registry.perform("newTab.default", invocation: invocation)
         context.registry.track(Task { @MainActor in
@@ -67,7 +70,7 @@ extension AgentHandlers {
         if wanted == destinations.local.id {
             destination = destinations.local
         } else {
-            let rows = await destinations.load()
+            let rows = await destinations.load(for: wanted)
             guard let remote = AgentChatDestinations.resolve(wanted, in: rows) else {
                 return .failure(ActionWorkFailure(refusal: .notFound, reason: WorkspaceVerbStrings.noMachine))
             }
@@ -87,7 +90,7 @@ extension AgentHandlers {
             routed.arguments["host"] = .string(peer)
         }
         switch destination.route {
-        case .cloud: break
+        case .cloud, .pending: break
         case .local, .peer:
             if let target = invocation.target {
                 guard AgentChatPlacement.resolve(target, services: context.services)?.daemon.isLocal == true else {
