@@ -107,6 +107,15 @@ on:
         required: false
         default: "mac"
         type: string
+      # An owned Mac the caller found idle for both macOS targets (cmux-tui-artifacts.yml's tree-preflight,
+      # scripts/ci/portable_job_placement.py). With darwin_builder linux, the macOS targets then build
+      # natively on it (the Mac path darwin_builder mac and the Linux build's fallback use) instead of the
+      # Linux cross build on Blacksmith 32 vCPU. macos-cross-parity.yml keeps the two builds equal.
+      darwin_mac_runner:
+        description: "Optional owned macOS runner label the macOS targets build on natively when darwin_builder is linux"
+        required: false
+        default: ""
+        type: string
     outputs:
       # cmux-tui-artifacts.yml publishes the Windows daemon in its own pass
       # only when this is true: an optional (windows_optional) Windows build
@@ -146,6 +155,7 @@ jobs:
           PACKAGE_PYPI: ${{ inputs.package_pypi }}
           BUILD_AGENT_PLUGIN: ${{ inputs.build_agent_plugin }}
           DARWIN_BUILDER: ${{ inputs.darwin_builder }}
+          DARWIN_MAC_RUNNER: ${{ inputs.darwin_mac_runner }}
           # The binary legs on Linux run their cargo groups at once
           # (scripts/ci/cargo-groups.sh), so they take 32 vCPU: on 4 (musl) and
           # 8 (macOS cross) vCPU a leg took 20-46 min (runs 39336743829, 39337840188).
@@ -207,7 +217,13 @@ jobs:
                   raise SystemExit("darwin_builder=linux does not build npm or PyPI packages")
               if os.environ["BUILD_AGENT_PLUGIN"] == "true":
                   raise SystemExit("darwin_builder=linux does not build the agent plugin")
+          # A free owned Mac comes first for the macOS targets: they build natively there.
+          darwin_mac_runner = os.environ.get("DARWIN_MAC_RUNNER", "").strip()
           for target in targets:
+              if darwin_builder == "linux" and darwin_mac_runner and target["target"].endswith("-apple-darwin"):
+                  target["darwin_on_linux"] = False
+                  target["runner"] = darwin_mac_runner
+                  continue
               target["darwin_on_linux"] = (
                   darwin_builder == "linux" and target["target"].endswith("-apple-darwin")
               )

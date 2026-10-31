@@ -136,6 +136,34 @@ await requireBrowserLane("inspector-section-order-browser.test.tsx", async () =>
       }
     });
 
+    test("the default order draws the three blocks: 6px inside a block, none where it runs, 8px, a hairline, 8px between", async () => {
+      const page = await browser.newPage({ viewport: { width: 400, height: 1400 } });
+      try {
+        await show(page);
+        const geometry = await page.evaluate(() => {
+          const box = (id: string) => document.querySelector(`[data-slot="${id}"]`)!.getBoundingClientRect();
+          const rule = (id: string) => {
+            const before = getComputedStyle(document.querySelector(`[data-slot="${id}"]`)!, "::before");
+            return before.content !== "none";
+          };
+          return {
+            about: [box("context").top - box("environment").bottom, box("connectors").top - box("context").bottom],
+            made: box("sources").top - box("changes").bottom,
+            between: [box("changes").top - box("connectors").bottom, box("subagents").top - box("outputs").bottom],
+            rules: ["environment", "context", "changes", "sources", "subagents", "tasks"].map(rule),
+          };
+        });
+        expect(geometry.about).toEqual([0, 0]);
+        expect(geometry.made).toBeCloseTo(6, 1);
+        // This page has no desktop.css, so the hairline is its 0.5px fallback.
+        for (const gap of geometry.between) expect(gap).toBeCloseTo(16.5, 1);
+        // The hairline over the first section of each block but the first, and nowhere else.
+        expect(geometry.rules).toEqual([false, false, true, false, true, false]);
+      } finally {
+        await page.close();
+      }
+    });
+
     test("hovering a section shows its handle in the left padding, and nothing moves", async () => {
       const page = await browser.newPage({ viewport: { width: 400, height: 1400 } });
       try {
