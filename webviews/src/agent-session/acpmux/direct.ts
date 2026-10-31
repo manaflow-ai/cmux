@@ -4325,7 +4325,10 @@ export class AcpmuxDirectClient {
     const previous = new Map(this.rows);
     this.unknownSenders.clear();
     // A prompt still in flight keeps its optimistic row until an event settles it; a failed one stays to show it was not sent.
-    const inFlight = new Set([...this.optimisticPromptRows.values(), ...this.promptRowKeys.values()]);
+    // Only prompts still awaiting acceptance are retained before replay. Durable keys are used
+    // when their replayed user_message is reduced, but retaining every historical key here would
+    // keep future rows visible when a seek replays only an earlier event window.
+    const inFlight = new Set(this.optimisticPromptRows.values());
     // Those rows keep their place in the order.
     this.rows.retain((row) => row.failed === true || inFlight.has(row.id));
     this.waitingSteers = [];
