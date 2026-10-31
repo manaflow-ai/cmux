@@ -137,22 +137,14 @@ enum ChatMotion {
         }
     }
 
-    /// How long a native row's disclosure holds the tapped line: the transcript reloads the
-    /// row later in this turn and its layout pass then plays on the shared spring.
-    static let discloseHoldSeconds: Double = 0.45
-
     /// A native row's disclosure tap (a tool's output, a tool group, a thought), as the
     /// SwiftUI rows' `toggleDisclosure`: the transcript holds the tapped line, so a reader
-    /// on the newest row is not carried to the new bottom past what they opened. The hold
-    /// ends once, after `discloseHoldSeconds` (the transcript's own 1.5 s cap backs it).
+    /// on the newest row is not carried to the new bottom past what they opened. The row's
+    /// change is a UIKit reload with no SwiftUI completion to end the hold on, so the
+    /// transcript's own cap (`foldHoldCapSeconds`, started by `begin`) ends it; no new timer.
     static func disclose(_ hold: TranscriptFoldHold, _ change: () -> Void) {
         hold.begin()
         set(change)
-        let end = hold.end
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(discloseHoldSeconds))
-            end()
-        }
     }
 }
 

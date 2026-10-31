@@ -6,7 +6,7 @@ import UIKit
 /// A native tool row's disclosure tap changed the open state without the transcript's
 /// hold (the SwiftUI rows' `toggleDisclosure` has one), so a reader on the newest row was
 /// carried to the new bottom past the output they opened. The tap now holds the tapped
-/// line, as the SwiftUI rows do, and lets go once.
+/// line, as the SwiftUI rows do; the transcript's cap lets go.
 @MainActor
 @Suite struct NativeDisclosureHoldTests {
     @MainActor final class Holds {
@@ -14,7 +14,7 @@ import UIKit
         var ended = 0
     }
 
-    @Test func aNativeToolTapHoldsTheTappedLine() async throws {
+    @Test func aNativeToolTapHoldsTheTappedLine() {
         let store = AgentChatStore(source: SmoothChatTests.Silent())
         let surface = AgentChatSurface()
         let holds = Holds()
@@ -27,9 +27,6 @@ import UIKit
         #expect(holds.begun == 1, "the tap holds the line before the row opens")
         #expect(surface.disclosures.isOpen("tool-c1") == true)
         #expect(holds.ended == 0, "held while the row's layout plays")
-        let deadline = ContinuousClock.now.advanced(by: .seconds(3))
-        while holds.ended == 0, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
-        #expect(holds.ended == 1, "the hold ends once")
     }
 }
 #endif
