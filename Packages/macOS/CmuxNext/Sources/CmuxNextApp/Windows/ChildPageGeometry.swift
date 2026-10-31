@@ -49,14 +49,16 @@ enum ChildPageGeometry {
         guard let window = controller.window else { return ([], []) }
         var hosts: [Host] = []
         for pane in controller.content?.panes.values.map({ $0 }) ?? [] {
-            guard case .browser(let entry)? = pane.currentContent, entry.tab.presentation == .childWindow else { continue }
-            let content = entry.tab.contentView
+            // A Chromium browser tab, or an agent chat, New Tab page or cmux page in Chromium: each has its page window.
+            guard let tab = pane.currentContent?.childWindowTab else { continue }
+            let content = tab.contentView
             guard content.window === window, !content.isHiddenOrHasHiddenAncestor, !content.bounds.isEmpty else { continue }
             let contentRect = window.convertToScreen(content.convert(content.bounds, to: nil))
-            let devTools = (entry.tab as? CEFTab)?.devToolsDiagnosticFrames
+            let devTools = (tab as? CEFTab)?.devToolsDiagnosticFrames
             hosts += expectedHosts(pane: pane.paneKey, contentRect: contentRect, devTools: devTools)
         }
-        let pages = window.isVisible ? WindowOverlayLayer.contentChildWindows(of: window).map(\.frame) : []
+        // A page window parked off every screen (the New Tab spare) covers nothing; one at its host's rect is kept (a pane past the display edge).
+        let pages = window.isVisible ? WindowOverlayLayer.contentChildWindows(of: window).map(\.frame).filter { page in NSScreen.screens.contains { $0.frame.intersects(page) } || hosts.contains { distance(page, $0.screenRect) <= tolerance } } : []
         return (hosts, pages)
     }
 
