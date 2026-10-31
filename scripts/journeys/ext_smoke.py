@@ -180,10 +180,38 @@ def _realkey():
     return ext_realkey
 
 
+_MOD_NAMES = {"cmd": "cmd", "shift": "shift", "opt": "option", "ctrl": "control"}
+
+
+def _bound_key(j, step):
+    """`command` (an action id, e.g. newColumn): the key the BUILD binds to it now (`keybinding.list {command}`, its
+    first single-stroke binding without a `when`, else its first single-stroke binding), so the gate presses the key
+    the build ships (New Column's default changes off Ctrl-Cmd-D, coordinator 13:2xZ: macOS's Look Up owns that key).
+    A build without keybinding.list, or with no binding: the step's own key and modifiers. Returns (key, modifiers,
+    where the key came from)."""
+    if not step.get("command"):
+        return step["key"], list(step.get("modifiers", [])), "journey"
+    try:
+        reply = j.app.rpc("keybinding.list", {"command": step["command"]}) or {}
+    except D.StepError as error:
+        return step["key"], list(step.get("modifiers", [])), f"journey (keybinding.list: {str(error)[:120]})"
+    rows = [r for r in reply.get("bindings") or [] if isinstance(r, dict) and r.get("command") == step["command"]
+            and r.get("key") and " " not in str(r["key"]) and not r.get("unset")]
+    rows.sort(key=lambda r: r.get("when") is not None)
+    if not rows:
+        return step["key"], list(step.get("modifiers", [])), "journey (the build binds no single key to it)"
+    parts = str(rows[0]["key"]).split("+")
+    mods = [_MOD_NAMES.get(m, m) for m in parts[:-1]]
+    return parts[-1], mods, f"build ({rows[0]['key']}, {rows[0].get('source')})"
+
+
 def step_smoke_key(j, step):
-    """The driver's `key` step on the journey's key path (`_key_path`); the result names the path it used."""
+    """The driver's `key` step on the journey's key path (`_key_path`); the result names the path it used. With
+    `command`, the key is the one the build binds to that action (`_bound_key`)."""
+    key, mods, source = _bound_key(j, step)
+    step = dict(step, key=key, modifiers=mods)
     if _key_path(j) == "debug.key":
-        return dict(j.step_key(step), key_path="debug.key")
+        return dict(j.step_key(step), key_path="debug.key", key_source=source)
     held = j.before_keys()
     _realkey().require_front(j)
     if step.get("mark"):
@@ -191,7 +219,7 @@ def step_smoke_key(j, step):
     t = D.now()
     effect = _realkey().press(j, step["key"], step.get("modifiers", []))
     return {"key": step["key"], "modifiers": step.get("modifiers", []), "key_path": "real_hid", "cua_effect": effect,
-            "send_ms": round((D.now() - t) * 1000, 1), "waited_out_hold_s": held}
+            "send_ms": round((D.now() - t) * 1000, 1), "waited_out_hold_s": held, "key_source": source}
 
 
 def step_smoke_type(j, step):

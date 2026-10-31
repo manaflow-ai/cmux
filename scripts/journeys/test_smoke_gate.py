@@ -57,7 +57,7 @@ if status == "pass" and not [o for o in opts if o != "key_path=real"]:
     if r3 == "none":
         checks = []
     if r3 == "one-r3b":
-        checks = [c for c in checks if not c[0].startswith("R3b: New Column's key (Ctrl-Cmd-D) adds")]
+        checks = [c for c in checks if not c[0].startswith("R3b: New Column's key (the build's binding) adds")]
     if r3 == "renamed":
         checks = [("R3b: Split Down, renamed", True) if c[0].startswith("R3b: Cmd-Shift-D") else c for c in checks]
     if r3 == "duplicated":
@@ -197,7 +197,7 @@ class Verdicts(unittest.TestCase):
     def test_a_round_that_did_not_reach_or_pass_every_resize_check_is_no_pass(self):
         for r3, want in (("none", "R3a split resize: the right pane is wider"),
                          ("r3b-failed", "R3b: Cmd-D (Split Right) splits the pane inside its own column and every...: failed"),
-                         ("one-r3b", "R3b: New Column's key (Ctrl-Cmd-D) adds a column"),
+                         ("one-r3b", "R3b: New Column's key (the build's binding) adds a column"),
                          ("renamed", "R3b: Cmd-Shift-D (Split Down) adds no column"),
                          ("duplicated", "recorded 2 times")):
             with tempfile.TemporaryDirectory() as tmp:
@@ -400,6 +400,26 @@ class RealKeySteps(unittest.TestCase):
             self.assertEqual(self.real_front_pid(), 397)
         finally:
             self.rk.subprocess.run = real_run
+
+    def test_a_command_key_is_the_builds_own_binding(self):
+        j = self.journey("real")
+        j.app.rpc = lambda method, params=None: {"bindings": [
+            {"command": "newColumn", "key": "cmd+opt+ctrl+n", "when": "terminalFocus", "source": "default"},
+            {"command": "newColumn", "key": "cmd+opt+n", "when": None, "source": "default"},
+            {"command": "newColumnLeft", "key": "cmd+ctrl+d", "when": None, "source": "default"}]}
+        done = self.ext.step_smoke_key(j, {"command": "newColumn", "key": "d", "modifiers": ["control", "cmd"]})
+        self.assertEqual(self.sent, [("hotkey", {"scope": "desktop", "keys": ["cmd", "option", "n"]})])
+        self.assertTrue(done["key_source"].startswith("build (cmd+opt+n"))
+
+    def test_a_build_without_keybinding_list_keeps_the_journeys_key(self):
+        j = self.journey("real")
+
+        def rpc(method, params=None):
+            raise self.ext.D.StepError("keybinding.list: method_not_found")
+        j.app.rpc = rpc
+        done = self.ext.step_smoke_key(j, {"command": "newColumn", "key": "d", "modifiers": ["control", "cmd"]})
+        self.assertEqual(self.sent, [("hotkey", {"scope": "desktop", "keys": ["ctrl", "cmd", "d"]})])
+        self.assertTrue(done["key_source"].startswith("journey"))
 
     def test_the_debug_key_mode_says_so(self):
         self.assertEqual(self.ext.step_smoke_key(self.journey("debug"), {"key": "n", "modifiers": ["cmd"]})["key_path"], "debug.key")
