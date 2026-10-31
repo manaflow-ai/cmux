@@ -155,6 +155,28 @@ fn an_existing_link_with_escaped_brackets_stays_whole() {
 }
 
 #[test]
+fn an_existing_link_with_code_or_a_quoted_target_stays_whole() {
+    for text in [
+        "[the `]` fix](https://github.com/manaflow-ai/cmux/pull/25572)",
+        "[the ``[`]`` fix](https://github.com/manaflow-ai/cmux/pull/25572)",
+        "[the 🔗 [fix]](https://github.com/manaflow-ai/cmux/pull/25572)",
+        "[fix](https://github.com/manaflow-ai/cmux/pull/25572 \"a ) title\")",
+        "[fix](<https://github.com/manaflow-ai/cmux/pull/25572?q=)>)",
+    ] {
+        assert_eq!(link(text), text);
+    }
+}
+
+#[test]
+fn preserving_an_existing_link_still_converts_the_next_bare_url() {
+    let text = "[the [fix]](https://github.com/manaflow-ai/cmux/pull/25572) and https://github.com/manaflow-ai/cmux/pull/24680";
+    assert_eq!(
+        link(text),
+        "[the [fix]](https://github.com/manaflow-ai/cmux/pull/25572) and [#24680](https://github.com/manaflow-ai/cmux/pull/24680)"
+    );
+}
+
+#[test]
 fn a_github_url_becomes_a_short_named_link() {
     assert_eq!(
         link(&format!("Opened {PR}.")),

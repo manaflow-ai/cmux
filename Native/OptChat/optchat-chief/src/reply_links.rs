@@ -20,6 +20,8 @@
 
 use std::path::{Path, PathBuf};
 
+mod markdown;
+
 /// The cmux object ids this pass links: (prefix, deeplink kind, link text).
 const IDS: &[(&str, &str, &str)] = &[
     ("ws_", "workspace", "workspace"),
@@ -81,13 +83,7 @@ pub fn link_refs_named(
             }
             b'[' => {
                 // An existing link `[..](..)`: skipped whole.
-                let close = text[i + 1..].find([']', '\n']).map(|e| i + 1 + e);
-                match close {
-                    Some(c) if b[c] == b']' && b.get(c + 1) == Some(&b'(') => {
-                        i = text[c..].find(')').map_or(c + 1, |e| c + e + 1);
-                    }
-                    _ => i += 1,
-                }
+                i += markdown::link_end(&text[i..]).unwrap_or(1);
             }
             _ if starts_word(b, i) => {
                 if let Some((end, link)) =
