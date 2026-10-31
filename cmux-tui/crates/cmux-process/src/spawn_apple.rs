@@ -122,6 +122,12 @@ pub(crate) fn spawn(command: &mut Command) -> io::Result<Child> {
             check(libc::posix_spawnattr_setpgroup(&mut setup.attr, pgid))?;
         }
         check(libc::posix_spawnattr_setflags(&mut setup.attr, flags))?;
+        if command.disclaim_responsibility {
+            let disclaim = disclaim_function().ok_or_else(|| {
+                io::Error::new(io::ErrorKind::Unsupported, "macOS responsibility cannot be disclaimed on this system")
+            })?;
+            check(disclaim(&mut setup.attr, 1))?;
+        }
         for (source, target) in &plan {
             check(match source {
                 Source::DevNull => libc::posix_spawn_file_actions_addopen(
@@ -384,4 +390,14 @@ mod daemon_spawn {
         );
         assert!(child.try_wait().unwrap().expect("reaped after the event").success());
     }
+}
+
+type Disclaim = unsafe extern "C" fn(*mut libc::posix_spawnattr_t, libc::c_int) -> libc::c_int;
+
+/// `responsibility_spawnattrs_setdisclaim` from libsystem (private, present since macOS 10.14).
+fn disclaim_function() -> Option<Disclaim> {
+    // SAFETY: dlsym with RTLD_DEFAULT and a NUL-terminated name.
+    let symbol = unsafe { libc::dlsym(libc::RTLD_DEFAULT, c"responsibility_spawnattrs_setdisclaim".as_ptr()) };
+    // SAFETY: the libsystem symbol has this signature.
+    (!symbol.is_null()).then(|| unsafe { std::mem::transmute::<*mut libc::c_void, Disclaim>(symbol) })
 }

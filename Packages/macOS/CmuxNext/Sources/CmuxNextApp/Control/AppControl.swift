@@ -8,6 +8,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextErrorJournal
+import CmuxNextMacScreen
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal
@@ -94,6 +95,7 @@ final class AppControl {
                 .map { ($0.socketPath, $0.home.path) }
         }])
         service.router.register(SettingsControl.methods(services: services))
+        service.router.register(CmuxRemoteActions.methods(environment: services.cmuxRemoteActions))
         service.router.register(TerminalLinkOpenControl.methods(services: services))
         service.router.register(PermissionsControl.methods(services: services))
         service.router.register(NotificationsControl.methods(services: services))

@@ -17,6 +17,8 @@ export type ErrorCode =
   | "ticket_invalid"
   | "role_taken"
   | "rate_limited"
+  | "host_scope"
+  | "not_anchored"
   | "internal";
 
 export class ApiError extends Error {

@@ -2,7 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import { base64Decode, isValidDeviceKey, keyFingerprint, lowSHex } from "./crypto";
 import { DEVICE_ID, REPLAY_WINDOW_MS, checkDeviceSignature, readDeviceHeaders } from "./deviceAuth";
 import { relayEntitlement } from "./billing";
-import { ORIGIN_HEADER, STACK_TOKEN_HEADER, USER_HEADER, type Env } from "./env";
+import { HOST_RELAY_HEADER, ORIGIN_HEADER, SCOPE_HEADER, SESSION_DEVICE_HEADER, STACK_TOKEN_HEADER, USER_HEADER, type Env } from "./env";
 import { ApiError, badRequest, errorResponse, json, notFound } from "./errors";
 import { type Scope, mintTicket } from "./tickets";
 import { type IceServer, mintTurn } from "./turn";
@@ -12,7 +12,16 @@ interface CallContext {
   userId: string;
   origin: string;
   stackToken: string | null;
+  /** `host`: a device-key renewal session, which may only serve this device as a host. */
+  scope: "full" | "host";
+  /** A host session's cmux relay entitlement, as recorded at its last anchor. */
+  hostRelay: boolean;
 }
+
+/** How long an anchor lets a device renew its own host session (PROTOCOL.md, Device renewal). */
+export const ANCHOR_TTL_MS = 30 * 24 * 3600 * 1000;
+/** How long the billing answer recorded at an anchor stands for a host session's cmux relay. */
+export const ANCHOR_RELAY_TTL_MS = 24 * 3600 * 1000;
 
 export type PermissionScope = "none" | "ask" | "view" | "full";
 type SessionState = "pending" | "approved" | "live" | "ended";
@@ -105,6 +114,7 @@ CREATE TABLE IF NOT EXISTS replay_msg(
   device_id TEXT NOT NULL, digest TEXT NOT NULL,
   expires_at INTEGER NOT NULL, PRIMARY KEY(device_id, digest));
 CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS anchors(device_id TEXT PRIMARY KEY, anchored_at INTEGER NOT NULL, relay_paid INTEGER NOT NULL DEFAULT 0);
 DROP TABLE IF EXISTS replay;
 `;
 
@@ -283,10 +293,18 @@ export class UserDO extends DurableObject<Env> {
       this.setOwner(userId);
       const origin = request.headers.get(ORIGIN_HEADER) ?? url.origin;
       const stackToken = request.headers.get(STACK_TOKEN_HEADER);
+      const scope = request.headers.get(SCOPE_HEADER) === "host" ? "host" : "full";
+      const hostRelay = request.headers.get(HOST_RELAY_HEADER) === "1";
       const body = new Uint8Array(await request.arrayBuffer());
       const now = Date.now();
       const h = readDeviceHeaders(request.headers, now);
+      // A host session is one device's: every request it carries is signed by that device.
+      if (scope === "host" && request.headers.get(SESSION_DEVICE_HEADER) !== h.id) {
+        throw new ApiError(403, "host_scope", "this session belongs to another device");
+      }
       if (request.method === "POST" && url.pathname === "/v1/devices") {
+        // A host session updates its own registration, never makes a device.
+        if (scope === "host" && !this.device(h.id)) throw new ApiError(403, "host_scope", "a host session cannot register a new device");
         return await this.register(request, url, body, h, now);
       }
       const existing = this.device(h.id);
@@ -296,7 +314,7 @@ export class UserDO extends DurableObject<Env> {
       this.burnSignature(h.id, h.ts, h.sig, now);
       this.sql.exec("UPDATE devices SET last_seen_at = ? WHERE id = ?", now, h.id);
       const me = { ...existing, last_seen_at: now };
-      return await this.dispatch(request, url, body, me, { userId, origin, stackToken });
+      return await this.dispatch(request, url, body, me, { userId, origin, stackToken, scope, hostRelay });
     } catch (err) {
       return errorResponse(err);
     }
@@ -367,9 +385,13 @@ export class UserDO extends DurableObject<Env> {
     const parts = url.pathname.split("/").filter(Boolean).slice(1); // drop "v1"
     const [a, b, d] = parts;
     const n = parts.length;
+    if (c.scope === "host" && !this.hostAllowed(m, parts, me, raw)) {
+      throw new ApiError(403, "host_scope", "a host session can only serve this Mac; open cmux for this change");
+    }
+    if (a === "auth" && b === "device" && d === "anchor" && n === 3 && m === "POST") return this.anchor(me, c);
 
     if (a === "me" && n === 1 && m === "GET") {
-      const plan = (await relayEntitlement(this.env, c.userId, c.stackToken)) === "paid" ? "paid" : "free";
+      const plan = (await this.entitlement(c)) === "paid" ? "paid" : "free";
       return json({ userId: c.userId, plan, device: publicDevice(me, this.online(me.id)) });
     }
     if (a === "user" && b === "ws" && n === 2 && m === "GET") return this.openSocket(request, me);
@@ -508,6 +530,7 @@ export class UserDO extends DurableObject<Env> {
   private async removeDevice(id: string): Promise<Response> {
     const target = this.liveDevice(id);
     this.sql.exec("UPDATE devices SET removed_at = ?, mac_screen_shared = 0 WHERE id = ?", Date.now(), id);
+    this.sql.exec("DELETE FROM anchors WHERE device_id = ?", id);
     // No permission outlives its device, as host or as viewer; the hosts that listed it hear so.
     const hosts = this.sql.exec("SELECT DISTINCT host_id FROM permissions WHERE viewer_id = ? AND host_id != ?", id, id).toArray().map((r) => r.host_id as string);
     this.sql.exec("DELETE FROM permissions WHERE host_id = ? OR viewer_id = ?", id, id);
@@ -529,6 +552,7 @@ export class UserDO extends DurableObject<Env> {
     const open = this.sql.exec("SELECT * FROM sessions WHERE state != 'ended' AND (viewer_id = ? OR host_id = ?)", id, id).toArray() as unknown as SessionRow[];
     for (const s of open) await this.endSession(s, "signed_out", "revoked", true);
     this.sql.exec("DELETE FROM offline WHERE device_id = ?", id);
+    this.sql.exec("DELETE FROM anchors WHERE device_id = ?", id);
     this.closeSockets(id, 4003, "signed out");
     this.broadcast({ type: "devices.changed" }, id);
     return json({});
@@ -545,6 +569,8 @@ export class UserDO extends DurableObject<Env> {
       this.sql.exec("UPDATE devices SET mac_screen_shared = ? WHERE id = ?", body.shared ? 1 : 0, id);
       this.audit(body.shared ? "shared" : "unshared", { hostId: id });
       if (!body.shared) {
+        // Nothing left to serve: the device no longer renews a host session until the app anchors it again.
+        this.sql.exec("DELETE FROM anchors WHERE device_id = ?", id);
         const open = this.sql.exec("SELECT * FROM sessions WHERE state != 'ended' AND host_id = ?", id).toArray() as unknown as SessionRow[];
         for (const s of open) await this.endSession(s, "sharing_off", "revoked", true);
       }
@@ -672,7 +698,7 @@ export class UserDO extends DurableObject<Env> {
     this.sql.exec("UPDATE sessions SET state = 'approved', scope = ? WHERE id = ? AND state != 'ended'", s.scope, s.id);
     if (!this.stillOpen(s.id)) return;
     // Ask billing now (in parallel with the Session DO init); fail closed.
-    const entitled = relayEntitlement(this.env, c.userId, c.stackToken).catch(() => "error" as const);
+    const entitled = this.entitlement(c).catch(() => "error" as const);
     const viewer = this.device(s.viewer_id)!;
     const host = this.device(s.host_id)!;
     const stub = this.env.SESSION_DO.get(this.env.SESSION_DO.idFromName(s.id));
@@ -775,7 +801,7 @@ export class UserDO extends DurableObject<Env> {
     const s = this.session(id);
     if (!s || (s.viewer_id !== me.id && s.host_id !== me.id)) throw notFound("session not found");
     if (s.state !== "approved" && s.state !== "live") throw new ApiError(409, "session_not_active", "session is not active");
-    const ice = (await relayEntitlement(this.env, c.userId, c.stackToken)) === "paid" ? await mintTurn(this.env) : [];
+    const ice = (await this.entitlement(c)) === "paid" ? await mintTurn(this.env) : [];
     return json({ ice });
   }
 
@@ -898,7 +924,89 @@ export class UserDO extends DurableObject<Env> {
 
   // ---- calls from the Session DO ----
 
+  // ---- device renewal (PROTOCOL.md, Device renewal) ----
+
+  /** The cmux relay entitlement: billing for a full session, the anchor's record for a host session. */
+  private async entitlement(c: CallContext): Promise<"paid" | "free" | "error"> {
+    if (c.scope === "host") return c.hostRelay ? "paid" : "free";
+    return (await relayEntitlement(this.env, c.userId, c.stackToken)) as "paid" | "free" | "error";
+  }
+
+  /**
+   * What a host session may do: serve this device as a Mac Screen host. Its
+   * own socket and registration, reads, its sessions' decisions, ends and
+   * ICE, its own permissions, and sharing off. Not: another device, relay
+   * writes, a session as viewer, sharing on, anchoring.
+   */
+  private hostAllowed(m: string, parts: string[], me: DeviceRow, raw: Uint8Array): boolean {
+    const [a, b, d] = parts;
+    const n = parts.length;
+    if (m === "GET") return (a === "me" && n === 1) || (a === "user" && b === "ws" && n === 2) || (a === "devices" && n === 1) || (a === "permissions" && n === 1) || (a === "relays" && n === 1) || (a === "audit" && n === 1);
+    if (a === "devices" && n === 3 && d === "mac-screen" && m === "PUT" && b === me.id) {
+      try {
+        return (JSON.parse(new TextDecoder().decode(raw)) as { shared?: unknown }).shared === false;
+      } catch {
+        return false;
+      }
+    }
+    if (a === "permissions" && n === 3 && m === "PUT") {
+      // Only lower a viewer's access on this Mac: raising needs the signed-in app.
+      if (b !== me.id || !d) return false;
+      let scope: unknown;
+      try {
+        scope = (JSON.parse(new TextDecoder().decode(raw)) as { scope?: unknown }).scope;
+      } catch {
+        return false;
+      }
+      const order = PERMISSION_SCOPES as string[];
+      const wanted = order.indexOf(scope as string);
+      return wanted >= 0 && (scope === "none" || wanted < order.indexOf(this.permission(me.id, d)));
+    }
+    if (a === "sessions" && n === 3 && m === "POST" && (d === "decision" || d === "end" || d === "ice")) {
+      // Only this Mac's own sessions as their host.
+      return this.session(b!)?.host_id === me.id;
+    }
+    return false;
+  }
+
+  /** The signed-in app lets its Mac renew its own host session for 30 days. */
+  private async anchor(me: DeviceRow, c: CallContext): Promise<Response> {
+    if (me.platform !== "macos") throw new ApiError(403, "not_host", "only a Mac is anchored");
+    const paid = (await relayEntitlement(this.env, c.userId, c.stackToken).catch(() => "error")) === "paid";
+    const now = Date.now();
+    this.sql.exec(
+      "INSERT INTO anchors(device_id, anchored_at, relay_paid) VALUES (?, ?, ?) ON CONFLICT(device_id) DO UPDATE SET anchored_at = excluded.anchored_at, relay_paid = excluded.relay_paid",
+      me.id,
+      now,
+      paid ? 1 : 0,
+    );
+    return json({ anchoredUntil: now + ANCHOR_TTL_MS });
+  }
+
+  /** `POST /v1/auth/device` from the Worker: the device's signature, the replay window and its anchor. */
+  private async renewDevice(request: Request): Promise<Response> {
+    try {
+      const now = Date.now();
+      const h = readDeviceHeaders(request.headers, now);
+      const raw = new Uint8Array(await request.arrayBuffer());
+      const device = this.device(h.id);
+      if (!device) throw new ApiError(401, "bad_signature", "unknown device");
+      if (device.removed_at !== null) throw new ApiError(403, "device_removed", "this device was removed");
+      await checkDeviceSignature(device.signing_key, "POST", new URL("https://hub/v1/auth/device"), raw, h);
+      const anchor = this.sql.exec("SELECT anchored_at, relay_paid FROM anchors WHERE device_id = ?", h.id).toArray()[0];
+      if (!anchor || (anchor.anchored_at as number) + ANCHOR_TTL_MS <= now) {
+        throw new ApiError(403, "not_anchored", "open cmux on this Mac to let it renew its session");
+      }
+      this.burnSignature(h.id, h.ts, h.sig, now);
+      const relay = (anchor.relay_paid as number) === 1 && (anchor.anchored_at as number) + ANCHOR_RELAY_TTL_MS > now;
+      return json({ deviceId: h.id, relay });
+    } catch (err) {
+      return errorResponse(err);
+    }
+  }
+
   private async internal(path: string, request: Request): Promise<Response> {
+    if (path === "/internal/renew-device") return this.renewDevice(request);
     const body = (await request.json()) as { sid?: string; reason?: string; path?: string };
     const s = body.sid ? this.session(body.sid) : null;
     if (!s) return json({ ok: false }, 404);

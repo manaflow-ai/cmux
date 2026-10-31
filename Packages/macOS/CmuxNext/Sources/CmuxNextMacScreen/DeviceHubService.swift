@@ -1,9 +1,9 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextControl
-import CmuxNextDevices
+public import CmuxNextDevices
 public import CmuxNextSettings
-import Foundation
+public import Foundation
 import os
 
 /// The device hub for this app (docs/device-hub/PROTOCOL.md): made when
@@ -55,6 +55,11 @@ public final class DeviceHubService {
     /// What `loading` is making a hub for.
     private var loadingFor: (url: URL, user: String)?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "device-hub")
+    /// cmux Remote serves this Mac (docs/cmux-remote.md): the hub for an address and account,
+    /// with the worker's device identity and push relay, or nil to use this app's own. The App sets it.
+    public var makeRemoteHub: (@MainActor (URL, String) async -> DeviceHub?)?
+    /// The running hub, its account and address after every change (the App anchors cmux Remote).
+    public var hubChanged: (@MainActor (DeviceHub?, String?, URL?) -> Void)?
 
     public init(pages: MacScreenPages, account: Account, bundleIdentifier: String?) {
         self.pages = pages
@@ -117,18 +122,23 @@ public final class DeviceHubService {
         let name = pages.store.hubDeviceName ?? MacScreenShareHost.computerName
         loadingFor = (url, user)
         // task-owner: DeviceHubService.loading: one identity load; stopHub cancels it
+        let makeRemoteHub = makeRemoteHub
         loading = Task { [weak self] in
-            let hub: DeviceHub
-            do {
-                hub = try await DeviceHub.forApp(baseURL: url, bundleIdentifier: bundleIdentifier, deviceName: name,
-                                                 tokens: DeviceHubAccountToken(token))
-            } catch {
+            let made: DeviceHub?
+            if let remote = await makeRemoteHub?(url, user) {
+                made = remote
+            } else {
+                made = try? await DeviceHub.forApp(baseURL: url, bundleIdentifier: bundleIdentifier, deviceName: name,
+                                                   tokens: DeviceHubAccountToken(token))
+            }
+            guard let hub = made else {
                 guard let self, !Task.isCancelled else { return }
-                logger.error("device hub identity unavailable: \(String(describing: error), privacy: .public)")
+                logger.error("device hub identity unavailable")
                 loadingFor = nil
                 loading = nil
                 return
             }
+            hub.deviceName = name
             guard let self, !Task.isCancelled, let loadingFor, loadingFor.url == url, loadingFor.user == user else { return }
             self.loadingFor = nil
             loading = nil
@@ -152,6 +162,7 @@ public final class DeviceHubService {
                 return
             }
         }
+        hubChanged?(hub, user, url)
         logger.info("device hub started")
     }
 
@@ -176,6 +187,7 @@ public final class DeviceHubService {
         guard let hub else { return }
         self.hub = nil
         running = nil
+        hubChanged?(nil, nil, nil)
         if removed { pages.endHubSessions(reason: "device_removed:viewer") }
         let ids = Set(hub.tickets.keys).union(pages.hubHost.session.map { [$0.id] } ?? [])
         pages.hub = nil

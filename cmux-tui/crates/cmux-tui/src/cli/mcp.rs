@@ -29,6 +29,7 @@ mod config;
 mod keybinding_tools;
 mod messages;
 mod placement;
+mod remote_tools;
 mod render_tool;
 mod schema;
 mod settings_tools;
@@ -158,6 +159,10 @@ pub(super) trait Backend {
         request: browser_tools::Request,
         mutation: bool,
     ) -> Result<Value, CallFailure>;
+    /// One legacy daemon command (cmux Remote's `remote-host-*`).
+    fn daemon(&self, _request: Value) -> Result<Value, CallFailure> {
+        Err(CallFailure::local(FailureKind::NotRun, "daemon.unavailable", "this server cannot reach the daemon"))
+    }
     /// One harness-agnostic agent dispatch request. The acpmux daemon owns
     /// target selection, brief persistence and sender attribution; this
     /// surface deliberately carries no shell command or remote path.
@@ -251,6 +256,11 @@ impl LiveBackend {
 }
 
 impl Backend for LiveBackend {
+    #[cfg(unix)]
+    fn daemon(&self, mut request: Value) -> Result<Value, CallFailure> {
+        request["id"] = json!(1);
+        super::remote_host::daemon_value(&self.global, &request).map_err(remote_tools::daemon_failure)
+    }
     fn resource(
         &self,
         session: Option<&str>,
@@ -646,6 +656,7 @@ impl<B: Backend> Server<B> {
         tools.push(agent_events_tool::descriptor());
         tools.extend(terminal_talk_tools::descriptors());
         tools.push(render_tool::descriptor());
+        tools.extend(remote_tools::TOOLS.iter().map(remote_tools::RemoteTool::descriptor_json));
         tools
             .extend(settings_tools::TOOLS.iter().map(settings_tools::SettingTool::descriptor_json));
         tools.extend(
@@ -864,6 +875,9 @@ impl<B: Backend> Server<B> {
             });
         }
         if let Some(tool) = settings_tools::find(name) {
+            return Ok(tool.call(&self.backend, &arguments));
+        }
+        if let Some(tool) = remote_tools::find(name) {
             return Ok(tool.call(&self.backend, &arguments));
         }
         if let Some(tool) = keybinding_tools::find(name) {
