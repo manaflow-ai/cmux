@@ -164,7 +164,8 @@ impl Hub {
                 // prompt future ends with the agent and must write no end of its own, or a
                 // next daemon that reads the log after it finds no cut turn. The shutdown's lock
                 // first, as `finish_turn` takes them.
-                let mut settled = self.settled_by_shutdown.lock().unwrap_or_else(|e| e.into_inner());
+                let mut settled =
+                    self.settled_by_shutdown.lock().unwrap_or_else(|e| e.into_inner());
                 let turn = s.turn.lock().unwrap_or_else(|e| e.into_inner()).take();
                 settled.extend(turn.map(|t| t.turn_id));
             }

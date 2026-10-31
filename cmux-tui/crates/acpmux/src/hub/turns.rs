@@ -1245,7 +1245,7 @@ impl Hub {
         // sweep finds this one either written or still to settle (`shutdown.rs` `settle_ends`).
         // In a block of its own: a guard only dropped would still count as held at the awaits
         // below, and the prompt futures that end here are spawned (`Send`).
-        {
+        let stopped_early = {
             let ends = self.settled_by_shutdown.lock().unwrap_or_else(|e| e.into_inner());
             if ends.contains(turn_id) {
                 drop(ends);
@@ -1338,7 +1338,8 @@ impl Hub {
                     self.write_turn_result(session, msg, git);
                 }
             }
-        }
+            stopped_early
+        };
         // Its harness wrote the turn's spend: read it (`usage_view.rs`).
         self.refresh_usage_stats_of(session);
         self.reset_stream(session);

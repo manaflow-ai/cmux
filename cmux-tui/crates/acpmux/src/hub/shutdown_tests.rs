@@ -230,10 +230,8 @@ async fn a_cut_turn_of_agent_messages_puts_none_of_them_back() {
     let b = send("from b", from("p-b"));
     until("b waits", || s.queued() == 2).await;
     hub.cancel(&s).await.unwrap();
-    until("a's turn takes b", || {
-        s.queued() == 0 && s.turn().is_some_and(|t| t.prompt_id == "p-a")
-    })
-    .await;
+    until("a's turn takes b", || s.queued() == 0 && s.turn().is_some_and(|t| t.prompt_id == "p-a"))
+        .await;
     hub.shutdown_all().await;
     for task in [busy, a, b] {
         let _ = tokio::time::timeout(WAIT, task).await.unwrap().unwrap();
@@ -372,8 +370,8 @@ async fn a_retry_set_after_a_shutdown_began_waits_for_nothing() {
     hub.end_agents_at_shutdown(Default::default()).unwrap();
     hub.shutdown_all().await;
     let _ = release.send(());
-    until("the retry's task settled", || hub.retry_row(&s, None).0.is_some() || {
-        s.auto_resume.lock().is_none()
+    until("the retry's task settled", || {
+        hub.retry_row(&s, None).0.is_some() || !hub.continuation_pending(&s)
     })
     .await;
     let waits = hub.retry_row(&s, None).0;
