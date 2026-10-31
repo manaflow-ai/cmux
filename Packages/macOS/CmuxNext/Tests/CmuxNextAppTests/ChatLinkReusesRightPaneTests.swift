@@ -71,9 +71,9 @@ struct ChatLinkReusesRightPaneTests {
     /// A setup action that keeps its page or chat (Log In, Update, Open in Terminal) still opens beside the dock,
     /// leaving the page; with no strip beside the dock, the usual route (review of #28544 at 39fa77d8).
     @Test func aKeptPickInTheDockStillOpensInTheStrip() {
-        #expect(NewTabPage.dockPick(hasStrip: true, keep: true) == .beside(closesPage: false))
-        #expect(NewTabPage.dockPick(hasStrip: true, keep: false) == .beside(closesPage: true))
-        #expect(NewTabPage.dockPick(hasStrip: false, keep: false) == .usual)
+        #expect(ChatColumnPlacement.DockPick.resolve(hasStrip: true, keep: true) == .beside(closesPage: false))
+        #expect(ChatColumnPlacement.DockPick.resolve(hasStrip: true, keep: false) == .beside(closesPage: true))
+        #expect(ChatColumnPlacement.DockPick.resolve(hasStrip: false, keep: false) == .usual)
     }
 
     /// What a typed submission reads as decides where it opens, not the kind the field was on: `!ls` typed as a

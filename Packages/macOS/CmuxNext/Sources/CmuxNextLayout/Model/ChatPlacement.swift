@@ -4,6 +4,19 @@
 /// tabs in the scrolling strip. It shows its tab bar like every pane
 /// (cx-v4dmy).
 public nonisolated enum ChatColumnPlacement: Equatable, Sendable {
+    /// What a pick on a New Tab page in the chat dock does when a scrolling pane is beside it.
+    /// Kept in the layout domain so the app's composition root only applies the decision.
+    public enum DockPick: Equatable, Sendable {
+        /// The pick takes the usual route (nothing beside the dock).
+        case usual
+        /// The pick opens in the strip beside the dock.
+        case beside(closesPage: Bool)
+
+        public static func resolve(hasStrip: Bool, keep: Bool) -> Self {
+            hasStrip ? .beside(closesPage: !keep) : .usual
+        }
+    }
+
     /// A tab in the pane it was opened from.
     case here
     /// A tab in this pane of the scrolling strip.
