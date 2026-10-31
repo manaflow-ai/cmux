@@ -734,6 +734,17 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   (the media lane above), on WebRTC and, since 2026-10-14, on WireGuard.
   `surface-stream-v1` (2026-10-22): the host streams the Mac's phone tabs
   (`surface`, below).
+  `localhost-forward-v1` (2026-10-30): the host serves `localhost` (below).
+- `localhost` (2026-10-30): `{"port"}` (1 to 65535, a number or a decimal
+  string) one TCP connection to that port on the Mac's loopback: `127.0.0.1`,
+  then `[::1]`. Data frames are the connection's bytes in each direction;
+  either side closing ends it. The phone opens one channel per connection a
+  native browser tab makes to its own `127.0.0.1:<port>` / `[::1]:<port>`
+  (Open on iPhone at `http(s)://localhost:<port>`), so the page keeps its
+  origin. Nothing listening: `unavailable` "Nothing is listening on port N on
+  this Mac."; a missing or bad port: `bad_request`; an older Mac:
+  `unknown_service`, and the phone keeps that tab mirrored. The phone never
+  names a host.
 - `surface`: `{"tab", "video"?, "video_tag"?}` a Mac phone tab showing a
   booted iOS simulator, streamed like a browser tab
   (verify/simulator-surface.md). `tab` is the phone tab's key `s<surface>`;

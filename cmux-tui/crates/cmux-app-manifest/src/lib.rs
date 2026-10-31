@@ -26,6 +26,7 @@
 
 mod catalog;
 mod cli;
+mod deploy;
 mod interfaces;
 mod issue;
 pub mod module_store;

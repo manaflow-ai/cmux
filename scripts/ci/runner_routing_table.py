@@ -27,8 +27,8 @@ ask whether the job needed macOS. This module asks.
 * a `macos_jobs` entry names a job that no longer exists or no longer routes
   to macOS (the table stays true).
 
-`linux_followup` and `placement_followup` exist only so the table can
-describe today's tree: an existing job that should move but has not yet. A new
+`linux_followup`, `placement_followup` and `picker_followup` exist only so the
+table can describe today's tree: an existing job that should move but has not yet. A new
 job never gets one. An entry whose followup no longer applies fails too, so
 the list only shrinks.
 
@@ -81,6 +81,150 @@ def bypasses_placement(runs_on: str) -> bool:
     return bool(OWNED_LABEL_VARIABLE.search(runs_on)) and not PLACEMENT_OUTPUT.search(runs_on)
 
 
+# What a picker gives a runs-on: a picker or placement job's output, or a label the caller of a reusable
+# workflow (or a dispatcher) chose. The capability map (`fromJSON(needs.runners.outputs.map).<key>`) is
+# not one: it names one fixed label per key, whatever that label's queue holds.
+PICKER_OUTPUT = re.compile(r"(?<![\w.])(?:needs\.[\w-]+\.outputs\.(?!map\b)[\w-]+|inputs\.[\w-]+)(?![\w-])")
+# A value term that is a boolean, not a label: a negation, a comparison or a predicate call.
+BOOLEAN_TERM = re.compile(r"^(?:!|(?:contains|startsWith|endsWith|always|success|failure|cancelled)\s*\()",
+                          re.IGNORECASE)
+COMPARISON = ("==", "!=", "<=", ">=", "<", ">")
+
+
+def _picker_value_term(term: str) -> bool:
+    """Whether a value term yields a picker's label: it reads a picker output, as itself or through an
+    index or a call (`fromJSON(needs.p.outputs.runners)['label']`), and is not a boolean."""
+    if BOOLEAN_TERM.match(term) or any(len(_split_top(term, op)) > 1 for op in COMPARISON):
+        return False
+    return PICKER_OUTPUT.search(re.sub(r"'(?:[^']|'')*'", "''", term)) is not None
+MATRIX_VALUE = re.compile(r"^matrix\.([\w-]+)$")
+EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
+CALL = re.compile(r"^([A-Za-z]\w*)\((.*)\)$", re.DOTALL)
+
+
+def _split_top(text: str, operator: str) -> list[str]:
+    """`text` split on `operator` outside parentheses, brackets and quotes."""
+    parts, depth, quoted, start, index = [], 0, False, 0, 0
+    while index < len(text):
+        char = text[index]
+        if char == "'":
+            quoted = not quoted
+        elif not quoted and char in "([":
+            depth += 1
+        elif not quoted and char in ")]":
+            depth -= 1
+        elif not quoted and depth == 0 and text.startswith(operator, index):
+            parts.append(text[start:index])
+            index += len(operator)
+            start = index
+            continue
+        index += 1
+    parts.append(text[start:])
+    return parts
+
+
+def _unwrap(text: str) -> str:
+    text = text.strip()
+    while text.startswith("(") and text.endswith(")") and len(_split_top(text[1:-1], ")")) == 1 \
+            and _balanced(text[1:-1]):
+        text = text[1:-1].strip()
+    return text
+
+
+def _balanced(text: str) -> bool:
+    depth, quoted = 0, False
+    for char in text:
+        if char == "'":
+            quoted = not quoted
+        elif not quoted and char == "(":
+            depth += 1
+        elif not quoted and char == ")":
+            depth -= 1
+            if depth < 0:
+                return False
+    return depth == 0
+
+
+def value_terms(expression: str) -> list[str]:
+    """The terms of one GitHub expression that can become its value: the last `&&` operand of each `||`
+    alternative, with groups opened and `fromJSON(...)` read through. A term used only as a condition
+    (`needs.x.outputs.ok == 'true' && 'label'`) is not one."""
+    terms = []
+    for alternative in _split_top(_unwrap(expression), "||"):
+        alternative = _unwrap(alternative)
+        if len(_split_top(alternative, "||")) > 1:
+            terms += value_terms(alternative)
+            continue
+        value = _unwrap(_split_top(alternative, "&&")[-1])
+        if len(_split_top(value, "||")) > 1 or len(_split_top(value, "&&")) > 1:
+            terms += value_terms(value)
+            continue
+        call = CALL.match(value)
+        if call and call.group(1).lower() == "fromjson":
+            terms += value_terms(call.group(2))
+        else:
+            terms.append(value)
+    return terms
+
+
+def _picked_value(value: object, strategy: dict[str, Any], seen: frozenset[str] = frozenset()) -> bool:
+    """Whether a runs-on value (a string, or a list of labels) takes any label from a picker."""
+    if isinstance(value, list):
+        return any(_picked_value(item, strategy, seen) for item in value)
+    text = str(value if value is not None else "")
+    expressions = EXPRESSION.findall(text)
+    if not expressions:
+        return False
+    for expression in expressions:
+        for term in value_terms(expression):
+            if _picker_value_term(term):
+                return True
+            matrix = MATRIX_VALUE.match(term)
+            if matrix and matrix.group(1) not in seen and \
+                    _picked_matrix_key(matrix.group(1), strategy, seen | {matrix.group(1)}):
+                return True
+    return False
+
+
+def _picked_matrix_key(key: str, strategy: dict[str, Any], seen: frozenset[str]) -> bool:
+    """Whether every leg's value of the matrix key the runs-on reads comes from a picker.
+
+    Each leg runs on its own label, so one literal value (on the axis or in an `include` row) is a pinned
+    leg. A matrix that is one expression counts when it is a picker output. So does an `include` that is
+    one expression, but only when nothing else gives the key a value: GitHub keeps the axis's own legs
+    whatever an include adds."""
+    matrix = strategy.get("matrix") if isinstance(strategy, dict) else None
+    if not isinstance(matrix, dict):
+        return _picked_value(matrix, strategy, seen)
+    values: list[object] = []
+    axis = matrix.get(key)
+    if isinstance(axis, list):
+        values += axis
+    elif axis is not None:
+        values.append(axis)
+    include = matrix.get("include")
+    if isinstance(include, list):
+        values += [row.get(key) for row in include if isinstance(row, dict) and row.get(key) is not None]
+    elif include is not None:
+        values.append(include)
+    # A leg on a plainly Linux or Windows label is not a macOS leg; this check is about the Mac ones.
+    mac_values = [value for value in values if not _non_mac_literal(value)]
+    return bool(mac_values) and all(_picked_value(value, strategy, seen) for value in mac_values)
+
+
+def _non_mac_literal(value: object) -> bool:
+    text = str(value if value is not None else "")
+    return not EXPRESSION.search(text) and bool(NON_MAC_HINT.search(text)) and not MACOS_HINT.search(text)
+
+
+def picked(job: dict[str, Any]) -> bool:
+    """Whether the job's runs-on takes its label from a picker output in a value position (directly, or
+    through the matrix key it reads). Otherwise every run waits on the same label: a literal, a
+    repository variable or a capability-map key."""
+    strategy = job.get("strategy") if isinstance(job.get("strategy"), dict) else {}
+    return _picked_value(job.get("runs-on", ""), strategy)
+
+
 class RoutingTableError(RuntimeError):
     """The routing table is malformed."""
 
@@ -90,6 +234,8 @@ class Job:
     workflow: str
     job_id: str
     runs_on: str
+    # Whether runs-on takes its label from a picker output (picked()).
+    from_picker: bool = True
 
     @property
     def key(self) -> str:
@@ -148,7 +294,7 @@ def iter_jobs(workflows: Path = WORKFLOWS) -> Iterable[tuple[Job, bool]]:
             # visits in the callee's own file.
             if not isinstance(job, dict) or "uses" in job:
                 continue
-            yield Job(path.name, str(job_id), json.dumps(job.get("runs-on", ""))), routes_to_macos(job)
+            yield Job(path.name, str(job_id), json.dumps(job.get("runs-on", "")), picked(job)), routes_to_macos(job)
 
 
 def check(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) -> list[str]:
@@ -180,6 +326,18 @@ def check(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) -> list[str]:
             )
         elif entry.get("placement_followup") and not bypass:
             problems.append(f"{job.key} no longer bypasses placement; remove its placement_followup")
+        # A bypass is already one pin, recorded by its placement_followup.
+        pin = not bypass and not job.from_picker
+        if pin and not entry.get("picker_followup"):
+            problems.append(
+                f"{job.key} runs on macOS from a fixed label (no picker output can be its runs-on value), so "
+                f"it waits on that one label however long it starts nothing. Take runs-on from a picker "
+                f"job's output (scripts/ci/ios_runner_pool.py, simple_pool_picker.py or "
+                f"side_lane_placement.py): an idle owned Mac first, Blacksmith macOS last, with "
+                f"stall-aware failover."
+            )
+        elif entry.get("picker_followup") and not pin:
+            problems.append(f"{job.key} no longer runs on a fixed label; remove its picker_followup")
         if spec["needs"] == "linux" and not entry.get("linux_followup"):
             problems.append(
                 f"{job.key} is class {entry['class']!r}, which runs on Linux runners: "
@@ -214,14 +372,18 @@ def main(argv: list[str]) -> int:
     _, table = load_table()
     pending = sorted(k for k, v in table.items() if v.get("linux_followup"))
     bypass = sorted(k for k, v in table.items() if v.get("placement_followup"))
+    fixed = sorted(k for k, v in table.items() if v.get("picker_followup"))
     print(
         f"runner routing table: {len(table)} macOS jobs classified; "
-        f"{len(pending)} still to move to Linux; {len(bypass)} still bypass placement"
+        f"{len(pending)} still to move to Linux; {len(bypass)} still bypass placement; "
+        f"{len(fixed)} still on a fixed label"
     )
     for key in pending:
         print(f"  linux: {key}: {table[key]['linux_followup']}")
     for key in bypass:
         print(f"  placement: {key}")
+    for key in fixed:
+        print(f"  picker: {key}: {table[key]['picker_followup']}")
     return 0
 
 
