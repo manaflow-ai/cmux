@@ -81,8 +81,9 @@ extension ControlMethod {
         ]
         if let expiry = grant.expiresAt, expiry.timeIntervalSince(now).isFinite {
             fields["expires_at"] = .string(ISO8601DateFormatter().string(from: expiry))
-            // Whole seconds, clamped, so a garbled `exp` reads as at most a day (never a trapping conversion).
-            fields["expires_in"] = JSONValue(Int(min(max(0, expiry.timeIntervalSince(now)), 86_400)))
+            // Whole seconds, clamped, so a garbled `exp` reads as at most a day.
+            let seconds = min(max(0, expiry.timeIntervalSince(now)), 86_400).rounded(.down)
+            fields["expires_in"] = JSONValue(foundation: NSNumber(value: seconds)) ?? .null
         }
         return .object(fields)
     }
