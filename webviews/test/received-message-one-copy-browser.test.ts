@@ -100,6 +100,11 @@ await requireBrowserLane("received-message-one-copy-browser.test.ts", async () =
         // Closed again, the line's row has its Copy back.
         await page.click(LINE);
         await page.waitForSelector(`${LINE}[aria-expanded="false"]`);
+        // Its panel (and the corner Copy in it) leaves once the close has played.
+        await page.waitForFunction(
+          (line) => !document.querySelector(line)!.closest(".cv-received")!.querySelector(".cv-card-copy"),
+          LINE,
+        );
         await page.hover(LINE);
         expect((await copies(page)).copy).toBe(1);
       } finally {
