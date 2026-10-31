@@ -262,54 +262,94 @@ def exec_floor(runs=5, limits=True):
     return times
 
 
-POSIX_SPAWN_START_SUSPENDED = 0x0080
 NIGHTLY_FEED = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"
+PROC_PIDTASKINFO = 4
 
 
-def suspended_exec_ms(binary):
-    """Time of one exec of `binary` that runs no code of it: posix_spawn with POSIX_SPAWN_START_SUSPENDED returns when
-    the kernel has made the process (the code-signing and syspolicyd checks of the exec included); the process is then
-    killed by its pid before its first instruction. Returns (ms, error)."""
+def task_counters(libc, pid):
+    """(resident bytes, user+system CPU ticks) of a process of this user (proc_pidinfo PROC_PIDTASKINFO), or None."""
+    import ctypes
+    buf = (ctypes.c_uint64 * 12)()  # struct proc_taskinfo is 96 bytes: 6 uint64 then 12 int32
+    if libc.proc_pidinfo(pid, PROC_PIDTASKINFO, ctypes.c_uint64(0), buf, 96) != 96:
+        return None
+    return buf[1], buf[2] + buf[3]
+
+
+def checker_cpu():
+    """CPU seconds so far of syspolicyd and XprotectService (root processes: `ps` reads them)."""
+    pids = {name: pid for pid, name in checker_pids().items() if name in ("syspolicyd", "XprotectService")}
+    if not pids:
+        return {}
+    _, out, _ = run(["ps", "-o", "pid=,time=", "-p", ",".join(str(p) for p in pids.values())], timeout=5)
+    by_pid = {int(parts[0]): cpu_seconds(parts[1]) for parts in (line.split() for line in out.splitlines()) if len(parts) == 2}
+    return {name: by_pid.get(pid) for name, pid in pids.items()}
+
+
+def exec_wait_ms(binary, limit_s=40.0):
+    """How long one exec of `binary` waits before its own code starts, with no app code reaching main():
+    posix_spawn (no fork, so the child starts as the new image at about 32 KB), then proc_pidinfo every 1 ms; the first
+    sample with CPU time or 1 MB more memory is dyld starting, after the kernel's and syspolicyd's checks. The child is
+    killed by its pid at that sample (dyld alone takes 47-91 ms to reach main on these minis, App Launch trace)."""
     import ctypes
     import signal as _signal
     libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
-    attr = ctypes.c_void_p()
-    if libc.posix_spawnattr_init(ctypes.byref(attr)) != 0:
-        return None, "posix_spawnattr_init failed"
+    pid = ctypes.c_int()
+    argv = (ctypes.c_char_p * 2)(binary.encode(), None)
+    envp = (ctypes.c_char_p * 2)(b"PATH=/usr/bin:/bin", None)
+    before = checker_cpu()
+    start = time.monotonic()
+    code = libc.posix_spawn(ctypes.byref(pid), binary.encode(), None, None, argv, envp)
+    if code != 0:
+        return {"ms": None, "error": f"posix_spawn: {os.strerror(code)}"}
+    base, ms, error = None, None, None
     try:
-        if libc.posix_spawnattr_setflags(ctypes.byref(attr), ctypes.c_short(POSIX_SPAWN_START_SUSPENDED)) != 0:
-            return None, "posix_spawnattr_setflags failed (not spawned: the app would run)"
-        pid = ctypes.c_int()
-        argv = (ctypes.c_char_p * 2)(binary.encode(), None)
-        envp = (ctypes.c_char_p * 2)(b"PATH=/usr/bin:/bin", None)
-        start = time.monotonic()
-        code = libc.posix_spawn(ctypes.byref(pid), binary.encode(), None, ctypes.byref(attr), argv, envp)
-        ms = round((time.monotonic() - start) * 1000, 1)
-        if code != 0:
-            return None, f"posix_spawn: {os.strerror(code)}"
-        os.kill(pid.value, _signal.SIGKILL)  # the suspended process this function started, never run
-        deadline = time.monotonic() + 10
-        while os.waitpid(pid.value, os.WNOHANG) == (0, 0):
-            if time.monotonic() > deadline:
-                return ms, f"pid {pid.value} not reaped 10 s after SIGKILL"
-            time.sleep(0.05)
-        return ms, None
+        while True:
+            now = time.monotonic()
+            counters = task_counters(libc, pid.value)
+            if counters is None:
+                error = "the process ended or could not be read before its code started"
+                break
+            if base is None:
+                base = counters
+            elif counters[1] > base[1] or counters[0] > base[0] + (1 << 20):
+                ms = round((now - start) * 1000, 1)
+                break
+            if now - start > limit_s:
+                error = f"no start within {limit_s:.0f} s"
+                break
+            time.sleep(0.001)
     finally:
-        libc.posix_spawnattr_destroy(ctypes.byref(attr))
+        os.kill(pid.value, _signal.SIGKILL)  # the process this function started
+        deadline = time.monotonic() + 10
+        while os.waitpid(pid.value, os.WNOHANG) == (0, 0) and time.monotonic() < deadline:
+            time.sleep(0.01)
+    after = checker_cpu()
+    return {"ms": ms, "error": error, "start_rss_kb": base[0] // 1024 if base else None,
+            "checker_cpu_s": {k: round(after[k] - before[k], 2) for k in after if k in before and after[k] is not None
+                              and before[k] is not None}}
 
 
-def suspended_series(binary, runs=3):
-    return [{"ms": ms, "error": err} for ms, err in (suspended_exec_ms(binary) for _ in range(runs))]
+def exec_series(binary, app, runs=3):
+    out = []
+    for _ in range(runs):
+        t0 = time.time()
+        record = exec_wait_ms(binary)
+        if record["ms"] is not None:
+            lg = scan_log(t0, t0 + record["ms"] / 1000, LOG_PREDICATE, app, limit=12)
+            record["log"] = {k: lg[k] for k in ("lines", "app_lines", "assessment_lines", "by_process", "app_excerpt")}
+        out.append(record)
+        log(f"exec {os.path.basename(os.path.dirname(app))}: {record['ms']} ms, checkers {record['checker_cpu_s']}, {record['error'] or ''}")
+    return out
 
 
 def notarized_probe(root, adhoc_app):
-    """The exec cost of the newest notarized Developer ID nightly-next (what a person runs) against the ad-hoc bench
-    app, with the same suspended spawn. Each series is 3 execs of ONE new copy: exec 1 is the copy's first, 2 and 3
-    repeat it. No code of either app runs, and the staged copy A is never exec'd here."""
-    result = {"method": "posix_spawn START_SUSPENDED, killed before its first instruction",
-              "limits": "times only what posix_spawn blocks on (a check that runs after the spawn returns, with the task "
-                        "suspended, is not in it); no copy has a quarantine attribute, so a downloaded app's first "
-                        "Gatekeeper prompt path is not measured"}
+    """The pre-main wait of the newest notarized Developer ID nightly-next (what a person runs) against the ad-hoc bench
+    app and against the same nightly re-signed ad hoc (same bytes, only the signature differs). Each series is 3 execs
+    of ONE new copy: exec 1 is the copy's first, 2 and 3 repeat it. No app code reaches main(), and the staged copy A
+    is never exec'd here."""
+    result = {"method": "posix_spawn, killed when its own code starts (proc_pidinfo, 1 ms)",
+              "limits": "no copy has a quarantine attribute, so a downloaded app's first Gatekeeper prompt path is "
+                        "not measured; an exec killed at dyld start is not a whole launch"}
     try:
         notarized_probe_body(root, adhoc_app, result)
     except Exception as error:  # noqa: BLE001 - the probe must never lose the report; SystemExit (a cancel) passes
@@ -328,7 +368,7 @@ def probe_copy(source, root, name):
 
 def notarized_probe_body(root, adhoc_app, result):
     adhoc_fresh = probe_copy(adhoc_app, root, "F")
-    result["adhoc_new_copy"] = suspended_series(bs.app_binary(use_copy(adhoc_fresh)))
+    result["adhoc_new_copy"] = exec_series(bs.app_binary(use_copy(adhoc_fresh)), adhoc_fresh)
     shutil.rmtree(os.path.dirname(adhoc_fresh), ignore_errors=True)
     work = os.path.join(root, "N")
     os.makedirs(work, exist_ok=True)
@@ -369,11 +409,20 @@ def notarized_probe_body(root, adhoc_app, result):
         plist = plistlib.load(info)
     binary = os.path.join(app, "Contents/MacOS", plist["CFBundleExecutable"])
     result["notarized_version"] = plist.get("CFBundleVersion")
-    result["notarized_new_copy"] = suspended_series(binary)
+    executable = plist["CFBundleExecutable"]
+    result["notarized_new_copy"] = exec_series(binary, app)
     second = probe_copy(app, root, "N2")
-    result["notarized_second_copy"] = suspended_series(os.path.join(second, "Contents/MacOS", plist["CFBundleExecutable"]))
-    shutil.rmtree(work, ignore_errors=True)
+    result["notarized_second_copy"] = exec_series(os.path.join(second, "Contents/MacOS", executable), second)
     shutil.rmtree(os.path.dirname(second), ignore_errors=True)
+    # The same bytes signed ad hoc (as reload.sh and the fleet build sign): only the signature differs from N.
+    resigned = probe_copy(app, root, "R")
+    code, _, err = run(["codesign", "--force", "--deep", "--sign", "-", "--preserve-metadata=entitlements,flags", resigned], timeout=900)
+    if code != 0:
+        result["resigned_error"] = err.strip()[:300]
+    else:
+        result["nightly_resigned_adhoc"] = exec_series(os.path.join(resigned, "Contents/MacOS", executable), resigned)
+    shutil.rmtree(os.path.dirname(resigned), ignore_errors=True)
+    shutil.rmtree(work, ignore_errors=True)
 
 
 def fresh_copy(source, root, name, clone=False):
@@ -513,7 +562,8 @@ def summarize_table(xml):
 
 def run_exec_probe(report, root, app, save):
     report["exec_probe"] = notarized_probe(root, app)
-    log(f"exec probe: {json.dumps({k: v for k, v in report['exec_probe'].items() if k not in ('signature', 'limits')})[:900]}")
+    log("exec probe: " + "; ".join(f"{k} {[r.get('ms') for r in v]}" for k, v in report["exec_probe"].items()
+                                     if isinstance(v, list) and v and isinstance(v[0], dict)))
     save()
 
 
@@ -536,8 +586,8 @@ def main():
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--no-xctrace", action="store_true")
     parser.add_argument("--exec-probe", action="store_true",
-                        help="also the suspended-exec probe (ad-hoc bench app vs the notarized nightly), after the launches")
-    parser.add_argument("--exec-probe-only", action="store_true", help="only the suspended-exec probe, no app launch")
+                        help="also the exec-wait probe (ad-hoc bench app, notarized nightly, nightly re-signed ad hoc), after the launches")
+    parser.add_argument("--exec-probe-only", action="store_true", help="only the exec-wait probe, no app launch")
     args, _ = parser.parse_known_args()
     app = os.path.abspath(args.app)
     root = os.path.join(os.path.abspath(args.out), "premain-copies")
