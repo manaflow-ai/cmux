@@ -24,6 +24,7 @@ function install() {
     Node: dom.window.Node,
     MouseEvent: dom.window.MouseEvent,
     KeyboardEvent: dom.window.KeyboardEvent,
+    MutationObserver: dom.window.MutationObserver,
     localStorage: dom.window.localStorage,
     getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
     requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
