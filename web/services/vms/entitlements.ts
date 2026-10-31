@@ -143,7 +143,8 @@ export function resolveVmEntitlements(
     billingTeamId: billing.billingTeamId,
     maxActiveVms,
     resourcePool: resourcePoolForPlan(planId, maxActiveVms, override),
-    override,
+    // Absent without a deal, so plan-only entitlements keep their shape.
+    ...(override ? { override } : {}),
   };
 }
 

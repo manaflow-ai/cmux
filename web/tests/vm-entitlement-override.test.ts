@@ -128,7 +128,7 @@ describe("resolveVmEntitlements with a team override", () => {
         const withDeal = resolveVmEntitlements(member(DEAL), {}, options);
         const withoutDeal = resolveVmEntitlements(member(null), {}, options);
         expect(withDeal.planId).toBe(userPlanId);
-        expect(withDeal.override).toBeNull();
+        expect(withDeal.override).toBeUndefined();
         expect(withDeal.maxActiveVms).toBe(withoutDeal.maxActiveVms);
         expect(withDeal.resourcePool).toEqual(withoutDeal.resourcePool);
       }
