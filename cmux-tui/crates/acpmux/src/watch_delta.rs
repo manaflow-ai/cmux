@@ -59,7 +59,7 @@ pub fn delta(list: &str, known: &Map<String, Value>) -> Option<String> {
     }
     let removed: Vec<&str> =
         known.keys().map(String::as_str).filter(|id| !listed.contains(id)).collect();
-    let unchanged = rows.len() - sessions.len();
+    let unchanged = rows.len().saturating_sub(sessions.len());
     Some(
         json!({"sessions": sessions, "removed": removed, "unchanged": unchanged, "delta": true})
             .to_string(),
