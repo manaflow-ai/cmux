@@ -14,6 +14,15 @@
         "webviews/src/agent-session/acpmux/EffortPicker.tsx"
       ]
     },
+    "environment-picker": {
+      "spec": "leo-workspace design/environment-picker.md",
+      "aliases": ["environment picker", "machine picker", "computer menu", "where a chat runs", "This Mac"],
+      "paths": [
+        "webviews/src/agent-session/acpmux/EnvironmentPicker.tsx",
+        "webviews/src/agent-session/acpmux/environments.ts",
+        "webviews/src/agent-session/acpmux/ComposerContext.tsx"
+      ]
+    },
     "composer": {
       "spec": "leo-workspace design/composer.md",
       "aliases": ["composer", "prompt box"],
@@ -70,6 +79,17 @@
         "webviews/src/pages/settings/refined.css",
         "webviews/src/pages/settings/styles.css",
         "webviews/src/ui/Select.tsx"
+      ]
+    },
+    "session-info": {
+      "spec": "leo-workspace design/session-info.md",
+      "aliases": [
+        "session info",
+        "inspector",
+        "session panel"
+      ],
+      "paths": [
+        "webviews/src/agent-session/acpmux/inspector"
       ]
     }
   }
