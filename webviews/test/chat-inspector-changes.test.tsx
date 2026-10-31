@@ -131,6 +131,7 @@ test("abbreviates huge comment counts before trailing checks", async () => {
       comments: Number.MAX_SAFE_INTEGER,
       checks: "failing",
       failing: Number.MAX_SAFE_INTEGER,
+      failingOnBase: Number.MAX_SAFE_INTEGER,
     },
   });
   const line = container.querySelector(".acpmux-chat-inspector-pr__line")!;
@@ -143,6 +144,10 @@ test("abbreviates huge comment counts before trailing checks", async () => {
     "+9007199254740991 -9007199254740991",
   );
   expect(line.querySelector('.acpmux-chat-inspector-pr__checks [aria-hidden="true"]')?.textContent).toBe("9Q failing");
+  // The on-base share shortens too, and screen readers still get its exact count.
+  const base = line.querySelector(".acpmux-chat-inspector-pr__base")!;
+  expect(base.querySelector('[aria-hidden="true"]')?.textContent).toBe("(9Q already on base)");
+  expect(base.querySelector(".acpmux-chat-inspector-sr-only")?.textContent).toBe("(9007199254740991 already on base)");
   // The abbreviated count still sits before the trailing failing checks.
   expect([...line.children].map((child) => child.className).slice(-2)).toEqual([
     "acpmux-chat-inspector-pr__comments",

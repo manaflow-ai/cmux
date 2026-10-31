@@ -290,7 +290,18 @@ function PullRequestRow({
                 {onBase > 0 && (
                   <span className="acpmux-chat-inspector-pr__base">
                     {" "}
-                    {t("chatInspector.changes.failingOnBase", { count: formatCount(onBase) })}
+                    {onBase < ABBREVIATE_FROM ? (
+                      t("chatInspector.changes.failingOnBase", { count: formatCount(onBase) })
+                    ) : (
+                      <>
+                        <span aria-hidden="true">
+                          {t("chatInspector.changes.failingOnBase", { count: formatCount(onBase) })}
+                        </span>
+                        <span className="acpmux-chat-inspector-sr-only">
+                          {t("chatInspector.changes.failingOnBase", { count: onBase })}
+                        </span>
+                      </>
+                    )}
                   </span>
                 )}
               </span>
