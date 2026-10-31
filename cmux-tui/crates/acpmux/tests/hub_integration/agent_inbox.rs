@@ -600,3 +600,95 @@ async fn of_two_first_messages_at_once_only_one_runs_as_the_prompt() {
     let reply = answers(&mut c, &[ran]).await;
     assert_eq!(reply[&ran]["stopReason"], "end_turn", "{}", reply[&ran]);
 }
+
+/// Labs team messaging (`meshRelay.teamMessaging`) is off here, as on most daemons: a chat's agent
+/// still reads every word of its inbox. `inbox_read` reads it, and so do the team mailbox's inbox,
+/// read and ack, which an agent started before the inbox has instead of `inbox_read`, and which
+/// `acpmux inbox` calls (`hub/inbox_team_page.rs`). Three helpers saw only a notice's
+/// 120-character preview of a standing order from their owner, refused "team messaging is
+/// disabled" (2026-10-31).
+#[tokio::test]
+async fn with_team_messaging_off_a_chat_reads_its_inbox_whole() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    assert!(!hub.config.read().await.mesh_relay.as_ref().is_some_and(|r| r.team_messaging));
+    let id = new_session(&mut c, "helper").await;
+    let owner = new_session(&mut c, "owner").await;
+    for s in [&id, &owner] {
+        c.request(method::SESSION_PROMPT, prompt(s, "hello", None)).await.unwrap();
+    }
+    let order = format!(
+        "A standing rule from your owner: {}",
+        "read code and diffs from the host mirror, never the contents API. ".repeat(4)
+    );
+    let mut owner_agent = agent_of(&hub, &owner).await;
+    let p = json!({"sessionId": id, "prompt": [{"type": "text", "text": order}],
+        "_meta": {"acpmux": {"promptId": "m-1", "class": "blocker"}}});
+    owner_agent.send(method::SESSION_PROMPT, p).await;
+    owner_agent.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "m-1").await;
+    // A blocker wakes the chat: its notice shows only a preview.
+    until(&hub, &id, "the notice", |p| {
+        p.iter().any(|m| m["_meta"]["provenance"]["kind"] == "inbox_notice")
+    })
+    .await;
+    let notice = notices(&hub, &id)[0]["text"].as_str().unwrap().to_owned();
+    assert!(!notice.contains(&order), "{notice}");
+
+    let mut agent = agent_of(&hub, &id).await;
+    let threads = agent.request(method::MUX_INBOX_THREADS, json!({"sessionId": id})).await.unwrap();
+    let thread = threads["threads"][0]["threadId"].as_str().unwrap().to_owned();
+    let read = json!({"sessionId": id, "threadId": thread, "markRead": false});
+    let whole = agent.request(method::MUX_INBOX_THREAD, read).await.unwrap();
+    assert_eq!(whole["messages"][0]["text"], order, "{whole}");
+
+    // The team mailbox's methods read the same inbox while team messaging is off.
+    let page = agent.request(method::MUX_TEAM_INBOX, json!({"unreadOnly": false})).await.unwrap();
+    assert_eq!(page["messages"][0]["messageId"], "m-1", "{page}");
+    assert_eq!(page["messages"][0]["body"], order, "{page}");
+    assert_eq!(page["messages"][0]["from"]["name"], "owner", "{page}");
+    let one = agent.request(method::MUX_TEAM_READ, json!({"id": "m-1"})).await.unwrap();
+    assert_eq!(one["message"]["body"], order, "{one}");
+    let by_thread = agent.request(method::MUX_TEAM_READ, json!({"id": thread})).await.unwrap();
+    assert!(by_thread["message"]["body"].as_str().unwrap().contains(&order), "{by_thread}");
+    agent.request(method::MUX_TEAM_ACK, json!({"id": "m-1"})).await.unwrap();
+    // What it gave whole is read: unread only, nothing is left, and the thread says so.
+    let unread = agent.request(method::MUX_TEAM_INBOX, json!({})).await.unwrap();
+    assert_eq!(unread["messages"], json!([]), "{unread}");
+    let threads = c.request(method::MUX_INBOX_THREADS, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(threads["threads"][0]["unread"], 0, "{threads}");
+    let missing = agent.request(method::MUX_TEAM_READ, json!({"id": "m-404"})).await;
+    assert!(missing.is_err_and(|e| e.contains("inbox.not_found")));
+
+    // Another chat's agent reads its own inbox, never this one.
+    let theirs = owner_agent.request(method::MUX_TEAM_INBOX, json!({"unreadOnly": false})).await;
+    assert_eq!(theirs.unwrap()["messages"], json!([]));
+    let refused = owner_agent.request(method::MUX_TEAM_READ, json!({"id": "m-1"})).await;
+    assert!(refused.is_err_and(|e| e.contains("inbox.not_found")));
+    // A connection of no chat (the person's) is told team messaging is off, as before.
+    let person = c.request(method::MUX_TEAM_INBOX, json!({})).await;
+    assert!(person.is_err_and(|e| e.contains("team messaging is disabled")));
+}
+
+/// A chat whose agent was started with no cmux tools (`ACPMUX_AGENT_TOOLS=0`) cannot read an inbox:
+/// another agent's message queues for it as before the inbox and runs as a turn whose prompt is
+/// every word of it, never a notice of a thread it could not open.
+#[tokio::test]
+async fn a_chat_whose_agent_has_no_tools_gets_its_messages_as_prompts() {
+    let env = BTreeMap::from([("ACPMUX_AGENT_TOOLS".to_owned(), "0".to_owned())]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let id = new_session(&mut c, "toolless").await;
+    let lane = new_session(&mut c, "lane-a").await;
+    // Its agent starts, with no tools.
+    c.request(method::SESSION_PROMPT, prompt(&id, "hello", None)).await.unwrap();
+    let mut lane_agent = agent_of(&hub, &lane).await;
+    let text = "landed #27133; the full message follows on more lines\nsecond line";
+    let p = json!({"sessionId": id, "prompt": [{"type": "text", "text": text}],
+        "_meta": {"acpmux": {"promptId": "m-1"}}});
+    lane_agent.send(method::SESSION_PROMPT, p).await;
+    let accepted =
+        lane_agent.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "m-1").await;
+    assert_ne!(accepted["inbox"], true, "{accepted}");
+    until(&hub, &id, "the message's own turn", |p| p.iter().any(|m| m["text"] == text)).await;
+    assert!(notices(&hub, &id).is_empty(), "no notice of a thread it cannot read");
+    let threads = c.request(method::MUX_INBOX_THREADS, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(threads["threads"], json!([]), "{threads}");
+}
