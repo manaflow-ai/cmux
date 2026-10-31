@@ -12,6 +12,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { SubagentDoneLine } from "../subagents/SubagentDoneLine";
+import { SubagentNavContext } from "../subagents/SubagentGroup";
 import { acpmuxSendCall } from "./acpmuxSends";
 import { agentMessage } from "./agentMessages";
 import { MessageCard } from "./MessageCard";
@@ -222,6 +223,59 @@ test("the trailing column and the chevron hold fixed grid columns in the shared 
   const agentCss = readFileSync(new URL("./AgentMessageRow.css", import.meta.url), "utf8");
   const line = /\.cv-agentmsg__line \{([^}]*)\}/.exec(agentCss)?.[1] ?? "";
   expect(line).not.toContain("display: flex");
+});
+
+/// What a keyboard reaches in `row`: buttons, links and anything with a tab stop, enabled.
+const focusable = (row: Element) =>
+  [...row.querySelectorAll<HTMLElement>("button, a[href], [tabindex]")].filter(
+    (element) => !(element as HTMLButtonElement).disabled && element.getAttribute("tabindex") !== "-1",
+  );
+
+test("a subagent done line is one control: its chevron only draws and opens nothing of its own", async () => {
+  const opened: string[] = [];
+  const container = await render(
+    <SubagentNavContext.Provider value={(id) => void opened.push(id)}>
+      <SubagentDoneLine row={subagentRow} />
+    </SubagentNavContext.Provider>,
+  );
+  const row = container.querySelector<HTMLElement>(".cv-subagent-done-row")!;
+  // One focusable control, the open button, which names the whole line.
+  const controls = focusable(row);
+  expect(controls.map((element) => element.className)).toEqual(["cv-tool cv-bgtask cv-subagent-done"]);
+  // The chevron is hidden from assistive tech, has no tab stop, no pointer role and no handler: a
+  // click on it alone opens nothing (the open button's hit area, under it, takes a real click).
+  const chevron = row.querySelector<HTMLElement>(".cv-tool__chevron")!;
+  expect(chevron.getAttribute("aria-hidden")).toBe("true");
+  expect(chevron.closest("button")).toBeNull();
+  expect(chevron.hasAttribute("tabindex")).toBe(false);
+  expect(chevron.hasAttribute("data-interactive")).toBe(false);
+  await act(async () => chevron.click());
+  expect(opened).toEqual([]);
+  // The button is what opens it.
+  await act(async () => controls[0]!.click());
+  expect(opened).toEqual(["sa-1"]);
+  // The button's hit area spans the row, and the duration and chevron let a click through to it.
+  const css = readFileSync(new URL("../subagents/subagents.css", import.meta.url), "utf8");
+  expect(css).toMatch(/\.cv-subagent-done-row > \.cv-subagent-done::before \{[^}]*position: absolute;[^}]*inset: 0;/);
+  expect(css).toMatch(
+    /\.cv-subagent-done-row > \.cv-subagent-done__trail,\s*\.cv-subagent-done-row > \.cv-tool__chevron \{\s*pointer-events: none;/,
+  );
+});
+
+test("a message row's chevron only draws: the toggle is its one control for opening", async () => {
+  const { rows } = await fourRows();
+  const row = rows["send-message"]!;
+  const chevron = row.querySelector<HTMLElement>(".cv-tool__chevron")!;
+  expect(chevron.getAttribute("aria-hidden")).toBe("true");
+  expect(chevron.hasAttribute("data-interactive")).toBe(false);
+  expect(focusable(row).some((element) => element.contains(chevron))).toBe(false);
+  const toggle = row.querySelector<HTMLElement>(".cv-agentmsg__toggle")!;
+  await act(async () => chevron.click());
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  await act(async () => toggle.click());
+  expect(toggle.getAttribute("aria-expanded")).toBe("true");
+  const css = readFileSync(new URL("./AgentMessageRow.css", import.meta.url), "utf8");
+  expect(css).toMatch(/\.cv-agentmsg__toggle::before \{[^}]*position: absolute;[^}]*inset: 0;/);
 });
 
 test("a started sub-session's row names the session, with no narration in front of it", () => {
