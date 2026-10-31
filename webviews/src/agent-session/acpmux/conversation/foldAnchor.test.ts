@@ -205,9 +205,7 @@ describe("foldHolding", () => {
     expect(foldHolding({ toggle, top: 0, until: 100 }, 101)).toBe(false);
   });
   test("lets go of a line that left the transcript", () => {
-    expect(foldHolding({ toggle: { isConnected: false } as HTMLElement, top: 0, until: 100 }, 50)).toBe(
-      false,
-    );
+    expect(foldHolding({ toggle: { isConnected: false } as HTMLElement, top: 0, until: 100 }, 50)).toBe(false);
   });
   test("nothing held", () => {
     expect(foldHolding(undefined)).toBe(false);
