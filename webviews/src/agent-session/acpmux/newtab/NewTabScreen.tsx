@@ -1990,7 +1990,7 @@ export function NewTabScreen(props: Props) {
                         tabIndex={-1}
                         aria-selected={index === current}
                         aria-label={rowTitle(nt, row)}
-                        // tooltip-allow: a narrow pane ellipsizes all three labels (French: "Nouv…"); the tooltip names the action
+                        // tooltip-allow: a strip too narrow for its labels goes icon-only (createStripFit.ts data-icons-only); the tooltip names each action
                         title={rowTitle(nt, row)}
                         data-type={row.type}
                         className={index === current ? "nt-create-strip-item is-selected" : "nt-create-strip-item"}
