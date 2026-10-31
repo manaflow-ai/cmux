@@ -31,7 +31,7 @@ pub(crate) fn field<'a>(record: &'a Value, path: &str) -> Option<&'a Value> {
     }
     let cuts = path.match_indices('.').map(|(i, _)| i).rev();
     cuts.filter_map(|i| {
-        let (head, rest) = (&path[..i], &path[i + 1..]);
+        let (head, rest) = (path.get(..i)?, path.get(i + 1..)?);
         let next = match record {
             Value::Object(map) => map.get(head),
             Value::Array(rows) => head.parse::<usize>().ok().and_then(|n| rows.get(n)),
@@ -110,7 +110,7 @@ fn glob(pattern: &str, text: &str) -> bool {
                 star = Some((pi, ti));
                 pi += 1;
             }
-            Some(&c) if c == '?' || c == t[ti] => {
+            Some(&c) if c == '?' || t.get(ti) == Some(&c) => {
                 pi += 1;
                 ti += 1;
             }
@@ -124,7 +124,7 @@ fn glob(pattern: &str, text: &str) -> bool {
             },
         }
     }
-    p[pi..].iter().all(|&c| c == '*')
+    p.get(pi..).unwrap_or_default().iter().all(|&c| c == '*')
 }
 
 #[cfg(test)]
@@ -142,6 +142,13 @@ mod tests {
         assert_eq!(field(&info, "turn.missing"), None);
         assert_eq!(field(&info, "tags.lane.reportsTo"), Some(&json!("x")), "a dotted tag key");
         assert_eq!(field(&info, "tags.area"), Some(&json!("acpmux")));
+        let wide = json!({"名前": {"子": 1}});
+        assert_eq!(
+            field(&wide, "名前.子"),
+            Some(&json!(1)),
+            "a dotted path through multibyte keys"
+        );
+        assert_eq!(field(&wide, "名前."), None);
         let fields = parse_fields("name, turn.activity,nope").unwrap();
         assert_eq!(
             project_fields(&info, &fields),
@@ -178,6 +185,12 @@ mod tests {
         assert!(name_matches(&slashed, &p(&["01c3"])));
         assert!(name_matches(&local, &p(&["review-2789?"])));
         assert!(!name_matches(&local, &p(&["review"])), "a glob matches the whole name");
+        // Multibyte names and patterns: `?` is one char, and a trailing `*` matches nothing.
+        let wide = json!({"name": "レビュー-27", "sessionId": "01d4"});
+        assert!(name_matches(&wide, &p(&["レビュー-2?"])));
+        assert!(name_matches(&wide, &p(&["レ*"])));
+        assert!(name_matches(&wide, &p(&["レビュー-27*"])));
+        assert!(!name_matches(&wide, &p(&["レビ"])));
         assert!(name_matches(&local, &p(&["nope", "01a1"])), "an id matches exactly");
         assert!(name_matches(&peer, &p(&["huge-blue/01b2"])), "a peer's host/id matches");
         assert!(!name_matches(&peer, &p(&["other/01b2"])));

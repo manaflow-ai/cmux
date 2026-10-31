@@ -644,6 +644,7 @@ struct QueuedPromptsView: View {
             Button("Cancel", role: .cancel) {}
             Button("Save") { store.editQueued(item.id, text: editText) }
                 .disabled(editText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .keyboardShortcut(.defaultAction)
         }
         // The X while a draft is in the composer: the draft stays, so the message is not
         // put back there; it is removed only on a choice here, and can be copied first.

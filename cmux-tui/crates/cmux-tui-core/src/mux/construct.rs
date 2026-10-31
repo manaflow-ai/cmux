@@ -321,6 +321,8 @@ impl Mux {
             agent_roster: Mutex::new(agent_roster),
             agent_roster_fold: Mutex::new(()),
             agent_message_pump: Default::default(),
+            #[cfg(unix)]
+            agent_chat_notices: Default::default(),
             placement_notifications: Mutex::new(HashMap::new()),
             terminal_notifications: Mutex::new(terminal_notifications),
             terminal_command_history: AtomicBool::new(false),
@@ -337,6 +339,7 @@ impl Mux {
             journal_ingress,
             output_store,
             journal_maintenance: Mutex::new(None),
+            journal_maintenance_control: Arc::default(),
             journal_hook_dispatcher_started: AtomicBool::new(false),
             journal_hook_runtime: Arc::new(crate::journal_hooks::JournalHookRuntime::default()),
             journal_event_epoch: Mutex::new(0),
@@ -394,6 +397,7 @@ impl Mux {
             activity: Default::default(),
             idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
             idle_close_waker: Mutex::new(None),
+            pty_reclaim_forced: AtomicBool::new(false),
             terminal_host_closes: Arc::new(host_close::TerminalHostCloses::default()),
             creating_inputs: Default::default(),
             terminal_reap_grace_ms: AtomicU64::new(

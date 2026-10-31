@@ -315,6 +315,12 @@ async function checkBase(ctx: Ctx): Promise<void> {
  */
 export const APT_BATCH_BYTES = 20_000_000;
 
+/**
+ * `--error-on=any`: without it apt-get update exits 0 when an index fails to download (it warns
+ * and keeps the old or no index), so a mirror outage surfaced later as a locked pin with no size.
+ */
+export const APT_UPDATE_COMMAND = "apt-get update -q --error-on=any >/tmp/apt-update.log 2>&1 || { tail -30 /tmp/apt-update.log; exit 1; }";
+
 /** `pkg=version size` for every locked package, from the updated apt index (Size: field). */
 export function aptSizesCommand(packages: Readonly<Record<string, string>>): string {
   return `apt-cache show --no-all-versions ${aptPinArgs(packages)} | awk '/^Package: /{p=$2} /^Version: /{v=$2} /^Size: /{print p "=" v " " $2}'`;
@@ -335,12 +341,16 @@ export function aptDownloadBatches(
   sizes: ReadonlyMap<string, number>,
   maxBytes = APT_BATCH_BYTES,
 ): Array<{ pins: string[]; bytes: number }> {
+  const entries = Object.entries(packages).sort(([a], [b]) => a.localeCompare(b));
+  // Every missing pin at once: all of them missing means the index is empty (a mirror outage), not the lock.
+  const missing = entries.map(([name, version]) => `${name}=${version}`).filter((pin) => !sizes.has(pin));
+  if (missing.length > 0) throw new Error(`apt index has no size for ${missing.length} of ${entries.length} locked pins (${missing.join(", ")})`);
   const batches: Array<{ pins: string[]; bytes: number }> = [];
   let current: { pins: string[]; bytes: number } = { pins: [], bytes: 0 };
-  for (const [name, version] of Object.entries(packages).sort(([a], [b]) => a.localeCompare(b))) {
+  for (const [name, version] of entries) {
     const pin = `${name}=${version}`;
     const size = sizes.get(pin);
-    if (size === undefined) throw new Error(`apt index has no size for ${pin}`);
+    if (size === undefined) continue;
     if (current.pins.length > 0 && current.bytes + size > maxBytes) {
       batches.push(current);
       current = { pins: [], bytes: 0 };
@@ -372,7 +382,7 @@ async function installApt(ctx: Ctx): Promise<void> {
   const { ubuntu, pgdg } = lock.apt;
   await L.step(vm, "apt-sources-snapshot", "cp /etc/apt/sources.list.d/ubuntu.sources /etc/apt/ubuntu.sources.live");
   await writeGuestFile(vm, "/etc/apt/sources.list.d/ubuntu.sources", ubuntuSourcesFile(ubuntu), 0o644);
-  await L.step(vm, "apt-update", "apt-get update -q >/tmp/apt-update.log 2>&1 || { tail -30 /tmp/apt-update.log; exit 1; }");
+  await L.step(vm, "apt-update", APT_UPDATE_COMMAND);
   // The locked mirror can be too slow for one 5-minute exec (the guest agent's cap), so the
   // closure is downloaded in batches of about APT_BATCH_BYTES, each its own step, then
   // installed offline (--no-download) from the apt cache.
@@ -386,7 +396,7 @@ async function installApt(ctx: Ctx): Promise<void> {
   // postgresql-common would create and start a 17/main cluster on install; the image carries binaries only.
   await L.step(vm, "pgdg-key", `mkdir -p /etc/postgresql-common/createcluster.d && printf 'create_main_cluster = false\\n' > /etc/postgresql-common/createcluster.d/00-cmux.conf && curl -fsSL --retry 3 -o ${PGDG_KEY} ${sq(pgdg.keyUrl)} && printf '%s  %s\\n' ${pgdg.keySha256} ${PGDG_KEY} | sha256sum -c --quiet -`);
   await writeGuestFile(vm, "/etc/apt/sources.list.d/pgdg.sources", pgdgSourcesFile(pgdg, PGDG_KEY), 0o644);
-  await L.step(vm, "apt-install-pgdg", `apt-get update -q >/tmp/apt-update.log 2>&1 || { tail -30 /tmp/apt-update.log; exit 1; }; apt-get install -y --no-install-recommends ${aptPinArgs(pgdg.packages)} >/tmp/apt-pg.log 2>&1 || { tail -40 /tmp/apt-pg.log; exit 1; }; ${DPKG_LIST} > /root/after-dpkg.tsv`);
+  await L.step(vm, "apt-install-pgdg", `${APT_UPDATE_COMMAND}; apt-get install -y --no-install-recommends ${aptPinArgs(pgdg.packages)} >/tmp/apt-pg.log 2>&1 || { tail -40 /tmp/apt-pg.log; exit 1; }; ${DPKG_LIST} > /root/after-dpkg.tsv`);
   const baseDpkg = parseDpkgList(await readGuestText(vm, "/root/base-dpkg.tsv"));
   const added = dpkgChanges(baseDpkg, parseDpkgList(await readGuestText(vm, "/root/after-dpkg.tsv")));
   const problems = aptClosureProblems({ ...ubuntu.packages, ...pgdg.packages }, added, baseDpkg);

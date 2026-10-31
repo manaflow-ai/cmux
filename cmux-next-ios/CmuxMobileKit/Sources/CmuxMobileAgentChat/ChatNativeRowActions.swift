@@ -82,7 +82,7 @@ enum ChatNativeRowActions {
             actions.moreMenu = {
                 var items: [UIMenuElement] = [
                     UIAction(title: "Copy as Markdown", image: UIImage(systemName: "text.document")) { _ in UIPasteboard.general.string = turn.answerMarkdown },
-                    UIAction(title: "Retry", image: UIImage(systemName: "arrow.clockwise")) { _ in store.send(prompt: turn.prompt) },
+                    UIAction(title: "Retry", image: UIImage(systemName: "arrow.clockwise")) { _ in store.retry(turn) },
                 ]
                 // Retry with another model (`RetryModelChoice`), read when the menu opens.
                 if !store.retryModels.isEmpty {
@@ -99,7 +99,7 @@ enum ChatNativeRowActions {
                 switch hit {
                 case .copyAnswer: UIPasteboard.general.string = turn.answerMarkdown
                 case .shareAnswer: ChatShare.present(turn.answerMarkdown)
-                case .retry: store.send(prompt: turn.prompt)
+                case .retry: store.retry(turn)
                 default: break
                 }
             }

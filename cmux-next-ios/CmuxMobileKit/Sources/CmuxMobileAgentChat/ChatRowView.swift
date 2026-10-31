@@ -53,6 +53,7 @@ struct ChatRowView: View {
             .environment(\.attachmentLoader, context.attachmentLoader)
             .environment(\.openURL, context.openURL)
             .environment(\.chatDisclosures, context.surface.disclosures)
+            .environment(\.transcriptFoldHold, context.surface.foldHold)
     }
 
     @ViewBuilder
@@ -125,7 +126,8 @@ struct ChatRowView: View {
             }
         case .actions(let turn, let isLast):
             AnswerActionRow(turn: turn, isLast: isLast, insetsTargets: false, retryWith: RetryModelChoice(store: store, turn: turn)) {
-                store.send(prompt: turn.prompt)
+                // Re-sends the turn's attachments too (an image-only turn's Retry), as #28489 made it.
+                store.retry(turn)
             }
         }
     }

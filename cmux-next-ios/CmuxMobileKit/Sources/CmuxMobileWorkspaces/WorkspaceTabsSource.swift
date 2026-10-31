@@ -839,8 +839,50 @@ public final class WorkspaceTabsSource: TabsDataSource {
     func browser(_ tab: WorkspaceTab) -> any BrowserTabState {
         let macID = store.workspace(id: workspaceID)?.macID
         if let model = native.model(tab: tab.id, macID: macID) { return model }
-        if let model = streamed.model(tab: tab.id, url: tab.url, macID: macID) { return model }
+        if let model = streamed.model(tab: tab.id, url: tab.url, macID: macID) {
+            // The page's links that open a new tab or window open one beside it (the model
+            // is kept across screens; the newest screen of its workspace answers).
+            let tabID = tab.id
+            model.openTab = { [weak self] request in await self?.openLinkTab(request, from: tabID) }
+            return model
+        }
         return localBrowser(tab)
+    }
+
+    /// A page's link that opens a new tab or window (`rb.open_tab`), as the Mac's viewer
+    /// opens it: a browser tab beside the page, shown unless the page asked for a
+    /// background tab. Returns the new tab's id for the page, nil when none opened.
+    func openLinkTab(_ request: RemoteBrowserOpenTab, from tabID: String) async -> String? {
+        guard let workspace, let creator, let tab = workspaceTab(tabID) else { return nil }
+        guard let url = URL(string: request.url) else {
+            show("This link can't open in a new tab.")
+            return nil
+        }
+        tabsLog.info("link tab \(request.disposition.rawValue, privacy: .public) from \(tabID, privacy: .public)")
+        let shown = pendingTabTitle == nil && !request.opensInBackground
+        if shown { pendingTabTitle = "New Tab" }
+        defer { if shown { pendingTabTitle = nil } }
+        do {
+            let opened = try await creator.backend.openBrowserTab(url, besides: tab, in: workspace)
+            if store.workspace(id: workspaceID)?.tabs.contains(where: { $0.id == opened.id }) != true {
+                store.appendTab(opened, to: workspaceID)
+            }
+            if !streamed.isLive, browsers[opened.id] == nil { browsers[opened.id] = BrowserTabModel(url: opened.url) }
+            if request.opensInBackground {
+                show("Opened in a new tab.")
+            } else {
+                activate(opened.id)
+                openedTab = opened.id
+            }
+            return opened.id
+        } catch let error as WorkspaceCreationError where error.isForPerson {
+            show(named(error.message))
+            CmuxMobileTheme.standard.haptics.error()
+        } catch {
+            show(TabNotice(action: .open(optionTitle: "New Browser Tab"), macName: macName, reason: Self.message(error)))
+            CmuxMobileTheme.standard.haptics.error()
+        }
+        return nil
     }
 
     /// A Mac phone tab's simulator, streamed while linked (nil otherwise).
@@ -1172,6 +1214,38 @@ public final class WorkspaceTabsSource: TabsDataSource {
         } catch {
             show(TabNotice(action: .open(optionTitle: "New \(tab.kind == .browser ? "Browser Tab" : "Terminal")"), macName: macName,
                            reason: Self.message(error)))
+            CmuxMobileTheme.standard.haptics.error()
+        }
+    }
+
+    /// A web link tapped in a terminal tab (the Mac's Cmd-click): a cmux browser tab at `url`
+    /// beside the terminal on the Mac, shown here once the Mac lists it.
+    public func openLink(_ url: URL, fromTab id: TabsKitTab.ID) async {
+        // No Mac to open it on (the workspace went away, the Mac is offline or doesn't let
+        // this iPhone open tabs): Safari, never nothing.
+        guard canEditTabs, let workspace, let creator, let tab = workspaceTab(id) else {
+            await UIApplication.shared.open(url)
+            return
+        }
+        if let pending = pendingTabTitle {
+            show("Still opening \(pending). Try again once it's open.")
+            return
+        }
+        let title = WorkspaceTabsSource.option(.browser).title
+        pendingTabTitle = title
+        defer { pendingTabTitle = nil }
+        do {
+            let opened = try await creator.backend.openLink(url, besides: tab, in: workspace)
+            if store.workspace(id: workspaceID)?.tabs.contains(where: { $0.id == opened.id }) != true {
+                store.appendTab(opened, to: workspaceID)
+            }
+            activate(opened.id)
+            openedTab = opened.id
+        } catch let error as WorkspaceCreationError where error.isForPerson {
+            show(named(error.message))
+            CmuxMobileTheme.standard.haptics.error()
+        } catch {
+            show(TabNotice(action: .open(optionTitle: title), macName: macName, reason: Self.message(error)))
             CmuxMobileTheme.standard.haptics.error()
         }
     }
@@ -1761,11 +1835,15 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 ? [TabsKitMenuItem(title: Self.restartShellTitle, systemImage: "arrow.counterclockwise") { [weak self] in
                     Task { await self?.restartShell(tab.id) }
                 }] : []
-            // Files and Links, Paste, Clear | Copy Directory | Close Tab: no
+            // Files and Links, Paste, Find, Clear, Scroll to Bottom | Copy Directory | chats,
+            // Panes and Screens, edit rows | the close rows: no
             // "All Workspaces" (Back leaves the workspace; design/terminal P1).
             return [restart, own, [copy], chatsItems, layoutPages, edit, closes].filter { !$0.isEmpty }
         case .browser:
             let model = browser(tab)
+            let streamedPage = model as? StreamedBrowserModel
+            // Open in Safari: the page's web address on this iPhone (the Mac's Open in Default Browser).
+            let web = model.url.flatMap { ["http", "https"].contains($0.scheme?.lowercased() ?? "") ? $0 : nil }
             // Linked: the page is the Mac's, mirrored; Open on iPhone loads it here instead.
             let placement: [TabsKitMenuItem] = nativeBrowser(tab) != nil
                 ? !canMirror(tab) ? [] : [TabsKitMenuItem(id: "browser.mirrorFromMac", title: "Mirror from \(macName)", systemImage: "macbook") { [weak self] in
@@ -1780,6 +1858,12 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 [
                     TabsKitMenuItem(title: "Copy Link", systemImage: "link", isEnabled: model.url != nil) { UIPasteboard.general.url = model.url },
                     TabsKitMenuItem(title: "Reload", systemImage: "arrow.clockwise") { model.reloadOrStop() },
+                ] + (streamedPage.map { page in
+                    [TabsKitMenuItem(title: "Hard Reload", systemImage: "arrow.clockwise.circle") { page.hardReload() }]
+                } ?? []) + [
+                    TabsKitMenuItem(title: "Open in Safari", systemImage: "safari", isEnabled: web != nil) {
+                        if let web { UIApplication.shared.open(web) }
+                    },
                 ],
                 placement,
                 chatsItems,
@@ -1889,9 +1973,11 @@ struct WorkspaceTabPage: View {
 
     private var terminalContext: TerminalTabContext {
         let context = context
+        let tabID = tabID
         return TerminalTabContext(safeAreaInsets: context.safeAreaInsets, isInteractive: context.isInteractive,
                                   isZoomGestureActive: context.isZoomGestureActive,
-                                  reportScroll: { context.reportScroll(fingerDelta: $0) })
+                                  reportScroll: { context.reportScroll(fingerDelta: $0) },
+                                  openLink: { [weak source] url in Task { await source?.openLink(url, fromTab: tabID) } })
     }
 }
 

@@ -308,6 +308,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 Task { await sources.createChief(named: name) }
             }
             .accessibilityIdentifier("home.chief.newCreate")
+                .keyboardShortcut(.defaultAction)
         } message: {
             Text("A new Cloud Chief with its own conversation and memory.")
         }

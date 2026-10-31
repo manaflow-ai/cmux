@@ -575,7 +575,7 @@ public final class TerminalFeed {
             }
             if error.message.contains("foreground changed") { return "The agent left that terminal, so the reply was not sent." }
             if error.message.contains("agent not waiting") {
-                return "The agent is busy, asking something, or restarted. The reply was not sent. Open the terminal to reply."
+                return "Open the terminal to answer the agent."
             }
             return "The Mac refused the reply: \(error.message)"
         } catch {

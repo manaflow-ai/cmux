@@ -45,6 +45,9 @@ public final class AgentChatSurface {
     }
     @ObservationIgnored private var storedPosition = ScrollPosition(edge: .bottom)
     public internal(set) var following = true
+    /// The transcript's disclosure hold (`ChatTranscriptController.holdForDisclosure`), set by
+    /// the controller and handed to the rows' environment; a no-op outside the transcript.
+    @ObservationIgnored var foldHold = TranscriptFoldHold(begin: {}, end: {})
     var showJump = false
     var diffRoute: DiffRoute?
     /// Subagents, a subagent, checkpoints or the handoff, pushed over the chat.
@@ -183,7 +186,7 @@ public final class AgentChatSurface {
         following = true
         if let scroller {
             scroller.scrollTranscript(toTop: false, animated: animated)
-        } else if animated {
+        } else if animated, !UIAccessibility.isReduceMotionEnabled {
             withAnimation(.smooth(duration: 0.35)) { position.scrollTo(edge: .bottom) }
         } else {
             position.scrollTo(edge: .bottom)
@@ -799,7 +802,7 @@ struct TurnView: View {
                     }
                 case .completed:
                     AnswerActionRow(turn: turn, isLast: isLast, retryWith: RetryModelChoice(store: store, turn: turn)) {
-                        store.send(prompt: turn.prompt)
+                        store.retry(turn)
                     }
                 case .running:
                     EmptyView()

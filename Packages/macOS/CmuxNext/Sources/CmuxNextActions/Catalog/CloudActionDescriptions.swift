@@ -169,9 +169,9 @@ nonisolated enum CloudActionDescriptions {
             """,
         "cloudListMachines": """
             Returns the app's Cloud machines: loaded, count, account.signed_in and machines, each with \
-            machine_id, target (machine:<id>), title, status, owner and created_at. loaded false means the \
-            list is not known yet (signed out, or still loading after 25 s with pending: true), not that \
-            there are none.
+            machine_id, target (machine:<id>), title, status, owner, created_by and created_at. created_by is \
+            the creator's user ID, or null when unavailable. loaded false means the list is not known yet \
+            (signed out, or still loading after 25 s with pending: true), not that there are none.
             """,
         "cloudNewTerminal": """
             Opens a new workspace with a terminal on the machine (--target machine:<id>), resuming a paused \
