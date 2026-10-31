@@ -26,6 +26,8 @@ use std::sync::atomic::Ordering;
 pub(super) struct SteerSent {
     pub(super) client: String,
     pub(super) text: String,
+    /// The line it leaves on the summary as the turn it starts (`prompt_line.rs`).
+    pub(super) line: String,
     pub(super) control: Control,
     /// What a continuation of the turn it starts needs (`auto_resume.rs`).
     pub(super) continues: Continues,
@@ -202,17 +204,19 @@ impl Hub {
             Some(s) => s.control,
             None => from_control,
         };
-        let (client, text, continues) = match sent {
-            Some(s) => (s.client, s.text, s.continues),
+        let (client, text, line, continues) = match sent {
+            Some(s) => (s.client, s.text, s.line, s.continues),
             None => (
                 from.map(|t| t.client.clone()).unwrap_or_default(),
+                String::new(),
                 String::new(),
                 Continues::default(),
             ),
         };
         let continues = Continues { reports, ..continues };
         let prompt_id = first.cloned().unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
-        (TurnInfo::prompted(&client, &text, &turn_id, &prompt_id, control), continues)
+        let turn = TurnInfo::prompted(&client, &text, &turn_id, &prompt_id, control);
+        (turn.shown_as(&line), continues)
     }
 
     /// After `finish_turn` put `turn` in place of `from`: the turn starts, and its task runs it.
@@ -598,6 +602,7 @@ mod tests {
         let sent = |reports| SteerSent {
             client: "test".into(),
             text: "steer".into(),
+            line: "steer".into(),
             control: Control::Local,
             continues: Continues { reports, ..Continues::default() },
         };

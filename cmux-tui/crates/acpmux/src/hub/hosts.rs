@@ -1145,10 +1145,14 @@ impl Hub {
                     let ended = session.steer_end.subscribe();
                     // Its start as logged: a restart does not make it new.
                     let started_at = if work.turn_at > 0 { work.turn_at } else { now_ms() };
+                    // Its line on the summary as its client tells it (`prompt_line.rs`): the
+                    // record keeps no provenance.
+                    let line = super::prompt_line::prompt_line(&prompt, &client, None);
                     *session.turn.lock().unwrap() = Some(TurnInfo {
                         started_at,
                         client,
-                        masked_preview: crate::secret_scan::mask(&prompt),
+                        masked_preview: crate::secret_scan::mask(&line),
+                        prompt_line: line,
                         prompt_preview: prompt,
                         turn_id: turn_id.clone(),
                         prompt_id: prompt_id.clone(),
