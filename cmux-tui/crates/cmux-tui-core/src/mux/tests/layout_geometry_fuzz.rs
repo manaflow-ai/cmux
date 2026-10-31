@@ -87,7 +87,8 @@ enum Op {
 }
 
 impl Op {
-    /// Ops that must leave every existing column's width as it was.
+    /// Ops that must leave every existing column's width as it was: the
+    /// creates, and zoom and focus, which change no width either.
     fn creates(&self) -> bool {
         matches!(
             self,
@@ -571,6 +572,7 @@ proptest! {
         cases: cases(),
         failure_persistence: None,
         max_shrink_iters: 4_000,
+        max_shrink_time: 60_000,
         ..ProptestConfig::default()
     })]
 

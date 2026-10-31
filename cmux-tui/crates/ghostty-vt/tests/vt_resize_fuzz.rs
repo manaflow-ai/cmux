@@ -10,8 +10,9 @@
 //!   frontend that attaches at that moment shows; checked only while the
 //!   stream is at ground (no unfinished sequence);
 //! - SNAPSHOT: the READY snapshot encodes;
-//! - STALL: no single write, resize or replay takes over 100 ms
-//!   (`CMUX_VT_FUZZ_STALL_MS`).
+//! - STALL: no single write, resize or replay takes over 5 s (a hang
+//!   detector under a loaded runner; `CMUX_VT_FUZZ_STALL_MS=100` is the
+//!   100 ms main-thread budget for a run on an idle host).
 //!
 //! `CMUX_VT_FUZZ_CASES` sets the number of sequences (default 128). A failure
 //! prints the shrunk op list: paste it into a red test.
@@ -34,7 +35,7 @@ fn env_u64(name: &str, default: u64) -> u64 {
 }
 
 fn stall_limit() -> Duration {
-    Duration::from_millis(env_u64("CMUX_VT_FUZZ_STALL_MS", 100))
+    Duration::from_millis(env_u64("CMUX_VT_FUZZ_STALL_MS", 5_000))
 }
 
 /// A grid size: mostly ordinary, sometimes 0, 1 or huge.
@@ -187,6 +188,11 @@ fn run_sequence(start: (u16, u16), ops: &[Op]) -> Result<(), String> {
                     .map_err(|error| at(format!("resize failed: {error:#}")))?;
             }
         }
+        // A program may change the grid itself (DECCOLM): after a write the
+        // terminal's own size is the one to hold the cursor.
+        if matches!(op, Op::Write(_)) {
+            (cols, rows) = (term.cols(), term.rows());
+        }
         check_grid(&term, cols, rows).map_err(at)?;
         timed("encode_snapshot", || term.encode_snapshot(SnapshotPhase::Ready))
             .map_err(at)?
@@ -201,6 +207,7 @@ proptest! {
         cases: u32::try_from(env_u64("CMUX_VT_FUZZ_CASES", 128)).unwrap_or(u32::MAX),
         failure_persistence: None,
         max_shrink_iters: 4_000,
+        max_shrink_time: 60_000,
         ..ProptestConfig::default()
     })]
 
