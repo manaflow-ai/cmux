@@ -273,6 +273,9 @@ NIGHTLY_EVENTS = frozenset({"push", "schedule"})
 # The one job of a nightly run the watch judges (the visual gate must never
 # cancel signing or notarization siblings).
 NIGHTLY_APP_JOB = "build-nightly-app"
+# nightly.yml's first job: attempt 1 of a nightly-next push asks for the nightly slot (NIGHTLY_SLOT_LABEL), and
+# the rescue moves it when no slot takes it, so the re-run takes Blacksmith Linux. Every other job waits on it.
+NIGHTLY_DECIDE_JOB = "decide"
 # The trusted owned pool's labels: minis with no pull request runners, whose
 # job-started hook admits only main's push and schedule jobs. Only nightly.yml's
 # app build asks for one through this watch.
@@ -479,7 +482,9 @@ def nightly_watched(job: Mapping[str, Any]) -> bool:
     gate holds nothing.
     """
     return job.get("name") == NIGHTLY_APP_JOB or any(TRUSTED_LABEL.fullmatch(str(label))
-                                                     for label in job.get("labels") or [])
+                                                     for label in job.get("labels") or []) \
+        or job.get("name") == NIGHTLY_DECIDE_JOB and any(NIGHTLY_SLOT_LABEL.fullmatch(str(label))
+                                                         for label in job.get("labels") or [])
 
 
 def queued_pool(job: Mapping[str, Any], *, include_blacksmith_macos: bool = False) -> str | None:
