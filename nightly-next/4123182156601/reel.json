@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "build": "4123182156601",
+  "notes": "notes/4123182156601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 29567,
+      "title": "verify(ios): the parity trust flow expects \"isn't trusted\"",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29579,
+      "title": "base red: ArtAccentTests root their own theme tree (they read the app theme other suites leave)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29576,
+      "title": "idle-budget: name a running CVDisplayLink's owner and upload the run as one file",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29572,
+      "title": "fix(app): closing a pending split drops its stand-in from the close warning and moves the focus in the same turn",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29566,
+      "title": "base red: Takes back #28686: a Cloud start's card steps, size text and upload check move to CmuxNextAgentPane (app_lines +23)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29557,
+      "title": "base red: SidebarPullRequestFixture is a struct, the namespace lint's safe rewrite",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29558,
+      "title": "fix(fuzz-browser): browser-fuzz.sh provisions the pinned bun before the build",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29562,
+      "title": "base autofix: apply the namespace lint's safe rewrites, so a warned PR finding can't keep package-conventions-lint red",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29554,
+      "title": "fix(cmux-tui): base red: unnecessary qualifications in tests/cli/closed_delete.rs",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29442,
+      "title": "measure(next): premain suite: where the 7.9 s before main() goes on a cold launch",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29569,
+      "title": "backend: size the guest exec response bound for the routes' largest answers (fix-forward #28919)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29497,
+      "title": "cmux NEXT Cloud: a first chat an older daemon refused updates the machine and starts once more",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28679,
+      "title": "acpmux: dispatch --host auto keeps new lanes off a person's machines and the last-resort host",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28817,
+      "title": "cmux NEXT chief inspector: regenerate the committed page after the cursor-default change (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28500,
+      "title": "cmux NEXT: record where each attachment came from (carry #28031)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
