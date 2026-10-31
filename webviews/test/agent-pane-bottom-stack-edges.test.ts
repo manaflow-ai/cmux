@@ -314,11 +314,15 @@ await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
       );
       // A row's own menu dismisses it, and focus moves to the row now in its place; the count still
       // names both.
-      await links.first().click({ button: "right" });
+      // From the keyboard: Shift-F10 on the focused row opens the row's menu (a right-click's path),
+      // and Return runs its one item.
+      await page.mouse.move(5, 5);
+      await links.first().focus();
+      await page.keyboard.press("Shift+F10");
       const item = page.getByRole("menuitem", { name: "Dismiss pull request #129" });
       await item.waitFor({ timeout: 2_000 });
       expect(await page.getByRole("menuitem").count()).toBe(1);
-      await item.click();
+      await page.keyboard.press("Enter");
       expect(await links.count()).toBe(1);
       expect((await count.textContent())?.trim()).toBe("2 PRs");
       await page.waitForFunction(() => document.activeElement?.matches(".acpmux-pr-stack__link") ?? false);
