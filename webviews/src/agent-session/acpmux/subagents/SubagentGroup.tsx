@@ -145,7 +145,7 @@ export function SubagentGroupHeader({
 }
 
 /// One subagent in an open group: its avatar, name (in the agent's color,
-/// agentTones.ts), state or current action with what it has spent (subagentProgress.ts), and time. `edge` rounds the list's first and last
+/// agentTones.ts), state or current action with its workflow's agent counts (subagentProgress.ts, no tokens or tool uses), and time. `edge` rounds the list's first and last
 /// rows. A click opens its own view; a running one has a stop button beside it.
 export function SubagentListRow({ row }: { row: AcpmuxRow }) {
   const t = useT();
@@ -159,9 +159,10 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
   const now = useNow(agent ? running(agent) : false);
   if (!agent) return null;
   const label = STATE_LABEL[agent.state as keyof typeof STATE_LABEL] ?? STATE_LABEL.completed;
-  const state = [running(agent) ? (agent.action ?? t(label)) : t(label), ...subagentProgress(t, language, agent)].join(
-    " · ",
-  );
+  const state = [
+    running(agent) ? (agent.action ?? t(label)) : t(label),
+    ...subagentProgress(t, language, agent, { usage: false }),
+  ].join(" · ");
   const content = (
     <>
       <Avatar agent={agent} />
