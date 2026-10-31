@@ -12,8 +12,7 @@
     "prosemirror-state": "^1.4.4",
     "prosemirror-view": "1.42.4",
     "react": "19.2.3",
-    "react-dom": "19.2.3",
-    "solid-js": "1.9.17"
+    "react-dom": "19.2.3"
   },
   "license": "GPL-3.0-or-later",
   "devDependencies": {

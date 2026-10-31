@@ -42,8 +42,12 @@ else, and never waits:
 2. a pick claims a host only when its label resolves to exactly one idle runner: an idle DEV slot or root
    runner pinned by its static label, or the one idle DEV slot when there is only one; the nearest record
    wins, a slot first at equal distance;
-3. otherwise the shared DEV slot label when a slot is idle, then the side label, at once; with nothing
-   owned idle, or the runners unreadable, it prints an empty runs_on and the compile keeps its route.
+3. otherwise the shared DEV slot label when a slot is idle, then the side label, at once;
+4. with nothing owned idle, the shared DEV slot label while a DEV slot is online: it waits there behind feed work
+   only (the slots admit nothing else), never at the back of the side label's queue, which GitHub hands out
+   oldest first (2026-10-30: five DEV daily compiles queued there from 13:55Z behind about 184 PR and side
+   jobs); with no DEV slot online, or the runners unreadable, it prints an empty runs_on and the compile keeps
+   its route.
 """
 from __future__ import annotations
 
@@ -331,7 +335,11 @@ def place_daily(side_label: str, fresh_label: str, read_runners: Callable[[], Se
     if sides:
         return {**DAILY_KEEP, "runs_on": json.dumps(side_label), "runner_label": side_label, "pool": "owned",
                 "reason": f"no idle runner on a free host with a cache record; {len(sides)} side runners are idle"}
-    return {**DAILY_KEEP, "reason": "no owned runner is idle; the compile keeps its route"}
+    if any(fresh_label in {str(label.get("name")) for label in runner.get("labels") or [] if isinstance(label, Mapping)}
+           for runner in online):
+        return {**DAILY_KEEP, "runs_on": json.dumps(fresh_label), "runner_label": fresh_label, "pool": "owned",
+                "reason": "no owned runner is idle; the compile waits on a busy DEV slot, behind feed work only"}
+    return {**DAILY_KEEP, "reason": "no owned runner is idle and no DEV slot is online; the compile keeps its route"}
 
 
 def gap_main(source: str, head: str) -> int:

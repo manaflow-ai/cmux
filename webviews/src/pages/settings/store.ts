@@ -49,6 +49,7 @@ import {
   type DevicesRunResult,
   type DevicesState,
   type Domains,
+  type MenuLayout,
   type HarnessesRun,
   type HarnessesState,
   type HostLists,
@@ -552,6 +553,21 @@ export class SettingsStore {
     return reply.ok;
   }
 
+  /** Settings > Menus: save `menu`'s arrangement (null resets it), then re-read the host lists.
+   * Throws the host's refusal (a managed key, an unreadable cmux.json). */
+  async setContextMenuLayout(menu: string, layout: MenuLayout | null): Promise<void> {
+    const reply = await this.request("cmux.settings.context_menus.set", { menu, layout });
+    await this.refreshHost();
+    if (!reply.ok) throw new TransportError(reply.error);
+  }
+
+  /** Settings > Menus: whether every right-click menu ends with Customize Menu…; throws a refusal. */
+  async setShowCustomizeMenuItem(show: boolean): Promise<void> {
+    const reply = await this.request("cmux.settings.context_menus.show_item", { show });
+    await this.refreshHost();
+    if (!reply.ok) throw new TransportError(reply.error);
+  }
+
   /** Settings > Chief > Voice input: turn the message box's mic on or off, then re-read the host lists. */
   async setVoiceInput(on: boolean): Promise<void> {
     await this.request("cmux.settings.voice_input.set", { on });
@@ -658,9 +674,14 @@ export class SettingsStore {
   }
 
   /** Runs one of the page's catalog actions (`target` is `kind:id`), then re-reads the lists. */
-  async runAction(action: SettingsPageAction, args: Record<string, unknown> = {}, target?: string): Promise<void> {
-    await this.request("cmux.app.action.run", target ? { action, args, target } : { action, args });
+  async runAction(
+    action: SettingsPageAction,
+    args: Record<string, unknown> = {},
+    target?: string,
+  ): Promise<Reply<unknown>> {
+    const reply = await this.request("cmux.app.action.run", target ? { action, args, target } : { action, args });
     await this.refreshHost();
+    return reply;
   }
 
   dispose(): void {

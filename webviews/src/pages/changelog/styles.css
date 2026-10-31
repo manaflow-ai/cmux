@@ -46,12 +46,7 @@ html[data-cmux-page="changelog"] body {
   aspect-ratio: 7 / 4;
   border-radius: 10px;
   overflow: hidden;
-  background: var(--page-hover);
-  -webkit-backdrop-filter: var(--surface-blur);
-  backdrop-filter: var(--surface-blur);
-  box-shadow:
-    0 0 0 1px var(--page-separator),
-    inset 0 1px 0 color-mix(in srgb, var(--page-text) 8%, transparent);
+  /* The shared .ui-glass material supplies tint, blur, rim and reduced-transparency behavior. */
 }
 .cl-media img,
 .cl-media video { display: block; width: 100%; height: 100%; object-fit: cover; object-position: left top; }
@@ -203,8 +198,7 @@ html[data-cmux-page="changelog"] body {
 /* The number is the agent pane's reference chip (chips.css .cv-chip.is-ref); both open the shared
    pull request hover card (ChangePullRequest.tsx). */
 .cl-pr { flex: none; margin-left: auto; font-variant-numeric: tabular-nums; }
-.cl-change-link:hover { text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
-.cl-pr:hover { cursor: pointer; }
+.cl-change-link:hover { text-decoration: underline; text-underline-offset: 3px; cursor: default; }
 /* The chip and its card draw in the agent pane's tokens (chips.css, linkCard.css), mapped here to
    the page theme. */
 html[data-cmux-page="changelog"] {
@@ -273,7 +267,7 @@ html[data-cmux-page="changelog"] {
   padding: 0;
   background: transparent;
   color: #fff;
-  cursor: pointer;
+  cursor: default;
 }
 .cl-reel-play svg {
   box-sizing: content-box;
@@ -342,8 +336,8 @@ html[data-cmux-page="changelog"] {
    this narrow"); the history under it keeps its design's measure. */
 .clw > main > .clj-span {
   box-sizing: border-box;
-  max-width: calc(1100px + 2 * 32px);
-  margin: 0 auto 32px;
+  width: 100%;
+  margin: 0 0 32px;
   padding: 48px 32px 40px;
 }
 .clw > main > .clj-span + .clj { padding-top: 0; }
@@ -490,7 +484,7 @@ html[data-cmux-page="changelog"] {
    the width, modest margins, no column cap): each row its whole description, and its picture
    beside it where the pane has room. Groups read as Conductor's headings over bullet lists. No
    motion. */
-.cll { --cll-gutter: 112px; padding: 40px 32px 96px calc(32px + var(--cll-gutter) + 24px); }
+.cll { --cll-gutter: 104px; padding: 40px 32px 96px calc(32px + var(--cll-gutter) + 24px); }
 .cll-release { position: relative; }
 .cll-body { container-type: inline-size; }
 .cll-gutter { position: absolute; top: 0; bottom: 0; left: calc(-24px - var(--cll-gutter)); width: var(--cll-gutter); }
@@ -534,16 +528,17 @@ html[data-cmux-page="changelog"] {
 /* A row is a grid so its picture can stand beside it; the bullet is drawn, as a grid has no marker. */
 .cll .cl-group li.cl-wide-row { position: relative; display: grid; gap: 8px 24px; padding: 0 0 0 18px; }
 .cll .cl-group li.cl-wide-row::before { content: "•"; position: absolute; left: 4px; color: var(--page-text-2); }
-.cll .cl-row-text { max-width: 76ch; }
-/* The lead change's picture stays a picture, not a wall: it stops growing at a large card. */
-.cll-body > .cl-media { max-width: 720px; }
+.cll .cl-row-text { min-width: 0; }
+/* The lead picture follows the pane width. Its glass frame remains bounded by the pane's
+   modest margins rather than an arbitrary centered column. */
+.cll-body > .cl-media { width: 100%; }
 .cll .cl-row-summary { margin: 2px 0 0; text-wrap: pretty; }
 .cll .cl-row-actions { display: inline-flex; margin-left: 8px; }
 @container (min-width: 720px) {
-  /* Text and picture stay together on the left, not split to the pane's two edges. */
+  /* Use the wide pane for a two-column item/media grid. The text remains flexible and the
+     media column takes the remaining room, collapsing below the item at smaller widths. */
   .cll .cl-group li.cl-has-media {
-    /* The text keeps a readable measure first; the picture takes what is left, up to 480 px. */
-    grid-template-columns: minmax(36ch, 64ch) minmax(240px, 480px);
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 42%);
     justify-content: start;
     align-items: start;
   }
@@ -562,7 +557,7 @@ html[data-cmux-page="changelog"] {
 }
 .cll-lead { margin: 0 0 2px; font-size: var(--text-body); letter-spacing: var(--text-body--letter-spacing); }
 /* A change's own picture: beside its row when the pane has room, else under it. */
-.cl-row-media { margin: 6px 0 4px; max-width: 560px; }
+.cl-row-media { margin: 6px 0 4px; width: 100%; }
 /* A narrow tab: the margin folds above the release, Conductor's mobile layout. */
 @media (max-width: 760px) {
   .cll { padding: 32px 24px 80px; }
