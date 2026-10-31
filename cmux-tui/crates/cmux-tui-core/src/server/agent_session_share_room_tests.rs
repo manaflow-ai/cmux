@@ -1767,3 +1767,128 @@ fn a_history_page_applies_the_decisions_it_names() {
         "text": "hello"}));
     assert_eq!(state_of(&room, conn, "c16")["state"], "held");
 }
+
+/// A retry the daemon takes after an earlier send of the prompt was refused is said held.
+#[test]
+fn a_retry_taken_after_a_refusal_is_held() {
+    let room = FakeRoom::start(&[]);
+    let (mut fake, _mux, surface, mut owner) = bridged("relay-retry-held", &room);
+    let (_share, [ann, _bob], conn) = two_guests(&room, &mut owner, surface);
+    room.send(json!({"v": 1, "t": "guest_joined", "guest_id": ann}));
+    assert_eq!(room.next(conn, "snapshot")["to"], json!(ann));
+    while fake.next_frame(Duration::from_millis(300)).is_some() {}
+    let prompts = held_prompts(&room, &fake, conn, &ann, 0..16);
+    room.send(json!({"v": 1, "t": "guest_prompt", "guest_id": ann, "client_id": "c16",
+        "text": "hello"}));
+    assert_eq!(state_of(&room, conn, "c16")["reason"], "share.too_many_held");
+    fake.notify("_acpmux/event", approved(40, &prompts[0]));
+    assert_eq!(state_of(&room, conn, "c0")["state"], "approved");
+    room.send(json!({"v": 1, "t": "guest_prompt", "guest_id": ann, "client_id": "c16",
+        "text": "hello"}));
+    let state = state_of(&room, conn, "c16");
+    assert_eq!(state["state"], "held", "{state}");
+}
+
+/// A retry of a decided prompt that the daemon refuses (another send of it still in flight)
+/// leaves the owner's decision standing.
+#[test]
+fn a_refused_retry_never_undoes_a_decision() {
+    let room = FakeRoom::start(&[]);
+    let (gate, gated) = channel();
+    let fixture = Fixture { prompt_gate: Some(Arc::new(Mutex::new(gated))), ..Fixture::default() };
+    let (mut fake, _mux, surface, mut owner) = bridged_with("relay-retry-final", &room, fixture);
+    let (_share, [ann, _bob], conn) = two_guests(&room, &mut owner, surface);
+    room.send(json!({"v": 1, "t": "guest_joined", "guest_id": ann}));
+    assert_eq!(room.next(conn, "snapshot")["to"], json!(ann));
+    while fake.next_frame(Duration::from_millis(300)).is_some() {}
+    gate.send(()).unwrap();
+    let prompts = held_prompts(&room, &fake, conn, &ann, 0..1);
+    fake.notify("_acpmux/event", approved(40, &prompts[0]));
+    assert_eq!(state_of(&room, conn, "c0")["state"], "approved");
+    // The first retry waits at acpmux; the second is refused while it is out.
+    for _ in 0..2 {
+        room.send(json!({"v": 1, "t": "guest_prompt", "guest_id": ann, "client_id": "c0",
+            "text": "hello"}));
+    }
+    std::thread::sleep(Duration::from_millis(500));
+    drop(gate);
+    room.send(json!({"v": 1, "t": "prompt_status", "guest_id": ann, "client_ids": ["c0"]}));
+    let state = state_of(&room, conn, "c0");
+    assert_eq!(state["state"], "approved", "{state}");
+}
+
+/// A guest's reconnect while its relay's attachment is still answering keeps the prompts that
+/// relay held: the new relay sends them.
+#[test]
+fn a_guest_reconnect_keeps_the_prompts_its_old_relay_held() {
+    let room = FakeRoom::start(&[]);
+    let (gate, gated) = channel();
+    let fixture = Fixture { attach_gate: Some(Arc::new(Mutex::new(gated))), ..Fixture::default() };
+    let (fake, _mux, surface, mut owner) = bridged_with("relay-rejoin", &room, fixture);
+    let (_share, [ann, _bob], conn) = two_guests(&room, &mut owner, surface);
+    room.send(json!({"v": 1, "t": "guest_joined", "guest_id": ann}));
+    room.send(json!({"v": 1, "t": "guest_prompt", "guest_id": ann, "client_id": "early",
+        "text": "hello"}));
+    std::thread::sleep(Duration::from_millis(300));
+    room.send(json!({"v": 1, "t": "guest_joined", "guest_id": ann}));
+    std::thread::sleep(Duration::from_millis(300));
+    gate.send(()).unwrap();
+    gate.send(()).unwrap();
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let frame = fake.next_frame(deadline.saturating_duration_since(Instant::now()));
+        let frame = frame.expect("the early prompt reaches acpmux");
+        if frame["method"] == "session/prompt" {
+            break;
+        }
+    }
+    let state = state_of(&room, conn, "early");
+    assert_eq!(state["state"], "held", "{state}");
+}
+
+/// A host reconnect's snapshot names the guest's prompts from before it, though the new attach
+/// page has none of their records.
+#[test]
+fn a_host_reconnect_snapshot_names_the_guests_prompts() {
+    let room = FakeRoom::start(&[]);
+    let (fake, _mux, surface, mut owner) = bridged("relay-host-states", &room);
+    let (_share, [ann, _bob], conn) = two_guests(&room, &mut owner, surface);
+    room.send(json!({"v": 1, "t": "guest_joined", "guest_id": ann}));
+    assert_eq!(room.next(conn, "snapshot")["to"], json!(ann));
+    while fake.next_frame(Duration::from_millis(300)).is_some() {}
+    let prompts = held_prompts(&room, &fake, conn, &ann, 0..1);
+    room.shared.hello.lock().unwrap().push(json!({"guest_id": ann, "name": "Ann", "sockets": 1}));
+    room.drop_host();
+    let (conn, _) = room.host();
+    assert_eq!(room.next(conn, "guests")["t"], "guests");
+    let snapshot = room.next(conn, "snapshot");
+    assert_eq!(
+        snapshot["prompts"],
+        json!([{"client_id": "c0", "prompt_id": prompts[0], "state": "held"}]),
+        "{snapshot}"
+    );
+}
+
+/// History asks past what the relay keeps in flight, while acpmux is slow to answer, are each
+/// answered at once with an empty page that has more.
+#[test]
+fn history_asks_past_the_in_flight_cap_get_a_busy_page() {
+    let room = FakeRoom::start(&[]);
+    let (gate, gated) = channel::<()>();
+    let fixture = Fixture { events_gate: Some(Arc::new(Mutex::new(gated))), ..Fixture::default() };
+    let (fake, _mux, surface, mut owner) = bridged_with("relay-older-flood", &room, fixture);
+    let (_share, [ann, _bob], conn) = two_guests(&room, &mut owner, surface);
+    room.send(json!({"v": 1, "t": "guest_joined", "guest_id": ann}));
+    assert_eq!(room.next(conn, "snapshot")["to"], json!(ann));
+    while fake.next_frame(Duration::from_millis(300)).is_some() {}
+    for _ in 0..20 {
+        room.send(json!({"v": 1, "t": "older", "guest_id": ann, "before_seq": 3}));
+    }
+    let started = Instant::now();
+    for _ in 0..16 {
+        let page = room.next(conn, "page");
+        assert_eq!((page["records"].clone(), page["has_more"].clone()), (json!([]), json!(true)));
+    }
+    assert!(started.elapsed() < Duration::from_secs(4), "answered without waiting on acpmux");
+    drop(gate);
+}

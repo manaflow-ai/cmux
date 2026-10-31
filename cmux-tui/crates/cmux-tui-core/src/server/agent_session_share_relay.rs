@@ -9,10 +9,12 @@
 //! that fit in 512 KiB, `has_more` when older ones remain), then each live record, `page` for
 //! `older`, and `prompt_state` for the guest's prompts, read from acpmux's records (`queued`
 //! awaiting the owner, `queue_approved`, `queue_declined`, `queue_removed`). A record over
-//! 256 KiB goes cut: its seq and kind with `truncated: true, full_bytes`.
+//! 256 KiB goes cut: its seq and kind with `truncated: true, full_bytes`. Records the daemon sends
+//! before the attach answer wait for the snapshot. A prompt's state only moves forward (a
+//! decision is final; held replaces refused), kept in the guest's [`Ledger`].
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
@@ -33,58 +35,149 @@ const PAGE: u64 = 200;
 /// A guest's prompts held at once, and the decided ones a snapshot names.
 const MAX_HELD: usize = 16;
 const MAX_DECIDED: usize = 16;
-/// Prompt states and client ids one relay remembers.
+/// Prompt states and client ids one guest's ledger remembers.
 const MAX_STATES: usize = 512;
 const MAX_CLIENTS: usize = 64;
 /// The room's asks a relay keeps until its attachment answers.
 const MAX_WAITING: usize = 64;
+/// The room's asks queued for a relay, its calls awaiting the daemon's answer, and its history
+/// pages among them: past these an ask is refused at once (`share.busy`, an empty page).
+pub(super) const MAX_ASKS: usize = 64;
+const MAX_PENDING: usize = 32;
+const MAX_PAGES: usize = 2;
+/// The records the daemon sends before the attach answer, kept for after the snapshot.
+const MAX_EARLY: usize = 256;
 
-/// One guest's prompts as its relays count them against [`MAX_HELD`]. The bridge keeps one per
-/// guest of each share, so the guest's successive relays and the share's successive host sockets
-/// share it (a reconnect of either keeps the count). Keyed by prompt id: a retry, a decision said
-/// again (live, in a snapshot, in a history page) changes nothing, and the count is the set of
-/// prompts sent and not decided. Filled only from what the guest sent (never from
-/// `prompt_status`), so the cap counts every one.
-#[derive(Default)]
-pub(super) struct Ledger {
-    /// Sent (or being sent) and not decided.
-    open: HashSet<String>,
-    /// Decided while counted, newest last (at most [`MAX_STATES`]): a retry of one is not
-    /// counted again.
-    decided: VecDeque<String>,
+/// The prompt states that never change again.
+fn decided(state: &str) -> bool {
+    matches!(state, "approved" | "declined" | "removed")
 }
 
-impl Ledger {
-    /// Whether `prompt` may go to the daemon: `Some(true)` when this counted it, `Some(false)`
-    /// when it was counted or decided already, `None` at the cap.
-    fn reserve(&mut self, prompt: &str) -> Option<bool> {
-        if self.open.contains(prompt) || self.decided.iter().any(|p| p == prompt) {
-            return Some(false);
-        }
-        if self.open.len() >= MAX_HELD {
-            return None;
-        }
-        self.open.insert(prompt.to_owned());
-        Some(true)
+/// Whether a prompt's state may go from `from` to `to`: forward only. A decision is final;
+/// `held` (acpmux took it) is never undone by a refused retry, and replaces an earlier refusal.
+fn advance(from: Option<&str>, to: &str) -> bool {
+    match from {
+        Some(from) if decided(from) => false,
+        Some("held") => to != "refused",
+        _ => true,
     }
+}
 
-    /// The daemon refused a prompt this ledger counted for it.
-    fn release(&mut self, prompt: &str) {
-        self.open.remove(prompt);
-    }
+struct State {
+    state: &'static str,
+    reason: Option<String>,
+    at: u64,
+}
 
-    /// The owner decided `prompt` (approved, declined or removed).
-    fn decide(&mut self, prompt: &str) {
-        if self.open.remove(prompt) {
-            if self.decided.len() >= MAX_STATES {
-                self.decided.pop_front();
-            }
-            self.decided.push_back(prompt.to_owned());
-        }
-    }
+/// One guest's prompts: their states, their client ids, and which count against [`MAX_HELD`].
+/// The bridge keeps one per guest of each share, so the guest's successive relays and the
+/// share's successive host sockets share it (a reconnect of either keeps it). Keyed by prompt
+/// id: a retry, a decision said again (live, in a snapshot, in a history page) changes nothing.
+/// The count is the guest's prompts sent and neither refused nor decided, filled only from what
+/// the guest sent (never from `prompt_status`), so the cap counts every one.
+#[derive(Default)]
+pub(super) struct Ledger {
+    open: HashSet<String>,
+    /// Prompt id to its state (the chat's guest prompts the relays saw), oldest first in `order`.
+    states: HashMap<String, State>,
+    order: VecDeque<String>,
+    /// Prompt id to this guest's `client_id`.
+    clients: HashMap<String, String>,
+    tick: u64,
 }
 
 pub(super) type Held = Arc<Mutex<Ledger>>;
+
+impl Ledger {
+    fn state(&self, prompt: &str) -> Option<&'static str> {
+        self.states.get(prompt).map(|s| s.state)
+    }
+
+    /// Whether `prompt` may go to the daemon: it counts already (sent, or decided), or there is
+    /// room for it under the cap, which it then takes.
+    fn admit(&mut self, prompt: &str) -> bool {
+        if self.open.contains(prompt) || self.state(prompt).is_some_and(decided) {
+            return true;
+        }
+        if self.open.len() >= MAX_HELD {
+            return false;
+        }
+        self.open.insert(prompt.to_owned());
+        true
+    }
+
+    /// Records a prompt's state, forward only; whether it changed.
+    fn note(&mut self, prompt: &str, state: &'static str, reason: Option<String>) -> bool {
+        if !prompt.starts_with("g-") {
+            return false;
+        }
+        let from = self.state(prompt);
+        if !advance(from, state) {
+            return false;
+        }
+        match state {
+            // Counted when it is this guest's (its client id is known).
+            "held" if self.clients.contains_key(prompt) => {
+                self.open.insert(prompt.to_owned());
+            }
+            "held" => {}
+            _ => {
+                self.open.remove(prompt);
+            }
+        }
+        let same = self.states.get(prompt).is_some_and(|s| s.state == state && s.reason == reason);
+        self.tick = self.tick.wrapping_add(1);
+        if !self.states.contains_key(prompt) {
+            if self.order.len() >= MAX_STATES
+                && let Some(oldest) = self.order.pop_front()
+            {
+                self.states.remove(&oldest);
+            }
+            self.order.push_back(prompt.to_owned());
+        }
+        self.states.insert(prompt.to_owned(), State { state, reason, at: self.tick });
+        !same
+    }
+
+    fn remember(&mut self, prompt: &str, client_id: String) {
+        if !self.clients.contains_key(prompt) && self.clients.len() >= MAX_CLIENTS {
+            let oldest =
+                self.clients.keys().min_by_key(|p| self.states.get(*p).map_or(0, |s| s.at));
+            if let Some(oldest) = oldest.cloned() {
+                self.clients.remove(&oldest);
+            }
+        }
+        self.clients.insert(prompt.to_owned(), client_id);
+    }
+
+    /// The `prompt_state` of this guest's `prompt`, when its client id and state are known.
+    fn frame(&self, guest_id: &str, prompt: &str) -> Option<Value> {
+        let (client_id, state) = (self.clients.get(prompt)?, self.states.get(prompt)?);
+        let mut frame = json!({"v": 1, "t": "prompt_state", "guest_id": guest_id,
+            "client_id": client_id, "prompt_id": prompt, "state": state.state});
+        if let Some(reason) = &state.reason {
+            frame.set("reason", json!(reason));
+        }
+        Some(frame)
+    }
+
+    /// This guest's held prompts and its most recently decided ones.
+    fn prompts(&self) -> Vec<Value> {
+        let mut known: Vec<(&String, &String, &State)> = (self.clients.iter())
+            .filter_map(|(prompt, client)| Some((prompt, client, self.states.get(prompt)?)))
+            .collect();
+        known.sort_by_key(|(_, _, state)| std::cmp::Reverse(state.at));
+        let (held, decided): (Vec<_>, Vec<_>) =
+            known.into_iter().partition(|(_, _, s)| s.state == "held");
+        let entry = |(prompt, client, state): (&String, &String, &State)| json!({"client_id": client, "prompt_id": prompt, "state": state.state});
+        let held = held.into_iter().take(MAX_HELD).map(&entry);
+        held.chain(decided.into_iter().take(MAX_DECIDED).map(&entry)).collect()
+    }
+}
+
+fn lock(held: &Held) -> MutexGuard<'_, Ledger> {
+    held.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 /// What the room asked of one guest.
 pub(super) enum Ask {
@@ -94,10 +187,31 @@ pub(super) enum Ask {
     Status(Vec<String>),
 }
 
+/// The answer to an ask no relay can take now: a prompt is refused with `reason` (its state
+/// said; a prompt acpmux took already stays held), `older` gets an empty page that still has
+/// more; the rest the guest's page asks again.
+pub(super) fn refuse(held: &Held, ids: (&str, &str), ask: Ask, reason: &str) -> Option<Value> {
+    match ask {
+        Ask::Prompt { client_id, .. } if (1..=128).contains(&client_id.len()) => {
+            let prompt = guest_prompt_id(ids.0, ids.1, &client_id);
+            let mut ledger = lock(held);
+            ledger.remember(&prompt, client_id);
+            ledger.note(&prompt, "refused", Some(reason.to_owned()));
+            ledger.frame(ids.1, &prompt)
+        }
+        Ask::Older(_) => Some(bounded(json!({"v": 1, "t": "page", "to": ids.1}), Vec::new(), true)),
+        Ask::Prompt { .. } | Ask::Typing(_) | Ask::Status(_) => None,
+    }
+}
+
 /// What a relay hands the host socket.
 pub(super) enum Out {
     /// A frame of this guest's relay of this generation.
     Frame(String, u64, Value),
+    /// A prompt this guest's relay of this generation took and did not get answered before it
+    /// ended: the guest's next relay sends it again (acpmux runs a prompt id once), else it is
+    /// refused.
+    Replay(String, u64, Ask),
     /// The relay of this guest and generation ended.
     Ended(String, u64),
     /// Try again to start the relay of this connected guest (no connection permit was free, or
@@ -107,7 +221,8 @@ pub(super) enum Out {
 
 /// One running relay, as the host socket keeps it. Dropping it ends the relay.
 pub(super) struct Relay {
-    pub(super) asks: mpsc::UnboundedSender<Ask>,
+    /// Bounded ([`MAX_ASKS`]): a full queue refuses the ask.
+    pub(super) asks: mpsc::Sender<Ask>,
     pub(super) generation: u64,
     /// The guest's browser sockets the room said are open; `None` once their count is unknown
     /// (a host `hello` names each guest once).
@@ -125,7 +240,6 @@ pub(super) fn start(
     ids: (&str, &str),
     generation: u64,
     out: mpsc::UnboundedSender<Out>,
-    known: &[String],
     held: Held,
 ) -> Option<Relay> {
     let permit = claim_connection(mux.connection_stats())?;
@@ -138,31 +252,9 @@ pub(super) fn start(
         handle_connection_with_permit(mux, stream, render, Some(permit));
     };
     std::thread::Builder::new().name("mux-share-guest".into()).spawn(serve).ok()?;
-    let (asks, receiver) = mpsc::unbounded_channel();
+    let (asks, receiver) = mpsc::channel(MAX_ASKS);
     let (read, write) = ours.into_split();
-    let link = Link {
-        share_id: ids.0.to_owned(),
-        guest_id: ids.1.to_owned(),
-        generation,
-        out,
-        write,
-        next_id: 1,
-        pending: HashMap::new(),
-        states: HashMap::new(),
-        order: VecDeque::new(),
-        clients: HashMap::new(),
-        tick: 0,
-        attached: false,
-        waiting: VecDeque::new(),
-        held,
-    };
-    // The client ids this guest's page named to an earlier relay: a reconnect's snapshot names
-    // their prompts' states.
-    let mut link = link;
-    for client_id in known.iter().filter(|c| (1..=128).contains(&c.len())) {
-        let prompt = guest_prompt_id(&link.share_id, &link.guest_id, client_id);
-        link.remember(&prompt, client_id.clone());
-    }
+    let link = Link::new(ids, generation, out, write, held);
     tokio::spawn(run(BufReader::new(read), link, receiver));
     Some(Relay { asks, generation, sockets: Some(1), tries: 0 })
 }
@@ -170,7 +262,7 @@ pub(super) fn start(
 async fn run(
     read: BufReader<tokio::net::unix::OwnedReadHalf>,
     mut link: Link,
-    mut asks: mpsc::UnboundedReceiver<Ask>,
+    mut asks: mpsc::Receiver<Ask>,
 ) {
     let mut lines = read.lines();
     let bind = json!({"cmd": "agent-session-proxy-bind",
@@ -205,6 +297,19 @@ async fn run(
             open = link.ask(ask).await;
         }
     }
+    // The prompts it took and did not get answered, in the order they came: the guest's next
+    // relay sends them, so none is lost unsaid.
+    let mut sent: Vec<(u64, Ask)> = (link.pending.drain())
+        .filter_map(|(id, pending)| match pending {
+            Pending::Prompt { client_id, text, .. } => Some((id, Ask::Prompt { client_id, text })),
+            _ => None,
+        })
+        .collect();
+    sent.sort_by_key(|(id, _)| *id);
+    let waiting = link.waiting.drain(..).filter(|ask| matches!(ask, Ask::Prompt { .. }));
+    for ask in sent.into_iter().map(|(_, ask)| ask).chain(waiting) {
+        let _ = link.out.send(Out::Replay(link.guest_id.clone(), link.generation, ask));
+    }
     let _ = link.out.send(Out::Ended(link.guest_id.clone(), link.generation));
 }
 
@@ -212,15 +317,13 @@ enum Pending {
     Bind,
     Attach,
     Page,
-    /// A prompt sent, and whether this send counted it in the ledger.
-    Prompt(String, bool),
+    /// A prompt sent: its id, and what the guest sent (to send again if the relay ends first).
+    Prompt {
+        prompt: String,
+        client_id: String,
+        text: String,
+    },
     Ignore,
-}
-
-struct State {
-    state: &'static str,
-    reason: Option<String>,
-    at: u64,
 }
 
 struct Link {
@@ -230,22 +333,41 @@ struct Link {
     out: mpsc::UnboundedSender<Out>,
     write: OwnedWriteHalf,
     next_id: u64,
+    /// The calls awaiting the daemon's answer (at most [`MAX_PENDING`] the room's asks made).
     pending: HashMap<u64, Pending>,
-    /// Prompt id to its state (the chat's guest prompts the relay saw).
-    states: HashMap<String, State>,
-    order: VecDeque<String>,
-    /// Prompt id to this guest's `client_id`.
-    clients: HashMap<String, String>,
-    tick: u64,
     /// The attachment answered: the room's asks go to the daemon.
     attached: bool,
     /// The room's asks that came before the attachment answered, sent once it does.
     waiting: VecDeque<Ask>,
-    /// This guest's prompts sent and not decided yet (kept by the bridge across relays).
+    /// The records the daemon sent before the attachment answered, sent after the snapshot.
+    early: VecDeque<Value>,
+    /// This guest's prompts (kept by the bridge across relays and host sockets).
     held: Held,
 }
 
 impl Link {
+    fn new(
+        ids: (&str, &str),
+        generation: u64,
+        out: mpsc::UnboundedSender<Out>,
+        write: OwnedWriteHalf,
+        held: Held,
+    ) -> Self {
+        Self {
+            share_id: ids.0.to_owned(),
+            guest_id: ids.1.to_owned(),
+            generation,
+            out,
+            write,
+            next_id: 1,
+            pending: HashMap::new(),
+            attached: false,
+            waiting: VecDeque::new(),
+            early: VecDeque::new(),
+            held,
+        }
+    }
+
     async fn call(&mut self, mut frame: Value, pending: Pending) -> bool {
         let id = self.next_id;
         self.next_id = self.next_id.wrapping_add(1);
@@ -260,13 +382,24 @@ impl Link {
         let _ = self.out.send(Out::Frame(self.guest_id.clone(), self.generation, frame));
     }
 
+    fn ledger(&self) -> MutexGuard<'_, Ledger> {
+        lock(&self.held)
+    }
+
     /// One line from the daemon: a reply or an event of the guest's attachment.
     async fn inbound(&mut self, line: &str) -> bool {
         let Ok(frame) = serde_json::from_str::<Value>(line) else { return true };
         match frame.get("event").and_then(Value::as_str) {
             Some("agent-session-record") => {
-                self.record(frame.get("record").cloned().unwrap_or(Value::Null));
-                return true;
+                let record = frame.get("record").cloned().unwrap_or(Value::Null);
+                if self.attached {
+                    self.record(record);
+                    return true;
+                }
+                // Before the snapshot nothing reaches the room; too many and the relay ends
+                // (the guest's next one starts from a fresh snapshot).
+                self.early.push_back(record);
+                return self.early.len() <= MAX_EARLY;
             }
             // share_ended, detached, overflow: the guest's page reconnects for a fresh snapshot.
             Some("agent-session-closed") => return false,
@@ -288,7 +421,12 @@ impl Link {
             }
             Pending::Attach => {
                 self.attached = true;
-                self.snapshot(frame.get("data").unwrap_or(&Value::Null));
+                let watermark = self.snapshot(frame.get("data").unwrap_or(&Value::Null));
+                for record in std::mem::take(&mut self.early) {
+                    if record.get("seq").and_then(Value::as_u64).is_none_or(|s| s > watermark) {
+                        self.record(record);
+                    }
+                }
                 let view = json!({"cmd": "agent-session-view", "surface": 0, "visible": true});
                 self.call(view, Pending::Ignore).await
             }
@@ -297,30 +435,25 @@ impl Link {
                 let data = frame.get("data").unwrap_or(&Value::Null);
                 let more = data.get("hasMore") == Some(&Value::Bool(true));
                 let records = ordered(data);
-                // The decisions it names (older than the snapshot: made while the guest was
-                // away). A decision is final, so an older page never undoes a newer state, and
-                // its `queued` (held) records change nothing.
-                let decided: Vec<_> = records.iter().filter_map(decision).collect();
+                // The states it names (older than the snapshot: decided while the guest was
+                // away). Forward only, so an older page never undoes a newer state.
+                let states: Vec<_> = records.iter().filter_map(decision).collect();
                 self.emit(bounded(page, records, more));
-                for (prompt, state) in decided {
-                    let open = self.states.get(&prompt).is_none_or(|s| s.state == "held");
-                    if state != "held" && open {
-                        self.note(&prompt, state, None);
-                    }
+                for (prompt, state) in states {
+                    self.note(&prompt, state, None);
                 }
                 true
             }
-            Pending::Prompt(prompt, _) if ok => {
-                // Held unless acpmux's records said otherwise first (a retried prompt it ran).
-                if !self.states.contains_key(&prompt) {
-                    self.note(&prompt, "held", None);
-                }
+            Pending::Page => {
+                self.busy(Ask::Older(0));
                 true
             }
-            Pending::Prompt(prompt, counted) => {
-                if counted {
-                    self.held.lock().unwrap_or_else(|e| e.into_inner()).release(&prompt);
-                }
+            // Held unless acpmux's records said otherwise first (a retried prompt it ran).
+            Pending::Prompt { prompt, .. } if ok => {
+                self.note(&prompt, "held", None);
+                true
+            }
+            Pending::Prompt { prompt, .. } => {
                 let reason = frame
                     .get("error_code")
                     .and_then(Value::as_str)
@@ -329,57 +462,55 @@ impl Link {
                 self.note(&prompt, "refused", Some(reason));
                 true
             }
-            Pending::Page | Pending::Ignore => true,
+            Pending::Ignore => true,
         }
     }
 
-    /// An ask the relay cannot keep before its attachment answers: a prompt is refused
-    /// (`share.busy`), `older` gets an empty page that still has more; the rest the guest's page
-    /// asks again.
-    fn busy(&mut self, ask: Ask) {
-        match ask {
-            Ask::Prompt { client_id, .. } if (1..=128).contains(&client_id.len()) => {
-                let prompt = guest_prompt_id(&self.share_id, &self.guest_id, &client_id);
-                self.remember(&prompt, client_id);
-                self.note(&prompt, "refused", Some("share.busy".into()));
-            }
-            Ask::Older(_) => {
-                let page = json!({"v": 1, "t": "page", "to": self.guest_id});
-                self.emit(bounded(page, Vec::new(), true));
-            }
-            Ask::Prompt { .. } | Ask::Typing(_) | Ask::Status(_) => {}
+    /// An ask the relay cannot take now (`share.busy`).
+    fn busy(&self, ask: Ask) {
+        if let Some(frame) = refuse(&self.held, (&self.share_id, &self.guest_id), ask, "share.busy")
+        {
+            self.emit(frame);
         }
     }
 
     async fn ask(&mut self, ask: Ask) -> bool {
+        let pages = self.pending.values().filter(|p| matches!(p, Pending::Page)).count();
+        let full = self.pending.len() >= MAX_PENDING;
         match ask {
             Ask::Prompt { client_id, text } => {
                 if !(1..=128).contains(&client_id.len()) {
                     return true;
                 }
+                if full {
+                    self.busy(Ask::Prompt { client_id, text });
+                    return true;
+                }
                 let prompt = guest_prompt_id(&self.share_id, &self.guest_id, &client_id);
-                self.remember(&prompt, client_id);
                 // Held, plus sent and not answered yet: a burst cannot pass the cap before the
-                // replies come. A prompt the daemon already took (any state but refused) is a
-                // retry it dedupes, so it is not counted again; nor is one counted or decided
-                // already.
-                let taken = self.states.get(&prompt).is_some_and(|s| s.state != "refused");
-                let counted = if taken {
-                    Some(false)
-                } else {
-                    self.held.lock().unwrap_or_else(|e| e.into_inner()).reserve(&prompt)
+                // replies come. A retry of one counted or decided takes no slot again.
+                let admitted = {
+                    let mut ledger = self.ledger();
+                    ledger.remember(&prompt, client_id.clone());
+                    ledger.admit(&prompt)
                 };
-                let Some(counted) = counted else {
+                if !admitted {
                     self.note(&prompt, "refused", Some("share.too_many_held".into()));
                     return true;
-                };
+                }
                 let frame = json!({"cmd": "agent-session-prompt", "surface": 0,
-                    "client_id": self.clients.get(&prompt), "text": text});
-                self.call(frame, Pending::Prompt(prompt, counted)).await
+                    "client_id": client_id, "text": text});
+                self.call(frame, Pending::Prompt { prompt, client_id, text }).await
             }
+            // Dropped when the daemon is behind: the next one says the same.
+            Ask::Typing(_) if full => true,
             Ask::Typing(on) => {
                 let frame = json!({"cmd": "agent-session-typing", "surface": 0, "on": on});
                 self.call(frame, Pending::Ignore).await
+            }
+            Ask::Older(before) if full || pages >= MAX_PAGES => {
+                self.busy(Ask::Older(before));
+                true
             }
             Ask::Older(before) => {
                 let frame = json!({"cmd": "agent-session-events", "surface": 0,
@@ -391,9 +522,13 @@ impl Link {
                 for client_id in client_ids.into_iter().take(MAX_HELD) {
                     if (1..=128).contains(&client_id.len()) {
                         let prompt = guest_prompt_id(&self.share_id, &self.guest_id, &client_id);
-                        self.remember(&prompt, client_id);
-                        if self.states.contains_key(&prompt) {
-                            self.announce(&prompt);
+                        let frame = {
+                            let mut ledger = self.ledger();
+                            ledger.remember(&prompt, client_id);
+                            ledger.frame(&self.guest_id, &prompt)
+                        };
+                        if let Some(frame) = frame {
+                            self.emit(frame);
                         }
                     }
                 }
@@ -402,21 +537,25 @@ impl Link {
         }
     }
 
-    fn snapshot(&mut self, data: &Value) {
+    /// Sends the snapshot of the attach answer; its newest seq.
+    fn snapshot(&mut self, data: &Value) -> u64 {
         let records = ordered(data);
-        for record in &records {
-            if let Some((prompt, state)) = decision(record) {
-                self.set(&prompt, state, None);
+        let prompts = {
+            let mut ledger = self.ledger();
+            for (prompt, state) in records.iter().filter_map(decision) {
+                ledger.note(&prompt, state, None);
             }
-        }
+            ledger.prompts()
+        };
         let watermark =
             records.iter().filter_map(|r| r.get("seq").and_then(Value::as_u64)).max().unwrap_or(0);
         let session = data.get("session").unwrap_or(&Value::Null);
         let chat = json!({"title": session.get("title").or_else(|| session.get("name")),
             "harness": session.get("harness"), "status": session.get("status")});
         let snapshot = json!({"v": 1, "t": "snapshot", "to": self.guest_id, "chat": chat,
-            "watermark": watermark, "prompts": self.prompts()});
+            "watermark": watermark, "prompts": prompts});
         self.emit(bounded(snapshot, records, data.get("hasMore") == Some(&Value::Bool(true))));
+        watermark
     }
 
     fn record(&mut self, record: Value) {
@@ -431,67 +570,17 @@ impl Link {
 
     /// Records a prompt's state; a change of this guest's prompt goes to the room.
     fn note(&mut self, prompt: &str, state: &'static str, reason: Option<String>) {
-        let same = self.states.get(prompt).is_some_and(|s| s.state == state && s.reason == reason);
-        self.set(prompt, state, reason);
-        if !same && self.clients.contains_key(prompt) {
-            self.announce(prompt);
-        }
-    }
-
-    fn set(&mut self, prompt: &str, state: &'static str, reason: Option<String>) {
-        if !prompt.starts_with("g-") {
-            return;
-        }
-        if matches!(state, "approved" | "declined" | "removed") {
-            self.held.lock().unwrap_or_else(|e| e.into_inner()).decide(prompt);
-        }
-        self.tick = self.tick.wrapping_add(1);
-        if !self.states.contains_key(prompt) {
-            if self.order.len() >= MAX_STATES
-                && let Some(oldest) = self.order.pop_front()
-            {
-                self.states.remove(&oldest);
+        let frame = {
+            let mut ledger = self.ledger();
+            if ledger.note(prompt, state, reason) {
+                ledger.frame(&self.guest_id, prompt)
+            } else {
+                None
             }
-            self.order.push_back(prompt.to_owned());
-        }
-        self.states.insert(prompt.to_owned(), State { state, reason, at: self.tick });
-    }
-
-    fn remember(&mut self, prompt: &str, client_id: String) {
-        if !self.clients.contains_key(prompt) && self.clients.len() >= MAX_CLIENTS {
-            let oldest =
-                self.clients.keys().min_by_key(|p| self.states.get(*p).map_or(0, |s| s.at));
-            if let Some(oldest) = oldest.cloned() {
-                self.clients.remove(&oldest);
-            }
-        }
-        self.clients.insert(prompt.to_owned(), client_id);
-    }
-
-    fn announce(&self, prompt: &str) {
-        let (Some(client_id), Some(state)) = (self.clients.get(prompt), self.states.get(prompt))
-        else {
-            return;
         };
-        let mut frame = json!({"v": 1, "t": "prompt_state", "guest_id": self.guest_id,
-            "client_id": client_id, "prompt_id": prompt, "state": state.state});
-        if let Some(reason) = &state.reason {
-            frame.set("reason", json!(reason));
+        if let Some(frame) = frame {
+            self.emit(frame);
         }
-        self.emit(frame);
-    }
-
-    /// This guest's held prompts and its most recently decided ones.
-    fn prompts(&self) -> Vec<Value> {
-        let mut known: Vec<(&String, &String, &State)> = (self.clients.iter())
-            .filter_map(|(prompt, client)| Some((prompt, client, self.states.get(prompt)?)))
-            .collect();
-        known.sort_by_key(|(_, _, state)| std::cmp::Reverse(state.at));
-        let (held, decided): (Vec<_>, Vec<_>) =
-            known.into_iter().partition(|(_, _, s)| s.state == "held");
-        let entry = |(prompt, client, state): (&String, &String, &State)| json!({"client_id": client, "prompt_id": prompt, "state": state.state});
-        let held = held.into_iter().take(MAX_HELD).map(&entry);
-        held.chain(decided.into_iter().take(MAX_DECIDED).map(&entry)).collect()
     }
 }
 
@@ -550,4 +639,37 @@ fn bounded(mut frame: Value, records: Vec<Value>, more: bool) -> Value {
     frame.set("has_more", json!(more || from > 0));
     frame.set("records", Value::Array(records.into_iter().skip(from).collect()));
     frame
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn link(out: mpsc::UnboundedSender<Out>, write: OwnedWriteHalf) -> Link {
+        let mut link = Link::new(("s", "g"), 1, out, write, Held::default());
+        link.next_id = 2;
+        link
+    }
+    /// A record the daemon sends before the attach answer reaches the room after the snapshot.
+    #[test]
+    fn records_before_the_attach_answer_follow_the_snapshot() {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            let (ours, _theirs) = tokio::net::UnixStream::pair().unwrap();
+            let (_read, write) = ours.into_split();
+            let (out, mut frames) = mpsc::unbounded_channel();
+            let mut link = link(out, write);
+            link.pending.insert(1, Pending::Attach);
+            let record = json!({"event": "agent-session-record",
+                "record": {"seq": 5, "kind": "agent_message"}});
+            assert!(link.inbound(&record.to_string()).await);
+            let reply = json!({"id": 1, "ok": true, "data": {"events": [{"seq": 4}]}});
+            assert!(link.inbound(&reply.to_string()).await);
+            let mut kinds = Vec::new();
+            while let Ok(Out::Frame(_, _, frame)) = frames.try_recv() {
+                kinds.push(frame["t"].clone());
+            }
+            assert_eq!(kinds, vec![json!("snapshot"), json!("records")]);
+        });
+    }
 }
