@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextCompat
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -9,7 +10,7 @@ import Testing
 /// every web content process (`GPUProcessCrashedTooManyTimes`), and every tab showed "This page
 /// crashed" until it was reloaded by hand. A page the system ended for memory reloads by itself,
 /// once, when it is shown; a crash with memory to spare still waits for Reload.
-@Suite struct BrowserExitRecoveryPolicyTests {
+@Suite(.closesItsWindows) struct BrowserExitRecoveryPolicyTests {
     private let start = ContinuousClock.now
 
     @Test(arguments: [MemoryPressureLevel.normal, .warning, .critical])
@@ -68,7 +69,7 @@ import Testing
 
 /// The same through a real WebKit tab: its web content process ends (WebKit's delegate callback,
 /// as WebKit sends it) and the tab reloads by itself, or shows the crash page, by memory pressure.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct WebKitTabExitRecoveryTests {
+@MainActor @Suite(.serialized, .closesItsWindows, .timeLimit(.minutes(1))) struct WebKitTabExitRecoveryTests {
     final class Page {
         let window: NSWindow
         let tab: WebKitTab

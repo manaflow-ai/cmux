@@ -38,38 +38,22 @@ nonisolated extension SidebarLayout {
         return drawn[0].depth
     }
 
-    /// Appends `ws`'s row (and its inline tabs, unless the group is `collapsed`: a collapsed group's kept member lists
-    /// none) at `y` as `group`'s one row and returns the y after it.
-    static func appendSoleMember(_ ws: SidebarWorkspace, of group: SidebarGroup, collapsed: Bool, treeDepth: Int, section: SectionID,
+    /// Appends `ws`'s row at `y` as `group`'s one row and returns the y after it.
+    static func appendSoleMember(_ ws: SidebarWorkspace, of group: SidebarGroup, treeDepth: Int, section: SectionID,
                                  parent: Int, machine: String?, options o: SidebarLayoutOptions, metrics m: SidebarLayoutMetrics,
                                  to rows: inout [SidebarRow], y: CGFloat) -> CGFloat {
-        var y = y
         var content = o.rowContent(ws, machine: machine)
         content.treeDepth = treeDepth
         let h = m.height(for: content)
         var row = SidebarRow(
             key: .workspace(ws.id), y: y, height: h, section: section,
             group: group.id, siblingIndex: 0, parentIndex: parent, isLastInGroup: true,
-            isCollapsed: false, childCount: 0, groupColor: group.color,
-            tabDisclosure: o.disclosure(ws), content: content
+            isCollapsed: false, childCount: 0, groupColor: group.color, content: content
         )
         row.depth = group.depth + 1
         row.standsForGroup = true
         rows.append(row)
-        y += h + m.rowSpacing
-        guard !collapsed, o.listsTabs(ws) else { return y }
-        for tab in ws.tabs {
-            var tabRow = SidebarRow(
-                key: .tab(ws.id, tab.id), y: y, height: m.tabRowHeight, section: section,
-                group: group.id, workspace: ws.id, siblingIndex: 0, parentIndex: parent,
-                isLastInGroup: false, isCollapsed: false, childCount: 0,
-                groupColor: group.color, tabKind: tab.kind
-            )
-            tabRow.depth = group.depth + 1
-            rows.append(tabRow)
-            y += m.tabRowHeight + m.rowSpacing
-        }
-        return y
+        return y + h + m.rowSpacing
     }
 }
 
@@ -88,8 +72,8 @@ nonisolated extension SidebarRow {
         guard standsForGroup, let group else { return nil }
         var header = self
         (header.key, header.siblingIndex, header.parentIndex, header.depth) = (.group(group), parentIndex ?? siblingIndex, nil, depth - 1)
-        (header.workspace, header.isLastInGroup, header.isCollapsed, header.childCount) = (nil, false, false, 1)
-        (header.tabDisclosure, header.content, header.standsForGroup) = (nil, nil, false)
+        (header.isLastInGroup, header.isCollapsed, header.childCount) = (false, false, 1)
+        (header.content, header.standsForGroup) = (nil, false)
         return header
     }
 }
