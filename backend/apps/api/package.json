@@ -6,6 +6,7 @@
   "scripts": {
     "typecheck": "tsc -p .",
     "test": "vitest run",
+    "test:node": "vitest run --config vitest.node.config.ts",
     "dev": "wrangler dev --env development",
     "deploy:staging": "bash ../../scripts/deploy-worker.sh staging",
     "deploy:development": "bash ../../scripts/deploy-worker.sh development"
