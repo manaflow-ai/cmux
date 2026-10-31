@@ -6,12 +6,13 @@
 //! and closes its own tab; what decides is here:
 //!
 //! - `plan --request JSON`: the machine the send takes ([`pick::destination`]):
-//!   the one its first try took while that machine exists, else this
-//!   person's free one, else a new one named for chats; and the send's keys
-//!   ([`Keys`]). A machine that exists is pinned to the send before anything
-//!   runs there, so a retry of the send names it.
-//! - `pin --key K --machine ID`: pins the send to the machine the App just
-//!   made for it.
+//!   the one its first try took while that machine exists, else, for a send
+//!   from a Mac workspace, that workspace's own machine or a new one, else
+//!   this person's free one or a new one named for chats; and the send's keys
+//!   ([`Keys`]). A machine that exists is pinned to the send (and is the
+//!   workspace's) before anything runs there, so a retry of the send names it.
+//! - `pin --key K --machine ID [--workspace W]`: pins the send to the machine
+//!   the App just made for it, and makes it the workspace's own.
 //! - `copy --key K --machine ID --socket PATH --local ROOT [--subpath SUB]
 //!   --work-root R...`: copies ROOT to the send's own place on the machine
 //!   (`cmux link sync push`), trying each work root in turn, unless this
@@ -35,7 +36,7 @@ use ledger::Ledger;
 use pick::{Candidate, Destination};
 
 const USAGE: &str = "usage: cmux link start-chat plan --request JSON\n       \
-cmux link start-chat pin --key KEY --machine ID\n       \
+cmux link start-chat pin --key KEY --machine ID [--workspace ID]\n       \
 cmux link start-chat copy --key KEY --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH...";
 
 /// The error code a work root the machine's user cannot write answers with:
@@ -64,8 +65,10 @@ pub(super) fn run(args: &[String]) -> i32 {
     };
     let answer = match action.as_str() {
         "plan" => flags.one("--request").map(|request| plan(&ledger, request)),
-        "pin" => match (flags.key(), flags.one("--machine")) {
-            (Some(key), Some(machine)) => Some(pin(&ledger, &key, machine)),
+        "pin" => match (flags.key(), flags.one("--machine"), flags.workspace()) {
+            (Some(key), Some(machine), Some(workspace)) => {
+                Some(pin(&ledger, &key, machine, workspace))
+            }
             _ => None,
         },
         "copy" => StartCopy::of(&flags).map(|copy| copy.run(&ledger, &push)),
@@ -123,10 +126,19 @@ fn refused(code: &str, error: impl std::fmt::Display) -> Value {
     json!({"ok": false, "error": error.to_string(), "error_code": code})
 }
 
-/// What `plan` reads: the send, who is signed in, and this app's Cloud machines.
+/// A Mac workspace's id as the App names it: 1 to 128 characters, no control characters.
+pub(super) fn valid_workspace(workspace: &str) -> bool {
+    !workspace.is_empty() && workspace.len() <= 128 && !workspace.chars().any(char::is_control)
+}
+
+/// What `plan` reads: the send, the Mac workspace it is sent from, who is
+/// signed in, and this app's Cloud machines.
 #[derive(serde::Deserialize)]
 struct PlanRequest {
     key: String,
+    /// The Mac workspace the chat starts in; none from a caller that has none.
+    #[serde(default)]
+    workspace: Option<String>,
     #[serde(default)]
     user: Option<String>,
     /// Whether the App has loaded its machine list: before it has, a machine
@@ -146,10 +158,18 @@ pub(super) fn plan(ledger: &Path, request: &str) -> Value {
     if !valid_key(&request.key) {
         return refused("bad_request", "the send's key is not a UUID");
     }
+    let workspace = request.workspace.as_deref();
+    if workspace.is_some_and(|workspace| !valid_workspace(workspace)) {
+        return refused(
+            "bad_request",
+            "the workspace id is empty, too long or has control characters",
+        );
+    }
     let keys = Keys::of(&request.key);
     let planned = Ledger::update(ledger, |pins| {
         let destination = pick::destination(
             &request.key,
+            workspace,
             pins,
             &request.machines,
             request.user.as_deref(),
@@ -157,6 +177,9 @@ pub(super) fn plan(ledger: &Path, request: &str) -> Value {
         );
         if let Destination::Machine(id) = &destination {
             pins.record(id, &request.key);
+            if let Some(workspace) = workspace {
+                pins.bind(workspace, id);
+            }
         }
         destination
     });
@@ -176,9 +199,16 @@ pub(super) fn plan(ledger: &Path, request: &str) -> Value {
     line
 }
 
-/// `pin`: the send `key` runs on `machine` (one the App just made for it).
-pub(super) fn pin(ledger: &Path, key: &str, machine: &str) -> Value {
-    match Ledger::update(ledger, |pins| pins.record(machine, key)) {
+/// `pin`: the send `key` runs on `machine` (one the App just made for it),
+/// which is the Mac workspace `workspace`'s own from now on.
+pub(super) fn pin(ledger: &Path, key: &str, machine: &str, workspace: Option<&str>) -> Value {
+    let pinned = Ledger::update(ledger, |pins| {
+        pins.record(machine, key);
+        if let Some(workspace) = workspace {
+            pins.bind(workspace, machine);
+        }
+    });
+    match pinned {
         Ok(()) => json!({"ok": true}),
         Err(error) => refused("ledger_failed", format!("{error:#}")),
     }
@@ -336,5 +366,14 @@ impl Flags {
 
     fn key(&self) -> Option<String> {
         self.one("--key").filter(|key| valid_key(key)).map(str::to_string)
+    }
+
+    /// `--workspace`, at most once and valid: `Some(None)` without it, None when it is bad.
+    fn workspace(&self) -> Option<Option<&str>> {
+        match self.all("--workspace").as_slice() {
+            [] => Some(None),
+            [workspace] if valid_workspace(workspace) => Some(Some(*workspace)),
+            _ => None,
+        }
     }
 }

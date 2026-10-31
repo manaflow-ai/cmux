@@ -6,6 +6,11 @@
 //! Lane-pool VMs (`fs-lane-N`, `lane-vm-N`) are never picked. A retry of the
 //! same send stays on the machine its first try took ([`destination`]), so it
 //! never opens a second chat with the prompt elsewhere.
+//!
+//! A send from a Mac workspace goes to that workspace's own machine instead
+//! (Leo, 2026-10-30: "we'll want a vm for every single workspace"): the one
+//! its first send ran on, else a new one. It never takes a free machine or one
+//! marked for chats, which another workspace's chats may share.
 
 use std::collections::BTreeSet;
 
@@ -44,6 +49,11 @@ impl Candidate {
     /// Paused by the idle timer, which pauses only an idle machine.
     fn is_idle_paused(&self) -> bool {
         self.status == "paused" && self.pause_reason.as_deref() == Some("idle")
+    }
+
+    /// Running, starting or paused (a paused one resumes when it is used).
+    fn is_usable(&self) -> bool {
+        self.connected || self.is_live() || self.status == "paused"
     }
 
     fn names(&self) -> impl Iterator<Item = &str> {
@@ -85,10 +95,7 @@ pub(crate) fn pick(
     used: &BTreeSet<String>,
 ) -> Option<String> {
     let user = user?;
-    let mine = |machine: &Candidate| match &machine.created_by {
-        Some(creator) => creator == user,
-        None => used.contains(&machine.id),
-    };
+    let mine = |machine: &Candidate| is_mine(machine, user, used);
     let free = |machine: &Candidate| {
         if machine.connected { machine.chats == Some(0) } else { machine.is_idle_paused() }
     };
@@ -105,6 +112,15 @@ pub(crate) fn pick(
     // A stable sort: ties keep the App's order.
     ranked.sort_by_key(|machine| (!marked(machine), !machine.connected));
     ranked.first().map(|machine| machine.id.clone())
+}
+
+/// This person's: they created it, or, when the server names no creator, an
+/// earlier send ran there (`used`).
+fn is_mine(machine: &Candidate, user: &str, used: &BTreeSet<String>) -> bool {
+    match &machine.created_by {
+        Some(creator) => creator == user,
+        None => used.contains(&machine.id),
+    }
 }
 
 /// The name a new machine for chats gets: [`CHATS_NAME`], else
@@ -129,10 +145,12 @@ pub(crate) enum Destination {
 
 /// Where the send `key` goes: the machine its first try took while that
 /// machine exists (before the App's list is `loaded`, it is kept: it may be
-/// one made for this send), else [`pick`]. Drops a pin to a machine that is
-/// gone, which holds no tab of this send.
+/// one made for this send). Then, for a send from the Mac workspace
+/// `workspace`, [`workspace_destination`]; for one from no workspace, [`pick`].
+/// Drops a pin to a machine that is gone, which holds no tab of this send.
 pub(crate) fn destination(
     key: &str,
+    workspace: Option<&str>,
     pins: &mut Ledger,
     candidates: &[Candidate],
     user: Option<&str>,
@@ -144,5 +162,36 @@ pub(crate) fn destination(
         }
         pins.forget(key);
     }
-    pick(candidates, user, &pins.machines()).map_or(Destination::New, Destination::Machine)
+    match workspace {
+        Some(workspace) => workspace_destination(workspace, pins, candidates, user, loaded),
+        None => {
+            pick(candidates, user, &pins.machines()).map_or(Destination::New, Destination::Machine)
+        }
+    }
+}
+
+/// The workspace `workspace`'s own machine while it is listed, this person's
+/// and usable (before the App's list is `loaded`, it is kept), else a new one.
+/// Drops the workspace's machine when it is gone, a teammate's or failed, so
+/// the new one becomes the workspace's.
+fn workspace_destination(
+    workspace: &str,
+    pins: &mut Ledger,
+    candidates: &[Candidate],
+    user: Option<&str>,
+    loaded: bool,
+) -> Destination {
+    let Some(own) = pins.workspace_machine(workspace) else { return Destination::New };
+    let used = pins.machines();
+    let keep = match candidates.iter().find(|machine| machine.id == own) {
+        Some(machine) => {
+            user.is_some_and(|user| is_mine(machine, user, &used)) && machine.is_usable()
+        }
+        None => !loaded,
+    };
+    if keep {
+        return Destination::Machine(own);
+    }
+    pins.unbind(workspace);
+    Destination::New
 }

@@ -31,15 +31,18 @@ struct CloudStartChatMachineTests {
     }
 
     /// The plan reads every machine as the pick needs it, in the App's order.
-    @Test func thePlanRequestCarriesTheSendAndWhoIsSignedIn() throws {
-        let text = CloudStartChat.planRequest(key: "K", user: "user-leo", loaded: true, machines: [])
+    @Test func thePlanRequestCarriesTheSendItsWorkspaceAndWhoIsSignedIn() throws {
+        let text = CloudStartChat.planRequest(key: "K", workspace: "ws-1", user: "user-leo", loaded: true, machines: [])
         let object = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
         #expect(object["key"] as? String == "K")
+        #expect(object["workspace"] as? String == "ws-1")
         #expect(object["user"] as? String == "user-leo")
         #expect(object["loaded"] as? Bool == true)
         #expect((object["machines"] as? [Any])?.isEmpty == true)
-        let signedOut = try #require(try JSONSerialization.jsonObject(with: Data(CloudStartChat.planRequest(key: "K", user: nil, loaded: false, machines: []).utf8)) as? [String: Any])
+        let request = CloudStartChat.planRequest(key: "K", workspace: nil, user: nil, loaded: false, machines: [])
+        let signedOut = try #require(try JSONSerialization.jsonObject(with: Data(request.utf8)) as? [String: Any])
         #expect(signedOut["user"] == nil)
+        #expect(signedOut["workspace"] == nil)
     }
 
     /// Not behind Labs (Leo, 2026-10-30: "that seems dumb. i dont like putting so much stuff in

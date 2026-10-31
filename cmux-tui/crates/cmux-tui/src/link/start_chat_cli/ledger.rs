@@ -3,6 +3,9 @@
 //! only that machine's daemon knows) gets back the tab its first try opened,
 //! never a second chat elsewhere. With it, the chat's folder there once the
 //! send's copy finished: a retry opens its chat there without copying again.
+//! And each Mac workspace's own Cloud machine, at most [`WORKSPACE_LIMIT`]: a
+//! workspace's later sends go to the machine its first send made (Leo,
+//! 2026-10-30: "we'll want a vm for every single workspace").
 //!
 //! Kept in `<state>/cloud-start-chat/destinations.json` (0600, its folder
 //! 0700), read and written under an exclusive lock on a sibling `.lock` file
@@ -21,6 +24,10 @@ use serde::{Deserialize, Serialize};
 /// How many sends are kept.
 pub(crate) const LIMIT: usize = 64;
 
+/// How many workspaces' machines are kept, kept apart from the sends so a
+/// workspace keeps its machine however many sends ran since.
+pub(crate) const WORKSPACE_LIMIT: usize = 256;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Entry {
     key: String,
@@ -29,10 +36,27 @@ struct Entry {
     copied_chat: Option<String>,
 }
 
+/// A Mac workspace's own Cloud machine.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct Binding {
+    workspace: String,
+    machine_id: String,
+}
+
+/// The file: the sends, then the workspaces. An older ledger is the sends' list alone.
+#[derive(Default, Serialize, Deserialize)]
+struct File {
+    #[serde(default)]
+    sends: Vec<Entry>,
+    #[serde(default)]
+    workspaces: Vec<Binding>,
+}
+
 /// The pins, in memory.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Ledger {
     entries: Vec<Entry>,
+    workspaces: Vec<Binding>,
 }
 
 impl Ledger {
@@ -46,9 +70,35 @@ impl Ledger {
             .map(|entry| entry.machine_id.clone())
     }
 
-    /// Every machine a kept send ran on.
+    /// Every machine a kept send ran on or a kept workspace has.
     pub(crate) fn machines(&self) -> BTreeSet<String> {
-        self.entries.iter().map(|entry| entry.machine_id.clone()).collect()
+        self.entries
+            .iter()
+            .map(|entry| entry.machine_id.clone())
+            .chain(self.workspaces.iter().map(|binding| binding.machine_id.clone()))
+            .collect()
+    }
+
+    /// The Mac workspace `workspace`'s own machine, once a send from it ran on one.
+    pub(crate) fn workspace_machine(&self, workspace: &str) -> Option<String> {
+        self.workspaces
+            .iter()
+            .find(|binding| binding.workspace == workspace)
+            .map(|binding| binding.machine_id.clone())
+    }
+
+    /// `machine` is the workspace `workspace`'s own from now on.
+    pub(crate) fn bind(&mut self, workspace: &str, machine: &str) {
+        self.workspaces.retain(|kept| kept.workspace != workspace);
+        self.workspaces
+            .push(Binding { workspace: workspace.to_string(), machine_id: machine.to_string() });
+        let over = self.workspaces.len().saturating_sub(WORKSPACE_LIMIT);
+        self.workspaces.drain(..over);
+    }
+
+    /// Drops the workspace `workspace`'s machine (gone, or no longer the person's).
+    pub(crate) fn unbind(&mut self, workspace: &str) {
+        self.workspaces.retain(|kept| kept.workspace != workspace);
     }
 
     /// Pins the send `key` to `machine` (before anything runs there). A pin
@@ -131,11 +181,16 @@ impl Ledger {
     }
 
     fn read(path: &Path) -> Self {
-        let entries = std::fs::read(path)
+        let Some(bytes) = std::fs::read(path).ok() else { return Self::default() };
+        let file = serde_json::from_slice::<File>(&bytes)
             .ok()
-            .and_then(|bytes| serde_json::from_slice::<Vec<Entry>>(&bytes).ok())
+            .or_else(|| {
+                serde_json::from_slice::<Vec<Entry>>(&bytes)
+                    .ok()
+                    .map(|sends| File { sends, workspaces: Vec::new() })
+            })
             .unwrap_or_default();
-        Self { entries }
+        Self { entries: file.sends, workspaces: file.workspaces }
     }
 
     fn write(&self, path: &Path) -> anyhow::Result<()> {
@@ -148,7 +203,8 @@ impl Ledger {
             .custom_flags(libc::O_NOFOLLOW)
             .open(&part)
             .with_context(|| format!("cannot write {}", part.display()))?;
-        file.write_all(&serde_json::to_vec(&self.entries)?)?;
+        let ledger = File { sends: self.entries.clone(), workspaces: self.workspaces.clone() };
+        file.write_all(&serde_json::to_vec(&ledger)?)?;
         file.sync_all()?;
         std::fs::rename(&part, path).with_context(|| format!("cannot write {}", path.display()))
     }
