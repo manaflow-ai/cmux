@@ -571,6 +571,23 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           const head = page.locator(".acpmux-running-tray__head");
           if ((await head.count()) > 0 && (await head.getAttribute("aria-expanded")) !== "true") await head.click();
           await page.locator(".acpmux-running-tray .acpmux-agent-line").first().waitFor();
+          // Captured before the checks, so the same capture also records a base (before) tree.
+          if (process.env.CMUX_TRAY_CAPTURE_DIR) {
+            await mkdir(process.env.CMUX_TRAY_CAPTURE_DIR, { recursive: true });
+            const clip = await page.evaluate(() => {
+              const tray = document.querySelector(".acpmux-running-tray")!.getBoundingClientRect();
+              const composer = document.querySelector(".acpmux-composer")!.getBoundingClientRect();
+              const top = Math.max(0, tray.top - 24);
+              return { x: 0, y: top, width: innerWidth, height: Math.min(innerHeight, composer.bottom + 12) - top };
+            });
+            await page.screenshot({
+              path: path.join(
+                process.env.CMUX_TRAY_CAPTURE_DIR,
+                `row-anatomy-${variant}-${theme.endsWith("Light") ? "light" : "dark"}.png`,
+              ),
+              clip,
+            });
+          }
           const anatomy = await page.evaluate(() => {
             const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
             const probe = document.createElement("span");
@@ -645,22 +662,6 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
             expect(long.overflow).toBe("hidden");
             expect(long.textOverflow).toBe("ellipsis");
             expect(long.whiteSpace).toBe("nowrap");
-          }
-          if (process.env.CMUX_TRAY_CAPTURE_DIR) {
-            await mkdir(process.env.CMUX_TRAY_CAPTURE_DIR, { recursive: true });
-            const clip = await page.evaluate(() => {
-              const tray = document.querySelector(".acpmux-running-tray")!.getBoundingClientRect();
-              const composer = document.querySelector(".acpmux-composer")!.getBoundingClientRect();
-              const top = Math.max(0, tray.top - 24);
-              return { x: 0, y: top, width: innerWidth, height: Math.min(innerHeight, composer.bottom + 12) - top };
-            });
-            await page.screenshot({
-              path: path.join(
-                process.env.CMUX_TRAY_CAPTURE_DIR,
-                `row-anatomy-${variant}-${theme.endsWith("Light") ? "light" : "dark"}.png`,
-              ),
-              clip,
-            });
           }
         } finally {
           await page.close();
