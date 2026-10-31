@@ -1,6 +1,18 @@
 # cmux shell integration for fish
 # Injected automatically, do not source manually.
 
+# Switching a pane to the default Claude account can only blank an inherited
+# account variable, not unset it. Claude Code reads a blank CLAUDE_CONFIG_DIR as
+# a relative path and a blank CLAUDE_SECURESTORAGE_CONFIG_DIR as the default
+# account's credentials, so erase blank ones before anything else runs. Keep this
+# first, ahead of the integration toggle, and keep non-empty values untouched.
+if set -q CLAUDE_CONFIG_DIR; and test -z "$CLAUDE_CONFIG_DIR"
+    set -e CLAUDE_CONFIG_DIR
+end
+if set -q CLAUDE_SECURESTORAGE_CONFIG_DIR; and test -z "$CLAUDE_SECURESTORAGE_CONFIG_DIR"
+    set -e CLAUDE_SECURESTORAGE_CONFIG_DIR
+end
+
 set -l _cmux_integration_enabled 1
 if set -q CMUX_SHELL_INTEGRATION; and test "$CMUX_SHELL_INTEGRATION" = 0
     set _cmux_integration_enabled 0

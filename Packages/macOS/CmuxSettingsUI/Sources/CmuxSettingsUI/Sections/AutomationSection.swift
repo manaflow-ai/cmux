@@ -101,6 +101,7 @@ public struct AutomationSection: View {
             ripgrepPathCard
             suppressSubagentCard
             agentAutoResumeCard
+            ClaudeAccountAutoSwitchSettingsCard(defaultsStore: defaultsStore, catalog: catalog)
             canonicalAgentScratchCard
             AgentMessagesSettingsCard(isEnabled: agentMessagesModel.current, setEnabled: { agentMessagesModel.set($0) })
             ChiefSettingsCard(defaultsStore: defaultsStore, catalog: catalog, controlWidth: Self.columnWidth)

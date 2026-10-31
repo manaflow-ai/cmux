@@ -443,6 +443,32 @@ Sends `continue` to a cmux-launched agent whose turn ended on a retryable upstre
 
 Default: `true`. Toggle it from **Settings > Automation > Auto-Resume Agents After Errors** or the command palette.
 
+## `automation.claudeAccountAutoSwitch`
+
+When a Claude Code session started by cmux stops because its account hit the usage limit, cmux moves that terminal to the next account in [`agents.claudeAccounts`](#agentsclaudeaccounts) and continues the same conversation there, as **Switch Claude Account** does.
+
+```json
+{
+  "automation": {
+    "claudeAccountAutoSwitch": true
+  }
+}
+```
+
+Default: `false`. Toggle it from **Settings > Automation > Switch Claude Account on Usage Limit** or the command palette.
+
+Behavior notes:
+
+- Only accounts from your user-level `~/.config/cmux/cmux.json` are used automatically, both to choose the next account and to resolve its config directory for the switch. A project's `.cmux/cmux.json` can't add an account to automatic switching, and a project entry that reuses one of your account names doesn't change where an automatic switch goes. An account whose config directory or `.claude.json` is missing is skipped (the default account's `.claude.json` is `~/.claude.json`).
+- Accounts are tried in `agents.claudeAccounts` order, starting after the current one. The default `~/.claude` account is first in that order unless you declare `~/.claude` yourself at another position. An account that has already trusted the terminal's folder is preferred.
+- The account that hit its limit is skipped until it resets: at the time its limit message gives, or for five hours when the message gives none. `cmux claude-account list` shows until when.
+- Each switch shows a **Claude account: <from> → <to> (auto)** row in the sidebar and posts a notification.
+- cmux types `continue` only into the resumed Claude's own empty prompt, while that Claude is the terminal's foreground process. It types nothing when the new account has not trusted the folder yet (the notification asks you to confirm folder trust first), and it gives up when the terminal gets input (typing, pasting, or clicking into it), Claude starts working or asks something, the session ends, or a minute passes; a follow-up notification says why. If the terminal refuses the typed `continue`, no follow-up is posted.
+- cmux does not switch, and notifies you instead, when the terminal got input after the limit (clicks into it count too), when Claude's input box holds a message you typed (the restart would discard it), when the stopped turn left background work running, when the limit could not be recorded, or when the terminal already went through every other account without finishing a turn. The input and draft checks run again right before the terminal restarts.
+- A switch restarts the terminal's shell, so jobs running in that shell's background end.
+- When every other account is at its limit, nothing changes and the terminal keeps its usage-limit status.
+- Remote, SSH, and cloud terminals are never switched.
+
 ## `agentMessages.enabled`
 
 The app-wide switch for `cmux agent message`. When `false`, sends fail with "Agent messages are turned off (agentMessages.enabled is false).", nothing is stored, and messages already queued are marked `failed` instead of being delivered. Turning it back on does not resend them.
@@ -561,3 +587,33 @@ Behavior notes:
 - Declarations fail closed. A missing detection entry, an empty `resumeArgvPrefix`, a blank `kinds` array, or a value of the wrong type makes that one declaration unusable — the session then resumes exactly as it did before, without the wrapper. The rest of the file still applies.
 - Removing a declaration is safe, and has the same effect: the capture keeps the recorded id, but nothing is re-supplied.
 - Hooks keep working for the wrapped agent. When the prefix replaces the agent executable, cmux puts its per-surface agent shim first on `PATH` for the restored process, so the wrapper's own `claude` lookup still finds the hook-injecting shim. A wrapper that ignores `PATH` (an absolute path to the real binary, for example) needs the global fallback instead: `cmux hooks setup --agent claude`.
+
+## `agents.claudeAccounts`
+
+Register several Claude Code accounts, each a separate config directory (`CLAUDE_CONFIG_DIR`), so a running Claude pane can be switched between them.
+
+```json
+{
+  "agents": {
+    "claudeAccounts": [
+      { "name": "work", "configDir": "~/.claude-work" },
+      { "name": "personal", "configDir": "~/.claude-personal" }
+    ]
+  }
+}
+```
+
+- `name`: what menus and the CLI show. Letters, numbers, dots, underscores, and hyphens, up to 64 characters. The sidebar label is derived from the config directory name, so name each account after its directory suffix (`~/.claude-work` → `work`) to keep the two consistent. `default` is reserved for `~/.claude`.
+- `configDir`: absolute path or a path starting with `~/`.
+
+Behavior notes:
+
+- The default `~/.claude` account is always available and never sets `CLAUDE_CONFIG_DIR`. It is listed first unless you declare `~/.claude` yourself, which gives it another name and the position you declared it at.
+- Entries with an invalid name or a `configDir` that is neither absolute nor `~/`-relative are ignored. Equivalent spellings of one directory (`~/.claude-work`, `/Users/me/.claude-work/`) are the same account; the first declaration of a directory wins.
+- A project-level `cmux.json` (or `.cmux/cmux.json`) overrides a user-level declaration with the same `name`. This applies to switching by hand only: [`automation.claudeAccountAutoSwitch`](#automationclaudeaccountautoswitch) uses the accounts in your user-level `cmux.json` alone.
+- Switch a Claude terminal from its context menu (Switch Claude Account), the command palette, or `cmux claude-account switch <name>`. `cmux claude-account list` prints the accounts cmux sees.
+- Log in to each account once before switching to it: run `CLAUDE_CONFIG_DIR=<configDir> claude` in any terminal and use `/login`. cmux never reads, copies or stores Claude credentials.
+- Folder trust and MCP settings live in each account's own `.claude.json`, so the first switch of a project to an account may show Claude's folder-trust prompt, and the account may have different MCP servers.
+- A switch restarts the whole terminal: the shell starts again on the new account and cmux types the resume command into it. The terminal keeps that account afterwards, including after cmux relaunches.
+
+Default: `[]`
