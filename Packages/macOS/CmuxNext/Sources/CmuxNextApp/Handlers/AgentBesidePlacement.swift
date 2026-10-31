@@ -68,12 +68,12 @@ enum AgentBesidePlacement {
         // pane (ChatColumnPlacement.dockChat, the rule a person's new tab follows), so
         // the column right of the chat is always in view; else the tab moves out.
         let lone = (invocation.newColumnBeside ? controller : nil).flatMap { ChatColumnPlacement.resolve(from: $0, services: services) == .dockChat ? $0 : nil }
-        let chat = lone?.pane.tabs.first { ChatColumnPlacement.isChat($0, services: services) }
+        let chatID = lone?.pane.tabs.first { ChatColumnPlacement.isChat($0, services: services) }?.id
         let chatHadFocus = lone.map { $0.workspace?.focusedPane === $0 } ?? false
         // The chat's strip never lists the tab on its way out: it first shows on the right (OutboundTab).
         let outbound = (invocation.newColumnBeside ? controller : nil).flatMap { $0.pane === anchor ? OutboundTab.begin(in: $0) : nil }
-        if let chat { outbound?.hidden(whileHolding: chat.id) }
-        let store = services.daemon(for: anchor).store
+        if let chatID { outbound?.hidden(whileHolding: chatID) }
+        let daemon = services.daemon(for: anchor), store = daemon.store, machineID = daemon.machineID
         let (surfaces, sink) = AsyncStream<Outcome>.makeStream(bufferingPolicy: .bufferingNewest(1))
         var finished = false
         if invocation.newColumnBeside || waitsForExisting {
@@ -115,7 +115,7 @@ enum AgentBesidePlacement {
             guard let tab = store.tab(surface: surface) else {
                 return "beside-caller: the new tab did not open"
             }
-            if let chat, let home = services.locateTab(model: chat)?.1, home !== anchor,
+            if let chatID, let home = services.locateTab(chatID, onMachine: machineID)?.1, home !== anchor,
                services.locateTab(model: tab)?.1 === anchor {
                 // A preceding open already docked this lone chat and left this very diff on its right.
                 moved = true
@@ -125,7 +125,7 @@ enum AgentBesidePlacement {
                 if let clicked { focus(surface, returningTo: LayoutPaneID(home.id), in: clicked, generation: intent, services: services) }
                 return nil
             }
-            if let chat, services.locateTab(model: chat)?.1 === anchor, let content = lone?.workspace {
+            if let chatID, let (chat, home) = services.locateTab(chatID, onMachine: machineID), home === anchor, let content = lone?.workspace {
                 // The new tab is in the chat's pane, unselected: the chat docks, the tab stays. The
                 // chat stays where it shows; only the tab's pane comes in, from the right.
                 if let lone { content.layoutModel.handOffContent(of: lone.layoutPaneID) }
@@ -145,7 +145,7 @@ enum AgentBesidePlacement {
                     let listed = Task { @MainActor () -> Bool in
                         // The store lists the chat in its new dock pane (the window's controller may come later;
                         // focus goes by the pane's id, which the window applies when it shows the pane).
-                        for await moved in ObservationStream({ services.locateTab(model: chat).map { $0.1 !== anchor } ?? false }) where moved {
+                        for await moved in ObservationStream({ services.locateTab(chatID, onMachine: machineID).map { $0.1 !== anchor } ?? false }) where moved {
                             return true
                         }
                         return false
@@ -156,9 +156,9 @@ enum AgentBesidePlacement {
                     }
                     let moved = await listed.value
                     bound.cancel()
-                    if moved, let pane = services.locateTab(model: chat)?.1, let clicked {
+                    if moved, let pane = services.locateTab(chatID, onMachine: machineID)?.1, let clicked {
                         focus(surface, returningTo: LayoutPaneID(pane.id), in: clicked, generation: intent, services: services)
-                    } else if moved, let pane = services.locateTab(model: chat)?.1 {
+                    } else if moved, let pane = services.locateTab(chatID, onMachine: machineID)?.1 {
                         // Not a view change of the run: the run moved the focused chat out of its
                         // pane, and focus follows the chat back to where the person had it (as
                         // FocusCoordinator.followMovedTab does for a person's move). Programmatic, so
