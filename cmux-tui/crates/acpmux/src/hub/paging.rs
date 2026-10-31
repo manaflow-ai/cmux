@@ -234,13 +234,36 @@ pub fn omitted(bytes: usize) -> Value {
 /// as a record's ([`MAX_RECORD_BYTES`]) for the id, the wrapper and a relaying peer's name.
 pub const MAX_REPLY_BYTES: usize = MAX_RECORD_BYTES;
 
-/// Makes a reply of records fit one message when each record fits but together they do not:
+/// The fields of `_acpmux/attach`'s `session` that only its detail carries
+/// (`Hub::session_detail`), each copied whole from what the agent said: the last a reply that
+/// must fit gives up, largest first, each to its empty value. The summary's fields stay.
+const DETAIL_FIELDS: &[(&str, fn() -> Value)] = &[
+    ("modes", || Value::Null),
+    ("configOptions", || Value::Null),
+    ("models", || Value::Null),
+    ("agentInfo", || Value::Null),
+    ("agentCapabilities", || Value::Null),
+    ("usage", || Value::Null),
+    ("goal", || Value::Null),
+    ("contextBreakdown", || Value::Null),
+    ("usageLimits", || Value::Null),
+    ("availableCommands", || Value::Null),
+    ("rulesJson", || Value::Null),
+    ("pending", || Value::Array(Vec::new())),
+];
+
+/// Makes a reply of records fit one message when each part fits but together they do not:
 /// `_acpmux/attach`'s page and its `turnOpener` each keep a record of up to
-/// [`MAX_RECORD_BYTES`], so two 8 MB prompts were a 16.9 MB reply refused as
-/// `message.too_large` at every open, and the chat never opened again (Leo, 2026-10-31: "this
-/// is completely hardlocked bc of message size"). The largest records' `msg` become
-/// [`omitted`] stubs, largest first, until the reply fits; every record keeps its seq, kind and
-/// time. The records are `events` (an array of `_acpmux/event` values) and `turnOpener` (one).
+/// [`MAX_RECORD_BYTES`], so a large prompt and its large answer were an 18.9 MB reply refused
+/// as `message.too_large` at every open, and the chat never opened again (Leo, 2026-10-31:
+/// "this is completely hardlocked bc of message size").
+///
+/// First the largest records' `msg` become [`omitted`] stubs, largest first, until the reply
+/// fits; every record keeps its seq, kind and time. The records are `events` (an array of
+/// `_acpmux/event` values) and `turnOpener` (one). If it still does not fit, the `session`
+/// detail's own fields ([`DETAIL_FIELDS`]) go, largest first, each named in
+/// `session._meta.acpmux.omitted`; the pane then reads as for an older acpmux that sent none.
+/// What is left is the summary and the records' envelopes, a few KiB each.
 pub fn fit_reply(reply: &mut Value) {
     let size = |value: &Value| serde_json::to_string(value).map_or(usize::MAX, |text| text.len());
     let mut bytes = size(reply);
@@ -262,12 +285,43 @@ pub fn fit_reply(reply: &mut Value) {
     records.sort_by_key(|(_, bytes)| std::cmp::Reverse(*bytes));
     for (at, msg_size) in records {
         if bytes <= MAX_REPLY_BYTES {
+            return;
+        }
+        let stub = omitted(msg_size);
+        let stub_size = size(&stub);
+        // A stub no smaller than its record saves nothing; the smaller ones after it neither.
+        if stub_size >= msg_size {
             break;
         }
         let Some(msg) = reply.pointer_mut(&at) else { continue };
-        let stub = omitted(msg_size);
-        bytes = bytes.saturating_sub(msg_size.saturating_sub(size(&stub)));
         *msg = stub;
+        bytes = bytes - msg_size + stub_size;
+    }
+    let Some(session) = reply.get_mut("session").and_then(Value::as_object_mut) else { return };
+    let mut fields: Vec<(&str, fn() -> Value, usize)> = DETAIL_FIELDS
+        .iter()
+        .filter_map(|&(name, empty)| session.get(name).map(|value| (name, empty, size(value))))
+        .collect();
+    fields.sort_by_key(|&(_, _, bytes)| std::cmp::Reverse(bytes));
+    let mut left_out = Vec::new();
+    for (name, empty, field_size) in fields {
+        if bytes <= MAX_REPLY_BYTES {
+            break;
+        }
+        let empty = empty();
+        let empty_size = size(&empty);
+        if empty_size >= field_size {
+            break;
+        }
+        session.insert(name.to_owned(), empty);
+        bytes = bytes - field_size + empty_size;
+        left_out.push(Value::String(name.to_owned()));
+    }
+    if !left_out.is_empty() {
+        session.insert(
+            "_meta".to_owned(),
+            json!({"acpmux": {"omitted": {"fields": left_out, "reason": "too_large"}}}),
+        );
     }
 }
 
