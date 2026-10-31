@@ -547,9 +547,9 @@ final class TabContentCache {
         return true
     }
 
-    /// Stand-in tab `key`'s visibility node becomes `real`'s, unless `real` has one: the content moving with it keeps it.
+    /// Stand-in tab `key`'s node becomes `real`'s, also over one `real`'s pane made: the moved content follows it (P0 resize).
     func moveNode(_ key: String, to real: String) {
-        guard let node = tabNodes.removeValue(forKey: key)?.node, tabNodes[real]?.node == nil else { return }
+        guard let node = tabNodes.removeValue(forKey: key)?.node else { return }
         tabNodes[real] = WeakTabNode(node: node)
         daemon.trackVisibility(ofTab: real, node: node) // the daemon reports the node's visibility for `real` now
     }
