@@ -45,6 +45,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+from tag_teardown import TagTeardown  # noqa: E402
 _spec = importlib.util.spec_from_file_location("bench_startup", os.path.join(HERE, "bench-startup.py"))
 bs = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(bs)
@@ -60,6 +61,15 @@ ASSESS_RE = re.compile(r"assess|evaluat|scan|xprotect|notari|ticket|ocsp|revocat
                        r"gatekeeper|policy|trust|certificate|malware|yara", re.I)
 NETWORK_RE = re.compile(r"network|ocsp|https?://|url|connection|timed out|timeout|offline|dns|api\.apple", re.I)
 TIMEOUT = 60.0
+# One TagTeardown per copy path: a launch's terminal hosts and holders run from cmux-tui's host-exe copy outside the
+# bundle, so `bs.stop(bs.tag_pids(tag))` (bundle path) never finds them; the teardown does (tag_teardown.py).
+TEARDOWNS = {}
+
+
+def teardown_for(path):
+    if path not in TEARDOWNS:
+        TEARDOWNS[path] = TagTeardown(path, log=lambda line: log(line))
+    return TEARDOWNS[path]
 
 
 def log(msg):
@@ -106,10 +116,11 @@ def cpu_seconds(text):
 class Poller(threading.Thread):
     """ps every 100 ms: the app's CPU time, RSS and state, and the signature checkers' CPU time."""
 
-    def __init__(self, pid):
+    def __init__(self, pid, start_t, checkers):
         super().__init__(daemon=True)
-        self.pid, self.start_t, self.samples, self.stop_flag = pid, time.monotonic(), [], threading.Event()
-        self.checkers = checker_pids()
+        # start_t: time.monotonic() just before the spawn, so t_ms is on the launch marks' clock (within the spawn).
+        self.pid, self.start_t, self.samples, self.stop_flag = pid, start_t, [], threading.Event()
+        self.checkers = checkers
 
     def run(self):
         ids = ",".join(str(p) for p in [self.pid, *self.checkers])
@@ -160,21 +171,25 @@ def launch_once(path, label, extra_env=None, sample_to=None, logs=True):
     scratch = tempfile.mkdtemp(prefix="premain-")
     with open(os.path.join(scratch, "cmux.json"), "w") as out:
         out.write("{}\n")
-    t0 = time.time()
+    teardown = teardown_for(path)
+    checkers = checker_pids()
+    t0, spawn_t = time.time(), time.monotonic()
     launch = bs.Launch(tag, scratch, extra_env)
     sampler = None
     if sample_to:
         sampler = subprocess.Popen(["/usr/bin/sample", str(launch.process.pid), "4", "1", "-mayDie", "-file", sample_to],
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    poller = Poller(launch.process.pid)
+    poller = Poller(launch.process.pid, spawn_t, checkers)
     poller.start()
     try:
         launch.wait_for("main_start", TIMEOUT)
         poller.stop_flag.set()
         launch.wait_for([bs.FINAL_MARK, bs.AGENT_MARK], TIMEOUT, any_of=True)
+        teardown.remember()  # the daemon runs now: its state root (and so its hosts and holders) is recorded
     finally:
         poller.stop_flag.set()
         launch.quit()
+        teardown.end()
         bs.stop(bs.tag_pids(tag))
         if sampler:
             try:
@@ -186,7 +201,7 @@ def launch_once(path, label, extra_env=None, sample_to=None, logs=True):
     main_ms = marks.get("main_start")
     at_main = None
     if main_ms is not None:
-        before = [s for s in poller.samples if "app" in s and s["t_ms"] <= main_ms + 50]
+        before = [s for s in poller.samples if "app" in s and s["t_ms"] <= main_ms]
         at_main = before[-1] if before else None
     record = {"label": label, "path": path, "spawn": wall(t0), "main_start_ms": main_ms,
               "first_window_frame_ms": marks.get("first_window_frame_committed"),
@@ -205,7 +220,7 @@ def launch_once(path, label, extra_env=None, sample_to=None, logs=True):
 
 def checker_delta(samples, main_ms):
     """CPU seconds each checker process used between the first sample and main_start."""
-    inside = [s for s in samples if main_ms is None or s["t_ms"] <= main_ms + 50]
+    inside = [s for s in samples if main_ms is None or s["t_ms"] <= main_ms]
     if len(inside) < 2:
         return {}
     first, last = inside[0], inside[-1]
@@ -289,21 +304,28 @@ def dyld_print(app):
             text = f.read()
     except OSError:
         text = ""
+    if not text:
+        record["dyld_note"] = ("no dyld output: dyld ignored DYLD_* (hardened runtime without "
+                               "allow-dyld-environment-variables), so this is NOT zero initializers")
     loads = [line for line in text.splitlines() if "dyld" in line and ("load" in line or "<" in line)]
     inits = [line for line in text.splitlines() if "initializer" in line.lower()]
     ours = [line for line in inits if "/System/" not in line and "/usr/lib/" not in line]
+    record["dyld_scope"] = "the app and every child it started (server ensure, daemon, hosts) append to one file"
     record.update({"dyld_lines": len(text.splitlines()), "image_lines": len(loads), "initializer_lines": len(inits),
                    "initializers_outside_system": ours[:200], "dyld_head": text.splitlines()[:30]})
     return record
 
 
-def xctrace_launch(app, out_dir, label):
+def xctrace_launch(app, label):
     """`xctrace record --template 'App Launch'` of the app's binary; the trace's tables, exported."""
     tag = use_copy(app)
     bs.reset_state(tag)
-    trace = os.path.join(out_dir, f"premain-{label}.trace")
-    shutil.rmtree(trace, ignore_errors=True)
-    env = ["CMUX_NEXT_NO_ACTIVATE=1", "CMUX_NEXT_SOCKET_MODE=automation", "CMUX_NEXT_TEST_WINDOW_SCREEN=last"]
+    scratch = tempfile.mkdtemp(prefix="premain-xctrace-")  # outside the step's artifacts: a trace is large
+    trace = os.path.join(scratch, f"premain-{label}.trace")
+    with open(os.path.join(scratch, "cmux.json"), "w") as out:
+        out.write("{}\n")
+    env = ["CMUX_NEXT_NO_ACTIVATE=1", "CMUX_NEXT_SOCKET_MODE=automation", "CMUX_NEXT_TEST_WINDOW_SCREEN=last",
+           f"CMUX_NEXT_CONFIG_FILE={os.path.join(scratch, 'cmux.json')}"]
     cmd = ["xcrun", "xctrace", "record", "--template", "App Launch", "--time-limit", "20s", "--no-prompt",
            "--output", trace]
     for item in env:
@@ -311,6 +333,9 @@ def xctrace_launch(app, out_dir, label):
     cmd += ["--launch", "--", bs.app_binary(tag)]
     start = time.monotonic()
     code, out, err = run(cmd, timeout=180)
+    teardown = teardown_for(app)
+    teardown.remember()  # the daemon outlives the traced app: read its state root before ending it
+    teardown.end()
     bs.stop(bs.tag_pids(tag))
     result = {"label": label, "exit": code, "seconds": round(time.monotonic() - start, 1),
               "stderr": (err or out).strip()[-600:]}
@@ -327,6 +352,7 @@ def xctrace_launch(app, out_dir, label):
                          f'/trace-toc/run[@number="1"]/data/table[@schema="{schema}"]'], timeout=180)
         tables[schema] = summarize_table(xml)
     result["tables"] = tables
+    shutil.rmtree(scratch, ignore_errors=True)
     return result
 
 
@@ -367,13 +393,12 @@ def main():
     def save():
         with open(args.json, "w") as f:
             json.dump(report, f, indent=1)
+    teardown_for(app).install()  # SIGTERM and SIGHUP (a cancelled step) raise SystemExit, so the finally below runs
     try:
         purged, why = try_purge()
-        report["purge"] = "run before each launch" if purged else f"purge not run ({why})"
+        report["purge"] = ("run before each A, B and C launch (not before D, dyld-print or xctrace)" if purged
+                           else f"purge not run ({why}): each copy's files are in the page cache (just written or run)")
         log(report["purge"])
-        report["static"] = static_scan(app)
-        log(f"static: {report['static']['image_count']} Mach-O files, {report['static']['bundle_bytes'] / 1e6:.0f} MB, "
-            f"{report['static']['static_initializers_total']} static initializers")
         save()
         copy_b = fresh_copy(app, root, "B")
         copies.append(copy_b)
@@ -386,9 +411,13 @@ def main():
                 report["runs"].append(launch_once(path, f"{name} (first exec of the copy) run {index}" if index == 1
                                                   else f"{name} run {index}"))
                 save()
+        report["static"] = static_scan(app)  # after the timed runs, so it does not warm copy A's first exec
+        log(f"static: {report['static']['image_count']} Mach-O files, {report['static']['bundle_bytes'] / 1e6:.0f} MB, "
+            f"{report['static']['static_initializers_total']} static initializers")
+        save()
         copy_d = fresh_copy(app, root, "D")
         copies.append(copy_d)
-        sample_file = os.path.join(args.out, "premain-sample-D.txt")
+        sample_file = os.path.join(tempfile.mkdtemp(prefix="premain-sample-"), "sample-D.txt")
         report["sampled"] = launch_once(copy_d, "D (fresh copy, sampled from spawn) run 1", sample_to=sample_file, logs=False)
         try:
             with open(sample_file, errors="replace") as f:
@@ -401,11 +430,12 @@ def main():
         if not args.no_xctrace:
             copy_e = fresh_copy(app, root, "E")
             copies.append(copy_e)
-            report["xctrace"] = [xctrace_launch(copy_e, args.out, "E-fresh"), xctrace_launch(app, args.out, "A-reused")]
+            report["xctrace"] = [xctrace_launch(copy_e, "E-fresh"), xctrace_launch(app, "A-reused")]
             save()
     finally:
         for path in copies:
             use_copy(path)
+            teardown_for(path).end()
             bs.stop(bs.tag_pids(bs.app_tag(path)))
         report["table"] = table(report["runs"])
         save()
