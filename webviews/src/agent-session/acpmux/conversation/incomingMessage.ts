@@ -61,8 +61,10 @@ export type IncomingMessage = {
   text: string;
   /// The prompt as the agent got it.
   raw: string;
-  /// Structured metadata for a lane report, shown in the existing collapsed Details disclosure.
-  details?: { session?: string; commits?: readonly string[] };
+  /// Hub-authored lane report metadata, retained for its collapsed presentation.
+  report?: boolean;
+  details?: unknown;
+  noticeThreads?: readonly { id: string; sender: string }[];
 };
 
 /// What the pane knows that tells an agent's addressed message (`sender -> receiver: …`) from the
@@ -265,36 +267,11 @@ export function incomingPrompt(
   // The sender's harness, when acpmux names it (a relayed message's sender is not listed here).
   const fromHarness = trimmed(provenance?.fromHarness) ?? trimmed(msg?.fromHarness);
   const harness = fromHarness ? { harness: fromHarness } : {};
-  if (provenance?.kind === "lane_report") {
-    const name = trimmed(provenance.fromName) ?? trimmed(provenance.from) ?? "lane";
-    const reportDetails = provenance.details as Record<string, unknown> | undefined;
-    const session = trimmed(reportDetails?.session);
-    const commits = Array.isArray(reportDetails?.commits)
-      ? reportDetails.commits.filter((commit): commit is string => typeof commit === "string" && commit.trim() !== "")
-      : [];
-    const details =
-      session || commits.length > 0
-        ? { ...(session ? { session } : {}), ...(commits.length ? { commits } : {}) }
-        : undefined;
-    const sessionId =
-      typeof provenance.from === "string" ? provenance.from.replace(/^acp:/, "") || undefined : undefined;
-    return {
-      kind: "message",
-      message: {
-        name,
-        ...(sessionId ? { sessionId } : {}),
-        ...remote,
-        ...harness,
-        text: text.trim(),
-        raw: text,
-        ...(details ? { details } : {}),
-      },
-    };
-  }
   const fromSession =
     provenance?.kind === "subsession_message" ||
     provenance?.kind === "session_message" ||
-    provenance?.kind === "task_result";
+    provenance?.kind === "task_result" ||
+    provenance?.kind === "lane_report";
   if (fromSession && typeof provenance.from === "string" && provenance.from) {
     // A Chief's turn: the Chief, whose turn session is its own and is no chat to open.
     const chief = chiefOf(provenance);
@@ -313,6 +290,7 @@ export function incomingPrompt(
       kind: "message",
       message: {
         name: signed?.name ?? name,
+        ...(provenance.kind === "lane_report" ? { report: true, details: provenance.details } : {}),
         ...(sessionId && { sessionId }),
         ...(chief && { chief }),
         ...(relation && { relation }),
@@ -321,6 +299,20 @@ export function incomingPrompt(
         text: signed?.text ?? text.trim(),
         raw: text,
       },
+    };
+  }
+  if (provenance?.kind === "inbox_notice") {
+    const noticeThreads = (Array.isArray(provenance.threads) ? provenance.threads : []).flatMap((value: unknown) => {
+      const thread = value as { threadId?: unknown; from?: unknown } | null;
+      if (typeof thread?.threadId !== "string") return [];
+      const from = Array.isArray(thread.from)
+        ? thread.from.filter((name): name is string => typeof name === "string")
+        : [];
+      return [{ id: thread.threadId, sender: from.join(", ") }];
+    });
+    return {
+      kind: "message",
+      message: { name: "inbox", text: text.replace(/^\[inbox\]\s*/, ""), raw: text, noticeThreads },
     };
   }
   // Messages from other agents that waited for a busy chat and went in as one turn (acpmux
