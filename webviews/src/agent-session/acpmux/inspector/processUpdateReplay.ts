@@ -13,11 +13,11 @@ export function replayProcessUpdates(
   if (pending.size === 0) return listed;
   const seen = new Set<string>();
   const merged = listed.map((process) => {
-    // Keep the behavior of the old findIndex-based replay if a malformed list has
-    // duplicate IDs: update its first occurrence and leave later copies alone.
-    if (seen.has(process.id)) return process;
-    seen.add(process.id);
-    return pending.get(process.id) ?? process;
+    // As with findIndex, update only the first occurrence of a duplicate ID.
+    const id = process.id;
+    if (seen.has(id)) return process;
+    seen.add(id);
+    return pending.get(id) ?? process;
   });
   for (const [id, process] of pending) {
     if (seen.has(id)) continue;
