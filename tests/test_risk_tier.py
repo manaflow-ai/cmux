@@ -75,6 +75,7 @@ class ClassifyTests(unittest.TestCase):
             NEXT + "CmuxNextServerHelper/ServerHelperListener.swift",
             NEXT + "CmuxNextServerHelper/ServerHelperProtocol.swift",
             NEXT + "CmuxNextComputerUse/ComputerUseHelperV2HostLink.swift",
+            NEXT + "CmuxNextComputerUse/ComputerUseHelperV2+Admission.swift",
             NEXT + "CmuxNextApp/Server/ServerHelperClient.swift",
         ):
             with self.subTest(path=path):
@@ -86,6 +87,8 @@ class ClassifyTests(unittest.TestCase):
             ("cmux-tui/crates/cmux-link/src/caller_macos_sign_clone_tests.rs", "low"),
             ("cmux-tui/crates/cmux-pane-protocol/src/token.rs", "normal"),
             ("Native/OptChat/optchat-chief/src/cloud/signature_cache.rs", "normal"),
+            # The launcher itself: its acpmux admission rule lives in ComputerUseHelperV2+Admission.swift.
+            (NEXT + "CmuxNextComputerUse/ComputerUseHelperV2.swift", "normal"),
         ):
             with self.subTest(path=path):
                 self.assertEqual(risk.classify_path(path)[0], tier)
