@@ -131,6 +131,11 @@ export class CloudStore {
   private readonly listeners = new Set<() => void>();
   private started = false;
   private unwatch?: () => void;
+  /** The account stream (`cmux.cloud.auth.watch`): lives from start to stop, across sessions. */
+  private unwatchAuth?: () => void;
+  /** Bumped by stop: an auth stream that subscribes after it is closed at once. */
+  private lifetime = 0;
+  private watchingAuth = false;
   /**
    * Bumped by stop, sign-out, team switch and retry. Every async load captures it and drops its
    * result (and closes its watch) when it changed, so an old account or team never writes state.
@@ -211,6 +216,7 @@ export class CloudStore {
     if (!this.client || this.started) return;
     this.started = true;
     const session = ++this.session;
+    void this.watchAuth();
     let auth: AuthStatus;
     try {
       auth = await this.client.call<AuthStatus>(CloudOps.authStatus, {});
@@ -239,6 +245,9 @@ export class CloudStore {
 
   stop(): void {
     this.started = false;
+    this.lifetime += 1;
+    this.unwatchAuth?.();
+    this.unwatchAuth = undefined;
     clearTimeout(this.restart);
     this.restart = undefined;
     this.restartAttempts = 0;
@@ -546,6 +555,51 @@ export class CloudStore {
   }
 
   // Internals.
+
+  /**
+   * Follows the app's account: a page opened while signed out (or before the session was restored
+   * at launch) shows the machines once the account signs in anywhere in the app, and a sign-out
+   * elsewhere clears them. Each event only says "read auth again" (`accountChanged`).
+   */
+  private async watchAuth(): Promise<void> {
+    if (!this.client || this.unwatchAuth || this.watchingAuth) return;
+    this.watchingAuth = true;
+    const lifetime = this.lifetime;
+    try {
+      const unwatch = await this.client.subscribe<AuthStatus>(CloudOps.authWatch, () => void this.accountChanged());
+      if (lifetime !== this.lifetime) return unwatch();
+      this.unwatchAuth = unwatch;
+    } catch {
+      // An older host serves no account stream, or the link is down: the next start subscribes again.
+    } finally {
+      this.watchingAuth = false;
+    }
+  }
+
+  /**
+   * Reads auth again after an account event. Nothing changes when the page already shows that
+   * account (its own Sign In, a team switch it ran, the stream's first event); otherwise the old
+   * account's state goes and the new one loads, as after the page's own sign-in or sign-out.
+   */
+  private async accountChanged(): Promise<void> {
+    // Before the first auth read answered, that read is newer than the event.
+    if (!this.client || this.state.connection !== "connected" || !this.state.auth) return;
+    const session = this.session;
+    let auth: AuthStatus;
+    try {
+      auth = await this.client.call<AuthStatus>(CloudOps.authStatus, {});
+    } catch {
+      return; // The link's own failure shows on the page's next call; the account is unchanged here.
+    }
+    const shown = this.state.auth;
+    if (session !== this.session || !shown) return;
+    if (shown.signedIn === auth.signedIn && (shown.team ?? null) === (auth.team ?? null)) return;
+    const next = this.restartSession();
+    void this.detail.load(undefined);
+    if (!auth.signedIn) return this.set({ ...signedOutState(), auth });
+    this.set({ ...signedOutState(), auth, loading: true });
+    await this.loadSignedIn(next);
+  }
 
   private endSession(): void {
     this.session += 1;

@@ -344,6 +344,7 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   const host = installMockHost(operations, [
     CloudOps.machineWatch,
     CloudOps.fileTransferChanged,
+    CloudOps.authWatch,
     "cmux.page.connection",
     CLOUD_PAGE_COMMAND,
   ]);

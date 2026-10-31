@@ -8,6 +8,12 @@
 
 export const CloudOps = {
   authStatus: "cmux.cloud.auth.status",
+  /**
+   * Event stream: the app's account changed (a sign-in or sign-out anywhere in the app, a restored
+   * session, a team switch). The first event is the current account; the page reads `authStatus`
+   * again on each one. A host that does not serve it answers an unknown op, and the page goes on.
+   */
+  authWatch: "cmux.cloud.auth.watch",
   machineList: "cmux.cloud.machine.list",
   machineWatch: "cmux.cloud.machine.watch",
   machineCreate: "cmux.cloud.machine.create",

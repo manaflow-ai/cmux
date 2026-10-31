@@ -173,11 +173,14 @@ export class MockCloudProvider implements PageClient {
 
   async subscribe<E>(stream: string, onEvent: (data: E, seq: number) => void): Promise<() => void> {
     if (this.offline) throw pageError("cmux.protocol.transport", "disconnected", true);
-    if (stream !== CloudOps.machineWatch && stream !== CloudOps.fileTransferChanged)
+    if (stream !== CloudOps.machineWatch && stream !== CloudOps.fileTransferChanged && stream !== CloudOps.authWatch)
       throw pageError("cmux.protocol.unknown_op", stream);
     this.calls.push({ op: `subscribe ${stream}`, params: undefined });
     const sub = this.nextSub++;
-    this.subs.set(sub, { stream, listener: onEvent as (data: unknown, seq: number) => void, seq: 0 });
+    const entry = { stream, listener: onEvent as (data: unknown, seq: number) => void, seq: 0 };
+    this.subs.set(sub, entry);
+    // The account stream's first event is the current account, as the host sends it.
+    if (stream === CloudOps.authWatch) entry.listener(this.authStatus(), ++entry.seq);
     return () => void this.subs.delete(sub);
   }
 
@@ -248,6 +251,22 @@ export class MockCloudProvider implements PageClient {
     if (!this.machines.some((machine) => machine.id === id)) return;
     this.machines = this.machines.filter((machine) => machine.id !== id);
     this.emit({ type: "removed", revision: ++this.revision, id });
+  }
+
+  /** The app's account changed outside the page (the sidebar, Settings, the CLI, a restored session). */
+  setSignedIn(signedIn: boolean): void {
+    if (signedIn === this.signedIn) return;
+    this.signedIn = signedIn;
+    this.emitAccount();
+  }
+
+  /** Sends the current account on the account stream. */
+  emitAccount(): void {
+    this.deliverTo(CloudOps.authWatch, this.authStatus());
+  }
+
+  get accountWatchers(): number {
+    return [...this.subs.values()].filter((sub) => sub.stream === CloudOps.authWatch).length;
   }
 
   /** Delivers an event as is (for stale-revision tests). */
