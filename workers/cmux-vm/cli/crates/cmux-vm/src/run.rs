@@ -516,6 +516,13 @@ async fn prepare(client: &Client, vm_id: &str, archive: Option<&[u8]>) -> Result
     Ok(String::from_utf8_lossy(&result.stdout).trim().to_owned())
 }
 
+/// The script that ends a timed-out command's process group.
+fn kill_script(run_dir: &str) -> String {
+    format!(
+        "kill -TERM -- -$(cat {run_dir}/pid) 2>/dev/null; sleep 2; kill -KILL -- -$(cat {run_dir}/pid) 2>/dev/null; true"
+    )
+}
+
 /// Streams the command's output until it ends, the deadline passes or the
 /// run is interrupted.
 async fn follow(
@@ -529,10 +536,7 @@ async fn follow(
     let (mut out_at, mut err_at) = (0_u64, 0_u64);
     loop {
         if deadline.is_some_and(|deadline| Instant::now() > deadline) {
-            let kill = format!(
-                "kill -TERM -- -$(cat {RUN_DIR}/pid) 2>/dev/null; sleep 2; kill -KILL -- -$(cat {RUN_DIR}/pid) 2>/dev/null; true"
-            );
-            match exec(client, vm_id, &kill, &[], 30_000).await {
+            match exec(client, vm_id, &kill_script(RUN_DIR), &[], 30_000).await {
                 Ok(killed) if killed.code == Some(0) => {}
                 Ok(killed) => note(
                     stderr,
@@ -1634,6 +1638,62 @@ mod tests {
         std::fs::write(base.join("linked/.git"), "gitdir: /elsewhere").unwrap();
         assert!(in_a_repository(&base.join("linked")));
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn credential_directories_match_in_any_case() {
+        // macOS volumes are case-insensitive by default: `.AWS/config` is
+        // the AWS CLI's `.aws/config` there.
+        for path in [
+            ".AWS/config",
+            ".Ssh/id_custom",
+            "src/.KUBE/config",
+            ".CONFIG/GH/hosts.yml",
+            ".config/Gh/hosts.yml",
+        ] {
+            assert!(credential_path(Path::new(path)), "{path}");
+        }
+        assert!(!credential_path(Path::new("src/Config/gh.rs")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_kill_script_reports_a_command_it_cannot_find_or_kill() {
+        use std::os::unix::process::CommandExt;
+        let dir = std::env::temp_dir().join(format!("cmux-vm-run-kill-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let run = |dir: &Path| {
+            std::process::Command::new("sh")
+                .arg("-c")
+                .arg(kill_script(&dir.display().to_string()))
+                .status()
+                .unwrap()
+                .success()
+        };
+        // No pid file and no exit status: nothing was killed.
+        assert!(!run(&dir));
+        // A pid file that does not name a process group (never `kill -- -1`).
+        for pid in ["", "1", "0", "x1"] {
+            std::fs::write(dir.join("pid"), pid).unwrap();
+            assert!(!run(&dir), "{pid:?}");
+        }
+        // A command that already ended is not a failure.
+        std::fs::write(dir.join("rc"), "0").unwrap();
+        assert!(run(&dir));
+        std::fs::remove_file(dir.join("rc")).unwrap();
+        // A running command group is ended. It is reaped as it ends (on the
+        // VM, init reaps it), so the script sees it gone, not a zombie.
+        let mut child = std::process::Command::new("sleep")
+            .arg("30")
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        std::fs::write(dir.join("pid"), child.id().to_string()).unwrap();
+        let reaped = std::thread::spawn(move || child.wait().unwrap());
+        assert!(run(&dir));
+        assert!(!reaped.join().unwrap().success());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[cfg(unix)]

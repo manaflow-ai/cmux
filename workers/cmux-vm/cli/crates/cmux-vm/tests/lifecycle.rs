@@ -2567,3 +2567,36 @@ async fn run_exits_with_the_command_status_when_cleanup_fails() {
     );
     assert!(out.stderr.contains("delete"), "{}", out.stderr);
 }
+
+#[tokio::test]
+async fn run_fails_fast_and_deletes_a_vm_whose_answer_has_no_state() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/vms"))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({ "id": VM_ID })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    // A successful answer without a state: never treated as "starting",
+    // which would keep a billable VM polling for the whole boot deadline.
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/vms/{VM_ID}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .mount(&server)
+        .await;
+    Mock::given(method("DELETE"))
+        .and(path(format!("/v1/vms/{VM_ID}")))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let out = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        cli(&server, &["run", "--", "true"]),
+    )
+    .await
+    .expect("run kept polling a VM whose answer has no state");
+    assert_ne!(out.code, 0, "{}", out.stderr);
+    assert!(out.stderr.contains("state"), "{}", out.stderr);
+}
