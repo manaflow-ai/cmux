@@ -270,9 +270,9 @@ public final class PushReplies {
         guard live != nil, auth?.isSignedIn == true else { return }
         let epoch = accountEpoch
         await outboxWipe?.value
-        guard epoch == accountEpoch else { return }
+        guard epoch == accountEpoch, live != nil, auth?.isSignedIn == true else { return }
         guard let outbox = PushOutbox(group: await PushAppGroup.resolved()) else { return }
-        guard epoch == accountEpoch else { return }
+        guard epoch == accountEpoch, live != nil, auth?.isSignedIn == true else { return }
         // `take` claims each file by renaming it, so two drains never both take one reply.
         let replies = await Task.detached(priority: .userInitiated) { outbox.takeAll() }.value
         acceptOutbox(replies, epoch: epoch)
