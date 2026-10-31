@@ -472,8 +472,13 @@ class App:
     """One launch of the app on a private socket, driven through its bundled CLI."""
 
     def __init__(self, app_path: Path, session: Session, workdir: Path, *, fresh_state: bool = False,
-                 settings: dict[str, Any] | None = None) -> None:
+                 settings: dict[str, Any] | None = None, launch_env: dict[str, str] | None = None,
+                 launch_args: list[str] | None = None) -> None:
         self.app_path = app_path
+        # Extra environment knobs and app arguments for one launch (the nightly
+        # visual gate's states launch with --showcase, for example).
+        self.launch_env = dict(launch_env or {})
+        self.launch_args = list(launch_args or [])
         self.session = session
         self.fresh_state = fresh_state
         self.cli_path = app_path / "Contents/Resources/bin/cmux"
@@ -546,7 +551,9 @@ class App:
                  f"CMUX_CAPTURE_SHELL_HOME={self.write_shell_home()}"]
         if self.settings_path:
             knobs.append(f"CMUX_NEXT_CONFIG_FILE={self.settings_path}")
-        argv = self.session.prefix + ["env", *knobs, str(self.executable), "-ApplePersistenceIgnoreState", "YES"]
+        knobs += [f"{key}={value}" for key, value in sorted(self.launch_env.items())]
+        argv = self.session.prefix + ["env", *knobs, str(self.executable), "-ApplePersistenceIgnoreState", "YES",
+                                      *self.launch_args]
         with self.log_path.open("wb") as log:
             self.process = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT,
                                             env=self.environment(), start_new_session=True)

@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/defaults_guard.py"
@@ -114,6 +115,18 @@ class DefaultsGuardTests(unittest.TestCase):
         return result
 
     # The cases that just bit us.
+
+    def test_a_checkout_without_the_comment_writer_keeps_the_verdict(self):
+        # The pull_request_target workflow runs from main, whose sparse checkout listed no
+        # pr_status.py after #28451, so every pull request failed on ModuleNotFoundError.
+        head = self.head(extra={"README.md": "no default changes\n"})
+        path = self.repo.root.parent / f"{self.repo.root.name}-pull.json"
+        path.write_text(json.dumps({"author": {"login": AUTHOR}, "headRefOid": head, "merged": False,
+                                    "reviews": {"nodes": []}, "comments": {"nodes": []}}), encoding="utf-8")
+        result = self.repo.guard("check", "--base", self.base, "--head", head, "--pull-json", str(path),
+                                 "--repo", "o/r", "--pr", "1", "--comment")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("::warning title=Defaults comment not posted::", result.stdout)
 
     def test_a_new_default_chord_fails_and_names_it(self):
         actions = [*BASE_ACTIONS[:3], action("toggleEditor", "e", ["ctrl", "cmd"])]
@@ -628,6 +641,88 @@ class SettingsSourceStampTests(unittest.TestCase):
 
     def test_check_stamp_is_gone(self):
         self.assertEqual(self.repo.guard("check-stamp").returncode, 2)
+
+
+class StatusCommentTests(unittest.TestCase):
+    def setUp(self):
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        import defaults_guard
+        import pr_status
+        self.guard, self.status = defaults_guard, pr_status
+        self.comments, self.writes = [], []
+        original = pr_status.upsert
+        self.writer = patch.object(pr_status, "upsert", side_effect=lambda *a, **kw:
+                                   original(*a, **kw, api=self.api, sleep=None))
+        self.writer.start()
+        self.addCleanup(self.writer.stop)
+        self.addCleanup(sys.path.pop, 0)
+        self.old = patch.object(defaults_guard, "gh", side_effect=AssertionError("standalone writer used"))
+        self.old.start()
+        self.addCleanup(self.old.stop)
+
+    def api(self, method, path, payload=None):
+        if method == "GET":
+            return self.comments
+        if getattr(self, "fail_write", False):
+            raise RuntimeError("write failed")
+        self.writes.append((method, path, payload))
+        if method == "PATCH":
+            next(c for c in self.comments if path.endswith('/' + str(c['id'])))['body'] = payload['body']
+        elif method == "POST":
+            self.comments.append(self.comment(100, payload['body']))
+        elif method == "DELETE":
+            self.comments[:] = [c for c in self.comments if not path.endswith('/' + str(c['id']))]
+
+    def comment(self, number, body, author="github-actions[bot]"):
+        return {"id": number, "body": body, "user": {"login": author}}
+
+    def post(self, changed=True):
+        # The legacy GraphQL snapshot may be truncated: the writer reads all comments.
+        body = self.guard.MARKER + "\n## Default changes\n" + ("Needs review" if changed else "No default changes")
+        with patch.object(self.status, "http_api", self.api):
+            self.guard.post_comment("o/r", 1, {}, body, [object()] if changed else [])
+
+    def test_changes_share_existing_status_and_unchanged_runs_write_nothing(self):
+        self.comments = [self.comment(1, self.status.render({"review": "SHIP"}))]
+        self.post()
+        self.assertEqual([w[0] for w in self.writes], ["PATCH"])
+        sections = self.status.parse(self.comments[0]['body'])
+        self.assertEqual(sections['review'], 'SHIP')
+        self.assertIn('Needs review', sections['defaults'])
+        self.assertNotIn(self.guard.MARKER, sections['defaults'])
+        self.writes.clear()
+        self.post()
+        self.assertEqual(self.writes, [])
+
+    def test_no_changes_and_no_prior_defaults_are_silent(self):
+        self.comments = [self.comment(1, self.status.render({"review": "SHIP"}))]
+        self.post(False)
+        self.assertEqual(self.writes, [])
+        self.assertNotIn('defaults', self.status.parse(self.comments[0]['body']))
+
+    def test_legacy_comment_migrates_in_place(self):
+        self.comments = [self.comment(2, self.guard.MARKER + "\nold")]
+        self.post()
+        self.assertEqual([w[0] for w in self.writes], ['PATCH'])
+        self.assertTrue(self.comments[0]['body'].startswith(self.status.MARKER))
+
+    def test_resolved_defaults_update_the_existing_section(self):
+        self.comments = [self.comment(1, self.status.render({"defaults": "Needs review", "review": "SHIP"}))]
+        self.post(False)
+        self.assertIn('No default changes', self.status.parse(self.comments[0]['body'])['defaults'])
+
+    def test_failed_status_write_keeps_legacy_comment(self):
+        self.comments = [self.comment(1, self.status.render({"review": "SHIP"})),
+                         self.comment(2, self.guard.MARKER + "\nold")]
+        self.fail_write = True
+        with self.assertRaises(RuntimeError):
+            self.post()
+        self.assertEqual(len(self.comments), 2)
+
+    def test_human_legacy_lookalike_is_not_changed(self):
+        self.comments = [self.comment(2, self.guard.MARKER + "\nquoted", "person")]
+        self.post(False)
+        self.assertEqual(self.writes, [])
 
 
 class WorkflowTests(unittest.TestCase):
