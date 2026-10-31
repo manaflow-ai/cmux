@@ -121,7 +121,8 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var showsSoleMachineHeader = false
     /// One workspace list (`sidebar.groupByComputer` off): machine sections
     /// show no header and no gap between them, and a row of a computer other
-    /// than this Mac names it (and a failed connection) on its second line.
+    /// than this Mac names it (and a failed connection) in its machine mark,
+    /// hover card and accessibility label, and an expanded row's meta line.
     public var flattensMachines = false
     /// In one list, the status a computer's rows name after its name when it
     /// cannot connect until the person acts ("Failed to start"; cx-mdo0).
@@ -181,7 +182,11 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var chatHistory: SidebarChatHistoryState?
     /// `sidebar.doneFold`: workspaces marked Done fold into a "Done (N)" row at the end of their list.
     public var foldsDone = false
-    /// The "Done (N)" rows the person opened: their workspaces list below them.
+    /// Archived workspaces fold into an "Archived (N)" row at the end of their list, after the Done row; on by default
+    /// (Lawrence 18470, gallery pick V2). Off, they draw dimmed in place.
+    public var foldsArchived = true
+    /// The "Done (N)" and "Archived (N)" rows the person opened (by ``SidebarDoneFoldID/kind``): their workspaces list
+    /// below them.
     public var openDoneFolds: Set<SidebarDoneFoldID> = []
     /// `sidebar.groupRowLimit`: a list longer than this shows its first rows and a "Show N more" row; 0 shows all.
     public var rowLimit = 0
@@ -207,6 +212,9 @@ nonisolated extension SidebarLayoutOptions {
         var content = baseRowContent(ws, machine: machine)
         content.detailedStatus = detailedStatus
         content.machine = machines[ws.machineID].map(SidebarMachineMark.init)
+        // Every mode (compact, minimal, workspaces as tabs, expanded), mark drawn or not: VoiceOver says the
+        // computer and its status when it cannot connect, as no line does (review of #28510 at 58ee6d24).
+        content.machineLabel = machine.flatMap { $0.isEmpty ? nil : $0 }
         if let sessionTree { content.keycap = keycaps[ws.id] }
         // Leo 2026-10-21, "REMOVE PR INDICATORS BY DEFAULT": every pull request mark on a row (the
         // hook's text and the read badge, tree or not) follows `sidebar.workspaceRow.pullRequest`,

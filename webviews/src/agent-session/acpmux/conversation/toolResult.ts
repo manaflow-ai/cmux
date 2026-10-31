@@ -410,6 +410,16 @@ export function toolResult(
   options: ToolResultOptions = {},
 ): ToolResult {
   const { text, lang } = read(output, clean, strip);
+  return formatResult({ text, lang }, options);
+}
+
+/// Text already cleaned by a caller (the MCP request/response reader): classify its format
+/// without peeling or rewriting it again. All output surfaces share this one format rule.
+export function formatToolText(text: string, options: ToolResultOptions = {}): ToolResult {
+  return formatResult({ text, lang: parseJSONValue(text) === undefined ? "text" : "json" }, options);
+}
+
+function formatResult({ text, lang }: ToolResult, options: ToolResultOptions): ToolResult {
   if (lang === "json" || text.length > MAX_MARKDOWN_CHARS) return { text, lang };
   if (options.kind === "execute") return { text, lang: "text" };
   const webRead =

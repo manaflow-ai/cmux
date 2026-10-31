@@ -28,6 +28,8 @@
 .nt-popover .nt-rows{--popup-scroll-cap:360px;box-sizing:border-box;padding:var(--ui-popup-padding);max-height:min(48vh,360px);overflow:auto;overscroll-behavior:contain}
 .nt-row{display:flex;align-items:center;gap:10px;height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border-radius:var(--ui-row-radius);color:var(--agent-soft);font-size:var(--text-control);white-space:nowrap;letter-spacing:var(--text-control--letter-spacing)}
 .nt-row.is-selected{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 8%,transparent);color:var(--agent-text)}
+/* The pointer lights the row it is on in a neutral fill, apart from Return's row (is-selected, with its ↵): hover never takes Return (Leo 2026-10-31: "i cant even press enter on that hello anymore it doesnt send it to claude"). */
+.nt-row:not(.is-selected):hover,.nt-create-strip-item:not(.is-selected):hover{background:color-mix(in srgb,var(--agent-text) 5%,transparent);color:var(--agent-text)}
 .nt-row-glyph{flex:none;display:grid;place-items:center;width:16px;height:16px}
 .nt-row-icon{color:var(--acpmux-composer-dim)}
 .nt-row.is-selected .nt-row-icon,.nt-row:not(:disabled):hover .nt-row-icon{color:var(--agent-text)}
@@ -260,7 +262,8 @@
 }
 /* Open Tabs (cx-jfo7): a split's page lists the workspace's tabs to move into its pane. */
 .nt-open-tabs{margin-top:12px;display:flex;flex-direction:column}
-.nt-open-tabs-head{height:30px;display:flex;align-items:center;padding:0 0 0 10px;color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-weight:500;letter-spacing:var(--text-detail--letter-spacing)}
+/* The page's lists (Open tabs, Recently closed, All chats) share one leading column: each heading's text and every row's glyph start on the shared row inset (design/grid.md rules 1, 2 and 6). */
+.nt-open-tabs-head{height:30px;display:flex;align-items:center;padding:0 0 0 var(--ui-row-padding-inline);color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-weight:500;letter-spacing:var(--text-detail--letter-spacing)}
 .nt-open-tab{width:100%;height:28px;border:0;border-radius:8px;background:none;font:inherit;font-size:var(--text-detail);text-align:left;letter-spacing:var(--text-detail--letter-spacing)}
 .nt-open-tab:not(:disabled):hover,.nt-open-tab:focus-visible{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
 .nt-open-tab:focus-visible .nt-row-action{opacity:1}
@@ -286,7 +289,7 @@
   padding-block:6px 18px;
   mask-image:linear-gradient(to bottom,transparent,#000 6px,#000 calc(100% - 18px),transparent);
 }
-.nt-all .nt-chats-head{height:30px;padding:0 0 0 10px}
+.nt-all .nt-chats-head{height:30px;padding:0 0 0 var(--ui-row-padding-inline)}
 .nt-all .nt-chats-tab{color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-weight:500;letter-spacing:var(--text-detail--letter-spacing)}
 /* Chats and Projects (cx-ncc.66): the view tabs are buttons; the chosen one reads in full ink. */
 .nt-all button.nt-chats-tab{padding:0;border:0;background:none;font-family:inherit}
@@ -310,7 +313,7 @@
 .nt-all-host{margin-top:4px}
 .nt-all-list{flex:1;min-height:0}
 .nt-all-item{box-sizing:border-box;padding:1px 0}
-.nt-all-row{display:flex;align-items:center;gap:10px;width:100%;height:100%;padding:0 10px;box-sizing:border-box;border:0;border-radius:8px;background:none;color:var(--agent-soft);font:inherit;font-size:var(--text-body);text-align:left;white-space:nowrap;letter-spacing:var(--text-body--letter-spacing)}
+.nt-all-row{display:flex;align-items:center;gap:10px;width:100%;height:100%;padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border:0;border-radius:8px;background:none;color:var(--agent-soft);font:inherit;font-size:var(--text-body);text-align:left;white-space:nowrap;letter-spacing:var(--text-body--letter-spacing)}
 .nt-all-row:hover,.nt-all-row:focus-visible{outline:0;background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
 .nt-all-glyph{flex:none;display:flex;width:16px;height:16px;filter:grayscale(1);opacity:.5}
 .nt-all-row:hover .nt-all-glyph,.nt-all-row:focus-visible .nt-all-glyph,.nt-all-row[data-state] .nt-all-glyph{filter:none;opacity:1}
@@ -322,7 +325,7 @@
 .nt-all-row[data-state=input] .nt-all-state{color:var(--agent-warning,var(--agent-text))}
 .nt-all-row[data-state=error] .nt-all-state,.nt-all-row[data-state=failed] .nt-all-state{color:var(--agent-danger)}
 /* A project's header in Projects: its folder and count; a click folds its chats. */
-.nt-all-group{display:flex;align-items:center;gap:6px;width:100%;height:100%;padding:0 10px;box-sizing:border-box;border:0;border-radius:8px;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail);font-weight:500;text-align:left;white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
+.nt-all-group{display:flex;align-items:center;gap:6px;width:100%;height:100%;padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border:0;border-radius:8px;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail);font-weight:500;text-align:left;white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
 .nt-all-group:hover,.nt-all-group:focus-visible{outline:0;color:var(--agent-text)}
 .nt-all-group-chevron{flex:none;transform:rotate(90deg);transition:transform var(--agent-motion-in,.12s) var(--agent-ease-out,ease-out)}
 .nt-all-group[aria-expanded=false] .nt-all-group-chevron{transform:none}
@@ -388,7 +391,7 @@
 
 /* The browser omnibar's pointer (OmnibarPointer, cx-d0d.80): the field row is the text area, so
    the I-beam shows over all of it (a press there focuses the field, focusFromRow); its glyphs keep
-   the arrow, and the pickers and buttons show the pointing hand (desktop.css). The box itself has no hover state: it is the composer's surface at rest,
+   the arrow, and the pickers and buttons show the arrow (desktop.css). The box itself has no hover state: it is the composer's surface at rest,
    under the pointer and while it has the keyboard (Leo 2026-10-18). */
 .nt-input {
   cursor: text;

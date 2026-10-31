@@ -75,13 +75,13 @@ extension WorkspaceRowView {
         if let text = Strings.activity(content.activity) { parts.append(text) }
         if ws.muted { parts.append(Strings.notificationsMuted) }
         parts += ws.usageWarnings
-        // A one-list row on another computer leads its second line with the computer's name
-        // (`SidebarLayout.machineLabel`): VoiceOver says it once. The whole name is compared, so a
-        // name with " · " in it still counts.
-        if let machine = content.machine,
-           !(detail == machine.name || detail?.hasPrefix(machine.name + WorkspaceRowContent.separator) == true) {
-            parts.append(machine.name)
-        }
+        // The computer: a one-list row on another computer says it with its status when it cannot connect
+        // (`SidebarLayout.machineLabel`, "gpu-box · Failed to start"), whether or not the row draws a mark
+        // (with one machine listed it draws none). No line draws it (Leo 2026-10-30: "remove the second
+        // line"), and the detail now holds only the facts the person turned on, so it is said on its own,
+        // never matched against them: a branch named like the machine is no proof the machine was said
+        // (review of #28510 at 4acab8c2).
+        if let spoken = content.machineLabel ?? content.machine?.name { parts.append(spoken) }
         parts += presence.map(Strings.presenceLine)
         return parts.joined(separator: ", ")
     }

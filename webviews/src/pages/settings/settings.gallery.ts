@@ -666,6 +666,12 @@ Object.assign(variants, {
       field.scrollIntoView({ block: "center" });
     },
   }),
+  // Settings > Updates with the Update Channel menu open: the menu hugs its rows and lines up with
+  // its trigger, and Check Every reads in hours (settings-select-menu-browser.test.ts measures it).
+  "updates-channel-open": variant("updates", {
+    steps: [click(`${row("updates.channel")} .ui-select-button`), wait(".ui-select-popup .ui-menu-item")],
+    note: "Settings > Updates, the Update Channel menu open over the Check Every row.",
+  }),
   "search-results": variant("general", { steps: [input("[data-settings-search]", "browser")] }),
   "search-results-font": variant("general", { steps: [input("[data-settings-search]", "font")] }),
   "search-results-theme": variant("general", {
