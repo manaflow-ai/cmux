@@ -564,7 +564,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const scheduler = this.env.SCHEDULER_DO.get(this.env.SCHEDULER_DO.idFromName(entity))
     const ev = { connection: c.id, sharing: c.sharing, created_by: c.created_by, ...event }
     const r = (await scheduler.deliverEvent(entity, ev)) as { runs: number }
-    // Chief jobs on the Upstash engine take the same events (CI failed, a PR opened); never fails the ingest.
+    // Chief jobs take the same events; a store failure propagates so the provider can retry the delivery.
     const chief = await chiefJobsEvent(this.env, entity, ev)
     return { status: "forwarded", runs: r.runs + chief }
   }

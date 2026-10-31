@@ -232,14 +232,14 @@ export const upstashAuto = async (
   }
 }
 
-/** ConnectionDO.ingest: a provider event may start the team's Chief jobs (engine on only; never fails the ingest). */
+/** ConnectionDO.ingest: acknowledge an enabled engine's event only after its runs reach the durable store. */
 export const chiefJobsEvent = async (env: Env, team: string, ev: JobEvent): Promise<number> => {
   if (!upstashConfig(env)) return 0
   try {
     return ((await store<{ runs: number }>(env, team, { op: "event", ev })).runs ?? 0) as number
   } catch (e) {
     console.warn(JSON.stringify({ msg: "chief jobs event not delivered", team, event: ev.event, delivery: ev.delivery_id, reason: String(e instanceof Error ? e.message : e).slice(0, 300) }))
-    return 0
+    throw e
   }
 }
 
