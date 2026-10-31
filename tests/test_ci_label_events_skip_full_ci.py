@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A label a workflow does not read never re-runs that workflow's CI.
+"""Into feat-cmux-next, a label a workflow does not read never re-runs its CI.
 
 `pull_request` with `labeled`/`unlabeled` in its types starts a run for every
 label added or removed. For ci.yml that meant a `risk:*` swap queued a second
@@ -34,6 +34,12 @@ GUARDED: dict[str, tuple[str, ...]] = {
     "cmux-vm.yml": ("cmux-vm-breaking-change-ok",),
 }
 
+# Jobs of a GUARDED workflow that run on every label event, and why.
+UNGUARDED_JOBS: dict[tuple[str, str], str] = {
+    ("ci.yml", "ci-status"): "a skipped ci-status newer than a red or pending one would read as passing to a "
+    "newest-by-name merge gate (gh-merge-green); into feat-cmux-next it passes at once",
+}
+
 # Label-triggered workflows that may run on any label, and why.
 REACTS: dict[str, str] = {
     "backend-migrations.yml": "plans migrations (cheap); applies only on backend:apply-migrations",
@@ -53,7 +59,8 @@ def guard(labels: tuple[str, ...]) -> str:
         other = f"github.event.label.name != '{labels[0]}'"
     else:
         other = f"!contains(fromJSON('{json.dumps(list(labels), separators=(',', ':'))}'), github.event.label.name)"
-    return ("!(github.event_name == 'pull_request' && (github.event.action == 'labeled' || "
+    return ("!(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && "
+            "(github.event.action == 'labeled' || "
             f"github.event.action == 'unlabeled') && {other})")
 
 
@@ -62,6 +69,7 @@ def evaluate(expr: str, event: dict) -> bool:
     py = expr
     py = re.sub(r"fromJSON\('([^']*)'\)", lambda m: repr(json.loads(m.group(1))), py)
     py = re.sub(r"contains\((\[[^\]]*\]), ([^)]+)\)", r"(\2 in \1)", py)
+    py = py.replace("github.event.pull_request.base.ref", repr(event.get("base", "feat-cmux-next")))
     py = py.replace("github.event_name", repr(event.get("event_name")))
     py = py.replace("github.event.action", repr(event.get("action")))
     py = py.replace("github.event.label.name", repr(event.get("label")))
@@ -120,6 +128,11 @@ def main() -> int:
             text = condition.strip()
             if text.startswith("${{") and text.endswith("}}"):
                 text = text[3:-2].strip()
+            if (name, job) in UNGUARDED_JOBS:
+                if expected in text:
+                    failures.append(f"{name} job {job} must run on every label event: "
+                                    f"{UNGUARDED_JOBS[(name, job)]}")
+                continue
             if not reachable_by_label_event(body or {}, text):
                 continue
             if not (text == expected or text.endswith(f") && {expected}")):
@@ -136,6 +149,8 @@ def main() -> int:
             ({"event_name": "pull_request", "action": "labeled", "label": "risk:high"}, False),
             ({"event_name": "pull_request", "action": "unlabeled", "label": "risk:normal"}, False),
             ({"event_name": "pull_request", "action": "labeled", "label": "ready-to-land"}, False),
+            # Other bases keep re-running: main's required checks must not be superseded by a skip.
+            ({"event_name": "pull_request", "action": "labeled", "label": "risk:high", "base": "main"}, True),
         ] + [({"event_name": "pull_request", "action": action, "label": label}, True)
              for label in labels for action in ("labeled", "unlabeled")]
         for event, want in cases:

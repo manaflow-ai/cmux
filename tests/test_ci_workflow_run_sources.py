@@ -215,9 +215,7 @@ def test_ci_failfast_keeps_failure_rollups_and_bounds_observed_tails() -> None:
         (".github/workflows/ci-web.yml", "web-status"),
         (".github/workflows/test-ios.yml", "ios-tests"),
     ):
-        # ci.yml adds its label-event guard (tests/test_ci_label_events_skip_full_ci.py).
-        block = job_block(path, job_id)
-        assert "if: ${{ !cancelled() }}" in block or "if: ${{ (!cancelled()) && !(" in block
+        assert "if: ${{ !cancelled() }}" in job_block(path, job_id)
 
     assert "timeout-minutes: 60" in job_block(
         ".github/workflows/ci-macos.yml", "app-host-unit-tests"

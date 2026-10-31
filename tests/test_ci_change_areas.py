@@ -2963,8 +2963,7 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
     for job_name in MACOS_JOBS:
         assert f"      - {job_name}" not in block
 
-    # The label-event guard: tests/test_ci_label_events_skip_full_ci.py.
-    assert "if: ${{ (!cancelled()) && !(github.event_name == 'pull_request' && (github.event.action == 'labeled'" in block
+    assert "if: ${{ !cancelled() }}" in block
     assert "PLATFORM_NEEDS: ${{ toJSON(needs) }}" in block
     assert 'allowed = {"success", "skipped"}' in block
 

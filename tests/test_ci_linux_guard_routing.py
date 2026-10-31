@@ -49,7 +49,7 @@ REUSABLE_GUARDS = {
 
 # ci.yml skips label events for labels it does not read (tests/test_ci_label_events_skip_full_ci.py).
 LABEL_EVENT_GUARD = (
-    "!(github.event_name == 'pull_request' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('[\"full-ci\",\"dev-build\"]'), github.event.label.name))"
+    "!(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('[\"full-ci\",\"dev-build\"]'), github.event.label.name))"
 )
 
 
