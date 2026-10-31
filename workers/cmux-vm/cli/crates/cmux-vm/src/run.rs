@@ -51,6 +51,11 @@ const MAX_TIMEOUT_SECONDS: u64 = 604_800;
 const CHUNK_BYTES: usize = 1_000_000;
 /// The largest archive `--sync` uploads.
 const MAX_SYNC_BYTES: u64 = 64 * 1024 * 1024;
+/// The most a `--sync` archive may unpack to on the guest, which extracts it
+/// with no limit of its own: 16 times the upload cap, past what source code
+/// compresses by (text gzips about 4 to 8 times), so only a tree of
+/// near-empty or sparse files (a large file of zeros) is refused.
+const MAX_SYNC_UNPACKED_BYTES: u64 = 16 * MAX_SYNC_BYTES;
 /// The largest archive `--pull` downloads, and the most it may unpack to: the
 /// guest reports both sizes, so neither is trusted past these.
 const MAX_PULL_BYTES: u64 = 256 * 1024 * 1024;
@@ -1191,10 +1196,15 @@ fn walk(dir: &Path) -> Result<Vec<PathBuf>, CliError> {
 /// A gzip tarball of the sync list, the number of files in it and the
 /// credential-shaped files left out.
 fn archive(dir: &Path) -> Result<(Vec<u8>, SyncList), CliError> {
-    archive_within(dir, MAX_SYNC_BYTES)
+    archive_within(dir, MAX_SYNC_BYTES, MAX_SYNC_UNPACKED_BYTES)
 }
 
-fn archive_within(dir: &Path, limit: u64) -> Result<(Vec<u8>, SyncList), CliError> {
+fn archive_within(
+    dir: &Path,
+    limit: u64,
+    unpacked_limit: u64,
+) -> Result<(Vec<u8>, SyncList), CliError> {
+    let _ = unpacked_limit;
     let synced = sync_list(dir)?;
     let mut list = Vec::new();
     for file in &synced.files {
@@ -1606,11 +1616,45 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("big.bin"), noise(256 * 1024)).unwrap();
-        let error = archive_within(&dir, 16 * 1024).unwrap_err();
+        let error = archive_within(&dir, 16 * 1024, u64::MAX).unwrap_err();
         assert!(error.message().contains("over the"), "{}", error.message());
-        let (bytes, synced) = archive_within(&dir, 1024 * 1024).unwrap();
+        let (bytes, synced) = archive_within(&dir, 1024 * 1024, u64::MAX).unwrap();
         assert!(!bytes.is_empty() && bytes.len() <= 1024 * 1024);
         assert_eq!(synced.files, vec![PathBuf::from("big.bin")]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_sync_that_unpacks_past_its_limit_is_refused_before_upload() {
+        let dir =
+            std::env::temp_dir().join(format!("cmux-vm-run-sync-unpacked-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let limit = 1024 * 1024;
+        // Zeros gzip to almost nothing, so only the unpacked size can refuse them.
+        std::fs::write(dir.join("zeros.bin"), vec![0_u8; limit as usize + 1]).unwrap();
+        let error = archive_within(&dir, MAX_SYNC_BYTES, limit).unwrap_err();
+        assert!(error.message().contains("unpack"), "{}", error.message());
+        // Just under, with room for tar's headers: it syncs.
+        std::fs::write(dir.join("zeros.bin"), vec![0_u8; limit as usize - 4096]).unwrap();
+        let (bytes, synced) = archive_within(&dir, MAX_SYNC_BYTES, limit).unwrap();
+        assert!(!bytes.is_empty() && (bytes.len() as u64) < limit);
+        assert_eq!(synced.files, vec![PathBuf::from("zeros.bin")]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_sparse_file_counts_at_its_full_size() {
+        let dir =
+            std::env::temp_dir().join(format!("cmux-vm-run-sync-sparse-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // A hole takes no disk here, but the guest's tar writes it out in full.
+        let file = std::fs::File::create(dir.join("sparse.img")).unwrap();
+        file.set_len(4 * 1024 * 1024 * 1024).unwrap();
+        drop(file);
+        let error = archive_within(&dir, MAX_SYNC_BYTES, MAX_SYNC_UNPACKED_BYTES).unwrap_err();
+        assert!(error.message().contains("unpack"), "{}", error.message());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
