@@ -33,7 +33,10 @@ public struct PushActiveAccount: Sendable {
 
     public func update(userID: String?) throws {
         guard let userID, !userID.isEmpty else {
-            store.delete(Self.marker)
+            // Overwrite with an inert value through the throwing Keychain API:
+            // PushSecretStore.delete() has no status, so an unsuccessful delete
+            // could leave the old account authorized without telling sign-out.
+            try store.write(Data(), account: Self.marker)
             return
         }
         try store.write(Data(userID.utf8), account: Self.marker)
