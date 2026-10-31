@@ -51,6 +51,10 @@ import Testing
         let hub = AcpmuxHub()
         await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
         let source = hub.source(sessionID: "s1", summary: ChatOpenSnapshotLiveTests.summary)
+        // The hub routes through a weak-self notification pump, and its source registry
+        // is weak too. Keep both owners alive until the separately delivered live event
+        // reaches each reader, as the app's coordinator and chat store do.
+        defer { withExtendedLifetime((hub, source)) {} }
         let (first, firstTask) = ChatOpenSnapshotLiveTests.collect(source.events())
         defer { firstTask.cancel() }
         for _ in 0..<2000 where first.events.isEmpty { await Task.yield() }
@@ -76,7 +80,8 @@ import Testing
                 "resync never repeats history into the existing reader")
 
         _ = try await hub.request("_test/live", .object([:]))
-        for _ in 0..<2000 where !ChatOpenSnapshotLiveTests.userMessages(second.events).contains("live") {
+        for _ in 0..<2000 where !ChatOpenSnapshotLiveTests.userMessages(first.events).contains("live")
+            || !ChatOpenSnapshotLiveTests.userMessages(second.events).contains("live") {
             await Task.yield()
         }
         #expect(ChatOpenSnapshotLiveTests.userMessages(first.events).contains("live"))

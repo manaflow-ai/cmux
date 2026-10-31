@@ -55,7 +55,9 @@ import Testing
 
     @Test func approvalCanFinishAfterTheHandshakeDeadline() async throws {
         var pairing = PairInviteTests.pairing(PairInvites())
-        pairing.handshakeTimeout = .milliseconds(10)
+        // Leave enough room for the first frame to be scheduled while still
+        // proving that approval has its own budget after the handshake expires.
+        pairing.handshakeTimeout = .milliseconds(100)
         pairing.approvalTimeout = .seconds(5)
         let channel = DeadlineChannel()
         channel.push(Data(#"{"pending":true}"#.utf8))
@@ -65,7 +67,7 @@ import Testing
         }
         var notices = waiting.stream.makeAsyncIterator()
         _ = await notices.next()
-        try await Task.sleep(for: .milliseconds(30))
+        try await Task.sleep(for: .milliseconds(150))
         channel.push(Data(#"{"ok":true}"#.utf8))
         #expect(await task.value == .paired(macDevice: "test-mac"))
         waiting.continuation.finish()
