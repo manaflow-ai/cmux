@@ -1,6 +1,7 @@
-// Both composer looks use Codex's permission capsule; its padding belongs to the control,
-// independent of the surrounding row's spacing. Since #26551 both looks draw it in the quiet row
-// under the box, its shield under the + glyph. Measure the real gallery composer in Chromium.
+// Both composer looks use Codex's permission capsule. In Claude's look it sits in the quiet row under
+// the box, its shield under the + glyph, and keeps its own 8 px inset. In Codex's look it sits in the
+// box's row, where every control takes the row's one inset (design/composer.md rule 11, Leo
+// 2026-10-31; composer-row-one-gap.test.ts). Measure the real gallery composer in Chromium.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -57,8 +58,10 @@ await requireBrowserLane("composer-permission-pill.test.ts", async () => {
         });
       const normal = await measure();
       expect(normal.height).toBe(28);
-      expect(normal.paddingStart).toBe(8);
-      expect(normal.paddingEnd).toBe(8);
+      // Codex's row: the row's inset (--acpmux-row-inset, 6 px), as every chip in it.
+      const inset = look === "codex" ? 6 : 8;
+      expect(normal.paddingStart).toBe(inset);
+      expect(normal.paddingEnd).toBe(inset);
       expect(normal.radius).toBeGreaterThanOrEqual(normal.height / 2);
       // Claude's look pins the shield under the + glyph (composer-alignment-centers.test.ts); Codex's
       // + sits on its own box inset, which no test pins yet, so only the capsule is checked there.

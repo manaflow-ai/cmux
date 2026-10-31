@@ -10,8 +10,9 @@
   --acpmux-permission-pill-radius: 999px;
 }
 
-/* Codex's composer-permission-mode-picker.png: the capsule keeps its own inset in either look,
-   independent of the quiet footer's or the in-box row's chip spacing. */
+/* Codex's composer-permission-mode-picker.png: the capsule's height and radius in either look, and
+   its own inset in the quiet row under the box. In Codex's in-box row it takes the row's one inset,
+   as every chip there does (composerLook.css, design/composer.md rule 11). */
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-chips .acpmux-access .acpmux-picker-button {
   height: var(--acpmux-permission-pill-height);
   padding-inline: var(--acpmux-permission-pill-inset);
