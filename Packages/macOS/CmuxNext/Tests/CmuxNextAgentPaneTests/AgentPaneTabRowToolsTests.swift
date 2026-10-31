@@ -72,6 +72,54 @@ import Testing
         #expect(AgentPaneTabRowTools.list([raw]) == nil)
     }
 
+    @Test func decodesVisibleTextWithinItsBounds() throws {
+        var raw: [String: Any] = [
+            "id": "review", "symbol": "checkmark", "label": "Review", "enabled": true, "toggled": false,
+            "text": "#123 ✓3/5",
+        ]
+        let tool = try #require(AgentPaneTabRowTools.list([raw])?.first)
+        #expect(tool.text == "#123 ✓3/5")
+
+        raw["text"] = ""
+        #expect(AgentPaneTabRowTools.list([raw]) == nil)
+        raw["text"] = "line\nbreak"
+        #expect(AgentPaneTabRowTools.list([raw]) == nil)
+        raw["text"] = String(repeating: "x", count: 33)
+        #expect(AgentPaneTabRowTools.list([raw]) == nil)
+        raw["text"] = String(repeating: "a\u{301}", count: 32)
+        #expect(try #require(AgentPaneTabRowTools.list([raw])).first?.text == raw["text"] as? String)
+        raw["text"] = String(repeating: "a\u{301}\u{302}\u{303}", count: 32)
+        #expect(AgentPaneTabRowTools.list([raw]) == nil)
+    }
+
+    @Test func decodesOnlyHTTPURLsWithinByteLimit() throws {
+        var item: [String: Any] = ["id": "open", "label": "Open", "enabled": true]
+        var raw: [String: Any] = [
+            "id": "review", "symbol": "checkmark", "label": "Review", "enabled": true, "toggled": false,
+            "menu": [item],
+        ]
+        item["url"] = "https://example.com/pull/123"
+        raw["menu"] = [item]
+        let decoded = try #require(AgentPaneTabRowTools.list([raw]))
+        #expect(decoded.first?.menu.first?.url == "https://example.com/pull/123")
+
+        for value in ["http://example.com", "javascript:alert(1)", "file:///tmp/a", "garbage"] {
+            item["url"] = value
+            raw["menu"] = [item]
+            if value.hasPrefix("http") {
+                #expect(AgentPaneTabRowTools.list([raw])?.first?.menu.first?.url == value)
+            } else {
+                #expect(AgentPaneTabRowTools.list([raw]) == nil)
+            }
+        }
+        item["url"] = "https://example.com/" + String(repeating: "x", count: 2040)
+        raw["menu"] = [item]
+        #expect(AgentPaneTabRowTools.list([raw]) == nil)
+        item["url"] = "https://example.com/" + String(repeating: "x", count: 2020)
+        raw["menu"] = [item]
+        #expect(try #require(AgentPaneTabRowTools.list([raw])).first?.menu.first?.url == item["url"] as? String)
+    }
+
     @Test func boundsTotalMenuItemsWhilePreservingNormalPayloads() {
         let menu: [[String: Any]] = (0..<17).map { index in
             ["id": "item-\(index)", "label": "Item \(index)", "enabled": true]
