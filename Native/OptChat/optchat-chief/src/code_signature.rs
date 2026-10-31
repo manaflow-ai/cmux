@@ -55,8 +55,18 @@ const APPLE_ROOT_CA_SHA256: &str =
     "b0b1730ecbc7ff4505142c49f1295e6eda6bcaed7e2c68c5be91b5a11001f024";
 
 /// Checks `signature` (a running process's) against `ours` (see the module
-/// doc); the error says which rule failed.
+/// doc) now; the error says which rule failed.
 pub fn verify(signature: &KernelSignature, ours: &Signer) -> Result<(), String> {
+    verify_at(signature, ours, std::time::SystemTime::now())
+}
+
+/// [`verify`], with `now` as the current time (not used yet: the chain is
+/// evaluated by CMSDecoder at a time it chooses).
+pub fn verify_at(
+    signature: &KernelSignature,
+    ours: &Signer,
+    now: std::time::SystemTime,
+) -> Result<(), String> {
     use sha2::Digest as _;
     if signature.flags & CS_VALID == 0 {
         return Err("the kernel does not mark its code valid".into());
@@ -86,7 +96,7 @@ pub fn verify(signature: &KernelSignature, ours: &Signer) -> Result<(), String> 
     if team != ours.team {
         return Err(format!("its team is {team:?}, not {:?}", ours.team));
     }
-    let leaf_team = cms_signer_team(cms, directory)?;
+    let leaf_team = cms_signer_team(cms, directory, now)?;
     if leaf_team != ours.team {
         return Err(format!(
             "its signing certificate's team (OU) is {leaf_team:?}, not {:?}",
@@ -145,7 +155,7 @@ fn c_string_at(bytes: &[u8], at: usize) -> Result<String, String> {
 pub use macos::{of_file, running_peer};
 
 #[cfg(not(target_os = "macos"))]
-fn cms_signer_team(_: &[u8], _: &[u8]) -> Result<String, String> {
+fn cms_signer_team(_: &[u8], _: &[u8], _: std::time::SystemTime) -> Result<String, String> {
     Err("code signatures are checked on macOS only".into())
 }
 
@@ -387,7 +397,11 @@ mod macos {
 
     /// The team ID (certificate OU) of the single CMS signer over
     /// `directory`, once its signature and its chain to Apple Root CA verify.
-    pub(super) fn cms_signer_team(cms: &[u8], directory: &[u8]) -> Result<String, String> {
+    pub(super) fn cms_signer_team(
+        cms: &[u8],
+        directory: &[u8],
+        _now: std::time::SystemTime,
+    ) -> Result<String, String> {
         use sha2::Digest as _;
         let mut decoder: CFTypeRef = std::ptr::null();
         // SAFETY: decoder is a valid out-pointer.
