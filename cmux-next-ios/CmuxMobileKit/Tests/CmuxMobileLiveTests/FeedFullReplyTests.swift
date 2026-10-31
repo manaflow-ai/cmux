@@ -67,14 +67,53 @@ import Testing
         #expect(store.item(id: "turn-s1-t1")?.markdown == Self.reply)
     }
 
-    @Test func aPageWithoutTheTurnsPromptKeepsThePreview() {
-        let tail = [JSONValue.object([
-            "sessionId": .string("s1"), "seq": .number(5), "dir": .string("in"), "kind": .string("session/update"),
-            "msg": .object(["method": .string("session/update"), "params": .object(["update": .object([
-                "sessionUpdate": .string("agent_message_chunk"), "content": .object(["type": .string("text"), "text": .string("end only")]),
-            ])])]),
-        ])]
-        #expect(LiveFeed.lastReply(tail, sessionID: "s1", complete: false) == nil)
-        #expect(LiveFeed.lastReply(tail, sessionID: "s1", complete: true) == "end only")
+    static func record(_ seq: Int, _ dir: String, _ kind: String, _ msg: JSONValue) -> JSONValue {
+        .object(["sessionId": .string("s1"), "seq": .number(Double(seq)), "dir": .string(dir), "kind": .string(kind), "msg": msg])
+    }
+
+    static func chunk(_ seq: Int, _ text: String, _ message: String? = nil) -> JSONValue {
+        var update: [String: JSONValue] = ["sessionUpdate": .string("agent_message_chunk"),
+                                           "content": .object(["type": .string("text"), "text": .string(text)])]
+        if let message { update["messageId"] = .string(message) }
+        return record(seq, "in", "session/update", .object(["method": .string("session/update"), "params": .object(["update": .object(update)])]))
+    }
+
+    static func prompt(_ seq: Int, _ turn: String) -> JSONValue {
+        record(seq, "mux", "user_message", .object(["turnId": .string(turn), "text": .string("go")]))
+    }
+
+    static func result(_ seq: Int, _ turn: String) -> JSONValue {
+        record(seq, "mux", "turn_result", .object(["turnId": .string(turn), "status": .string("completed")]))
+    }
+
+    static func tool(_ seq: Int) -> JSONValue {
+        record(seq, "in", "session/update", .object(["method": .string("session/update"), "params": .object(["update": .object([
+            "sessionUpdate": .string("tool_call"), "toolCallId": .string("c\(seq)"), "title": .string("Read"),
+            "kind": .string("read"), "status": .string("completed"),
+        ])])]))
+    }
+
+    /// Only the end of a message on a full page (no prompt, nothing before it): its start may be
+    /// missing, so the card keeps the preview; a page that reaches the session's start has it all.
+    @Test func aPageWithOnlyTheEndOfTheMessageKeepsThePreview() {
+        let tail = [Self.chunk(5, "end only"), Self.result(6, "t1")]
+        #expect(LiveFeed.lastReply(tail, sessionID: "s1", turnID: "t1", complete: false) == nil)
+        #expect(LiveFeed.lastReply(tail, sessionID: "s1", turnID: "t1", complete: true) == "end only")
+    }
+
+    /// A long turn whose prompt fell off the page: a tool call before the last message still
+    /// says where that message starts.
+    @Test func aToolCallMarksWhereTheLastMessageStarts() {
+        let page = [Self.chunk(2, "earlier"), Self.tool(3), Self.chunk(4, "The "), Self.chunk(5, "answer."), Self.result(6, "t1")]
+        #expect(LiveFeed.lastReply(page, sessionID: "s1", turnID: "t1", complete: false) == "The answer.")
+    }
+
+    /// The card of turn t1 shows t1's reply even when t2 already started: the read stops at t1's
+    /// `turn_result`, and without it on the page nothing is shown.
+    @Test func aCardShowsItsOwnTurnNotTheNextOne() {
+        let page = [Self.prompt(1, "t1"), Self.chunk(2, "first answer"), Self.result(3, "t1"),
+                    Self.prompt(4, "t2"), Self.chunk(5, "second, still writ")]
+        #expect(LiveFeed.lastReply(page, sessionID: "s1", turnID: "t1", complete: false) == "first answer")
+        #expect(LiveFeed.lastReply(page, sessionID: "s1", turnID: "t9", complete: false) == nil)
     }
 }

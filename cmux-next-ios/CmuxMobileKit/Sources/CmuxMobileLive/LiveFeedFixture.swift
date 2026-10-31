@@ -125,6 +125,7 @@ public final class LiveFeedFixture {
         return [
             ["sessionId": session, "seq": 1, "dir": "mux", "kind": "user_message", "msg": ["turnId": "t-\(session)", "text": "go"]],
             chunk(2, String(text[..<cut])), chunk(3, String(text[cut...])),
+            ["sessionId": session, "seq": 4, "dir": "mux", "kind": "turn_result", "msg": ["turnId": "t-\(session)", "status": "completed"]],
         ]
     }
 }

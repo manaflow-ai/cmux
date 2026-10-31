@@ -42,7 +42,7 @@ public final class LiveFeed: FeedActions {
     private var askKinds: [String: WorkspaceTab.WaitingFor] = [:]
     /// Each finished turn's whole reply, by Feed item id, read from the session's
     /// transcript (`LiveFeed+FullReply.swift`): a session summary's `preview` is only
-    /// its first 160 characters with the line breaks flattened.
+    /// its first 160 characters with the line breaks flattened. Empty: read, and none found.
     var fullReplies: [String: String] = [:]
     /// The transcript read of each turn item whose reply is being read (one per item).
     var replyReads: [String: Task<Void, Never>] = [:]
@@ -104,7 +104,7 @@ public final class LiveFeed: FeedActions {
             guard recordKind == "turn_result" else { return }
             let item = turnItem(session, fallbackKey: "\(seq)", at: now())
             store.upsert(item, atTop: true)
-            readFullReply(of: item, sessionID: session.id, through: seq)
+            readFullReply(of: item, sessionID: session.id, turnID: session.lastTurnID, through: seq)
         case .permissionResolved:
             break
         case .sessionsLoaded(let sessions):
@@ -123,7 +123,12 @@ public final class LiveFeed: FeedActions {
         }
         log.info("feed history \(turns.count, privacy: .public) turns")
         store.mergeHistory(turns.map(\.0))
-        for (item, session) in turns { readFullReply(of: item, sessionID: session.id, through: session.lastSeq) }
+        // Replies of cards no longer in the Feed are let go.
+        let shown = Set(store.items.map(\.id))
+        fullReplies = fullReplies.filter { shown.contains($0.key) }
+        for (item, session) in turns {
+            readFullReply(of: item, sessionID: session.id, turnID: session.lastTurnID, through: session.lastSeq)
+        }
     }
 
     /// A finished turn's item: keyed by the turn (live and history agree).
@@ -137,7 +142,7 @@ public final class LiveFeed: FeedActions {
         } : nil
         let id = "turn-\(session.id)-\(session.lastTurnID ?? fallbackKey)"
         // The whole reply once read; until then the preview stands in for it.
-        let markdown = failure ?? fullReplies[id] ?? session.preview.flatMap { $0.isEmpty ? nil : $0 }
+        let markdown = failure ?? fullReplies[id].flatMap { $0.isEmpty ? nil : $0 } ?? session.preview.flatMap { $0.isEmpty ? nil : $0 }
             ?? (failed ? "The turn failed." : stopped ? "Stopped." : "Finished.")
         var item = item(id: id, kind: failed ? .failed : .response,
                         sessionID: session.id, session: session, markdown: markdown,

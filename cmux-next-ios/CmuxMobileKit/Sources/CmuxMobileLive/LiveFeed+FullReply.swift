@@ -17,12 +17,14 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "feed")
 extension LiveFeed {
     /// The most transcript records read for one turn.
     static let replyPage = 400
+    /// The most bytes of one read; with it the daemon also leaves out tool output a later update replaced.
+    static let replyBytes = 1 << 20
     /// The most characters a card keeps of a reply (the chat has the rest).
     static let replyLimit = 16_000
 
-    /// Reads the whole reply of `item` (a finished turn of `sessionID`, whose
-    /// record `through` is at or after its `turn_result`) and puts it on the card.
-    func readFullReply(of item: FeedItem, sessionID: String, through seq: Int) {
+    /// Reads the whole reply of `item` (turn `turnID` of `sessionID`, whose record `through`
+    /// is at or after its `turn_result`) and puts it on the card.
+    func readFullReply(of item: FeedItem, sessionID: String, turnID: String?, through seq: Int) {
         guard item.kind == .response, fullReplies[item.id] == nil, replyReads[item.id] == nil, let hub else { return }
         // task-owner: LiveFeed.replyReads: one transcript read per turn card; it ends with its request.
         replyReads[item.id] = Task { [weak self] in
@@ -30,51 +32,64 @@ extension LiveFeed {
                 "sessionId": .string(sessionID),
                 "beforeSeq": .number(Double(seq + 1)),
                 "limit": .number(Double(Self.replyPage)),
+                "maxBytes": .number(Double(Self.replyBytes)),
                 "kinds": .array([.string("transcript")]),
             ]), timeout: .seconds(20))
             guard let self else { return }
             replyReads[item.id] = nil
+            // A failed read is tried again on the next read of the Mac; an answer is kept, even "none".
             guard let page else { return }
-            let records = page["events"]?.arrayValue ?? []
-            guard let reply = Self.lastReply(records, sessionID: sessionID, complete: records.count < Self.replyPage) else { return }
-            fullReplies[item.id] = reply
-            guard var current = store.item(id: item.id), current.kind == .response, current.markdown != reply else { return }
+            let complete = page["hasMore"].map { $0 == .bool(false) } ?? false
+            let reply = Self.lastReply(page["events"]?.arrayValue ?? [], sessionID: sessionID, turnID: turnID, complete: complete)
+            fullReplies[item.id] = reply ?? ""
+            guard let reply, var current = store.item(id: item.id), current.kind == .response, current.markdown != reply else { return }
             log.info("feed reply \(item.id, privacy: .public): \(reply.count, privacy: .public) chars")
             current.markdown = reply
             store.upsert(current, atTop: false)
         }
     }
 
-    /// The last agent message of the last turn in `records` (a transcript page,
-    /// any order): its chunks joined, from the turn's prompt on. Nil when the
-    /// page holds no reply, or holds only its end (the page was full and the
-    /// turn's prompt is not on it: the start of the message may be missing).
-    static func lastReply(_ records: [JSONValue], sessionID: String, complete: Bool) -> String? {
+    /// The last agent message of turn `turnID` in `records` (a transcript page, any order, read
+    /// through that turn's `turn_result`): its chunks joined. Nil when the page holds no reply, no
+    /// `turn_result` of that turn, or only the end of the message: its start is known only after a
+    /// prompt, a tool call, a thought, a plan or another message on the page, or when the page
+    /// reaches the session's first record (`complete`).
+    static func lastReply(_ records: [JSONValue], sessionID: String, turnID: String?, complete: Bool) -> String? {
         let mapper = AcpmuxRecords(sessionID: sessionID)
         let ordered = records.sorted { ($0["seq"]?.numberValue ?? 0) < ($1["seq"]?.numberValue ?? 0) }
         var message = ""
         var messageID: String?
-        var sawPrompt = false
-        // Whether the next chunk starts a new message (after a tool call, a thought, a plan).
+        // Whether the current message's first chunk is on the page.
+        var startKnown = false
+        // Whether a record before the next chunk ends a message (so that chunk starts one).
+        var boundary = complete
         var broken = true
-        for record in ordered {
+        var ended = turnID == nil
+        scan: for record in ordered {
             for event in mapper.map(record) {
                 switch event {
                 case .userMessage:
-                    (message, messageID, sawPrompt, broken) = ("", nil, true, true)
+                    (message, messageID, startKnown, boundary, broken) = ("", nil, false, true, true)
+                case .turnResult(let id, _, _, _) where id == turnID:
+                    ended = true
+                    break scan
                 case .update(.agentMessageChunk(let text, let id)):
-                    if broken || (id != nil && id != messageID) { message = "" }
+                    if broken || (id != nil && id != messageID) {
+                        // Another message's chunks before this one also mark where it starts.
+                        startKnown = boundary || !message.isEmpty
+                        message = ""
+                    }
                     message += text
                     messageID = id
                     broken = false
                 case .update(.toolCall), .update(.toolCallUpdate), .update(.plan), .update(.agentThoughtChunk):
-                    broken = true
+                    (broken, boundary) = (true, true)
                 default:
                     break
                 }
             }
         }
-        guard sawPrompt || complete else { return nil }
+        guard ended, startKnown else { return nil }
         let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
         return text.count > replyLimit ? String(text.prefix(replyLimit)) + "…" : text
