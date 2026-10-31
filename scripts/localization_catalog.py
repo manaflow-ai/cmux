@@ -686,17 +686,22 @@ def main() -> int:
         # Changed metadata is read from the base tree, so the base's debt is what its own push
         # counted: an omission the change adds can't shrink it, and one the change removes
         # leaves the strings it newly flags to the change. A changed checker gets no excuse.
-        unreadable = [name for name in changed
-                      if name == "localization_catalog.py" or not (args.base_root / "scripts" / name).is_file()]
-        if unreadable:
-            print(f"note: this change changes {', '.join(unreadable)}, so debt the base has is not excused")
-            base_debt = {}
+        base_debt = {}
+        if "localization_catalog.py" in changed:
+            print("note: this change changes localization_catalog.py, so debt the base has is not excused")
+        elif not changed:
+            base_debt = debt_counts(debt_findings(args.base_root, locales, omissions, counts))
         else:
-            base_omissions, base_counts = (
-                load_metadata(name, args.base_root) if name in changed else current
-                for name, current in (("localization-allowed-omissions.json", omissions),
-                                      ("localization-plurals.json", counts)))
-            base_debt = debt_counts(debt_findings(args.base_root, locales, base_omissions, base_counts))
+            try:
+                base_omissions, base_counts = (
+                    load_metadata(name, args.base_root) if name in changed else current
+                    for name, current in (("localization-allowed-omissions.json", omissions),
+                                          ("localization-plurals.json", counts)))
+                base_debt = debt_counts(debt_findings(args.base_root, locales, base_omissions, base_counts))
+            except (OSError, ValueError, TypeError, AttributeError, KeyError) as error:
+                # A change that adds or repairs the base's metadata is checked on its own rules alone.
+                print(f"note: the base's {', '.join(changed)} could not be used ({error!r}), "
+                      "so debt the base has is not excused")
         for line in debt_raises(base_debt, base_baseline, DEBT_ENFORCED):
             print(f"warning: the base is already over its baseline, not this change: {line}")
         allowed = {catalog: {kind: baseline.get(catalog, {}).get(kind, 0)

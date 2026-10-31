@@ -612,6 +612,18 @@ class LocalizationDebtRatchetTests(unittest.TestCase):
         self.assertIn("identical 1 -> 2", output)
         self.assertNotIn("warning", output)
 
+    def test_a_change_that_repairs_the_bases_metadata_is_checked_on_its_own_rules(self):
+        self.write({"open": self.review("Open")})
+        self.check("--write-baseline")
+        base_arguments = self.write_base({"open": self.review("Open")})
+        omissions = self.root / "base" / "scripts" / "localization-allowed-omissions.json"
+        for broken in (b"{", b"[]\n", b'{"open": []}\n'):
+            with self.subTest(broken=broken):
+                omissions.write_bytes(broken)
+                status, output = self.check(*base_arguments)
+                self.assertEqual(status, 0, output)
+                self.assertIn("could not be used", output)
+
     def test_a_change_to_the_checker_gets_no_allowance_for_base_debt(self):
         # The change's own checker counts the base's debt, so a changed checker could
         # count it however it likes.
