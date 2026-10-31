@@ -134,7 +134,7 @@ final class CloudMachineSession {
                     if !(error is CancellationError) { await self?.noteLink(.failed(CloudStrings.errorText(error)), since: suspendsBefore) }
                     throw error
                 }
-            }, requiredCapabilities: DaemonCapability.nativeRemoteRequired)
+            })
         }
         if appLink != nil { connectHop = linkTransition }
     }
@@ -212,7 +212,7 @@ final class CloudMachineSession {
                 let message = await self?.endAppLink(error, ticket: ticket.id) ?? String(describing: error)
                 throw DaemonError.endpointBlocked(message)
             }
-        }, admit: { [weak self] identity in
+        }, requiredCapabilities: DaemonCapability.nativeRemoteRequired, admit: { [weak self] identity in
             do {
                 try CloudAppLinks.checkNotLocal(remote: identity, local: localIdentity())
             } catch {
