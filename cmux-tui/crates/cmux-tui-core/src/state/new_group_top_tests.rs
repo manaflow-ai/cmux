@@ -23,7 +23,7 @@ fn document_order(mux: &Arc<Mux>, ids: &[&str]) -> Vec<String> {
         .collect()
 }
 
-fn group(mux: &Arc<Mux>, params: serde_json::Value, key: &str) -> String {
+fn group(mux: &Arc<Mux>, params: Value, key: &str) -> String {
     mutate(mux, "workspace_group.create", params, key)["id"].as_str().unwrap().to_string()
 }
 
