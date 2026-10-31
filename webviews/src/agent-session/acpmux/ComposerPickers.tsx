@@ -985,17 +985,13 @@ export function ComposerPickers({
           catalog fallback's, a harness acpmux does not have, so the row shows none of them. While
           acpmux has not listed its harnesses yet, `picksModel` holds and the placeholder keeps its
           place (#24517). */}
-      {picksModel &&
-        modes.length === 0 &&
-        startMode &&
-        startModeName &&
-        pendingAccessModes.length === 0 && (
-          <PendingMode
-            label={startModeName}
-            modeId={shownStart?.modeId}
-            icon={pendingMenu?.rows.find((row) => row.id === shownStart?.modeId)?.icon}
-          />
-        )}
+      {picksModel && modes.length === 0 && startMode && startModeName && pendingAccessModes.length === 0 && (
+        <PendingMode
+          label={startModeName}
+          modeId={shownStart?.modeId}
+          icon={pendingMenu?.rows.find((row) => row.id === shownStart?.modeId)?.icon}
+        />
+      )}
       {(modes.length > 0 || pendingAccessModes.length > 0) && (
         <AccessMenu
           label={t(PICKER_LABELS.mode)}
