@@ -187,6 +187,14 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
     let _pass = store.lock_pass();
     let full = policy.mode == PersistenceMode::Full;
     store.full.set_enabled(full);
+    if !full {
+        // Unflushed bytes belong to full mode only.
+        for log in store.logs.lock().unwrap_or_else(PoisonError::into_inner).values() {
+            let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+            state.pending = Vec::new();
+            state.pending_start = state.next_offset();
+        }
+    }
     let dirty = store.take_dirty();
     let prune_pending = store.prune_pending.swap(false, std::sync::atomic::Ordering::AcqRel);
     if !dirty.is_empty() {
@@ -255,7 +263,7 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
         digests.push((log, Some(digest)));
     }
     if full {
-        super::segments::flush_logs(directory, &digests, policy, quitting);
+        super::segments::flush_logs(&store.full, directory, &digests, policy, quitting);
     }
     if wrote {
         enforce_total(directory, SUFFIX, snapshot_total_cap(policy));
