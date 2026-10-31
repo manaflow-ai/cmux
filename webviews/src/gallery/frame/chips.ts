@@ -3,6 +3,7 @@ import type { ChipHostFixture } from "../format";
 import { resetLinkStore, seedLinkStore } from "../../agent-session/acpmux/chips/linkStore";
 import { resetPullRequestStore } from "../../agent-session/acpmux/chips/pullRequestStore";
 import { resetReferenceExistence } from "../../agent-session/acpmux/chips/referenceExistence";
+import { resetSiteIcons } from "../../agent-session/acpmux/chips/siteIcons";
 import { setChipHost } from "../../agent-session/acpmux/chips/host";
 import { setProjectIconHost } from "../../agent-session/acpmux/projectIcon";
 
@@ -11,6 +12,7 @@ export function installChipHost(fixture: ChipHostFixture | undefined): void {
   resetLinkStore();
   resetPullRequestStore();
   resetReferenceExistence();
+  resetSiteIcons();
   if (!fixture) {
     setChipHost(undefined);
     setProjectIconHost(undefined);
@@ -32,6 +34,14 @@ export function installChipHost(fixture: ChipHostFixture | undefined): void {
         ),
         sites: Object.fromEntries(urls.flatMap((url) => (fixture.sites?.[url] ? [[url, fixture.sites[url]]] : []))),
         ...(fixture.policy ? { policy: fixture.policy } : {}),
+      };
+    }
+    if (method === "link.favicons") {
+      const hosts = (params.hosts as string[] | undefined) ?? [];
+      return {
+        icons: Object.fromEntries(
+          hosts.flatMap((host) => (fixture.favicons?.[host] ? [[host, fixture.favicons[host]]] : [])),
+        ),
       };
     }
     if (method === "image.load") {

@@ -781,6 +781,35 @@ const CHIP_HOST = {
   },
 };
 
+/// Site favicons (`link.favicons`) as the host answers them: small images by host name. The
+/// shapes are stand-ins, not the sites' real icons.
+const svgIcon = (body: string) =>
+  `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">${body}</svg>`)}`;
+const SITE_FAVICONS = {
+  "react.dev": svgIcon(
+    '<rect width="16" height="16" rx="3" fill="#23272f"/><g fill="none" stroke="#58c4dc" stroke-width=".9"><ellipse cx="8" cy="8" rx="6" ry="2.3"/><ellipse cx="8" cy="8" rx="6" ry="2.3" transform="rotate(60 8 8)"/><ellipse cx="8" cy="8" rx="6" ry="2.3" transform="rotate(120 8 8)"/></g><circle cx="8" cy="8" r="1.2" fill="#58c4dc"/>',
+  ),
+  "developer.mozilla.org": svgIcon(
+    '<rect width="16" height="16" rx="3" fill="#f4f4f4"/><path d="M3.5 12V4.5L6 9l2.5-4.5V12M11 4.5V12h2.5" fill="none" stroke="#1b1b1b" stroke-width="1.5"/>',
+  ),
+  "docs.python.org": svgIcon(
+    '<rect x="1" y="1" width="9" height="9" rx="2.5" fill="#3776ab"/><rect x="6" y="6" width="9" height="9" rx="2.5" fill="#ffd43b"/>',
+  ),
+};
+
+const FAVICON_REPLY = [
+  "The cleanup belongs in the effect itself. Sources I read:",
+  "",
+  "- [React docs on useEffect](https://react.dev/reference/react/useEffect), the section on fetching data",
+  "- MDN on cancelling: https://developer.mozilla.org/en-US/docs/Web/API/AbortController",
+  "- The same pattern in Python: [asyncio task cancellation](https://docs.python.org/3/library/asyncio-task.html#task-cancellation)",
+  "- The repository: https://github.com/facebook/react and its issue https://github.com/facebook/react/issues/14326",
+  "- The paper behind the ranking: [Attention Is All You Need](https://arxiv.org/abs/1706.03762)",
+  "",
+  "The long guide is https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch#canceling_a_request_with_an_abort_controller_after_a_timeout and it wraps.",
+  "Your dev server at http://localhost:5173/settings stays a plain link, and https://status.example-unreachable.dev/incident/42 has no icon, so it keeps the globe.",
+].join("\n");
+
 const completedFooterSnapshot = chat([
   user(prompt, 30),
   assistant(MARKDOWN_MIX, 29),
@@ -1307,6 +1336,8 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/MessageCard.tsx",
     "agent-session/acpmux/conversation/ThoughtRow.tsx#ThoughtRow",
     "agent-session/acpmux/conversation/Markdown.tsx",
+    "agent-session/acpmux/chips/SiteIcon.tsx#SiteIcon",
+    "agent-session/acpmux/conversation/ToolSiteIcon.tsx#ToolSiteIcon",
     "agent-session/acpmux/conversation/RevealedMarkdown.tsx",
     "agent-session/acpmux/conversation/CodeBlock.tsx",
     "agent-session/acpmux/conversation/HighlightedCode.tsx",
@@ -2930,6 +2961,40 @@ export default agentPaneEntry({
           5.9,
         ),
         summary(5.9, { status: "completed" }),
+      ]),
+    },
+    "site-favicons": {
+      note: "Web links in a prompt, fetch rows and a reply start with their site's favicon (link.favicons); GitHub and arXiv keep their marks; a local address and a site with no icon keep the globe.",
+      chipHost: { favicons: SITE_FAVICONS },
+      play: openGroupedRun,
+      snapshot: chat([
+        user(
+          "Why does this effect fetch twice? Compare https://react.dev/reference/react/useEffect with https://developer.mozilla.org/en-US/docs/Web/API/AbortController, my app is on http://localhost:5173/settings",
+          6,
+        ),
+        activity(
+          [
+            tool("Fetch https://react.dev/reference/react/useEffect", "fetch", "completed", {
+              inputSummary: JSON.stringify({
+                url: "https://react.dev/reference/react/useEffect",
+                prompt: "How should an effect cancel a fetch?",
+              }),
+              startedAt: minutesAgo(5.9),
+              endedAt: minutesAgo(5.88),
+            }),
+            tool("Fetch https://developer.mozilla.org/en-US/docs/Web/API/AbortController", "fetch", "completed", {
+              startedAt: minutesAgo(5.8),
+              endedAt: minutesAgo(5.78),
+            }),
+            tool("useEffect cleanup abort fetch", "fetch", "completed", {
+              startedAt: minutesAgo(5.7),
+              endedAt: minutesAgo(5.69),
+            }),
+          ],
+          5.9,
+        ),
+        assistant(FAVICON_REPLY, 5.6),
+        summary(5.6, { status: "completed", toolCount: 3 }),
       ]),
     },
     "chips-and-previews": {

@@ -35,6 +35,9 @@ public import Foundation
 ///   `https://github.com/<owner>/<repo>/pull/<n>` is taken (``pullRequestURL(_:)``). Passive.
 ///   `cached: true` (the Inspector's Changes, which asks for many links) answers from the cache
 ///   only and never starts a read: its links are read in batches when it registers them.
+/// - `link.favicons {hosts}`: the favicon of each web site a reply, a prompt or a fetch row links
+///   to, as a PNG data URL: one cmux already has, else the favicon service's icon for the host
+///   name, fetched under ``AgentPaneSiteIcons``'s rules. At most ``maximumSiteIcons`` lowercase host names. Passive.
 /// - `link.preview {path}`: the first lines of a text file a path chip names, for its hover card
 ///   (``AgentPaneReplyTextPreview``): inside the roots, or outside them only under
 ///   `agentPane.links.outsideRoots = open`; never a deny-listed path. A chat on another machine
@@ -57,12 +60,13 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     case dragFile(String)
     case inspectPullRequest(URL, cached: Bool = false)
     case previewPath(String)
+    case siteIcons([String])
 
     /// The methods, for ``AgentPageOps`` and ``AgentPaneRequest``.
     public static let methods: Set<String> = [
         "link.inspect", "link.openPath", "image.load", "media.load", "browser.list", "browser.openIn", "image.reveal",
         "image.openInPane", "image.copy", "image.save", "image.quickLook", "image.drag", "file.drag", "pr.inspect",
-        "video.info", "video.quickLook", "link.preview",
+        "video.info", "video.quickLook", "link.preview", "link.favicons",
     ]
 
     /// Each method's exact param keys (all required; `link.inspect` takes either list, and
@@ -85,11 +89,15 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         "file.drag": ["path"],
         "pr.inspect": ["url", "cached"],
         "link.preview": ["path"],
+        "link.favicons": ["hosts"],
     ]
 
     /// Most paths or URLs in one `link.inspect`. The page gathers its chips' links across every
     /// reply on the page and asks for them in one call, so this is a bound per request.
     static let maximumInspect = 64
+    /// Most host names in one `link.favicons`: the page asks for the sites it draws in batches of
+    /// this many, one batch at a time, so a request starts at most this many fetches.
+    static let maximumSiteIcons = 32
     /// Longest URL any method takes (the same cap as a link a browser opens from a click).
     static let maximumURL = 2048
     /// Longest `data:` image the viewer actions take (base64 of ``AgentPaneImageCopies/maximumBytes``).
@@ -116,7 +124,7 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     /// Whether the request only reads (it does not count as the page being touched).
     var isPassive: Bool {
         switch self {
-        case .inspect, .listBrowsers, .loadImage, .loadMedia, .videoInfo, .inspectPullRequest, .previewPath: true
+        case .inspect, .listBrowsers, .loadImage, .loadMedia, .videoInfo, .inspectPullRequest, .previewPath, .siteIcons: true
         case .openPath, .openIn, .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .quickLookVideo, .dragImage,
              .dragFile: false
         }
@@ -195,9 +203,20 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         case "link.preview":
             guard let path = text("path", AgentPaneReplyPaths.maximumLength) else { return nil }
             self = .previewPath(path)
+        case "link.favicons":
+            guard let hosts = list("hosts", 253), !hosts.isEmpty, hosts.count <= Self.maximumSiteIcons,
+                  hosts.allSatisfy(Self.isHostName) else { return nil }
+            self = .siteIcons(hosts)
         default:
             return nil
         }
+    }
+
+    /// Whether `text` is spelled as a lowercase DNS name (letters, digits, `-` and `.`), the way the
+    /// page sends a link's host. Which names are fetched is ``AgentPaneSiteIcons/publicHost(of:)``'s call.
+    static func isHostName(_ text: String) -> Bool {
+        !text.isEmpty && text.utf8.count <= 253
+            && text.unicodeScalars.allSatisfy { ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "-" || $0 == "." }
     }
 
     /// `text` as a URL a browser may open: http or https, a host, no user info, at most

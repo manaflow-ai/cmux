@@ -4,7 +4,9 @@
 // attachment chip without its ×: "<first words> · N lines", which opens the paste in place. Each
 // choice is kept by the row's id (transcriptDisclosure.tsx), so a prompt scrolled out and back, or
 // drawn again from history, stays as the reader left it. Find opens a collapsed prompt, or a closed
-// chip, that holds its current match. The bubble keeps the whole text; Copy copies all of it.
+// chip, that holds its current match. The bubble keeps the whole text; Copy copies all of it. A web
+// address the person typed or pasted is a link with its site's mark, as in a reply: such text goes
+// through Markdown, whose links are chips/LinkChips.tsx's UrlChip.
 import { type ReactNode, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useT, usePaneLanguage } from "../i18n";
 import { FindReveal } from "./chatFind";
