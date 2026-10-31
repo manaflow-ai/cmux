@@ -513,7 +513,7 @@ async fn prepare(client: &Client, vm_id: &str, archive: Option<&[u8]>) -> Result
     if let Some(archive) = archive {
         for (index, chunk) in archive.chunks(CHUNK_BYTES).enumerate() {
             let redirect = if index == 0 { ">" } else { ">>" };
-            let script = format!("cat {redirect} {SYNC_ARCHIVE}");
+            let script = fenced(STAGING_FENCE, &format!("cat {redirect} {SYNC_ARCHIVE}"));
             exec_stdin(client, vm_id, &script, chunk).await?;
         }
     }
@@ -640,9 +640,46 @@ const SYNC_ARCHIVE: &str = "/tmp/cmux-run.tgz";
 /// The guest's archive for `--pull`.
 const PULL_ARCHIVE: &str = "/tmp/cmux-pull.tgz";
 
-/// The guest command that removes every archive a run may leave.
-fn remove_archives_script() -> String {
-    format!("rm -f {SYNC_ARCHIVE} {PULL_ARCHIVE} {PULL_ARCHIVE}.rc")
+/// Once this file exists on the guest, no upload or pull writes an archive:
+/// the cleanup makes it first, so a writer whose exec was still on its way
+/// (the run was interrupted while it waited) never starts after it.
+const STAGING_FENCE: &str = "/tmp/cmux-run.fence";
+
+/// Every archive a run may leave on the guest.
+const ARCHIVES: [&str; 3] = [SYNC_ARCHIVE, PULL_ARCHIVE, "/tmp/cmux-pull.tgz.rc"];
+
+/// `script`, refused once `fence` exists.
+fn fenced(fence: &str, script: &str) -> String {
+    format!("[ -e {fence} ] && {{ echo 'the run is cleaning up' >&2; exit 4; }}; {script}")
+}
+
+/// The guest command that removes `archives` for good. It makes `fence`,
+/// then, in rounds until one finds no writer (two at least), kills every
+/// process that holds an archive open (an upload or pull whose exec outlived
+/// an interrupted client; its open file would keep the bytes even unlinked)
+/// and removes the archives. It fails when they cannot be removed or a
+/// writer survives five seconds of rounds.
+fn remove_archives_script(archives: &[&str], fence: &str) -> String {
+    let files: Vec<String> = archives.iter().map(|path| shell_quote(path)).collect();
+    // `find -lname` matches an fd's target, `(deleted)` once it is unlinked.
+    let open: Vec<String> = archives
+        .iter()
+        .flat_map(|path| {
+            [
+                format!("-lname {}", shell_quote(path)),
+                format!("-lname {}", shell_quote(&format!("{path} (deleted)"))),
+            ]
+        })
+        .collect();
+    format!(
+        ": >{fence} || exit 1; n=0; while :; do w=; \
+         for f in $(find /proc/[0-9]*/fd -maxdepth 1 \\( {} \\) 2>/dev/null); do \
+         p=${{f#/proc/}}; kill -s KILL ${{p%%/*}} 2>/dev/null; w=1; done; \
+         rm -f {} || exit 1; n=$((n+1)); [ -z \"$w\" ] && [ $n -ge 2 ] && exit 0; \
+         [ $n -ge 50 ] && {{ echo 'a process kept writing an archive' >&2; exit 1; }}; sleep 0.1; done",
+        open.join(" -o "),
+        files.join(" ")
+    )
 }
 
 /// Removes the run's archives from the guest, whatever happened before: a
@@ -650,7 +687,7 @@ fn remove_archives_script() -> String {
 /// reported when the VM is kept, with the command that finishes the job; a
 /// VM that is not kept is deleted with them.
 async fn remove_archives(client: &Client, vm_id: &str, keep: bool, stderr: &mut dyn Write) {
-    let script = remove_archives_script();
+    let script = remove_archives_script(&ARCHIVES, STAGING_FENCE);
     let why = match exec(client, vm_id, &script, &[], 30_000).await {
         Ok(result) if result.code == Some(0) => return,
         Ok(result) => result.stderr.trim().to_owned(),
@@ -661,7 +698,8 @@ async fn remove_archives(client: &Client, vm_id: &str, keep: bool, stderr: &mut 
         note(
             stderr,
             &format!(
-                "could not remove the run's archives from the kept VM: {why}; run `{p} exec {vm_id} -- '{script}'`"
+                "could not remove the run's archives from the kept VM: {why}; run `{p} resume {vm_id}`, `{p} exec {vm_id} -- 'rm -f {}'`, then `{p} pause {vm_id}`",
+                ARCHIVES.join(" ")
             ),
         );
     }
@@ -697,7 +735,10 @@ async fn pull_archive(
     local: &Path,
     stderr: &mut dyn Write,
 ) -> Result<(), CliError> {
-    let pack = pull_pack_script(workdir, paths, PULL_ARCHIVE, MAX_PULL_BYTES);
+    let pack = fenced(
+        STAGING_FENCE,
+        &pull_pack_script(workdir, paths, PULL_ARCHIVE, MAX_PULL_BYTES),
+    );
     let packed = exec(client, vm_id, &pack, &[], 300_000).await?;
     let answer = String::from_utf8_lossy(&packed.stdout).trim().to_owned();
     let mut words = answer.split_whitespace();
@@ -1671,6 +1712,65 @@ mod tests {
         // A missing path: tar's failure is reported.
         let answer = run(&["missing"], 1024 * 1024);
         assert_ne!(answer.split_whitespace().nth(1), Some("0"), "{answer}");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    // /proc, as on the guest.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_cleanup_stops_writers_and_fences_out_late_ones() {
+        let base = std::env::temp_dir().join(format!("cmux-vm-run-cleanup-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let path = |name: &str| base.join(name).to_str().unwrap().to_owned();
+        let (upload, pulled, fence) = (path("run.tgz"), path("pull.tgz"), path("fence"));
+        let sh = |script: &str| {
+            std::process::Command::new("sh")
+                .arg("-c")
+                .arg(script)
+                .stdin(Stdio::null())
+                .output()
+                .unwrap()
+        };
+        // An upload whose client was interrupted: it holds its archive open
+        // and is still writing (its stdin never closes).
+        let mut writer = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(fenced(&fence, &format!("cat > {upload}")))
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stdin = writer.stdin.take().unwrap();
+        stdin.write_all(b"the user's files").unwrap();
+        stdin.flush().unwrap();
+        while std::fs::metadata(&upload).map_or(0, |meta| meta.len()) == 0 {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        std::fs::write(&pulled, "pulled").unwrap();
+        let cleanup = sh(&remove_archives_script(&[&upload, &pulled], &fence));
+        assert!(
+            cleanup.status.success(),
+            "{}",
+            String::from_utf8_lossy(&cleanup.stderr)
+        );
+        // The writer is gone with its archive, and nothing else is left.
+        assert!(
+            !writer.wait().unwrap().success(),
+            "the writer was not stopped"
+        );
+        drop(stdin);
+        assert!(!Path::new(&upload).exists());
+        assert!(!Path::new(&pulled).exists());
+        // An upload or pull whose exec arrives after the cleanup writes nothing.
+        let late = sh(&fenced(&fence, &format!("echo late > {upload}")));
+        assert_eq!(late.status.code(), Some(4));
+        assert!(!Path::new(&upload).exists());
+        // With nothing to stop, the cleanup still succeeds.
+        assert!(
+            sh(&remove_archives_script(&[&upload, &pulled], &fence))
+                .status
+                .success()
+        );
         let _ = std::fs::remove_dir_all(&base);
     }
 
