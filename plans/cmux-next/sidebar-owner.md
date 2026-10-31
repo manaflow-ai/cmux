@@ -1,5 +1,15 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-30: `sidebar.textSize` (Settings > Appearance > Sidebar Text Size; palette, `cmux settings set
+  sidebar.textSize larger`, MCP `settings_set`). Lawrence msg 17752 (a ChatGPT sidebar screenshot): "we also need
+  option for sidebar text to be very significantly bigger. this is how big chatgpt is by default, let's match them".
+  `SidebarTextSize` default / large / larger adds 0 / 1 / 2 pt to every list font (`SidebarStyle.sized`: titles,
+  details, tab rows, section headers), the same to the leading glyph column (`SidebarStyle.leadingGlyphSide`, so
+  `iconBox`, `iconColumnCenterX` and `leadingTextX` move together) and 0 / 3 / 5 pt to every row and header height
+  (`SidebarDensityTokens.extra`, on top of any density). Larger is the ChatGPT size measured from the screenshot at
+  2x: 14 pt titles on a 31 pt row pitch. Group header names keep following their bar. Trailing marks, close and
+  chevrons, cards, the footer and hover cards keep their size, so the trailing column does not move. Default is
+  unchanged. Regression: `SidebarTextSizeTests`, `SidebarTextSizeSettingTests`.
 - 2026-10-30: an open empty group shows a + (Lawrence msg 17912, "empty workspace needs plus button", a shot of an
   empty "Sleep alarm" group reading only "No workspaces · drag one here"). The empty row (0105692a41d, kept) adds a +
   centered on the trailing column, under the header's chevron, at rest in the icon buttons' secondary ink (primary on
@@ -137,6 +147,7 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 | New group place | A group made with no index forms first, right below Home (`workspaces.newPlacement` top, the default); existing groups keep their places. | a905 |
 | Minimal rows | Name plus one state mark (spinner, unread dot, needs-you dot). No times, PR badge, status words or Now line by default. | Lawrence 10-21 |
 | Heights | Group headers, workspace rows and band rows have one height at each density. | Lawrence 10-19, 10-22 |
+| Text size | `sidebar.textSize` scales the list together: text, leading glyphs and row heights. Default keeps the original 12 pt on 26 pt; Larger is the ChatGPT app's sidebar (14 pt titles on a 31 pt row pitch). Trailing marks keep their size. | Lawrence msg 17752 |
 | Row gaps | Two consecutive rows are one row spacing (`space1`) apart everywhere in the list: under a group's last member, a folder's last row (Group by Folder), the Pinned block's last row and the session tree's last pinned chat, folded or open. No padding of their own after groups, folders or pins (`groupBottomPadding` is gone). A leading pin's ink centers on the icon column an unpinned row's icon centers on, and on the row. Gaps between headed sections are unchanged. | Leo 2026-10-21 ("ALL THIS RELATIVELY UNNECESSARY SPACING AFTER GROUPS AND AFTER PINS"), https://github.com/manaflow-ai/cmux/pull/23800 |
 | Machine header status | A machine's dot is green only once its daemon finished the handshake; a spinner (the shared `StatusIndicatorView.spinner()`, in the dot's place) while it connects, reconnects or installs, never a pulsing dot; red when it is offline, unreachable, refused or failed; grey only while a Cloud machine is paused; amber when cmux-tui must be installed. An optional update reads as connected: the green dot, its words in the tooltip. This Mac draws none while connected. The agent pane's composer strip shows the same word (`MachineLinkState`). | Leo 2026-10-28 ("you just get a little green dot ... as if you were working on your own computer, but now it's remote"); the rulebook's "working state is a spinner, never a breathing, pulsing or blinking dot" |
 | Performance | Terminal typing stays smooth while the sidebar rearranges (p95 frame under 8 ms). | Lawrence 11215 |
