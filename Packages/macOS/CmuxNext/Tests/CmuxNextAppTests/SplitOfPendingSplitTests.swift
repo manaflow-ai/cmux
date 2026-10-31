@@ -51,14 +51,20 @@ struct SplitOfPendingSplitTests {
             })
             let surface = try #require(second.pane.tabs.first { $0.kind == .pty }?.surface)
             let nonce = String(UInt32.random(in: 100_000...999_999))
+            let coordinator = services.keyRouter.creationInputCoordinator
+            var keyPath: [String] = ["typing: hold open \(coordinator.isHolding(in: window)), window key \(window.isKeyWindow), app \(type(of: NSApp!))"
+                                     + ", second view surface \(services.cache.existingTerminal(second.pane.tabs.first { $0.kind == .pty }?.id ?? "")?.session.diagnostics.hasSurface == true)"]
             for character in "echo p0x\(nonce)x$((6*7))\r" {
                 let text = String(character)
                 let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
                                                           timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
                                                           context: nil, characters: text, charactersIgnoringModifiers: text,
                                                           isARepeat: false, keyCode: text == "\r" ? 36 : 0))
-                if !services.keyRouter.interceptKeyDown(event, in: window) { window.sendEvent(event) }
+                let intercepted = services.keyRouter.interceptKeyDown(event, in: window)
+                if !intercepted { window.sendEvent(event) }
+                keyPath.append("\(text == "\r" ? "CR" : text): intercepted \(intercepted) holding \(coordinator.isHolding(in: window))")
             }
+            let typedAt = ContinuousClock.now
             // #28436: the daemon's wait throws at its timeout; the miss must still say where the line went.
             let screen: (matched: Bool, text: String)
             do {
@@ -71,6 +77,8 @@ struct SplitOfPendingSplitTests {
             if !screen.matched {
                 let report = await Self.missedLineReport(content: content, second: second, window: window, services: services,
                                                          connection: connection, since: mark)
+                    + "\nkey path (\(typedAt.duration(to: .now)) ago): " + keyPath.joined(separator: "; ")
+                    + "\nafter: hold open \(coordinator.isHolding(in: window)), last end \(String(describing: coordinator.lastHoldEnd(in: window)))"
                 Issue.record("the line typed after the second Cmd-D did not run in its pane: \(screen.text.suffix(300))\n\(report)")
             }
         }
