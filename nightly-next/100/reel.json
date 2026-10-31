@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "build": "100",
+  "notes": "/tmp/acpmux-501/t/93dddea7/01a18a35-b1e8-7951-ba2f-703bf916b9a6/tmpmvzynf4q/notes.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 11,
+      "title": "Tabs keep their order",
+      "author": "Ada",
+      "clip": "/tmp/acpmux-501/t/93dddea7/01a18a35-b1e8-7951-ba2f-703bf916b9a6/tmpmvzynf4q/a.mp4",
+      "source": "given"
+    }
+  ]
+}
