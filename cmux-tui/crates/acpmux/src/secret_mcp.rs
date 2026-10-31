@@ -17,14 +17,16 @@ use tokio::sync::mpsc;
 pub const SERVER_NAME: &str = "cmux-secrets";
 /// The session the tools ask for, set in this server's own env.
 pub const SESSION_ENV: &str = "ACPMUX_SECRET_SESSION";
+/// The newest MCP protocol version our stdio servers speak.
+pub const NEWEST_PROTOCOL_VERSION: &str = "2025-06-18";
 /// The MCP protocol versions our stdio servers speak, newest first.
-pub const PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
+pub const PROTOCOL_VERSIONS: &[&str] = &[NEWEST_PROTOCOL_VERSION, "2025-03-26", "2024-11-05"];
 
 /// The version an MCP `initialize` answers: the client's when we speak it,
 /// else our newest (the client then decides whether to go on).
 pub fn protocol_version(params: &Value) -> &'static str {
     let requested = params["protocolVersion"].as_str();
-    PROTOCOL_VERSIONS.iter().find(|v| Some(**v) == requested).unwrap_or(&PROTOCOL_VERSIONS[0])
+    PROTOCOL_VERSIONS.iter().copied().find(|v| Some(*v) == requested).unwrap_or(NEWEST_PROTOCOL_VERSION)
 }
 
 fn tools() -> Value {
