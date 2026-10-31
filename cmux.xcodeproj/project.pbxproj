@@ -2320,6 +2320,7 @@
 		F0F0CF0F0000000000000001 /* ForkParentFallbackGeneralizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F0CF0F0000000000000002 /* ForkParentFallbackGeneralizationTests.swift */; };
 		F76550030000000000000001 /* ForkParentFallbackResidualTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F76550030000000000000002 /* ForkParentFallbackResidualTests.swift */; };
 		F0F0CF0D0000000000000001 /* ForkParentFallbackSessionIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F0CF0D0000000000000002 /* ForkParentFallbackSessionIndexTests.swift */; };
+		F6529EDA53BE77478CFB72C0 /* FreestyleAttachReconnectSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DE0D3D7E7F5DEF1F4E7FBEC /* FreestyleAttachReconnectSettingsTests.swift */; };
 		F97300010000000000000002 /* FreestyleInteractiveShellScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = F97300010000000000000001 /* FreestyleInteractiveShellScript.swift */; };
 		F97300010000000000000003 /* FreestyleInteractiveShellScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = F97300010000000000000001 /* FreestyleInteractiveShellScript.swift */; };
 		F17F00000000000000000003 /* FullWidthTabCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17F00000000000000000004 /* FullWidthTabCommandTests.swift */; };
@@ -7017,6 +7018,7 @@
 		F0F0CF0F0000000000000002 /* ForkParentFallbackGeneralizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForkParentFallbackGeneralizationTests.swift; sourceTree = "<group>"; };
 		F76550030000000000000002 /* ForkParentFallbackResidualTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForkParentFallbackResidualTests.swift; sourceTree = "<group>"; };
 		F0F0CF0D0000000000000002 /* ForkParentFallbackSessionIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForkParentFallbackSessionIndexTests.swift; sourceTree = "<group>"; };
+		9DE0D3D7E7F5DEF1F4E7FBEC /* FreestyleAttachReconnectSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FreestyleAttachReconnectSettingsTests.swift"; sourceTree = "<group>"; };
 		F97300010000000000000001 /* FreestyleInteractiveShellScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FreestyleInteractiveShellScript.swift; sourceTree = "<group>"; };
 		F17F00000000000000000004 /* FullWidthTabCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullWidthTabCommandTests.swift; sourceTree = "<group>"; };
 		F17F00000000000000000002 /* FullWidthTabPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullWidthTabPersistenceTests.swift; sourceTree = "<group>"; };
@@ -14304,6 +14306,7 @@
 				A1CE8E303102A963A8DE21E7 /* BrowserAutomationRestoredPanelTests.swift */,
 				D87A49E5D25F6C8D608A7DBF /* ChiefListAndSettingsCopyTests.swift */,
 				6C52E5BCE0CCFD00CD9ED561 /* AgentPreviousGenerationSessionEndTests.swift */,
+				9DE0D3D7E7F5DEF1F4E7FBEC /* FreestyleAttachReconnectSettingsTests.swift */,
 				F152960A3E2799807D8DD3EE /* VaultClaudeCustomTitleTests.swift */,
 				745FF9094E4E0023E0EFB065 /* SidebarWorkspaceSnapshotTests.swift */,
 				0E2DC2347073D79A46C7C1EF /* AppDelegateEqualizeSplitsShortcutTests+DividerDoubleClick.swift */,
@@ -19028,6 +19031,7 @@
 				F0F0CF0F0000000000000001 /* ForkParentFallbackGeneralizationTests.swift in Sources */,
 				F76550030000000000000001 /* ForkParentFallbackResidualTests.swift in Sources */,
 				F0F0CF0D0000000000000001 /* ForkParentFallbackSessionIndexTests.swift in Sources */,
+				F6529EDA53BE77478CFB72C0 /* FreestyleAttachReconnectSettingsTests.swift in Sources */,
 				F97300010000000000000003 /* FreestyleInteractiveShellScript.swift in Sources */,
 				F17F00000000000000000003 /* FullWidthTabCommandTests.swift in Sources */,
 				F17F00000000000000000001 /* FullWidthTabPersistenceTests.swift in Sources */,
