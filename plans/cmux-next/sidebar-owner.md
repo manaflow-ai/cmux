@@ -39,6 +39,17 @@
   no "Tidy Up" heading, no paragraph; the x is Not Now. Settings > General > Auto-Archive is the one setting.
   Regression: `AutoArchiveCoordinatorTests.theDefaultStyleNeverPopsACardOrArchivesOnItsOwn`,
   `theCardIsOneQuestionWithArchiveAndAlwaysArchive`.
+||||||| parent of 6b959f3e38f1 (feat(automations): the Automations page is reachable: sidebar item, top page, Cmd+Shift+P and CLI)
+- 2026-10-31 (a908, for a590): a new built-in sidebar item, Automations (`SidebarBuiltIn.automations`,
+  `clock.badge.checkmark` / `.automation` icon, title "Automations" in every locale). Lawrence: "make the
+  Automations page reachable in the app" (option A of docs/automations-platonic-ideal.md section 8: one row, a
+  page, failures first). It is NOT in `SidebarLayoutDocument.defaults` and no migration adds it, so the default
+  sidebar does not change; Add to Sidebar (`sidebar.item.add`'s pinned items) and the App Store's sidebar
+  feature "Automations in Sidebar" add it, like the Chief item. A click opens the Automations top page
+  (`TopPageRoute.page(.automations)`, `automations.show`). No badge yet: the page model's `badgeCount`
+  (failed automations) is not wired to the item; a590 decides if and how it shows. Regression:
+  `AutomationsEntryTests`.
+
 - 2026-10-31: record the terminal cwd-title change in b648fd2d603 (#28059).
   The reported defect was: "Two terminal tabs in one workspace are both titled
   \"Terminal\" / \"~\"." Non-home cwd-derived titles remain visible in sidebar
