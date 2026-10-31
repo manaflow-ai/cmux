@@ -60,6 +60,7 @@ def test_an_auto_pick_with_no_owned_mac_free_names_a_blacksmith_pool() -> None:
 
 
 AWS = "glaeda-aws-std-xcode-26.6"
+MINI = "glaeda-std-xcode-26.6"
 
 
 def frame_pacing_pick(labels: list[str], *, busy: tuple[str, ...] = (), fork: bool = False,
@@ -90,16 +91,16 @@ def test_frame_pacing_skips_an_idle_headless_pool() -> None:
 
 
 def test_frame_pacing_selects_available_gui_pool_beside_headless_pool() -> None:
-    assert frame_pacing_pick([AWS, GUI]) == GUI
+    assert frame_pacing_pick([AWS, MINI]) == MINI
 
 
 def test_frame_pacing_skips_when_gui_pool_is_busy_even_with_headless_capacity() -> None:
-    label = frame_pacing_pick([AWS, GUI], busy=(GUI,))
+    label = frame_pacing_pick([AWS, MINI], busy=(MINI,))
     assert not label.startswith("glaeda-"), label
 
 
 def test_frame_pacing_fork_never_selects_owned_pool() -> None:
-    label = frame_pacing_pick([AWS, GUI], fork=True)
+    label = frame_pacing_pick([AWS, MINI], fork=True)
     assert not label.startswith("glaeda-"), label
 
 
