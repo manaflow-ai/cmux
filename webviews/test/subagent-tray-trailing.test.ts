@@ -67,12 +67,6 @@ await requireBrowserLane("subagent-tray-trailing.test.ts", async () => {
           track: box(line.querySelector(".acpmux-agent-line__stop-track"))!,
           stop: box(line.querySelector(".acpmux-agent-line__stop-slot > button")),
           chevron: box(line.querySelector(".acpmux-agent-line__chevron > svg")),
-          stopHit: (() => {
-            const stop = line.querySelector(".acpmux-agent-line__stop-slot > button");
-            if (!stop) return null;
-            const rect = stop.getBoundingClientRect();
-            return stop.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
-          })(),
         })),
       };
     });
@@ -112,8 +106,20 @@ await requireBrowserLane("subagent-tray-trailing.test.ts", async () => {
             expect(Math.abs((stop.left + stop.right) / 2 - (line.track.left + line.track.right) / 2)).toBeLessThanOrEqual(1);
             expect(stop.left).toBeGreaterThanOrEqual(line.state.right - 0.5);
             if (line.chevron) expect(line.chevron.left).toBeGreaterThanOrEqual(stop.right - 0.5);
-            expect(line.stopHit).toBe(true);
           }
+          // Each Stop, scrolled into the list's view, is the thing under the pointer at its centre.
+          const hits = await page.evaluate(() =>
+            [...document.querySelectorAll<HTMLElement>(".acpmux-running-tray .acpmux-agent-line__stop-slot > button")].map(
+              (stop) => {
+                stop.scrollIntoView({ block: "nearest" });
+                const rect = stop.getBoundingClientRect();
+                return stop.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
+              },
+            ),
+          );
+          expect(hits.length).toBe(stopped.length);
+          expect(hits.every(Boolean)).toBe(true);
+          await page.evaluate(() => document.querySelector(".acpmux-running-tray__list")?.scrollTo(0, 0));
           // Stop's track holds its x on every line, with a Stop or without.
           expect(new Set(geometry.lines.map((line) => line.track.left)).size).toBe(1);
           // One chevron column: the header's, every line's and View all's end on one x.
