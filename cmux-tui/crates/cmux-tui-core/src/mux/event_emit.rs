@@ -81,6 +81,7 @@ impl Mux {
         }
     }
 
+    #[track_caller]
     pub(super) fn terminal_event_placements(&self, surface_id: SurfaceId) -> Vec<SurfaceId> {
         let state = self.state.lock().unwrap();
         let Some(surface) =

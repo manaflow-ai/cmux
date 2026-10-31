@@ -80,3 +80,30 @@ fn signaled_mutex_records_failed_wait_telemetry() {
     assert_eq!(snapshot.stalls, 1, "failed stall must be visible");
     assert!(snapshot.last_stall.is_some());
 }
+
+#[test]
+fn lock_detail_reports_per_site_hold_and_wait_percentiles() {
+    let mutex = SignaledMutex::new(0u32);
+    let short_line = line!() + 2;
+    for _ in 0..99 {
+        drop(mutex.lock().unwrap());
+    }
+    let long_line = line!() + 1;
+    let guard = mutex.lock().unwrap();
+    std::thread::sleep(Duration::from_millis(20));
+    drop(guard);
+
+    let detail = mutex.stats().detail();
+    assert_eq!(detail.sites, 2, "{detail:?}");
+    let short = detail
+        .by_hold_total
+        .iter()
+        .find(|site| site.site.ends_with(&format!("signaled_mutex.rs:{short_line}")))
+        .expect("short site listed");
+    assert_eq!(short.acquisitions, 99);
+    let long = &detail.by_hold_p99[0];
+    assert!(long.site.ends_with(&format!("signaled_mutex.rs:{long_line}")), "{detail:?}");
+    assert_eq!(long.acquisitions, 1);
+    assert!(long.hold_p99_us >= 10_000 && long.hold_p99_us <= long.hold_max_us, "{long:?}");
+    assert!(long.hold_max_us >= 20_000, "{long:?}");
+}

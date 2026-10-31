@@ -20,7 +20,7 @@ fail() { printf 'FAIL: %s\n' "$@" >&2; exit 1; }
 src="$TMP/src"
 mkdir -p "$src"
 
-git -C "$ROOT" archive HEAD webviews web/data Resources/markdown-viewer config schemas \
+git -C "$ROOT" archive HEAD webviews web/data Resources/markdown-viewer config schemas release-notes/next/highlights \
   Packages/Shared/CmuxAgentQuestion Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/InterVariable.woff2 \
   scripts/cmux-next/web-bundle-key.py README.md | tar -x -C "$src"
 cp "$KEY" "$src/scripts/cmux-next/web-bundle-key.py"
@@ -46,6 +46,8 @@ expect_moves web/data/model-catalog/snapshot.json
 expect_moves Resources/markdown-viewer/viewer-navigation.js
 # A webviews source itself.
 expect_moves webviews/src/agent-session/acpmux/modelCatalogData.ts
+# A What's New highlight: gen-feature-tips.mjs makes the agent pane's tips from them.
+expect_moves release-notes/next/highlights/agents-drive-visible-browser-tabs.md
 
 # Unrelated files: a tracked edit outside the inputs and a new untracked file.
 printf '\nunrelated\n' >>"$src/README.md"
