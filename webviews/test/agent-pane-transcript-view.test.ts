@@ -228,7 +228,9 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
         worked: await worked.getAttribute("aria-expanded"),
         fewer: (await commands.count()) < before,
         othersOpen: await page.evaluate(() =>
-          [...document.querySelectorAll(".cv-worked")].slice(1).every((node) => node.getAttribute("aria-expanded") === "true"),
+          [...document.querySelectorAll(".cv-worked")]
+            .slice(1)
+            .every((node) => node.getAttribute("aria-expanded") === "true"),
         ),
       };
 
