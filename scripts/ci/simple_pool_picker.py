@@ -416,7 +416,8 @@ def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequen
                        for label in BLACKSMITH)
     return State(jobs, tuple(owned), blacksmith, fork, owned_enabled,
                  (env.get("CI_PR_POOL_OVERFLOW") or "1") != "0", fallback,
-                 gui_required=(env.get("RUN_FULL_SUITE") == "true" or env.get("RUN_UNIT_SUITE") == "true"))
+                 gui_required=(env.get("CMUX_CI_GUI_REQUIRED") == "true"
+                               or env.get("RUN_FULL_SUITE") == "true" or env.get("RUN_UNIT_SUITE") == "true"))
 
 
 def snapshot_age(snapshot: Mapping[str, Any] | None) -> float:
