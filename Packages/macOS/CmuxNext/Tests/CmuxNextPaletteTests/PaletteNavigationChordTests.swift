@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextPalette
+import CmuxNextTestSupport
 import Testing
 
 /// With the command palette open, a navigation chord the palette has no use for runs its action: Ctrl-` (New
@@ -12,6 +13,7 @@ import Testing
 /// palette's search field. The key router decides keys only for a main window's content, and New Terminal Tab has no
 /// main-menu item; the palette's key handler dropped every chord it did not map.
 @MainActor
+@Suite(.closesItsWindows)
 struct PaletteNavigationChordTests {
     /// The actions the registry ran, in order.
     @MainActor final class Ran { var ids: [String] = [] }
@@ -36,7 +38,7 @@ struct PaletteNavigationChordTests {
 
     @Test func ctrlBacktickWithThePaletteOpenRunsNewTerminalTabAndClosesThePalette() throws {
         let (palette, ran) = Self.palette()
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         palette.show(.commands)
         let panel = try #require(palette.visiblePanel)
         #expect(palette.handleKeyDown(try Self.key("`", keyCode: 50, modifiers: [.control]), in: panel),
@@ -49,7 +51,7 @@ struct PaletteNavigationChordTests {
     /// is not run from here; the palette stays open.
     @Test func typingAndSystemChordsDoNotRunFromThePalette() throws {
         let (palette, ran) = Self.palette()
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         palette.show(.commands)
         #expect(!palette.runsNavigationChord(try Self.key("`", keyCode: 50, modifiers: [])))
         #expect(!palette.runsNavigationChord(try Self.key("w", keyCode: 13, modifiers: [.command])))
@@ -61,7 +63,7 @@ struct PaletteNavigationChordTests {
     /// checklist toggle) does not run from the palette's field.
     @Test func aChordThatYieldsToTextInputDoesNotRun() throws {
         let (palette, ran) = Self.palette()
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         palette.show(.commands)
         #expect(!palette.runsNavigationChord(try Self.key("\r", keyCode: 36, modifiers: [.command])))
         #expect(!ran.ids.contains("toggleChecklistItemComplete"))
