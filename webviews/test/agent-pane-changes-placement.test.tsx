@@ -57,7 +57,13 @@ test("the in-page changes view sits right of the transcript at every pane width"
   expect(panel[0]!.atRules).toEqual([]);
   expect(panel[0]!.body).toMatch(/left:var\(--acpmux-review-chat\)/);
   const transcript = rulesFor(header, ".acpmux-reviewing>.acpmux-scroll");
-  expect(transcript.some((rule) => rule.atRules.length === 0 && /margin-right:calc\(100%-var\(--acpmux-review-chat\)\)/.test(rule.body.replace(/\s+/g, "")))).toBe(true);
+  expect(
+    transcript.some(
+      (rule) =>
+        rule.atRules.length === 0 &&
+        /margin-right:calc\(100%-var\(--acpmux-review-chat\)\)/.test(rule.body.replace(/\s+/g, "")),
+    ),
+  ).toBe(true);
   const split = rulesFor(header, ".acpmux-reviewing");
   expect(split.some((rule) => rule.atRules.length === 0 && /--acpmux-review-chat:/.test(rule.body))).toBe(true);
 });

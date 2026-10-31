@@ -150,7 +150,9 @@ export function isNoRepository(error: unknown): boolean {
   const extra = record(record(record(error)?.details)?.extra);
   if (text(extra?.code) === "not_a_repository") return true;
   const failure = readWriteFailure(error);
-  return failure.kind === "refused" && (failure.reason === "not_a_repository" || failure.reason === "no_working_directory");
+  return (
+    failure.kind === "refused" && (failure.reason === "not_a_repository" || failure.reason === "no_working_directory")
+  );
 }
 
 /// A committed MutationResult's commit, as the success line names it.
