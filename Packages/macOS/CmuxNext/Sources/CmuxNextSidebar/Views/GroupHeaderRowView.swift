@@ -233,6 +233,14 @@ final class GroupHeaderRowView: SidebarRowView {
         return NSRect(x: start - Metrics.space2, y: 0, width: name.frame.maxX - start + 2 * Metrics.space2, height: bounds.height)
     }
     override var titleFont: NSFont { name.font ?? SidebarStyle.headerFont }
+    /// The label draws its text its padding (the alignment inset) in from its frame, the first
+    /// baseline `firstBaselineOffsetFromTop` below its top.
+    override var titlePenOrigin: NSValue? {
+        NSValue(point: NSPoint(x: name.frame.minX + name.alignmentRectInsets.left, y: name.frame.minY + name.firstBaselineOffsetFromTop))
+    }
+    override var titleInk: NSColor? { name.textColor }
+    /// The editor ends before the unread badge and the chevron, which stay where they are.
+    override var titleEditMaxX: CGFloat { (badge.isHidden ? chevronFrame.minX : badge.frame.minX) - Metrics.space2 }
     private var renaming = false
     override func setTitleHidden(_ hidden: Bool) {
         renaming = hidden
@@ -439,7 +447,7 @@ final class GroupHeaderRowView: SidebarRowView {
         count.isHidden = countWidth == 0
         count.frame = NSRect(x: name.frame.maxX + Metrics.space2, y: (b.height - nh) / 2, width: countWidth, height: nh)
         // The name and the color line only: no bar (cx-7yywz).
-        pill.isHidden = renaming || look.style == .line || look.style == .tinted
+        pill.isHidden = look.style == .line || look.style == .tinted
         // The cx-rcby chip: one full-width rounded bar, the row's full height like a workspace row's fill.
         pill.frame = NSRect(x: 0, y: 0, width: b.width, height: b.height)
         pill.cornerRadius = SidebarStyle.rowCornerRadius // one radius with the pinned and workspace rows
