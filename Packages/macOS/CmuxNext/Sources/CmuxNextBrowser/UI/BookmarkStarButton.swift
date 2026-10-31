@@ -74,11 +74,9 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
         onPress?(self)
     }
 
-    /// The pointing hand over the star, as over every clickable control (`OmnibarPointer`); its
-    /// rect sits above the bar's arrow rects in the key window.
-    override func resetCursorRects() {
-        if let rect = ClickableButton.cursorRect(of: self) { addCursorRect(rect, cursor: .pointingHand) }
-    }
+    /// The star registers no cursor rect of its own: the bar's arrow shows over it
+    /// (`OmnibarPointer`), as over every clickable control.
+    override func resetCursorRects() {}
 
     /// The rects `resetCursorRects` registered, while non-nil (tests).
     var recordedCursorRects: [(rect: NSRect, cursor: NSCursor)]?

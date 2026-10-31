@@ -276,7 +276,7 @@
   border-radius: 6px;
   background: var(--workflow-surface);
   color: var(--workflow-muted);
-  cursor: pointer;
+  cursor: default;
   font: inherit;
 }
 

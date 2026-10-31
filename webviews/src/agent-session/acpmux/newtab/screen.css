@@ -388,7 +388,7 @@
 
 /* The browser omnibar's pointer (OmnibarPointer, cx-d0d.80): the field row is the text area, so
    the I-beam shows over all of it (a press there focuses the field, focusFromRow); its glyphs keep
-   the arrow, and the pickers and buttons show the pointing hand (desktop.css). The box itself has no hover state: it is the composer's surface at rest,
+   the arrow, and the pickers and buttons show the arrow (desktop.css). The box itself has no hover state: it is the composer's surface at rest,
    under the pointer and while it has the keyboard (Leo 2026-10-18). */
 .nt-input {
   cursor: text;

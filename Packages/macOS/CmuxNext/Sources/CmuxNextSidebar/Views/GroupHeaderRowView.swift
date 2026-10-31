@@ -60,10 +60,6 @@ final class GroupHeaderRowView: SidebarRowView {
     /// Archived in the sidebar document: the bar and its ink draw dimmed (`SidebarStyle.archivedAlpha`).
     private var archived = false
     private var hasIcon = false
-    /// No members: the + is not offered (the editor's New Workspace in Group
-    /// is), so a click on it can never race the editor closing on a new,
-    /// still empty group that then goes.
-    private var isEmpty = false
     private var tint: GroupTint = .palette(.grey)
     private var collapsed = false
     private var chevronFrame: CGRect = .zero
@@ -116,7 +112,7 @@ final class GroupHeaderRowView: SidebarRowView {
                 return self?.onMore != nil
             },
             NSAccessibilityCustomAction(name: GroupEditorStrings.newWorkspace) { [weak self] in
-                guard let self, let onAdd = self.onAdd, !self.isEmpty else { return false }
+                guard let self, let onAdd = self.onAdd else { return false }
                 onAdd()
                 return true
             },
@@ -158,7 +154,6 @@ final class GroupHeaderRowView: SidebarRowView {
                               fontSize: SidebarStyle.headerFont.pointSize, details: details, status: rollUp)
         guard needsConfigure(content) else { return }
         tint = group.tint
-        isEmpty = group.workspaces.isEmpty && group.items.isEmpty
         name.stringValue = group.name
         pinned = group.isPinned
         archived = group.isArchived
@@ -391,7 +386,9 @@ final class GroupHeaderRowView: SidebarRowView {
         setHoverShown(moreButton, showsActions, fades: fades, token: .hoverReveal)
         moreButton.setAccessibilityElement(showsActions)
         addButton.frame = slotFrame(2)
-        let offersAdd = onAdd != nil && !isEmpty
+        // An empty group offers its + too (user 17912, "empty workspace needs plus button"): New Workspace in Group
+        // keeps a new group the editor would drop when it closes (`SidebarGroupFlow.performEditorItem`).
+        let offersAdd = onAdd != nil
         setHoverShown(addButton, offersAdd && showsActions, fades: fades, token: .hoverReveal)
         addButton.setAccessibilityElement(offersAdd && showsActions)
         // Lawrence 2026-10-20: at rest a loading spinner takes the chevron's place, on the trailing
