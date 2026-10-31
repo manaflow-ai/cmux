@@ -73,8 +73,8 @@ enum WorkspaceGroupHandlers {
         registry.bind("workspaceGroup.newSubgroup", run: { invocation in
             // A document group (a nested one too) may have no personal-store row: the target's id is enough.
             let explicit = [invocation.target, invocation["group"]?.targetValue].compactMap { $0 }.first { $0.kind == .workspaceGroup }
-            // A personal group id (`cmux workspace group list`) names its document item.
-            let parent = try explicit.map { SidebarDocStore.current?.groupID(personal: $0.id) ?? CmuxNextSidebar.GroupID($0.id) } ?? sidebarID(context.group(invocation), context)
+            // A personal group's id or exact name (`cmux workspace group create --parent Fleet`) names its document item.
+            let parent = try explicit.map { ref in SidebarDocStore.current?.groupID(personal: context.services.machines.local.store.personal.groups.first { $0.id.rawValue == ref.id || $0.name == ref.id }?.id.rawValue ?? ref.id) ?? CmuxNextSidebar.GroupID(ref.id) } ?? sidebarID(context.group(invocation), context)
             let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             try newSubgroup(in: parent, name: name, byUser: invocation.origin == .user, context)
         })
