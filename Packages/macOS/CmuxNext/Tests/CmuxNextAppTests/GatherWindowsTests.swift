@@ -188,60 +188,30 @@ struct GatherWindowsTests {
         #expect(services.workspace(id: "wh") != nil, "the merged window's Home was closed")
     }
 
-    /// A browser tab a pane keeps in its window (a daemon without frontend browser tabs) moves with
-    /// its workspace.
-    @Test func aPanesLocalBrowserTabsMoveWithIt() throws {
+    /// Browser tabs a window keeps itself (a daemon without frontend browser tabs) are keyed by pane
+    /// id, which can repeat across machines, and die with their window: a move that takes a workspace
+    /// out of such a window is refused and nothing changes. A window that gives nothing up is no bar.
+    @Test func aWindowKeepingItsOwnBrowserTabsIsNotGathered() throws {
         let services = try Self.services()
         defer { Self.closeAll(services) }
         let here = try Self.open(["k0"], services), there = try Self.open(["k2"], services)
         let pane = try #require(services.workspace(id: "k2")?.screens.first?.panes.first?.id)
         let tab = LocalBrowserTab.make(url: URL(string: "https://example.com"))
         there.state.localBrowserTabs[pane] = [tab]
-
-        // Another window's pane with the same id (another machine on an older daemon) keeps its tab.
-        let other = try Self.open(["k1"], services), unrelated = LocalBrowserTab.make(url: nil)
-        other.state.localBrowserTabs[pane] = [unrelated]
-
-        try services.windows.bringSpace(Self.rooms[1], into: here.state)
-        #expect(here.state.localBrowserTabs[pane] == [tab], "the pane's browser tab stayed behind")
-        #expect(other.state.localBrowserTabs[pane] == [unrelated], "a window that kept its workspaces lost a browser tab")
-    }
-
-    /// An incognito space, or an incognito window, takes part in no move (rule 2).
-    @Test func incognitoIsRefused() throws {
-        let services = try Self.services()
-        defer { Self.closeAll(services) }
-        let here = try Self.open(["k0"], services), there = try Self.open(["k2"], services)
         let before = services.windows.registry.value
 
-        services.windows.incognitoSpaces["another-window"] = Self.rooms[1]
-        #expect(throws: ActionFailure.self) { try services.windows.bringSpace(Self.rooms[1], into: here.state) }
-        services.windows.incognitoSpaces = [here.state.id: Self.rooms[0]]
         #expect(throws: ActionFailure.self) { try services.windows.bringSpace(Self.rooms[1], into: here.state) }
         #expect(throws: ActionFailure.self) { try services.windows.mergeWindows(into: here.state) }
-        services.windows.incognitoSpaces = [:]
-
         #expect(services.windows.registry.value == before, "a refused move changed windows")
-        #expect(here.state.profileID == Self.rooms[0])
-        #expect(there.state.workspaceID == "k2")
-    }
+        #expect(there.state.localBrowserTabs[pane] == [tab])
 
-    /// A pane id the receiving window already keeps tabs under (another machine on an older daemon):
-    /// the move is refused and nothing changes, so neither window's tabs mix or get lost.
-    @Test func carriedBrowserTabsNeverMixIntoACollidingPane() throws {
-        let services = try Self.services()
-        defer { Self.closeAll(services) }
-        let here = try Self.open(["k0"], services), there = try Self.open(["k2"], services)
-        let pane = try #require(services.workspace(id: "k2")?.screens.first?.panes.first?.id)
-        let mine = LocalBrowserTab.make(url: nil), theirs = LocalBrowserTab.make(url: nil)
-        here.state.localBrowserTabs[pane] = [mine]
-        there.state.localBrowserTabs[pane] = [theirs]
-
-        #expect(throws: ActionFailure.self) { try services.windows.bringSpace(Self.rooms[1], into: here.state) }
-        #expect(throws: ActionFailure.self) { try services.windows.mergeWindows(into: here.state) }
-        #expect(here.state.localBrowserTabs[pane] == [mine], "another machine's pane took the moved pane's tabs")
-        #expect(there.state.localBrowserTabs[pane] == [theirs], "the moved pane's tabs were lost")
-        #expect(services.windows.registry.value.window(there.state.id)?.workspaceIDs == ["k2"])
+        // A window that keeps tabs but gives nothing up (room0's k1 stays) does not block Move Space.
+        there.state.localBrowserTabs[pane] = []
+        let other = try Self.open(["k1"], services)
+        other.state.localBrowserTabs["another-pane"] = [tab]
+        try services.windows.bringSpace(Self.rooms[1], into: here.state)
+        #expect(services.windows.registry.value.window(here.state.id)?.workspaceIDs.sorted() == ["k0", "k2"])
+        #expect(other.state.localBrowserTabs["another-pane"] == [tab])
     }
 
     /// A window known incognito only by its space (`incognitoSpaces`, before the registry flag) is
