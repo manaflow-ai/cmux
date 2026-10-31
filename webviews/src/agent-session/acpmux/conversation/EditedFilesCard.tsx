@@ -170,6 +170,8 @@ function Card({
         className="acpmux-edited-head"
         ref={single ? diff.headerRef : undefined}
         {...(headToggle ? { [HEADER_TOGGLE_ATTRIBUTE]: "" } : {})}
+        // A control of its own for the transcript's gap selection (#26704), as the title was.
+        data-interactive={headToggle ? "" : undefined}
         onClick={headToggle ? headerToggleClick(headToggle) : undefined}
       >
         <span className="acpmux-edited-icon">
