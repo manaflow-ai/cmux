@@ -1935,6 +1935,7 @@ use crate::hub::is_permission_ask;
 pub use pending::{event_value, into_event_value};
 use pending::{peer_permission_pending, permission_pending};
 mod redact;
+pub(crate) use peer_forward::strip_asks as strip_peer_asks;
 pub(crate) use redact::url_without_secrets;
 pub(crate) mod remote_guard;
 mod requests;
