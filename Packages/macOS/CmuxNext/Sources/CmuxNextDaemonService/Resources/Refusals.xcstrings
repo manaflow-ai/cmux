@@ -24246,12 +24246,12 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent chats cannot be started from this Mac on a team VM yet."
+            "value": "%@ is a teammate's machine, so its owner starts chats there. Pick your own machine, or create one with New Cloud Machine."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "チーム VM では、まだこの Mac からエージェントチャットを開始できません。"
           }
         },
@@ -24901,12 +24901,12 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open a terminal in a folder on %@ first; the chat starts there."
+            "value": "%@ has no work folder to start in. Use Choose folder to pick one there."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "先に %@ のフォルダでターミナルを開いてください。チャットはそこで開始します。"
           }
         },
