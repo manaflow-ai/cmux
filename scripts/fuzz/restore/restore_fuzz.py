@@ -798,6 +798,10 @@ def main():
                 say("three iterations in a row did not run; stopping")
                 break
     finally:
+        # A chaos process that ended before the last iteration finished means that iteration ran without chaos.
+        if any(proc.poll() is not None for proc in CHAOS_PROCS):
+            chaos_lost[0] = 1
+            say("a chaos process ended before the run did; the last iterations may have run without chaos")
         stop_chaos()
     judged = [r for r in records if r["verdict"] in ("pass", "fail")]
     kills = {}
