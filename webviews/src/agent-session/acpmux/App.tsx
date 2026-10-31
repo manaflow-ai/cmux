@@ -173,6 +173,7 @@ import {
 import type { KeptAttachments } from "./composer/keptAttachments";
 import { ComposerPickers, PICKER_LABELS, type ComposerPermissionAccess } from "./ComposerPickers";
 import { openPicker } from "./pickerOpeners";
+import { startRefusalRoute } from "./startRefusal";
 import { EmptyState, type EmptyStateProjects, isNewChat, projectName } from "./EmptyState";
 import { paneKnowsNewChat } from "./locationRow";
 import { ChatUnavailableState } from "./ChatUnavailableState";
@@ -10524,13 +10525,15 @@ function AcpmuxPane() {
   };
   const loadNewTabProjects = useCallback(
     () =>
-      callNative<{ projects?: string[]; repos?: unknown }>("project.list").then((result) => {
+      callNative<{ projects?: string[]; repos?: unknown; machine?: boolean }>("project.list").then((result) => {
         // Each folder's repository (projectRepos.ts): the pickers fold worktrees under it.
         const repos = parseProjectRepos(result?.repos);
-        return (result?.projects ?? []).map((cwd): Project => {
+        const projects = (result?.projects ?? []).map((cwd): Project => {
           const repo = repos[cwd];
           return { cwd, label: projectName(cwd) ?? cwd, ...(repo ? { repo } : {}) };
         });
+        // `machine`: the host listed the chat's other machine's folders, not this Mac's.
+        return { projects, machine: result?.machine === true };
       }),
     [],
   );
@@ -10539,11 +10542,13 @@ function AcpmuxPane() {
   /// reads it, from its first render, while its own is pending or if it fails (Codex review of
   /// #24274).
   /// `projects` undefined: not answered yet.
-  const [loadedProjects, setDirectProjects] = useState<{ page: number; projects?: Project[] }>({
+  const [loadedProjects, setDirectProjects] = useState<{ page: number; projects?: Project[]; machine?: boolean }>({
     page: 0,
   });
   const projectsAnswered = loadedProjects.page === newTabGeneration && loadedProjects.projects !== undefined;
   const directProjects = projectsAnswered ? loadedProjects.projects! : NO_PROJECTS;
+  // A chat on another machine: the folders its host listed for that machine (its folder menu).
+  const machineFolders = projectsAnswered && loadedProjects.machine ? directProjects : undefined;
   const onNewTab = Boolean(newTab);
   useEffect(() => {
     // Start Agent's folder picker lists them too (cx-hkat), and so does the New Tab page: the
@@ -10551,8 +10556,8 @@ function AcpmuxPane() {
     if (!freshChat && !onNewTab) return;
     let active = true;
     void loadNewTabProjects()
-      .then((projects) => {
-        if (active) setDirectProjects({ page: newTabGeneration, projects });
+      .then(({ projects, machine }) => {
+        if (active) setDirectProjects({ page: newTabGeneration, projects, machine });
       })
       .catch(() => undefined);
     return () => {
@@ -11169,7 +11174,18 @@ function AcpmuxPane() {
             <SwitchNotice
               switching={snapshot.switching}
               onRetry={() => void callNative("chat.harness.retry")}
-              onAction={(action) => (action === "newCloudMachine" ? connectMachine("cloud") : chooseWorkspaceFolder())}
+              onAction={(action) => {
+                // A fresh chat on another machine has no summary yet: its connection's origin, or a
+                // folder list its host marked as that machine's, says where it runs.
+                const elsewhere =
+                  remoteChat || snapshot.origin === "remote" || snapshot.origin === "peer" || Boolean(machineFolders);
+                const route = startRefusalRoute(action, elsewhere);
+                if (route === "newCloudMachine") connectMachine("cloud");
+                // That machine's folder menu; a menu that is not mounted falls back to the panel's answer.
+                else if (route === "machineFolderMenu") {
+                  if (!openPicker("Location")) void chooseWorkspaceFolder();
+                } else void chooseWorkspaceFolder();
+              }}
             />
           </Notice>
         )}
@@ -11522,6 +11538,7 @@ function AcpmuxPane() {
             // A started local chat lists the same folders to move to (dogfood 09); Start Agent's
             // panel lists them before its first prompt (cx-hkat).
             projectChoices={freshChat || (!quick && canMove) ? newTabProjects : undefined}
+            {...(machineFolders ? { machineFolders } : {})}
             {...(folderChoiceOffered ? { folderNote: t("agentHome.notice") } : {})}
             onBrowseProject={
               folderChoiceOffered
