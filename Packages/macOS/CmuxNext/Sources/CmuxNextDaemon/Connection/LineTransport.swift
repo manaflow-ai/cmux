@@ -170,6 +170,22 @@ final class LineTransport: Sendable {
     }
 
     var isClosed: Bool { state.withLock { $0.closed != nil } }
+
+    /// Whether the process at the other end of the socket still exists: the kernel's peer pid
+    /// (`LOCAL_PEERPID`, fixed at connect) answers `kill(pid, 0)`. False for a bridged connection, whose
+    /// peer is the bridge child, not the daemon, and once the socket closed. A stopped (SIGSTOP) or
+    /// busy daemon is alive: only its exit, or EOF on the socket, says it is gone.
+    var peerProcessIsAlive: Bool {
+        guard child == nil else { return false }
+        let pid = socket.withLock { socket -> pid_t? in
+            guard socket.fd >= 0 else { return nil }
+            var pid: pid_t = 0
+            var size = socklen_t(MemoryLayout<pid_t>.size)
+            return getsockopt(socket.fd, SOL_LOCAL, LOCAL_PEERPID, &pid, &size) == 0 && pid > 0 ? pid : nil
+        }
+        guard let pid else { return false }
+        return kill(pid, 0) == 0 || errno == EPERM
+    }
     func setStreamHandler(_ handler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?) { state.withLock { $0.streamHandler = handler } }
 
     /// Sends one command and returns the raw `ok:true` response line.

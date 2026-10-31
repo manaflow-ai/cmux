@@ -18,6 +18,11 @@ public final class DaemonRecovery {
     /// restore bound passed, or no answer): `--replace-unresponsive` cannot
     /// tell a stuck owner from a slow restore, so it is offered only then.
     public private(set) var offersRestart = false
+    /// The connected daemon leaves its heartbeat unanswered while its process is alive (stopped or wedged):
+    /// its connection stays open and its requests keep waiting (P0 2026-10-30), and Restart is offered.
+    public private(set) var daemonNotAnswering = false
+    /// The launcher's last ensure looked stuck (``DaemonLauncher/EnsureOutcome/ownerLooksStuck``).
+    @ObservationIgnored private var ensureLooksStuck = false
     /// A Restart runs (up to 20 s of probe and stop, then the new owner's start).
     public private(set) var isRestarting = false
     /// Why the last Restart did not work (the refusal code or error, for Copy
@@ -60,11 +65,26 @@ public final class DaemonRecovery {
         let outcome = launcher.ensureOutcome
         outcome.observe { [weak self] in
             guard let self else { return }
-            offersRestart = outcome.ownerLooksStuck
+            ensureLooksStuck = outcome.ownerLooksStuck
             // An ensure that worked (the owner recovered by itself) ends an earlier Restart's failure.
-            if !offersRestart { restartFailure = nil }
+            if !ensureLooksStuck { restartFailure = nil }
+            updateOffer()
         }
-        offersRestart = outcome.ownerLooksStuck
+        ensureLooksStuck = outcome.ownerLooksStuck
+        updateOffer()
+    }
+
+    /// The connected daemon stopped or started answering its heartbeat again (``DaemonConnection/daemonAnswering``).
+    func noteDaemonAnswering(_ answering: Bool) {
+        guard daemonNotAnswering == answering else { return }
+        daemonNotAnswering = !answering
+        logger.notice("cmux-tui \(answering ? "answers again" : "is not answering; its connection stays open", privacy: .public)")
+        updateOffer()
+    }
+
+    /// Restart is offered while an ensure looked stuck or the connected daemon does not answer, and a launcher is known.
+    private func updateOffer() {
+        offersRestart = launcher != nil && (ensureLooksStuck || daemonNotAnswering)
     }
 
     /// Ends the automatic restart: the service shut its connection down (`shutdownConnection`), so

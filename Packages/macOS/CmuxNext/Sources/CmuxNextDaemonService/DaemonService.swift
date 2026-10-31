@@ -349,6 +349,12 @@ public final class DaemonService {
     private func didConnect(_ connection: DaemonConnection, identity: DaemonIdentity) {
         Self.launchMark("daemon_connected")
         self.connection = connection
+        recovery.noteDaemonAnswering(connection.daemonAnswering)
+        let recovery = recovery
+        connection.observeAnswering { answering in
+            // task-owner: one hop to main per change of the daemon's answering; nothing to cancel
+            Task { @MainActor in recovery.noteDaemonAnswering(answering) }
+        }
         rememberLaunchSnapshot(identity)
         resumeConnectionWaiters()
         store.noteHandshake(identity)
