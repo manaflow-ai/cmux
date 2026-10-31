@@ -275,6 +275,20 @@ import Testing
         #expect(!ids.contains(hostd.phoneDeviceID), "the next hostd still trusts the revoked phone: \(object)")
     }
 
+    /// Removing a Phone Access phone ends its live sessions before removePhone returns.
+    @Test func removingAnIrohPhoneDisconnectsItBeforeReturning() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = await Self.store(at: directory)
+        try await store.change(for: "one") { $0.approve(Self.phone, at: Date()) }
+        let host = IPhoneHostService(pairedStore: store)
+        let disconnected = Mutex<[String]>([])
+        host.followPhoneAccess(PhoneAccessGate(), disconnect: { endpoint in disconnected.withLock { $0.append(endpoint) } })
+        await host.removePhone(id: "iroh:" + Self.phone.phoneDeviceID)
+        #expect(disconnected.withLock { $0 }.first == Self.phone.phoneDeviceID)
+        #expect(!store.trusts(Self.phone))
+    }
+
     @Test func removalCancelsPendingRekeyAndRejectsLateAllow() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

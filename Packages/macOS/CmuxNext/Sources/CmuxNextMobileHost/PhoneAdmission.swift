@@ -45,6 +45,8 @@ final class PhoneAdmission {
 
     static let dialogIdentifier = "cmux.dialog.phoneAccessAllow"
     private let phones: MobileHostPairedStore
+    /// Ends every live Phone Access session of an endpoint (MobileIrxHost.disconnectPhone).
+    let disconnect: @Sendable (String) async -> Void
     private var questions: [String: Question] = [:]
     private var denied: [String: ContinuousClock.Instant] = [:]
     private var generation: UInt64
@@ -59,6 +61,7 @@ final class PhoneAdmission {
 
     init(phones: MobileHostPairedStore, disconnect: @escaping @Sendable (String) async -> Void) {
         self.phones = phones
+        self.disconnect = disconnect
         generation = phones.generation
         phones.observe { [weak self] change in
             // task-owner: bounded reconciliation for one store event; the store is app-lived

@@ -232,9 +232,12 @@ public final class IPhoneHostService {
     /// when it next connects.
     public func removePhone(id: String) async {
         if id.hasPrefix("iroh:") {
-            phoneAdmission?.remove(phoneDeviceID: String(id.dropFirst(5)))
-            pairedStore.forget(id: String(id.dropFirst(5)), transport: .iroh)
+            let endpoint = String(id.dropFirst(5))
+            phoneAdmission?.remove(phoneDeviceID: endpoint)
+            pairedStore.forget(id: endpoint, transport: .iroh)
             phonesError = nil
+            // Its live sessions end before this returns, not later from the store's observer task.
+            await phoneAdmission?.disconnect(endpoint)
             return
         }
         guard let dependencies, let phone = knownPhones.first(where: { $0.id == id || $0.owns(id) }) else { return }
