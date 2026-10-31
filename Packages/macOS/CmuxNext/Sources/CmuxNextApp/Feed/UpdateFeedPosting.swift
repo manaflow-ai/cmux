@@ -25,26 +25,11 @@ enum UpdateFeedPosting {
                               to: highlights.version, changes: changes, unlisted: highlights.rest == nil ? highlights.moreCount : 0, at: at)
     }
 
-    /// What one look at the highlights does: post this card, stop (this version's card was
-    /// posted already), skip this version (What's New is off), or wait for the highlights to
-    /// list changes.
-    enum Step: Equatable {
-        case post(UpdateFeedCard)
-        case skip(version: String)
-        case done
-        case wait
-    }
-
-    /// `enabled`: `updates.showWhatsNew` ("Show What's New After Updates"), nil until the
-    /// settings have been read. Off, the update posts no Feed card either, and the version
-    /// counts as handled so turning it on later does not post a stale card. Unknown, it waits:
-    /// the default (on) must not post before cmux.json says off.
-    static func step(_ highlights: UpdateHighlights?, posted: String?, enabled: Bool? = true, at: Date) -> Step {
-        guard let highlights else { return .wait }
-        guard posted != highlights.version else { return .done }
-        guard let enabled else { return .wait }
-        guard enabled else { return .skip(version: highlights.version) }
-        return card(for: highlights, at: at).map(Step.post) ?? .wait
+    /// Applies the Feed's publication policy after adapting the updater's highlights.
+    static func step(_ highlights: UpdateHighlights?, posted: String?, enabled: Bool? = true, at: Date) -> UpdateFeedCard.PostingStep {
+        UpdateFeedCard.postingStep(version: highlights?.version, posted: posted, enabled: enabled) {
+            highlights.flatMap { card(for: $0, at: at) }
+        }
     }
 
     /// The highlights the card is built from on this look: the Updated card's while it shows. Its x
@@ -102,11 +87,7 @@ enum UpdateFeedPosting {
             services.feed.post(update: card)
             posted += 1
         }
-        services.feed.post(update: UpdateFeedCard(
-            subject: .harness(id: "claude", name: "Claude Code"), from: "2.1.303", to: "2.1.305",
-            changes: ["Faster startup when many MCP servers are configured", "Fixed a hang when a hook printed a large output",
-                      "`/model` lists the models your plan includes"],
-            unlisted: 4, notes: URL(string: "https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md"), at: Date()))
+        services.feed.post(update: .sampleHarness(at: Date()))
         return posted + 1
     }
 }
