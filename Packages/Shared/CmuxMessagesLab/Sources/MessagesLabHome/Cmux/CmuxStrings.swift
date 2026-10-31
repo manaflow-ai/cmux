@@ -84,10 +84,6 @@ enum CmuxStrings {
     static var copyLink: String {
         String(localized: "home.message.copyLink", defaultValue: "Copy Link", table: "CmuxHome", bundle: .module)
     }
-    /// The placeholder of the thread header's rename field.
-    static var threadTitlePlaceholder: String {
-        String(localized: "home.thread.titlePlaceholder", defaultValue: "Thread Title", table: "CmuxHome", bundle: .module)
-    }
     static var notDelivered: String {
         String(localized: "label.notDelivered", defaultValue: "Not Delivered", table: "CmuxHome", bundle: .module)
     }
