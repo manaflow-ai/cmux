@@ -11,7 +11,7 @@
 import { readFileSync } from "node:fs";
 
 import { afterEach, beforeEach, expect, setSystemTime, spyOn, test } from "bun:test";
-import { act, useState, type ReactNode } from "react";
+import { act, Profiler, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
@@ -124,12 +124,17 @@ function Pane({
   snapshot,
   onOpenOutput,
   sessions,
+  onPanelRender,
+  rerenderOnScroll = false,
 }: {
   snapshot: AcpmuxSnapshot;
   onOpenOutput: (path: string) => void;
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
+  onPanelRender?: () => void;
+  rerenderOnScroll?: boolean;
 }) {
   const [shell, setShell] = useState<HTMLElement | null>(null);
+  const [scrollFrame, setScrollFrame] = useState(0);
   const inspector = useChatInspector({
     snapshot,
     machineName: "Studio",
@@ -141,6 +146,8 @@ function Pane({
   return (
     <section
       className="acpmux-shell"
+      data-scroll-frame={scrollFrame}
+      onScroll={rerenderOnScroll ? () => setScrollFrame((frame) => frame + 1) : undefined}
       ref={(element) => {
         if (element && element !== shell) {
           Object.defineProperty(element, "clientWidth", {
@@ -162,7 +169,9 @@ function Pane({
           />
         </header>
       </div>
-      {inspector.panel}
+      <Profiler id="session-info" onRender={onPanelRender}>
+        {inspector.panel}
+      </Profiler>
     </section>
   );
 }
@@ -284,6 +293,28 @@ test("file Sources use native editor fallback and show a transient failure", asy
 test("the Inspector starts right under the header: no row for a machine and folder label", () => {
   expect(inspectorTopOffset(0)).toBe("var(--acpmux-header-height, 28px)");
   expect(inspectorTopOffset(28)).toBe("28px");
+});
+
+test("Session Info does not render when the transcript scrolls", async () => {
+  const container = installDom(true);
+  let renders = 0;
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <Pane
+        snapshot={localChat}
+        onOpenOutput={noop}
+        rerenderOnScroll
+        onPanelRender={() => renders++}
+      />,
+    );
+  });
+  const beforeScroll = renders;
+  const shell = container.querySelector<HTMLElement>(".acpmux-shell")!;
+  await act(async () => {
+    for (let frame = 0; frame < 20; frame++) shell.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+  expect(renders).toBe(beforeScroll);
 });
 
 test("the Inspector opens with a first chat: its environment, context use and outputs; the toggle closes it", async () => {

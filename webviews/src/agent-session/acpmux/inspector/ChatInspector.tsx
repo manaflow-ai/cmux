@@ -36,6 +36,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  memo,
   useMemo,
   useRef,
   useState,
@@ -514,7 +515,7 @@ const closeInspector = () => {
 /// and what it lists. Its own component, so its enter and exit phases, a drag step and a fold draw the panel
 /// alone, not the chat pane that calls useChatInspector (one Inspector open drew that pane five
 /// times in a frame).
-function InspectorPresence({
+const InspectorPresence = memo(function InspectorPresence({
   chat,
   shown,
   snapshot,
@@ -779,7 +780,7 @@ function InspectorPresence({
       />
     </InspectorPanel>
   );
-}
+});
 
 /// The panel's frame: its width, its place beside the chat (push) or floating in the chat's right
 /// gutter (overlay), and the drag handle on its left edge (a double-click puts the width back). With
