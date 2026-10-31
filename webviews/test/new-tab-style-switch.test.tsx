@@ -60,14 +60,7 @@ test("the New Tab page offers its six styles as named dots, the current one chec
   const group = host.querySelector("fieldset")!;
   expect(group.getAttribute("aria-label")).toBe("New Tab templates");
   const radios = [...host.querySelectorAll<HTMLInputElement>("input[type=radio]")];
-  expect(radios.map((radio) => radio.value)).toEqual([
-    "minimal",
-    "cards",
-    "default",
-    "threads",
-    "console",
-    "classic",
-  ]);
+  expect(radios.map((radio) => radio.value)).toEqual(["minimal", "cards", "default", "threads", "console", "classic"]);
   expect(radios.map((radio) => radio.getAttribute("aria-label"))).toEqual([
     "Minimal",
     "Cards",
