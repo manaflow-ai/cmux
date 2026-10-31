@@ -131,6 +131,9 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
+          # Only feat-cmux-next dispatches save: a dispatch on another branch never restores
+          # its own save, so it would only push useful entries out of the cache store.
+          save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
           workspaces: cmux-tui -> target
           key: rust-1.91.0
 
@@ -897,6 +900,9 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
+          # Only feat-cmux-next dispatches save: a dispatch on another branch never restores
+          # its own save, so it would only push useful entries out of the cache store.
+          save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
           workspaces: |
             cmux-tui -> target
             Native/OptChat/chief-turn -> target
@@ -1213,6 +1219,9 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
+          # Only feat-cmux-next dispatches save: a dispatch on another branch never restores
+          # its own save, so it would only push useful entries out of the cache store.
+          save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
           workspaces: cmux-tui -> target
 
       - name: Verify LLVM GNU linker
@@ -1412,6 +1421,9 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
+          # Only feat-cmux-next dispatches save: a dispatch on another branch never restores
+          # its own save, so it would only push useful entries out of the cache store.
+          save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
           workspaces: cmux-tui -> target
 
       - name: Run configured Chrome CDP smoke
