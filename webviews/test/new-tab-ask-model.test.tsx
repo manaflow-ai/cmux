@@ -189,3 +189,161 @@ test("New Tab preflights its selected harness and keeps a refused draft", async 
     await act(async () => root.unmount());
   }
 });
+
+// Return twice before acpmux answered the handshake: the App holds each ask until it does
+// (withSubmitAfterHandshake), so a second held ask would start a second chat and send the prompt
+// twice once the handshake lands (cmuxterm-hq#5368).
+test("Return twice before the handshake asks once", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+  const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+  const asks: unknown[] = [];
+  const held: (() => void)[] = [];
+  const root = createRoot(host);
+  try {
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <NewTabScreen
+            snapshot={noChat()}
+            lastAgent="claude"
+            cwd="/Users/you/src/app"
+            // As the App's handshake hold does: the ask settles only once acpmux has answered.
+            onAsk={(...args) =>
+              new Promise<void>((resolve) =>
+                held.push(() => {
+                  asks.push(args);
+                  resolve();
+                }),
+              )
+            }
+            onOpen={noop}
+            onSearch={noop}
+            onShell={noop}
+            onJump={noop}
+            onOpenSession={noop}
+            onShowAll={noop}
+          />
+        </QueryClientProvider>,
+      ),
+    );
+    const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+    await act(async () => {
+      setter.call(field, "fix the flaky upload test");
+      field.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+    for (let press = 0; press < 2; press++)
+      await act(async () =>
+        field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
+      );
+    // The handshake lands.
+    await act(async () => {
+      for (const run of held.splice(0)) run();
+    });
+    expect(asks).toHaveLength(1);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+/// A New Tab whose harness's sign-in check has not answered yet, with the draft typed.
+async function pendingAuthPage() {
+  const { createRoot } = await import("react-dom/client");
+  const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+  const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+  const { SignInContext } = await import("../src/agent-session/acpmux/signIn");
+  const asks: unknown[][] = [];
+  let answer: (reply: unknown) => void = noop;
+  const readSessionAuth = () => new Promise<unknown>((resolve) => (answer = resolve));
+  const root = createRoot(host);
+  await act(async () =>
+    root.render(
+      <QueryClientProvider client={new QueryClient()}>
+        <SignInContext.Provider value={{ signedOut: {}, logIn: noop, readSessionAuth }}>
+          <NewTabScreen
+            snapshot={noChat()}
+            lastAgent="codex"
+            cwd="/Users/you/src/app"
+            onAsk={(...args) => {
+              asks.push(args);
+            }}
+            onOpen={noop}
+            onSearch={noop}
+            onShell={noop}
+            onJump={noop}
+            onOpenSession={noop}
+            onShowAll={noop}
+          />
+        </SignInContext.Provider>
+      </QueryClientProvider>,
+    ),
+  );
+  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+  const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+  const type = async (text: string) =>
+    act(async () => {
+      setter.call(field, text);
+      field.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+  await type("fix the flaky upload test");
+  const pressReturn = async () =>
+    act(async () =>
+      field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
+    );
+  const settle = async () =>
+    act(async () => answer({ state: "ready", source: "authCheck", evidenceAt: 1, harness: "codex", host: null }));
+  return { root, field, asks, type, pressReturn, settle };
+}
+
+// Return right after Cmd-T, while the harness's sign-in check still runs: the page refused the ask
+// and nothing replayed it, so the first Return did nothing (cmuxterm-hq#5368). It goes once the
+// check says the harness is ready.
+test("Return during the sign-in check asks once the check settles", async () => {
+  const page = await pendingAuthPage();
+  try {
+    await page.pressReturn();
+    await page.pressReturn();
+    expect(page.asks).toEqual([]);
+    await page.settle();
+    expect(page.asks).toHaveLength(1);
+    expect(page.asks[0]?.slice(0, 2)).toEqual(["codex", "fix the flaky upload test"]);
+  } finally {
+    await act(async () => page.root.unmount());
+  }
+});
+
+// A held Return is the draft as it was then: an edit meanwhile cancels it.
+test("an edit after Return during the sign-in check sends nothing on its own", async () => {
+  const page = await pendingAuthPage();
+  try {
+    await page.pressReturn();
+    await page.type("fix the flaky upload test and the lint");
+    await page.settle();
+    expect(page.asks).toEqual([]);
+    expect(page.field.value).toBe("fix the flaky upload test and the lint");
+  } finally {
+    await act(async () => page.root.unmount());
+  }
+});
+
+// The Ask row clicked, and New chat, wait on the check the same way, and one ask goes.
+test("an Ask row click and New chat during the sign-in check ask once it settles", async () => {
+  for (const selector of ['.nt-row[data-type="ask"]', '[data-create="chat"]']) {
+    const page = await pendingAuthPage();
+    try {
+      const target = window.document.querySelector(selector);
+      expect(target).not.toBeNull();
+      await act(async () => {
+        target!.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+        target!.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
+      });
+      expect(page.asks).toEqual([]);
+      await page.settle();
+      expect(page.asks).toHaveLength(1);
+      expect(page.asks[0]?.slice(0, 2)).toEqual(["codex", "fix the flaky upload test"]);
+    } finally {
+      await act(async () => page.root.unmount());
+    }
+  }
+});

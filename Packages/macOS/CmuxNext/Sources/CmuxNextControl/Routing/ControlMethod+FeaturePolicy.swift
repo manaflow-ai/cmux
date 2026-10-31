@@ -9,7 +9,7 @@ extension ControlMethod {
         switch method {
         // A new sandboxed run is Cloud; waiting on or cancelling one that exists is its cleanup.
         // `auth.token` hands a Cloud token outside the app: off with Cloud.
-        case "auth.token", "cloud.machines", "debug.cloud.link_ensure", "runs.sandbox.create", "vm.agent_key.create": return .cloud
+        case "auth.token", "cloud.machines", "cloud.automation", "debug.cloud.link_ensure", "runs.sandbox.create", "vm.agent_key.create": return .cloud
         case "remote.machines": return .remoteHosts
         default:
             // CodeRouter writes configure the Cloud model plane; its reads stay.

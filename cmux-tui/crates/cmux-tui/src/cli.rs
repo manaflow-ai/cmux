@@ -28,6 +28,8 @@ mod apps_run;
 mod auth_token;
 #[cfg(unix)]
 mod automation;
+#[cfg(unix)]
+mod automation_cloud;
 mod beside;
 #[cfg(unix)]
 mod billing;
