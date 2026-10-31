@@ -47,7 +47,7 @@ enum BrowserHitMenu {
         for section in sections(for: target) {
             let menu = registry.makeContextMenu(
                 for: section.context, target: tab,
-                entries: ContextMenuCatalog.shared.entries(for: section.context, removing: section.hidden),
+                entries: registry.contextMenuEntries(for: section.context, removing: section.hidden),
                 implied: .browserFocused, arguments: section.arguments
             )
             let rows = menu.items

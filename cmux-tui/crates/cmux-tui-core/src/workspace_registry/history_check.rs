@@ -4,7 +4,8 @@
 //! Lawrence 2026-10-30: with a cold page cache the open's `quick_check` of
 //! every state table took 1.0-1.7 s on a 41.6 GB registry, and 1.6 s of it
 //! was five tables that only grow: the exactly-once receipts, the resource
-//! mutation ledger and the terminal event log. The open reads them by key
+//! mutation ledger and the terminal event log; later the reopen-closed
+//! history (`closed_groups`, 90 ms cold). The open reads them by key
 //! or by their newest rows, so it touches only their tail, as it does for
 //! the journal and the other ledgers.
 //!
@@ -33,12 +34,15 @@ pub(crate) const FULL_OPEN_CHECK_META_KEY: &str = "integrity_full_open_check_req
 
 /// The tables checked in full by the maintenance worker instead of the open,
 /// each with the columns of its newest key, which the open touches.
-pub(crate) const BACKGROUND_CHECKED_TABLES: [(&str, &str); 5] = [
+pub(crate) const BACKGROUND_CHECKED_TABLES: [(&str, &str); 6] = [
     ("resource_effect_receipts", "idempotency_key DESC"),
     ("resource_creation_receipts", "correlation_key DESC"),
     ("journal_operation_receipts", "operation DESC, origin DESC, idempotency_key DESC"),
     ("resource_mutations", "idempotency_key DESC"),
     ("terminal_events", "revision DESC"),
+    // Reopen-closed history: read only to reopen, bounded but large (2,630
+    // groups, 4.5 MB, 90 ms of a cold full check on a nightly registry).
+    ("closed_groups", "closed_id DESC"),
 ];
 
 /// Whether the maintenance worker, not the open, checks `table` in full.

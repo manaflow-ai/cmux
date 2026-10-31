@@ -104,7 +104,7 @@ async fn agent_with_token(hub: &Arc<Hub>, caller: &str, token: &str) -> TestClie
 
 #[tokio::test]
 async fn a_digest_takes_the_agent_messages_and_leaves_the_persons_prompts_ahead_of_it() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let mut agents = connect(&hub).await;
     let (id, _) = busy(&mut c).await;
     queue(&mut c, prompt(&id, "mine", Some("p-me"))).await;
@@ -178,7 +178,7 @@ async fn a_digest_takes_the_agent_messages_and_leaves_the_persons_prompts_ahead_
 #[tokio::test]
 async fn a_digest_steers_once_into_the_running_turn_of_an_agent_that_steers() {
     let env = BTreeMap::from([("FAKE_CLAUDE_STEER".to_owned(), "1".to_owned())]);
-    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let (hub, mut c) = setup_inbox(PermissionPolicy::ApproveAll, env, BTreeMap::new(), false).await;
     let mut agents = connect(&hub).await;
     let (id, turn) = busy(&mut c).await;
     queue(&mut c, prompt(&id, "mine", Some("p-me"))).await;
@@ -235,7 +235,7 @@ async fn a_digest_steers_once_into_the_running_turn_of_an_agent_that_steers() {
 #[tokio::test]
 async fn a_digest_waits_for_the_next_turn_when_the_running_one_is_past_its_cap() {
     let env = BTreeMap::from([("FAKE_CLAUDE_STEER".to_owned(), "1".to_owned())]);
-    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let (hub, mut c) = setup_inbox(PermissionPolicy::ApproveAll, env, BTreeMap::new(), false).await;
     let mut agents = connect(&hub).await;
     let (id, _) = busy(&mut c).await;
     let cap = json!({"sessionId": id, "turnCapMs": 1});
@@ -259,7 +259,7 @@ async fn a_digest_waits_for_the_next_turn_when_the_running_one_is_past_its_cap()
 
 #[tokio::test]
 async fn a_digest_groups_results_by_sender_folds_repeats_and_a_dry_run_changes_nothing() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let mut agents = connect(&hub).await;
     let (id, _) = busy(&mut c).await;
     for (prompt_id, agent, text) in [
@@ -307,7 +307,7 @@ async fn a_digest_groups_results_by_sender_folds_repeats_and_a_dry_run_changes_n
 /// first, then results, then FYIs; a message that named none is a result.
 #[tokio::test]
 async fn a_digest_puts_blocks_and_questions_first_and_fyis_last_by_the_class_sent() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let mut agents = connect(&hub).await;
     let (id, _) = busy(&mut c).await;
     for (prompt_id, agent, class, text) in [
@@ -336,7 +336,7 @@ async fn a_digest_puts_blocks_and_questions_first_and_fyis_last_by_the_class_sen
 
 #[tokio::test]
 async fn past_its_budget_a_digest_points_at_the_full_text() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let mut agents = connect(&hub).await;
     let (id, _) = busy(&mut c).await;
     for (prompt_id, letter) in [("p-x", "x"), ("p-y", "y"), ("p-z", "z")] {
@@ -352,7 +352,7 @@ async fn past_its_budget_a_digest_points_at_the_full_text() {
 
 #[tokio::test]
 async fn only_the_unix_socket_and_the_chats_own_agent_drain_it() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let (id, _) = busy(&mut c).await;
     queue(&mut c, from_agent(&id, "p-a", "lane-a", "from a")).await;
     for origin in [Origin::Web, Origin::LocalApp, Origin::Peer] {
@@ -398,6 +398,8 @@ fn durable_hub(dir: &std::path::Path) -> Arc<Hub> {
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Local;
+    // These test the queue's digest: plain sends queue as before the inbox (`hub/inbox.rs`).
+    cfg.agent_inbox = Some(false);
     let store = acpmux::store::open(&cfg.store, dir).unwrap();
     Hub::new(cfg, store)
 }
@@ -811,7 +813,7 @@ async fn messages_drained_twice_follow_the_newest_digest_at_a_restart() {
 /// at once, not after the held messages' retry wait (10 s at first).
 #[tokio::test]
 async fn a_digest_whose_agent_cannot_start_puts_its_messages_back_unheld() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await;
     let id = s.unwrap()["sessionId"].as_str().unwrap().to_owned();
     c.request(method::SESSION_PROMPT, prompt(&id, "answer-then-exit", Some("p-exit")))

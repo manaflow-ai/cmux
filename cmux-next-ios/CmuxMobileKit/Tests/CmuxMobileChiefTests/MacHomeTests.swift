@@ -1,5 +1,6 @@
 import CmuxMobileTransport
 import Foundation
+import Observation
 import Testing
 @testable import CmuxMobileChief
 
@@ -154,13 +155,38 @@ final class FakeHomeOwner: @unchecked Sendable {
 }
 
 @MainActor
-@Suite struct MacHomeFeedTests {
-    /// Waits (bounded) until `condition` holds on the main actor.
-    func until(_ condition: @escaping @MainActor () -> Bool) async -> Bool {
-        await within(.seconds(5)) {
-            while await !condition() { await Task.yield() }
-            return true
-        } ?? false
+@Suite(.timeLimit(.minutes(2))) struct MacHomeFeedTests {
+    /// Waits until `condition` holds on the main actor, waking as the feed's observable
+    /// state changes (``eventually``). The suite's time limit is the run's watchdog.
+    func until(_ condition: @MainActor () -> Bool) async -> Bool {
+        await eventually(condition)
+    }
+
+    /// A wait wakes on the change it watches, not on a timer: its only other wake-up is
+    /// at the watchdog (the tick is longer), so ending well before that is the change.
+    @Test func aWaitWakesOnTheChangeItWatches() async {
+        let flag = WaitFlag()
+        let start = ContinuousClock.now
+        Task { flag.done = true }
+        #expect(await eventually(watchdog: .seconds(60), tick: .seconds(120)) { flag.done })
+        #expect(ContinuousClock.now - start < .seconds(30))
+    }
+
+    /// The watchdog holds whatever the tick: a condition that never holds ends at it.
+    @Test func theWatchdogEndsAWaitWhateverTheTick() async {
+        let start = ContinuousClock.now
+        #expect(await !eventually(watchdog: .milliseconds(100), tick: .seconds(30)) { false })
+        #expect(ContinuousClock.now - start < .seconds(20))
+    }
+
+    /// A cancelled wait ends at once: before, its loop ignored cancellation, so a
+    /// timed-out wait kept its task group from finishing.
+    @Test func aCancelledWaitEnds() async {
+        let wait = Task { await eventually { false } }
+        wait.cancel()
+        #expect(await wait.value == false)
+        // And a condition that never holds ends at the watchdog.
+        #expect(await !eventually(watchdog: .milliseconds(50)) { false })
     }
 
     @Test func readsTheMacsHomeListOverTheChiefChannel() async throws {
@@ -202,6 +228,8 @@ final class FakeHomeOwner: @unchecked Sendable {
 
         feed.setPinned(true, "conv_ops")
         #expect(await until { MacHomeList(feed.rows ?? []).pinned.map(\.id) == ["conv_build", "conv_chief", "conv_ops"] })
+        // The rows show the pin at once; the write goes out from its own task.
+        #expect(await until { !owner.sent("conversation-inbox-op").isEmpty })
         let pin = try #require(owner.sent("conversation-inbox-op").last)
         #expect(pin["conversation"] as? String == "conv_ops")
         #expect((pin["op"] as? [String: Any])?["kind"] as? String == "inbox.pin")
@@ -320,6 +348,11 @@ final class PushLink: MacLink, @unchecked Sendable {
     func push(_ line: Data) {
         for channel in lock.withLock({ channels }) { channel.deliver(line) }
     }
+}
+
+/// Set by a main-actor task in the wait tests; observable, as the feed is.
+@MainActor @Observable final class WaitFlag {
+    var done = false
 }
 
 final class PushChannel: LinkChannel, @unchecked Sendable {
