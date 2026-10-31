@@ -17,7 +17,7 @@ import Testing
         let sessions = ["tab-one": 1]
         #expect(RemoteBrowserPages.debugTarget(requested: .string(""), in: sessions) == nil)
         #expect(RemoteBrowserPages.debugTarget(requested: .null, in: sessions) == nil)
-        #expect(RemoteBrowserPages.debugTarget(requested: .int(1), in: sessions) == nil)
+        #expect(RemoteBrowserPages.debugTarget(requested: .number(1), in: sessions) == nil)
     }
 
     @Test func anImplicitTabIsAllowedOnlyWhenUnique() {
