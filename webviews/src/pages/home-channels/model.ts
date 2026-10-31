@@ -365,15 +365,18 @@ export function withThreadRoots(messages: HomeMessage[]): HomeMessage[] {
   // Each message's resolved thread, once per call (a long chain of replies is walked once).
   const known = new Map<string, string | undefined>();
   // The thread `message` is in: its root, else the thread of the message it answers, else that
-  // message (top level, or not loaded); undefined at the top level or in a reply loop.
+  // message (top level); undefined at the top level, in a reply loop, or when the chain leaves the
+  // loaded messages.
   const rootOf = (message: HomeMessage, seen: Set<string>): string | undefined => {
     if (message.threadRoot) return message.threadRoot;
     if (known.has(message.id)) return known.get(message.id);
     const target = message.replyTo?.message;
     if (!target || target === message.id || seen.has(target)) return undefined;
     seen.add(message.id);
+    // A chain that leaves the loaded messages is unknown: nothing is saved until the older page
+    // brings it in, so a derived root never sticks to a reply (it would read as the owner's later).
     const answered = byId.get(target);
-    const root = (answered && rootOf(answered, seen)) ?? target;
+    const root = answered ? (rootOf(answered, seen) ?? (answered.replyTo ? undefined : target)) : undefined;
     known.set(message.id, root);
     return root;
   };
