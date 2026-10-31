@@ -5,6 +5,34 @@ import Testing
 @Suite struct FeedWhatsNewSourceTests {
     private let date = "2026-10-17T02:58:43Z"
 
+    @Test(arguments: [true, false])
+    func embeddedPRLinkSurvivesReleaseNotesRoundTrip(hasPR: Bool) throws {
+        let pr = "https://github.com/manaflow-ai/cmux/pull/27919"
+        var entry: [String: Any] = [
+            "id": "linked", "category": "improved", "title": ["en": "A clearer sidebar"],
+            "summary": ["en": "Find related workspaces together."],
+            "platforms": ["macos"], "audience": "all",
+            "tryIt": ["action": "palette.checkForUpdates"], "docs": "https://cmux.com/docs/updates",
+        ]
+        if hasPR { entry["pr"] = pr }
+        let wire: [String: Any] = [
+            "version": 1, "build": "42", "shortVersion": "1.0.0-nightly.42", "date": date,
+            "highlights": [], "changes": [],
+            "whatsNew": ["schemaVersion": 1, "version": "1.0.0-nightly.42", "channel": "nightly",
+                         "date": date, "headline": ["en": "A clearer sidebar"], "entries": [entry]],
+        ]
+        let notes = try JSONDecoder().decode(ReleaseNotes.self, from: JSONSerialization.data(withJSONObject: wire))
+        let document = try #require(FeedWhatsNewSource.document(from: notes))
+        let decoded = try #require(document.entries.first)
+        #expect(decoded.pr?.absoluteString == (hasPR ? pr : nil))
+        #expect(decoded.tryIt?.action == "palette.checkForUpdates")
+        #expect(decoded.docs?.absoluteString == "https://cmux.com/docs/updates")
+        let encoded = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(notes)) as? [String: Any])
+        let digest = try #require(encoded["whatsNew"] as? [String: Any])
+        let entries = try #require(digest["entries"] as? [[String: Any]])
+        #expect(entries.first?["pr"] as? String == (hasPR ? pr : nil))
+    }
+
     @Test func embeddedDigestWinsAndKeepsItsEntries() throws {
         let embedded = WhatsNewDocument(
             version: "1.0.0-nightly.42",
