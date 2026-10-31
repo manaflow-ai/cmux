@@ -72,7 +72,7 @@ import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
 import { failedSendText } from "./sendFailure";
-import { SessionPager, type SessionPage } from "./sessionPages";
+import { SessionPager, type SessionPage, withUsage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
 import { isPlumbingCall, showsNothing } from "./hiddenTools";
 import { SubagentFold, subagentsLeft, subagentStops, type SubagentStopReason } from "./subagents/subagentFold";
@@ -1367,6 +1367,8 @@ export class AcpmuxDirectClient {
   private sessionEntriesOf?: { sessions: Session[]; entries: AcpmuxSessionEntry[] };
   /// The snapshot summary's `usageStats`, kept while acpmux's numbers are the same (sameUsageStats).
   private summaryUsage?: SessionUsageStats;
+  /// The usage read in flight (refreshUsage).
+  private usageRead?: Promise<void>;
   private selectedSessionId?: string;
   /** The session a link named that the daemon does not have (`sessionMustExist`). */
   private missingSession?: string;
@@ -3093,6 +3095,32 @@ export class AcpmuxDirectClient {
     if (!this.selectedSessionId) return Promise.reject(new Error());
     const params = { sessionId: this.selectedSessionId, ...(toolCallId ? { toolCallId } : {}) };
     return this.request("_acpmux/process/background", params, 10_000);
+  }
+
+  /// Reads every listed chat's usage now and lays it over the list and the chat's own summary
+  /// (Session Info's Usage, the sessions by usage list). A plain list read carries acpmux's last
+  /// pass, or none when nothing asked since acpmux started, so the pane asks once each time Session
+  /// Info shows; after that each chat's turn end brings its own (`_acpmux/session_changed`). No
+  /// timer: one read at a time, and one asked for meanwhile is dropped (acpmux reads at most every
+  /// 5 s anyway). A failed read leaves the numbers as they were.
+  refreshUsage(): void {
+    if (this.closed || this.replayMode || this.usageRead) return;
+    this.usageRead = this.sessionPages
+      .usage()
+      .then((usage) => {
+        if (this.closed) return;
+        const sessions = withUsage(this.sessions, usage);
+        const summary =
+          typeof this.summary?.sessionId === "string" ? withUsage([this.summary as Session], usage)[0] : this.summary;
+        if (sessions === this.sessions && summary === this.summary) return;
+        this.sessions = sessions;
+        this.summary = summary;
+        this.emit("session changed");
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        this.usageRead = undefined;
+      });
   }
 
   /// Reconnects MCP server `server` (its `mcpServers` name) of the Claude Code chat on screen: acpmux

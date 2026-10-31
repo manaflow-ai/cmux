@@ -275,6 +275,7 @@ export function useChatInspector({
   onReconnectMcp,
   onOpenChat,
   onCompact,
+  onShowUsage,
 }: {
   snapshot: AcpmuxSnapshot;
   /// A view has the pane in the chat's place (App.tsx: a turn's diff in place, the event Inspector):
@@ -340,6 +341,9 @@ export function useChatInspector({
   onOpenChat?: (sessionId: string) => void;
   /// Sends the chat's agent its `/compact` (Usage's context row); unset where Compact cannot reach.
   onCompact?: () => void;
+  /// Asks acpmux for every listed chat's usage now (`_acpmux/sessions` `usage: true`), once each
+  /// time the panel shows: what Usage lists is otherwise the last read's, or none at all.
+  onShowUsage?: () => void;
 }): {
   on: boolean;
   /// The panel shows (on, open, not stepped aside): a card under it keeps no room of its own beside
@@ -474,6 +478,7 @@ export function useChatInspector({
         onReconnectMcp={onReconnectMcp}
         onOpenChat={onOpenChat}
         onCompact={onCompact}
+        onShowUsage={onShowUsage}
         onOpenDocument={onOpenDocument}
         onShowCall={onShowCall}
         scope={subagent}
@@ -525,6 +530,7 @@ function InspectorPresence({
   onReconnectMcp,
   onOpenChat,
   onCompact,
+  onShowUsage,
   onOpenDocument,
   onShowCall,
   scope,
@@ -572,6 +578,9 @@ function InspectorPresence({
   onReconnectMcp?: (server: string) => Promise<unknown>;
   onOpenChat?: (sessionId: string) => void;
   onCompact?: () => void;
+  /// Asks acpmux for every listed chat's usage now (`_acpmux/sessions` `usage: true`), once each
+  /// time the panel shows: what Usage lists is otherwise the last read's, or none at all.
+  onShowUsage?: () => void;
   onOpenDocument?: (artifact: Artifact) => void;
   onShowCall?: (toolCallId: string) => boolean;
   /// The subagent it lists, while the pane shows one's own view.
@@ -737,6 +746,7 @@ function InspectorPresence({
         allSessions={scope ? undefined : snapshot.sessions}
         onOpenChat={onOpenChat}
         onCompact={scope ? undefined : onCompact}
+        onShowUsage={scope ? undefined : onShowUsage}
         onSetRunningLimit={onSetRunningLimit}
         revealed={revealed}
         onRevealed={onRevealed}
@@ -940,6 +950,7 @@ export function ChatInspector({
   allSessions,
   onOpenChat,
   onCompact,
+  onShowUsage,
   banner,
   agent,
   layout = RAIL_LAYOUT,
@@ -1007,6 +1018,9 @@ export function ChatInspector({
   onOpenChat?: (sessionId: string) => void;
   /// Sends the chat's agent its `/compact`: Usage's next step for its context (UsageSection.tsx).
   onCompact?: () => void;
+  /// Asks acpmux for every listed chat's usage now (`_acpmux/sessions` `usage: true`), once each
+  /// time the panel shows: what Usage lists is otherwise the last read's, or none at all.
+  onShowUsage?: () => void;
   /// Opens the chat's project folder in the Files tree beside the chat.
   onOpenFolder?: (path: string) => void;
   /// Shows the Bash call that started a background command in the transcript: what its row opens
@@ -1079,6 +1093,8 @@ export function ChatInspector({
     (onSection ?? setInspectorSection)("subagents", true);
     light("subagents");
   }, [onSection, light]);
+  // The panel shows: Usage's numbers are read now, not left at whatever the list last carried.
+  useEffect(() => onShowUsage?.(), [onShowUsage]);
   const anyUsage = useMemo(() => !!allSessions?.some((entry) => entry.usageStats), [allSessions]);
   const scheduled = made?.scheduled ?? [];
   const pullRequests = visibleChanges(made?.pullRequests ?? [], statuses);
