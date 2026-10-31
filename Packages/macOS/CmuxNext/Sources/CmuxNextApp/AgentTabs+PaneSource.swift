@@ -14,8 +14,7 @@ import Foundation
     /// the app starts the daemon with no dev origin and no `--dev`
     /// (``AcpmuxEnvironment/resolve(build:bundledBinDirectory:environment:userHome:uid:isExecutable:launchEnvironment:)``). Only the
     /// browser dev slot, with no host, still needs both (dev-slot.sh). `daemons`: the app's local daemons.
-    static func resolvePane(build: BuildIdentity?, environment: [String: String], showcase: Bool, daemons: AcpmuxLocalDaemons,
-                            peerApprover: AgentPanePeerApprover?)
+    static func resolvePane(build: BuildIdentity?, environment: [String: String], showcase: Bool, daemons: AcpmuxLocalDaemons, peerApprover: AgentPanePeerApprover?)
         -> (source: AgentPaneSource?, host: any AgentPaneHostProviding) {
         #if DEBUG
         let allowsDevServer = true
