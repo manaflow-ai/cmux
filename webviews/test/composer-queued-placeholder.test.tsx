@@ -205,7 +205,14 @@ test("mid-turn with a draft, the one send control queues for an agent that canno
 });
 
 test("mid-turn with only an attachment staged, the slot is Send (it steers), never Stop alone", async () => {
-  const file: ComposerAttachment = { id: "a1", kind: "text", name: "notes.txt", mimeType: "text/plain", size: 5, text: "notes" };
+  const file: ComposerAttachment = {
+    id: "a1",
+    kind: "text",
+    name: "notes.txt",
+    mimeType: "text/plain",
+    size: 5,
+    text: "notes",
+  };
   expect(await click(steering({ isWorking: true }), "", [file])).toEqual({ steers: [true], sends: 1, stops: 0 });
 });
 

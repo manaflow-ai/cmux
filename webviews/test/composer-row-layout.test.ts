@@ -375,7 +375,9 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       const send = idle.send!;
       const stop = running.stop!;
       expect(stop).toBeDefined();
-      const off = (["width", "left", "top", "bottom"] as const).filter((side) => Math.abs(send[side] - stop[side]) > 0.5);
+      const off = (["width", "left", "top", "bottom"] as const).filter(
+        (side) => Math.abs(send[side] - stop[side]) > 0.5,
+      );
       expect(off.map((side) => `${side} ${send[side].toFixed(1)} -> ${stop[side].toFixed(1)}`)).toEqual([]);
       expect(idle.trailing.slice(-2)).toEqual(["send", "mic"]);
       expect(running.trailing.slice(-2)).toEqual(["stop", "mic"]);
