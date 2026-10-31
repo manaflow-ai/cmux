@@ -214,13 +214,16 @@ class WebValidationTests(unittest.TestCase):
         self.assertIn("scripts/ci/run-webviews-tests.sh", block)
         self.assertNotIn("vars.LINUX_RUNNER", runs_on)
         self.assertNotIn("4vcpu", runs_on)
-        self.assertIn("'blacksmith-32vcpu-ubuntu-2404'", runs_on)
+        # 16 vCPU (memory for the suite at half the 32 vCPU price), failing over to 32.
+        self.assertTrue(runs_on.endswith("'blacksmith-16vcpu-ubuntu-2404' }}"), runs_on)
+        self.assertIn("vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404'", runs_on)
 
     def test_webviews_tests_shard_on_wide_runners(self):
         """Two 8 vCPU shards each ran about 65 dev-server files two at a time for 12 of
         their 14-16 minutes. Twelve 8 vCPU shards took 14.3 min: each paid a cold Vite
         warm-up. Four 32 vCPU shards run eight dev-server files at once on a shared warm
-        cache; Blacksmith runners are free and ran 256 jobs at 32 vCPU without queueing."""
+        cache. Blacksmith is a capped paid overflow now (2026-10-30), so the four shards run at
+        16 vCPU: 14% slower at p50 than 32 for half the price."""
         workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
         start = workflow.index("  react-apps-check-shard:")
         match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[start + 3 :])
@@ -228,7 +231,7 @@ class WebValidationTests(unittest.TestCase):
         shards = [int(n) for n in re.findall(r"^          - shard: (\d+)$", block, re.MULTILINE)]
         counts = set(re.findall(r"^            shard_count: (\d+)$", block, re.MULTILINE))
         self.assertEqual(len(shards), 4)
-        self.assertIn("'blacksmith-32vcpu-ubuntu-2404'", block)
+        self.assertIn("'blacksmith-16vcpu-ubuntu-2404' }}", block)
         self.assertEqual(shards, list(range(1, len(shards) + 1)))
         self.assertEqual(counts, {str(len(shards))})
         for step in ("Generated bundle merge driver", "Check diff viewer eager JS budget",

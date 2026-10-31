@@ -62,6 +62,10 @@ public struct RetryPacer: Sendable {
     /// The timed-retry budget is spent: wait for an event only.
     public var isExhausted: Bool { failures >= policy.timedRetries }
 
+    /// The next wait arms no timer: the budget is spent and the last attempt was not a busy
+    /// refusal (``refusedBusy()``), whose daemon is alive and keeps a timed retry.
+    public var waitsForEventOnly: Bool { isExhausted && !busyRefusal }
+
     /// A socket change may wake the next wait: false in a crash loop.
     public var wakesOnSocket: Bool { socketFailures < policy.socketRetries }
 

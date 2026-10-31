@@ -384,3 +384,100 @@ fn cold_opens(turns: usize, runs: usize, print: bool) -> (u64, Vec<u64>) {
     let _ = std::fs::remove_dir_all(&root);
     (log_bytes, reads)
 }
+
+/// A reply whose session detail alone passes one message still fits (Astra review of #28754):
+/// the records go as stubs first, then the detail's own fields, largest first, each named.
+#[test]
+fn a_reply_fits_one_message_whatever_holds_its_bytes() {
+    let event = |seq: u64, text: &str| json!({"seq": seq, "kind": "agent_message_chunk", "msg": {"text": text}});
+    let mut reply = json!({
+        "session": {"sessionId": "s", "status": "idle", "configOptions": "c".repeat(9 << 20), "models": "m".repeat(5 << 20), "pending": [{"rawInput": "p".repeat(1 << 20)}]},
+        "events": [event(1, "a"), event(2, &"x".repeat(3 << 20))],
+        "turnOpener": event(0, "go"),
+    });
+    fit_reply(&mut reply);
+    let bytes = serde_json::to_string(&reply).unwrap().len();
+    assert!(bytes <= MAX_REPLY_BYTES, "{bytes}");
+    // The large record is a stub; the small ones are as they were, never a larger stub.
+    assert_eq!(reply["events"][1]["msg"]["_meta"]["acpmux"]["omitted"]["reason"], "too_large");
+    assert_eq!(reply["events"][0]["msg"]["text"], "a");
+    assert_eq!(reply["turnOpener"]["msg"]["text"], "go");
+    // Then the largest detail field went, and only as much as the reply needed.
+    let session = &reply["session"];
+    assert_eq!(session["configOptions"], Value::Null);
+    assert_eq!(session["models"].as_str().map(str::len), Some(5 << 20));
+    assert_eq!(session["_meta"]["acpmux"]["omitted"]["fields"], json!(["configOptions"]));
+    assert_eq!(
+        (session["sessionId"].clone(), session["status"].clone()),
+        (json!("s"), json!("idle"))
+    );
+
+    // Nor can a value the agent set in the summary (a session_info_update title) keep a chat
+    // from opening: past the detail, any field but the chat's identity goes to its empty value.
+    let mut titled = json!({
+        "session": {"sessionId": "s", "status": "idle", "cwd": "/w", "title": "t".repeat(15 << 20), "tags": ["a"], "models": "m".repeat(1 << 20)},
+        "events": [event(1, "a")],
+        "turnOpener": null,
+    });
+    fit_reply(&mut titled);
+    let bytes = serde_json::to_string(&titled).unwrap().len();
+    assert!(bytes <= MAX_REPLY_BYTES, "{bytes}");
+    let session = &titled["session"];
+    assert_eq!(session["title"], "");
+    assert_eq!(session["models"], Value::Null);
+    assert_eq!(session["tags"], json!(["a"]), "a small field stays");
+    assert_eq!((session["sessionId"].clone(), session["cwd"].clone()), (json!("s"), json!("/w")));
+    assert_eq!(session["_meta"]["acpmux"]["omitted"]["fields"], json!(["models", "title"]));
+
+    // Not even the agent's own session id: the receipt that carries it goes last, after every
+    // other field (the title here), and the chat's sessionId stays.
+    let mut receipt = json!({
+        "session": {"sessionId": "s", "status": "idle", "title": "t", "sessionReceipt": {"agentSessionId": "x".repeat(15 << 20)}},
+        "events": [],
+        "turnOpener": null,
+    });
+    fit_reply(&mut receipt);
+    let bytes = serde_json::to_string(&receipt).unwrap().len();
+    assert!(bytes <= MAX_REPLY_BYTES, "{bytes}");
+    let session = &receipt["session"];
+    assert_eq!(session["sessionReceipt"], json!({}));
+    assert_eq!(
+        (session["sessionId"].clone(), session["status"].clone(), session["title"].clone()),
+        (json!("s"), json!("idle"), json!(""))
+    );
+    assert_eq!(session["_meta"]["acpmux"]["omitted"]["fields"], json!(["title", "sessionReceipt"]));
+
+    // Nor a record's envelope: an agent names its own sessionUpdate, which becomes the kind.
+    let mut kind = json!({
+        "session": {"sessionId": "s", "status": "idle"},
+        "events": [{"seq": 7, "at": 1, "dir": "in", "kind": "k".repeat(15 << 20), "msg": {"a": 1}}],
+        "turnOpener": null,
+    });
+    fit_reply(&mut kind);
+    let bytes = serde_json::to_string(&kind).unwrap().len();
+    assert!(bytes <= MAX_REPLY_BYTES, "{bytes}");
+    assert_eq!(
+        kind["events"][0],
+        json!({"seq": 7, "at": 1, "dir": "in", "kind": "", "msg": {"a": 1}})
+    );
+    assert_eq!(kind["session"], json!({"sessionId": "s", "status": "idle"}));
+
+    // A page counts a record's envelope as written: a kind of NULs is six bytes a character.
+    let nuls = EventRecord {
+        seq: 1,
+        at: 1,
+        dir: "in".into(),
+        kind: format!("claude.{}", "\0".repeat(169)),
+        msg: Value::Null,
+        host_seq: None,
+    };
+    let written = serde_json::to_string(&nuls).unwrap().len();
+    assert!(record_bytes(&nuls) >= written, "{} < {written}", record_bytes(&nuls));
+
+    // A reply that fits is left exactly as it is.
+    let small =
+        json!({"session": {"sessionId": "s"}, "events": [event(1, "a")], "turnOpener": null});
+    let mut same = small.clone();
+    fit_reply(&mut same);
+    assert_eq!(same, small);
+}

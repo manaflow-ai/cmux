@@ -57,7 +57,7 @@ final class DaemonAppsTransport: AppsTransport {
             inventory.handle(envelope)
             guard case .unknown(let name, let payload) = envelope.event, DaemonSideEvents.isAppsEvent(name) else { return }
             if provider.handle(envelope) { return }
-            if let decoded = AppsWireDecoding.event(name: name, payload: payload) { onEvent?(decoded) }
+            if let decoded = AppsWireDecoding().event(name: name, payload: payload) { onEvent?(decoded) }
         }
         let daemon = daemon
         update(daemon.store.connectionState, storeEpoch: daemon.store.connectionEpoch)
@@ -126,7 +126,7 @@ final class DaemonAppsTransport: AppsTransport {
     }
 
     func list() async throws(AppsTransportError) -> AppsListReply {
-        AppsWireDecoding.list(try await send(AppsListRequest()))
+        AppsWireDecoding().list(try await send(AppsListRequest()))
     }
 
     func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord {
@@ -160,6 +160,6 @@ final class DaemonAppsTransport: AppsTransport {
     }
 
     func logs(app: String, follow: Bool) async throws(AppsTransportError) -> [AppLogLine] {
-        AppsWireDecoding.logs(try await send(AppsLogsRequest(app: app, follow: follow)))
+        AppsWireDecoding().logs(try await send(AppsLogsRequest(app: app, follow: follow)))
     }
 }

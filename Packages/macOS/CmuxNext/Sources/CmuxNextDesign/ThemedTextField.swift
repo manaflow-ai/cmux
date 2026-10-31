@@ -9,6 +9,9 @@ public import AppKit
 public final class ThemedTextField: NSTextField, ThemedTextInput {
     /// The fill behind the text, resolved in the field's scope.
     public var fill: @MainActor () -> NSColor = { Palette.windowBackground }
+    /// The text's ink, resolved in the field's scope: an inline rename takes the ink of the label it
+    /// edits in place, so the text keeps its color as editing starts.
+    public var ink: @MainActor () -> NSColor = { Palette.textPrimary }
     private var placeholderText: String?
     /// AppKit's own placeholder bookkeeping while the themed one is set is not the caller's.
     private var applyingColors = false
@@ -69,7 +72,7 @@ public final class ThemedTextField: NSTextField, ThemedTextInput {
         guard !applyingColors else { return }
         applyingColors = true
         defer { applyingColors = false }
-        performWithTheme { applyThemedFieldColors(fill: fill(), placeholder: placeholderText) }
+        performWithTheme { applyThemedFieldColors(fill: fill(), placeholder: placeholderText, ink: ink()) }
     }
 }
 
@@ -176,12 +179,12 @@ extension NSTextField {
 
     /// Text, placeholder, fill and the active field editor's caret and selection in the active
     /// scope. theme-scoped
-    func applyThemedFieldColors(fill: NSColor, placeholder: String?) {
+    func applyThemedFieldColors(fill: NSColor, placeholder: String?, ink: NSColor = Palette.textPrimary) {
         backgroundColor = fill
-        textColor = Palette.textPrimary
+        textColor = ink
         applyThemedPlaceholder(placeholder)
         guard let editor = currentEditor() as? NSTextView else { return }
-        editor.textColor = Palette.textPrimary
+        editor.textColor = ink
         editor.insertionPointColor = Palette.caret
         editor.selectedTextAttributes = [.backgroundColor: Palette.textSelection]
     }

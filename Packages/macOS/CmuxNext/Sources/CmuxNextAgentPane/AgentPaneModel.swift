@@ -278,6 +278,8 @@ public final class AgentPaneModel {
 
     /// The app's one Read aloud voice (``AgentPaneReadAloud``); nil refuses the page's speaker.
     @ObservationIgnored public var readAloud: AgentPaneReadAloud?
+    /// Session Info's Remote Control switch (``AgentPaneRemoteControl``, the iPhone host's); nil: no row.
+    @ObservationIgnored public var remoteControl: AgentPaneRemoteControl?
     /// The app's Cloud machines for `cloudMachine.*` (``AgentPaneCloudMachines``); nil refuses every method.
     @ObservationIgnored public var cloudMachines: AgentPaneCloudMachines?
     /// Asks the user to confirm a config option that is not free (the view's native sheet).
@@ -398,7 +400,9 @@ public final class AgentPaneModel {
             return await notePicked(pick, startFolders.use(cwd, confirm: confirm, transport: transport))
         case .browseProject where remoteChat: return Self.unsupported("project.browse")
         case .listProjects(let query) where remoteChat:
-            return AgentPaneReply.success(["projects": await onListRemoteProjects?(query) ?? []])
+            // `machine`: the folders are the chat's machine's, so its folder menu lists them and a
+            // pick there goes through `workspace.useFolder` (cmux#29213).
+            return AgentPaneReply.success(["projects": await onListRemoteProjects?(query) ?? [], "machine": true])
         case .browseProject:
             guard let onBrowseProject else { return Self.unsupported("project.browse") }
             guard let cwd = await onBrowseProject() else { return AgentPaneReply.success() }
@@ -517,6 +521,7 @@ public final class AgentPaneModel {
         case .composerSetting(let path, let show): return await setComposer(path, show, userGesture: userGesture)
         case .displaySetting(let path, let value): return await setDisplay(path, value)
         case .featureTips(let tips): return featureTipState(tips)
+        case .remoteControl(let on): return await AgentPaneRemoteControl.reply(on: on, in: self, userGesture: userGesture)
         case .toolCard(let card, let action, let value): return AgentPaneToolCard.respond(card: card, action: action, value: value, in: self)
         case .computerUsePreview(let action): return AgentPaneComputerUsePreview.respond(action, in: self)
         case .upload(let files): return await AgentPaneUpload.respond(files, in: self)

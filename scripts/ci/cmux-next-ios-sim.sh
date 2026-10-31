@@ -44,6 +44,11 @@
 #             --arg shots --arg devices=-cmux-mobile-settings-page,devices \
 #               --arg feed=CMUX_MOBILE_FEED_STRESS=60,-cmux-mobile-tab,feed
 #           Run it at the base and at the head for a PR's before and after.
+#   chief-live-perf / chief-live-perf-baseline
+#           Three Chief layout measurements on one simulator, reusing test
+#           DerivedData. Copy the identical head benchmark test to the baseline
+#           tree; baseline mode selects its original-view adapter.
+#           bench/ retains each log, console output and result bundle.
 #   pair-e2e
 #           build, plus a tagged DEBUG cmux NEXT Mac app built here
 #           (reload.sh), and pairing by its QR code end to end
@@ -71,7 +76,7 @@ cmux_next_require_fleet cmux-next-ios-sim.sh "xcodebuild and an iOS simulator" "
   "cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg bench --artifact artifacts/ios-sim/evidence.zip"
 
 mode="${1:-build}"
-case "$mode" in build|release-build|test|bench|all|pair-e2e|shots) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e or shots, got '$mode'" >&2; exit 2 ;; esac
+case "$mode" in build|release-build|test|bench|all|pair-e2e|shots|chief-live-perf|chief-live-perf-baseline) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e or shots, got '$mode'" >&2; exit 2 ;; esac
 if [[ "$mode" == release-build && $# -ne 1 ]]; then
   echo "cmux-next-ios-sim.sh: release-build takes no further arguments" >&2; exit 2
 fi
@@ -123,11 +128,12 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.cargo/bin:$PATH"
 # pinned xcodegen's temp dir and, once made, the simulator device set.
 xcodegen_dir=""
 sims=""
+perf_udid=""
 cleanup() {
   local result=$?
   # The test iPhones in the default device set, when a step is cut short.
   local d
-  for d in "${test_udid:-}" "${ui_udid:-}"; do
+  for d in "${test_udid:-}" "${ui_udid:-}" "${perf_udid:-}"; do
     [[ -n "$d" ]] || continue
     xcrun simctl shutdown "$d" >/dev/null 2>&1 || true
     xcrun simctl delete "$d" >/dev/null 2>&1 || true
@@ -424,6 +430,51 @@ if [[ ${#ui_suites[@]} -gt 0 ]]; then
   note "- UI tests ${ui_suites[*]}: exit $ui_status, $(cat "$out/ui-tests-counts.txt" 2>/dev/null || echo "no result bundle"), $((SECONDS - t0)) s"
 fi
 
+# --- Chief layout benchmark -------------------------------------------------
+if [[ "$mode" == chief-live-perf || "$mode" == chief-live-perf-baseline ]]; then
+  perf_udid="$(xcrun simctl create "cmux-chief-perf-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
+  perf_flags=('SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited)')
+  if [[ "$mode" == chief-live-perf-baseline ]]; then
+    perf_flags=('SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) CMUX_CHIEF_LIVE_BASELINE')
+  fi
+  note "## Chief live layout ($mode): three runs, one warm-up + three samples per run"
+  note "- harness sha256: $(shasum -a 256 cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileChiefTests/ChiefLiveLayoutPerformanceTests.swift | awk '{print $1}')"
+  perf_status=0
+  for run in 1 2 3; do
+    # TEST_RUNNER_ forwards this opt-in to the simulator test process. No
+    # controller env allowlist change is needed: the mode owns the setting.
+    # Keep one simulator and DerivedData for all runs; only the result path varies.
+    set +e
+    (cd cmux-next-ios/CmuxMobileKit && TEST_RUNNER_CMUX_CHIEF_LIVE_PERF=1 xcodebuild test \
+      -scheme CmuxMobileKit-Package -destination "id=$perf_udid,arch=arm64" \
+      -enableCodeCoverage NO -parallel-testing-enabled NO \
+      -only-testing:CmuxMobileChiefTests/ChiefLiveLayoutPerformanceTests \
+      -derivedDataPath "$work/dd-chief-perf" \
+      -resultBundlePath "$out/bench/chief-live-$run.xcresult" \
+      CODE_SIGNING_ALLOWED=NO "${perf_flags[@]}") > "$out/bench/chief-live-$run.log" 2>&1
+    run_status=$?
+    set -e
+    note "- run $run: xcodebuild exit $run_status"
+    if [[ "$run_status" -ne 0 ]]; then
+      tail -60 "$out/bench/chief-live-$run.log"
+      perf_status=$run_status
+      break
+    fi
+    xcrun xcresulttool get log --type console --path "$out/bench/chief-live-$run.xcresult" \
+      > "$out/bench/chief-live-$run-console.log" 2>/dev/null || true
+    if ! grep -h 'CHIEF_LIVE_LAYOUT main_thread_ms_per_1000_tokens=' "$out/bench/chief-live-$run.log" "$out/bench/chief-live-$run-console.log" \
+      > "$out/bench/chief-live-$run.txt"; then
+      note "- ERROR: run $run produced no measurement; a skipped test is not a benchmark pass. See its log and xcresult."
+      perf_status=1
+      break
+    fi
+    cat "$out/bench/chief-live-$run.txt" | tee -a "$summary"
+  done
+  xcrun simctl shutdown "$perf_udid" >/dev/null 2>&1 || true
+  xcrun simctl delete "$perf_udid" >/dev/null 2>&1 || true
+  perf_udid=""
+fi
+
 # --- Benchmarks -------------------------------------------------------------
 if [[ "$mode" == bench || "$mode" == all ]]; then
   corpus="$work/corpus"
@@ -581,3 +632,5 @@ cat "$summary"
 if [[ "${test_status:-0}" -ne 0 ]]; then exit "$test_status"; fi
 if [[ "${ui_status:-0}" -ne 0 ]]; then exit "$ui_status"; fi
 if [[ "${pair_status:-0}" -ne 0 ]]; then exit "$pair_status"; fi
+
+if [[ "${perf_status:-0}" -ne 0 ]]; then exit "$perf_status"; fi

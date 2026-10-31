@@ -1,7 +1,7 @@
 import type { OwnerFrame, Principal } from "@cmux/ownership"
 import type { SubmitResult } from "./owner-do.ts"
 import { asWorkUser } from "./cloud-env-sandbox.ts"
-import type { GuestExecResult } from "./providers/contract.ts"
+import { DriverError, type GuestExecResult } from "./providers/contract.ts"
 import { ledgerKey, PLATFORM_IDENTITY_PREFIX, type LedgerRow, type MachineRow } from "./domains/cloud.ts"
 import type { SnapshotRow } from "./domains/cloud-snapshot.ts"
 
@@ -110,7 +110,14 @@ export const platformCall = async (host: PlatformHost, user: string, call: Platf
       if ("ok" in m) return m
       if (m.status !== "running") return notRunning(m)
       const stdin = call.stdin ? new TextEncoder().encode(call.stdin) : null
-      const r = await host.exec(m, asWorkUser(call.command), stdin, Math.min(Math.max(1, call.timeoutMs), PLATFORM_EXEC_MAX_MS))
+      let r: GuestExecResult | null
+      try {
+        r = await host.exec(m, asWorkUser(call.command), stdin, Math.min(Math.max(1, call.timeoutMs), PLATFORM_EXEC_MAX_MS))
+      } catch (error) {
+        if (!(error instanceof DriverError) || error.code !== "cloud.exec.output_limit") throw error
+        host.audit({ action: "platform.exec", machine: m.id, who: p.identity, at: Date.now(), outcome: "output_limit" })
+        return refused("cloud.exec.output_limit", "the command's output exceeded the response limit; its output was discarded", false)
+      }
       // Never the command or its stdin (a repository token may be on it).
       host.audit({ action: "platform.exec", machine: m.id, who: p.identity, at: Date.now(), outcome: r ? `exit ${r.exitCode}` : "provider_failed" })
       return r ? ok({ exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr }) : refused("cloud.provider.unavailable", "the machine did not answer", true)
