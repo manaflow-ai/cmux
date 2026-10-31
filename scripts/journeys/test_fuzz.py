@@ -14,6 +14,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -217,6 +218,30 @@ class Verdicts(unittest.TestCase):
         self.assertTrue(calls)
         self.assertTrue(all(c["hosts"] == "cmux18" and c.get("whole_host") for c in calls), calls[:2])
         self.assertTrue(all("fuzz_mode" not in c["opts"] for c in calls))
+
+    def test_go_dir_gates_each_round(self):
+        import threading
+        tmp = Path(tempfile.mkdtemp())
+        go = tmp / "go"
+        seen = []
+
+        def scheduler():
+            for _ in range(4):
+                end = time.time() + 30
+                while time.time() < end and not (go / "want").exists():
+                    time.sleep(0.05)
+                seen.append(json.loads((go / "want").read_text())["what"])
+                (go / "go").write_text(json.dumps({"host": "cmux19"}))
+                end = time.time() + 30
+                while time.time() < end and (go / "go").exists():
+                    time.sleep(0.05)
+        t = threading.Thread(target=scheduler, daemon=True)
+        t.start()
+        done, summary, calls, _ = self.run_fuzz({"jobT": {"seconds": 400}, "jobB": {}}, "--base", "jobB", "--diagnostic",
+                                                "--hosts", "cmux19 cmux20", "--go-dir", str(go))
+        self.assertEqual(seen[:2], ["round 1 test", "round 1 base"])
+        self.assertTrue(all(c["hosts"] == "cmux19" for c in calls), calls[:2])
+        self.assertTrue((go / "done").exists())
 
     def test_cmux17_refused(self):
         tmp = Path(tempfile.mkdtemp())

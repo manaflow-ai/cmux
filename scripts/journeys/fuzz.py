@@ -151,6 +151,35 @@ def journey_row(out):
     return {"status": "not run", "reason": "no action-fuzz line"}
 
 
+def wait_go(opts, what):
+    """The scheduler hand-off (--go-dir DIR): before a round acquires, write DIR/want (what the round needs) and wait
+    until the scheduler writes DIR/go with the mini it holds free for it ({"host": "cmux19"}); the go file is consumed.
+    So no round calls capture-host acquire while the scheduler's fleet steps hold the mini (the 900 s drain waits)."""
+    d = Path(opts.go_dir)
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "want").write_text(json.dumps({"what": what, "hosts": (opts.host or opts.hosts).split(), "since": time.time(),
+                                        "pid": os.getpid()}) + "\n")
+    print(f"fuzz: {what} waits for {d / 'go'}", flush=True)
+    while not (d / "go").exists():
+        time.sleep(5)
+    try:
+        host = (json.loads((d / "go").read_text() or "{}") or {}).get("host")
+    except ValueError:
+        host = None
+    (d / "go").unlink()
+    (d / "want").unlink(missing_ok=True)
+    allowed = (opts.host or opts.hosts).split()
+    if host and host not in allowed:
+        raise SystemExit(f"fuzz: the go file names {host}, which is not in --hosts {allowed}")
+    return host
+
+
+def signal_done(opts, what, host, status):
+    """After the round released its lease: DIR/done (the scheduler gives the mini back to its queue)."""
+    (Path(opts.go_dir) / "done").write_text(json.dumps({"what": what, "host": host, "status": status,
+                                                         "at": time.time()}) + "\n")
+
+
 def replay_options(seq, opts):
     """The journey options of one replay of SEQ (no shrink in the app, the run's set, the size trace on)."""
     return {"fuzz_sequence": json.dumps(seq, separators=(",", ":")), "fuzz_shrink": "false", "fuzz_set": opts.set,
@@ -331,6 +360,8 @@ def main(argv=None):
     ap.add_argument("--whole-host", metavar="HOST",
                     help="normal mode: lease this whole mini (exclusive) and launch the app active, so its window is key "
                          "and keys are typed at once (needs CuaDriver's grants and its direct-capture Allow on HOST)")
+    ap.add_argument("--go-dir", help="scheduler hand-off: each round writes DIR/want and waits for DIR/go "
+                                     "({\"host\": MINI}) before it acquires; writes DIR/done after the release")
     ap.add_argument("--shrink-tries", type=int, default=10, help="ddmin tries per failure (one short lease each)")
     ap.add_argument("--replay", help="a repro JSON (a sequence list, or a file with `shrunk`/`sequence`): one round")
     ap.add_argument("--plan", action="store_true", help="print the plan of --seed and exit (no fleet)")
@@ -382,7 +413,10 @@ def main(argv=None):
                 continue
             job = opts.build if side == "test" else opts.base
             r_out = out / f"round-{n:03d}-{side}"
-            code, row, report, used = runner.lease(job, r_out, options, host)
+            go_host = wait_go(opts, f"round {n} {side}") if opts.go_dir else None
+            code, row, report, used = runner.lease(job, r_out, options, go_host or host)
+            if opts.go_dir:
+                signal_done(opts, f"round {n} {side}", used, row.get("status"))
             host = host or used
             rec = {"round": n, "build": side, "job": job, "label": label, "seed": seed if seed is not None else (report or {}).get("seed"),
                    "host": used, "status": row.get("status"), "reason": (row.get("reason") or "")[:300], "exit": code,
