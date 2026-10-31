@@ -188,7 +188,7 @@ export const SubagentTray = memo(function SubagentTray({
   // focused line or Stop: focus moves to the header that folded it, never to the page's body. With no
   // motion the fold leaves in the same commit and takes the focused line with it, so whether focus
   // was in the list is kept as it moves (onFocus/onBlur below), not read after the commit.
-  const head = useRef<HTMLButtonElement | null>(null);
+  const headButton = useRef<HTMLButtonElement | null>(null);
   const focusInList = useRef(false);
   useLayoutEffect(() => {
     if (open || !focusInList.current) return;
@@ -198,7 +198,7 @@ export const SubagentTray = memo(function SubagentTray({
     // Fell to the page (the line left with the fold), or still in the tray (an inert line): only
     // then. Focus the person put elsewhere since stays where it is.
     const fell = !focused || focused === tray?.ownerDocument.body;
-    if ((fell || tray?.contains(focused)) && focused !== head.current) head.current?.focus();
+    if ((fell || tray?.contains(focused)) && focused !== headButton.current) headButton.current?.focus();
   }, [open]);
   // A line that joins the open list rises in (ui/popupSurface.css `data-enter`); the lines it was
   // drawn with, and lines a fold or View all brings back, are simply there. With no motion (Reduce
@@ -342,7 +342,7 @@ export const SubagentTray = memo(function SubagentTray({
       {headed && (
         <button
           type="button"
-          ref={head}
+          ref={headButton}
           className="acpmux-summary-row acpmux-summary-link acpmux-running-tray__head"
           aria-expanded={open}
           aria-controls={open ? listId : undefined}
