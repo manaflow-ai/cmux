@@ -77,10 +77,17 @@ final class AgentChatSplitToggles {
                       store: DaemonStore, actions: AgentChatTabActions) {
         // Preview opens the chat's page; a click with none (its page closed elsewhere) opens nothing.
         if id == Self.preview, url == nil { return }
-        // Split Down splits the chat itself. Every other header open is measured from the chat so
-        // RightColumnPlacement can keep one right-side pane and put later opens below it (or in
-        // its lower pane), even when the user opened or moved the earlier pane themselves.
-        let anchor: String? = nil
+        // Split Down splits the chat itself. Documents (Preview, Changes and Files) always start
+        // from the chat so RightColumnPlacement can keep one right-side pane and put later opens
+        // below it (or in its lower pane), even when the user opened or moved the earlier pane.
+        // Terminal and Browser keep their existing toggle order: a later click splits beside the
+        // panel that button opened.
+        let splits = splits(in: tabs, chat: chat)
+        let rightPlacement = id == Self.preview || id == Self.changes || id == Self.files
+        let anchor: String? = (id == Self.splitDown || rightPlacement) ? nil : opened.indices.reversed().lazy
+            .filter { self.opened[$0].id != Self.splitDown }
+            .compactMap { splits[$0] }
+            .first { Self.beside(chat, $0, in: store) }?.id
         // Open mode adds one per click: keep the recent ones, enough to identify each button's tab.
         opened = AgentChatTerminalAdds().room(in: opened, limit: Self.remembered) { $0.id }
         opened.append((id: AgentChatTerminalAdds().logged(id), baseline: Set(tabs.map(\.id))))
