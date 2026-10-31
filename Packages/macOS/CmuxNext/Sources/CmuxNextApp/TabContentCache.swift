@@ -547,6 +547,9 @@ final class TabContentCache {
         return true
     }
 
+    /// Tab `key`'s node for the pane that selects it (`PaneController.selectTabNode`).
+    func selectedNode(for key: String) -> VisibilityNode { node(for: key) }
+
     /// Stand-in tab `key`'s visibility node becomes `real`'s, unless `real` has one: the content moving with it keeps it.
     func moveNode(_ key: String, to real: String) {
         guard let node = tabNodes.removeValue(forKey: key)?.node, tabNodes[real]?.node == nil else { return }
