@@ -63,7 +63,7 @@ ap.add_argument("--max-seconds", type=float, default=480, help="stop starting it
 ap.add_argument("--seed", type=int, default=None, help="the run's seed (default: from the clock, printed)")
 ap.add_argument("--iterations", type=int, default=0, help="at most this many (0: until --max-seconds)")
 ap.add_argument("--targets", default="app,daemon,acpmux")
-ap.add_argument("--chaos", default="none", choices=["none", "hog", "cpu", "fd", "slowdisk"])
+ap.add_argument("--chaos", default="none", choices=["none", "hog", "cpu", "fd", "fdsoft", "slowdisk"])
 ap.add_argument("--hog-swap-gb", type=float, default=15.0)
 ap.add_argument("--replay", help="a violations.json: replay its first violation's iteration seed and shrink it")
 # Passed by the slot runner for restore-journey.py; unused here.
@@ -216,7 +216,7 @@ class App:
                 os.unlink(opts.socket)
             except OSError:
                 pass
-        if opts.chaos in ("fd", "slowdisk"):
+        if opts.chaos in ("fd", "fdsoft", "slowdisk"):
             # exec of the executable itself, so the limit or the I/O policy is the app's and its children's
             # (LaunchServices would not keep either). slowdisk: taskpolicy -d throttle, macOS's own per-process
             # disk I/O throttle (inherited by the daemon the app starts); no host setting changes.
@@ -225,14 +225,17 @@ class App:
             env = dict(os.environ, **self.env)
 
             def lower():
-                resource.setrlimit(resource.RLIMIT_NOFILE, (256, 256))
+                # fd: soft and hard 256 (the app cannot raise it); fdsoft: soft 256 with the hard limit kept, as
+                # launchd gives a GUI app by default (the app may raise its own soft limit).
+                hard = 256 if opts.chaos == "fd" else resource.getrlimit(resource.RLIMIT_NOFILE)[1]
+                resource.setrlimit(resource.RLIMIT_NOFILE, (256, hard))
                 os.setsid()
             argv = [os.path.join(self.bundle, "Contents", "MacOS", exe)]
             if opts.chaos == "slowdisk":
                 argv = ["/usr/sbin/taskpolicy", "-d", "throttle", *argv]
             if self.child is not None:
                 self.child.poll()
-            self.child = subprocess.Popen(argv, env=env, preexec_fn=lower if opts.chaos == "fd" else os.setsid,
+            self.child = subprocess.Popen(argv, env=env, preexec_fn=lower if opts.chaos in ("fd", "fdsoft") else os.setsid,
                              stdin=subprocess.DEVNULL, stdout=open(os.path.join(opts.out, "app-fd.out"), "a"),
                              stderr=subprocess.STDOUT)
         else:
@@ -500,6 +503,38 @@ def kill(target):
     return pids
 
 
+def evidence(tag):
+    """On a failed restore: what ran, what the daemon and the app showed, and any crash report of the build since
+    the run began, copied into OUT/evidence-<tag>/ (read on the mini before the lease ends and its slot is reset)."""
+    folder = os.path.join(opts.out, f"evidence-{tag}")
+    os.makedirs(folder, exist_ok=True)
+    rows = [f"{pid} {ppid} {args[:300]}" for pid, ppid, args in ps_table() if APP.mine(args)]
+    snap = {"bundle_processes": rows, "app_alive": APP.alive(), "app_pid": APP.pid,
+            "daemon_state": daemon_state(), "app_state": (app_state() or [None])[0]}
+    with open(os.path.join(folder, "state.json"), "w") as f:
+        json.dump(snap, f, indent=1, default=str)
+    exe = os.path.basename(APP.bundle)[:-4] if APP.bundle else "cmux"
+    copied = []
+    for home in {os.path.expanduser("~"), APP.env.get("HOME", "")}:
+        reports = os.path.join(home, "Library", "Logs", "DiagnosticReports") if home else ""
+        try:
+            names = os.listdir(reports)
+        except OSError:
+            continue
+        for name in names:
+            full = os.path.join(reports, name)
+            try:
+                if os.path.getmtime(full) < T0 or not (exe.split()[0] in name or "cmux" in name or "acpmux" in name):
+                    continue
+                with open(full, "rb") as src, open(os.path.join(folder, name), "wb") as dst:
+                    dst.write(src.read(4 << 20))
+                copied.append(name)
+            except OSError:
+                pass
+    say(f"  evidence {tag}: {len(rows)} bundle processes, app alive {snap['app_alive']}, crash reports {copied}")
+    return copied
+
+
 def restore(target, killed_at, old_daemons):
     """Brings the build back after the kill and waits for it to settle; (state, timings, problem)."""
     timings = {}
@@ -689,6 +724,7 @@ def iteration(seed, targets, keep=None):
     rec["timings"] = timings
     if problem:
         rec["problems"].append(problem)
+        rec["crash_reports"] = evidence(f"{rec.get('iteration', 'x')}-{seed}")
     else:
         rec["problems"] += judge(state, confirmed, inflight)
     rec["verdict"] = "fail" if rec["problems"] else "pass"
@@ -736,8 +772,9 @@ def start_chaos():
         for _ in range(os.cpu_count() or 8):
             CHAOS_PROCS.append(subprocess.Popen(["/usr/bin/python3", "-c", burn]))
         say(f"chaos cpu: {len(CHAOS_PROCS)} busy processes at user-interactive QoS")
-    elif opts.chaos == "fd":
-        say("chaos fd: every app relaunch runs with RLIMIT_NOFILE 256")
+    elif opts.chaos in ("fd", "fdsoft"):
+        say(f"chaos {opts.chaos}: every app relaunch runs with RLIMIT_NOFILE soft 256"
+            + (", hard 256" if opts.chaos == "fd" else ", hard unchanged"))
     elif opts.chaos == "slowdisk":
         say("chaos slowdisk: every app relaunch runs under taskpolicy -d throttle (disk I/O throttled)")
 

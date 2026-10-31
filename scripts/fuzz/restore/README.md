@@ -9,7 +9,7 @@ A measurer, not a gate: the fuzz owner runs it on the perf minis; it is no CI jo
 CAPTURE_HOST_POOL=perf-lead CAPTURE_HOST_SLOT_HOSTS="cmux19 cmux21 cmux22 cmux23 cmux24" \
 CAPTURE_HOST_EXCLUDE="cmux16 cmux17" \
 RJ_DRIVER=scripts/fuzz/restore/restore_fuzz.py RJ_DRIVER_FILES=scripts/cmux-next/austins-day/hog.py \
-  scripts/cmux-next/restore-journey-slot.sh JOB OUT -- --seed S [--chaos none|hog|cpu|fd|slowdisk] [--targets app,daemon,acpmux]
+  scripts/cmux-next/restore-journey-slot.sh JOB OUT -- --seed S [--chaos none|hog|cpu|fd|fdsoft|slowdisk] [--targets app,daemon,acpmux]
 
 # The verdict, only from the oracle's own lines:
 python3 scripts/fuzz/restore/verdict.py < OUT/journey.txt
@@ -35,7 +35,7 @@ python3 scripts/fuzz/restore/verdict.py < OUT/journey.txt
    terminal twice; the app shows what the daemon has. An action that hangs past 10 s is a stall.
 
 Chaos (row h) keeps the same oracle: `hog` (the smoke gate's Austin's-day memory hog), `cpu` (one busy process
-per core at user-interactive QoS), `fd` (RLIMIT_NOFILE 256 for the relaunched app), `slowdisk`
+per core at user-interactive QoS), `fd` (RLIMIT_NOFILE soft and hard 256 for the relaunched app), `fdsoft` (soft 256, hard kept: the macOS GUI default), `slowdisk`
 (`taskpolicy -d throttle` for the relaunched app). The limit and the throttle reach the daemon only when the
 new app starts a new one.
 
@@ -45,3 +45,5 @@ Output: `iterations.jsonl`, `violations.json` (with the shrink attempts), `journ
 ## Tests
 
 `python3 scripts/fuzz/restore/test_restore_fuzz.py` (oracle helpers and the verdict reader; no app).
+
+A failed restore writes `evidence-<iter>-<seed>/` (the bundle processes, the daemon and app state, and any crash report of the build since the run began).
