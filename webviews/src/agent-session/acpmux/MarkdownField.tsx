@@ -8,6 +8,7 @@ import { activeFormats, applyFormat, type MarkdownFormat } from "./markdownForma
 import "./markdownField.css";
 import { followScrollEdges } from "./summary/scrollEdges";
 import {
+  INLINE_NODE,
   inlineAttachmentNode,
   inlinePlugin,
   insertInline,
@@ -354,6 +355,18 @@ function caretOf(view: EditorView): number {
   return doc.textBetween(start, selection.from, "\n", "\n").length;
 }
 
+/** No text and no placed attachment: an attachment's atom has no text, so textContent alone misses it. */
+function isEmptyPrompt(doc: ProseNode): boolean {
+  if (doc.textContent !== "") return false;
+  let placed = false;
+  doc.descendants((node) => {
+    if (placed) return false;
+    placed = node.type.name === INLINE_NODE;
+    return !placed;
+  });
+  return !placed;
+}
+
 /** The text before `pos`, blocks joined by newlines. */
 const plainOffset = (doc: ProseNode, pos: number) => doc.textBetween(0, pos, "\n", "\n").length;
 
@@ -459,7 +472,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   /// Asks the surface about typed or pasted text first; true when it consumed it.
   const beforeInput = (editorView: EditorView, text: string, paste = false) =>
     latest.current.onBeforeInput?.(text, {
-      empty: editorView.state.doc.textContent === "",
+      empty: isEmptyPrompt(editorView.state.doc),
       composing: composing.current || editorView.composing,
       paste,
     }) === true;

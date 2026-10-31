@@ -365,7 +365,6 @@
   color: var(--agent-text);
   font-size: inherit;
   text-decoration: underline;
-  cursor: pointer;
 }
 .acpmux-md-inline-remove {
   position: absolute;
@@ -382,7 +381,6 @@
   background: color-mix(in srgb, var(--acpmux-composer-bg) 82%, transparent);
   box-shadow: 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
   color: var(--agent-text);
-  cursor: pointer;
 }
 .acpmux-md-inline-chip:hover .acpmux-md-inline-remove,
 .acpmux-md-inline-chip:focus-within .acpmux-md-inline-remove,
