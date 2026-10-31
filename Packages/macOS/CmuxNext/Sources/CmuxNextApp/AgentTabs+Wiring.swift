@@ -176,6 +176,8 @@ extension AgentTabStore {
         tabs.chiefHomes = ChiefHomeDirectory(parents: ChiefHomeDirectory.homeParents(of: home), work: services.work,
                                              environment: { ChiefHomeAcpmux.environment(home: $0) }, peerApprover: tabs.peerApprover)
         tabs.localSessionHost = chief.localRouter(tabs.host)
+        // A chat that home keeps opens on its own page, never the spare connected to this Mac's acpmux.
+        tabs.chiefKeepsSession = { session in AcpmuxChiefSessionRouter.keeps(session: session, home: home.acpmuxHome) }
         // This Mac's stable install id (the Cloud device id): only this host attaches to its acpmux.
         tabs.blankChatHandler = { [weak services] key in
             guard let services, let (tab, pane) = services.locateTabOnAnyMachine(key), let controller = services.paneController(for: pane) else { return nil }
