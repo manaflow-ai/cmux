@@ -116,7 +116,13 @@ final class HomeTopFadeView: NSView {
                                background.withAlphaComponent(0.25 * background.alphaComponent).cgColor,
                                background.withAlphaComponent(0).cgColor]
         case .backgroundTint:
-            gradient.colors = [opaque.cgColor, opaque.cgColor, opaque.withAlphaComponent(0.6).cgColor, opaque.withAlphaComponent(0).cgColor]
+            // The chat's own colour at the chat's own alpha: the header is the same veil as the rest
+            // of Home (the user, 2026-10-31). Over a clear chat fill (a see-through window, a
+            // background image) it draws nothing and the rows fade instead (`topMaskStops`); at full
+            // opacity it was a flat bar over the picture.
+            let a = background.alphaComponent
+            gradient.colors = [background.cgColor, background.cgColor, background.withAlphaComponent(0.6 * a).cgColor,
+                               background.withAlphaComponent(0).cgColor]
         case .edgeShadow:
             let shade = NSColor(white: 0, alpha: light ? 0.10 : 0.35)
             gradient.colors = [shade.cgColor, shade.withAlphaComponent(0).cgColor]
