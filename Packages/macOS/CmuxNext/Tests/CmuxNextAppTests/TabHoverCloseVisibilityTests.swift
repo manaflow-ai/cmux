@@ -81,6 +81,28 @@ import Testing
         #expect(selected.showsClose)
     }
 
+    @Test func accessibilityAndPaintShareTheSameCenteredCloseOrigin() {
+        let pinned = TabChromeVisibility.resolve(
+            width: 48, isPinned: true, isSelected: false, isHovered: true,
+            style: .chrome, metrics: metrics)
+        let pinnedPill = metrics.pillFrame(slotWidth: 48, height: metrics.tabHeight)
+        #expect(pinned.closeButtonOriginX(pillWidth: pinnedPill.width, metrics: metrics)
+                == (pinnedPill.width - metrics.closeButtonSize) / 2)
+
+        let narrowWidth = min(metrics.minInactiveTabWidth, metrics.chrome.minInactiveWidth)
+        let narrow = TabChromeVisibility.resolve(
+            width: narrowWidth, isPinned: false, isSelected: false, isHovered: true,
+            style: .chrome, metrics: metrics)
+        let narrowPill = metrics.pillFrame(slotWidth: narrowWidth, height: metrics.tabHeight)
+        #expect(narrow.closeButtonOriginX(pillWidth: narrowPill.width, metrics: metrics)
+                == (narrowPill.width - metrics.closeButtonSize) / 2)
+
+        let protected = TabChromeVisibility.resolve(
+            width: 48, isPinned: true, isSelected: false, isHovered: true,
+            isClosable: false, style: .chrome, metrics: metrics)
+        #expect(protected.closeButtonOriginX(pillWidth: pinnedPill.width, metrics: metrics) == nil)
+    }
+
     @Test func transitionalTooNarrowTabStaysHidden() {
         let width = min(metrics.minInactiveTabWidth, metrics.chrome.minInactiveWidth) - 1
         let hovered = TabChromeVisibility.resolve(
