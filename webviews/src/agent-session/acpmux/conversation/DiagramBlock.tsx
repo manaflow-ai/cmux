@@ -58,7 +58,7 @@ export function DiagramBlock({ lang, code, actions }: { lang: string; code: stri
       <div className="cv-diagram__bar">
         <span className="cv-diagram__lang">{mode}</span>
         {!failure && (
-          <button type="button" className="cv-diagram__toggle" onClick={() => setShowCode((shown) => !shown)}>
+          <button type="button" className="cv-diagram__toggle" data-fold-toggle="" onClick={() => setShowCode((shown) => !shown)}>
             {showCode ? t("diagram.chart") : t("diagram.code")}
           </button>
         )}

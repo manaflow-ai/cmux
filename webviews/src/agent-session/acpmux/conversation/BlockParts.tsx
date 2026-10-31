@@ -22,6 +22,7 @@ export function WrapButton({ kind, className = "cv-codeblock__action" }: { kind:
       className={className}
       aria-pressed={wrap}
       aria-label={t("changes.wrapLines")}
+      data-fold-toggle=""
       onClick={toggle}
     >
       <WrapLines />

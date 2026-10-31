@@ -82,8 +82,8 @@ describe("foldToggleAt", () => {
       "span",
     ],
     ["a summary", "<details><summary>Context</summary>body</details>", "summary"],
-    ["a block's Wrap lines", '<button class="cv-codeblock__action" aria-pressed="false">wrap</button>', "button"],
-    ["a diagram's chart or code", '<button class="cv-diagram__toggle">Code</button>', "button"],
+    ["a block's Wrap lines", '<button class="cv-codeblock__action" aria-pressed="false" data-fold-toggle="">wrap</button>', "button"],
+    ["a diagram's chart or code", '<button class="cv-diagram__toggle" data-fold-toggle="">Code</button>', "button"],
     ["a question's pill", '<button class="acpmux-question-pill" aria-expanded="false">Q</button>', "button"],
     ["a permission's details", '<button class="acpmux-ask-toggle" aria-expanded="false">Details</button>', "button"],
     ["a paste chip", '<button class="cv-user__paste" aria-expanded="false">pasted</button>', "button"],
@@ -101,6 +101,9 @@ describe("foldToggleAt", () => {
     );
     expect(at(".to")).toBeUndefined();
     expect(at(".w")).toBeDefined();
+  });
+  test("leaves a pressed button that changes no height alone (Pin, Read aloud)", () => {
+    expect(row('<button aria-pressed="false" aria-label="Pin">pin</button>').at("button")).toBeUndefined();
   });
   test("leaves plain text alone", () => {
     expect(row("<p>words</p>").at("p")).toBeUndefined();

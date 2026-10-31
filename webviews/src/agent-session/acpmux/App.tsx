@@ -4328,7 +4328,8 @@ export function VirtualTranscript({
     const cancelProgrammatic = (event?: Event) => {
       revealing.current = undefined;
       revealWindow.current = 0;
-      foldAnchor.current = undefined;
+      // A sideways wheel (a code block's own scroll) keeps a disclosure's hold; the rest lets go.
+      if (!(event?.type === "wheel" && !verticalWheel(event as WheelEvent))) foldAnchor.current = undefined;
       if (findFrame.current !== undefined) cancelAnimationFrame(findFrame.current);
       findFrame.current = undefined;
       if (reader(event)) followIntent(false);
@@ -4422,7 +4423,8 @@ export function VirtualTranscript({
       if (!toggle) return;
       const line = foldHoldTarget(toggle);
       settleFold(line);
-      foldAnchor.current = clickFold(line, pressed);
+      // A keyboard click (detail 0) had no press: an older, abandoned one is not its place.
+      foldAnchor.current = clickFold(line, event.detail > 0 ? pressed : undefined);
       pressed = undefined;
       keepFoldRoom();
     };
@@ -4433,6 +4435,9 @@ export function VirtualTranscript({
     const notePressed = (event: PointerEvent) => {
       const toggle = event.button === 0 && node ? foldToggleAt(event.target, node) : undefined;
       pressed = toggle ? holdFold(foldHoldTarget(toggle)) : undefined;
+    };
+    const dropPressed = () => {
+      pressed = undefined;
     };
     // A collapsible's header that asks to be held (useAnchoredCollapse.ts): a toggle from the keyboard
     // or a header that is no disclosure button, as well as the click above.
@@ -4456,6 +4461,7 @@ export function VirtualTranscript({
     const releases = ["wheel", "touchstart", "keydown"] as const;
     node?.addEventListener("click", holdClicked, { capture: true });
     node?.addEventListener("pointerdown", notePressed, { capture: true });
+    node?.addEventListener("pointercancel", dropPressed, { capture: true });
     node?.addEventListener(ANCHORED_COLLAPSE_EVENT, holdAsked);
     for (const name of releases) node?.addEventListener(name, release, { passive: true });
     // The wheel over Jump to latest scrolls the transcript (wheelPassThrough.ts).
@@ -4505,6 +4511,7 @@ export function VirtualTranscript({
       node?.removeEventListener("click", holdClicked, { capture: true });
       node?.removeEventListener(ANCHORED_COLLAPSE_EVENT, holdAsked);
       node?.removeEventListener("pointerdown", notePressed, { capture: true });
+      node?.removeEventListener("pointercancel", dropPressed, { capture: true });
       for (const name of releases) node?.removeEventListener(name, release);
       removeWheel?.();
       gutterRelease.current = undefined;

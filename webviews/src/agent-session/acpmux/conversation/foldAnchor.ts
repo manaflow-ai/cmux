@@ -25,9 +25,9 @@ export const FOLD_TOGGLE = [
   '[role="button"][aria-expanded]:not([aria-haspopup])',
   "summary",
   ".cv-agentmsg__line > [data-interactive]",
-  // Toggles that change their block's height in place: Wrap lines, a diagram's chart or code.
-  "button[aria-pressed]",
-  "button.cv-diagram__toggle",
+  // Toggles that change their block's height in place and say so (Wrap lines, a diagram's chart or
+  // code). Not every aria-pressed button: Pin and Read aloud change no height and must not hold.
+  "button[data-fold-toggle]",
 ].join(", ");
 /// The controls a click lands on: one inside a toggle is its own, not the toggle's.
 const NESTED_CONTROL = 'button, a[href], [role="button"], summary, input, textarea, select, [role="menuitem"]';
