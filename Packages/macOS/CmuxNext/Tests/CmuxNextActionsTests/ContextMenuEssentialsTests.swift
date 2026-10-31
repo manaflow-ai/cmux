@@ -36,7 +36,7 @@ struct ContextMenuEssentialsTests {
 
     private static let sidebarTrimmedActions: [ActionID] = [
         "workspace.setTheme", "workspace.setTint", "workspace.removeAllColors",
-        "sidebar.workspaceTabs.toggle", "sidebar.density.compact", "sidebar.density.comfortable",
+        "sidebar.density.compact", "sidebar.density.comfortable",
         // Copy Workspace ID and Copy Workspace Link came back under More > Copy (#27709, classic parity).
         "sidebar.density.expanded", "workspace.copyPath", "palette.copyWorkspaceIDAndRef", "copyWorkspaceSSHError",
         "agentChat.copyIdentifier", "workspace.showResources", "revealWorkspaceInFinder",

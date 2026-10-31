@@ -16,9 +16,7 @@ import enum CmuxNextLayout.NewChatPlacement
 /// workspace no window shows. Every daemon command is tracked
 /// (`ActionRegistry.track`) for callers that await the effect.
 enum TabLifecycle {
-    /// `asTab`: a tab in the focused pane whatever `newTerminal.opensWorkspace` and
-    /// `layout.newPanePlacement` say (Cmd-T with `tabs.terminalFirst`, #23021).
-    static func newTerminal(_ ctx: AppActionContext, _ invocation: ActionInvocation, slot: NewTabSlot.Target? = nil, asTab: Bool = false) {
+    static func newTerminal(_ ctx: AppActionContext, _ invocation: ActionInvocation, slot: NewTabSlot.Target? = nil) {
         #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.markAction() } // `debug.new_terminal_trace`
         #endif
@@ -30,7 +28,7 @@ enum TabLifecycle {
             setting: ctx.services.settings?.snapshot.newTerminalOpensWorkspace ?? NewTerminalWorkspaceSetting.fallback,
             toggled: invocation["toggleWorkspace"]?.boolValue == true
         )
-        if invocation.origin == .user, opensWorkspace, !asTab, case let windows = ctx.services.windows,
+        if invocation.origin == .user, opensWorkspace, case let windows = ctx.services.windows,
            let windowID = ctx.activeWindow?.state.id {
             let daemon = ctx.services.daemon(for: focused)
             let selected = ctx.services.paneController(for: focused)?.selectedTab
@@ -44,7 +42,7 @@ enum TabLifecycle {
         }
         // `layout.newPanePlacement: split`: a new pane like New Pane (Auto Layout) (PanePlacementRouting).
         let pane: PaneModel
-        switch asTab ? PanePlacementRouting.Route.tab(focused) : PanePlacementRouting.route(ctx, invocation, from: focused, tiles: true) {
+        switch PanePlacementRouting.route(ctx, invocation, from: focused, tiles: true) {
         case .tab(let target): pane = target
         case .split(let target, let direction):
             return PaneHandlers.split(ctx, PanePlacementRouting.aimed(invocation, at: target, from: ctx.services.paneController(for: focused)), direction: direction)
@@ -83,8 +81,7 @@ enum TabLifecycle {
 
     /// `newTab.default` (Cmd-T, the strip's +): a person always gets the New
     /// Tab page, where a terminal, browser or chat is picked; nothing is
-    /// opened for them (Leo 2026-10-12), unless `tabs.terminalFirst` asks
-    /// for a terminal, as in cmux classic (#23021). Scripts (CLI, MCP) get a tab of the
+    /// opened for them (Leo 2026-10-12). Scripts (CLI, MCP) get a tab of the
     /// kind of the pane's selected tab (`NewTabKind`), through the New
     /// Terminal Tab, New Browser Tab and New Agent Chat paths, so focus and
     /// options match them, and so does `newTab.ofKind` (New <Kind> Tab,
@@ -111,8 +108,7 @@ enum TabLifecycle {
             let repair = ctx.services.machines.emptyWorkspaceRepair(daemon.machineID, local: ctx.services.emptyWorkspaces)
             guard repair.states[key] == nil else { return }
             let services = ctx.services
-            let page = invocation.origin == .user && followsSetting && !NewTabKind.terminalFirst(services)
-                && services.agentTabs.opensFirstPage(on: daemon)
+            let page = invocation.origin == .user && followsSetting && services.agentTabs.opensFirstPage(on: daemon)
             ctx.registry.track(Task { @MainActor in
                 do {
                     _ = try await repair.fillFirstTab(key) {
@@ -148,15 +144,13 @@ enum TabLifecycle {
         // The position action's slot, else a person's `tabs.newTabPosition` (right after `tab` by default), else the end (NewTabSlot).
         let slot = NewTabSlot.target(current: tab, pane: pane.tabs, explicit: position, user: user,
                                      setting: ctx.services.settings?.snapshot.newTabPosition)
-        // `tabs.terminalFirst` (#23021): a person's Cmd-T opens a terminal tab, as in cmux classic.
-        let terminalFirst = user && followsSetting && NewTabKind.terminalFirst(ctx.services)
-        var kind = user && followsSetting ? (terminalFirst ? .terminal : .page) : sameKind
+        var kind = user && followsSetting ? .page : sameKind
         // Agent tabs and the page live in a shown pane whose daemon holds agent tabs; elsewhere,
         // a terminal. A build without the agent page has no new tab page either.
         if kind == .agent || kind == .page, !(controller.map { ctx.services.agentTabs.canHost(on: $0.daemon) } ?? false) { kind = .terminal }
         switch kind {
         case .terminal:
-            newTerminal(ctx, invocation, slot: slot, asTab: terminalFirst)
+            newTerminal(ctx, invocation, slot: slot)
         case .browser(let engine):
             var invocation = invocation
             invocation.arguments["cwd"] = nil

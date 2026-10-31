@@ -99,6 +99,7 @@ final class PaletteContentView: NSView {
         searchBar.onQueryChange = { model.query = $0 }
         searchBar.onPopTo = { model.pop(to: $0) }
         searchBar.onKeywordHint = { model.handle(.openActions) }
+        searchBar.onRemoveToken = { model.removeToken(at: $0) }
         list.onHover = { model.hover($0) }
         list.onPointerMove = { model.pointerMoved(over: $0) }
         list.onActivate = { model.activate(rowID: $0) }
@@ -160,7 +161,8 @@ final class PaletteContentView: NSView {
             rootTitle: model.navigation.graph.root.title,
             style: model.chipStyle,
             keywordHint: model.keywordHint?.title,
-            isLoading: model.isLoading
+            isLoading: model.isLoading,
+            tokens: model.pageTokens
         )
         footer.update(
             pageTitle: model.prefixHints ?? model.pageTitle,

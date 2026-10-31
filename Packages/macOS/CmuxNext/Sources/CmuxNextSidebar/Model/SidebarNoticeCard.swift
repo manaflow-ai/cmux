@@ -21,11 +21,15 @@ public nonisolated struct SidebarNoticeCard: Hashable, Sendable {
         public var title: String
         /// The call to action (filled); the others are quiet.
         public var prominent: Bool
+        /// Draws as a small switch with its title on the button row's trailing edge instead of a button (the
+        /// Tidy Up card's "Always"); flipping it sends the action. A card shows at most one.
+        public var isSwitch: Bool
 
-        public init(id: String, title: String, prominent: Bool = false) {
+        public init(id: String, title: String, prominent: Bool = false, isSwitch: Bool = false) {
             self.id = id
             self.title = title
             self.prominent = prominent
+            self.isSwitch = isSwitch
         }
 
         /// A menu item from an owner's (id, title) list (the tip's and the update cards' x menus).

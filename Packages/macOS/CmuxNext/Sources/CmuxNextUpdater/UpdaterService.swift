@@ -1,5 +1,6 @@
 public import CmuxUpdater
 public import CmuxNextWakeups
+import CmuxNextSettings
 import Network
 public import Foundation
 import Observation
@@ -325,6 +326,9 @@ public final class UpdaterService {
         restoreRollbackSkip()
         releasePush.onNewerBuild = { [weak self] in self?.releasePushed($0) }
         tipState = TipState(defaults: defaults)
+        // The app settled the install before making the updater (AppServices): an install that ran
+        // before tips counts as having used the catalog's basics.
+        storeTipState(TipChooser.settleInstall(tipState, catalog: TipCatalog.all, install: tipBudget.install))
         updateSnooze = UpdateSnooze(defaults: defaults)
     }
 

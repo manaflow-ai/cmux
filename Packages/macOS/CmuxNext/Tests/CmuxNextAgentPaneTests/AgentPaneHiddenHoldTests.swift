@@ -85,6 +85,16 @@ struct AgentPaneHiddenHoldTests {
         #expect(!waits(AcpmuxStandInServer.benchFrame(1)), "a streamed session/update")
     }
 
+    @Test func whatAnswersThePage() {
+        let answers = { (text: String) -> Bool in
+            AcpmuxPaneSocket.answersPage((try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] ?? [:])
+        }
+        #expect(answers(#"{"jsonrpc":"2.0","id":3,"result":{}}"#), "a reply")
+        #expect(answers(#"{"jsonrpc":"2.0","id":3,"error":{"code":-32601,"message":"no"}}"#), "an error reply")
+        #expect(!answers(#"{"jsonrpc":"2.0","id":4,"method":"session/request_permission","params":{}}"#), "a daemon request")
+        #expect(!answers(#"{"jsonrpc":"2.0","method":"_acpmux/event","params":{"sessionId":"s","seq":9,"kind":"turn_end","msg":{}}}"#))
+    }
+
     /// The page's events, one entry per bridge call, awaited as they arrive.
     final class Calls: @unchecked Sendable { // crash-allow: test support; every access holds the lock
         private let state = Mutex<(calls: [[String]], waiters: [(String, CheckedContinuation<[String], Never>)])>(([], []))

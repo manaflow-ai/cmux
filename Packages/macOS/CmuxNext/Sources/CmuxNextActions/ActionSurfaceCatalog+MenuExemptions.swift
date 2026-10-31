@@ -89,7 +89,7 @@ nonisolated extension ActionSurfaceCatalog {
             "fileExplorerOpenSelectionFinderAlias", "vaultOpenSession",
             "vaultResumeInNewWorkspace", "vaultCopyResumeCommand", "vaultOpenPullRequest", "checklistEditItem",
             "checklistMarkInProgress", "checklistCompleteItem", "checklistRemoveItem", "checklistOpenAsPane",
-            "checklistAttachImages", "cloudExec", "cloudDomainList", "cloudPublicationList", "cloudListMachines",
+            "checklistAttachImages", "cloudExec", "cloudDomainList", "cloudPublicationList", "cloudAPIKeyList", "cloudAPIKeyRevoke", "cloudListMachines",
         ],
         .focusMove: [
             "history.goTo",

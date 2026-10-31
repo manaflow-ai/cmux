@@ -7,9 +7,10 @@ The policy, and the regression audit behind every rule, is docs/ci/risk-tiers.md
   low     docs, copy, generated files, tests, tooling. Merges on green; post-merge checks catch the rest.
   normal  everything else, which is most cmux NEXT UI and logic: agent review and the relevant
           checks, then auto-merge. Nothing here waits for a person.
-  high    auth and credentials, socket and relay access policy, stored-data migrations, release,
-          signing, notarization and the updater, the risk gate itself, code that adds a delete
-          of user data, and a workflow that adds a pull_request_target or workflow_run trigger. Read for
+  high    auth and credentials, socket and relay access policy (with peer and code-signature
+          trust), stored-data migrations, release, signing, notarization and the updater, the
+          risk gate itself, code that adds a delete of user data, and a workflow that adds a
+          pull_request_target or workflow_run trigger. Read for
           a review verdict on the head: an independent review's `Review (<reviewer>): SHIP at <full
           head sha>` line in the description or leading a comment, an approving review on the head
           commit, or `risk:human-ok` from a maintainer. A BLOCK or FIX on the head holds it; no verdict
@@ -102,6 +103,35 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         "cmux-tui/crates/*relay*/*", "cmux-tui/relays/*", "cmux-tui/crates/cmux-tui-core/src/server/remote_relay/*",
         "services/iroh-relay-minter/*", "web/services/relay/*", "daemon/remote/cmd/cmuxd-remote/*peer*",
         r"re:(?i)relay[-_]?(command[-_]?)?polic", r"re:(?i)(socket|control)[-_]?(access|auth)",
+    )),
+    # Who answers or connects on a local socket or XPC service, and which code may run, decided by
+    # the peer's uid, executable or code signature: the Chief's acpmux peer check and its
+    # kernel-signature rule for a moved acpmux (code_signature.rs), the app's acpmux server peer
+    # check, cmux-link's caller and containing-app checks, the Computer Use helper's admission rule,
+    # state and control pipe (where the app's admission values arrive), host check and the two
+    # socket servers that call them, the app's check of the helper on that socket, the requirement
+    # or cdhash, the acpmux daemon and executable and the per-launch secret the app gives the helper
+    # for acpmux bridges, the requirement of the helper the app or acpmux may
+    # launch (Swift, Rust and shell copies) and the check of its staged copy, the root server
+    # helper's XPC requirements (its clients', and the app's of it), and the signature checks of a
+    # downloaded browser runtime. A wrong time or anchor here lets another process take the socket
+    # (#29072 changed which time a signing chain is valid at and graded normal).
+    ("high", "peer identity or code-signature trust", (
+        "Native/OptChat/optchat-chief/src/acpmux_peer.rs", NEXT + "CmuxNextAgentPane/AcpmuxServerPeer.swift",
+        "cmux-tui/crates/cmux-link/src/caller.rs", "cmux-tui/crates/cmux-link/src/caller_macos.rs",
+        "cmux-tui/crates/cmux-link/src/app_caller.rs", "*/CmuxCuaHelperCore/HostVerifier.swift",
+        NEXT + "CmuxNextAgentActivity/CuaHelperIdentity.swift", "*/CmuxCuaHelperCore/Admission.swift",
+        "*/CmuxCuaHelperCore/AdmissionState.swift", "*/CmuxCuaHelperCore/HelperController.swift",
+        "*/CmuxCuaHelperCore/HelperSocketServer.swift", "*/CmuxCuaHelperCore/HostConsentServer.swift",
+        NEXT + "CmuxNextComputerUse/ComputerUseHelperV2+Secret.swift", NEXT + "CmuxNextApp/AgentTabs+PaneSource.swift",
+        "cmux-tui/crates/acpmux/src/agent_tools/cua_helper.rs", "scripts/cmux-cua-helper-trust.sh",
+        NEXT + "CmuxNextComputerUse/ComputerUseHelperStaging.swift",
+        NEXT + "CmuxNextComputerUse/ComputerUseHelperV2HostLink.swift",
+        NEXT + "CmuxNextComputerUse/ComputerUseHelperV2+Admission.swift",
+        NEXT + "CmuxNextServerHelper/ServerHelperListener.swift", NEXT + "CmuxNextServerHelper/ServerHelperProtocol.swift",
+        NEXT + "CmuxNextApp/Server/ServerHelperClient.swift",
+        # A file named for a code-signature check: code_signature.rs, *CodeSignatureChecker.swift.
+        r"re:(?i)(^|/)[^/]*(code[-_]?signature|signature[-_]?check)[^/]*\.(rs|swift|go)$",
     )),
     # What an agent pane's web page may make the host do or read: the page ops (AgentPageOps), the
     # _acpmux methods and params it may relay, the frame check, the gesture rule (the tickets, which

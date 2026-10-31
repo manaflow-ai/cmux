@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
 
-/// The "Done (N)" and "Show N more" rows at the end of a list (`SidebarLayout+DoneFold`): a chevron and the count in
+/// The "Done (N)", "Archived (N)" and "Show N more" rows at the end of a list (`SidebarLayout+DoneFold`): a chevron and the count in
 /// the folder header's quiet style. A click opens or folds the rows it holds; it is no drop target and has no menu of
 /// its own (its list's menu shows).
 final class SidebarDoneFoldRowView: SidebarRowView {
@@ -17,9 +17,12 @@ final class SidebarDoneFoldRowView: SidebarRowView {
     }
 
     func configure(_ row: SidebarRow) {
-        if case .showMore = row.key {
+        switch row.key {
+        case .showMore:
             name.setString(row.isCollapsed ? Strings.showMore(row.childCount) : Strings.showFewer)
-        } else {
+        case let .doneFold(fold) where fold.kind == .archived:
+            name.setString(Strings.archivedFold(row.childCount))
+        default:
             name.setString(Strings.doneFold(row.childCount))
         }
         name.setFont(SidebarStyle.headerFont)
@@ -31,6 +34,9 @@ final class SidebarDoneFoldRowView: SidebarRowView {
         setAccessibilityExpanded(!row.isCollapsed)
         needsLayout = true
     }
+
+    /// Whether the row draws its disclosure chevron (every fold row does; tests read it).
+    var showsChevron: Bool { chevron.image != nil && !chevron.isHidden }
 
     override func accessibilityPerformPress() -> Bool {
         guard !isHiddenOrHasHiddenAncestor else { return false }

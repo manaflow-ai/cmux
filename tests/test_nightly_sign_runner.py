@@ -42,9 +42,10 @@ SIGNING_JOBS = {
     "signer-dmg-image": "needs.pick-nightly-sign-runner.outputs.runner",
 }
 # Jobs that never take Blacksmith (Lawrence, 2026-10-30: nightlies never use Blacksmith): an owned
-# pick where one exists, then the owned nightly slot variable, then the owned side lane.
+# pick where one exists, then the owned nightly slot variable, the owned side lane, then the owned std pool
+# literal, so the chain never ends on a reserved lane variable (test_ci_runs_on_fallback.py).
 OWNED_ONLY_JOBS = ("sign-nightly-identity-legacy", "verify-nightly-identity-legacy", "generate-nightly-deltas")
-OWNED_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER }}"
+OWNED_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}"
 # Each picker's re-run label, the other Blacksmith macOS 26 size.
 ALTERNATES = {
     "needs.pick-nightly-sign-runner.outputs.runner": "needs.pick-nightly-sign-runner.outputs.alternate",

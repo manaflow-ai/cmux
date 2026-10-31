@@ -153,8 +153,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         emptyWorkspaceRepair.createFirst = { [weak services, weak daemon] key in
             guard let services, let daemon, let workspace = daemon.store.workspaces.first(where: { $0.key == key }) else { throw DaemonError.notConnected }
             // Another machine's empty workspace gets a terminal: its chats start only when asked (cx-k21v).
-            // So does every empty workspace in cmux Classic Mode (`tabs.terminalFirst`, #23021).
-            if !NewTabKind.terminalFirst(services), services.agentTabs.opensFirstPage(on: daemon) {
+            if services.agentTabs.opensFirstPage(on: daemon) {
                 return try await services.agentTabs.openFirstPage(in: workspace, on: daemon, services: services)
             }
             return try await fallbackCreate(key)

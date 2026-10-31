@@ -828,6 +828,13 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-permission-command-toggle{all:unset;color:var(--agent-muted);font-size:var(--text-caption);line-height:1.3;cursor:default;letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-permission-command-toggle:hover{color:var(--agent-text)}
 .acpmux-permission-command-toggle:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px;border-radius:3px}
+/* Proposed edits (permissions/ProposedEdits.tsx, on the inline card and the grouped panel) never push
+   the rest of the ask out of view: a diff scrolls inside its own frame, so its header and border stay
+   whole, and several files together stop at 40vh. */
+.acpmux-permission-edits{max-height:40vh;min-height:0;overflow:auto;overscroll-behavior:contain}
+/* In the grouped panel, which scrolls itself, the box hands the wheel on to the panel at its end. */
+.acpmux-permission-panel .acpmux-permission-edits{overscroll-behavior:auto}
+.acpmux-permission-edits .cv-edit-diff__body{max-height:calc(40vh - var(--cv-font-size,14px)*32/14 - 14px);overflow:hidden auto}
 .acpmux-permission-ask .acpmux-permission-buttons{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:12px}
 .acpmux-permission-ask .acpmux-permission-buttons button{display:inline-flex;align-items:baseline;flex:none;max-width:100%;min-height:24px;box-sizing:border-box;border:0;border-radius:6px;padding:4px 12px;white-space:nowrap;background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-control);line-height:1.25;letter-spacing:var(--text-control--letter-spacing)}
 .acpmux-permission-ask .acpmux-permission-buttons button:hover{background:color-mix(in srgb,var(--agent-text) 13%,transparent)}

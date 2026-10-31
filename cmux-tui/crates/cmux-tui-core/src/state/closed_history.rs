@@ -261,6 +261,10 @@ fn commit_reopen(
         changes.extend(crate::state::personal::all_groups(transaction)?);
         changes.extend(crate::state::personal::all_placements(transaction)?);
     }
+    // sidebar-doc-v1: the restored rows move their items back to their old
+    // place in the document (it listed the reopened workspace where it was
+    // created, last).
+    super::sidebar_doc_sync::sync_from_legacy(transaction)?;
     Ok(StateChanges::new(
         serde_json::json!({
             "closed_id": closed_id,
@@ -276,6 +280,21 @@ fn commit_reopen(
     ))
 }
 
+/// Whether closed workspace `closed_key` still has its personal row in this
+/// session, the place [`restore_placement`] gives back on reopen.
+fn place_kept(connection: &rusqlite::Connection, closed_key: &str) -> anyhow::Result<bool> {
+    use rusqlite::{OptionalExtension, params};
+    let local = crate::state::values::local_registry_id(connection)?;
+    Ok(connection
+        .query_row(
+            "SELECT 1 FROM personal_workspaces WHERE session_id = ?1 AND workspace_key = ?2",
+            params![local, closed_key],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
 /// Give the reopened workspace the closed one's personal row: its group,
 /// its place in the personal sidebar order and its theme
 /// (LAST-TAB-CLOSES-WORKSPACE rule 3). Nothing when that row is gone.
@@ -285,17 +304,9 @@ pub(super) fn restore_placement(
     reopened_key: &str,
 ) -> anyhow::Result<Vec<Value>> {
     use crate::state::personal_state_store::{placement_id, placement_snapshot};
-    use rusqlite::{OptionalExtension, params};
+    use rusqlite::params;
     let local = crate::state::values::local_registry_id(transaction)?;
-    let kept = transaction
-        .query_row(
-            "SELECT 1 FROM personal_workspaces WHERE session_id = ?1 AND workspace_key = ?2",
-            params![local, closed_key],
-            |_| Ok(()),
-        )
-        .optional()?
-        .is_some();
-    if !kept {
+    if !place_kept(transaction, closed_key)? {
         return Ok(Vec::new());
     }
     transaction.execute(
@@ -1027,10 +1038,18 @@ impl Mux {
             .map_or((TerminalSpawnOptions::new(None, Vec::new()), None, None), |screen| {
                 self.first_terminal_spawn(screen)
             });
-        // Created last, so the row `restore_placement` drops in the reopen
-        // commit moves no other row; the closed row's place comes back.
-        let first = NewWorkspacePlacement::Bottom
-            .scoped(|| self.new_workspace_with_spawn_as(actor, name, spawn, size))?;
+        // A known place (the closed workspace's personal row was kept): created
+        // last, so the row `restore_placement` drops in the reopen commit moves
+        // no other row, and the closed row's place comes back. No known place:
+        // where `workspaces.newPlacement` puts a new workspace (top by default).
+        let known = match record["workspace_key"].as_str() {
+            Some(closed_key) => {
+                self.read_registry_state(|connection| place_kept(connection, closed_key))?
+            }
+            None => false,
+        };
+        let create = || self.new_workspace_with_spawn_as(actor, name, spawn, size);
+        let first = if known { NewWorkspacePlacement::Bottom.scoped(create)? } else { create()? };
         let (workspace, key) = self
             .with_state(|state| {
                 let (index, _) = state.screen_of(state.pane_of(first.id)?)?;

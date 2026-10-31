@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 @testable import CmuxNextSidebar
 import Testing
@@ -10,7 +11,7 @@ import Testing
 /// rebuilt the list. Rule: once the card lands, every open group with members draws its rail, at its rows.
 /// The drop runs through the sidebar document's drag (`SidebarModel.docDrag`), the path the app uses; the second test
 /// sends it through a document store, so the list holds the drop's look until the model shows it, as in the app.
-@MainActor @Suite(.serialized) struct SidebarGroupDragRailTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarGroupDragRailTests {
     static let section = "sec_m_s1"
     static let work = GroupID("g-work"), infra = GroupID("g-infra"), empty = GroupID("g-empty")
 

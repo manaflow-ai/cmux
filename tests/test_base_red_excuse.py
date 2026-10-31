@@ -56,7 +56,9 @@ class FakeGitHub:
             run = int(route.split("/actions/runs/", 1)[1].split("/", 1)[0])
             return [{"jobs": [copy.deepcopy(job) for job in self.jobs.values() if job["run_id"] == run]}]
         if "/actions/workflows/7/runs?" in route:
-            assert "branch=feat-cmux-next" in route and "status=completed" in route, route
+            # The dispatch fallback lists every status (deferred_first_runs); the window only completed runs.
+            assert "branch=feat-cmux-next" in route and ("status=completed" in route
+                                                         or "event=workflow_dispatch" in route), route
             return {"workflow_runs": copy.deepcopy(self.base_runs)}
         if "/actions/runs/" in route:
             return {"id": int(route.rsplit("/", 1)[1]), "workflow_id": 7}
@@ -529,6 +531,63 @@ class Excusing(unittest.TestCase):
         self.gh.logs[6] = log(name, "Run the suites", ISSUE)
         self.gh.base_runs = [suite, push]
         with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 21"):
+            self.judge()
+
+    def deferred_first_runs_setup(self, name):
+        # 2026-10-31: a base tier dispatch whose cmux-tui tree had not published skipped its tree jobs and
+        # left them to the same-tree run its publish dispatched, under the same name, which then queued for
+        # the Mac pool. The six newest completed dispatches were all such first runs, so the job-list reads
+        # ran out before the tip daemon suite run that had the verdict.
+        self.base_tier_setup(name)
+        listed = []
+        for offset in range(excuse.TIP_SUITE_JOB_READS + 2):
+            tested = f"{offset:x}" * 40
+            title = "cmux-next base tier · " + tested[:40]
+            listed.append({"id": 6000 + offset, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                           "status": "queued", "conclusion": None, "display_title": title})
+            first = 5000 + offset
+            listed.append({"id": first, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                           "status": "completed", "conclusion": "success", "display_title": title})
+            self.gh.jobs[first] = dict(failed_job(first, first, tested[:40], name=name, step="Run the suites"),
+                                       conclusion="skipped")
+        # The newest same-tree run that finished: base_tier_setup's run 40, the only run of its name.
+        suite = {"id": 40, "event": "workflow_dispatch", "head_branch": "feat-cmux-next", "status": "completed",
+                 "conclusion": "failure", "display_title": "cmux-next base tier · " + "e" * 40,
+                 "created_at": "2026-10-31T09:48:29Z"}
+        self.gh.base_runs = []
+        plain = self.gh.json
+
+        def json(route, *, paginate=False):
+            if "/actions/workflows/7/runs?" in route and "event=workflow_dispatch" in route:
+                self.gh.routes.append(route)
+                self.assertNotIn("status=", route)
+                return {"workflow_runs": copy.deepcopy(listed) + [copy.deepcopy(suite)]}
+            return plain(route, paginate=paginate)
+
+        self.gh.json = json
+
+    def test_first_runs_that_left_their_tree_jobs_to_a_same_tree_run_are_skipped_unread(self):
+        for name in ("cmux-next daemon tests", SCHEME):
+            with self.subTest(job=name):
+                self.setUp()
+                self.deferred_first_runs_setup(name)
+                text = "\n".join(self.judge())
+                self.assertIn(f"excused '{name}'", text)
+                self.assertIn("run 40", text)
+                self.assertFalse([route for route in self.gh.routes if "/runs/50" in route and "/jobs?" in route])
+
+    def test_tree_jobs_are_jobs_of_the_suites_that_defer_them(self):
+        # Only a tip daemon suite or base tier run defers its tree jobs; a name outside them skips nothing.
+        self.assertLessEqual(excuse.TREE_JOBS, excuse.SUITES["cmux-next base tier · "])
+        self.assertLessEqual(excuse.SUITES["cmux-next tip daemon suite · "], excuse.TREE_JOBS)
+
+    def test_a_first_run_still_counts_for_the_jobs_it_runs_itself(self):
+        # Generated files run in the first run itself (path routing's generated_host), never in its
+        # same-tree run, so the newest first run's verdict decides: here green, so the red is the head's.
+        name = "cmux-next generated files"
+        self.deferred_first_runs_setup(name)
+        self.gh.jobs[5000]["conclusion"] = "success"
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 5000"):
             self.judge()
 
     def test_a_green_base_tier_run_still_blocks(self):

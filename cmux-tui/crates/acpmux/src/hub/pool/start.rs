@@ -84,6 +84,12 @@ impl Hub {
         } else {
             (None, None)
         };
+        // A delivery may have changed the machine's secrets since the last
+        // login read: a prewarmed agent never starts on stale or revoked values.
+        anyhow::ensure!(
+            draft.remote_origin || crate::login_env::machine_env_fresh_before_spawn().await,
+            "machine environment changed; login env refresh failed"
+        );
         let cmd = crate::agent::harness_command(
             &draft.harness,
             profile,

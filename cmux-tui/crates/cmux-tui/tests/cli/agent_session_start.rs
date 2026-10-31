@@ -362,8 +362,10 @@ fn agent_session_start_passes_the_host_gate_on_an_ssh_host() {
 
 /// The guest's own `owner` record never allows a start on a Cloud VM (its
 /// agents keep sudo): only the caller's `vm_kind: "owner"`, the Cloud API's
-/// answer for it, does, and team evidence refuses even then. A machine that
-/// is not a Cloud VM needs no word.
+/// answer for it, does. On a team VM that word is the creator's (the Cloud
+/// API gives it to nobody else), so it goes on there too; any other word or
+/// none is still `team_vm_blocked`. A machine that is not a Cloud VM needs no
+/// word.
 #[test]
 fn a_cloud_vm_start_needs_the_callers_owner_word_not_the_vms_record() {
     let owner = Daemon::start_cloud("vmowner", "owner");
@@ -380,7 +382,12 @@ fn a_cloud_vm_start_needs_the_callers_owner_word_not_the_vms_record() {
 
     let team = Daemon::start_cloud("vmteam", "team");
     let surface = team.own_agent_tab();
+    // The creator's word: past the host gate, the next check is the folder's trust.
     let reply = team.start_chat_as(surface, "owner");
+    assert_eq!(reply["error_code"], "agent_session.untrusted_folder", "{reply}");
+    let reply = team.start_chat(surface);
+    assert_eq!(reply["error_code"], "agent_session.team_vm_blocked", "{reply}");
+    let reply = team.start_chat_as(surface, "team");
     assert_eq!(reply["error_code"], "agent_session.team_vm_blocked", "{reply}");
 
     let ssh = Daemon::start("vmssh", None);
@@ -400,8 +407,8 @@ fn a_cloud_vm_start_needs_the_callers_owner_word_not_the_vms_record() {
 }
 
 /// Folder trust on a Cloud VM takes the start's rule: only the caller's
-/// `vm_kind: "owner"` reaches it, never the VM's own record, and team
-/// evidence refuses even then. A page cannot vouch for the Cloud API's
+/// `vm_kind: "owner"` reaches it, never the VM's own record; on a team VM
+/// that word is the creator's and reaches it too. A page cannot vouch for the Cloud API's
 /// answer, so its routed operations never reach a Cloud VM's trust.
 #[test]
 fn agent_session_trust_on_a_cloud_vm_needs_the_callers_owner_word() {
@@ -439,8 +446,13 @@ fn agent_session_trust_on_a_cloud_vm_needs_the_callers_owner_word() {
 
     let team = Daemon::start_cloud("trustteam", "team");
     let surface = team.own_agent_tab();
-    let reply = trust(&team, surface, json!("owner"));
-    assert_eq!(reply["error_code"], "agent_session.team_vm_blocked", "{reply}");
+    for kind in [json!(null), json!("team")] {
+        let reply = trust(&team, surface, kind);
+        assert_eq!(reply["error_code"], "agent_session.team_vm_blocked", "{reply}");
+    }
+    // The creator's word (the Cloud API's owner answer) reaches the trust read.
+    let read = trust(&team, surface, json!("owner"));
+    assert_eq!(read["ok"], true, "{read}");
 
     // A machine that shows no Cloud sign (its root may have removed them):
     // a word that is not `owner`, an explicit `null` included, refuses.

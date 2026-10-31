@@ -10,7 +10,7 @@ export type Environment = { id: string; label: string; kind: EnvironmentKind; co
 
 /// The location row's connect choices and the app action each runs (the agent pane allows exactly
 /// these; AgentPaneModel.connectActions): SSH… connects a machine, New Cloud Machine creates one on
-/// the plan's default size, and Open Cloud… opens the Cloud page, whose storefront lists
+/// the plan's default size, Sign in for Cloud (signed out) only signs in and creates nothing, and Open Cloud… opens the Cloud page, whose storefront lists
 /// the plan's sizes (the pane knows no plan), Connect Phone… opens the Mobile Pairing page (cmux
 /// on iPhone reaches this Mac), and Add Machine… opens the Add Device card: a computer on the
 /// tailnet or in ~/.ssh/config (the app installs its agent daemon and keeps it current), or a new
@@ -19,6 +19,7 @@ export type Environment = { id: string; label: string; kind: EnvironmentKind; co
 export const CONNECT_ACTIONS = {
   ssh: "remote.connect",
   cloud: "newCloudMachine",
+  cloudSignIn: "palette.auth.signIn",
   cloudPage: "palette.openCloudPane",
   addMachine: "device.add",
   move: "cloudMove",

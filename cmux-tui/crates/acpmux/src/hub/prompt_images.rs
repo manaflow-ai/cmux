@@ -165,8 +165,8 @@ pub(super) fn id_of(block: &Value) -> Option<String> {
 }
 
 /// What `keep_sourced` would record of `blocks`' images, without keeping them (a queued
-/// prompt's row, `views.rs`), each with its own block's source from the prompt's display
-/// metadata (`name_image_sources`): a queued prompt's listed images keep their sources.
+/// prompt's row, `views.rs`), each with its own block's source from the prompt's display metadata
+/// (`name_image_sources`): a queued prompt's listed images keep their sources.
 pub(super) fn named_sourced(blocks: &[Value], display_parts: Option<&Value>) -> Vec<Value> {
     let mut named: Vec<(usize, Value)> = blocks
         .iter()
