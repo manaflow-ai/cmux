@@ -1,11 +1,13 @@
 import Foundation
 
 /// Secret bytes travel only in writeFile's body. Exec carries a private staging path, never a
-/// token. The image's own policy and launchers remain authoritative; shared/old images fail closed.
+/// token. Who may receive a login is the caller's attach answer (`vmKind == "owner"`, checked by
+/// ``CloudCredentialTransfer`` before and after the login), as the Codex broker decides it: guest
+/// files are controlled by the VM and cannot authorize delivery. The image's launchers stay
+/// authoritative for how the login is used; images without them fail closed.
 nonisolated enum CloudCredentialInstaller {
     static let preflight = #"""
         set -eu
-        [ "$(cat /etc/cmux/vm-kind 2>/dev/null)" = owner ]
         [ -f /etc/cmux/agent-auth.sh ]
         if [ "$(id -u)" = 0 ]; then install -d -m 700 -o cmux -g cmux /home/cmux/.cmux/credential-transfer; else
           [ "$(id -un)" = cmux ]; mkdir -p /home/cmux/.cmux/credential-transfer; chmod 700 /home/cmux/.cmux/credential-transfer
@@ -27,7 +29,7 @@ nonisolated enum CloudCredentialInstaller {
         import json, os, pathlib, pwd, stat, sys, tempfile
         provider, source = sys.argv[1:3]
         policy = pathlib.Path('/etc/cmux')
-        if (policy / 'vm-kind').read_text().strip() != 'owner' or not (policy / 'agent-auth.sh').is_file():
+        if not (policy / 'agent-auth.sh').is_file():
             sys.exit(70)
         user = pwd.getpwnam('cmux')
         home = pathlib.Path(user.pw_dir)

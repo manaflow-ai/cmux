@@ -14,12 +14,14 @@ struct CloudCredentialTransferTests {
         var logins = 0, stores = 0
         var cached: Data?
         var owner = true
+        var preflight: Int = 0
         var team: String? = "team"
         var user: String? = "user"
         var onAcquire: (() throws -> Void)?
         var onWrite: (() -> Void)?
         var effects: CloudCredentialTransfer.Effects {
-            .init(exec: { command in await MainActor.run { self.commands.append(command); return self.owner ? 0 : 70 } },
+            .init(callerOwnsVM: { await MainActor.run { self.owner } },
+                  exec: { command in await MainActor.run { self.commands.append(command); return self.preflight } },
                   write: { path, data in await MainActor.run { self.writes.append((path, data)); self.onWrite?() } },
                   load: { await MainActor.run { self.cached } },
                   acquire: { try await MainActor.run { self.logins += 1; try self.onAcquire?(); return CloudCredentialTransferTests.token } },
@@ -43,7 +45,28 @@ struct CloudCredentialTransferTests {
     @Test func sharedMachineNeverReadsOrAcquiresCredentials() async {
         let r = Recorder(); r.owner = false
         await #expect(throws: CloudCredentialTransfer.Failure.sharedMachine) { try await r.run() }
+        #expect(r.commands.isEmpty && r.writes.isEmpty && r.logins == 0 && r.stores == 0)
+    }
+
+    /// The caller's ownership is the platform's answer; a machine without the image's launchers
+    /// still never receives a login.
+    @Test func ownedMachineWithoutLaunchersNeverReadsOrAcquiresCredentials() async {
+        let r = Recorder(); r.preflight = 1
+        await #expect(throws: CloudCredentialTransfer.Failure.sharedMachine) { try await r.run() }
         #expect(r.writes.isEmpty && r.logins == 0 && r.stores == 0)
+    }
+
+    /// Ownership lost during the login (the machine was handed off) stops the delivery.
+    @Test func ownershipLostDuringLoginPreventsDelivery() async {
+        let r = Recorder(); r.onAcquire = { r.owner = false }
+        await #expect(throws: CloudCredentialTransfer.Failure.sharedMachine) { try await r.run() }
+        #expect(r.writes.isEmpty)
+    }
+
+    /// The installer reads no guest kind: who receives a login is the caller's attach answer.
+    @Test func preflightAndInstallerNeverConsultTheGuestKind() {
+        #expect(!CloudCredentialInstaller.preflight.contains("vm-kind"))
+        #expect(!CloudCredentialInstaller.script.contains("vm-kind"))
     }
 
     @Test func firstTransferStoresThenDeliversAndRepeatReusesScopedCache() async throws {
@@ -144,7 +167,8 @@ struct CloudCredentialTransferTests {
         let home = directory.appendingPathComponent("home"), policy = directory.appendingPathComponent("policy")
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: policy, withIntermediateDirectories: true)
-        try Data("owner".utf8).write(to: policy.appendingPathComponent("vm-kind"))
+        // A team guest: the installer reads no guest kind (the caller's attach answer decides).
+        try Data("team".utf8).write(to: policy.appendingPathComponent("vm-kind"))
         let root = (0..<6).reduce(URL(fileURLWithPath: #filePath)) { url, _ in url.deletingLastPathComponent() }
         let auth = try String(contentsOf: root.appendingPathComponent("web/services/vms/images/devbox/agent-auth.sh"), encoding: .utf8)
             .replacingOccurrences(of: "/etc/cmux", with: policy.path)
@@ -182,13 +206,14 @@ struct CloudCredentialTransferTests {
             #expect(credentials?["claudeAiOauth"] != nil)
         }
         let resolve = ". \(CloudCredentialInstaller.quote(policy.appendingPathComponent("agent-auth.sh").path)); cmux_agent_auth_resolve \(provider.rawValue); printf '%s %s' \"$cmux_agent_auth_mode\" \"$cmux_agent_auth_reason\""
-        let own = try await ProcessRunner.run(executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", resolve],
-            environment: environment, timeout: .seconds(10), clock: ContinuousClock())
-        #expect(String(decoding: own.stdout, as: UTF8.self) == "own chosen")
-        try Data("team".utf8).write(to: policy.appendingPathComponent("vm-kind"))
+        // The image's own policy still decides how it is used: isolated on a team guest, chosen on an owner one.
         let shared = try await ProcessRunner.run(executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", resolve],
             environment: environment, timeout: .seconds(10), clock: ContinuousClock())
         #expect(String(decoding: shared.stdout, as: UTF8.self) == "team shared-machine")
+        try Data("owner".utf8).write(to: policy.appendingPathComponent("vm-kind"))
+        let own = try await ProcessRunner.run(executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", resolve],
+            environment: environment, timeout: .seconds(10), clock: ContinuousClock())
+        #expect(String(decoding: own.stdout, as: UTF8.self) == "own chosen")
     }
 
     static func pythonLiteral(_ value: String) -> String { CloudCredentialInstaller.quote(value) }

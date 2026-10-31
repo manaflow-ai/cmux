@@ -672,6 +672,27 @@ describe("the default for every agent", () => {
     }
   });
 
+  test("a machine with no CodeRouter origin starts claude on its own sign-in, never an empty team plane", async () => {
+    // fs-firstsend-exercise (2026-10-31): a shell with only the OpenAI pair persisted that pair alone,
+    // so no shell after it had an origin, and team-unknown left claude with no endpoint and no key
+    // ("Not logged in"). With no origin there is no team plane to choose.
+    const m = machine();
+    const env = bootEnv(m);
+    for (const name of ["CMUX_CODEROUTER_URL", "ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY"]) delete env[name];
+    const result = await runChild("/bin/bash", ["-c", `. ${m.config}; ${m.launchers.claude} --resume x`], { env });
+    expect(result.status).toBe(0);
+    const claude = parse(result.stdout);
+    expect(claude.ANTHROPIC_BASE_URL).toBe("<unset>");
+    expect(claude.ANTHROPIC_API_KEY).toBe("<unset>");
+    expect(claude.CLAUDE_CONFIG_DIR).toBe("<unset>");
+    const reason = await runChild("/bin/sh", ["-c", `. ${m.auth}; cmux_agent_auth_resolve claude; printf '%s %s' "$cmux_agent_auth_mode" "$cmux_agent_auth_reason"`],
+      { env: { PATH: env.PATH, HOME: m.home } });
+    expect(reason.stdout).toBe("own no-team-plane");
+    // Nothing asked CodeRouter: there was no origin to ask.
+    const calls = existsSync(m.calls) ? readFileSync(m.calls, "utf8") : "";
+    expect(calls).not.toContain("agent-access");
+  });
+
   test("CMUX_<AGENT>_AUTH pins one launch over the recorded choice and the default", async () => {
     const m = machine();
     cmuxCodexConfig(m);

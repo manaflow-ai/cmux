@@ -164,7 +164,8 @@ extension CloudHandlers {
                         await services?.openLocalProviderLogin(line) ?? false
                     })
                 try await transfer.run(api: cloud.machineAPI, currentTeamID: { cloud.auth.teamID },
-                                       currentUserID: { cloud.auth.user?.id }, confirmed: true)
+                                       currentUserID: { cloud.auth.user?.id }, confirmed: true,
+                                       callerOwnsVM: { [machineID = session.machineID] in try await cloud.callerOwnsVM(machineID) })
             }
         }
     }

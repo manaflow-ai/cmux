@@ -102,6 +102,9 @@ struct CloudStartChat {
         // The account may have changed while the machine connected: copy nothing then.
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
+        // The chat's harness login (DEV and dogfood builds, +Login): it runs alongside the copy and is
+        // awaited before the chat opens, so its first prompt starts signed in. It never fails the start.
+        async let loginPassed = passHarnessLogin(start, machine: machine)
         let size = AgentPaneCloudStart.sizeText(machine.machine.size)
         report(.init(name: "folder", folder: folderName, machine: name, size: size))
         // A retry whose copy finished opens its chat (by its tab key) without copying again: a
@@ -127,6 +130,7 @@ struct CloudStartChat {
 
     /// Opens the chat on `machine` in `cwd` and closes this Mac's tab: the chat is the machine's now.
     private func open(_ start: AgentPaneCloudStart, tab: TabModel, on machine: CloudMachineSession, cwd: String?) async throws -> String {
+        _ = await loginPassed
         let context = AppActionContext(services: services)
         let anchor = try await CloudHandlers.terminalAnchor(on: machine, context)
         let pending = try services.agentTabs.open(in: anchor.pane.handle, of: machine.daemon, seed: AgentPaneSeedSource(start.seed(cwd: cwd)),
