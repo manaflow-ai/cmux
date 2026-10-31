@@ -217,7 +217,9 @@ def launch_once(path, label, extra_env=None, sample_to=None, logs=True):
               "app_cpu_s_at_main": at_main["app"]["cpu_s"] if at_main else None,
               "checker_cpu_s_delta": checker_delta(poller.samples, main_ms), "ps_samples": poller.samples[:120]}
     if logs and main_ms is not None:
-        end = t0 + main_ms / 1000
+        # The earlier of the two main_start times ends the window, so a bad reference never pulls in work after main.
+        end = t0 + min(main_ms, observed if observed is not None else main_ms) / 1000
+        record["log_window_end"] = "observed" if observed is not None and observed < main_ms else "main_start_ms"
         record["log"] = scan_log(t0, end, LOG_PREDICATE, path)
         record["log_wide"] = scan_log(t0, end, WIDE_PREDICATE, path, limit=40)
     log(f"{label}: main_start {fmt(main_ms)} (observed by this script {fmt(observed)}), first terminal frame {fmt(marks.get(bs.FINAL_MARK))}, app cpu at main "
