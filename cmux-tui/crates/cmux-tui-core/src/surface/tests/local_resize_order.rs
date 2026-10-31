@@ -149,3 +149,103 @@ fn check_local_resize_order(add_later_output: bool) {
         );
     }
 }
+
+#[test]
+fn rzcopy_local_resize_bounds_the_drain_to_a_queued_snapshot_01() {
+    check_local_resize_order(true);
+}
+
+#[test]
+fn rzcopy_local_resize_bounds_the_drain_to_a_queued_snapshot_02() {
+    check_local_resize_order(true);
+}
+
+#[test]
+fn rzcopy_local_resize_bounds_the_drain_to_a_queued_snapshot_03() {
+    check_local_resize_order(true);
+}
+
+#[test]
+fn rzcopy_local_resize_bounds_the_drain_to_a_queued_snapshot_04() {
+    check_local_resize_order(true);
+}
+
+#[test]
+fn rzcopy_local_resize_bounds_the_drain_to_a_queued_snapshot_05() {
+    check_local_resize_order(true);
+}
+
+#[test]
+fn rzcopy_local_resize_bounds_the_drain_to_a_queued_snapshot_06() {
+    check_local_resize_order(true);
+}
+
+#[test]
+fn rzcopy_local_resize_bounds_the_drain_to_a_queued_snapshot_07() {
+    check_local_resize_order(true);
+}
+
+#[test]
+fn rzcopy_local_resize_bounds_the_drain_to_a_queued_snapshot_08() {
+    check_local_resize_order(true);
+}
+
+#[test]
+fn rzcopy_local_resize_bounds_the_drain_to_a_queued_snapshot_09() {
+    check_local_resize_order(true);
+}
+
+#[test]
+fn rzcopy_local_resize_bounds_the_drain_to_a_queued_snapshot_10() {
+    check_local_resize_order(true);
+}
+
+#[test]
+fn rzcopy_local_resize_bounds_the_drain_to_a_queued_snapshot_11() {
+    check_local_resize_order(true);
+}
+
+#[test]
+fn rzcopy_local_resize_bounds_the_drain_to_a_queued_snapshot_12() {
+    check_local_resize_order(true);
+}
+
+#[test]
+fn rzcopy_local_resize_bounds_the_drain_to_a_queued_snapshot_13() {
+    check_local_resize_order(true);
+}
+
+#[test]
+fn rzcopy_local_resize_bounds_the_drain_to_a_queued_snapshot_14() {
+    check_local_resize_order(true);
+}
+
+#[test]
+fn rzcopy_local_resize_bounds_the_drain_to_a_queued_snapshot_15() {
+    check_local_resize_order(true);
+}
+
+#[test]
+fn rzcopy_local_resize_bounds_the_drain_to_a_queued_snapshot_16() {
+    check_local_resize_order(true);
+}
+
+#[test]
+fn rzcopy_local_resize_bounds_the_drain_to_a_queued_snapshot_17() {
+    check_local_resize_order(true);
+}
+
+#[test]
+fn rzcopy_local_resize_bounds_the_drain_to_a_queued_snapshot_18() {
+    check_local_resize_order(true);
+}
+
+#[test]
+fn rzcopy_local_resize_bounds_the_drain_to_a_queued_snapshot_19() {
+    check_local_resize_order(true);
+}
+
+#[test]
+fn rzcopy_local_resize_bounds_the_drain_to_a_queued_snapshot_20() {
+    check_local_resize_order(true);
+}
