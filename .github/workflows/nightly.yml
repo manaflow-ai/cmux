@@ -3283,9 +3283,14 @@ jobs:
           BUILD_SHA: ${{ steps.build.outputs.build_sha }}
           ARCHS: ${{ needs.decide.outputs.compile_archs }}
         run: bash scripts/ci/nightly-steps/chief-input-key.sh
+      # Off unless NIGHTLY_NEXT_SUPERSEDE_SKIP is 1. NEXT runs are run-scoped (no shared slot), and the
+      # rulebook's Nightly freshness has a newer tip build alongside a running one; publish-nightly
+      # still publishes only a build newer than the feed. With this on, every run from 04:28Z to
+      # 05:23Z on 2026-10-31 skipped its build: nightly-next moved (about every 6 minutes) before a
+      # run reached this step (12+ minutes on a slow Linux queue), so no run built at all.
       - name: Leave the build slot to a newer nightly-next push
         id: superseded
-        if: github.event_name == 'push' && github.ref == 'refs/heads/nightly-next'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && vars.NIGHTLY_NEXT_SUPERSEDE_SKIP == '1'
         env:
           GH_TOKEN: ${{ github.token }}
           TIP_SHA: ${{ needs.decide.outputs.head_sha }}
