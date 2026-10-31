@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// What the new tab field's text means (plans/cmux-next/new-tab.md section
 /// 3.1), for the paths with no page: CLI, MCP, palette. The page decides
