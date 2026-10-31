@@ -45,5 +45,19 @@ extension SidebarPriorityFeed {
                                                 local: { nil })
         SidebarPriorityRowActions(chats: .app, unavailable: { preferences().priorityViewEnabled ? nil : SidebarPriorityPanel.unavailableReason })
             .bind(into: registry)
+        // Available even with the optional Priority sidebar hidden. Count and destination
+        // use the same eligible, currently observed chat lanes; never jump to a mere unread tab.
+        var lastNeedsInput: String?
+        registry.bind("agent.jumpToNextNeedingInput", run: { _ in
+            let chats = AgentPriorityChats.app
+            let snapshot = chats.snapshot()
+            guard let id = AgentPriorityRanking.nextNeedingInput(after: lastNeedsInput, in: chats.entries(snapshot)),
+                  let lane = snapshot.lanes.first(where: { $0.id == id }) else {
+                lastNeedsInput = nil
+                throw ActionFailure.invalidTarget(SidebarSectionStrings.noSuchPriorityChat)
+            }
+            lastNeedsInput = id
+            Self.open(lane, services: context.services)
+        })
     }
 }

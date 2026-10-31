@@ -28,6 +28,28 @@ struct AgentPriorityRankingTests {
         lane("idle-new", .idle, ago: 2),
     ]
 
+    /// Only pending human input is a menu-bar destination; unread results and failures are not.
+    /// A changed/removed request resets the cycle to the first remaining eligible lane.
+    @Test func nextNeedsInputCyclesAndSkipsResultsAndSnoozedChats() {
+        let ranking = AgentPriorityRanking()
+        let entries = ranking.entries(Self.lanes, marks: .init(), now: Self.now)
+        #expect(AgentPriorityRanking.nextNeedingInput(after: nil, in: entries) == "asks-new")
+        #expect(AgentPriorityRanking.nextNeedingInput(after: "asks-new", in: entries) == "asks")
+        #expect(AgentPriorityRanking.nextNeedingInput(after: "asks", in: entries) == "asks-new")
+        #expect(AgentPriorityRanking.nextNeedingInput(after: "done", in: entries) == "asks-new")
+
+        let marks = AgentPriorityMarks(defaults: nil)
+        marks.snooze(Self.lane("asks-new", .input, ago: 1), now: Self.now)
+        let remaining = ranking.entries(Self.lanes, marks: marks.state, now: Self.now)
+        #expect(AgentPriorityRanking.nextNeedingInput(after: "asks-new", in: remaining) == "asks")
+        marks.archive("asks")
+        let none = ranking.entries(Self.lanes, marks: marks.state, now: Self.now)
+        #expect(AgentPriorityRanking.nextNeedingInput(after: "asks", in: none) == nil)
+        // A fresh request breaks the old snooze stamp; do not lose a new ask.
+        let changed = ranking.entries([Self.lane("asks-new", .input, ago: 0)], marks: marks.state, now: Self.now)
+        #expect(AgentPriorityRanking.nextNeedingInput(after: nil, in: changed) == "asks-new")
+    }
+
     @Test func needsYouThenUnseenResultsThenFailuresThenWorkingThenIdle() {
         let entries = AgentPriorityRanking().entries(Self.lanes, marks: .init(), now: Self.now)
         #expect(entries.map(\.id) == ["asks-new", "asks", "done", "broke", "working", "idle-new", "idle-old"])

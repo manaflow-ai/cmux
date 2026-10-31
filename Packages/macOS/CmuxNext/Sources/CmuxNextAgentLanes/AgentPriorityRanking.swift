@@ -15,6 +15,16 @@ public nonisolated struct AgentPriorityRanking: Sendable {
 
     public init() {}
 
+    /// The menu-bar and palette action cycles only agents actually waiting for the person.
+    /// This uses the same ranked, snooze/archived-aware entries as the Priority view; unseen
+    /// results and failed agents never satisfy a row labelled "Needs input".
+    public static func nextNeedingInput(after previous: String?, in entries: [SidebarPriorityEntry]) -> String? {
+        let ids = entries.filter { $0.state == .needsYou }.map(\.id)
+        guard let first = ids.first else { return nil }
+        guard let previous, let index = ids.firstIndex(of: previous) else { return first }
+        return ids[(index + 1) % ids.count]
+    }
+
     /// The rows in rank order: snoozed and archived chats left out, and idle ones older than
     /// `idleHorizon` unless pinned. `failingChecks` are the ids of the chats with a pull request
     /// whose checks fail; `machine` is each row's machine tag (the lane's peer unless the caller
