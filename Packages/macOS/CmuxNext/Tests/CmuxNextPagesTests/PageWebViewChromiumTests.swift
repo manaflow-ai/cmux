@@ -148,7 +148,7 @@ struct PageWebViewChromiumTests {
         let agent = PageDescriptor(id: "cmux.agent", resource: "chromium-page", namespaces: [])
         let refused = FakeChromiumHosting()
         refused.fails = true
-        let first = try #require(PageWebView(descriptor: agent, root: root, routes: [],
+        let first = try #require(PageWebView(descriptor: agent, root: root, testRoot: true, routes: [],
                                              options: PageEngineOptions(chromiumAgentChat: true), chromium: refused))
         #expect(first.engineDecision == .chromium)
         await (try #require(first.chromiumStart)).value
@@ -159,7 +159,7 @@ struct PageWebViewChromiumTests {
 
         let unavailable = FakeChromiumHosting()
         unavailable.isAvailable = false
-        let next = try #require(PageWebView(descriptor: agent, root: root, routes: [],
+        let next = try #require(PageWebView(descriptor: agent, root: root, testRoot: true, routes: [],
                                             options: PageEngineOptions(chromiumAgentChat: true), chromium: unavailable))
         #expect(next.engineDecision == .webKit(.chromiumUnavailable))
         #expect(next.chromiumStart == nil)
