@@ -816,3 +816,34 @@ async fn an_unmarked_guest_record_still_waits_after_a_restart() {
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A chat is not moved while an unmarked guest record waits (review of this PR, hq#5528): an
+/// older target restores it from its `awaitingOwner`, which the record lacks, and would run it.
+#[tokio::test]
+async fn transfer_refuses_an_unmarked_guest_record() {
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex"}},
+        "defaultHarness": "fake", "permissionPolicy": "approve-all"
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = UnmarkedStore(acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap());
+    let hub = Hub::new(cfg, Box::new(store));
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    let author = json!({"id": "guest:share.guest", "name": "Theo"});
+    c.queue(by(prompt(&session, "g-1", "guest words", None), Some(&author))).await;
+    let result =
+        hub.transfer_request("_acpmux/transfer_begin", &json!({"sessionId": session})).await;
+    if let Ok(bundle) = &result {
+        hub.transfer_request(
+            "_acpmux/transfer_abort",
+            &json!({"sessionId": session, "transferId": bundle["transferId"]}),
+        )
+        .await
+        .unwrap();
+    }
+    hub.shutdown_all().await;
+    let error = result.expect_err("an unmarked guest record was offered to an older target");
+    assert_eq!(error.data.unwrap()["reason"], "transfer.held_prompts");
+}
