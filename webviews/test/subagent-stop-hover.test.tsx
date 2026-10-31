@@ -30,7 +30,8 @@ test("a row's Stop is transparent at rest, with no fade", () => {
 test("only its own row's hover or focus lights a row's Stop", () => {
   const lighting = rules().filter(
     (rule) =>
-      rule.selector.split(",").some((part) => part.includes(".cv-subagent-stoppable") && part.includes("__stop")) &&
+      rule.selector.includes(".cv-subagent-stoppable") &&
+      rule.selector.includes(".cv-subagent__stop") &&
       /opacity:\s*(?!0;)[\d.]+/.test(rule.body),
   );
   expect(lighting.length).toBeGreaterThan(0);
