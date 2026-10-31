@@ -262,41 +262,54 @@ def acquire_lease(ch, exclusive, log_path=None, whole_host=False):
     env_seconds = lambda name, default: int(os.environ.get(name, default))
     bound = (env_seconds("CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS", 120) + env_seconds("CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS", 3600)
              + ACQUIRE_SLACK_SECONDS) if exclusive else 330
+    # A blocked signal mask is inherited across exec: the acquire must take TERM (its trap unreserves).
     proc = subprocess.Popen([ch, "acquire", *([] if whole_host else ["--slot"]), *(["--exclusive"] if exclusive else [])],
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    try:
-        out, err = proc.communicate(timeout=bound)
-        if log_path:  # capture-host's own lines (each host tried and why it was skipped), for a round with no lease
-            Path(log_path).write_bytes(err or b"")
-    except subprocess.TimeoutExpired:
-        proc.terminate()  # our own child: capture-host's acquire_interrupted unreserves and exits
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            preexec_fn=lambda: signal.pthread_sigmask(signal.SIG_UNBLOCK, STOP_SIGNALS))
+    deadline = time.monotonic() + bound
+    while True:
         try:
-            out, err = proc.communicate(timeout=60)
+            out, err = proc.communicate(timeout=1.0)
+            break
         except subprocess.TimeoutExpired:
-            proc.kill()
-            try:  # a child of the acquire may still hold the pipes: never wait on them without a bound
-                out, err = proc.communicate(timeout=10)
+            pass
+        # The caller blocks STOP_SIGNALS around this call: a stop waits here as a pending signal. Take it (sigwait clears
+        # it) and end the acquire, whose trap unreserves; no lease was handed out.
+        if signal.sigpending() & STOP_SIGNALS:
+            got = signal.sigwait(STOP_SIGNALS)
+            proc.terminate()
+            try:
+                proc.wait(timeout=60)
             except subprocess.TimeoutExpired:
-                out, err = b"", b"(no output: the acquire's children still hold its pipes)"
-        raise RuntimeError(f"capture-host acquire gave no lease within {bound}s: "
-                           f"{err.decode(errors='replace').strip()[-400:]}")
-    except BaseException:
-        # This run.py was stopped (SIGTERM, see main, or ^C) while it waited: end the acquire, whose trap unreserves.
-        proc.terminate()
-        try:
-            proc.wait(timeout=60)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-        raise
+                proc.kill()
+            raise Terminated(f"signal {got} while acquiring")
+        if time.monotonic() > deadline:
+            proc.terminate()  # our own child: capture-host's acquire_interrupted unreserves and exits
+            try:
+                out, err = proc.communicate(timeout=60)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                try:  # a child of the acquire may still hold the pipes: never wait on them without a bound
+                    out, err = proc.communicate(timeout=10)
+                except subprocess.TimeoutExpired:
+                    out, err = b"", b"(no output: the acquire's children still hold its pipes)"
+            raise RuntimeError(f"capture-host acquire gave no lease within {bound}s: "
+                               f"{err.decode(errors='replace').strip()[-400:]}")
+    if log_path:  # capture-host's own lines (each host tried and why it was skipped), for a round with no lease
+        Path(log_path).write_bytes(err or b"")
     if proc.returncode != 0:
         raise RuntimeError(f"capture-host acquire exited {proc.returncode}: "
                            f"{(err or out).decode(errors='replace').strip()[-500:]}")
     return out.decode().split()
 
 
-HOG_WARMUP_SECONDS = 45
+HOG_WARMUP_SECONDS = 45  # at least this long from the hog's start (before the download) to the first journey
 # Builds kept in each mini's journeys build cache (about 1 GB each).
-BUILD_CACHE_KEEP = 3  # at least this long from the hog's start (before the download) to the first journey
+BUILD_CACHE_KEEP = 3
+# The signals that stop a round (fuzz.py's TERM, the gate's, ^C). They are blocked from the acquire until the lease is
+# inside run_lease's try, and again for the whole release, so neither a second signal nor one at the wrong moment can
+# leave a lease held until it expires (review of 22115f33db6).
+STOP_SIGNALS = {signal.SIGINT, signal.SIGTERM}
 
 
 def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.0, whole_host=False):
@@ -305,18 +318,25 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
     the fleet rule for any result that is evidence, such as the dogfood smoke gate)."""
     ch = capture_host()
     ids = [s["id"] for s in specs]
+    mask = signal.pthread_sigmask(signal.SIG_BLOCK, STOP_SIGNALS)  # see STOP_SIGNALS: no stop between lease and try
     try:
         out.mkdir(parents=True, exist_ok=True)
         acquired = acquire_lease(ch, exclusive, out / "acquire.log", whole_host=whole_host)
     except (RuntimeError, subprocess.TimeoutExpired) as error:
+        signal.pthread_sigmask(signal.SIG_SETMASK, mask)
         return {i: {"status": "not run", "reason": f"no capture slot: {str(error)[-300:]}"} for i in ids}
+    except BaseException:
+        signal.pthread_sigmask(signal.SIG_SETMASK, mask)
+        raise
     if not acquired:
+        signal.pthread_sigmask(signal.SIG_SETMASK, mask)
         return {i: {"status": "not run", "reason": "capture-host acquire printed no lease"} for i in ids}
     lease, deadline = acquired[-1], time.monotonic() + LEASE_SECONDS
     left = lambda cap: max(10.0, min(cap, deadline - time.monotonic()))
     log(f"leased {lease}")
     facts, host, hog_started, work = {}, None, None, None
     try:
+        signal.pthread_sigmask(signal.SIG_SETMASK, mask)  # a stop from here on raises inside the try: finally releases
         info = dict(kv.split("=", 1) for kv in run([ch, "slot-info", lease]).stdout.decode().split() if "=" in kv)
         host, root = info["host"], info["root"]
         work = f"{root}/journeys"
@@ -341,13 +361,16 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         # run): ~/.cache/cmux-journeys/builds/<job>/, filled atomically by the first lease of that job on the mini and
         # reused by every later round (the newest BUILD_CACHE_KEEP jobs are kept). capture-host launch clones it into
         # the slot, so the slot never changes it.
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", str(build["id"])):
+            raise RuntimeError(f"build id {build['id']!r} is not a plain job id")
         cache = f"$HOME/.cache/cmux-journeys/builds/{build['id']}"
         log(f"build {build['id']} on {host}: cached there, else downloaded once (and the text reader, once per mini)")
         app = remote(host, f"set -e; cd {q(work)}; mkdir -p $HOME/.cache/cmux-journeys/builds; "
                            f"( [ -x {ocr} ] || {{ swiftc -O kit/ocr.swift -o {ocr}.$$ && mv -f {ocr}.$$ {ocr}; }} ) >ocr.log 2>&1 & "
-                           f"c={cache}; if [ -f \"$c/ok\" ]; then echo 'journeys: build cache hit' >&2; touch \"$c/ok\"; else "
+                           f"c={cache}; find $HOME/.cache/cmux-journeys/builds -maxdepth 1 -name '*.tmp.*' -mmin +60 -exec rm -rf {{}} + 2>/dev/null || true; "
+                           f"if [ -f \"$c/ok\" ]; then echo 'journeys: build cache hit' >&2; touch \"$c\"; else "
                            f"t=\"$c.tmp.$$\"; rm -rf \"$t\"; mkdir -p \"$t\"; cmux-ci artifact {q(build['id'])} \"$t/app.zip\" >&2; "
-                           f"ditto -x -k \"$t/app.zip\" \"$t/build\"; rm -f \"$t/app.zip\"; rm -rf \"$c\"; mv \"$t\" \"$c\"; touch \"$c/ok\"; "
+                           f"ditto -x -k \"$t/app.zip\" \"$t/build\"; rm -f \"$t/app.zip\"; rm -rf \"$c\"; mv \"$t\" \"$c\"; touch \"$c/ok\" \"$c\"; "
                            f"ls -1t $HOME/.cache/cmux-journeys/builds | grep -v '\\.tmp\\.' | tail -n +{BUILD_CACHE_KEEP + 1} | "
                            f"while read -r old; do rm -rf \"$HOME/.cache/cmux-journeys/builds/$old\"; done; fi; wait || true; "
                            f"[ -x {ocr} ] || {{ cat ocr.log >&2; exit 3; }}; "
@@ -400,6 +423,9 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         reason = f"{host or lease}: {str(error)[-400:]}"
         return collect(out, ids, host, missing_reason=reason)
     finally:
+        # The whole clean-up with stops blocked: a second TERM (^C reaches run.py and fuzz.py, which then sends TERM)
+        # must not kill the release; a stop that came meanwhile is raised when the mask is restored, after it.
+        signal.pthread_sigmask(signal.SIG_BLOCK, STOP_SIGNALS)
         if hog_started and host:
             # Our own hog only: the pid it wrote, checked to still be smoke_hog.py (its deadline ends it anyway).
             # A stop that times out must not skip the release below.
@@ -408,9 +434,13 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
                              f"ps -p \"$p\" -o command= | grep -q smoke_hog.py && kill \"$p\"; true", timeout=30, check=False)
             except (RuntimeError, subprocess.TimeoutExpired) as error:
                 log(f"stopping the memory hog on {host} failed ({error}); it ends by itself at its deadline")
-        released = subprocess.run([ch, "release", lease], capture_output=True, timeout=120)
-        log(f"released {lease}" if released.returncode == 0 else
-            f"release of {lease} exited {released.returncode} (it expires within 10 minutes)")
+        try:
+            released = subprocess.run([ch, "release", lease], capture_output=True, timeout=120)
+            log(f"released {lease}" if released.returncode == 0 else
+                f"release of {lease} exited {released.returncode} (it expires within 10 minutes)")
+        except (OSError, subprocess.TimeoutExpired) as error:
+            log(f"release of {lease} failed ({error}); it expires within 10 minutes")
+        signal.pthread_sigmask(signal.SIG_SETMASK, mask)
     return collect(out, ids, host, missing_reason=f"{host}: the driver wrote no result (driver exit {drove.returncode}: "
                                                   f"{drove.stderr.decode(errors='replace').strip()[-300:]})")
 

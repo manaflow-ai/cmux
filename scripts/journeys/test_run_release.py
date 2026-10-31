@@ -26,7 +26,7 @@ case "$1" in
            echo "slot-cmux99-abc" ;;
   slot-info) echo "host=cmux99 slot=1 root=/tmp/fake-root" ;;
   launch) echo "pid=1 socket=/tmp/fake.sock bundle_id=x app=/tmp/fake.app" ;;
-  release) echo released ;;
+  release) echo release-start >> "$CH_LOG"; sleep "${CH_RELEASE_SLEEP:-0}"; echo release-done >> "$CH_LOG"; echo released ;;
 esac
 """
 
@@ -108,6 +108,24 @@ class Release(unittest.TestCase):
         self.assertEqual(p.returncode, 143, err)
         self.assertIn("acquire-ended", self.lines())
         self.assertFalse(any(l.startswith("launch") for l in self.lines()))
+
+
+class DoubleStop(unittest.TestCase):
+    def test_a_second_term_during_the_release_does_not_kill_it(self):
+        t = Release("test_error_inside_the_round_releases")
+        t.setUp()
+        p = t.start("sleep", CH_RELEASE_SLEEP="3")
+        end = time.time() + 30
+        while time.time() < end and "remote driver" not in t.lines():
+            time.sleep(0.1)
+        p.send_signal(signal.SIGTERM)
+        end = time.time() + 30
+        while time.time() < end and "release-start" not in t.lines():
+            time.sleep(0.05)
+        p.send_signal(signal.SIGTERM)  # the second stop (^C to the group, then fuzz.py's TERM)
+        p.send_signal(signal.SIGINT)
+        p.communicate(timeout=60)
+        self.assertIn("release-done", t.lines())
 
 
 class FuzzStop(unittest.TestCase):
