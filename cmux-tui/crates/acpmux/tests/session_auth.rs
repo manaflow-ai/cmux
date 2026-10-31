@@ -33,6 +33,15 @@ fn scratch(tag: &str) -> PathBuf {
 /// A hub with the `fake` harness (Claude's family) and a preset `two` that runs it in another
 /// Claude home, its routes and bindings under `root`.
 fn hub(root: &Path) -> Arc<Hub> {
+    hub_of(config(root))
+}
+
+fn hub_of(cfg: Config) -> Arc<Hub> {
+    let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    Hub::new(cfg, store)
+}
+
+fn config(root: &Path) -> Config {
     let two = root.join("claude-two");
     let defaulted = root.join("claude-defaulted");
     let mut cfg: Config = serde_json::from_value(json!({
@@ -68,8 +77,7 @@ fn hub(root: &Path) -> Arc<Hub> {
     cfg.path = Some(root.join("home").join("config.json"));
     cfg.profile_sources.user_dir = Some(root.join("config").join("harnesses"));
     cfg.store.mode = StoreMode::Memory;
-    let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
-    Hub::new(cfg, store)
+    cfg
 }
 
 struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
@@ -509,4 +517,88 @@ async fn session_auth_is_listed_in_initialize() {
     assert!(features.as_array().unwrap().contains(&json!("sessionAuth")), "{v}");
     let methods = v.pointer("/result/_meta/acpmux/extensions").cloned().unwrap_or_default();
     assert!(methods.as_array().unwrap().contains(&json!(method::MUX_SESSION_AUTH)), "{v}");
+}
+
+/// The calls `params` from `n` connections at once, each its own client.
+async fn at_once(hub: &Arc<Hub>, n: usize, params: Value) -> Vec<Value> {
+    let calls = (0..n).map(|_| {
+        let mut c = client(hub);
+        let params = params.clone();
+        tokio::spawn(async move { c.auth(params).await })
+    });
+    futures_util::future::join_all(calls).await.into_iter().map(Result::unwrap).collect()
+}
+
+/// A page sends `refresh` on each chat switch and each turn's start and end. Refreshes that
+/// come while the harness's sign-in check for the same profile runs join it: one check process,
+/// not one per request. One that comes after it ended runs a new check (no timer).
+#[tokio::test]
+async fn refreshes_at_once_share_one_sign_in_check() {
+    let root = scratch("one-check");
+    let runs = root.join("check-runs");
+    let mut cfg = config(&root);
+    let profile = json!({"argv": ["python3", FAKE], "family": "plain", "env": {"RUNS": runs}});
+    cfg.harnesses.insert("counted".into(), serde_json::from_value(profile).unwrap());
+    let check = ["sh", "-c", "echo run >> \"$RUNS\"; sleep 2"].map(String::from).to_vec();
+    let auth = AuthNotes { check, ..Default::default() };
+    cfg.profile_meta
+        .insert("counted".into(), ProfileMeta { auth: Some(auth), ..Default::default() });
+    let hub = hub_of(cfg);
+    let ran = || std::fs::read_to_string(&runs).unwrap_or_default().lines().count();
+    let target = json!({"target": {"harness": "counted"}, "refresh": true});
+    let answers = at_once(&hub, 4, target.clone()).await;
+    for out in &answers {
+        assert_eq!(state(out), ("ready", "authCheck"), "{out}");
+        assert_eq!(out["evidenceAt"], answers[0]["evidenceAt"], "one check's answer: {out}");
+    }
+    assert_eq!(ran(), 1, "four refreshes at once ran one check");
+    let out = client(&hub).auth(target).await;
+    assert_eq!(state(&out), ("ready", "authCheck"), "{out}");
+    assert_eq!(ran(), 2, "a refresh after the check ended runs a new one");
+}
+
+/// A route's health endpoint that counts its requests and answers each after `delay`.
+async fn counting_endpoint(hits: Arc<std::sync::atomic::AtomicUsize>, delay: Duration) -> String {
+    use std::sync::atomic::Ordering;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/health", l.local_addr().unwrap());
+    tokio::spawn(async move {
+        while let Ok((mut tcp, _)) = l.accept().await {
+            hits.fetch_add(1, Ordering::SeqCst);
+            tokio::spawn(async move {
+                let mut buf = [0u8; 4096];
+                let _ = tcp.read(&mut buf).await;
+                tokio::time::sleep(delay).await;
+                let reply = "HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}";
+                let _ = tcp.write_all(reply.as_bytes()).await;
+            });
+        }
+    });
+    url
+}
+
+/// Refreshes that come while the route's probe runs join it: one request to the route, not
+/// one per refresh. One that comes after it ended probes again.
+#[tokio::test]
+async fn refreshes_at_once_share_one_route_probe() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let root = scratch("one-probe");
+    let hub = hub(&root);
+    let mut c = client(&hub);
+    let hits = Arc::new(AtomicUsize::new(0));
+    let url = counting_endpoint(hits.clone(), Duration::from_millis(1500)).await;
+    let route = json!({
+        "id": "slow", "kind": "custom-anthropic", "anthropicBaseUrl": url, "healthUrl": url,
+    });
+    let added = c.call("_acpmux/route/add", route).await;
+    assert!(added.get("error").is_none(), "{added}");
+    let target = json!({"target": {"harness": "fake", "routeId": "slow"}, "refresh": true});
+    let answers = at_once(&hub, 4, target.clone()).await;
+    for out in &answers {
+        assert_eq!(out["routeId"], "slow", "{out}");
+    }
+    assert_eq!(hits.load(Ordering::SeqCst), 1, "four refreshes at once probed the route once");
+    c.auth(target).await;
+    assert_eq!(hits.load(Ordering::SeqCst), 2, "a refresh after the probe ended probes again");
 }
