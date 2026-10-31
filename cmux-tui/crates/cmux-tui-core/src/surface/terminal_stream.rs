@@ -245,7 +245,8 @@ impl Surface {
         pty.observe_terminal_output(&output);
         pty.broadcast_attach_output(&output);
         if let Some(journal_target) = pty.journal_target() {
-            pty.record_output(journal_target, &output);
+            let history = crate::output_store::HistoryRows::of(&terminal);
+            pty.record_output(journal_target, &output, history);
         }
         pty.stream_progress.notify();
         Ok(Some(f(&mut terminal)))

@@ -2,7 +2,7 @@
 // spans the transcript's viewport and maps the whole scroll height onto it. Each prompt is a longer,
 // brighter tick and a tab stop; each reply a shorter, dimmer one set in a little; a bar shows what
 // is on screen and follows the scroll on its own frame without a render. Hovering grows the marks
-// near the pointer and, after the hover delay, previews the nearest message beside it. A click on a
+// near the pointer and, at once (CARD_DELAY), previews the nearest message beside it. A click on a
 // mark jumps to it (a prompt as the compact rail's click does); a click on the track jumps there;
 // dragging anywhere scrubs the transcript. Geometry is the transcript's layout (mapGeometry.ts).
 import React, { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -18,9 +18,7 @@ import { ContextMenu } from "../../../ui/ContextMenu";
 import type { usePromptMarks } from "./promptMarks";
 import {
   CARD_DELAY,
-  cardOffset,
   JUMP_CURVE,
-  jumpDuration,
   LANDING_OFFSET,
   replyPreview,
   ROW_WIDTH,
@@ -92,7 +90,6 @@ export function ScrollMap({
   const [hovered, setHovered] = useState<string | undefined>(undefined);
   const [focused, setFocused] = useState<string | undefined>(undefined);
   const [cardMark, setCardMark] = useState<string | undefined>(undefined);
-  const [cardHeight, setCardHeight] = useState(0);
   const [cardFocus, setCardFocus] = useState(false);
   const [scrubbing, setScrubbing] = useState(false);
   const [reduce, setReduce] = useState(false);
@@ -146,9 +143,6 @@ export function ScrollMap({
   const showCard = preview.shown !== null && cardAt !== undefined;
   if (!showCard && cardFocus) setCardFocus(false);
   useEscapeCloses(showCard && cardFocus, dismiss);
-  useLayoutEffect(() => {
-    if (showCard && card.current) setCardHeight(card.current.offsetHeight);
-  }, [showCard, cardAt]);
   const cardRow = cardAt ? rows[cardAt.row] : undefined;
   const agentReply = useMemo(
     () => (cardAt?.kind === "agent" && cardRow?.text ? replyPreview(cardRow.text) : []),
@@ -181,18 +175,15 @@ export function ScrollMap({
         Math.max(0, THREAD_PADDING_TOP + (layout.tops[mark.row] ?? 0) - LANDING_OFFSET),
         Math.max(0, layout.totalHeight - node.clientHeight),
       );
-    const to = target();
-    animateScroll(node, target, reducedMotion() ? 0 : jumpDuration(to - node.scrollTop), JUMP_CURVE);
+    // A click lands at once, as the compact rail's does (ThreadMinimap.tsx `jump`).
+    animateScroll(node, target, 0, JUMP_CURVE);
   };
-  /// Centers the view on rail point `y`: at once while scrubbing, else on the jump's curve.
-  const seek = (y: number, smooth: boolean) => {
+  /// Centers the view on rail point `y`, at once: a click on the track as a scrub does.
+  const seek = (y: number) => {
     const node = scroller.current;
     if (!node) return;
-    const to = scrollTopAt(y, height, layout.totalHeight, node.clientHeight);
-    if (!smooth || reducedMotion()) {
-      stopScroll(node);
-      node.scrollTop = to;
-    } else animateScroll(node, () => to, jumpDuration(to - node.scrollTop), JUMP_CURVE);
+    stopScroll(node);
+    node.scrollTop = scrollTopAt(y, height, layout.totalHeight, node.clientHeight);
   };
   const point = (y: number) => {
     const at = keyOf(marks[markAt(marks, y) ?? -1]);
@@ -214,7 +205,7 @@ export function ScrollMap({
       return;
     }
     if (state.mark !== undefined) activate(state.mark);
-    else seek(railY(event.clientY), true);
+    else seek(railY(event.clientY));
   };
   // The previewed message stays lit while the pointer is on its card.
   const active = hovered ?? focused ?? (showCard ? cardMark : undefined);
@@ -275,7 +266,7 @@ export function ScrollMap({
                 event.currentTarget.setPointerCapture?.(state.pointer);
               } catch {}
             }
-            if (state?.moved) seek(y, false);
+            if (state?.moved) seek(y);
             point(y);
           }}
           onPointerLeave={(event) => {
@@ -346,13 +337,13 @@ export function ScrollMap({
           side={side}
           x={placement.reserve + placement.left + ROW_WIDTH}
           railLeft={placement.left}
-          y={cardOffset(MAP_MARGIN + cardAt.y, cardHeight, viewportHeight)}
+          center={MAP_MARGIN + cardAt.y}
+          viewportHeight={viewportHeight}
           // Out of the scroller: its edge mask would keep the card's blur from the rows (PreviewCard.tsx).
           scroller={scroller.current}
           prompt={cardTurn?.prompt}
           reply={cardTurn ? cardTurn.reply : agentReply}
           metadata={cardTurn?.metadata}
-          onSizeChange={() => setCardHeight(card.current?.offsetHeight ?? 0)}
           bookmark={
             cardTurn && bookmarks.can(cardTurn)
               ? { marked: cardMarked, toggle: () => bookmarks.toggle(cardTurn) }

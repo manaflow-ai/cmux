@@ -13313,127 +13313,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast."
+            "value": "Colors for the window, sidebar, tabs and cmux's pages. Terminals keep the Terminal Theme. Every color meets WCAG AA contrast."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ألوان صفحات cmux نفسها. تصلح هنا كل سمة مضمّنة، وكل لون يستوفي تباين WCAG AA."
+            "value": "ألوان النافذة والشريط الجانبي وعلامات التبويب وصفحات cmux. تحتفظ الطرفيات بسمة الطرفية. كل لون يحقق تباين WCAG AA."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Boje za vlastite stranice cmuxa. Ovdje radi svaka ugrađena tema, a svaka boja ispunjava WCAG AA kontrast."
+            "value": "Boje prozora, bočne trake, kartica i cmux stranica. Terminali zadržavaju temu terminala. Svaka boja ispunjava WCAG AA kontrast."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Farver til cmux' egne sider. Alle medfølgende temaer virker her, og hver farve opfylder WCAG AA-kontrast."
+            "value": "Farver til vinduet, sidepanelet, fanerne og cmux' sider. Terminaler beholder terminaltemaet. Alle farver opfylder WCAG AA-kontrast."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Farben für die eigenen Seiten von cmux. Jedes mitgelieferte Design funktioniert hier, und jede Farbe erfüllt den WCAG-AA-Kontrast."
+            "value": "Farben für Fenster, Seitenleiste, Tabs und die Seiten von cmux. Terminals behalten das Terminal-Theme. Jede Farbe erfüllt den WCAG-AA-Kontrast."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Colores de las páginas propias de cmux. Aquí sirve cualquier tema incluido y cada color cumple el contraste WCAG AA."
+            "value": "Colores de la ventana, la barra lateral, las pestañas y las páginas de cmux. Los terminales conservan el tema del terminal. Cada color cumple el contraste WCAG AA."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Couleurs des pages de cmux. Chaque thème fourni fonctionne ici, et chaque couleur respecte le contraste WCAG AA."
+            "value": "Couleurs de la fenêtre, de la barre latérale, des onglets et des pages de cmux. Les terminaux gardent le thème du terminal. Chaque couleur respecte le contraste WCAG AA."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Colori delle pagine di cmux. Qui funziona ogni tema incluso e ogni colore rispetta il contrasto WCAG AA."
+            "value": "Colori di finestra, barra laterale, schede e pagine di cmux. I terminali mantengono il tema del terminale. Ogni colore rispetta il contrasto WCAG AA."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 自身のページの色です。同梱のどのテーマも使え、どの色も WCAG AA のコントラストを満たします。"
+            "value": "ウインドウ、サイドバー、タブ、cmux のページの色です。ターミナルはターミナルテーマのままです。どの色も WCAG AA のコントラストを満たします。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ពណ៌សម្រាប់ទំព័ររបស់ cmux ផ្ទាល់។ រូបរាងភ្ជាប់មកជាមួយនីមួយៗប្រើបាននៅទីនេះ ហើយពណ៌នីមួយៗបំពេញកម្រិតពណ៌ WCAG AA។"
+            "value": "ពណ៌សម្រាប់បង្អួច របារចំហៀង ផ្ទាំង និងទំព័ររបស់ cmux។ ទែមីណាល់រក្សាស្បែកទែមីណាល់។ ពណ៌នីមួយៗបំពេញកម្រិតពន្លឺប្រៀបធៀប WCAG AA។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 자체 페이지의 색상입니다. 기본 제공 테마를 모두 쓸 수 있으며 모든 색상이 WCAG AA 대비를 충족합니다."
+            "value": "창, 사이드바, 탭, cmux 페이지의 색상입니다. 터미널은 터미널 테마를 유지합니다. 모든 색상이 WCAG AA 대비를 충족합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Farger for cmux sine egne sider. Alle medfølgende temaer fungerer her, og hver farge oppfyller WCAG AA-kontrast."
+            "value": "Farger for vinduet, sidefeltet, fanene og cmux-sidene. Terminaler beholder terminaltemaet. Alle farger oppfyller WCAG AA-kontrast."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kolory własnych stron cmux. Działa tu każdy wbudowany motyw, a każdy kolor spełnia kontrast WCAG AA."
+            "value": "Kolory okna, paska bocznego, kart i stron cmux. Terminale zachowują motyw terminala. Każdy kolor spełnia kontrast WCAG AA."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cores das páginas do próprio cmux. Todo tema incluído funciona aqui, e cada cor atende ao contraste WCAG AA."
+            "value": "Cores da janela, barra lateral, abas e páginas do cmux. Os terminais mantêm o tema do terminal. Cada cor atende ao contraste WCAG AA."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Цвета собственных страниц cmux. Подходит любая встроенная тема, и каждый цвет соответствует контрасту WCAG AA."
+            "value": "Цвета окна, боковой панели, вкладок и страниц cmux. Терминалы сохраняют тему терминала. Каждый цвет соответствует контрасту WCAG AA."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "สีของหน้าต่าง ๆ ของ cmux เอง ใช้ธีมในตัวได้ทุกธีม และทุกสีผ่านค่าความต่างสี WCAG AA"
+            "value": "สีของหน้าต่าง แถบด้านข้าง แท็บ และหน้าของ cmux เทอร์มินัลยังใช้ธีมเทอร์มินัล ทุกสีผ่านคอนทราสต์ WCAG AA"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux'un kendi sayfalarının renkleri. Her yerleşik tema burada çalışır ve her renk WCAG AA kontrastını karşılar."
+            "value": "Pencere, kenar çubuğu, sekmeler ve cmux sayfalarının renkleri. Terminaller terminal temasını korur. Her renk WCAG AA kontrastını karşılar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Кольори власних сторінок cmux. Підходить будь-яка вбудована тема, і кожен колір відповідає контрасту WCAG AA."
+            "value": "Кольори вікна, бічної панелі, вкладок і сторінок cmux. Термінали зберігають тему термінала. Кожен колір відповідає контрасту WCAG AA."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Màu cho các trang của chính cmux. Mọi chủ đề có sẵn đều dùng được, và mọi màu đều đạt độ tương phản WCAG AA."
+            "value": "Màu cho cửa sổ, thanh bên, các tab và trang của cmux. Terminal giữ chủ đề terminal. Mọi màu đều đạt độ tương phản WCAG AA."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 自身页面的颜色。所有内置主题都可用于此处,每种颜色都达到 WCAG AA 对比度。"
+            "value": "窗口、侧边栏、标签页和 cmux 页面的颜色。终端保留终端主题。每种颜色都符合 WCAG AA 对比度。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 自身頁面的顏色。所有內建主題都可用於此處,每種顏色都達到 WCAG AA 對比度。"
+            "value": "視窗、側邊欄、分頁和 cmux 頁面的顏色。終端機保留終端機主題。每種顏色都符合 WCAG AA 對比度。"
           }
         }
       }
@@ -42526,127 +42526,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it."
+            "value": "Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux とそのターミナルの配色です。スペース、ワークスペース、ターミナルのテーマが優先されます。"
+            "value": "ターミナルの色です。アプリテーマが「ターミナルテーマに合わせる」の間は cmux もこの色を使います。スペース、ワークスペース、ターミナルのテーマが優先されます。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ألوان cmux وطرفياته. تتجاوزها سمة المساحة أو مساحة العمل أو الطرفية."
+            "value": "ألوان الطرفيات. يستخدمها cmux أيضًا ما دامت سمة التطبيق «مطابقة سمة الطرفية». تتجاوزها سمة المساحة أو مساحة العمل أو الطرفية."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Boje za cmux i njegove terminale. Tema prostora, radnog prostora ili terminala ima prednost."
+            "value": "Boje terminala. cmux ih koristi i dok je tema aplikacije „Prati temu terminala”. Tema prostora, radnog prostora ili terminala ima prednost."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Farver til cmux og dets terminaler. Et område-, arbejdsområde- eller terminaltema tilsidesætter det."
+            "value": "Farver til terminaler. cmux bruger dem også, mens apptemaet er Følg terminaltema. Et tema for et rum, et arbejdsområde eller en terminal går forud."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Farben für cmux und seine Terminals. Ein Space-, Arbeitsbereich- oder Terminal-Design hat Vorrang."
+            "value": "Farben für Terminals. cmux nutzt sie auch, solange das App-Theme „Wie Terminal-Theme“ ist. Ein Space-, Workspace- oder Terminal-Theme hat Vorrang."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Colores de cmux y sus terminales. El tema de un espacio, un espacio de trabajo o una terminal lo reemplaza."
+            "value": "Colores de los terminales. cmux también los usa mientras el tema de la app sea Igual que el tema del terminal. Un tema de espacio, área de trabajo o terminal lo reemplaza."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Couleurs de cmux et de ses terminaux. Le thème d’un espace, d’un espace de travail ou d’un terminal le remplace."
+            "value": "Couleurs des terminaux. cmux les utilise aussi tant que le thème de l’app est « Comme le thème du terminal ». Un thème d’espace, d’espace de travail ou de terminal le remplace."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Colori di cmux e dei suoi terminali. Il tema di uno spazio, di uno spazio di lavoro o di un terminale lo sostituisce."
+            "value": "Colori dei terminali. cmux li usa anche finché il tema dell’app è Come il tema del terminale. Un tema di spazio, area di lavoro o terminale lo sostituisce."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ពណ៌សម្រាប់ cmux និងទែមីណាល់របស់វា។ រចនាប័ទ្មលំហ កន្លែងធ្វើការ ឬទែមីណាល់ មានអាទិភាពជាង។"
+            "value": "ពណ៌សម្រាប់ទែមីណាល់។ cmux ក៏ប្រើពួកវាដែរ ពេលស្បែកកម្មវិធីជា «ត្រូវនឹងស្បែកទែមីណាល់»។ ស្បែកលំហ កន្លែងធ្វើការ ឬទែមីណាល់ មានអាទិភាពជាង។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux와 터미널의 색상입니다. 스페이스, 작업 공간 또는 터미널 테마가 우선합니다."
+            "value": "터미널의 색상입니다. 앱 테마가 '터미널 테마와 일치'인 동안 cmux도 이 색상을 사용합니다. 스페이스, 워크스페이스 또는 터미널 테마가 우선합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Farger for cmux og terminalene. Et område-, arbeidsområde- eller terminaltema overstyrer det."
+            "value": "Farger for terminaler. cmux bruker dem også så lenge apptemaet er Samme som terminaltema. Et tema for et rom, arbeidsområde eller en terminal går foran."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kolory cmux i jego terminali. Motyw obszaru, obszaru roboczego lub terminala ma pierwszeństwo."
+            "value": "Kolory terminali. cmux używa ich też, gdy motyw aplikacji to „Jak motyw terminala”. Motyw przestrzeni, obszaru roboczego lub terminala ma pierwszeństwo."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cores do cmux e dos seus terminais. O tema de um espaço, espaço de trabalho ou terminal o substitui."
+            "value": "Cores dos terminais. O cmux também as usa enquanto o tema do app for Igual ao tema do terminal. Um tema de espaço, área de trabalho ou terminal o substitui."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Цвета cmux и его терминалов. Тема области, рабочей области или терминала имеет приоритет."
+            "value": "Цвета терминалов. cmux тоже использует их, пока тема приложения — «Как тема терминала». Тема пространства, рабочей области или терминала имеет приоритет."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "สีของ cmux และเทอร์มินัล ธีมของพื้นที่ พื้นที่ทำงาน หรือเทอร์มินัลจะใช้แทน"
+            "value": "สีของเทอร์มินัล cmux ใช้สีเหล่านี้ด้วยขณะที่ธีมแอปเป็น \"ตรงกับธีมเทอร์มินัล\" ธีมของสเปซ เวิร์กสเปซ หรือเทอร์มินัลจะมีผลก่อน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux ve terminallerinin renkleri. Alan, çalışma alanı veya terminal teması bunun yerine geçer."
+            "value": "Terminallerin renkleri. Uygulama teması Terminal Temasıyla Eşleş olduğu sürece cmux da bunları kullanır. Alan, çalışma alanı veya terminal teması önceliklidir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Кольори cmux і його терміналів. Тема простору, робочого простору чи термінала має пріоритет."
+            "value": "Кольори терміналів. cmux теж використовує їх, поки тема застосунку — «Як тема термінала». Тема простору, робочої області чи термінала має пріоритет."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Màu của cmux và các terminal. Chủ đề của không gian, không gian làm việc hoặc terminal sẽ được ưu tiên."
+            "value": "Màu cho terminal. cmux cũng dùng chúng khi chủ đề ứng dụng là Khớp chủ đề terminal. Chủ đề của không gian, workspace hoặc terminal sẽ được ưu tiên."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 及其终端的配色。空间、工作区或终端主题会覆盖它。"
+            "value": "终端的颜色。应用主题为“匹配终端主题”时，cmux 也使用这些颜色。空间、工作区或终端主题优先。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 及其終端機的配色。空間、工作區或終端機主題會優先套用。"
+            "value": "終端機的顏色。App 主題為「符合終端機主題」時，cmux 也使用這些顏色。空間、工作區或終端機主題優先。"
           }
         }
       }
@@ -79303,6 +79303,268 @@
         }
       }
     },
+    "settings.updates.showFeatureTips": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Feature Tips"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار تلميحات الميزات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži savjete o funkcijama"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis tip om funktioner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Funktionstipps anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar consejos de funciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les astuces sur les fonctionnalités"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra suggerimenti sulle funzioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機能のヒントを表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញគន្លឹះមុខងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기능 팁 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis funksjonstips"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuj wskazówki o funkcjach"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar dicas de recursos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать подсказки о функциях"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงเคล็ดลับฟีเจอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Özellik ipuçlarını göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати підказки про функції"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện mẹo tính năng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示功能提示"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示功能提示"
+          }
+        }
+      }
+    },
+    "settings.updates.showFeatureTips.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Now and then, a small tip points at a feature an update added. Close it or use the feature and it never comes back."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "من حين لآخر، يشير تلميح صغير إلى ميزة أضافها تحديث. أغلقه أو استخدم الميزة ولن يظهر مجددًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povremeno mali savjet pokazuje na funkciju koju je dodalo ažuriranje. Zatvorite ga ili koristite funkciju i više se neće pojaviti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nu og da peger et lille tip på en funktion, som en opdatering har tilføjet. Luk det, eller brug funktionen, så kommer det aldrig igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ab und zu weist ein kleiner Tipp auf eine Funktion hin, die ein Update hinzugefügt hat. Schließe ihn oder nutze die Funktion, und er erscheint nie wieder."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De vez en cuando, un pequeño consejo señala una función que añadió una actualización. Ciérralo o usa la función y no volverá a aparecer."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De temps en temps, une petite astuce signale une fonctionnalité ajoutée par une mise à jour. Fermez-la ou utilisez la fonctionnalité et elle ne reviendra plus."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ogni tanto un piccolo suggerimento indica una funzione aggiunta da un aggiornamento. Chiudilo o usa la funzione e non tornerà più."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートで追加された機能を小さなヒントでお知らせすることがあります。閉じるか機能を使うと、二度と表示されません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម្ដងម្កាល គន្លឹះតូចមួយចង្អុលទៅមុខងារដែលការអាប់ដេតបានបន្ថែម។ បិទវា ឬប្រើមុខងារនោះ ហើយវានឹងមិនបង្ហាញម្ដងទៀតទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가끔 업데이트로 추가된 기능을 작은 팁으로 알려 드립니다. 닫거나 기능을 사용하면 다시 나타나지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Av og til peker et lite tips på en funksjon en oppdatering har lagt til. Lukk det eller bruk funksjonen, så kommer det aldri tilbake."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Od czasu do czasu mała wskazówka pokazuje funkcję dodaną przez aktualizację. Zamknij ją lub użyj funkcji, a już nie wróci."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De vez em quando, uma pequena dica aponta um recurso que uma atualização adicionou. Feche-a ou use o recurso e ela não volta mais."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Время от времени небольшая подсказка указывает на функцию, добавленную обновлением. Закройте её или воспользуйтесь функцией, и она больше не появится."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บางครั้งจะมีเคล็ดลับเล็ก ๆ ชี้ไปที่ฟีเจอร์ที่การอัปเดตเพิ่มเข้ามา ปิดหรือใช้ฟีเจอร์นั้นแล้วจะไม่แสดงอีก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ara sıra küçük bir ipucu, bir güncellemenin eklediği bir özelliği gösterir. Kapatın ya da özelliği kullanın, bir daha görünmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Іноді невелика підказка вказує на функцію, яку додало оновлення. Закрийте її або скористайтеся функцією, і вона більше не з’явиться."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thỉnh thoảng, một mẹo nhỏ chỉ vào tính năng mà bản cập nhật đã thêm. Đóng mẹo hoặc dùng tính năng đó và mẹo sẽ không xuất hiện lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "偶尔会有一条小提示指向更新新增的功能。关闭提示或使用该功能后，它将不再出现。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "偶爾會有一則小提示指向更新新增的功能。關閉提示或使用該功能後，它將不再出現。"
+          }
+        }
+      }
+    },
     "settings.layout.newPanePlacement": {
       "extractionState": "manual",
       "localizations": {
@@ -96224,127 +96486,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Colors for cmux and its terminals"
+            "value": "Colors for terminals, and cmux unless App Theme is set"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ألوان cmux وطرفياته"
+            "value": "ألوان الطرفيات، وcmux ما لم تُضبط سمة التطبيق"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Boje za cmux i njegove terminale"
+            "value": "Boje terminala i cmuxa, osim ako je postavljena tema aplikacije"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Farver til cmux og dets terminaler"
+            "value": "Farver til terminaler og cmux, medmindre et apptema er valgt"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Farben für cmux und seine Terminals"
+            "value": "Farben für Terminals und cmux, außer ein App-Theme ist gesetzt"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Colores de cmux y sus terminales"
+            "value": "Colores de los terminales, y de cmux si no hay tema de la app"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couleurs de cmux et de ses terminaux"
+            "value": "Couleurs des terminaux, et de cmux sauf si un thème de l’app est choisi"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Colori di cmux e dei suoi terminali"
+            "value": "Colori dei terminali, e di cmux se non è impostato un tema dell’app"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux とターミナルの色"
+            "value": "ターミナルの色（アプリテーマ未設定時は cmux も）"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ពណ៌សម្រាប់ cmux និងទែមីណាល់របស់វា"
+            "value": "ពណ៌សម្រាប់ទែមីណាល់ និង cmux លុះត្រាតែកំណត់ស្បែកកម្មវិធី"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux와 터미널의 색상"
+            "value": "터미널 색상 (앱 테마가 없으면 cmux에도 적용)"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Farger for cmux og terminalene"
+            "value": "Farger for terminaler, og cmux med mindre et apptema er valgt"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kolory cmux i jego terminali"
+            "value": "Kolory terminali, a także cmux, jeśli nie ustawiono motywu aplikacji"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cores do cmux e dos terminais"
+            "value": "Cores dos terminais, e do cmux se não houver tema do app"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Цвета cmux и его терминалов"
+            "value": "Цвета терминалов и cmux, если тема приложения не задана"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "สีของ cmux และเทอร์มินัล"
+            "value": "สีของเทอร์มินัล และ cmux หากไม่ได้ตั้งธีมแอป"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux ve terminallerinin renkleri"
+            "value": "Terminallerin renkleri; uygulama teması ayarlı değilse cmux'un da"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Кольори cmux і його терміналів"
+            "value": "Кольори терміналів і cmux, якщо тему застосунку не задано"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Màu cho cmux và các terminal"
+            "value": "Màu cho terminal, và cho cmux nếu chưa đặt chủ đề ứng dụng"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 及其终端的颜色"
+            "value": "终端的颜色（未设置应用主题时也用于 cmux）"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 及其終端機的顏色"
+            "value": "終端機的顏色（未設定 App 主題時也用於 cmux）"
           }
         }
       }
@@ -96356,127 +96618,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Colors for cmux's own pages"
+            "value": "Colors for the window, sidebar, tabs and pages"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ألوان صفحات cmux نفسها"
+            "value": "ألوان النافذة والشريط الجانبي وعلامات التبويب والصفحات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Boje za vlastite stranice cmuxa"
+            "value": "Boje prozora, bočne trake, kartica i stranica"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Farver til cmux' egne sider"
+            "value": "Farver til vindue, sidepanel, faner og sider"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Farben für die eigenen Seiten von cmux"
+            "value": "Farben für Fenster, Seitenleiste, Tabs und Seiten"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Colores de las páginas propias de cmux"
+            "value": "Colores de ventana, barra lateral, pestañas y páginas"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couleurs des pages de cmux"
+            "value": "Couleurs de la fenêtre, de la barre latérale, des onglets et des pages"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Colori delle pagine di cmux"
+            "value": "Colori di finestra, barra laterale, schede e pagine"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 自身のページの色"
+            "value": "ウインドウ、サイドバー、タブ、ページの色"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ពណ៌សម្រាប់ទំព័រផ្ទាល់របស់ cmux"
+            "value": "ពណ៌សម្រាប់បង្អួច របារចំហៀង ផ្ទាំង និងទំព័រ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 자체 페이지의 색상"
+            "value": "창, 사이드바, 탭, 페이지의 색상"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Farger for cmux sine egne sider"
+            "value": "Farger for vindu, sidefelt, faner og sider"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kolory własnych stron cmux"
+            "value": "Kolory okna, paska bocznego, kart i stron"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cores das páginas do próprio cmux"
+            "value": "Cores da janela, barra lateral, abas e páginas"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Цвета собственных страниц cmux"
+            "value": "Цвета окна, боковой панели, вкладок и страниц"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "สีของหน้าของ cmux เอง"
+            "value": "สีของหน้าต่าง แถบด้านข้าง แท็บ และหน้า"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux'un kendi sayfalarının renkleri"
+            "value": "Pencere, kenar çubuğu, sekme ve sayfa renkleri"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Кольори власних сторінок cmux"
+            "value": "Кольори вікна, бічної панелі, вкладок і сторінок"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Màu cho các trang riêng của cmux"
+            "value": "Màu cho cửa sổ, thanh bên, tab và trang"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 自身页面的颜色"
+            "value": "窗口、侧边栏、标签页和页面的颜色"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 自身頁面的顏色"
+            "value": "視窗、側邊欄、分頁和頁面的顏色"
           }
         }
       }
@@ -184203,7 +184465,507 @@
           "uk": {"stringUnit": {"state": "needs_review", "value": "Показує попередження в меню «Комп’ютер», коли віддалена машина досягає обмеження ЦП або пам’яті."}},
           "vi": {"stringUnit": {"state": "needs_review", "value": "Hiển thị cảnh báo trong menu Máy tính khi máy từ xa đạt đến giới hạn CPU hoặc bộ nhớ."}}
         }
+      },
+    "settings.category.menus": {
+      "comment": "Settings sidebar: category for customizing right-click (context) menus.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menus"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "القوائم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meniji"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menuer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menüs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menús"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menus"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニュー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ឺនុយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메뉴"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menyer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menus"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Меню"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมนู"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menüler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Меню"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "菜单"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選單"
+          }
+        }
       }
+    },
+    "settings.contextMenus.showCustomizeItem": {
+      "comment": "Settings > Menus: switch that adds the Customize Menu… row to every right-click menu.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Customize Menu…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار «تخصيص القائمة…»"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži „Prilagodi meni…“"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis “Tilpas menu…”"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Menü anpassen…“ anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar «Personalizar menú…»"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher « Personnaliser le menu… »"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra «Personalizza menu…»"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「メニューをカスタマイズ…」を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញ «ប្ដូរម៉ឺនុយតាមបំណង…»"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“메뉴 사용자화…” 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis «Tilpass meny…»"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż „Dostosuj menu…”"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar “Personalizar Menu…”"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать «Настроить меню…»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดง “ปรับแต่งเมนู…”"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“Menüyü Özelleştir…” Öğesini Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати «Налаштувати меню…»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện “Tùy chỉnh menu…”"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示“自定义菜单…”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示「自訂選單…」"
+          }
+        }
+      }
+    },
+    "settings.contextMenus.showCustomizeItem.help": {
+      "comment": "Settings > Menus: line under the Show Customize Menu… switch; 'it' is the Customize Menu… row. At most 60 characters.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adds Customize Menu… to the end of every right-click menu."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يضيف «تخصيص القائمة…» إلى نهاية كل قائمة للنقر بزر الماوس الأيمن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dodaje „Prilagodi meni…“ na kraj svakog menija desnog klika."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilføjer “Tilpas menu…” nederst i hver højrekliksmenu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fügt „Menü anpassen…“ am Ende jedes Kontextmenüs hinzu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añade «Personalizar menú…» al final de cada menú contextual."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoute « Personnaliser le menu… » à la fin de chaque menu contextuel."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiunge «Personalizza menu…» alla fine di ogni menu contestuale."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての右クリックメニューの末尾に「メニューをカスタマイズ…」を追加します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្ថែម «ប្ដូរម៉ឺនុយតាមបំណង…» ទៅចុងម៉ឺនុយចុចខាងស្តាំនីមួយៗ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 오른쪽 클릭 메뉴의 끝에 ‘메뉴 사용자화…’를 추가합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legger til «Tilpass meny…» nederst i hver høyreklikkmeny."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dodaje „Dostosuj menu…” na końcu każdego menu kontekstowego."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adiciona “Personalizar Menu…” ao final de cada menu de contexto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавляет «Настроить меню…» в конец каждого контекстного меню."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เพิ่ม “ปรับแต่งเมนู…” ไว้ท้ายเมนูคลิกขวาทุกเมนู"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her sağ tık menüsünün sonuna “Menüyü Özelleştir…” ekler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Додає «Налаштувати меню…» в кінець кожного контекстного меню."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thêm “Tùy chỉnh menu…” vào cuối mọi menu chuột phải."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在每个右键菜单的末尾添加“自定义菜单…”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在每個右鍵選單的末尾加入「自訂選單…」。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.textSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "حجم نص الشريط الجانبي"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Veličina teksta bočne trake"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Tekststørrelse i sidepanelet"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Textgröße der Seitenleiste"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Sidebar Text Size"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Tamaño del texto de la barra lateral"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Taille du texte de la barre latérale"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Dimensione del testo della barra laterale"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーの文字サイズ"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ទំហំអក្សររបារចំហៀង"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바 텍스트 크기"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Tekststørrelse i sidefeltet"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Rozmiar tekstu paska bocznego"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Tamanho do texto da barra lateral"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Размер текста боковой панели"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ขนาดข้อความแถบด้านข้าง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğu metin boyutu"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Розмір тексту бічної панелі"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Cỡ chữ thanh bên"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "边栏文字大小"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄文字大小"}}
+      }
+    },
+    "settings.sidebar.textSize.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يكبّر الأسماء والعناوين والأيقونات والصفوف في الشريط الجانبي معًا. يطابق «أكبر» الشريط الجانبي لتطبيق ChatGPT."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Povećava nazive, zaglavlja, ikone i redove bočne trake zajedno. „Veće” odgovara bočnoj traci aplikacije ChatGPT."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Gør sidepanelets navne, overskrifter, ikoner og rækker større sammen. Større svarer til sidepanelet i ChatGPT-appen."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Vergrößert Namen, Überschriften, Symbole und Zeilen der Seitenleiste gemeinsam. „Größer“ entspricht der Seitenleiste der ChatGPT-App."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Makes the sidebar's names, headers, icons and rows larger together. Larger matches the ChatGPT app's sidebar."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Agranda a la vez los nombres, encabezados, iconos y filas de la barra lateral. «Más grande» coincide con la barra lateral de la app de ChatGPT."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Agrandit ensemble les noms, en-têtes, icônes et lignes de la barre latérale. « Plus grand » correspond à la barre latérale de l’app ChatGPT."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Ingrandisce insieme nomi, intestazioni, icone e righe della barra laterale. «Più grande» corrisponde alla barra laterale dell'app ChatGPT."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーの名前、見出し、アイコン、行をまとめて大きくします。「さらに大きく」は ChatGPT アプリのサイドバーと同じ大きさです。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ធ្វើឱ្យឈ្មោះ ក្បាល រូបតំណាង និងជួរនៃរបារចំហៀងធំជាងមុនជាមួយគ្នា។ «ធំជាង» ស្មើនឹងរបារចំហៀងនៃកម្មវិធី ChatGPT។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바의 이름, 헤더, 아이콘, 행을 함께 키웁니다. \"더 크게\"는 ChatGPT 앱의 사이드바와 같은 크기입니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Gjør navn, overskrifter, ikoner og rader i sidefeltet større samtidig. Større tilsvarer sidefeltet i ChatGPT-appen."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Powiększa jednocześnie nazwy, nagłówki, ikony i wiersze paska bocznego. „Większy” odpowiada paskowi bocznemu aplikacji ChatGPT."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Aumenta juntos os nomes, cabeçalhos, ícones e linhas da barra lateral. “Maior” corresponde à barra lateral do app ChatGPT."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Увеличивает имена, заголовки, значки и строки боковой панели вместе. «Крупнее» совпадает с боковой панелью приложения ChatGPT."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ขยายชื่อ หัวข้อ ไอคอน และแถวในแถบด้านข้างไปพร้อมกัน \"ใหญ่ขึ้น\" มีขนาดเท่ากับแถบด้านข้างของแอป ChatGPT"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğundaki adları, başlıkları, simgeleri ve satırları birlikte büyütür. \"Daha büyük\", ChatGPT uygulamasının kenar çubuğuyla aynıdır."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Збільшує назви, заголовки, значки й рядки бічної панелі разом. «Більший» відповідає бічній панелі застосунку ChatGPT."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Phóng to cùng lúc tên, tiêu đề, biểu tượng và các hàng của thanh bên. \"Lớn hơn\" khớp với thanh bên của ứng dụng ChatGPT."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "同时放大边栏的名称、标题、图标和行。“更大”与 ChatGPT 应用的边栏一致。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "同時放大側邊欄的名稱、標題、圖示和列。「更大」與 ChatGPT App 的側邊欄一致。"}}
+      }
+    },
+    "settings.choice.sidebarTextLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "كبير"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Veliko"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Stor"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Groß"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Large"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Grande"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Grand"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Grande"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "大"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ធំ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "크게"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Stor"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Duży"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Grande"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Крупный"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ใหญ่"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Büyük"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Великий"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Lớn"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "大"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "大"}}
+      }
+    },
+    "settings.choice.sidebarTextLarger": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "أكبر"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Veće"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Større"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Größer"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Larger"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Más grande"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Plus grand"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Più grande"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "さらに大きく"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ធំជាង"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "더 크게"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Større"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Większy"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Maior"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Крупнее"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ใหญ่ขึ้น"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Daha büyük"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Більший"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Lớn hơn"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "更大"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "更大"}}
+      }
+    }
   },
   "version": "1.0"
 }
