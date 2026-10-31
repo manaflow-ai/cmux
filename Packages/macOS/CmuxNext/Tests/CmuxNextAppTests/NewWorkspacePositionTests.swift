@@ -325,4 +325,35 @@ struct NewWorkspacePositionTests {
         #expect(ledger.groupAnchors[key.rawValue] == nil)
     }
 
+    @Test func aConsumedLegacyPlacementReleasesItsUnarmedGroupAnchor() async throws {
+        let launched = try await Self.launch("top")
+        let windows = launched.services.windows
+        let id = try #require(launched.services.daemon.store.workspaces.last).id
+        windows.pendingPlacements[id] = PendingPlacement(window: launched.window.id, slot: nil, byDefault: nil)
+        windows.pendingPlacementOrder.append(id)
+        windows.newPlacements.groupAnchors[id] = .firstInGroupOf("old")
+        windows.applyPendingPlacements(live: [id])
+        #expect(windows.pendingPlacements[id] == nil)
+        #expect(windows.newPlacements.groupAnchors[id] == nil)
+        await launched.stop()
+    }
+
+    @Test func aRefusedSpacePinReleasesItsPlacementRegistration() async throws {
+        let launched = try await Self.launch("top")
+        let windows = launched.services.windows
+        let anchors = windows.newPlacements.groupAnchors
+        let pending = Set(windows.pendingPlacements.keys)
+        let scope = DaemonCommandScope()
+        defer { scope.close() }
+        DaemonCommandScope.$current.withValue(scope) {
+            WorkspaceHandlers.createAndShow(services: launched.services, room: ProfileID(rawValue: "missing-space"))
+        }
+        await Self.wait(within: .seconds(10)) { scope.isIdle }
+        #expect(scope.isIdle)
+        #expect(!scope.failures.isEmpty)
+        #expect(windows.newPlacements.groupAnchors == anchors)
+        #expect(Set(windows.pendingPlacements.keys) == pending)
+        await launched.stop()
+    }
+
 }
