@@ -413,7 +413,7 @@ const cutLineRows = [
   }),
   summary(2.6, { id: "gallery-cut-line-summary", status: "completed", toolCount: 1 }),
 ];
-const cutLine = ".cv-tool.is-whole-open";
+const cutLine = ".cv-tool.is-toggle";
 /// Opens Worked for, and with `open` the cut line too; fails when the opened label is still cut.
 const showCutLine = (open: boolean) => async (ctx: PlayContext) => {
   await openWorked(ctx);
