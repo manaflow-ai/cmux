@@ -97,7 +97,8 @@ extension NewTabSubmit {
             // of #28544 at 39fa77d8: `!ls` typed on the native page as a prompt made its terminal in the dock.
             // Only a person's submission moves: a script's (CLI, MCP) aimed at the dock opens where it asked, as in
             // TabLifecycle (delta review of #28544 at 54e3d1bf).
-            guard plan.opensBesideChat(origin: invocation.origin) else {
+            let chatPlacement = ChatColumnPlacement.keepsNewTabPage(in: pane) || NewTabPage.docksChat(pane)
+            guard plan.opensBesideChat(origin: invocation.origin) && chatPlacement else {
                 pane.newTerminalTab(cwd: cwd, typing: command.isEmpty ? nil : command)
                 return
             }
