@@ -420,6 +420,9 @@ mod restored_end;
 #[path = "pty_custody.rs"]
 mod pty_custody;
 
+#[path = "host_link_recover.rs"]
+mod host_link_recover;
+
 #[path = "owner_idle_exit.rs"]
 mod owner_idle_exit;
 
