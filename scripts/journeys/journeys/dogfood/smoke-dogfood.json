@@ -147,6 +147,7 @@
        {"smoke_daemon_lines": {"lines": ["w1-${nonce}-42", "w2-${nonce}-42", "w3-${nonce}-42", "d1-${nonce}-42", "d2-${nonce}-42", "t1-${nonce}-42", "t2-${nonce}-42"]}},
        {"frame_text": "documentation examples"}
      ]},
+    {"do": "smoke_make_key"},
     {"do": "key", "key": "n", "modifiers": ["cmd"], "mark": "ws4"},
     {"do": "expect", "title": "Cmd-N after the reopen makes a fourth workspace", "since": "ws4", "timeout": 20,
      "all": [
@@ -172,7 +173,7 @@
     {"do": "expect", "title": "close all: the journey's workspaces are gone from the app and the window", "since": "closed", "timeout": 20,
      "all": [
        {"smoke_workspaces": {"new": 0}},
-       {"smoke_frame": {"lacks": ["documentation examples", "w3-${nonce}-42", "d2-${nonce}-42", "t2-${nonce}-42"]}}
+       {"smoke_frame": {"lacks": ["documentation examples", "w3-${nonce}-42", "d2-${nonce}-42", "t2-${nonce}-42", "f1-${nonce}-42"]}}
      ]},
     {"do": "smoke_no_key_gaps"}
   ],
