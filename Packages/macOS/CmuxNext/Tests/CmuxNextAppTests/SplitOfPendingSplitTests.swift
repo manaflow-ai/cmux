@@ -13,23 +13,45 @@ import Testing
 struct SplitOfPendingSplitTests {
     /// A person's path (#28436): the line is typed at once after the second Cmd-D, while the creation hold of both
     /// splits waits. The hold keeps the keys and runs them again, in order, once the focus landed on the second pane;
-    /// they run there. The replay goes to the window typed into, as `NSApp.sendEvent` sends a person's key to the key
-    /// window (a test window is never key).
+    /// they run there. The app's replay is `NSApp.sendEvent`, to the key window a person types in; a test window is
+    /// never key, so this replay runs each key as the app does (the key router, then the window) into the test's window.
     @Test func aLineTypedDuringTheHoldRunsInTheSecondPane() async throws {
-        try await PinnedPageTests.withApp { services, connection in
+        try await Self.typeDuringTheHold(replay: { event, window, router in
+            if !router.interceptKeyDown(event, in: window) { window.sendEvent(event) }
+        })
+    }
+
+    /// The red form of the test above: a replay that drops the held keys, the shape of #28436 (`NSApp.sendEvent` with
+    /// no key window delivers them nowhere). The check must fail on its own assertion, the line missing from the second
+    /// pane; a pass here means the check no longer proves the keys arrive.
+    @Test func aReplayThatDropsTheHeldKeysFailsTheCheck() async {
+        await withKnownIssue("the replay drops the held keys, so the typed line cannot run") {
+            try await Self.typeDuringTheHold(replay: { _, _, _ in })
+        } matching: { issue in
+            issue.comments.contains { $0.rawValue.contains("did not run in the second pane") }
+        }
+    }
+
+    /// Two quick splits, the line typed at once during their creation hold, run again through `replay`; the line must
+    /// run in the second split's own shell and the hold end because the focus landed.
+    private static func typeDuringTheHold(replay: @escaping HeldKeyReplay) async throws {
+        try await PinnedPageTests.withApp(heldKeyReplay: replay) { services, connection in
             let content = try #require(services.windows.active?.workspaceContent)
             let window = try #require(content.layoutView.window)
             let coordinator = services.keyRouter.creationInputCoordinator
-            coordinator.replay = { [weak window, weak router = services.keyRouter] event in
-                if router?.interceptKeyDown(event, in: window) != true { window?.sendEvent(event) }
-            }
             var terminal = ActionInvocation(origin: .user)
             terminal.opensTerminal = true
             let before = Set(content.panes.keys)
+            var refusals: [String] = []
+            let previous = services.registry.refusalObserver
+            services.registry.refusalObserver = { reason, quiet in refusals.append(reason); previous?(reason, quiet) }
+            defer { services.registry.refusalObserver = previous }
             let mark = Self.journalMark()
 
+            // One main-actor turn, no await: the first split is still a stand-in when the second Cmd-D comes.
             #expect(services.registry.perform("splitDown", invocation: terminal))
             let first = try #require(content.panes.first { !before.contains($0.key) }?.value, "the first split shows no pane in its turn")
+            #expect(first.pane.tabs.allSatisfy { ProvisionalTab.isProvisional(surface: $0.surface) }, "the first split already confirmed")
             PaneHandlers.focus(first.layoutPaneID, in: content)
             #expect(services.registry.perform("splitDown", invocation: terminal))
             let nonce = String(UInt32.random(in: 100_000...999_999))
@@ -49,7 +71,8 @@ struct SplitOfPendingSplitTests {
                 content.panes.filter { !before.contains($0.key) }.map(\.value)
                     .filter { $0.pane.tabs.contains { $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) } }
             }
-            try await PinnedPageTests.until({ confirmed().count == 2 }, report: { "new confirmed terminal panes \(confirmed().count) of 2" })
+            try await PinnedPageTests.until({ confirmed().count == 2 }, report: { "new confirmed terminal panes \(confirmed().count) of 2; refusals \(refusals)" })
+            #expect(refusals.isEmpty, "a split was refused: \(refusals)")
             let second = try #require(confirmed().first { $0 !== first && $0.layoutPaneID != first.layoutPaneID })
             let surface = try #require(second.pane.tabs.first { $0.kind == .pty }?.surface)
             let screen: (matched: Bool, text: String)

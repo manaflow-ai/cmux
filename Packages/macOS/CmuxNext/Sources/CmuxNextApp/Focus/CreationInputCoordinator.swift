@@ -1,7 +1,12 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextFocusUI
 import CmuxNextTerminal
 import os
+
+/// Where a creation hold's keys run again (#28436): `AppDelegate` passes `NSApp.sendEvent`, to the key window a person types
+/// in; a test, whose window is never key, passes its window. Arguments: the key, the window that held it, the key router.
+typealias HeldKeyReplay = @MainActor (NSEvent, NSWindow, KeyRouter) -> Void
 
 /// Owns a window's keys from the moment a pane or terminal tab creation is handled (a split, New
 /// Terminal Tab) until the new terminal has the keyboard (cx-wb5.76). Without it, keys typed
@@ -22,33 +27,23 @@ final class CreationInputCoordinator {
     private var replaying = false
     /// The longest a key waits for a selected terminal's surface (the slowest takes about 350 ms).
     var holdLimit: Duration = .seconds(2)
-    /// Runs a held key again, as typed: `NSApp.sendEvent`, to the key window (a test gives its window, never key: #28436).
-    var replay: (NSEvent) -> Void = { NSApp.sendEvent($0) }
+    private let replay: HeldKeyReplay // a held key runs again (``HeldKeyReplay``)
 
-    /// Why a window's creation hold ended (R-L5: its end is a signal). `focusLanded`: every creation of the hold replied
-    /// and the focus it asked for holds, with a responder that takes the keys. `limitReached`: the hold's 2 s bound ended
-    /// it first, so the keys typed for the new terminal went on up to that late; logged, as a person feels it.
-    /// `focusLeft`: a key went to a field outside the content (a sidebar or bar field), which ends any hold. `windowClosed`.
-    /// `creationFailed`: a creation of the hold failed (the daemon refused it, or the connection ended); no focus landed.
-    enum HoldEnd: Equatable, Sendable {
-        case focusLanded, limitReached, focusLeft, windowClosed, creationFailed
-    }
-
-    /// Windows whose current hold had a creation that failed: its unforced end is ``HoldEnd/creationFailed``.
+    /// Windows whose current hold had a creation that failed: its unforced end is ``CreationHoldEnd/creationFailed``.
     private var failedCreation: Set<Int> = []
 
     /// How the last creation hold of each window ended, by window number (tests, `debug.focus`).
-    private(set) var lastHoldEnd: [Int: HoldEnd] = [:]
+    private(set) var lastHoldEnd: [Int: CreationHoldEnd] = [:]
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "focus.creation-hold")
 
     /// How `window`'s last creation hold ended; nil when it never held.
-    func lastHoldEnd(in window: NSWindow?) -> HoldEnd? { window.flatMap { lastHoldEnd[$0.windowNumber] } }
+    func lastHoldEnd(in window: NSWindow?) -> CreationHoldEnd? { window.flatMap { lastHoldEnd[$0.windowNumber] } }
 
     /// Whether `window`'s keys wait in a creation hold now (tests: a key typed meanwhile is replayed later).
     func isHolding(in window: NSWindow?) -> Bool { window.map { buffers[$0.windowNumber] != nil } ?? false }
 
-    init(router: KeyRouter) { self.router = router }
+    init(router: KeyRouter, replay: @escaping HeldKeyReplay) { (self.router, self.replay) = (router, replay) }
 
     /// Opens the window's buffer for one creation that moves focus under the user intent
     /// `generation`; nil without a window, or when the creation may not move focus (a CLI,
@@ -148,7 +143,7 @@ final class CreationInputCoordinator {
             let held = buffer.take(), opened = buffer.openedCount
             for (index, key) in held.enumerated() {
                 replaying = true
-                replay(key)
+                replay(key, shell, router)
                 replaying = false
                 // A key run again started another creation: the rest, and this key, wait for it, in order.
                 if buffer.openedCount != opened {
@@ -203,8 +198,8 @@ final class CreationInputCoordinator {
     }
 
     /// `force`: the hold ends now (its limit, focus left the content), whatever it waited for.
-    /// `end`: why a forced end happened; an unforced one is ``HoldEnd/focusLanded``.
-    private func flush(in window: NSWindow, force: Bool = false, end forcedEnd: HoldEnd = .limitReached) {
+    /// `end`: why a forced end happened; an unforced one is ``CreationHoldEnd/focusLanded``.
+    private func flush(in window: NSWindow, force: Bool = false, end forcedEnd: CreationHoldEnd = .limitReached) {
         guard let buffer = buffers[window.windowNumber], force || buffer.isResolved else { return }
         guard let router, let controller = router.focus(for: window).0 else {
             // The window is gone: its keys go with it.
@@ -229,7 +224,7 @@ final class CreationInputCoordinator {
         }
         for (index, event) in pending.enumerated() {
             replaying = true
-            replay(event)
+            replay(event, window, router)
             replaying = false
             // A replayed key started another creation: the rest wait for that one, in order.
             if let next = buffers[window.windowNumber] {

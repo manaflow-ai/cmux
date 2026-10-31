@@ -50,9 +50,10 @@ final class KeyRouter: BrowserKeyRouting {
     var whichKey: WhichKeyController?
     /// Leaving the app ends a waiting chord (the overlay hides with it); the token removes itself when released.
     private var resignObserver: MainActorObservation?
-    init(registry: ActionRegistry, inputDispatch: InputDispatchContext = InputDispatchContext()) {
-        self.registry = registry
-        self.inputDispatch = inputDispatch
+    /// Where a creation hold's keys run again (``CreationInputCoordinator``), from the composition root.
+    let heldKeyReplay: HeldKeyReplay
+    init(registry: ActionRegistry, inputDispatch: InputDispatchContext = InputDispatchContext(), heldKeyReplay: @escaping HeldKeyReplay) {
+        (self.registry, self.inputDispatch, self.heldKeyReplay) = (registry, inputDispatch, heldKeyReplay)
         resignObserver = MainActorObservation(NSApplication.didResignActiveNotification) { [weak self] in self?.cancelChord() }
     }
     // MARK: Tiers
@@ -339,7 +340,7 @@ final class KeyRouter: BrowserKeyRouting {
     /// The New Tab action owns this buffer before a cold page has a readiness object.
     lazy var newTabInputCoordinator = NewTabInputCoordinator(router: self)
     /// A pending split or terminal tab owns its window's keys until the new terminal has the keyboard (cx-wb5.76).
-    lazy var creationInputCoordinator = CreationInputCoordinator(router: self)
+    lazy var creationInputCoordinator = CreationInputCoordinator(router: self, replay: heldKeyReplay)
     /// Browser focus mode's double-Escape exit (``routesFocusModeEscape(_:in:)``).
     var focusModeEscape = BrowserFocusModeEscapeExit()
 

@@ -384,7 +384,9 @@ final class AppServices {
     /// The input event being dispatched now (``InputDispatchContext``): `sendEvent` and the router's own dispatches.
     /// Each scroll event it dispatches is timed to its frame (`key.scroll_frame`).
     let inputDispatch = InputDispatchContext(scrollFrames: ScrollFrameSignpost())
-    private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch)  // first read in init (no IUO)
+    private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch, heldKeyReplay: heldKeyReplay)  // first read in init (no IUO)
+    /// Where a creation hold's keys run again (``HeldKeyReplay``): `AppDelegate` passes `NSApp.sendEvent`.
+    private let heldKeyReplay: HeldKeyReplay
     private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef)  // first read in init (no IUO)
     /// The Settings window (Settings…, Cmd-,).
     private(set) lazy var settingsWindow = SettingsWindowService(services: self)
@@ -520,12 +522,12 @@ final class AppServices {
     ///   instance unless a test passes its own.
     /// - Parameter mainWork: The app's main-thread scheduler (`AppDelegate` passes the one its control
     ///   socket uses); tests get one of their own, with no pending-input check.
-    init(environment: AppEnvironment, keyWindowSource: @escaping @MainActor () -> NSWindow?, appActiveSource: @escaping @MainActor () -> Bool,
+    init(environment: AppEnvironment, keyWindowSource: @escaping @MainActor () -> NSWindow?, appActiveSource: @escaping @MainActor () -> Bool, heldKeyReplay: @escaping HeldKeyReplay,
          launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil,
          work: BackgroundWork = BackgroundWork(), mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil), peerApprover: AgentPanePeerApprover? = nil) {
         self.work = work
-        (self.launchImages, self.relaunchWake, self.keyWindowSource, self.appActiveSource, self.peerApprover) = (launchImages, relaunchWake, keyWindowSource, appActiveSource, peerApprover)
+        (self.launchImages, self.relaunchWake, self.keyWindowSource, self.appActiveSource, self.peerApprover, self.heldKeyReplay) = (launchImages, relaunchWake, keyWindowSource, appActiveSource, peerApprover, heldKeyReplay)
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         // Before the updater's What's New tracker writes its record: an install that ran before
         // never sees the Browser tip (AgentPaneFeatureTipRecords.settleInstall).
