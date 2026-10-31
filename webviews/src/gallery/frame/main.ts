@@ -111,7 +111,10 @@ installUiFont();
 // Document scale and the chrome scale are separate. The app sets pageZoom for the former and
 // this token for the latter; gallery exposes both so each sheet is reproducible.
 if (env.scale !== 1) root.style.zoom = String(env.scale);
+root.style.setProperty("--cmux-ui-scale", String(env.scale));
 root.style.setProperty("--cmux-interface-scale", String(env.interfaceScale));
+// Entries were imported before the token was set: chat sizing (chatWidth.ts) reads it again.
+window.dispatchEvent(new Event("cmux-ui-scale-change"));
 root.dataset.galleryEntry = entry.id;
 root.dataset.galleryVariant = variantName;
 root.dataset.gallerySource = entryState?.path ?? "";

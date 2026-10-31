@@ -67,6 +67,7 @@ members = [
     "crates/cmux-weft",
     "crates/cmux-transport",
     "crates/cmux-tasks-core",
+    "crates/cmux-automations",
     "crates/cmux-feed-core",
     "crates/cmux-tasks",
     "crates/cmux-server-core",
@@ -80,6 +81,7 @@ members = [
     "crates/cmux-rd-proto",
     "crates/cmux-rd-core",
     "crates/cmux-rd-engine",
+    "crates/cmux-rd-link",
     "crates/cmux-encode",
     "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
@@ -133,6 +135,7 @@ default-members = [
     "crates/cmux-weft",
     "crates/cmux-transport",
     "crates/cmux-tasks-core",
+    "crates/cmux-automations",
     "crates/cmux-feed-core",
     "crates/cmux-tasks",
     "crates/cmux-server-core",
@@ -146,6 +149,7 @@ default-members = [
     "crates/cmux-rd-proto",
     "crates/cmux-rd-core",
     "crates/cmux-rd-engine",
+    "crates/cmux-rd-link",
     "crates/cmux-encode",
     "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
@@ -185,6 +189,7 @@ redundant_clone = "warn"
 
 [workspace.dependencies]
 cmux-coderouter = { path = "crates/cmux-coderouter" }
+cmux-automations = { path = "crates/cmux-automations" }
 cmux-tailnet = { path = "crates/cmux-tailnet" }
 ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
 ghostty-vt = { path = "crates/ghostty-vt" }
@@ -343,11 +348,27 @@ crossterm = { path = "vendor/crossterm" }
 # exhaustive event mapping in the same source-controlled compatibility layer.
 terminput-crossterm = { path = "vendor/terminput-crossterm" }
 
-# Fat LTO with one codegen unit, as on main (#19666): the nightly-next client is
-# 79 MB stripped on thin LTO. Each release link takes about 2 minutes longer.
+# Thin LTO. Every tree build compiles this profile, and NEXT nightly waits on the
+# tree. Fat LTO in one codegen unit (#19666) spent about 6 single-threaded
+# minutes linking the cmux-tui binary and 2.5 more on acpmux; thin LTO runs that
+# work in parallel. On a 32 vCPU Linux box, the cmux-tui group went from 606 to
+# 168 s and acpmux from 368 to 135 s. Stripped cmux-tui is 24% larger (105.9 ->
+# 131.7 MB, x86_64 Linux). Terminal throughput and daemon request latency stayed
+# within noise. Dependencies keep one codegen unit each: on cmux-tui that is
+# 4 MB smaller than 16, for the same build time. The three crates on the
+# critical path get 16, so thin LTO has more modules to work on in parallel.
 [profile.release]
-lto = "fat"
+lto = "thin"
 codegen-units = 1
+
+[profile.release.package.cmux-tui]
+codegen-units = 16
+
+[profile.release.package.cmux-tui-core]
+codegen-units = 16
+
+[profile.release.package.acpmux]
+codegen-units = 16
 
 # Debug builds are what mux-dev dogfood runs; opt-level 0 makes the
 # per-frame render/diff path visibly laggy. Light optimization for our
