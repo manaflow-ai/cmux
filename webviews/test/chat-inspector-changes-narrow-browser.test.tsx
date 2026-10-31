@@ -232,4 +232,24 @@ await requireBrowserLane("chat-inspector-changes-narrow-browser.test.tsx", async
       await page.close();
     }
   });
+
+  // A touch screen has no hover (`(hover: none)`), so every row's ⋯ shows at rest there; the rule
+  // must outrank the resting `opacity: 0`, not lose to it.
+  test("on a screen with no hover, every row's ⋯ shows at rest", async () => {
+    const context = await browser.newContext({ viewport: { width: 280, height: 400 }, hasTouch: true, isMobile: true });
+    try {
+      const page = await context.newPage();
+      await page.setContent(
+        `<style>${tokens}\n${css}\nbody { margin: 0; font: 13px system-ui, sans-serif }</style>` +
+          `<div class="acpmux-shell" style="width: 280px">${html.ordinary}</div>`,
+      );
+      expect(await page.evaluate(() => matchMedia("(hover: none)").matches)).toBe(true);
+      const opacities = await page
+        .locator("button.acpmux-chat-inspector-pr__more")
+        .evaluateAll((buttons) => buttons.map((button) => Number(getComputedStyle(button).opacity)));
+      expect(opacities).toEqual(titles.map(() => 1));
+    } finally {
+      await context.close();
+    }
+  });
 });
