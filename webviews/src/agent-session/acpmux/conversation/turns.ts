@@ -1292,6 +1292,22 @@ export function toggleViewTurnFold(rows: readonly AcpmuxRow[], toggled: Readonly
   return next;
 }
 
+/// Open fold `id` in Thinking or Verbose for Find or a link: forget every close of its turn (the
+/// original prompt's key and each steer's, as toggleViewTurnFold marks them). The same set back when
+/// none was closed. Before (cmux#28782 review at 7e02fd5c), only `id` was forgotten, so a turn with a
+/// steer closed by hand stayed closed when a match in it was revealed.
+export function openViewTurnFold(
+  rows: readonly AcpmuxRow[],
+  toggled: ReadonlySet<string>,
+  id: string,
+): ReadonlySet<string> {
+  const { keys } = turnFoldKeys(rows, id);
+  if (!keys.some((key) => toggled.has(key))) return toggled;
+  const next = new Set(toggled);
+  for (const key of keys) next.delete(key);
+  return next;
+}
+
 /// Where to bring one message of the chat into view (a link's `message=<id>`, links.ts): the first
 /// of the message's rows the transcript already draws, else its first row and the "Worked for" fold
 /// that hides it. A tool call ends the reply it interrupts, so one message is several rows and only

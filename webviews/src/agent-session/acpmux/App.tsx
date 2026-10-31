@@ -404,6 +404,7 @@ import {
   THINKING,
   WORKED,
   messageRevealTarget,
+  openViewTurnFold,
   toggleTurnFold,
   toggleViewTurnFold,
   turnFoldFor,
@@ -6418,10 +6419,9 @@ function AcpmuxPane() {
     if (view !== "normal" && isWorkedFold(fold))
       setViewToggles((current) => {
         const toggled = current.get(view);
-        if (!toggled?.has(fold)) return current;
-        const next = new Set(toggled);
-        next.delete(fold);
-        return new Map(current).set(view, next);
+        if (!toggled) return current;
+        const next = openViewTurnFold(turnRowsRef.current, toggled, fold);
+        return next === toggled ? current : new Map(current).set(view, next);
       });
     else setExpanded((current) => (current.has(fold) ? current : new Set(current).add(fold)));
   }, []);
