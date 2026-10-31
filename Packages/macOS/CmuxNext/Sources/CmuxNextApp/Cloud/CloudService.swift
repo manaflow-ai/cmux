@@ -28,6 +28,7 @@ final class CloudService {
     @ObservationIgnored let machineAPI: CloudAPIClient
     /// The machines a `cloud deliver-secrets` runs for now: one delivery per machine at a time.
     @ObservationIgnored var deliveringSecrets: Set<String> = []
+    @ObservationIgnored let networkAccess = CloudNetworkAccessQueue() // one network policy read-then-write per machine
     @ObservationIgnored let paths: CloudPaths
     /// One app-lifetime owner of confirmed, per-account Codex delivery.
     let codexBroker: CloudCodexBrokerAdapter
