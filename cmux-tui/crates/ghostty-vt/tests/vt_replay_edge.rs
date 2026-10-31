@@ -106,39 +106,3 @@ fn vt_replay_edge_the_shrunk_tail_at_a_row_end() {
         difference.unwrap_or_default()
     );
 }
-
-/// Probe (always fails, with its findings; diagnosis only, removed with the fix): the shortest prefix of the E2 stream whose replay differs, and the replay's text
-/// after its palette and mode prefix, for the diagnosis.
-#[test]
-fn vt_replay_edge_probe_e2_prefix() {
-    let full = include_e2();
-    let mut first = None;
-    for len in 1..=full.len() {
-        let mut term = Terminal::new(20, 5, SCROLLBACK, Callbacks::default()).unwrap();
-        term.vt_write(&full[..len]);
-        if !term.vt_stream_is_ground() {
-            continue;
-        }
-        if replay_difference(20, 5, &full[..len]).is_some() {
-            first = Some(len);
-            break;
-        }
-    }
-    let Some(len) = first else {
-        panic!("PROBE no differing prefix");
-        return;
-    };
-    let mut term = Terminal::new(20, 5, SCROLLBACK, Callbacks::default()).unwrap();
-    term.vt_write(&full[..len]);
-    let replay = term.vt_replay_bytes().unwrap();
-    let text = String::from_utf8_lossy(&replay);
-    let tail: String = text.rsplit("\u{1b}\\").next().unwrap_or("").chars().collect();
-    let difference = replay_difference(20, 5, &full[..len]).unwrap_or_default();
-    panic!(
-        "PROBE first differing prefix {len} of {}; last bytes {:?}\nPROBE replay text tail {:?}\nPROBE {}",
-        full.len(),
-        &full[len.saturating_sub(12)..len],
-        tail,
-        difference.split("\n replay").next().unwrap_or("")
-    );
-}
