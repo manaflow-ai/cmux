@@ -85,6 +85,8 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
       const parts = validateParts(op.parts, cloud, true)
       // Only an agent posts a question, and only a pending one (Rust `bad_question`).
       if (parts.some((part) => part.type === "question" && (actor.kind !== "agent" || part.state.kind !== "pending"))) fail("invalid_parts")
+      // Only an agent posts a card (card.ts), by send or by edit (Rust reducer).
+      if (actor.kind !== "agent" && parts.some((part) => part.type === "card")) fail("invalid_parts")
       const replyTo = op.reply_to
       let parent: Message | undefined
       if (replyTo !== undefined) {
@@ -145,6 +147,7 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
       if (message.retracted_at !== undefined) fail("retracted")
       const parts = validateParts(op.parts, cloud, true)
       checkQuestionEdit(message.parts, parts)
+      if (actor.kind !== "agent" && parts.some((part) => part.type === "card")) fail("invalid_parts")
       return updated(next, {
         ...message,
         parts,

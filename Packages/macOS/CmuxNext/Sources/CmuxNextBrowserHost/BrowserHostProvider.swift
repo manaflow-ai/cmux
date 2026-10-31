@@ -61,6 +61,8 @@ public final class BrowserHostProvider {
     @ObservationIgnored weak var relay: (any ProviderDevToolsRelay)?
     @ObservationIgnored weak var marking: (any ProviderAgentMarking)?
     @ObservationIgnored weak var opener: (any ProviderTabOpening)?
+    /// The Secure Store login guard on agent code (``ProviderScriptGate``); nil admits everything.
+    @ObservationIgnored public weak var scriptGate: (any ProviderScriptGate)?
     @ObservationIgnored let driver: (any DriverCallHandler)?
     @ObservationIgnored let clock: any Clock<Duration>
     @ObservationIgnored let dial: @Sendable (ProviderCredentials) async throws -> ProviderConnection

@@ -12,6 +12,9 @@ struct WebKitPageAutomation {
     /// `evaluateJavaScript` does not await a promise; `callAsyncJavaScript`
     /// does. A navigation ends the call with an error.
     func evaluateAsync(_ body: String) async throws -> BrowserJSValue {
+        guard await tab.functionBodySyntax.isValid(body) else {
+            throw BrowserTabError.javaScript("SyntaxError: invalid async function body")
+        }
         do {
             return try await tab.callFunction(body, world: .page, gesture: .agent)
         } catch let error as WKError where error.code == .javaScriptResultTypeIsUnsupported {

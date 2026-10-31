@@ -1,5 +1,5 @@
 import CmuxNextBrowser
-import Foundation
+public import Foundation
 import WebKit
 
 extension WebKitDriver {
@@ -68,12 +68,27 @@ extension WebKitDriver {
     }
 
     /// An absolute URL with a scheme; a bare host gets https, as the
-    /// runtime's checkNavigableURL allows.
+    /// runtime's checkNavigableURL allows. Never a `javascript:` or `vbscript:` URL: it runs code in
+    /// the current page, outside the Secure Store login guard (cmux
+    /// https://github.com/manaflow-ai/cmux/issues/25830).
     static func navigableURL(_ raw: String, method: String) throws(DriverError) -> URL {
+        try agentNavigableURL(raw, method: method)
+    }
+
+    /// ``navigableURL(_:method:)`` for the app's own tab opener (a Chromium session's `tabs.open`).
+    public nonisolated static func agentNavigableURL(_ raw: String, method: String) throws(DriverError) -> URL {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let scheme = trimmed.prefix { $0 != ":" }.lowercased()
+        if trimmed.contains(":"), scriptSchemes.contains(scheme) {
+            throw DriverError(.forbidden, "\(method): agents never open \(scheme): URLs")
+        }
         if let url = URL(string: raw), let scheme = url.scheme, !scheme.isEmpty { return url }
         if let url = URL(string: "https://\(raw)"), url.host != nil { return url }
         throw DriverError(.invalid, "\(method): Cannot navigate to invalid URL \(raw)")
     }
+
+    /// Schemes whose URL runs code in the page it is opened over.
+    nonisolated static let scriptSchemes: Set<String> = ["javascript", "vbscript"]
 
     /// Selecting a tab changes the user's view, so the host passes it only
     /// for origin `user` or `focus: true`.

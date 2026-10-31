@@ -89,7 +89,8 @@ impl Brain {
         }
         // A reply to a group message goes into that message's thread
         // (`reply_threads`): the run shows there while it works.
-        if let Some((root, _)) = self.reply_thread(&conversation, &turn.answers) {
+        let thread = self.reply_thread(&conversation, &turn.answers);
+        if let Some((root, _)) = &thread {
             run.insert("thread_root".into(), serde_json::json!(root));
         }
         let Some(daemon) = self.daemon.as_mut() else {
@@ -126,6 +127,11 @@ impl Brain {
                 step["attachments"] = serde_json::json!(attachments);
             }
         }
+        // The live browser card reads the same steps (browser_card.rs).
+        self.browser_steps(&conversation, &turn_key, &mut steps, thread);
+        let Some(daemon) = self.daemon.as_mut() else {
+            return;
+        };
         if let Err(e) = daemon.run_append(&conversation, serde_json::Value::Object(run), steps)
             && !self.run_failed
         {
@@ -139,7 +145,7 @@ impl Brain {
 
 /// One run picture as an attachment of `conversation` (`{hash, name, mime_type, byte_count,
 /// width, height}`): decoded to read its size, at most 4 MiB.
-fn upload_image(
+pub(super) fn upload_image(
     daemon: &mut dyn crate::daemon::ConversationPort,
     conversation: &str,
     image: &crate::run::RunImage,

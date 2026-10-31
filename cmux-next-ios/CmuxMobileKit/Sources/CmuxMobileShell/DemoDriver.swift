@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-feed", "retry-terminal", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "large-preview", "large-preview-low-space"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-feed", "retry-terminal", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-cards", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "large-preview", "large-preview-low-space"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -69,6 +69,7 @@ struct DemoDriver {
         case "chief": await chief()
         case "chief-parity": await chiefParity()
         case "chief-settings": await chiefSettings()
+        case "chief-cards": await chiefCards()
         case "chief-open":
             // Opens Chief and leaves it to real touches (verify/imsg-parity.sh).
             shell.tab = .home
@@ -615,6 +616,27 @@ struct DemoDriver {
         await pause(1.8)
         if !shell.homePath.isEmpty { shell.homePath.removeLast() }
         await pause(2.5)
+    }
+
+    /// Chief's cards (https://github.com/manaflow-ai/cmux/issues/25830) on the
+    /// mock Chief: a live browser card that moves to its next step, a reply
+    /// with a next-step chip and a Secure Store card, left for real touches
+    /// (tap the chip, Open browser, Add).
+    private func chiefCards() async {
+        let hook = ChiefDemoHook.shared
+        shell.tab = .home
+        await pause(1.6)
+        shell.homePath.append(ChiefRoute())
+        await pause(2.0)
+        guard let mock = ChiefSession.shared.backend as? ChiefMockBackend else {
+            mark("chief-cards needs the mock Chief")
+            return
+        }
+        await mock.postCardsDemo()
+        await pause(1.0)
+        hook.scroll(toTop: false)
+        await pause(3.0)
+        mark("chief-cards shown")
     }
 
     /// Chief parity (verify/chief-parity.md): Home without a title; New

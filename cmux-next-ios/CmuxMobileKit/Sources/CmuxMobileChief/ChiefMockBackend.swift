@@ -1,6 +1,7 @@
 import CmuxAgentQuestion
 import CmuxConversationCore
 import Foundation
+import CoreGraphics
 import ImageIO
 
 // The mock Chief is DEBUG and Demo only: never compiled into Production.
@@ -73,6 +74,11 @@ public final class ChiefMockBackend: ConversationFileBackend, @unchecked Sendabl
 
     public func close() {
         Task { await engine.close() }
+    }
+
+    /// Posts Chief's three cards (browser, next step, Secure Store): the demo's `chief-cards`.
+    public func postCardsDemo() async {
+        await engine.postCards()
     }
 
     /// Hide Alerts and Send Read Receipts, kept for this run only.
@@ -213,6 +219,50 @@ public final class ChiefMockBackend: ConversationFileBackend, @unchecked Sendabl
             return message
         }
 
+        /// Chief's three cards (https://github.com/manaflow-ai/cmux/issues/25830):
+        /// a live browser card that moves to its next step, a reply with a
+        /// next-step chip, and a Secure Store sign-in card.
+        func postCards() async {
+            let screenshot = ChiefMockScript.screenshot()
+            var seq = headSeq + 1
+            let browserID = "msg_local_\(seq)"
+            let image = screenshot.map {
+                ConversationAttachment(id: "att:mock-screenshot-1", kind: .image, width: 1280, height: 800, url: nil, localData: $0)
+            }
+            let browser = ConversationMessage(
+                id: browserID, seq: seq, clientMessageID: "chief-\(seq)", senderID: identity.chiefID, sentAt: Date(), text: "",
+                cards: ConversationBrowserCard(surface: .browser, step: "Opening LinkedIn Messaging", live: true,
+                                               target: .browserRight, url: URL(string: "https://www.linkedin.com/messaging/"),
+                                               image: image).map { [ConversationCard.browser($0)] } ?? []
+            )
+            store(browser)
+            emit(browser)
+            await sleep(.milliseconds(1500))
+            // The same message, edited as the agent moves on (a new screenshot, the turn over).
+            _ = try? update(browserID) { message in
+                let next = image.map { ConversationAttachment(id: "att:mock-screenshot-2", kind: .image, width: $0.width, height: $0.height, url: nil, localData: $0.localData) }
+                message.cards = ConversationBrowserCard(surface: .browser, step: "Returning to LinkedIn Messaging", live: false,
+                                                        target: .browserRight, url: URL(string: "https://www.linkedin.com/messaging/"),
+                                                        image: next).map { [ConversationCard.browser($0)] } ?? []
+                message.editedAt = nil
+            }
+            seq = headSeq + 1
+            let reply = ConversationMessage(
+                id: "msg_local_\(seq)", seq: seq, clientMessageID: "chief-\(seq)", senderID: identity.chiefID, sentAt: Date(),
+                text: "The apology replies to Jeff and daval.ai are sent and verified. The Jun Beom Lee LinkedIn reply for Wed Oct 28 at 10 AM is in progress.",
+                cards: ConversationNextSteps(choices: ["Try sending the Kernel update again"]).map { [ConversationCard.nextSteps($0)] } ?? []
+            )
+            store(reply)
+            emit(reply)
+            seq = headSeq + 1
+            let signIn = ConversationMessage(
+                id: "msg_local_\(seq)", seq: seq, clientMessageID: "chief-\(seq)", senderID: identity.chiefID, sentAt: Date(), text: "",
+                cards: ConversationSignInCard(site: "linkedin.com", url: URL(string: "https://www.linkedin.com/login")).map { [ConversationCard.signIn($0)] } ?? []
+            )
+            store(signIn)
+            emit(signIn)
+        }
+
         /// A message from Chief now (the mock's answer to an answered question).
         func post(_ text: String) {
             let seq = headSeq + 1
@@ -254,6 +304,31 @@ extension ChiefMockBackend: ChiefQuestionSource {
 
 /// Chief's seeded transcript and canned replies.
 struct ChiefMockScript {
+    /// A stand-in browser screenshot: a white page with a gray "Choose an
+    /// account" box, PNG-encoded (CoreGraphics and ImageIO, so it builds on
+    /// macOS for `swift test` too).
+    static func screenshot(width: Int = 1280, height: Int = 800) -> Data? {
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        context.setStrokeColor(CGColor(red: 0.85, green: 0.85, blue: 0.87, alpha: 1))
+        context.setLineWidth(3)
+        let box = CGRect(x: width * 3 / 8, y: height / 3, width: width / 4, height: height / 2)
+        context.stroke(box)
+        context.setFillColor(CGColor(red: 0.93, green: 0.93, blue: 0.95, alpha: 1))
+        for row in 0..<2 {
+            context.fill(CGRect(x: box.minX + 24, y: box.maxY - 120 - CGFloat(row) * 100, width: box.width - 48, height: 72))
+        }
+        guard let image = context.makeImage() else { return nil }
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return data as Data
+    }
+
     /// The question part of the seeded transcript's last message (seq 8).
     static let questionSeq = 8
     static let question = AgentQuestion(
