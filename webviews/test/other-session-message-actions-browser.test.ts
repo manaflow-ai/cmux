@@ -58,7 +58,9 @@ await requireBrowserLane("other-session-message-actions-browser.test.ts", async 
       deviceScaleFactor: 2,
       reducedMotion: "reduce",
     });
-    await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant, colorScheme, width: 760, height: 420 })}`);
+    await page.goto(
+      `http://127.0.0.1:${port}${galleryFrame(entry, { variant, colorScheme, width: 760, height: 420 })}`,
+    );
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady);
     await page.waitForSelector(LINE);
     return page;

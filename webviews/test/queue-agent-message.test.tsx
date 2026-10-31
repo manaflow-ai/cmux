@@ -309,12 +309,7 @@ test("a delivered steer's ⋯ is in its one action group, with no Pin, Copy, Rea
       id="steer-row"
       message={message}
       onOpen={() => {}}
-      actions={
-        <ReceivedActions
-          row={row as never}
-          more={<SteerWaitingActions promptId="p-8" send={() => {}} />}
-        />
-      }
+      actions={<ReceivedActions row={row as never} more={<SteerWaitingActions promptId="p-8" send={() => {}} />} />}
     />,
   );
   const groups = host.querySelectorAll(".cv-received-actions");
