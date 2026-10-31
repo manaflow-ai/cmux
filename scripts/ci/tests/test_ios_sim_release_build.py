@@ -91,6 +91,31 @@ else:
     raise SystemExit("unexpected tool: " + name)
 '''
 
+CACHE_TOOL = r'''
+import json, os, pathlib, sys
+root = pathlib.Path(os.environ["FIXTURE_ROOT"])
+name, *args = sys.argv[1:]
+with (root / "calls.jsonl").open("a") as f:
+    f.write(json.dumps(["cache", name, *args]) + "\n")
+if name == "key":
+    pathlib.Path(args[1]).write_text("{}\n")
+    print("b" * 64)
+elif name == "restore":
+    if os.environ.get("FIXTURE_CACHE_MODE") != "hit":
+        raise SystemExit(1)
+    app = pathlib.Path(args[0]) / "cmux-next-ios/CmuxMobileKit"
+    (app / "Frameworks/CmuxMobileLinkFFI.xcframework").mkdir(parents=True)
+    (app / "Frameworks/CmuxMobileLinkFFI.xcframework/Info.plist").write_text("fixture")
+    (app / "Sources/CmuxMobileLinkFFI").mkdir(parents=True)
+    (app / "Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift").write_text("fixture")
+elif name == "probe":
+    pathlib.Path(args[1]).write_text("{}\n")
+elif name == "store":
+    pass
+else:
+    raise SystemExit("unexpected cache operation: " + name)
+'''
+
 
 class ReleaseBuildTests(unittest.TestCase):
     def setUp(self):
@@ -106,6 +131,9 @@ class ReleaseBuildTests(unittest.TestCase):
         ffi = self.root / "cmux-next-ios/rust/scripts/build-xcframework.sh"
         ffi.parent.mkdir(parents=True)
         ffi.write_text("fixture_tool ffi\n")
+        cache = self.root / "scripts/ci/ios_ffi_cache.py"
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(CACHE_TOOL)
         (self.script.parent / "ios_sim_runtime.py").write_text(
             "import json, sys\njson.load(sys.stdin)\nprint('fixture-runtime fixture-device')\n"
         )
@@ -137,6 +165,8 @@ class ReleaseBuildTests(unittest.TestCase):
             ).group(1),
             "DEVELOPER_DIR": str(self.developer),
             "TMPDIR": str(self.root),
+            "CMUX_CI_CACHE_DIR": str(self.root / "cache"),
+            "FIXTURE_CACHE_MODE": "miss",
         }
         self.out = self.root / "artifacts/ios-sim"
 
@@ -184,6 +214,22 @@ class ReleaseBuildTests(unittest.TestCase):
             self.assertIn("CmuxMobileApp-Release-simulator.app.zip", archive.namelist())
         self.assertFalse((self.root / ".build/ios-sim/sims").exists())
         self.assertEqual(list(self.root.glob("cmux-next-ios-sim-xcodegen.*")), [])
+
+    def test_release_build_cache_hit_skips_ffi_rebuild(self):
+        result = self.run_script("release-build", FIXTURE_CACHE_MODE="hit")
+        self.assert_evidence(result, 0, ["xcodegen.log", "build.log"])
+        self.assertFalse(any(c[0] == "ffi" for c in self.calls()))
+        cache_calls = [c for c in self.calls() if c[0] == "cache"]
+        self.assertEqual([c[1] for c in cache_calls[:2]], ["key", "restore"])
+        self.assertEqual(cache_calls[1][3], "b" * 64)
+        self.assertIn("- FFI: ", (self.out / "SUMMARY.md").read_text())
+
+    def test_release_build_cache_miss_rebuilds_and_probes(self):
+        result = self.run_script("release-build", FIXTURE_CACHE_MODE="miss")
+        self.assert_evidence(result, 0, ["ffi.log", "xcodegen.log", "build.log"])
+        self.assertTrue(any(c[0] == "ffi" for c in self.calls()))
+        cache_ops = [c[1] for c in self.calls() if c[0] == "cache"]
+        self.assertEqual(cache_ops[:4], ["key", "restore", "probe", "store"])
 
     def test_release_rejects_extra_arguments_before_any_work(self):
         result = self.run_script("release-build", "ui=SomeSuite")
