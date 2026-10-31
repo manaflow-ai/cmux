@@ -25,7 +25,9 @@
 #     and settings exports (scripts/ci/defaults_guard.py snapshot), after
 #     --generated copied the regenerated exports in;
 #   - the namespace ratchet: drops the rows of scripts/lint-namespace-types-ratchet.txt
-#     whose type is fixed or gone (shrink only; with --ratchets);
+#     whose type is fixed or gone (shrink only; with --ratchets), and the
+#     namespace lint's safe rewrites of new findings (--namespace-fix; with
+#     --ratchets);
 #   - the cloud wire clients: the TypeScript and Rust clients from the committed
 #     cloud catalog (backend/packages/protocol/scripts/export-client.ts and
 #     export-rust-client.ts; with --cloud-clients);
@@ -236,6 +238,27 @@ if (( ratchets )) && [[ -f "$repo/$ratchet" ]]; then
     (cd "$repo" && NAMESPACE_RATCHET_UPDATE=1 bash scripts/lint-ios-package-conventions.sh >/dev/null 2>&1) || true
     [[ "$before" == "$(cksum < "$repo/$ratchet")" ]] || echo "fixed: dropped stale rows from $ratchet"
   fi
+fi
+
+# 1f'. The namespace lint's safe rewrites (an all-static enum or type becomes a
+# struct with an init, as --namespace-fix writes). A pull request into
+# feat-cmux-next only warns on them and its namespace autofix may have no write
+# token, so one that lands with a new finding turns package-conventions-lint red
+# on every later base push (#28989, #28136). The fixer only rewrites reported
+# findings, never a baselined or ratcheted type; a frozen file is put back.
+if (( ratchets )) && [[ -f "$repo/scripts/lint-ios-package-conventions.sh" ]]; then
+  touched_before="$(git -C "$repo" diff --name-only -- 'Packages/*' 'ios/cmux/*')"
+  (cd "$repo" && bash scripts/lint-ios-package-conventions.sh --namespace-fix >/dev/null 2>&1) || true
+  while IFS= read -r path; do
+    [[ "$path" == *.swift ]] || continue
+    grep -qxF -- "$path" <<<"$touched_before" && continue
+    if frozen "$path"; then
+      git -C "$repo" checkout --quiet -- "$path"
+      echo "skipped (frozen): $path (./scripts/lint-ios-package-conventions.sh --namespace-fix)"
+    else
+      echo "fixed: namespace rewrite in $path"
+    fi
+  done < <(git -C "$repo" diff --name-only -- 'Packages/*' 'ios/cmux/*')
 fi
 
 # 1g. The cloud wire clients. The generators need no installed packages.
