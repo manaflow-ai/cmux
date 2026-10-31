@@ -43,6 +43,55 @@ final class MacBrowser: BrowserStreamOpening, @unchecked Sendable {
     }
 }
 
+/// How many connections the Mac's dev server took.
+final class ServedRequests: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    func note() { lock.withLock { value += 1 } }
+    var count: Int { lock.withLock { value } }
+}
+
+/// One `localhost` connection to a dev server on the Mac: each request gets `page`.
+final class DevServerChannel: LinkChannel, @unchecked Sendable {
+    let id: UInt32 = 1
+    private let lock = NSLock()
+    private var request = Data()
+    private let page: String
+    private let replies: AsyncStream<Data>.Continuation
+    private var iterator: AsyncStream<Data>.Iterator
+
+    init(page: String) {
+        self.page = page
+        let (stream, replies) = AsyncStream<Data>.makeStream()
+        self.replies = replies
+        iterator = stream.makeAsyncIterator()
+    }
+
+    func send(_ data: Data) async throws {
+        let answers: Int = lock.withLock {
+            request.append(data)
+            var count = 0
+            while let end = request.range(of: Data("\r\n\r\n".utf8)) {
+                request.removeSubrange(..<end.upperBound)
+                count += 1
+            }
+            return count
+        }
+        for _ in 0..<answers {
+            replies.yield(Data("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(page.utf8.count)\r\n\r\n\(page)".utf8))
+        }
+    }
+
+    func receive() async throws -> Data? {
+        var next = lock.withLock { iterator }
+        let data = await next.next()
+        lock.withLock { iterator = next }
+        return data
+    }
+
+    func close(code: String, reason: String) async { replies.finish() }
+}
+
 /// Open on iPhone / Mirror from <Mac> on a linked browser tab, through the tab
 /// source the workspace screen drives (its page menu and its page).
 @MainActor @Suite(.serialized) struct NativeBrowserTabTests {
@@ -178,6 +227,82 @@ final class MacBrowser: BrowserStreamOpening, @unchecked Sendable {
         #expect(source.toastText == "localhost:3000 is on Aziz's Mac Studio. It can only be mirrored.")
     }
 
+    /// A Mac that serves `localhost`: its dev server's page loads in the phone's own
+    /// web view through this iPhone's listener on the same port, and mirroring back
+    /// stops the listener.
+    @Test func aMacThatForwardsOpensItsLocalhostPageOnThePhone() async throws {
+        let served = ServedRequests()
+        let native = NativeBrowserTabs(defaults: defaults())
+        native.forwarder = LocalhostForwarder { _, _ in
+            served.note()
+            return DevServerChannel(page: "<!doctype html><title>Forwarded from the Mac</title><p>dev server")
+        }
+        native.macForwardsLocalhost = { $0 == "mac-studio" }
+        // 127.0.0.1: the test runner has no App Transport Security exception for `localhost`.
+        let port = try await freePort()
+        let (source, _, _) = try await linked(at: "http://127.0.0.1:\(port)/", native: native)
+        source.openOnPhone(tab)
+        let phone = try #require(try page(source) as? BrowserTabModel, "the Mac's localhost opens on the phone")
+        for _ in 0..<2000 where phone.title != "Forwarded from the Mac" { try await Task.sleep(for: .milliseconds(5)) }
+        #expect(phone.title == "Forwarded from the Mac", "the page came over the link: \(String(describing: phone.problem))")
+        #expect(served.count > 0)
+        #expect(native.forwarder?.ports == [port])
+
+        // Typed as people type it: no scheme, no slash (WebKit asks for `.../`).
+        let typed = try await freePort()
+        source.navigate(tab, to: "127.0.0.1:\(typed)")
+        for _ in 0..<2000 where native.forwarder?.ports.contains(typed) != true { try await Task.sleep(for: .milliseconds(5)) }
+        #expect(native.forwarder?.ports.contains(typed) == true, "a typed address opens its port: \(String(describing: phone.problem))")
+        #expect(phone.problem?.detail?.contains("A page tried") != true)
+
+        source.mirrorFromMac(tab)
+        #expect(native.forwarder?.ports.isEmpty == true, "no tab on the phone shows the port any more")
+    }
+
+    /// One port, one Mac: while one Mac's tab on this iPhone shows localhost:<port>,
+    /// another Mac's tab can't take that port (its page would reach the wrong Mac).
+    @Test func aPortShownForOneMacIsNotTakenByAnother() async throws {
+        let native = NativeBrowserTabs(defaults: defaults())
+        native.forwarder = LocalhostForwarder { _, _ in DevServerChannel(page: "x") }
+        native.macForwardsLocalhost = { _ in true }
+        let port = try await freePort()
+        native.open(tab: "s1", macID: "mac-a", at: URL(string: "http://127.0.0.1:\(port)/"))
+        // Mac A's tab holds the port once WebKit asked for it.
+        for _ in 0..<1000 where native.forwarder?.ports.contains(port) != true { try await Task.sleep(for: .milliseconds(5)) }
+        let other = native.open(tab: "s2", macID: "mac-b", at: URL(string: "http://127.0.0.1:\(port)/"))
+        #expect(other.problem?.isMacOnly == true)
+        #expect(other.problem?.detail?.contains("Another Mac's tab") == true)
+        native.drop(tab: "s1", macID: "mac-a")
+        native.drop(tab: "s2", macID: "mac-b")
+    }
+
+    /// A port nothing on this machine listens on (the simulator shares the host's loopback).
+    func freePort() async throws -> UInt16 {
+        let probe = LocalhostForwarder { _, _ in DevServerChannel(page: "") }
+        for _ in 0..<20 {
+            let port = UInt16.random(in: 20000...60000)
+            do {
+                try await probe.forward(port: port, macID: nil)
+                probe.stop(port)
+                return port
+            } catch {
+                continue
+            }
+        }
+        throw CancellationError()
+    }
+
+    /// A Mac from before `localhost-forward-v1`: its localhost stays mirrored.
+    @Test func anOlderMacsLocalhostStaysMirrored() async throws {
+        let native = NativeBrowserTabs(defaults: defaults())
+        native.forwarder = LocalhostForwarder { _, _ in throw CancellationError() }
+        native.macForwardsLocalhost = { _ in false }
+        let (source, _, _) = try await linked(at: "http://localhost:3000/", native: native)
+        source.openOnPhone(tab)
+        #expect(try page(source) is StreamedBrowserModel)
+        #expect(source.toastText == "localhost:3000 is on Aziz's Mac Studio. It can only be mirrored.")
+    }
+
     @Test func aLocalhostLinkOnThePhoneAsksToMirror() async throws {
         let (source, mac, _) = try await linked(at: "https://example.com/mac", native: NativeBrowserTabs(defaults: defaults()))
         source.openOnPhone(tab)
@@ -209,10 +334,10 @@ final class MacBrowser: BrowserStreamOpening, @unchecked Sendable {
 
     @Test(arguments: [
         ("https://example.com", PhoneReach.web),
-        ("http://localhost:3000", .macOnly),
+        ("http://localhost:3000", .macLoopback),
         ("http://app.localhost:8080", .macOnly),
-        ("http://127.0.0.1:8000", .macOnly),
-        ("http://[::1]:8000", .macOnly),
+        ("http://127.0.0.1:8000", .macLoopback),
+        ("http://[::1]:8000", .macLoopback),
         ("file:///Users/me/index.html", .macOnly),
         ("view-source:https://example.com", .macOnly),
         ("http://mac-mini.tail137216.ts.net:3000", .privateNetwork),
@@ -221,6 +346,8 @@ final class MacBrowser: BrowserStreamOpening, @unchecked Sendable {
         ("http://studio.local:5000", .privateNetwork),
         ("http://devbox:8080", .privateNetwork),
         ("http://8.8.8.8", .web),
+        ("http://127.0.0.2:8000", .macOnly),
+        ("http://0.0.0.0:8000", .macOnly),
         ("mailto:someone@example.com", .web),
         ("tel:+15555550100", .web),
     ])
