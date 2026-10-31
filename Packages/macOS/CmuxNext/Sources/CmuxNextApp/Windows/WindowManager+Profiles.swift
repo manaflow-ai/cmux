@@ -110,7 +110,7 @@ extension WindowManager {
         // Only workspaces whose space is known move (one no session reports yet shows in every space); window Homes stay.
         let moving = sources.flatMap { WindowProfiles.visible($0.workspaceIDs, profile: profile, machines: machines) }
             .filter { WindowProfiles.qualified($0, machines: machines) != nil && !isWindowHome($0) }
-        try refuseClosingCreating(sources.filter { !$0.workspaceIDs.isEmpty && Set(moving).isSuperset(of: $0.workspaceIDs) }.map(\.id))
+        try refuseClosingCreating(sources.filter { !Set($0.workspaceIDs).isDisjoint(with: moving) }.map(\.id))
         // A CLI or MCP run without focus permission leaves this window's view alone (as `RoomHandlers.startNewSpace`).
         let mayShow = ActionRunScope.viewChangeAllowed()
         guard !moving.isEmpty else {
@@ -163,7 +163,7 @@ extension WindowManager {
         if keeps { throw ActionFailure.invalidTarget(RefusalStrings.gatherLocalTabs) }
     }
 
-    /// Refuses closing a window still creating a workspace (claim, placement, lane, provisional row): it would reopen it.
+    /// Refuses a move out of a window still creating a workspace (claim, placement, lane, provisional row): it may anchor there.
     private func refuseClosingCreating(_ windows: [String]) throws {
         for window in windows { let rows = PendingWorkspaceRows.shared.rows
             WorkspaceLanes.shared.prune(window) { self.services.workspace(id: $0) != nil }
