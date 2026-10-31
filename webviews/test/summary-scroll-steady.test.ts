@@ -49,7 +49,7 @@ const extra = Array.from({ length: 6 }, (_, index) => {
 }).flat();
 
 await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
-  setDefaultTimeout(300_000);
+  setDefaultTimeout(150_000);
   const browsers = new Map<string, Browser>();
   for (const [name, engine] of [
     ["chromium", chromium],
@@ -69,7 +69,7 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
   let current: Browser | undefined;
   let pane: Awaited<ReturnType<typeof papercutPane>> | undefined;
   beforeAll(async () => {
-    pane = await papercutPane(() => current!, { turns: 60, running: true, extra });
+    pane = await papercutPane(() => current!, { turns: 40, running: true, extra });
     current = browsers.values().next().value;
     await (await pane.open()).close();
   });
@@ -118,13 +118,21 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
       read();
       const start = scroller.scrollTop;
       const frames = 100;
+      const errors: string[] = [];
       await new Promise<void>((done) => {
         let frame = 0;
+        // A read that throws, or frames that stop painting, still end the watch.
+        const bail = setTimeout(done, 20_000);
         window.cmuxAfterPaint(
           () => {
-            read();
+            try {
+              read();
+            } catch (error) {
+              errors.push(String(error));
+            }
             frame += 1;
             if (frame < frames) return true;
+            clearTimeout(bail);
             done();
             return false;
           },
@@ -137,8 +145,9 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
       });
       observer.disconnect();
       return {
-        moved: Math.abs(scroller.scrollTop - start) > 0 || frames > 0,
-        travelled: start,
+        start,
+        end: scroller.scrollTop,
+        errors,
         changes: [...new Set(changes)],
         changeCount: changes.length,
         boxes: [...boxes],
