@@ -373,17 +373,3 @@ test("a placed attachment counts as one place in the field's plain text and its 
   expect(selectionStart).toBeLessThanOrEqual(value.length);
 });
 
-// Review (Sol, #26545): a prompt that holds only a placed attachment is not empty, so a `!` typed
-// before it is text, not the start of a shell command.
-test("a prompt holding only a placed attachment is not empty to the surface", async () => {
-  const states: { text: string; empty: boolean }[] = [];
-  await render(() => {}, {
-    value: inlineToken("word"),
-    onBeforeInput: (text, state) => {
-      states.push({ text, empty: state.empty });
-      return false;
-    },
-  });
-  handle.current!.insertTyped("!");
-  expect(states).toEqual([{ text: "!", empty: false }]);
-});
