@@ -191,13 +191,8 @@ public final class ComputerUseHelperV2 {
         // The host link's own secret: sent only on the helper's stdin, never written to disk.
         let hostSecret = Self.makeSecret()
         let acpmux = self.acpmux()
-        let admission: (hashes: [String], requirement: String?) = acpmux.map {
-            Self.acpmuxAdmission(executable: $0.executable)
-        } ?? (hashes: [], requirement: nil)
-        await spawned.send(Self.line(["type": "configure", "socket": socketPath, "host_socket": hostSocketPath,
-                                "host_secret": Self.hex(hostSecret), "secret": Self.hex(secret),
-                                "acpmux_cdhashes": admission.hashes,
-                                "acpmux_requirement": admission.requirement.map { $0 as Any } ?? NSNull()]))
+        await spawned.send(Self.configureLine(socket: socketPath, hostSocket: hostSocketPath, hostSecret: hostSecret,
+                                              secret: secret, acpmuxExecutable: acpmux?.executable))
         let readySocket = await Self.readySocket(of: spawned, within: readyTimeout, clock: clock)
         guard current == generation else {
             spawned.closeInput()
@@ -263,8 +258,7 @@ public final class ComputerUseHelperV2 {
     public func registerAcpmuxDaemon(acpmuxSocket: String) async {
         guard let child, let executable = acpmux()?.executable,
               let stamp = await Self.daemonStamp(socketPath: acpmuxSocket, executable: executable) else { return }
-        await child.send(Self.line(["type": "register_acpmux", "pid": Int(stamp.pid),
-                              "start_sec": Int(stamp.startSeconds), "start_usec": Int(stamp.startMicroseconds)]))
+        await child.send(Self.registerLine(stamp))
     }
 
     /// A person's permission button in Computer Use setup. Startup and agent
@@ -368,8 +362,6 @@ public final class ComputerUseHelperV2 {
         return Data(bytes)
     }
 
-    nonisolated static func hex(_ data: Data) -> String { data.map { String(format: "%02x", $0) }.joined() }
-
     /// endpoint.json for acpmux: 0600, written to a temporary name and renamed.
     /// `owner` is the helper's pid, with its start time, so an acpmux daemon
     /// that outlives a crash of this app sees the file is stale (cx-zgk0).
@@ -394,40 +386,6 @@ public final class ComputerUseHelperV2 {
             return false
         }
         return true
-    }
-
-    /// pid + start time of the process listening on `socketPath`, when the
-    /// connected peer runs as this user and runs `executable`. No team gate on
-    /// a same-user acpmux socket ("acpmux is too belt and suspenders there", Leo).
-    @concurrent nonisolated static func daemonStamp(socketPath: String, executable: URL) async
-        -> (pid: pid_t, startSeconds: UInt64, startMicroseconds: UInt64)? {
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-        guard socketPath.utf8.count < MemoryLayout.size(ofValue: address.sun_path) else { return nil }
-        withUnsafeMutableBytes(of: &address.sun_path) { buffer in
-            buffer.copyBytes(from: socketPath.utf8)
-            buffer[socketPath.utf8.count] = 0
-        }
-        let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard descriptor >= 0 else { return nil }
-        defer { close(descriptor) }
-        // This probe only connects and reads the peer; it never writes. Still no SIGPIPE.
-        var noSigPipe: Int32 = 1
-        _ = setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
-        let connected = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                // concurrency-allow: @concurrent, never on the main actor; a local Unix socket connect.
-                connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
-        guard connected == 0 else { return nil }
-        guard let peer = UnixSocketPeer(descriptor: descriptor), peer.uid == getuid(), peer.runs(executable) else {
-            return nil
-        }
-        var info = proc_bsdinfo()
-        let infoSize = Int32(MemoryLayout<proc_bsdinfo>.size)
-        guard proc_pidinfo(peer.pid, PROC_PIDTBSDINFO, 0, &info, infoSize) == infoSize else { return nil }
-        return (peer.pid, info.pbi_start_tvsec, info.pbi_start_tvusec)
     }
 
     /// Logs each control line the helper writes after `ready` (the
