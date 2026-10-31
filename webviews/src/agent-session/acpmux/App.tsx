@@ -2142,7 +2142,8 @@ const SCROLL_LEAD_STEPS = 2;
 /// More new rows than this in one update are a load (a session switch, older history), not live rows.
 const LIVE_ROWS_PER_UPDATE = 3;
 
-/// Rows from a page of older history fade on their first mounted copy, including warm copies
+/// Rows from a page of older history that the reader waited for at the very top (the worst case;
+/// any other page draws at once) fade on their first mounted copy, including warm copies
 /// outside the view. Eligibility is consumed before paint; an intersection only releases the
 /// observation and never starts a second fade. Opacity only, so nothing measured moves.
 class OlderRowFade {
@@ -2221,6 +2222,9 @@ const OLDER_RECHECK_MS = 500;
 /// ahead that a page read from acpmux lands before a fast scroll up reaches the top (two viewports
 /// was a fraction of a second of a flick).
 const OLDER_AHEAD_VIEWPORTS = 6;
+/// How near the very top, in px, the reader must be when an older page lands for its rows to fade
+/// in: only a reader who reached the top before the read answered waited for them.
+const OLDER_FADE_TOP_PX = 4;
 /// Scrolls `scroller` so `range` sits a third of the way down it, when it is not already in view
 /// above the `inset` px at its foot that the bottom stack covers.
 function scrollRangeIn(scroller: HTMLElement, range: Range, inset = 0) {
@@ -2815,15 +2819,21 @@ export function VirtualTranscript({
     while (from < rows.length && from < previous.length && rows[from] === previous[from]) from += 1;
     rowsChange.current = { base: previous, rows, from };
     // A page of older history lands above the first row that was already there (a date divider
-    // moves up to the page's first turn, so the first known row, not the first row): those rows fade
-    // in as they are first seen, and never take a live row's entrance.
+    // moves up to the page's first turn, so the first known row, not the first row): those rows
+    // never take a live row's entrance. They draw at once in full ink, as rows already loaded do
+    // (Leo 2026-10-31: "WE DON'T NEED A FADE IN ANIMATION UNLESS IT'S THE WORST CASE" / "JUST BE
+    // MORE FUCKING OPTIMISTIC"): the page is asked for OLDER_AHEAD_VIEWPORTS ahead and lands above
+    // the view, so a fade there only shows as a dim flash when the reader scrolls into it. Only the
+    // worst case fades: the reader already stopped at the very top, waiting for the read.
     const oldFirst = rows.findIndex((row) => knownRows.current!.has(row.id));
+    const waitingAtTop = (ref.current?.scrollTop ?? Infinity) <= OLDER_FADE_TOP_PX;
     const arrived: AcpmuxRow[] = [];
     for (let index = from; index < rows.length; index += 1) {
       const row = rows[index]!;
       if (knownRows.current.has(row.id)) continue;
-      if (index < oldFirst) olderRows.current.add(row.id);
-      else arrived.push(row);
+      if (index < oldFirst) {
+        if (waitingAtTop) olderRows.current.add(row.id);
+      } else arrived.push(row);
       knownRows.current.add(row.id);
     }
     // A row that arrived while the chat is hidden (another tab or workspace shows), or that lands

@@ -129,15 +129,24 @@ await requireBrowserLane("transcript-scroll-up-no-flicker.test.ts", async () => 
     await daemon?.stop(true);
   });
 
-  type Frames = { frames: number; flicker: number; jump: number; blank: number; maxJumpPx: number; pages: number };
+  type Frames = {
+    frames: number;
+    flicker: number;
+    jump: number;
+    blank: number;
+    maxJumpPx: number;
+    oldestTurn: number;
+    samples: unknown[];
+  };
   /// Wheels up `steps` times, a few painted frames apart, and reads every painted frame meanwhile.
   async function scrollUpReading(page: Page, steps: number): Promise<Frames> {
-    return page.evaluate(async (steps) => {
+    await page.evaluate(() => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       let wheels = 0;
       addEventListener("wheel", () => (wheels += 1), { capture: true, passive: true });
-      const stats = { frames: 0, flicker: 0, jump: 0, blank: 0, maxJumpPx: 0, pages: 0 };
-      let last: { wheels: number; tops: Map<string, number>; first: string } | undefined;
+      const stats = { frames: 0, flicker: 0, jump: 0, blank: 0, maxJumpPx: 0, oldestTurn: Infinity, samples: [] as unknown[] };
+      let sinceWheel = 0;
+      let last: { wheels: number; tops: Map<string, number>; scrollTop: number } | undefined;
       const stop = window.cmuxAfterPaint(() => {
         const view = scroller.getBoundingClientRect();
         const tops = new Map<string, number>();
@@ -159,7 +168,10 @@ await requireBrowserLane("transcript-scroll-up-no-flicker.test.ts", async () => 
           reach = Math.max(reach, bottom);
         }
         gap = Math.max(gap, view.bottom - reach);
-        const first = scroller.querySelector<HTMLElement>(".acpmux-row[data-row-id]")?.dataset.rowId ?? "";
+        for (const bubble of scroller.querySelectorAll<HTMLElement>(".cv-user__bubble")) {
+          const turn = Number(/Question (\d+)/.exec(bubble.textContent ?? "")?.[1]);
+          if (turn) stats.oldestTurn = Math.min(stats.oldestTurn, turn);
+        }
         stats.frames += 1;
         if (faded) stats.flicker += 1;
         if (scroller.scrollTop > 0 && gap > 64) stats.blank += 1;
@@ -173,22 +185,35 @@ await requireBrowserLane("transcript-scroll-up-no-flicker.test.ts", async () => 
           }
           if (moved > 1) {
             stats.jump += 1;
+            if (stats.samples.length < 16)
+              stats.samples.push({
+                sinceWheel,
+                moved: Math.round(moved),
+                scrollDelta: Math.round(scroller.scrollTop - last.scrollTop),
+                scrollTop: Math.round(scroller.scrollTop),
+              });
             stats.maxJumpPx = Math.max(stats.maxJumpPx, Math.round(moved));
           }
         }
-        if (last && first !== last.first) stats.pages += 1;
-        last = { wheels, tops, first };
+        sinceWheel = last && last.wheels === wheels ? sinceWheel + 1 : 0;
+        last = { wheels, tops, scrollTop: scroller.scrollTop };
       });
-      for (let step = 0; step < steps; step++) {
-        scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -240, bubbles: true, cancelable: true }));
-        scroller.scrollTop = Math.max(0, scroller.scrollTop - 240);
+      (window as unknown as { __scrollUp: unknown }).__scrollUp = { stats, stop };
+    });
+    // Real wheel input, a few painted frames apart.
+    for (let step = 0; step < steps; step++) {
+      await page.mouse.wheel(0, -240);
+      await page.evaluate(async () => {
         for (let frame = 0; frame < 4; frame++) await window.cmuxPaintFrame();
-      }
-      // The last page lands and settles.
+      });
+    }
+    // The last page lands and settles.
+    return page.evaluate(async () => {
       for (let frame = 0; frame < 60; frame++) await window.cmuxPaintFrame();
+      const { stats, stop } = (window as unknown as { __scrollUp: { stats: Frames; stop: () => void } }).__scrollUp;
       stop();
       return stats;
-    }, steps);
+    });
   }
 
   test("older pages land with no flicker, jump or blank while the reader scrolls up", async () => {
@@ -201,10 +226,13 @@ await requireBrowserLane("transcript-scroll-up-no-flicker.test.ts", async () => 
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${CHAT}`);
     await page.getByText(`Question ${TURNS}`, { exact: true }).waitFor({ timeout: 60_000 });
     for (let frame = 0; frame < 30; frame++) await page.evaluate(() => window.cmuxPaintFrame());
+    const box = (await page.locator(".acpmux-scroll").boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     const stats = await scrollUpReading(page, 160);
     console.log(`transcript-scroll-up-no-flicker ${JSON.stringify(stats)}`);
-    // The scroll reached older pages, so the frames read cover pages landing.
-    expect(stats.pages).toBeGreaterThan(1);
+    // The scroll reached turns from several older pages (the chat opens on its last 30), so the
+    // frames read cover pages landing.
+    expect(stats.oldestTurn).toBeLessThan(TURNS - 90);
     expect({ flicker: stats.flicker, jump: stats.jump, blank: stats.blank }).toEqual({ flicker: 0, jump: 0, blank: 0 });
     expect(errors).toEqual([]);
     await page.close();

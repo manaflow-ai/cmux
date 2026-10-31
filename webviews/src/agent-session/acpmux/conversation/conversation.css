@@ -3459,7 +3459,8 @@ a.cv-sha:focus-visible {
   }
 }
 
-/* A row from older history fades on its first mounted copy (OlderRowFade in App.tsx), including
+/* Only in the worst case (the reader waited at the very top for the page: OLDER_FADE_TOP_PX in
+ * App.tsx) does a row from older history fade; it fades on its first mounted copy (OlderRowFade), including
  * a warm copy outside the view. Its layout effect starts the fade before paint, so intersection
  * never defers opacity and a remount draws in full ink. Opacity only: no row moves or changes
  * height, so the anchoring that holds the reader's place is untouched. Reduce
