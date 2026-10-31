@@ -547,6 +547,17 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
 
     func endFoldHold() {
         guard foldHolding else { return }
+        // The change shows before the line lets go: a native line's tap animates nothing in SwiftUI,
+        // so its animation can complete before the list's observation has reloaded the row, and a
+        // following chat would then re-pin to its newest row when the row grows. The reload runs on
+        // the next turn of the main queue (after that observation's), never inside a layout pass.
+        if list.disclosuresPending {
+            Task { @MainActor [weak self] in
+                self?.list.reloadIfDisclosuresChanged()
+                self?.endFoldHold()
+            }
+            return
+        }
         foldHolding = false
         foldHoldCap?.cancel()
         foldHoldCap = nil

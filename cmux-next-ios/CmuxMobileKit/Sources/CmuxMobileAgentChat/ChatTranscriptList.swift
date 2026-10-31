@@ -9,7 +9,7 @@ import UIKit
 
 /// The transcript's one-column layout: each row's frame is its gap plus the sum of the
 /// heights above it. A row's height is known once its cell measured it, kept per
-/// (row id, content revision, width, text size), and estimated until then. Visible rows
+/// (row id, content revision, disclosures, width, text size), and estimated until then. Visible rows
 /// are found by binary search, so a frame costs O(visible rows) and a streamed change
 /// re-sums only the rows below the one that grew.
 @MainActor
@@ -21,10 +21,14 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
         var estimate: CGFloat
         /// The estimate is the row's real height (a native row's layout).
         var exact = false
+        /// What the row's disclosures show (`ChatRowLookup.fold`): not part of its content
+        /// revision, but a height measured with them closed is not the height with them open.
+        var fold = 0
     }
 
     private struct Measured {
         var revision: Int
+        var fold: Int
         var width: CGFloat
         var height: CGFloat
     }
@@ -79,7 +83,7 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
     }
 
     private func height(for item: Item) -> CGFloat {
-        guard !item.exact, let known = measured[item.id] else { return item.estimate }
+        guard !item.exact, let known = measured[item.id], known.fold == item.fold else { return item.estimate }
         return known.width == width || width == 0 ? known.height : item.estimate
     }
 
@@ -101,7 +105,8 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
     /// The height a cell measured for this row's current revision at this width, if any:
     /// a cell showing it again needs no SwiftUI sizing pass.
     func knownHeight(of id: String) -> (height: CGFloat, width: CGFloat)? {
-        guard let row = index[id], row < items.count, let known = measured[id], known.revision == items[row].revision else { return nil }
+        guard let row = index[id], row < items.count, let known = measured[id], known.revision == items[row].revision,
+              known.fold == items[row].fold else { return nil }
         return (known.height, known.width)
     }
 
@@ -202,7 +207,7 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
         guard row < items.count else { return false }
         measurements += 1
         let item = items[row]
-        measured[item.id] = Measured(revision: item.revision, width: width, height: preferred.size.height)
+        measured[item.id] = Measured(revision: item.revision, fold: item.fold, width: width, height: preferred.size.height)
         return abs(preferred.size.height - heights[row]) > 0.25
     }
 
@@ -254,15 +259,18 @@ final class ChatTranscriptCollectionView: UICollectionView {
 /// A transcript row's cell: SwiftUI content (`ChatRowView`) that measures its own height.
 @MainActor
 final class ChatRowCell: UICollectionViewCell {
-    /// The row's height measured before at a width (set when configured).
+    /// The row's height measured before at a width for what it shows now (set when configured).
+    /// It stands in for the first sizing pass after a configure only: a later pass comes from the
+    /// content itself changing size, which is measured.
     var known: (height: CGFloat, width: CGFloat)?
     #if DEBUG
     var costKind = "?"
     #endif
 
     override func preferredLayoutAttributesFitting(_ attributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
-        if let known, abs(known.width - attributes.size.width) < 0.5, abs(known.height - attributes.size.height) < 0.5 {
-            return attributes
+        if let known {
+            self.known = nil
+            if abs(known.width - attributes.size.width) < 0.5, abs(known.height - attributes.size.height) < 0.5 { return attributes }
         }
         guard let fitted = attributes.copy() as? UICollectionViewLayoutAttributes else { return attributes }
         #if DEBUG
@@ -473,9 +481,14 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         let environment = ChatNativeEnvironment(width: width, category: collectionView.traitCollection.preferredContentSizeCategory,
                                                 wrapCode: CmuxMobilePreferences.wrapCode())
         guard environment != lookup.layouts.environment else { return }
+        // Native rows are laid out again for the new environment. Chosen before it is installed
+        // (at an accessibility size no row is native any more), and with the rows whose cell type
+        // the new environment changes (native to SwiftUI and back), which `reload` reloads.
+        let wereNative = shownIDs.filter { lookup.isNativeCandidate($0) }
         lookup.layouts.environment = environment
         shownTurns = [:]
-        forced.formUnion(shownIDs.filter { lookup.isNativeCandidate($0) })
+        forced.formUnion(wereNative)
+        forced.formUnion(lookup.shownNative.compactMap { id, native in native != lookup.isNativeCandidate(id) ? id : nil })
         reload()
     }
 
@@ -641,7 +654,8 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
                     }
                 }
                 turnIDs.append(row.id)
-                turnItems.append(.init(id: row.id, revision: revision, gap: row.gap, estimate: estimate, exact: exact))
+                turnItems.append(.init(id: row.id, revision: revision, gap: row.gap, estimate: estimate, exact: exact,
+                                       fold: lookup.fold(row)))
             }
             shownTurns[turn.turnID] = ShownTurn(generation: turn.generation, ids: turnIDs, items: turnItems)
             ids += turnIDs
@@ -703,6 +717,17 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         if !missing.isEmpty { prepare(missing, urgent: false) }
         queueWarmUp(ids)
     }
+
+    /// Applies a disclosure change the list has not reloaded for yet (its observation reloads on
+    /// a later turn of the main queue): a held disclosure's line lets go only once its row shows
+    /// the change (`ChatTranscriptController.endFoldHold`).
+    func reloadIfDisclosuresChanged() {
+        guard disclosuresPending else { return }
+        reload()
+    }
+
+    /// A disclosure changed since the last reload.
+    var disclosuresPending: Bool { surface.disclosures.revision != shownDisclosures }
 
     // MARK: Inspection (tests)
 
@@ -866,6 +891,29 @@ final class ChatRowLookup {
     }
 
     func isNativeCandidate(_ id: String) -> Bool { rows[id].map(eligible) ?? false }
+
+    /// The states of the disclosures the row draws (`ChatTranscriptLayout.Item.fold`): a tool row's
+    /// output, a group and its calls' outputs, a thought, a long diff or a code card shown in full.
+    func fold(_ row: ChatRow) -> Int {
+        let disclosures = context.surface.disclosures
+        var hasher = Hasher()
+        switch row.kind {
+        case .tool(let call):
+            hasher.combine(disclosures.isOpen("tool-\(call.id)"))
+        case .toolGroup(let calls, _):
+            hasher.combine(disclosures.isOpen("group-\(calls.first?.id ?? "")"))
+            for call in calls { hasher.combine(disclosures.isOpen("tool-\(call.id)")) }
+        case .thought:
+            hasher.combine(disclosures.isOpen("thought-\(row.id)"))
+        case .edit(let call, _):
+            // A running edit draws as its tool row.
+            hasher.combine(disclosures.isOpen("diff-\(call.id)"))
+            hasher.combine(disclosures.isOpen("tool-\(call.id)"))
+        default:
+            hasher.combine(disclosures.isOpen("code-\(row.id)"))
+        }
+        return hasher.finalize()
+    }
 
     /// Drawn natively: a native kind in its resting state (an open tool row, group or thought
     /// shows its SwiftUI view).
