@@ -3,7 +3,7 @@ import Foundation
 /// A preview-only look for the tab bar's trailing controls and the sidebar's titlebar +, picked by
 /// the `-cmuxChromeLook NAME` launch argument (Lawrence 2026-10-30, msg 18472: "i like how it looked
 /// in original cmux"). Scratch for the variant gallery; never landed as is. Nil without the argument.
-public struct ChromeLookPreview: Sendable {
+nonisolated public struct ChromeLookPreview: Sendable {
     /// Draw the strip's + after the last tab.
     public var stripPlus: Bool
     /// Draw the separate ⌄ chooser beside the strip's +.
