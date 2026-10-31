@@ -180,7 +180,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     func update(store: AgentChatStore, empty: AnyView, dock: AnyView?, jump: AnyView?) {
         let identity = ObjectIdentifier(store)
         if let shown = shownIdentity, shown != identity {
-            endFoldHold()
+            endFoldHold(force: true)
             list.show(store: store)
             emptyHost.rootView = empty
             if let dock {
@@ -545,13 +545,15 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         }
     }
 
-    func endFoldHold() {
+    /// `force`: the reader's own scroll (a drag, Jump to latest, Find) or a new session: their
+    /// intent, so the hold lets go at once instead of waiting for the list to show the change.
+    func endFoldHold(force: Bool = false) {
         guard foldHolding else { return }
         // The change shows before the line lets go: a native line's tap animates nothing in SwiftUI,
         // so its animation can complete before the list's observation has reloaded the row, and a
         // following chat would then re-pin to its newest row when the row grows. The reload runs on
         // the next turn of the main queue (after that observation's), never inside a layout pass.
-        if list.disclosuresPending {
+        if !force, list.disclosuresPending {
             Task { @MainActor [weak self] in
                 self?.list.reloadIfDisclosuresChanged()
                 self?.endFoldHold()
@@ -715,7 +717,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         // The person's own scroll ends a disclosure's hold.
-        endFoldHold()
+        endFoldHold(force: true)
         followDraggedKeyboard(true)
     }
 
@@ -756,7 +758,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     }
 
     func scrollTranscript(toTop: Bool, animated: Bool) {
-        endFoldHold()
+        endFoldHold(force: true)
         surface.following = !toTop
         view.layoutIfNeeded()
         scroll(to: toTop ? CGPoint(x: 0, y: -scrollView.contentInset.top) : bottomOffset, animated: animated)
@@ -766,7 +768,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     static let findBarClearance: CGFloat = 64
 
     func scrollTranscript(toContentY y: CGFloat, animated: Bool) {
-        endFoldHold()
+        endFoldHold(force: true)
         surface.following = false
         view.layoutIfNeeded()
         let headerBottom = topInset ?? view.safeAreaInsets.top
