@@ -65,6 +65,10 @@ beforeEach(() => {
 afterEach(() => {
   closePage();
   jest.useRealTimers();
+  // Each test opens its chats fresh: the composer's remount cache (composerDraft.ts) is page
+  // storage, and a prompt one test left there (its inline chips' tokens) must not fill the next
+  // test's composer. It once did, which hid a test's chip that went in outside act.
+  localStorage.clear();
 });
 
 afterAll(() => {
@@ -337,7 +341,9 @@ test("a chip the host no longer holds goes again with its contents", async () =>
 test("a page going away sends a write still resting", async () => {
   const store = new Host();
   const page = await openPage("chat-a", store);
-  act(() => page.current!.attach(screenshot(1)));
+  // Async: the field tells the composer of the chip's inline node in a microtask (MarkdownField
+  // `tellInlineViews`), which has to land inside act. The write still rests: no timer moves.
+  await act(async () => page.current!.attach(screenshot(1)));
   // The tab closes: the web page hides before React unmounts anything.
   act(() => {
     window.dispatchEvent(new window.Event("pagehide"));
