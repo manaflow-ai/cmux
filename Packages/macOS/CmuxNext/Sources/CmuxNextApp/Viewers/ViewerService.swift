@@ -131,9 +131,9 @@ final class ViewerService {
     /// `asText` (Open as Text): a page cmux renders opens as its source in the code editor.
     @discardableResult
     func openFile(_ file: URL, in pane: PaneController?, markdown: Bool, asText: Bool = false, at position: FilePosition? = nil,
-                  placed: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
+                  placed: (@MainActor (SurfaceID) -> Void)? = nil, shownInPlace: (@MainActor () -> Void)? = nil) -> Bool {
         let refusal = if placed != nil || position != nil || asText, let opener = fileOpener as? FilePageOpener {
-            opener.open(file, in: pane, userChose: true, asText: asText, at: position, placed: placed)
+            opener.open(file, in: pane, userChose: true, asText: asText, at: position, placed: placed, shownInPlace: shownInPlace)
         } else {
             fileOpener.open(file, in: pane)
         }

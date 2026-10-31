@@ -89,6 +89,29 @@ struct CloudFileRoutingTests {
                 "a remote file was offered to this Mac's external-open actions")
     }
 
+    /// Cloud pages have no movable daemon surface, so both new and reused tabs must release
+    /// the placement turn immediately; otherwise the next link waits for a move that never runs.
+    @Test(arguments: [false, true], ["notes.md", "source.swift", "report.html", "logo.svg"])
+    func cloudFilesShownInPlaceDoNotHoldFollowingOpens(_ localPane: Bool, _ name: String) throws {
+        let fixture = try Self.fixture(localPane: localPane)
+        defer { fixture.close() }
+        let services = fixture.services
+        let machine = try #require(services.machines.remoteDaemons.first)
+        let file = URL(fileURLWithPath: "/home/cmux/\(UUID().uuidString)/\(name)")
+        services.linkOpener.placement = { .newColumn }
+        for _ in 0..<2 {
+            let opened = services.linkOpener.openFile(file, on: machine, from: fixture.pane)
+            #expect(opened)
+            #expect(!services.linkOpener.turns.isBusy(beside: fixture.pane.layoutPaneID),
+                    "a Cloud file shown in place kept the placement turn")
+            var followingOpenRan = false
+            services.linkOpener.open(from: fixture.pane) { _, _ in followingOpenRan = true; return false }
+            #expect(followingOpenRan, "a following open waited for a nonexistent Cloud file move")
+        }
+        let service = FilePageHandlers.service(name == "notes.md" ? .markdown : .editor, services)
+        #expect(service.debugTabs.filter { $0.file == file }.count == 1, "a reused Cloud file must keep its tab")
+    }
+
     @Test(arguments: [false, true])
     func openAsTextShowsCloudMarkdownSource(_ stringArgument: Bool) async throws {
         let fixture = try Self.fixture()

@@ -154,7 +154,7 @@ final class FilePageService: InternalPageProvider {
     @discardableResult
     func open(_ file: URL, in pane: PaneController, focus: Bool, userChose: Bool = true, readOnly: Bool = false,
               recoveredText: String? = nil, at position: FilePosition? = nil, on machine: DaemonService? = nil,
-              placed: (@MainActor (SurfaceID) -> Void)? = nil) -> String {
+              placed: (@MainActor (SurfaceID) -> Void)? = nil, shownInPlace: (@MainActor () -> Void)? = nil) -> String {
         let files = machineFiles(on: machine)
         let real = files.canonical(file)
         // The viewers' recents are files of this Mac.
@@ -163,7 +163,7 @@ final class FilePageService: InternalPageProvider {
         let machineID = files.isLocal ? "local" : machine?.machineID ?? "local"
         let tab = Tab(file: real, userChose: userChose, readOnly: readOnly, recoveredText: files.isLocal ? recoveredText : nil,
                       reveal: reveal, files: files, machine: machineID)
-        let key = show(in: pane, focus: focus, placed: placed, tab) { key in
+        let key = show(in: pane, focus: focus, placed: placed, shownInPlace: shownInPlace, tab) { key in
             self.file(key) == real && self.tabs[key]?.machine == machineID
         }
         if let reveal { revealAt(reveal, in: key) }
@@ -247,8 +247,10 @@ final class FilePageService: InternalPageProvider {
     /// moves like any daemon tab and Reopen Closed brings it back on that
     /// file; else as an app-only tab.
     /// `placed` (``LinkOpener``): a new store tab opens unselected and reports its surface there; a
-    /// tab that already shows the file, or a local tab no move can take, shows where it is.
-    private func show(in pane: PaneController, focus: Bool, placed: (@MainActor (SurfaceID) -> Void)? = nil, _ tab: Tab,
+    /// tab that already shows the file, or a local tab no move can take, shows where it is and calls
+    /// `shownInPlace` instead, so the open's turn on the right ends (``RightColumnTurns``).
+    private func show(in pane: PaneController, focus: Bool, placed: (@MainActor (SurfaceID) -> Void)? = nil,
+                      shownInPlace: (@MainActor () -> Void)? = nil, _ tab: Tab,
                       matching: (String) -> Bool) -> String {
         let window = services.windowController(showing: pane)
         let revealsExisting = focus || placed != nil
@@ -256,6 +258,7 @@ final class FilePageService: InternalPageProvider {
             let keys = services.pages.tabIDs(in: candidate.paneKey) + candidate.pane.tabs.compactMap { services.pages.storeKey(of: $0.id) }
             if let shown = keys.first(where: { tabs[$0] != nil && matching($0) }) {
                 if revealsExisting { reveal(shown, in: candidate) }
+                shownInPlace?()
                 return shown
             }
             // A store tab of the same file that has not been shown yet (relaunch): show it, not a second one.
@@ -267,6 +270,7 @@ final class FilePageService: InternalPageProvider {
                     candidate.select(StripTabID(unshown.id))
                     candidate.focusContent()
                 }
+                shownInPlace?()
                 return unshown.id
             }
         }
@@ -282,6 +286,7 @@ final class FilePageService: InternalPageProvider {
                             window: window, key: key)
         pane.apply(pane.snapshot())
         if revealsExisting { reveal(key, in: pane) }
+        shownInPlace?()
         return key
     }
 
