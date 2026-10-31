@@ -144,6 +144,13 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "tips.state":
+            // `{}` reads the records, `{id, state}` keeps one, `{claim, feature?}` asks to show a tip.
+            if let tips = AgentPaneFeatureTipRequest(params) {
+                self = .featureTips(tips)
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.setDisplay":
             // Only the chat's own look keys: the page can never write another setting.
             if let key = params?["key"] as? String, let path = AgentPaneDisplaySetting.writablePath(key) {
@@ -194,6 +201,8 @@ extension AgentPaneRequest {
             }
         case "acpmux.restart":
             self = .restartAcpmux
+        case "acpmux.restartStuck":
+            self = .restartStuckAcpmux
         case "harness.restart":
             self = .harnessRestart
         case "shell.run":
@@ -351,6 +360,13 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.moveToMachine":
+            if let machine = params?["machine"] as? String, !machine.isEmpty, machine.count <= 256,
+               let session = params?["session"] as? String, !session.isEmpty, session.count <= 256 {
+                self = .moveToMachine(machine, session: session)
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.tabState": self = .tabState(refresh: params?["refresh"] as? Bool == true)
         case "pane.tabRowTools":
             if let width = (params?["width"] as? NSNumber)?.doubleValue, width.isFinite, (0...2000).contains(width) {
@@ -358,6 +374,9 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.tabRowTools.set":
+            if let tools = AgentPaneTabRowTools.list(params?["tools"]) { self = .tabRowToolsSet(tools) }
+            else { self = .unsupported(method) }
         case "pane.setQuickActions":
             if let list = AgentPaneQuickAction.list(params?["quickActions"]) { self = .setQuickActions(list) }
             else { self = .unsupported(method) }
@@ -399,8 +418,12 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "action.run":
-            if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 {
-                self = .runAction(id)
+            // A `session` that is there must be a usable id: a malformed one is refused, never
+            // dropped (which would run the action on whatever the tab shows).
+            let session = params?["session"].map { $0 as? String }
+            if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128,
+               session.map({ $0.map { !$0.isEmpty && $0.count <= 256 } ?? false }) ?? true {
+                self = .runAction(id, session: session ?? nil)
             } else {
                 self = .unsupported(method)
             }

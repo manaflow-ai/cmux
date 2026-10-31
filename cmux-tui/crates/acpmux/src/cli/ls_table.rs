@@ -5,7 +5,8 @@
 //! while some row is on a peer), STATE, TURNS, AGE, WARN (only while some row breaks a usage
 //! rule) and STUCK, the short reason a lane needs someone. Closed sessions, reviewer boxes,
 //! sub-sessions and sessions with only their harness's generated name are hidden and counted on
-//! a last line. `--all` lists those too; `--wide` prints every column (AGENT, STATUS and LAST).
+//! a last line. `--all` lists those too; `--wide` prints every column (AGENT, STATUS, the usage
+//! columns and LAST).
 //! A peer whose link is down never drops out: its rows read `unknown`, and a line per such peer
 //! says its sessions are last known, not live (hq#4897: unreadable means UNKNOWN).
 
@@ -16,13 +17,16 @@ use serde_json::Value;
 pub const HELP: &str = "Examples:
   acpmux ls                       live named lanes: NAME, HOST, STATE, TURNS, AGE, STUCK, WARN
   acpmux ls --all                 also closed, reviewer, sub- and unnamed sessions
-  acpmux ls --wide                every column (AGENT, STATUS, LAST)
+  acpmux ls --wide                every column (AGENT, STATUS, usage, LAST)
   acpmux ls --status stuck        only stuck sessions (a filter hides nothing else)
   acpmux ls --live --host cosmic-gray   that host's live sessions (--host local: this machine)
   acpmux --json ls --fields name,state,peer   for scripts: the daemon's rows, unchanged
+  acpmux ls 'review-27*' --fields name,turn.activity   name globs (host/glob: one peer's); dotted fields
 
 STUCK is why a lane needs someone: permission, capacity, harness down, failed turn, stalled 12m.
-A peer that cannot be reached reads UNKNOWN; its sessions are last known. ls never starts a daemon.";
+A peer that cannot be reached reads UNKNOWN; its sessions are last known. ls never starts a daemon.
+Usage (--wide): LAUNCHER, CAP (autocompact cap, or none), CTX (context now), CMP (compactions),
+SUBS (subagents live/started), TOK24H and $24H; ? is a value acpmux could not read, never 0.";
 
 /// Which rows and columns the text list shows.
 #[derive(Clone, Copy, Debug, Default)]
@@ -57,9 +61,12 @@ fn hidden(row: &Value) -> Option<Hidden> {
     if text(row, "status") == "closed" {
         return Some(Hidden::Closed);
     }
-    let review_tag =
-        row["tags"].as_object().is_some_and(|tags| tags.keys().any(|k| k.starts_with("review.")));
-    if text(row, "harness").ends_with("-review-box") || review_tag {
+    let tags = row
+        .get("tags")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|tags| tags.keys().map(String::as_str));
+    if crate::review_box::is(text(row, "harness"), tags) {
         return Some(Hidden::Reviewer);
     }
     if row.get("parentId").is_some_and(|p| !p.is_null()) {
@@ -78,7 +85,9 @@ fn named(row: &Value) -> bool {
     if name.trim().is_empty() {
         return false;
     }
-    if text(row, "titleSource") == "named" {
+    // The daemon says so (`nameGiven`); a session from before it was kept says so by its title
+    // source, renamed (`named`) or started under a name and not yet prompted (`launched`).
+    if row["nameGiven"] == true || matches!(text(row, "titleSource"), "named" | "launched") {
         return true;
     }
     let harness = text(row, "harness");
@@ -149,16 +158,59 @@ fn stuck(row: &Value, now: u64) -> String {
     }
 }
 
-/// The WARN cell: `warn` when the row breaks a usage rule (`usageWarnings`, hub#27899); wide
-/// names each rule.
+/// The WARN cell: `warn` when the row breaks a usage rule (`usageWarnings`, `hub/usage_warnings.rs`),
+/// one word so the default listing stays compact (Leo 2026-10-30: "acpmux ls should probably not
+/// be overly... verbose?"); wide names each rule with its number and the command that answers it
+/// (`ctx 412k: acpmux send lane-1 /compact | lane-place rotate lane-1`).
 fn warn(row: &Value, wide: bool) -> String {
-    let Some(warnings) = row["usageWarnings"].as_array().filter(|w| !w.is_empty()) else {
+    let Some(warnings) =
+        row.get("usageWarnings").and_then(Value::as_array).filter(|w| !w.is_empty())
+    else {
         return String::new();
     };
     if !wide {
         return "warn".into();
     }
-    warnings.iter().filter_map(|w| w["rule"].as_str()).collect::<Vec<_>>().join(" ")
+    warnings.iter().map(crate::hub::usage_warnings::with_command).collect::<Vec<_>>().join("; ")
+}
+
+/// The wide view's usage columns, read from `usageStats` (`hub/usage_view.rs`).
+const USAGE_HEADER: [&str; 7] = ["LAUNCHER", "CAP", "CTX", "CMP", "SUBS", "TOK24H", "$24H"];
+
+/// A row's usage cells: its launcher, autocompact cap (its tokens; `capped` when a cap is set
+/// but its value could not be read; `none` when nothing caps it), the last
+/// call's context, compactions, subagents live/started, and the last day's tokens and cost. A
+/// value acpmux could not read is `?`, never 0; a row without `usageStats` (a harness it does not
+/// read, records not found yet) is all `?`.
+fn usage(row: &Value) -> [String; 7] {
+    let stats = &row["usageStats"];
+    let tokens = |n: u64| match n {
+        n if n >= 999_500 => format!("{:.1}M", n as f64 / 1e6),
+        n if n >= 1_000 => format!("{}k", (n + 500) / 1000),
+        n => n.to_string(),
+    };
+    let unknown = || "?".to_owned();
+    let count = |k: &str| stats[k].as_u64().map_or_else(unknown, |n| n.to_string());
+    let cap = match (stats["autocompact"].as_str(), stats["autocompactCap"].as_u64()) {
+        (Some("capped"), Some(n)) => tokens(n),
+        (Some("capped"), None) => "capped".to_owned(),
+        (Some("none"), _) => "none".to_owned(),
+        _ => unknown(),
+    };
+    let cost = match stats["costUsd24h"].as_f64() {
+        Some(c) if c >= 10.0 => format!("${c:.0}"),
+        Some(c) => format!("${c:.2}"),
+        None => unknown(),
+    };
+    [
+        short(stats["launcher"].as_str().unwrap_or("?"), 10),
+        cap,
+        stats["contextTokens"].as_u64().map_or_else(unknown, tokens),
+        count("compactions24h"),
+        format!("{}/{}", count("subagentsLive"), count("subagents24h")),
+        stats["tokens24h"].as_u64().map_or_else(unknown, tokens),
+        cost,
+    ]
 }
 
 /// How long ago `at` was, from `now` (both in ms): `12s`, `4m`, `3h`, `2d`.
@@ -176,7 +228,9 @@ fn ago(now: u64, at: u64) -> String {
 fn table(rows: Vec<Vec<String>>) -> String {
     let columns = rows.first().map_or(0, Vec::len);
     let widths: Vec<usize> = (0..columns)
-        .map(|c| rows.iter().map(|r| r[c].chars().count()).max().unwrap_or(0))
+        .map(|c| {
+            rows.iter().filter_map(|r| r.get(c)).map(|cell| cell.chars().count()).max().unwrap_or(0)
+        })
         .collect();
     let mut out = String::new();
     for row in rows {
@@ -185,7 +239,7 @@ fn table(rows: Vec<Vec<String>>) -> String {
             if c + 1 == columns {
                 line.push_str(cell);
             } else {
-                line.push_str(&format!("{cell:<w$}  ", w = widths[c]));
+                line.push_str(&format!("{cell:<w$}  ", w = widths.get(c).copied().unwrap_or(0)));
             }
         }
         out.push_str(line.trim_end());
@@ -211,7 +265,9 @@ pub fn render(
         .filter(|row| match hidden(row) {
             Some(why) if !view.all && !filtered => {
                 let i = HIDDEN_ORDER.iter().position(|(h, _)| *h == why).unwrap_or(0);
-                hidden_counts[i] += 1;
+                if let Some(count) = hidden_counts.get_mut(i) {
+                    *count += 1;
+                }
                 false
             }
             _ => true,
@@ -247,6 +303,7 @@ pub fn render(
             header.push("WARN");
         }
         if view.wide {
+            header.extend(USAGE_HEADER);
             header.push("LAST");
         }
         let mut rows = vec![header.into_iter().map(str::to_owned).collect::<Vec<_>>()];
@@ -268,6 +325,7 @@ pub fn render(
                 cells.push(warn(row, view.wide));
             }
             if view.wide {
+                cells.extend(usage(row));
                 cells.push(short(text(row, "lastPrompt"), 50));
             }
             rows.push(cells);

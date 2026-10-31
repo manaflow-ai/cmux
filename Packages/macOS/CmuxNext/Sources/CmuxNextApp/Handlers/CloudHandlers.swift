@@ -245,7 +245,7 @@ enum CloudHandlers {
                 throw ActionFailure(message: CloudStrings.desktopUnavailable(title))
             }
             let name = CloudStrings.desktopWorkspaceName(title), address = record.url.absoluteString
-            let api = services.cloud.api, machineID = session.machineID, cloud = services.cloud
+            let api = services.cloud.machineAPI, machineID = session.machineID, cloud = services.cloud
             let unavailable = CloudStrings.desktopUnavailable(title)
             // The person's mark goes on right before the tab appears (after the host start and token
             // read), in the person's run scope captured here, so its window never runs out first.
