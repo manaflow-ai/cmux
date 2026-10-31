@@ -102,6 +102,8 @@ export function Listbox<T>({
           {...itemAttributes?.(item)}
           onMouseMove={() => index !== current && setHighlight(index)}
           onMouseDown={(event) => {
+            // Secondary/middle press keeps the system context menu or the host's mouse action.
+            if (event.button !== 0) return;
             event.preventDefault();
             onOpen(item);
           }}
