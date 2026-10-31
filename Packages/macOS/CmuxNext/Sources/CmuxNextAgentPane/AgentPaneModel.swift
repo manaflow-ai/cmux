@@ -318,6 +318,7 @@ public final class AgentPaneModel {
         case .ready, .reconnect:
             return await AgentPaneHandshakeReply.reply(to: request, in: self)
         case .restartAcpmux: return await AgentPaneHandshakeReply.restartAcpmux(in: self)
+        case .restartStuckAcpmux: return await AgentPaneHandshakeReply.restartStuckAcpmux(in: self)
         case .persistSession(let id): adoptSession(id); return AgentPaneReply.success()
         case .missingChat(let session, let reason):
             missingChatLog.record(session: session, reason: reason, tabSession: sessionId, remote: remoteChat)
