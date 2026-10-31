@@ -108,11 +108,23 @@ fn a_claude_turns_raw_lines_are_logged_without_the_bodies_its_updates_carry() {
     let hub = hub();
     let s = claude_chat(&hub, "c");
     let tap = hub.session_tap(&s);
+    let mut live = hub.events.subscribe();
     let turn = claude_turn();
+    let mut heard = Vec::new();
     for msg in &turn {
         assert!(tap(Direction::In, msg, None));
+        while let Ok(event) = live.try_recv() {
+            heard.push((*event.record).clone());
+        }
     }
     let logged = hub.store.events("c", 0, usize::MAX).unwrap();
+    // A live subscriber (`eventStream`) hears each record as it is logged, the raw lines trimmed
+    // alike (README, `_acpmux/attach`).
+    assert_eq!(
+        serde_json::to_value(&heard).unwrap(),
+        serde_json::to_value(&logged).unwrap(),
+        "live records are the logged ones"
+    );
     let raw =
         |kind: &str| -> Vec<&EventRecord> { logged.iter().filter(|r| r.kind == kind).collect() };
 
