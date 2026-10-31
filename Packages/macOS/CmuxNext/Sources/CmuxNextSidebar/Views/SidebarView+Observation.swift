@@ -73,7 +73,11 @@ extension SidebarViewComponents {
             metrics = .standard
             fontSize = SidebarStyle.titleFont.pointSize
             titlebarHeight = Metrics.titlebarHeight
-            cards = SidebarBottomCards(update: model.updateCard, nowPlaying: model.nowPlaying, updated: model.updatedCard, notice: model.noticeCard)
+            var notice = model.noticeCard
+            #if DEBUG
+            notice = SidebarArchivedMock.card(SidebarTunables.archivedTidy.value) ?? notice // SCRATCH mockup
+            #endif
+            cards = SidebarBottomCards(update: model.updateCard, nowPlaying: model.nowPlaying, updated: model.updatedCard, notice: notice)
             tree = SidebarSessionTree.shared.drawn
             pullRequests = SidebarSessionTree.shared.pullRequests
             history = SidebarChatHistory.shared.state

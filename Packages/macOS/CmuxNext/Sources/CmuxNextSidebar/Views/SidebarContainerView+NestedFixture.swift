@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import CmuxNextDesign
 
 // `debug.sidebar_nested_fixture` (nested-groups prototype): the look and held drag of a capture scenario.
 public extension SidebarContainerView {
@@ -9,6 +10,9 @@ public extension SidebarContainerView {
         list.legacyNestedRails = fixture?.legacyRails ?? false
         list.finishDrag()
         list.reload(animated: false)
+        if fixture?.scenario == .archived, SidebarTunables.archivedTidy.value == .toast { // SCRATCH mockup
+            CmuxToastCenter.shared.showUndo("Archived 3 idle workspaces", id: "mock.tidy.toast", in: window) {}
+        }
         guard let fixture, fixture.drop != nil else { return }
         if let dragged = fixture.dragged, let row = list.displayed.row(for: .workspace(dragged)) {
             let frame = list.frame(for: row)

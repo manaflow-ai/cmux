@@ -162,6 +162,9 @@ final class GroupHeaderRowView: SidebarRowView {
         pin.image = pinned ? NSImage.icon(.statePinned, size: SidebarStyle.leadingGlyphSide) : nil
         collapsed = row.isCollapsed
         count.stringValue = details.memberCount && collapsed && row.childCount > 0 ? "\(row.childCount)" : ""
+        // SCRATCH mockup (`sidebar.archivedLook` headerCount): the hidden archived rows as a count after the name.
+        let archivedCount = group.workspaces.filter(\.isArchived).count
+        if SidebarTunables.archivedLook.value == .headerCount, archivedCount > 0 { count.stringValue = "· \(archivedCount) archived" }
         chevronIcon = Self.disclosureIcon(collapsed: collapsed)
         // One right-pointing glyph turned a quarter turn when open: a user's fold turns it as the rows slide.
         chevron.setImage(NSImage.icon(.disclosureCollapsed, size: .iconRowSize(forLabelPointSize: Metrics.smallIconSize - Metrics.space2)))

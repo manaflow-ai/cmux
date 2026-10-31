@@ -140,6 +140,18 @@ public nonisolated enum SidebarTunables {
         help: "Workspaces marked Done move into one Done row at the end of their group or list, in their order; click the row to show them.",
         default: true, code: "SidebarTunables.doneFold")
 
+    /// SCRATCH mockup (archived-variations gallery): how archived workspaces draw (`SidebarArchivedLook`).
+    public static let archivedLook = Tunable<SidebarArchivedLook>.choice(
+        "sidebar.archivedLook", .sidebar, "Archived rows look (mockup)",
+        help: "Design mockups of archived workspaces that take less room: dimmed in place (today), a fold per group, one row at the bottom, a header count, hidden, compact rows, a small line, an Active/All filter or a stacked pile.",
+        default: .dim, code: "SidebarTunables.archivedLook")
+
+    /// SCRATCH mockup: the Tidy Up variant the archived fixture shows (`SidebarArchivedTidy`).
+    public static let archivedTidy = Tunable<SidebarArchivedTidy>.choice(
+        "sidebar.archivedTidy", .sidebar, "Tidy Up variant (mockup)",
+        help: "Design mockups of the Tidy Up suggestion: the two-button card, a one-line card, a card with an Always switch, a hint row at the list's end, or a toast only.",
+        default: .off, code: "SidebarTunables.archivedTidy")
+
     /// A group or list longer than this shows its first rows, the ones that need you and the active one, then a
     /// "Show N more" row (`SidebarLayout+DoneFold`). 0, the default for now, shows every row.
     public static let groupRowLimit = Tunable<Double>.number(
@@ -290,6 +302,8 @@ public nonisolated enum SidebarTunables {
     public static var all: [TunableDescriptor] {
         [
             agentMark.descriptor,
+            archivedLook.descriptor,
+            archivedTidy.descriptor,
             collapseMotion.descriptor,
             doneFold.descriptor,
             dragThreshold.descriptor,

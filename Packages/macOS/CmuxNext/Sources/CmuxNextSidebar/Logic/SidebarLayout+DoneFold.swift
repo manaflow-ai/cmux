@@ -32,17 +32,25 @@ nonisolated extension SidebarLayout {
         guard o.filterMatches == nil, o.sessionTree == nil else { return drawn }
         var shown: [(index: Int, depth: Int)] = []
         var done: [(index: Int, depth: Int)] = []
+        var archived: [(index: Int, depth: Int)] = []
         for entry in drawn {
-            if o.foldsDone, let ws = workspace(entry.index), ws.taskStatus == .done, ws.id != o.activeWorkspaceID {
+            let ws = workspace(entry.index)
+            if o.archivedLook.removesRows, let ws, ws.isArchived, ws.id != o.activeWorkspaceID {
+                archived.append(entry) // SCRATCH mockup (`sidebar.archivedLook`)
+            } else if o.foldsDone, let ws, ws.taskStatus == .done, ws.id != o.activeWorkspaceID {
                 done.append(entry)
             } else {
                 shown.append(entry)
             }
         }
-        let listed = limiting(shown, workspace: workspace, limits: limits, list: id, options: o)
-        guard !done.isEmpty else { return listed }
-        return listed + [(doneFoldIndex, done.count)] + (o.openDoneFolds.contains(id) ? done : [])
+        var listed = limiting(shown, workspace: workspace, limits: limits, list: id, options: o)
+        if !done.isEmpty { listed += [(doneFoldIndex, done.count)] + (o.openDoneFolds.contains(id) ? done : []) }
+        if o.archivedLook.foldsPerList, !archived.isEmpty { listed.append((archivedMockIndex, archived.count)) }
+        return listed
     }
+
+    /// SCRATCH mockup: the index `foldingDone` gives an archived look's per-list row (its depth is the count).
+    static let archivedMockIndex = -3
 
     /// `shown` past `rowLimit` rows (`sidebar.groupRowLimit`): the first ones, those that need you and the active one,
     /// then a "Show N more" entry for the rest; opened, every row then a "Show fewer" entry. A list one row over the
@@ -86,7 +94,18 @@ nonisolated extension SidebarLayout {
     /// Appends the row of a `foldingDone` entry (`doneFoldIndex` or `showMoreIndex`) at `y`: one line, as a document
     /// item's row.
     static func appendFold(_ entry: Int, _ id: SidebarDoneFoldID, count: Int, parent: Int?, color: GroupColor?, last: Bool,
-                           options o: SidebarLayoutOptions, to rows: inout [SidebarRow], y: inout CGFloat, metrics m: SidebarLayoutMetrics) {
+                           titles: [String] = [], options o: SidebarLayoutOptions, to rows: inout [SidebarRow], y: inout CGFloat,
+                           metrics m: SidebarLayoutMetrics) {
+        if entry == archivedMockIndex {
+            let kind: SidebarArchiveMockRow.Kind = switch o.archivedLook {
+            case .dots: .dots
+            case .pile: .pile
+            default: .fold
+            }
+            appendArchiveMock(SidebarArchiveMockRow(kind: kind, count: count, titles: titles), id: id, parent: parent, color: color,
+                              last: last, to: &rows, y: &y, metrics: m)
+            return
+        }
         let more = entry == showMoreIndex
         let open = more ? o.openShowMore.contains(id) : o.openDoneFolds.contains(id)
         let content = WorkspaceRowContent()
@@ -96,6 +115,29 @@ nonisolated extension SidebarLayout {
             parentIndex: parent, isLastInGroup: last, isCollapsed: !open, childCount: count, groupColor: color, content: content
         ))
         y += h + m.rowSpacing
+    }
+
+    /// SCRATCH mockup: appends one archived-look row (`SidebarArchiveMockRow`), keyed as list `id`'s Done fold row.
+    static func appendArchiveMock(_ mock: SidebarArchiveMockRow, id: SidebarDoneFoldID, parent: Int?, color: GroupColor?, last: Bool,
+                                  to rows: inout [SidebarRow], y: inout CGFloat, metrics m: SidebarLayoutMetrics) {
+        let full = m.height(for: WorkspaceRowContent())
+        let h: CGFloat = switch mock.kind {
+        case .dots: max(14, (full * 0.6).rounded())
+        case .fold, .pile, .filter, .tidy: full
+        }
+        var row = SidebarRow(
+            key: .doneFold(id), y: y, height: h, section: id.section, group: id.group, siblingIndex: 0,
+            parentIndex: parent, isLastInGroup: last, isCollapsed: true, childCount: mock.count, groupColor: color,
+            content: WorkspaceRowContent()
+        )
+        row.archiveMock = mock
+        rows.append(row)
+        y += h + m.rowSpacing
+    }
+
+    /// SCRATCH mockup: the height of an archived workspace row under the compact look (`SidebarArchivedLook.compact`).
+    static func compactArchivedHeight(_ m: SidebarLayoutMetrics) -> CGFloat {
+        (m.height(for: WorkspaceRowContent()) * 0.66).rounded()
     }
 
     /// The groups a filter keeps for the path to a match (remote-groups-DESIGN.md slice 2): every group above a group

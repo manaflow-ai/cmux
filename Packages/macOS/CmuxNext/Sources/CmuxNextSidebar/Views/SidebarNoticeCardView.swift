@@ -29,6 +29,10 @@ final class SidebarNoticeCardView: NSView {
     private let bar = CALayer()
     private(set) var actionButtons: [SidebarUpdateButton] = []
     let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { 9 }, label: "")
+    /// SCRATCH mockup (archived-variations gallery): the Tidy Up card's inline "Always" switch (notice id
+    /// `mock.tidy.toggle`), right of its Archive button. Not shipped.
+    private let mockSwitch: NSSwitch = { let s = NSSwitch(); s.controlSize = .mini; s.state = .off; return s }()
+    private let mockSwitchLabel = ChromeLabel(labelWithString: "Always")
     /// The text button that replaces the x when the notice names one (``SidebarNoticeCard/dismissTitle``).
     let dismissButton = SidebarCardTextButton()
     /// The card's surface: the composer's, opaque under Reduce Transparency.
@@ -75,6 +79,9 @@ final class SidebarNoticeCardView: NSView {
         closeButton.onPress = { [weak self] in self?.closePressed() }
         dismissButton.onPress = { [weak self] in if let id = self?.notice?.id { self?.onDismiss?(id) } }
         [eyebrowLabel, titleLabel, detailLabel, shortcutLabel, icon, spinner, closeButton, dismissButton].forEach(content.addSubview)
+        [mockSwitchLabel, mockSwitch].forEach(content.addSubview)
+        mockSwitch.isHidden = true
+        mockSwitchLabel.isHidden = true
         closeButton.setAccessibilityIdentifier("cmux.sidebar.notice.close")
         dismissButton.setAccessibilityIdentifier("cmux.sidebar.notice.dismiss")
         setAccessibilityElement(false)
@@ -124,6 +131,9 @@ final class SidebarNoticeCardView: NSView {
                 return label
             }
         }
+        let mockToggle = notice.id == "mock.tidy.toggle"
+        mockSwitch.isHidden = !mockToggle
+        mockSwitchLabel.isHidden = !mockToggle
         shortcutLabel.stringValue = notice.shortcut ?? ""
         shortcutLabel.isHidden = notice.shortcut == nil || notice.actions.isEmpty
         let spins = notice.progress == .indeterminate
@@ -321,6 +331,15 @@ final class SidebarNoticeCardView: NSView {
         }
         shortcutLabel.frame = NSRect(x: x, y: rowY + (SidebarUpdateButton.height - line.caption) / 2,
                                      width: max(0, b.width - pad - x), height: line.caption)
+        if !mockSwitch.isHidden {
+            mockSwitchLabel.font = Typography.caption
+            let size = mockSwitch.fittingSize
+            mockSwitch.frame = NSRect(x: b.width - pad - size.width, y: rowY + (SidebarUpdateButton.height - size.height) / 2,
+                                      width: size.width, height: size.height)
+            let lw = ceil(mockSwitchLabel.intrinsicContentSize.width)
+            mockSwitchLabel.frame = NSRect(x: mockSwitch.frame.minX - Metrics.space1 - lw,
+                                           y: rowY + (SidebarUpdateButton.height - line.caption) / 2, width: lw, height: line.caption)
+        }
         // A window that shows after the card was filled lays it out: the hint is on screen now.
         reportShownIfOnScreen()
         presence.didLayout()
@@ -414,6 +433,7 @@ final class SidebarNoticeCardView: NSView {
             detailLabel.textColor = Palette.textSecondary
             for label in lineLabels { label.textColor = Palette.textSecondary }
             shortcutLabel.textColor = Palette.textTertiary
+            mockSwitchLabel.textColor = Palette.textSecondary
             icon.contentTintColor = Palette.textSecondary
             icon.image = notice?.symbol.map { NSImage.icon(symbol: $0, size: .iconRowSize(forLabelPointSize: Typography.bodyEmphasized.pointSize)) }
             track.backgroundColor = Palette.hoverFill.cgColor

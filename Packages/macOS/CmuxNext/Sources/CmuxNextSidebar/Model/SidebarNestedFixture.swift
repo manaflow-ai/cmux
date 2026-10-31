@@ -34,6 +34,8 @@ public nonisolated struct SidebarNestedFixture: Sendable {
         /// The session tree's needs-you tray (`SidebarNeedsYou`): sessions started by other sessions,
         /// some blocked on you (a question, a permission, a sign-in), one failed, two finished unread.
         case needsYou
+        /// SCRATCH mockup: 12 archived workspaces of 23 (`SidebarArchivedMock`), drawn by `sidebar.archivedLook`.
+        case archived
     }
 
     /// The state this fixture captures.
@@ -97,6 +99,8 @@ public nonisolated struct SidebarNestedFixture: Sendable {
             nodes = Self.tallGroup
         case .needsYou:
             nodes = Self.needsYouRows.map(SidebarNode.workspace)
+        case .archived:
+            nodes = SidebarArchivedMock.nodes
         }
         sections = [SidebarSection(kind: .machine(machine), nodes: nodes)]
     }

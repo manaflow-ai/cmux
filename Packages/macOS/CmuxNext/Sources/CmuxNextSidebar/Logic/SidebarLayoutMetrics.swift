@@ -188,6 +188,10 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var rowLimit = 0
     /// The lists whose "Show N more" row the person opened.
     public var openShowMore: Set<SidebarDoneFoldID> = []
+    /// SCRATCH mockup (`sidebar.archivedLook`): how archived rows draw.
+    public var archivedLook: SidebarArchivedLook = .dim
+    /// SCRATCH mockup (`sidebar.archivedTidy` rowHint): the idle count of a Tidy Up hint row at the list's end; 0 none.
+    public var tidyRowCount = 0
 
     public init() {}
 }

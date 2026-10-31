@@ -166,6 +166,15 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         var chats = SidebarChatHistoryPlacement(filtering ? nil : o.chatHistory, metrics: m)
         let lastMachine = sections.lastIndex { $0.machine != nil }
 
+        // SCRATCH mockup (`sidebar.archivedLook` filter): the Active / All filter tops the list.
+        let archivedTotal = o.archivedLook == .dim ? 0 : sections.flatMap(\.workspaces).filter(\.isArchived).count
+        if o.archivedLook == .filter, let first = sections.first {
+            Self.appendArchiveMock(SidebarArchiveMockRow(kind: .filter, count: archivedTotal),
+                                   id: SidebarDoneFoldID(section: first.id, group: GroupID("mock.archived.filter")), parent: nil, color: nil,
+                                   last: false, to: &rows, y: &y, metrics: m)
+            rows[rows.count - 1].group = nil
+        }
+
         var firstSection = true, statusShown = false, statusListed = false
         for (sectionIndex, section) in sections.enumerated() {
             if let lastMachine, sectionIndex > lastMachine {
@@ -316,7 +325,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 case let .workspace(ws):
                     var content = o.rowContent(ws, machine: machineLabel)
                     (content.treeDepth, content.treeFold, content.rollUp) = (tree.depth, tree.fold, tree.rollUp)
-                    let h = m.height(for: content)
+                    let h = o.archivedLook == .compact && ws.isArchived ? Self.compactArchivedHeight(m) : m.height(for: content)
                     rows.append(SidebarRow(
                         key: .workspace(ws.id), y: y, height: h, section: section.id,
                         group: nil, siblingIndex: index, parentIndex: nil, isLastInGroup: false,
@@ -397,8 +406,11 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     for (position, (childIndex, depth)) in drawn.enumerated() {
                         if childIndex == foldedGap, let gap = o.gap { openGapIfNeeded(section: section.id, group: group.id, index: gap.index) }
                         if childIndex < 0 {
+                            let archivedTitles = members.compactMap { member -> String? in
+                                if case let .workspace(ws) = member, ws.isArchived { ws.title } else { nil }
+                            }
                             Self.appendFold(childIndex, fold, count: depth, parent: index, color: group.color, last: position == drawn.count - 1,
-                                            options: o, to: &rows, y: &y, metrics: m)
+                                            titles: archivedTitles, options: o, to: &rows, y: &y, metrics: m)
                             continue
                         }
                         let member = members[childIndex]
@@ -419,7 +431,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         }
                         var content = o.rowContent(ws, machine: machineLabel)
                         content.treeDepth = depth
-                        let h = m.height(for: content)
+                        let h = o.archivedLook == .compact && ws.isArchived ? Self.compactArchivedHeight(m) : m.height(for: content)
                         rows.append(SidebarRow(
                             key: .workspace(ws.id), y: y, height: h, section: section.id,
                             group: group.id, siblingIndex: childIndex, parentIndex: index,
@@ -461,7 +473,11 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 for (index, depth) in drawn {
                     if index == foldedGap, let gap = o.gap { openGapIfNeeded(section: section.id, group: nil, index: gap.index) }
                     guard index < 0 else { emit(index, nodes[index], tree: treeRow[index] ?? TreeRow(index: index, depth: depth)); continue }
-                    Self.appendFold(index, fold, count: depth, parent: nil, color: nil, last: false, options: o, to: &rows, y: &y, metrics: m)
+                    let archivedTitles = nodes.compactMap { entry -> String? in
+                        if case let .workspace(ws) = entry.node, ws.isArchived { ws.title } else { nil }
+                    }
+                    Self.appendFold(index, fold, count: depth, parent: nil, color: nil, last: false, titles: archivedTitles,
+                                    options: o, to: &rows, y: &y, metrics: m)
                 }
                 openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
                 continue
@@ -483,6 +499,23 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
         }
         chats.placeEarlier(&y)
+        // SCRATCH mockups: one Archived row for the whole sidebar (`globalRow`), and the Tidy Up hint row.
+        if let last = sections.last {
+            if o.archivedLook == .globalRow, archivedTotal > 0 {
+                y += m.sectionSpacing
+                Self.appendArchiveMock(SidebarArchiveMockRow(kind: .fold, count: archivedTotal),
+                                       id: SidebarDoneFoldID(section: last.id, group: GroupID("mock.archived.all")), parent: nil, color: nil,
+                                       last: false, to: &rows, y: &y, metrics: m)
+                rows[rows.count - 1].group = nil
+            }
+            if o.tidyRowCount > 0 {
+                y += m.sectionSpacing
+                Self.appendArchiveMock(SidebarArchiveMockRow(kind: .tidy, count: o.tidyRowCount),
+                                       id: SidebarDoneFoldID(section: last.id, group: GroupID("mock.archived.tidy")), parent: nil, color: nil,
+                                       last: false, to: &rows, y: &y, metrics: m)
+                rows[rows.count - 1].group = nil
+            }
+        }
         y += m.bottomPadding
         var layout = SidebarLayout(
             rows: rows, totalHeight: y, gapY: gapY,
