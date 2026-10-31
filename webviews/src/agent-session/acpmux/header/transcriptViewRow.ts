@@ -1,7 +1,9 @@
 // The chat menu's Transcript view submenu, as Claude Code desktop's chat menu has it (Leo,
 // 2026-10-29: "i like these kinds of settings from claude code desktop..."): Normal, Thinking and
 // Verbose with a check on this chat's view, then "Make <view> the default", which writes the
-// setting every chat without a view of its own follows (conversation/transcriptView.ts).
+// setting every chat without a view of its own follows (conversation/transcriptView.ts). `more` ends
+// the submenu (the chat's Text & Width…): the ··· menu is already full height, so the view takes no
+// row of its own and Archive and Close stay on screen.
 import type { StringKey, Translate } from "../i18n";
 import {
   TRANSCRIPT_VIEWS,
@@ -12,7 +14,7 @@ import {
   type TranscriptView,
 } from "../conversation/transcriptView";
 import { defaultTranscriptView } from "../chatDisplay";
-import type { ChatMenuItem } from "./ChatHeaderTools";
+import type { ChatMenuChild, ChatMenuItem } from "./ChatHeaderTools";
 
 export const TRANSCRIPT_VIEW_NAMES: Record<TranscriptView, StringKey> = {
   normal: "chatMenu.transcriptView.normal",
@@ -23,6 +25,7 @@ export const TRANSCRIPT_VIEW_NAMES: Record<TranscriptView, StringKey> = {
 export function transcriptViewRow(
   sessionId: string | undefined,
   t: Translate,
+  more: readonly ChatMenuChild[] = [],
 ): Exclude<ChatMenuItem, "separator"> | undefined {
   if (!sessionId) return undefined;
   const view = transcriptViewOf(sessionId);
@@ -46,6 +49,7 @@ export function transcriptViewRow(
         disabled: view === defaultTranscriptView() && !hasOwnTranscriptView(sessionId),
         onSelect: () => makeTranscriptViewDefault(sessionId, view),
       },
+      ...more.map((child, index) => (index ? child : { ...child, separatorBefore: true })),
     ],
   };
 }

@@ -2,8 +2,9 @@
 // Where the chat's Transcript view goes (conversation/transcriptView.ts; Leo, 2026-10-29: "i like
 // these kinds of settings from claude code desktop..."), three layouts side by side:
 //   A (Recommended, shipped): a "Transcript view ›" submenu in the ··· menu, as Claude Code
-//     desktop's chat menu: Normal, Thinking, Verbose with a check, then "Make … the default". One
-//     row in the menu, the choice two clicks away, the default beside it.
+//     desktop's chat menu: Normal, Thinking, Verbose with a check, then "Make … the default", then
+//     Text & Width…. It takes Text & Width's row, so the full-height menu grows by none and Archive
+//     stays on screen; the choice is two clicks away, the default beside it.
 //   B: the three views inline in the ··· menu under a "Transcript view" label: one click, but the
 //     menu grows by four rows that most opens never use.
 //   C: a segmented control in the Text & Width popover: beside the other look settings, but a
@@ -13,7 +14,7 @@ import { componentEntry } from "../../../gallery/format";
 
 type Layout = "submenu" | "inline" | "popover";
 
-const MENU = ["Rename", "Pin", "—", "New side chat", "Fork", "—", "Copy", "—", "Text & Width…"];
+const MENU = ["Rename", "Pin", "—", "New side chat", "Fork", "—", "Copy", "—"];
 const VIEWS = ["Normal", "Thinking", "Verbose"];
 
 const surface = {
@@ -77,6 +78,8 @@ function Layouts({ layout }: { layout: Layout }) {
           ))}
           <div style={rule} />
           <div style={{ ...item, opacity: 0.5 }}>Make Normal the default</div>
+          <div style={rule} />
+          <div style={item}>Text & Width…</div>
         </div>
       </div>
     );
@@ -84,6 +87,7 @@ function Layouts({ layout }: { layout: Layout }) {
     return (
       <div style={{ padding: 16 }} data-transcript-view-menu>
         <Menu>
+          <div style={item}>Text & Width…</div>
           <div style={rule} />
           <div style={{ ...item, opacity: 0.6, fontSize: "0.85em" }}>Transcript view</div>
           {VIEWS.map((view) => (
@@ -98,7 +102,9 @@ function Layouts({ layout }: { layout: Layout }) {
     );
   return (
     <div style={{ display: "flex", gap: 12, alignItems: "flex-start", padding: 16 }} data-transcript-view-menu>
-      <Menu />
+      <Menu>
+        <div style={lit}>Text & Width…</div>
+      </Menu>
       <div className="text-body" style={{ ...surface, width: 280, padding: 12 }}>
         <div style={{ marginBottom: 8 }}>Transcript view</div>
         <div style={{ display: "flex", gap: 2, padding: 2, borderRadius: 7, background: "rgb(127 127 127 / 0.15)" }}>
@@ -135,7 +141,7 @@ export default componentEntry<{ layout: Layout }>({
   variants: {
     "a-submenu-recommended": {
       props: { layout: "submenu" },
-      note: "Recommended, shipped: a Transcript view submenu with a check on the chat's view and Make … the default, as Claude Code desktop's chat menu",
+      note: "Recommended, shipped: a Transcript view submenu with a check on the chat's view, Make … the default and Text & Width…, as Claude Code desktop's chat menu; the menu grows by no row",
     },
     "b-inline-group": {
       props: { layout: "inline" },

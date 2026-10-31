@@ -147,6 +147,43 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
       await page.close();
     });
 
+    // The ··· menu is already full height: Transcript view takes Text & Width's row (its submenu ends
+    // with Text & Width…), so Archive stays on screen. 620 is the transcript-view gallery's pane.
+    test("the chat menu still shows Archive; Transcript view and Text & Width are in one submenu", async () => {
+      const page = await browser!.newPage({ viewport: { width: 900, height: 620 } });
+      await page.goto(pageUrl());
+      await page.getByText(ANSWER).waitFor();
+      await page.getByRole("button", { name: "Chat actions" }).click();
+      const menu = page.locator(".acpmux-chat-menu-popover").first();
+      await menu.waitFor();
+      const archive = menu.getByRole("menuitem", { name: /^Archive/ });
+      await archive.waitFor({ state: "attached" });
+      const fit = await page.evaluate(() => {
+        const popup = document.querySelector<HTMLElement>(".acpmux-chat-menu-popover")!;
+        const row = [...popup.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((each) =>
+          each.textContent?.trim().startsWith("Archive"),
+        )!;
+        const shown = popup.getBoundingClientRect();
+        const box = row.getBoundingClientRect();
+        return {
+          inView: popup.scrollTop === 0 && box.bottom <= shown.bottom + 0.5 && box.bottom <= window.innerHeight,
+          detail: `row ${Math.round(box.top)}-${Math.round(box.bottom)}, menu ${Math.round(shown.top)}-${Math.round(shown.bottom)} (scrolls ${popup.scrollHeight}/${popup.clientHeight}), window ${window.innerHeight}`,
+        };
+      });
+      const topRows = await menu.getByRole("menuitem").allTextContents();
+      if (!fit.inView) throw new Error(`Archive is out of view: ${fit.detail}; rows: ${topRows.join(" | ")}`);
+      // Text & Width is no row of its own any more: it ends the Transcript view submenu.
+      expect(topRows.some((row) => row.trim().startsWith("Text & Width"))).toBe(false);
+
+      await menu.getByRole("menuitem", { name: "Transcript view" }).click();
+      const radios = page.getByRole("menuitemradio");
+      await radios.first().waitFor();
+      expect(await radios.allTextContents()).toEqual(["Normal", "Thinking", "Verbose"]);
+      await page.getByRole("menuitem", { name: /^Text & Width/ }).click();
+      await page.locator(".acpmux-display").waitFor();
+      await page.close();
+    });
+
     test("a replay of the chat draws under the chat's view", async () => {
       const page = await browser!.newPage({ viewport: { width: 900, height: 900 } });
       await page.addInitScript(() => localStorage.setItem("cmux.experiments", '{"session-replay":"on"}'));

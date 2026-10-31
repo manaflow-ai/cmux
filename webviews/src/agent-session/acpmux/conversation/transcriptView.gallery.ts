@@ -54,6 +54,23 @@ async function openSubmenu(ctx: PlayContext): Promise<void> {
   await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemradio"][aria-checked="true"]'));
 }
 
+/// The open chat menu shows Archive without a scroll: a row added to the full-height menu pushes it
+/// out of view (the review of #28782 at 7f8dfad8).
+function archiveInView(ctx: PlayContext): void {
+  const popup = ctx.document.querySelector<HTMLElement>(".acpmux-chat-menu-popover");
+  const archive = [...(popup?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])].find((row) =>
+    row.textContent?.trim().startsWith("Archive"),
+  );
+  if (!popup || !archive) throw new Error("the chat menu has no Archive row");
+  const shown = popup.getBoundingClientRect();
+  const row = archive.getBoundingClientRect();
+  const height = ctx.document.defaultView?.innerHeight ?? 0;
+  if (popup.scrollTop !== 0 || row.bottom > shown.bottom + 0.5 || row.bottom > height)
+    throw new Error(
+      `Archive is out of view: row ${Math.round(row.top)}-${Math.round(row.bottom)}, menu to ${Math.round(shown.bottom)}, window ${height}`,
+    );
+}
+
 /// Picks `name` in the submenu; the menu closes and `drawn` shows.
 const pick =
   (name: string, drawn: string): Play =>
@@ -86,15 +103,16 @@ export default agentPaneEntry({
   ],
   variants: {
     "chat-menu": {
-      note: "The chat's ··· menu open: the Transcript view row sits with the chat's own actions.",
+      note: "The chat's ··· menu open: the Transcript view row takes Text & Width's place, so the menu grows by no row and Archive stays on screen.",
       snapshot,
       play: async (ctx) => {
         await ctx.click({ role: "button", name: "Chat actions" });
         await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]'));
+        archiveInView(ctx);
       },
     },
     "menu-open": {
-      note: "Chosen: the chat menu's Transcript view submenu, as Claude Code desktop's: Normal, Thinking, Verbose with a check on this chat's view, then Make Normal the default (off while the chat shows the default).",
+      note: "Chosen: the chat menu's Transcript view submenu, as Claude Code desktop's: Normal, Thinking, Verbose with a check on this chat's view, then Make Normal the default (off while the chat shows the default), then Text & Width….",
       snapshot,
       play: openSubmenu,
     },
