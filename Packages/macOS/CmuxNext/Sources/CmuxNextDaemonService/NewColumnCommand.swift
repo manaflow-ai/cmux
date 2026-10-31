@@ -45,7 +45,7 @@ public struct NewColumnCommand: Sendable {
         // The target at send time: a stand-in (a create pressed on a create in flight) has become the
         // daemon's pane by then (``DaemonStore/daemonHandle(showing:)``; creates of one workspace go
         // out in order, each once the store holds the one before).
-        let target: @MainActor @Sendable () throws -> PaneID = { try daemon.store.daemonTarget(pane) }
+        let target: @MainActor @Sendable () async throws -> PaneID = { try await daemon.store.daemonTarget(pane) }
         let send = daemon.intendNowReporting("new-pane-right", intent, transaction: transaction) { connection in
             try await connection.newColumn(rightOf: try await target(), width: width, options: sent)
         }

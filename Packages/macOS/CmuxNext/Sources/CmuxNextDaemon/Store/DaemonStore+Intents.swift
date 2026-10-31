@@ -94,6 +94,7 @@ extension DaemonStore {
     /// Reported after the overlay is back (`withOverlayLifted`).
     private func settleIntent(_ transaction: ClientTransactionID, _ settlement: IntentSettlement) {
         guard let removed = intentLog.remove(transaction) else { return }
+        noteIntentLeft(removed, rejected: settlement == .rejected)
         // A refused create held a guessed tab that was another create's: guess it again.
         if settlement == .rejected, !removed.createdConfirmed, let surface = removed.createdSurface {
             ProvisionalTab.reguess(surface, in: self)
@@ -114,8 +115,11 @@ extension DaemonStore {
         liftOverlay()
         sidebarNeedsRecompute = flagged
         let result = body()
-        _ = intentLog.removeDue(appliedSequence: appliedSequence, snapshot: snapshot, awaiting: { ProvisionalSplit.awaitsRecords($0, in: self) })
+        for intent in intentLog.removeDue(appliedSequence: appliedSequence, snapshot: snapshot, awaiting: { ProvisionalSplit.awaitsRecords($0, in: self) }) {
+            noteIntentLeft(intent, rejected: false)
+        }
         releaseSettledProvisionalPanes()
+        releaseStandInTargets()
         releaseSettledProvisionalWorkspaces()
         let confirmedTabs = debugTabCensus()
         let confirmedChanged = sidebarNeedsRecompute
@@ -128,6 +132,8 @@ extension DaemonStore {
         recordMirror()
         workspaceListMayHaveChanged()
         CancelledCreation.requestCloses(in: self)
+        // A create waiting for a stand-in's daemon pane goes on once this apply made or refused it.
+        resolveStandInWaits()
         resumeIdleWaits()
         return result
     }
@@ -140,7 +146,6 @@ extension DaemonStore {
             return nil
         })
         provisionalPanes = provisionalPanes.filter { pending.contains($0.key) }
-        releaseStandInTargets()
     }
 
     /// A stand-in handle stays resolvable while a pending create names it as its target.
@@ -165,18 +170,20 @@ extension DaemonStore {
     }
 
     /// The pane a create about `handle` sends (rule b: a stand-in id never leaves for the daemon): `handle` for a daemon
-    /// pane; for a pending create's stand-in, the daemon's pane that took it over. The terminal creates call it after the
-    /// workspace's create chain (`pendingCreate`), so a stand-in of Cmd-D, New Column, New Row or New Terminal Tab still
-    /// unresolved here was never made: ``PendingPaneNotCreated``. A stand-in still shown that no daemon pane took over yet
-    /// (Cmd-N's first pane, whose snapshot has no resource id) is still opening: ``PaneNotReady``, never sent (follow-up:
-    /// one seam where every verb waits for its pane).
-    public func daemonTarget(_ handle: PaneID) throws -> PaneID {
+    /// pane; for a stand-in, the daemon's pane that took it over. One seam for every create (Cmd-D, New Column, New Row,
+    /// New Terminal Tab): a stand-in whose own create is still in flight (Cmd-N's first pane, a split) is a valid
+    /// target, and the create waits here, off the key's turn, until the daemon's pane takes it over (the store resumes
+    /// it from the reconcile that applies it; no timer). A stand-in whose create failed or was closed was never made:
+    /// ``PendingPaneNotCreated``, which the action shows as a refusal. P0 STATUS 2080: Ctrl-` right after Cmd-N was
+    /// refused here ("still opening; try again"), and no terminal opened.
+    public func daemonTarget(_ handle: PaneID) async throws -> PaneID {
         guard handle.rawValue >= ProvisionalPane.firstHandle else { return handle }
-        guard let daemon = daemonHandle(showing: handle) else { throw PendingPaneNotCreated() }
-        guard daemon.rawValue < ProvisionalPane.firstHandle else {
-            throw PaneNotReady(command: "create", reference: "pane=\(daemon.rawValue)")
+        let origin = standInTargets[handle] ?? ProvisionalSplit.standInOrigin(of: handle, in: self)
+        switch StandInWait.state(of: handle, origin: origin, in: self) {
+        case .adopted(let pane): return pane
+        case .notCreated: throw PendingPaneNotCreated()
+        case .opening: return try await waitForDaemonPane(of: handle, origin: origin)
         }
-        return daemon
     }
 
     func confirmedPane(_ snapshot: PaneSnapshot) -> PaneModel {
