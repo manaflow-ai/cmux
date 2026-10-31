@@ -9,6 +9,10 @@ public import Foundation
 /// helper admits bridges by this executable's signature or cdhash, and the
 /// server peer check compares against it. Kept out of AcpmuxEnvironment.swift,
 /// unchanged, so that the risk tier grades this trust decision on its own.
+///
+/// The members of AcpmuxEnvironment.swift it uses are named `AcpmuxEnvironment.<member>`, so the
+/// defaults guard (scripts/ci/defaults_guard.py), which follows same-file names and `Type.member`
+/// references, still tracks them as dependencies of `resolve`.
 nonisolated extension AcpmuxEnvironment {
     /// Resolves the environment of `build` (nil: no build, the shared home),
     /// or nil when no `acpmux` executable exists. `bundledBinDirectory` is the
@@ -56,7 +60,7 @@ nonisolated extension AcpmuxEnvironment {
             ?? executableCandidates(bundledBinDirectory: bundledBinDirectory, environment: environment, userHome: userHome)
             .first(where: { isExecutable($0.path) }) else { return nil }
         if let teamIdentifier, !isTrustedExecutable(executable, teamIdentifier) { return nil }
-        let root = testRoot(environment) ?? sharedRoot(userHome: userHome)
+        let root = AcpmuxEnvironment.testRoot(environment) ?? AcpmuxEnvironment.sharedRoot(userHome: userHome)
         let ownHome = build?.acpmuxHome(root: root) ?? root
         let home: URL
         let customHome = environment["ACPMUX_HOME"].flatMap { $0.isEmpty ? nil : $0 }
@@ -71,11 +75,11 @@ nonisolated extension AcpmuxEnvironment {
             return nil
         }
         let configured = customHome == nil ? nil : environment["ACPMUX_SOCKET"].flatMap { $0.isEmpty ? nil : $0 }
-        let socket = socketPath(configured: configured, home: home, uid: uid)
+        let socket = AcpmuxEnvironment.socketPath(configured: configured, home: home, uid: uid)
         var childEnvironment = ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket, "ACPMUX_LOCAL_ROUTER": "1",
                                 "ACPMUX_SECRET_TOOLS": "1"]
         childEnvironment.merge(launchEnvironment) { _, new in new }
-        for key in agentLaunchKeys {
+        for key in AcpmuxEnvironment.agentLaunchKeys {
             if let value = environment[key], !value.isEmpty { childEnvironment[key] = value }
         }
         if let cli = bundledBinDirectory?.appendingPathComponent("cmux").path, isExecutable(cli) {
