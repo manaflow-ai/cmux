@@ -722,26 +722,70 @@ pub fn unlanded(report: &str) -> bool {
 /// can find it; the short-task close of a "finished" one closed a6's interview and a8's
 /// build wait (2026-10-30: "none of them are actually discoverable").
 pub fn awaits_more(report: &str) -> bool {
-    let text = format!(" {}", report.to_lowercase());
+    let text = report.to_lowercase();
+    // A question to the user: a `?` that ends a sentence (never one inside a URL).
+    let bytes = text.as_bytes();
+    let asks = bytes.iter().enumerate().any(|(i, &c)| {
+        c == b'?' && bytes.get(i + 1).is_none_or(|n| n.is_ascii_whitespace() || *n == b')')
+    });
+    if asks {
+        return true;
+    }
     const OPEN: [&str; 16] = [
-        "?",
-        "question",
-        "waiting",
+        "waiting on",
+        "waiting for",
         "waits on",
-        "await",
-        "pending",
+        "awaiting",
+        "await your",
+        "questions for you",
+        "your answers",
+        "needs your",
+        "let me know",
         "still running",
-        "in progress",
-        "queued",
+        "still in progress",
+        "still pending",
         "not finished",
-        "not done",
         "nothing pushed",
         "built nothing",
-        "your answer",
-        "reply ",
-        "once the",
+        "is queued",
     ];
-    OPEN.iter().any(|w| text.contains(w))
+    // "not waiting on anything", "nothing pending": a negated phrase is not a wait.
+    const NEGATED: [&str; 4] = ["not ", "no ", "nothing ", "never "];
+    OPEN.iter().any(|w| {
+        text.match_indices(w).any(|(at, _)| {
+            let before = &text[..at];
+            !NEGATED.iter().any(|n| before.ends_with(n))
+        })
+    })
+}
+
+#[cfg(test)]
+mod awaits_more_tests {
+    use super::awaits_more;
+
+    #[test]
+    fn open_reports_count() {
+        for r in [
+            "Built nothing yet. Which host should it build on?",
+            "Fix written; waiting on the fleet build, nothing pushed yet.",
+            "Seven questions for you before I start.",
+            "Tests still running on the fleet.",
+        ] {
+            assert!(awaits_more(r), "{r}");
+        }
+    }
+
+    #[test]
+    fn finished_reports_do_not() {
+        for r in [
+            "Done: landed 5c64fec..7b69729, see https://github.com/o/r/pull/1?tab=checks",
+            "Done. Not waiting on anything; nothing pending.",
+            "Replied on the PR and answered your question; merged.",
+            "Once the cache warmed it took 3s. Landed.",
+        ] {
+            assert!(!awaits_more(r), "{r}");
+        }
+    }
 }
 
 pub fn minutes(ms: u64) -> String {
