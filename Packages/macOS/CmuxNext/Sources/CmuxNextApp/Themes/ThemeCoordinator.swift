@@ -80,9 +80,9 @@ final class ThemeCoordinator {
     private var artAccentObservation: Task<Void, Never>?
     private var machineColorsObservation: Task<Void, Never>?
 
-    /// Follows `appearance.appTheme`: the app theme pages get (`--cmux-app-*`, `WebTheme`),
-    /// resolved like the other theme levels (the variant for the system appearance, the user's
-    /// explicit config colors over it). `followTerminal` leaves each scope on its own theme.
+    /// Follows `appearance.appTheme`: the theme the native chrome (window, sidebar, tab strips, light/dark)
+    /// and the pages (`--cmux-app-*`, `WebTheme`) take, resolved like the other theme levels (the variant
+    /// for the system appearance, the user's explicit config colors over it). `followTerminal` leaves each scope on its own theme.
     func followChromeTheme(_ settings: SettingsController) {
         let store = services.themeStore
         // `applied`: a live preview (a theme picker's highlighted row) shows too.
@@ -120,12 +120,12 @@ final class ThemeCoordinator {
     private func applyChromeTheme() {
         let store = services.themeStore
         let resolved = chromeTheme.flatMap(ThemeSpec.init).flatMap(resolver.resolve)
-        store.setAppTheme(resolved.map {
+        // The chrome and the pages derive from these colors; the terminals keep the terminal theme.
+        store.setAppTheme(from: resolved.map {
             var input = $0.input
-            input.accent = store.accent
             // Art Color: pages take the app's art hue (a workspace's own art tints its chrome only).
             if store.accentFollowsArt, let hue = ThemeScope.app.backdropArt?.accentHue { input.accentColor = hue }
-            return AppTheme.derive(from: input)
+            return input
         })
     }
 

@@ -1,6 +1,268 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.personGate.fullAccessReason": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "turn on Full access, so another machine's chats can edit files and run commands on this Mac without asking"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تشغيل الوصول الكامل، لتتمكن محادثات جهاز آخر من تعديل الملفات وتشغيل الأوامر على هذا الـ Mac دون أن تسأل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "uključi Puni pristup, kako bi razgovori s drugog uređaja mogli uređivati datoteke i pokretati naredbe na ovom Macu bez pitanja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "slå Fuld adgang til, så en anden maskines chats kan redigere filer og køre kommandoer på denne Mac uden at spørge"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vollzugriff einschalten, damit die Chats eines anderen Geräts auf diesem Mac ohne Nachfrage Dateien bearbeiten und Befehle ausführen können"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "activar Acceso total, para que los chats de otra máquina puedan editar archivos y ejecutar comandos en este Mac sin preguntar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "activer l’Accès complet, pour que les discussions d’une autre machine puissent modifier des fichiers et lancer des commandes sur ce Mac sans demander"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "attivare Accesso completo, così le chat di un'altra macchina possono modificare file ed eseguire comandi su questo Mac senza chiedere"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "フルアクセスをオンにして、別のマシンのチャットが確認なしでこの Mac のファイルを編集しコマンドを実行できるようにする"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើក​ការ​ចូល​ប្រើ​ពេញលេញ ដើម្បី​ឱ្យ​ការ​ជជែក​របស់​ម៉ាស៊ីន​ផ្សេង​អាច​កែ​ឯកសារ និង​ដំណើរការ​ពាក្យ​បញ្ជា​លើ Mac នេះ​ដោយ​មិន​សួរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "전체 접근을 켜서 다른 기기의 채팅이 묻지 않고 이 Mac에서 파일을 편집하고 명령을 실행할 수 있게 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "slå på Full tilgang, så en annen maskins chatter kan redigere filer og kjøre kommandoer på denne Macen uten å spørre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "włączyć Pełny dostęp, aby czaty innej maszyny mogły edytować pliki i uruchamiać polecenia na tym Macu bez pytania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ativar o Acesso total, para que os chats de outra máquina possam editar arquivos e executar comandos neste Mac sem perguntar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "включить полный доступ, чтобы чаты другого компьютера могли без запроса изменять файлы и выполнять команды на этом Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดการเข้าถึงเต็มรูปแบบ เพื่อให้แชทของเครื่องอื่นแก้ไขไฟล์และเรียกใช้คำสั่งบน Mac เครื่องนี้ได้โดยไม่ต้องถาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tam erişimi açmak; böylece başka bir makinenin sohbetleri bu Mac'te sormadan dosya düzenleyip komut çalıştırabilir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "увімкнути повний доступ, щоб чати іншого комп’ютера могли без запиту змінювати файли й виконувати команди на цьому Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bật Toàn quyền truy cập, để các cuộc trò chuyện của máy khác có thể sửa tệp và chạy lệnh trên máy Mac này mà không hỏi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打开“完全访问”，让另一台机器的聊天无需询问即可在这台 Mac 上编辑文件和运行命令"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開啟「完全存取」，讓另一台機器的聊天無需詢問即可在這台 Mac 上編輯檔案和執行指令"
+          }
+        }
+      }
+    },
+    "settings.personGate.vmHostReason": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "turn on Dedicated agent machine, so this Mac's chats run on that Cloud machine without the sandbox"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تشغيل جهاز الوكيل المخصص، لتعمل محادثات هذا الـ Mac على جهاز السحابة ذلك دون وضع الحماية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "uključi Namjenski uređaj za agente, kako bi razgovori s ovog Maca radili na tom Cloud uređaju bez sandboxa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "slå Dedikeret agentmaskine til, så denne Macs chats kører på den Cloud-maskine uden sandkassen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dedizierte Agent-Maschine einschalten, damit die Chats dieses Macs auf dieser Cloud-Maschine ohne Sandbox laufen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "activar Máquina dedicada a agentes, para que los chats de este Mac se ejecuten en esa máquina de Cloud sin el entorno aislado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "activer Machine dédiée aux agents, pour que les discussions de ce Mac s’exécutent sur cette machine Cloud sans le bac à sable"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "attivare Macchina dedicata agli agenti, così le chat di questo Mac girano su quella macchina Cloud senza sandbox"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "専用エージェントマシンをオンにして、この Mac のチャットがその Cloud マシン上でサンドボックスなしで動くようにする"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើក​ម៉ាស៊ីន​ភ្នាក់ងារ​ផ្ទាល់ ដើម្បី​ឱ្យ​ការ​ជជែក​របស់ Mac នេះ​ដំណើរការ​លើ​ម៉ាស៊ីន Cloud នោះ​ដោយ​គ្មាន​ប្រអប់​ខ្សាច់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "전용 에이전트 머신을 켜서 이 Mac의 채팅이 해당 Cloud 머신에서 샌드박스 없이 실행되게 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "slå på Dedikert agentmaskin, så denne Macens chatter kjører på den Cloud-maskinen uten sandkassen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "włączyć Dedykowaną maszynę agentów, aby czaty tego Maca działały na tej maszynie Cloud bez piaskownicy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ativar Máquina dedicada a agentes, para que os chats deste Mac rodem nessa máquina do Cloud sem a sandbox"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "включить выделенную машину для агентов, чтобы чаты этого Mac работали на той облачной машине без песочницы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดเครื่องเอเจนต์เฉพาะ เพื่อให้แชทของ Mac เครื่องนี้ทำงานบนเครื่อง Cloud นั้นโดยไม่มีแซนด์บ็อกซ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ayrılmış ajan makinesini açmak; böylece bu Mac'in sohbetleri o Cloud makinesinde korumalı alan olmadan çalışır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "увімкнути виділену машину для агентів, щоб чати цього Mac працювали на тій хмарній машині без пісочниці"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bật Máy dành riêng cho agent, để các cuộc trò chuyện của máy Mac này chạy trên máy Cloud đó mà không có sandbox"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打开“专用智能体机器”，让这台 Mac 的聊天在那台 Cloud 机器上不经沙盒运行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開啟「專用代理機器」，讓這台 Mac 的聊天在那台 Cloud 機器上不經沙盒執行"
+          }
+        }
+      }
+    },
     "remote.recovery.checkMachine": {
       "extractionState": "manual",
       "localizations": {

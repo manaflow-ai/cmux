@@ -48,7 +48,7 @@ nonisolated extension ActionSurfaceCatalog {
             "newCloudMachine", "cloudDiagnostics", "openTeamPicker", "palette.auth.signIn", "palette.auth.signOut",
             "palette.mobileConnect", "accounts.show", "accounts.refresh", "accounts.reauthenticate",
             "accounts.connect", "accounts.remove", "reloadConfiguration", "palette.openCmuxSettingsFile",
-            "palette.openGhosttySettings", "ghostty.showDiagnostics", "palette.makeDefaultBrowser", "palette.makeDefaultTerminal",
+            "palette.openGhosttySettings", "settings.customizeMenus", "ghostty.showDiagnostics", "palette.makeDefaultBrowser", "palette.makeDefaultTerminal",
             "palette.toggleSetting", "palette.shortcutKeymap", "palette.searchShortcuts", "palette.installCLI",
             "palette.uninstallCLI", "palette.restartSocketListener", "palette.restartServer", "palette.checkForUpdates", "updates.whatsNew", "announcements.show", "announcements.hide",
             "palette.applyUpdateIfAvailable", "palette.switchAppChannel", "updates.rollback", "palette.pro.upgrade",
@@ -141,6 +141,9 @@ nonisolated extension ActionSurfaceCatalog {
             // Open in New Window took its row (spaces-overhaul-DESIGN.md rule 4); New Window in Space… (a new
             // window with a new workspace of the space) stays in the palette and the CLI.
             "space.newWindow",
+        ],
+        // Leo 2026-10-23: the workspace row menu drops this long tail; the palette keeps it.
+        .pointerMenuTrim: [
             // Specialist tab controls stay canonical palette/CLI commands, outside the
             // compact pointer menu. Shared commands keep their other menu placements.
             "terminal.keep", "terminal.setTheme", "terminal.clearTheme", "palette.toggleTabUnread",
@@ -152,9 +155,6 @@ nonisolated extension ActionSurfaceCatalog {
             "remote.openTerminalHere", "column.moveLeft", "column.moveRight", "column.center", "column.widthOneThird",
             "column.widthHalf", "column.widthTwoThirds", "column.widthFull", "column.dock", "column.undock", "column.float",
             "column.dockLeft", "column.dockRight", "column.dockTop", "column.dockBottom",
-        ],
-        // Leo 2026-10-23: the workspace row menu drops this long tail; the palette keeps it.
-        .pointerMenuTrim: [
             // Docked workspaces are a default-off prototype (`window.dockedWorkspaces`): palette, CLI and MCP only,
             // so the workspace row's Move menu does not grow six rows nobody can use yet.
             "workspace.dockLeft", "workspace.dockRight", "workspace.dockTop", "workspace.dockBottom", "workspace.undock",
