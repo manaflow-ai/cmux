@@ -201,8 +201,9 @@ final class DaemonEventRoute: Sendable {
     }
 
     /// Any thread: the reader's transport ended (``EventDispatch/wakeReader``). A reader waiting for the consumer
-    /// goes on, and one about to wait does not, so it reads the shut socket's EOF and the connection ends; the
-    /// backlog stays for the consumer.
+    /// goes on, and one about to wait does not; the transport's reader then leaves its loop (it checks that its
+    /// transport ended after each message), and the connection ends. The backlog stays for the consumer. The release
+    /// is one wait's; ``resetReaderRelease()`` drops one no wait took when the next connection starts.
     func wakeParkedReader() {
         let release = state.withLock { state -> Bool in
             state.readerReleasedForClose = true
@@ -362,6 +363,12 @@ final class DaemonEventRoute: Sendable {
         if release { readerWake.signal() }
         for inbox in inboxes { inbox.finish() }
         if case let (continuation, step)? = woken { continuation.resume(returning: step) }
+    }
+
+    /// A new connection's reader starts: a close release of the previous connection that no wait took is dropped, so
+    /// it never skips the new reader's first backpressure wait.
+    func resetReaderRelease() {
+        state.withLock { $0.readerReleasedForClose = false }
     }
 
     /// Subscribers the route delivers to now (tests).

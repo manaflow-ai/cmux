@@ -209,7 +209,8 @@ public final class ConnectionHeartbeat: Sendable {
             (try? await transport.request(cmd: IdentifyRequest.commandName, timeout: timeout) { id in
                 try WireCoding.encodeRequest(IdentifyRequest(), id: id)
             }) != nil
-        }, close: { transport.close() }, alive: { transport.peerProcessIsAlive }, silence: { transport.inboundSilence },
+        }, close: { transport.close() }, alive: { !transport.isClosed && transport.peerProcessIsAlive },
+        silence: { transport.inboundSilence },
         interval: interval, hiddenInterval: hiddenInterval, misses: limit))
     }
 
@@ -275,16 +276,23 @@ public final class ConnectionHeartbeat: Sendable {
             case ask(Probe)
             case wait
         }
-        let step = state.withLock { state -> Step? in
-            guard state.run == run, let probe = state.probe, !state.asking else { return nil }
-            if state.misses > 0, probe.silence() < elapsed() - state.missedAt { state.misses = 0 }
+        let (step, heardAgain) = state.withLock { state -> (Step?, Bool) in
+            guard state.run == run, let probe = state.probe, !state.asking else { return (nil, false) }
+            // A frame from the daemon since the last miss proves it alive: the run of misses ends, and a daemon
+            // marked not answering answers again (a busy connection's daemon is not asked while it sends).
+            var heard = false
+            if state.misses > 0, probe.silence() < elapsed() - state.missedAt {
+                state.misses = 0
+                heard = true
+            }
             if !forced {
-                guard let cadence = state.cadence else { return nil }
-                if silence(state, probe) < cadence { return .wait }
+                guard let cadence = state.cadence else { return (nil, heard) }
+                if silence(state, probe) < cadence { return (.wait, heard) }
             }
             state.asking = true
-            return .ask(probe)
+            return (.ask(probe), heard)
         }
+        if heardAgain { setAnswering(true, run: run) }
         guard case .ask(let probe)? = step else {
             if case .wait? = step { schedule(.onSilence, run: run) }
             return

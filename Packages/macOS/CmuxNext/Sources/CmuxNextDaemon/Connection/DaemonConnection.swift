@@ -344,6 +344,7 @@ public actor DaemonConnection {
             let transportSites = configuration.reportsDiagnosticSites ? DaemonDiagnosticSiteRelay<DaemonDiagnosticSite>() : nil
             // Each event decodes on the connection's decode lane; the reader waits for the stream's consumer
             // after the line.
+            route.resetReaderRelease()
             transport.start(
                 dispatch: EventDispatch(weigh: { _, _ in .heavy }, readerWait: { route.waitWhileReaderParked() },
                                         wakeReader: { route.wakeParkedReader() }),

@@ -64,6 +64,8 @@ public final class DaemonRecovery {
     /// plain `server ensure` when none runs, so the offer judges the owner as it did when a missed heartbeat closed
     /// the connection and the reconnect ran the ensure; the connection and its requests wait meanwhile.
     func noteDaemonAnswering(_ answering: Bool) {
+        // A post that was in flight when the service shut its connection down says nothing about a connection it runs.
+        guard probing || answering else { return }
         if daemonNotAnswering == answering {
             daemonNotAnswering = !answering
             logger.notice("cmux-tui \(answering ? "answers again" : "is not answering; its connection stays open", privacy: .public)")

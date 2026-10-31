@@ -84,6 +84,9 @@ final class LineTransport: Sendable {
     private let elapsed: @Sendable () -> Duration
     /// ``elapsed`` in nanoseconds when the reader last read bytes: the heartbeat's silence (``inboundSilence``).
     private let lastInbound = Atomic<Int64>(0)
+    /// Set by ``end(_:)`` before it wakes the reader: the reader leaves its loop at the next message or read, so a
+    /// wake that a later park would undo can never keep an ended connection open.
+    private let ended = Atomic<Bool>(false)
     /// Where each request's `daemon.request` slice goes (LineTransport+RequestTrace.swift), the top bits of its
     /// async id (``traceConnectionBits(scope:)``) and its flow's seed (``requestFlowSeed(pid:)``).
     let trace: TraceRuntime, traceConnection: UInt64, traceFlowSeed: UInt64
@@ -175,7 +178,7 @@ final class LineTransport: Sendable {
     /// peer is the bridge child, not the daemon, and once the socket closed. A stopped (SIGSTOP) or
     /// busy daemon is alive: only its exit, or EOF on the socket, says it is gone.
     var peerProcessIsAlive: Bool {
-        guard child == nil else { return false }
+        guard child == nil, !isClosed else { return false }
         let pid = socket.withLock { socket -> pid_t? in
             guard socket.fd >= 0 else { return nil }
             var pid: pid_t = 0
@@ -306,7 +309,9 @@ final class LineTransport: Sendable {
             return .failure(early)
         }
         if let writeFailure {
-            failAll(.lost(writeFailure))
+            // The socket shuts down too, so the reader ends and the owner reconnects: a failed write with the reader still
+            // in `read` on an open socket left the connection holding a dead transport as ready.
+            end(.lost(writeFailure))
             return .failure(DaemonError.connectionClosed(reason: writeFailure))
         }
         return .success(submittedID)
@@ -329,6 +334,7 @@ final class LineTransport: Sendable {
     /// loop and posts `onClose` once. A parked reader never read that EOF, so the connection never learned it had
     /// ended and kept the dead transport as ready (v2.2.10-opt P0 2026-10-30: "closed by client" for 47 min).
     private func end(_ reason: TransportCloseReason) {
+        ended.store(true, ordering: .sequentiallyConsistent)
         failAll(reason)
         socket.withLock { socket in
             if socket.fd >= 0 { Darwin.shutdown(socket.fd, SHUT_RDWR) }
@@ -418,7 +424,7 @@ final class LineTransport: Sendable {
         var chunk = [UInt8](repeating: 0, count: Self.socketBufferBytes)
         var closeDetail = "EOF"
         // wakeup-allow: bounded: blocking read on a dedicated thread; EOF, errors and bad messages end it, EINTR retries
-        while true {
+        while !ended.load(ordering: .sequentiallyConsistent) {
             // SAFETY: read writes at most $0.count bytes into the array's own storage, which the closure lends
             // for the call and nothing else touches meanwhile.
             let count = unsafe chunk.withUnsafeMutableBytes { unsafe blockingRead(fd, $0.baseAddress, $0.count) }
@@ -441,7 +447,8 @@ final class LineTransport: Sendable {
             }
             var next = Self.nextMessage(&reader)
             var unrouted: String?
-            while case .success(let message?) = next, unrouted == nil {
+            // An ended transport's reader routes nothing more: the lines still buffered belong to a connection that ended.
+            while case .success(let message?) = next, unrouted == nil, !ended.load(ordering: .sequentiallyConsistent) {
                 unrouted = self.dispatch(message, decoder: decoder, outputStream: outputStream, events: dispatch,
                                          onEvent: onEvent)
                 if unrouted == nil { next = Self.nextMessage(&reader) }
