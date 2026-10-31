@@ -58,7 +58,7 @@ fn try_run_cat(socket: &Path, id: u64, name: &str) -> Option<String> {
         "id": id,
         "cmd": "run",
         "argv": ["/bin/cat"],
-        "new_workspace": id % 3 == 0,
+        "new_workspace": id.is_multiple_of(3),
         "name": name,
     });
     writeln!(writer, "{request}").ok()?;
