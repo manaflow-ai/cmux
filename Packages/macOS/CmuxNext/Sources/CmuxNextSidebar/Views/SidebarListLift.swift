@@ -83,6 +83,7 @@ import AppKit
         // before and after the drag (Leo 2026-10-18). The card shows no row to VoiceOver (DragLiftView).
         // The lifted header shows no hover-only buttons and no focus ring.
         (content as? GroupHeaderRowView)?.isKeyboardFocused = false
+        (content as? WorkspaceRowView)?.isKeyboardFocused = false
         (content as? GroupHeaderRowView)?.isEditing = false
         return content
     }
