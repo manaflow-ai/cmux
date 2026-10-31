@@ -34,16 +34,22 @@ use super::github_minter::{Ask, Minter, Stop};
 use super::handoff::{self, HandoffReport};
 use super::sender::{Answer, Backoff, OpRequest};
 use super::session::Session;
+use super::trajectory::Layout;
+use super::trajectory_thread::{AcpmuxImporter, Trajectories};
 use super::wire::{
     AGENT_SOCKET, AGENT_STATE_FILE, BIND_FILE, BOUND_FILE, Bound, DAEMON_ACTIVITY_CAPABILITY,
     DAEMON_INFO_FILE, DAEMON_SOCKET_FILE, DaemonInfo, STATE_DIR, daemon_info_from_identify,
     heartbeat_ms_for,
 };
 use crate::config::Paths;
+use crate::daemon_spec::{ROOT_HOME, WORK_HOME, WORK_USER, binary_path};
 use crate::linux::fds::Inotify;
+use crate::linux::spawn::lookup_user;
 
 /// The dev-only heartbeat test override (read once at role start).
 pub const HEARTBEAT_ENV: &str = "CMUX_VM_AGENT_HEARTBEAT_MS";
+/// Where a trajectory restore stages its bundles (the work user's, 0700).
+pub const TRAJECTORY_STAGING: &str = "/var/lib/cmux-trajectory-restore";
 const MAX_CLIENTS: usize = 16;
 const MAX_LINE: usize = 64 * 1024;
 
@@ -402,6 +408,8 @@ struct Worker {
     live: Option<Live>,
     /// GitHub token asks, off the poll loop (`github_minter.rs`).
     github: Minter<PosterHttp>,
+    /// ACP chats kept in cmux Cloud and restored on a replacement (`trajectory_thread.rs`).
+    trajectories: Option<Trajectories<PosterHttp>>,
     bind_retry_at: Option<u64>,
     bind_backoff: Backoff,
     rng: SystemRandom,
@@ -422,6 +430,8 @@ impl Worker {
         let inotify = Inotify::new()?;
         inotify.watch_dir(&state_dir)?;
         control.set_nonblocking(true)?;
+        let trajectories =
+            spawn_trajectories(&paths).map_err(|e| log(&format!("trajectory mirror: {e}"))).ok();
         Ok(Worker {
             store: FileStore::new(paths.clone()),
             paths,
@@ -442,6 +452,7 @@ impl Worker {
             },
             live: None,
             github: Minter::spawn(wall_ms, log, github_stop)?,
+            trajectories,
             bind_retry_at: None,
             bind_backoff: Backoff::new(2_000, 600_000),
             rng: SystemRandom::new(),
@@ -732,6 +743,12 @@ impl Worker {
             Ok(client) => self.github.bound(client),
             Err(e) => log(&format!("github minter: {e}")),
         }
+        if let Some(trajectories) = self.trajectories.as_ref() {
+            match github_client(&bound, &key) {
+                Ok(client) => trajectories.bound(client),
+                Err(e) => log(&format!("trajectory mirror: {e}")),
+            }
+        }
         let mut session = Session::new(&bound.machine, daemon, heartbeat);
         let reqs = session.start(self.now());
         self.live = Some(Live { client: CloudClient::new(http, bound, key), session });
@@ -884,6 +901,39 @@ impl Worker {
         // Diagnostic only; a failed write is ignored.
         let _ = self.store.write(AGENT_STATE_FILE, &format!("{state}\n"), 0o644);
     }
+}
+
+/// Where the trajectory mirror finds acpmux: the work user's home when the
+/// image has that user (the session host's layout, `linux/spawn.rs`
+/// `select_layout`), else root's. Its staging folder for restores is that
+/// user's (0700): the thread writes bundles as that user.
+fn spawn_trajectories(paths: &Paths) -> io::Result<Trajectories<PosterHttp>> {
+    let user = lookup_user(WORK_USER)
+        .or_else(|| lookup_user("root"))
+        .ok_or_else(|| io::Error::other("no work user and no root user"))?;
+    let home = if user.uid == 0 { PathBuf::from(ROOT_HOME) } else { PathBuf::from(WORK_HOME) };
+    let staging = paths.at(TRAJECTORY_STAGING);
+    match fs::symlink_metadata(&staging) {
+        Ok(meta) if !meta.is_dir() => {
+            return Err(io::Error::other(format!("{} is not a folder", staging.display())));
+        }
+        Ok(_) => {}
+        Err(_) => fs::create_dir_all(&staging)?,
+    }
+    std::os::unix::fs::lchown(&staging, Some(user.uid), Some(user.gid))?;
+    fs::set_permissions(&staging, fs::Permissions::from_mode(0o700))?;
+    let acpmux = home.join(".acpmux");
+    let layout = Layout { sessions: acpmux.join("sessions"), home: home.clone(), staging };
+    let importer = AcpmuxImporter {
+        bin: binary_path(&home),
+        user: user.name.clone(),
+        uid: user.uid,
+        gid: user.gid,
+        home,
+        socket: acpmux.join("acpmux.sock"),
+    };
+    let identity = Some((user.uid, user.gid));
+    Trajectories::spawn(layout, Box::new(importer), identity, wall_ms, random_unit, log)
 }
 
 /// The minter's own client for the bound machine: the same install key,
