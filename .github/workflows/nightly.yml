@@ -7886,8 +7886,10 @@ jobs:
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly]
     if: "!cancelled() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.published_sha != '' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.source != 'recovered'"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }} # ephemeral-required: pull-requests:write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
-    # Writes are paced at 7.5 s under GitHub's hourly content limit.
-    timeout-minutes: 120
+    # Each write is paced at 7.5 s under GitHub's hourly content limit.
+    # A shared edit plus a legacy deletion for all 1,000 allowed PRs takes
+    # 250 min; leave room for reads. This runs after publication.
+    timeout-minutes: 300
     continue-on-error: true
     permissions:
       contents: read
