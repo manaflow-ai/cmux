@@ -485,6 +485,21 @@ test("after Sign In the row waits for the sign-in and turns ready by itself", as
   expect(checks.at(-1)?.params).toEqual({ id: "codex", refresh: true });
 });
 
+test("an expired sign-in is never Ready: the row offers Sign In and waits while it stays expired", async () => {
+  const calls: Call[] = [];
+  const auth: Record<string, HarnessHealth["auth"]> = { claude: "expired", codex: "signedIn" };
+  const container = await renderPage(calls, [], { auth });
+  expect(row(container, "Claude Code")!.dataset.harnessStatus).toBe("signIn");
+  await act(async () => row(container, "Claude Code")!.querySelector<HTMLButtonElement>("button")!.click());
+  const polls = () =>
+    calls.filter((call) => call.method === "harness.health" && call.params.id === "claude" && call.params.refresh)
+      .length;
+  await until(() => polls() >= 2, "an expired answer");
+  expect(row(container, "Claude Code")!.dataset.harnessStatus).toBe("waiting");
+  auth.claude = "signedIn";
+  await until(() => row(container, "Claude Code")!.dataset.harnessStatus === "ready", "the row to turn ready");
+});
+
 test("a harness acpmux cannot run says why, with one fix action", async () => {
   const broken: AcpmuxSnapshot["catalog"] = [
     ...acpmux,

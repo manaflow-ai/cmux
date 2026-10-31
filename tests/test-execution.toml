@@ -270,6 +270,10 @@ path = "tests/test_ci_nightly_off_blacksmith.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_static_capability_runtime_only.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_nightly_no_hosted_mac.py"
 lane = "linux-guard"
 
@@ -596,6 +600,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ios_ffi_cache.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_chief_benchmark_route.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1387,6 +1395,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_side_lane_placement.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_portable_job_placement.py"
 lane = "linux-guard"
 
 [[test]]
