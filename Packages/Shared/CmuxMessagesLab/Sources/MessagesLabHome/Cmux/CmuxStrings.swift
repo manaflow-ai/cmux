@@ -159,6 +159,16 @@ enum CmuxStrings {
     static var saveAttachmentAs: String {
         String(localized: "home.attachment.saveAs", defaultValue: "Save As…", table: "CmuxHome", bundle: .module)
     }
+    /// An agent-message fold's link while folded: how many messages it holds ("Agent messages (6)").
+    static func showAgentMessages(_ count: Int) -> String {
+        String(format: String(localized: "home.agentMessages.show", defaultValue: "Agent messages (%lld)",
+                              table: "CmuxHome", bundle: .module), count)
+    }
+    /// The same link while its messages show in full.
+    static func hideAgentMessages(_ count: Int) -> String {
+        String(format: String(localized: "home.agentMessages.hide", defaultValue: "Hide agent messages (%lld)",
+                              table: "CmuxHome", bundle: .module), count)
+    }
     /// A link's Open Link and Copy Link Address rows (a link in text, a link card, a link preview).
     static var openLink: String {
         String(localized: "home.menu.openLink", defaultValue: "Open Link", table: "CmuxHome", bundle: .module)
