@@ -256,6 +256,17 @@ pub fn is_expired_credential(message: &str) -> bool {
     EXPIRED.as_ref().is_some_and(|re| re.is_match(message))
 }
 
+/// Whether `message` says Claude's OAuth token was revoked ("Failed to authenticate: OAuth token
+/// revoked", "OAuth token has been revoked"), and not that the provider was unreachable. A
+/// fresh Cloud VM's first `claude -p` failed once this way and the same call 2 s later ran
+/// (cmux#28111): the chat's first send is retried once on it (`hub/auto_resume/first_send.rs`).
+/// An expired or missing sign-in is not this.
+pub fn is_revoked_token(message: &str) -> bool {
+    let m = message.to_lowercase();
+    (m.contains("oauth token revoked") || m.contains("token has been revoked"))
+        && !crate::hub::turn_errors::says_unreachable(message)
+}
+
 /// Whether [`explain`] rewrites `original`: a sign-in failure it has not explained yet, and not
 /// one that says the provider was unreachable ("HTTP 503: OAuth token has expired"), which
 /// stays as the agent said it, so its turn is retried and typed as the outage it is.
@@ -376,5 +387,22 @@ mod tests {
         assert!(!super::explains("HTTP 503: OAuth token has expired"));
         assert!(!super::explains("connection error: Not logged in"));
         assert!(!super::explains("Claude is not signed in here. Not logged in"));
+    }
+
+    /// Only a revoked token is one: not an expired or missing sign-in, nor an outage.
+    #[test]
+    fn a_revoked_token_is_told_from_other_sign_in_failures() {
+        use super::is_revoked_token as revoked;
+        assert!(revoked("Failed to authenticate: OAuth token revoked"));
+        assert!(revoked("Failed to authenticate: oauth TOKEN REVOKED"));
+        assert!(revoked(
+            r#"API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"OAuth token has been revoked. Please obtain a new token or refresh your existing token."}}"#
+        ));
+        assert!(!revoked("API Error: 401 OAuth token has expired"));
+        assert!(!revoked("Not logged in · Please run /login"));
+        assert!(!revoked("Invalid API key · Fix external API key"));
+        assert!(!revoked("HTTP 503 service unavailable: OAuth token revoked"));
+        assert!(!revoked("stream disconnected: OAuth token has been revoked"));
+        assert!(!revoked("the revoked token list was refreshed"));
     }
 }
