@@ -37,6 +37,11 @@ type Prints = HashMap<String, u64>;
 /// Files read per package for its fingerprint (a runaway folder costs no more).
 const MAX_FILES: usize = 2_000;
 
+/// File bytes hashed per package for its fingerprint. An app's scripts and
+/// manifest are kilobytes; a large asset past this budget is fingerprinted by
+/// its size and modification time, so a reload never reads more than this.
+const MAX_HASHED_BYTES: u64 = 4 << 20;
+
 impl Supervisor {
     /// Starts the watch thread; returns at once. `prints` are the startup
     /// catalog's, taken before its read (`PrintsBefore`). In-crate tests
@@ -194,23 +199,32 @@ impl PrintsBefore {
 
 /// Every file's path, size and contents under `dir` (dot folders and
 /// node_modules skipped), hashed. Contents, not the modification time: a
-/// coarse file clock gives a same-size save the old time.
+/// coarse file clock gives a same-size save the old time. Files past
+/// `MAX_HASHED_BYTES` in all count by their modification time.
 fn fingerprint(dir: &Path) -> u64 {
     let mut files = Vec::new();
     collect(dir, &mut files);
     files.sort();
     let mut hasher = DefaultHasher::new();
-    for (path, len) in files {
+    let mut budget = MAX_HASHED_BYTES;
+    for (path, len, modified) in files {
         (&path, len).hash(&mut hasher);
-        hash_contents(&path, &mut hasher);
+        if len <= budget {
+            budget -= len;
+            hash_contents(&path, len, &mut hasher);
+        } else {
+            modified.hash(&mut hasher);
+        }
     }
     hasher.finish()
 }
 
-/// Feeds `path`'s bytes to `hasher` (nothing when it cannot be read).
-fn hash_contents(path: &Path, hasher: &mut DefaultHasher) {
+/// Feeds at most `len` of `path`'s bytes to `hasher` (fewer when it cannot be
+/// read or shrank; a file that grows is read no further).
+fn hash_contents(path: &Path, len: u64, hasher: &mut DefaultHasher) {
     use std::io::Read as _;
-    let Ok(mut file) = std::fs::File::open(path) else { return };
+    let Ok(file) = std::fs::File::open(path) else { return };
+    let mut file = file.take(len);
     let mut buffer = [0u8; 16 * 1024];
     loop {
         match file.read(&mut buffer) {
@@ -220,7 +234,7 @@ fn hash_contents(path: &Path, hasher: &mut DefaultHasher) {
     }
 }
 
-fn collect(dir: &Path, files: &mut Vec<(PathBuf, u64)>) {
+fn collect(dir: &Path, files: &mut Vec<(PathBuf, u64, u128)>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
         if files.len() >= MAX_FILES {
@@ -237,7 +251,12 @@ fn collect(dir: &Path, files: &mut Vec<(PathBuf, u64)>) {
         if meta.is_dir() {
             collect(&path, files);
         } else {
-            files.push((path, meta.len()));
+            let modified = meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_nanos());
+            files.push((path, meta.len(), modified));
         }
     }
 }
