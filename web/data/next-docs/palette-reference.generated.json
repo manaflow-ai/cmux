@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1237,
+    "entries": 1238,
     "shortcuts": 189
   },
   "sections": [
@@ -4220,6 +4220,12 @@
           "title": "Open All Bookmarks in Folder",
           "shortcut": null,
           "command": "cmux bookmark open-all"
+        },
+        {
+          "id": "file.openAsPage",
+          "title": "Open as Page",
+          "shortcut": null,
+          "command": "cmux file open-as-page"
         },
         {
           "id": "bookmark.openInBackgroundTab",
