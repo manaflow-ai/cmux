@@ -10,6 +10,7 @@ or from a used --out folder. The type-at-once check (smoke_new_terminals) fails 
 terminal, a missing tab or the wrong pane. Also: the journey and its step group load (`run.py --check`).
 """
 import json
+import time
 import os
 import subprocess
 import sys
@@ -49,17 +50,21 @@ if status == "pass" and "--journey-option" not in args:
     typed = [] if os.environ.get("SMOKE_LATE") == "none" else [{"index": 7, "do": "smoke_type_now", "ok": True,
                                                                  "result": {"at_once": not late}}]
     r3 = os.environ.get("SMOKE_R3", "all")  # all | none | r3b-failed | one-r3b | renamed | duplicated
-    checks = [(title, not (r3 == "r3b-failed" and i == 4)) for i, title in enumerate(R3)]
+    checks = [(title, not (r3 == "r3b-failed" and title.startswith("R3b: Cmd-D"))) for title in R3]
     if r3 == "none":
         checks = []
     if r3 == "one-r3b":
-        checks = checks[:3]
+        checks = [c for c in checks if not c[0].startswith("R3b: New Column's key (Ctrl-Cmd-D) adds")]
     if r3 == "renamed":
-        checks[5] = ("R3b: Split Down, renamed", True)
+        checks = [("R3b: Split Down, renamed", True) if c[0].startswith("R3b: Cmd-Shift-D") else c for c in checks]
     if r3 == "duplicated":
-        checks[5] = (checks[2][0], True)  # the New Column check twice stands in for Split Down
+        twice = next(c for c in checks if c[0].startswith("R3b: New Column adds"))
+        checks = [twice if c[0].startswith("R3b: Cmd-Shift-D") else c for c in checks]
     typed += [{"do": "expect", "title": title, "ok": ok} for title, ok in checks]
-    json.dump({"steps": typed},
+    evidence = ([{"kind": "app", "check": "smoke_key_window", "pass": True,
+                  "detail": {"not_checked": "known gap: another app has the key window on this host (UNC)"}}]
+                if os.environ.get("SMOKE_KEY_GAP") == "yes" else [])
+    json.dump({"steps": typed, "evidence": evidence},
               open(os.path.join(out, "smoke-dogfood", "result.json"), "w"))
 if "--journey-option" in args:
     open(os.path.join(out, "options.txt"), "w").write(args[args.index("--journey-option") + 1])
@@ -144,7 +149,7 @@ class Verdicts(unittest.TestCase):
             code, summary = gate(["pass"] * 9 + ["fail"], tmp, ("--diagnostic",))
             self.assertEqual((code, summary["verdict"], summary["gate_run"]), (1, "DIAGNOSTIC (NOT JUDGED)", False))
             self.assertEqual(summary["expects"]["Cmd-D twice fast"], {"reached": 10, "passed": 9, "failed": 1,
-                                                                      "errors": ["round 10: no new pane"]})
+                                                                      "not_judged": 0, "errors": ["round 10: no new pane"]})
             with open(os.path.join(tmp, "out", "round-01", "options.txt")) as f:
                 self.assertEqual(f.read(), "smoke_mode=diagnostic")
             self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
@@ -164,6 +169,24 @@ class Verdicts(unittest.TestCase):
         self.assertEqual(titles, list(module.REQUIRED_CHECKS))
         self.assertEqual(len(titles), len(set(titles)))
 
+    def test_every_pane_count_in_the_journey_matches_the_panes_its_steps_make(self):
+        """B1 of 7e7243708c4: a column step moved the count; sum the panes each step makes in the measured workspace."""
+        with open(HERE / "journeys" / "dogfood" / "smoke-dogfood.json") as f:
+            steps = json.load(f)["steps"]
+        start = next(i for i, st in enumerate(steps) if st.get("do") == "smoke_snapshot" and st.get("name") == "before_splits")
+        panes, checked = 1, 0  # ws3: one pane (its New Tab page and its Ctrl-` terminal are tabs of it)
+        for st in steps[start:]:
+            mods = st.get("modifiers") or []
+            if st.get("do") == "key" and st.get("key") == "n" and mods == ["cmd"]:
+                break  # a new workspace: the counts below are another workspace's
+            if (st.get("do") == "key" and st.get("key") == "d") or (st.get("do") == "action" and st.get("action") == "newColumn"):
+                panes += 1
+            for cond in st.get("all", []):
+                if "smoke_panes" in cond:
+                    self.assertEqual(cond["smoke_panes"]["count"], panes, st.get("title"))
+                    checked += 1
+        self.assertEqual(checked, 2)
+
     def test_a_round_that_did_not_reach_or_pass_every_resize_check_is_no_pass(self):
         for r3, want in (("none", "R3a split resize: the right pane is wider"),
                          ("r3b-failed", "R3b: Cmd-D (Split Right) splits the pane inside its own column and every...: failed"),
@@ -175,6 +198,12 @@ class Verdicts(unittest.TestCase):
                 self.assertEqual((code, summary["verdict"], summary["passed"]), (1, "FAIL", 0), r3)
                 self.assertIn(want, summary["rounds_detail"][0]["reason"], r3)
                 self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
+
+    def test_a_passed_round_with_a_key_gap_is_not_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code, summary = gate(["pass"] * 10, tmp, env_extra={"SMOKE_KEY_GAP": "yes"})
+            self.assertEqual((code, summary["verdict"], summary["passed"]), (75, "NOT JUDGED", 0))
+            self.assertIn("known gap: another app", summary["rounds_detail"][0]["reason"])
 
     def test_a_strict_pass_whose_lines_were_not_typed_at_once_does_not_count(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -239,6 +268,64 @@ class Verdicts(unittest.TestCase):
                                        "SMOKE_JOURNEY": str(HERE / "journeys" / "dogfood" / "smoke-dogfood.json")})
             self.assertEqual(done.returncode, 2)
             self.assertIn("not empty", done.stderr)
+
+
+class GoSpec(unittest.TestCase):
+    """--go-spec: one scheduler GO per round, all rounds one gate run (the tip watcher, lead STATUS 1354)."""
+
+    @staticmethod
+    def stamp(t):
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))
+
+    def test_a_round_runs_on_the_gos_mini_inside_its_window_and_ends_the_go(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rounds_dir = os.path.join(tmp, "rounds")
+            os.makedirs(rounds_dir)
+            now = time.time()
+            with open(os.path.join(rounds_dir, "spec-x.go"), "w") as f:
+                json.dump({"spec": "spec-x", "host": "cmux99", "go": self.stamp(now - 5), "until": self.stamp(now + 300)}, f)
+            code, summary = gate([{"status": "pass"}], tmp, extra=("--go-spec", "spec-x", "--hosts", "cmux98 cmux99"),
+                                 env_extra={"SMOKE_GATE_SCHED_ROUNDS": rounds_dir})
+            argv = json.load(open(os.path.join(tmp, "out", "round-01", "argv.json")))
+            self.assertEqual(argv[argv.index("--hosts") + 1], "cmux99")
+            env = json.load(open(os.path.join(tmp, "out", "round-01", "env.json")))
+            bound = int(env["CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS"]) + int(env["CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS"])
+            self.assertLessEqual(bound, 300 - 20)  # the lease starts before the GO's until
+            self.assertTrue(os.path.exists(os.path.join(rounds_dir, "spec-x.done")))
+            self.assertEqual(summary["rounds_detail"][0]["go"]["host"], "cmux99")
+
+    def test_a_short_or_foreign_go_is_given_back_and_a_used_go_is_never_reused(self):
+        gate_mod = load_gate()
+        with tempfile.TemporaryDirectory() as tmp:
+            gate_mod.SCHED_ROUNDS = Path(tmp)
+            now = time.time()
+            go_file = os.path.join(tmp, "s.go")
+            json.dump({"host": "cmux99", "go": self.stamp(now - 5), "until": self.stamp(now + 30)}, open(go_file, "w"))
+            go, why = gate_mod.await_go("s", ["cmux99"], set(), now + 0.5, poll=0.1)
+            self.assertIsNone(go)  # 30 s left < 60 s: given back
+            self.assertTrue(os.path.exists(os.path.join(tmp, "s.done")))
+            json.dump({"host": "cmux42", "go": self.stamp(now - 3), "until": self.stamp(now + 400)}, open(go_file, "w"))
+            go, _ = gate_mod.await_go("s", ["cmux99"], set(), now + 0.5, poll=0.1)
+            self.assertIsNone(go)  # not one of --hosts
+            json.dump({"host": "cmux99", "go": self.stamp(now - 1), "until": self.stamp(now + 400)}, open(go_file, "w"))
+            used = set()
+            go, _ = gate_mod.await_go("s", ["cmux99"], used, now + 0.5, poll=0.1)
+            self.assertEqual(go["host"], "cmux99")
+            used.add(go["go"])
+            again, _ = gate_mod.await_go("s", ["cmux99"], used, time.time() + 0.3, poll=0.1)
+            self.assertIsNone(again)  # the same GO twice is never two rounds
+            os.remove(os.path.join(tmp, "s.done"))
+            older = dict(go, go=go["go"] - 100)
+            self.assertFalse(gate_mod.go_done("s", older, "x"))  # a .done for an older GO never ends the open one
+            self.assertFalse(os.path.exists(os.path.join(tmp, "s.done")))
+
+
+def load_gate():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("smoke_gate_mod", str(GATE))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 class Hosts(unittest.TestCase):
@@ -446,6 +533,45 @@ class NewTerminals(unittest.TestCase):
         ok, detail = self.ext.cond_smoke_key_window(j, {}, {})
         self.assertFalse(ok, detail)
 
+    def test_a_key_window_lost_to_a_prompt_that_was_already_there_is_not_judged_not_a_fail(self):
+        j = self.journey([("w", "p1", "a", "T0", True)], {}, "p1")
+        j.smoke_key_ok = True  # the window was key, then the console's system prompt took the keys back
+        j.app.rpc = lambda method, params=None: {"windows": [{"id": 1, "kind": "main", "key": False}]}
+        j.app.identity = {"bundle_id": "com.cmuxterm.app.debug.x"}
+        front = self.ext._front_app
+        prompt = ("UserNotificationCenter", "com.apple.UserNotificationCenter")
+        try:
+            self.ext._front_app = lambda: prompt
+            j.smoke_front_before = prompt  # the prompt was front before smoke_make_key
+            ok, detail = self.ext.cond_smoke_key_window(j, {}, {})
+            self.assertTrue(ok)  # holds for this step, so the step's other checks are still judged
+            self.assertIn("UserNotificationCenter", detail["not_checked"])
+            self.assertEqual(len(j.smoke_key_gaps), 1)
+            # The same prompt appeared only during the journey (the app may have raised it): a fail.
+            j.smoke_front_before = (None, None)
+            self.assertFalse(self.ext.cond_smoke_key_window(j, {}, {})[0])
+            # The app's own helper is front: the app's fault, a fail.
+            self.ext._front_app = lambda: ("cmux helper", "com.cmuxterm.app.debug.x.helper")
+            j.smoke_front_before = ("cmux helper", "com.cmuxterm.app.debug.x.helper")
+            self.assertFalse(self.ext.cond_smoke_key_window(j, {}, {})[0])
+            # The front app cannot be read: a fail.
+            self.ext._front_app = lambda: (None, None)
+            self.assertFalse(self.ext.cond_smoke_key_window(j, {}, {})[0])
+        finally:
+            self.ext._front_app = front
+
+    def test_diagnostic_mode_on_a_slot_where_the_key_was_lost_is_not_checked(self):
+        j = self.journey([("w", "p1", "a", "T0", True)], {}, "p1")
+        j.spec = {"options": {"smoke_mode": "diagnostic"}}
+        j.smoke_key_ok = True  # smoke_make_key got the key for a moment (cmux21, 2026-10-31 10:3xZ)
+        j.app.rpc = lambda method, params=None: {"windows": [{"id": 1, "kind": "main", "key": False}]}
+        ok, detail = self.ext.cond_smoke_key_window(j, {}, {})
+        self.assertTrue(ok, detail)
+        self.assertTrue(detail["was_key_at_make_key"])
+        j.app.rpc = lambda method, params=None: {"windows": [{"id": 1, "kind": "main", "key": False},
+                                                             {"id": 2, "kind": "panel", "key": True}]}
+        self.assertFalse(self.ext.cond_smoke_key_window(j, {}, {})[0])
+
     def test_strict_mode_on_a_slot_with_no_key_window_is_a_known_gap(self):
         j = self.journey([("w", "p1", "a", "T0", True)], {}, "p1")
         j.smoke_key_ok, j.smoke_key_reply, typed = False, {"key": None}, []
@@ -499,6 +625,28 @@ class NewTerminals(unittest.TestCase):
         finally:
             self.ext.time.sleep = sleep
 
+    def test_split_lines_must_be_in_the_panes_made_for_them_in_order(self):
+        before = [("w", "pA", "a", "T0", True)]
+        after = before + [("w", "pB", "b", "T1", False), ("w", "pC", "c", "T2", True)]
+        def run(screens, xs, focused="pC"):
+            j = self.journey(after, screens, focused)
+            j.app.panes = lambda: [{"pane": p, "focused": p == focused, "grid": {"frame_x": x}} for p, x in xs.items()]
+            snap = self.journey(before, {}, "pA")
+            self.ext.step_smoke_snapshot(snap, {"name": "s"})
+            j.smoke_snapshots = snap.smoke_snapshots
+            return self.ext.cond_smoke_new_terminals(j, {"since": "s", "lines": ["d1", "d2"], "focused": "d2",
+                                                         "placement": "new_panes", "order": "left_to_right"}, {})
+        xs = {"pA": 0.0, "pB": 450.0, "pC": 671.0}
+        ok, detail = run({"T1": "d1", "T2": "d2"}, xs)
+        self.assertTrue(ok, detail)
+        # Swapped: d1 in the right pane, d2 in the left one (focus on d2's pane): fails on the order.
+        ok, detail = run({"T1": "d2", "T2": "d1"}, xs, focused="pB")
+        self.assertFalse(ok)
+        self.assertTrue(any("left to right" in p for p in detail["problems"]), detail["problems"])
+        # TIP RED 1193: both lines in the first new pane (pB), focus kept on pB: fails.
+        ok, detail = run({"T1": "d1\nd2"}, xs, focused="pB")
+        self.assertFalse(ok)
+
     def test_each_workspace_line_in_its_own_new_workspace(self):
         before = [("w0", "p0", "a", "T0", True)]
         after = before + [("w1", "p1", "b", "T1", True), ("w1", "p1", "c", "T2", False)]
@@ -534,11 +682,14 @@ class Resize(unittest.TestCase):
                   "surface": {"grid": grid, "fit_grid": fit, "drawn_grid": drawn},
                   "grid": {"cell_width": 8, "cell_height": 16, "frame_x": 0, "frame_y": 0, "origin_x": 4, "origin_y": 4,
                            "frame_width": frame[0], "frame_height": frame[1]}}]
-        topo_panes = [{"id": "P1", "column": 0}]
+        topo_panes = [{"id": "P1", "column": 0, "selected_tab": "tab-P1", "tabs": [{"id": "tab-P1", "terminal": "T-P1"}]}]
         for column, key, x0, width in (columns or []):
             panes.append({"pane": key, "workspace": "W", "content_size": "%dx400" % int(width),
                           "grid": {"frame_x": x0, "frame_width": width}})
-            topo_panes.append({"id": key, "column": column})
+            topo_panes.append({"id": key, "column": column, "selected_tab": "tab-" + key,
+                               "tabs": [{"id": "tab-" + key, "terminal": "T-" + key}]})
+
+        shell = {"pid": os.getpid()}
 
         class App:
             def panes(self_):
@@ -547,10 +698,18 @@ class Resize(unittest.TestCase):
             def screen(self_, term):
                 return {"text": screen_text, "cols": daemon[0], "rows": daemon[1]}
 
+            def cmux(self_, *args):
+                if args[:1] == ("screen",):
+                    cols = [{"width": w, "root": {"kind": "leaf", "pane_id": k, "tab_ids": ["t"]}}
+                            for k, w in shell.get("daemon_cols", [])]
+                    return {"root": {"kind": "viewport", "columns": cols}} if cols else {}
+                return {"pid": shell["pid"]}
+
         class J:
             app = App()
             vars = {}
             pane = "P1"
+            shell_state = shell
             smoke_named = {"right": {"pane": "P1", "term": "T1"}}
             ext_remembered = {"right0": {"grid": (70, 24)}, "right1": {"grid": (90, 24)}}
             smoke_long = {"LL": 95}
@@ -559,11 +718,13 @@ class Resize(unittest.TestCase):
                 return x
 
             def topology(self_):
-                return {"workspaces": [{"id": "W", "screens": [{"panes": topo_panes}]}]}
+                return {"workspaces": [{"id": "W", "screens": [{"id": "S", "panes": topo_panes}]}]}
 
             @staticmethod
-            def places(_topology):
+            def places(topology):
                 yield {"id": "W"}, {"id": "P1"}, {"id": "t", "columns": topo[0], "rows": topo[1]}, "T1"
+                for pane in (topology or {}).get("workspaces", [{}])[0].get("screens", [{}])[0].get("panes", [])[1:]:
+                    yield {"id": "W"}, pane, pane["tabs"][0], pane["tabs"][0]["terminal"]
         return J()
 
     def r3(self, j, **want):
@@ -674,15 +835,42 @@ class Resize(unittest.TestCase):
         ok, detail = self.ext.cond_smoke_same_widths(later, {"since": "c0", "new": 1}, {})
         self.assertFalse(ok)
         self.assertTrue(detail["waiting_for_frames"])
-        # Past UNKNOWN_SECONDS: not judged (the round is "not run"), never a fail or a pass.
+        # Past UNKNOWN_SECONDS, with P2's terminal alive (daemon pane, screen, shell process): the view is only
+        # hidden: not judged (the round is "not run"), never a fail or a pass.
         clock["t"] = self.ext.UNKNOWN_SECONDS + 0.1
         with self.assertRaises(self.NotRun) as caught:
             self.ext.cond_smoke_same_widths(later, {"since": "c0", "new": 1}, {})
         self.assertIn("P2", str(caught.exception))
+        # P2's terminal process is gone (killed under memory pressure): a FAIL, never "not judged".
+        later.shell_state["pid"] = 999999
+        later.smoke_unknown_since = {"c0": 0.0}
+        with self.assertRaises(self.StepError) as caught:
+            self.ext.cond_smoke_same_widths(later, {"since": "c0", "new": 1}, {})
+        self.assertIn("TERMINAL GONE", str(caught.exception))
+        self.assertIn("999999", str(caught.exception))
         bare = self.journey(columns=[(1, "P2", 650.0, 300.0)])
         del bare.app.panes()[1]["grid"]
-        with self.assertRaises(self.NotRun):
+        bare.shell_state["pid"] = 999999  # a frameless pane whose shell is dead: the snapshot step fails at once
+        with self.assertRaises(self.StepError):
             self.ext.step_smoke_widths(bare, {"name": "c1", "frame_wait": 0.3})
+
+    def test_a_hidden_column_is_judged_by_the_daemons_column_width(self):
+        j = self.journey(columns=[(1, "P2", 650.0, 300.0)])
+        j.shell_state["daemon_cols"] = [("P1", 0.5), ("P2", 0.5)]
+        self.ext.step_smoke_widths(j, {"name": "c0"})
+        later = self.journey(columns=[(1, "P2", 650.0, 300.0), (2, "P3", 951.0, 300.0)])
+        later.smoke_width_snaps = j.smoke_width_snaps
+        del later.app.panes()[1]["grid"]  # P2's view is hidden; its terminal lives
+        # The daemon keeps P2's column at 0.5: holds, judged from the daemon.
+        later.shell_state["daemon_cols"] = [("P1", 0.5), ("P2", 0.5), ("P3", 0.5)]
+        ok, detail = self.ext.cond_smoke_same_widths(later, {"since": "c0", "new": 1}, {})
+        self.assertTrue(ok, detail)
+        self.assertEqual(detail["daemon_resolved"]["1"]["source"], "daemon")
+        # The daemon shrank P2's column to 0.25: fails, with both shares.
+        later.shell_state["daemon_cols"] = [("P1", 0.5), ("P2", 0.25), ("P3", 0.5)]
+        ok, detail = self.ext.cond_smoke_same_widths(later, {"since": "c0", "new": 1}, {})
+        self.assertFalse(ok)
+        self.assertEqual((detail["changed"]["1"]["old"], detail["changed"]["1"]["new"]), (0.5, 0.25))
 
     def test_a_new_pane_without_its_frame_yet_does_not_hide_the_old_column(self):
         # Split Down adds P6 to column 1; P6 has no frame yet at this poll. Column 1's width is read from P2 alone.
@@ -721,6 +909,22 @@ class Resize(unittest.TestCase):
         ok, detail = self.ext.cond_smoke_same_widths(opened, {"since": "c0", "new": 0, "split_in_place": True}, {})
         self.assertFalse(ok)
         self.assertTrue(any("new columns" in p for p in detail["problems"]), detail["problems"])
+
+    def test_a_snapshot_with_a_hidden_live_pane_is_kept_and_judged_by_the_daemon(self):
+        bare = self.journey(columns=[(1, "P2", 650.0, 300.0)])
+        bare.shell_state["daemon_cols"] = [("P1", 0.5), ("P2", 0.5)]
+        del bare.app.panes()[1]["grid"]  # P2's view hidden, its terminal alive
+        result = self.ext.step_smoke_widths(bare, {"name": "c1", "frame_wait": 0.3})
+        self.assertIsNone(result["widths"]["1"])
+        self.assertIn("P2", result["hidden_alive"])
+        later = self.journey(columns=[(1, "P2", 650.0, 300.0), (2, "P3", 951.0, 300.0)])
+        later.smoke_width_snaps = bare.smoke_width_snaps
+        del later.app.panes()[1]["grid"]
+        later.shell_state["daemon_cols"] = [("P1", 0.5), ("P2", 0.5), ("P3", 0.5)]
+        ok, detail = self.ext.cond_smoke_same_widths(later, {"since": "c1", "new": 1}, {})
+        self.assertTrue(ok, detail)
+        later.shell_state["daemon_cols"] = [("P1", 0.5), ("P2", 0.3), ("P3", 0.5)]
+        self.assertFalse(self.ext.cond_smoke_same_widths(later, {"since": "c1", "new": 1}, {})[0])
 
     def test_cmd_d_splits_in_place_and_no_other_column_changes(self):
         base = [(1, "P2", 650.0, 300.0)]
@@ -784,15 +988,16 @@ class SettleThroughTheDriver(unittest.TestCase):
     """smoke_same_widths through the real driver.Journey.step_expect (its polls and its settle): an old pane that
     loses its frame after the check held is not judged (not run), never a FAIL; a frame never lost passes."""
 
-    def run_step(self, lose_after):
+    def run_step(self, lose_after, shell_pid=None, back_after=None):
         sys.path.insert(0, str(HERE))
         sys.path.insert(0, str(HERE.parent / "cmux-next"))  # driver.py imports build_names from there
         import driver
         import ext_smoke
         ext_smoke.install(driver)
         t0 = driver.now()
-        topo = {"workspaces": [{"id": "W", "screens": [{"panes": [{"id": "P1", "column": 0}, {"id": "P2", "column": 1},
-                                                                  {"id": "P3", "column": 2}]}]}]}
+        topo = {"workspaces": [{"id": "W", "screens": [{"panes": [
+            {"id": k, "column": c, "selected_tab": "tab-" + k, "tabs": [{"id": "tab-" + k, "terminal": "T-" + k}]}
+            for k, c in (("P1", 0), ("P2", 1), ("P3", 2))]}]}]}
 
         class App:
             snapshot_window = None
@@ -800,8 +1005,18 @@ class SettleThroughTheDriver(unittest.TestCase):
             def rpc(self_, method, params=None):
                 return {"topology": topo} if method == "snapshot.get" else {}
 
+            def screen(self_, term):
+                return {"text": "$", "cols": 80, "rows": 24}
+
+            def cmux(self_, *args):
+                if args[:2] == ("terminal", "list"):
+                    return {"terminals": [{"terminal_id": "T-" + k, "lifecycle": "running", "exit": None}
+                                          for k in ("P1", "P2", "P3")]}
+                return {"pid": shell_pid or os.getpid()}
+
             def panes(self_):
-                lost = lose_after is not None and driver.now() - t0 >= lose_after
+                elapsed = driver.now() - t0
+                lost = lose_after is not None and elapsed >= lose_after and not (back_after and elapsed >= back_after)
                 rows = [{"pane": "P1", "workspace": "W", "grid": {"frame_x": 0.0, "frame_width": 300.0}},
                         {"pane": "P2", "workspace": "W", "grid": {"frame_x": 301.0, "frame_width": 300.0}},
                         {"pane": "P3", "workspace": "W", "grid": {"frame_x": 602.0, "frame_width": 300.0}}]
@@ -817,6 +1032,106 @@ class SettleThroughTheDriver(unittest.TestCase):
             return j.step_expect({"title": "R3b settle", "since": "m", "timeout": 4, "settle": 1.5,
                                   "all": [{"smoke_same_widths": {"since": "c0", "new": 1}}]}), driver
 
+    def test_a_gone_terminal_ends_the_step_through_the_driver_even_if_the_frame_comes_back(self):
+        sys.path.insert(0, str(HERE))
+        sys.path.insert(0, str(HERE.parent / "cmux-next"))
+        import driver
+        # P1's frame is lost at once and its shell pid is dead; the frame comes back after 0.6 s (before the 4 s timeout).
+        with self.assertRaises(driver.TerminalGone) as caught:
+            self.run_step(0.0, shell_pid=999999, back_after=0.6)
+        self.assertIn("TERMINAL GONE", str(caught.exception))
+        self.assertIn("999999", str(caught.exception))
+
+    def test_a_key_gap_never_hides_a_failing_check_in_the_same_step(self):
+        sys.path.insert(0, str(HERE))
+        sys.path.insert(0, str(HERE.parent / "cmux-next"))
+        import driver
+        import ext_smoke
+        ext_smoke.install(driver)
+
+        class App:
+            snapshot_window = None
+            identity = {"bundle_id": "com.cmuxterm.app.debug.x"}
+
+            def rpc(self_, method, params=None):
+                if method == "debug.window_list":
+                    return {"windows": [{"id": 1, "kind": "main", "key": False}]}
+                return {}
+
+            def panes(self_):
+                return []
+
+        prompt = ("UserNotificationCenter", "com.apple.UserNotificationCenter")
+        front = ext_smoke._front_app
+        ext_smoke._front_app = lambda: prompt
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                j = driver.Journey({"id": "gap-test", "steps": []}, App(), tmp, driver.now() + 60, 1.0)
+                j.smoke_key_ok, j.smoke_front_before = True, prompt
+                j.marks["m"] = driver.now()
+                # The key gap plus a check that fails (no such workspaces): the step FAILS, the gap does not hide it.
+                j.smoke_baseline = set()
+                j.topology = lambda: {"workspaces": []}
+                with self.assertRaises(driver.StepError) as caught:
+                    j.step_expect({"title": "gap", "since": "m", "timeout": 1,
+                                   "all": [{"smoke_key_window": {}}, {"smoke_workspaces": {"new": 3}}]})
+                self.assertIn("smoke_workspaces", str(caught.exception))
+                # The key gap alone: the step passes and the gap is recorded for smoke-gate.py.
+                j.step_expect({"title": "gap2", "since": "m", "timeout": 1, "all": [{"smoke_key_window": {}}]})
+                self.assertTrue(any(e["detail"].get("not_checked") for e in j.evidence if isinstance(e.get("detail"), dict)))
+        finally:
+            ext_smoke._front_app = front
+
+    def test_a_not_judged_check_does_not_end_the_journey(self):
+        sys.path.insert(0, str(HERE))
+        sys.path.insert(0, str(HERE.parent / "cmux-next"))
+        import driver
+
+        class App:
+            snapshot_window = None
+
+            def rpc(self_, method, params=None):
+                return {}
+
+            def snapshot(self_, path):
+                raise driver.StepError("no frames here")
+
+        calls = []
+        driver.Journey.step_t_mark = lambda self, step: calls.append(step["n"]) or {}
+        orig = dict(driver.EXT_CONDITIONS)
+        driver.EXT_CONDITIONS["t_unjudged"] = lambda j, want, cache: (_ for _ in ()).throw(driver.NotRun("hidden view"))
+        driver.EXT_CONDITIONS["t_fails"] = lambda j, want, cache: (False, {})
+        driver.KIND.setdefault("t_unjudged", "app")
+        driver.KIND.setdefault("t_fails", "app")
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                steps = [{"do": "expect", "title": "R3b x", "timeout": 0.2, "all": [{"t_unjudged": {}}]},
+                         {"do": "t_mark", "n": 2}]
+                spec = {"id": "nj", "continue_not_judged": True, "steps": steps}
+                result = driver.Journey(spec, App(), tmp, driver.now() + 30, 1.0).run()
+                self.assertEqual(result["status"], "not run")
+                self.assertEqual(calls, [2])  # the step after the not-judged check ran
+                self.assertIs(result["steps"][0]["ok"], None)
+                # A later failure still fails the journey.
+                steps.append({"do": "expect", "title": "later", "timeout": 0.2, "all": [{"t_fails": {}}]})
+                result = driver.Journey(dict(spec, id="nj2"), App(), tmp, driver.now() + 30, 1.0).run()
+                self.assertEqual(result["status"], "fail")
+                # A later NotRun from a non-expect step keeps the earlier not-judged list in the reason (S3).
+                driver.Journey.step_t_stop = lambda self, step: (_ for _ in ()).throw(driver.NotRun("stopped"))
+                result = driver.Journey(dict(spec, id="nj4", steps=steps[:1] + [{"do": "t_stop"}]), App(), tmp,
+                                        driver.now() + 30, 1.0).run()
+                self.assertEqual(result["status"], "not run")
+                self.assertIn("hidden view", result["reason"])
+                del driver.Journey.step_t_stop
+                # Without the option, a not-judged check ends the journey.
+                calls.clear()
+                result = driver.Journey({"id": "nj3", "steps": steps[:2]}, App(), tmp, driver.now() + 30, 1.0).run()
+                self.assertEqual((result["status"], calls), ("not run", []))
+        finally:
+            driver.EXT_CONDITIONS.clear()
+            driver.EXT_CONDITIONS.update(orig)
+            del driver.Journey.step_t_mark
+
     def test_a_frame_never_lost_passes(self):
         result, _driver = self.run_step(None)
         self.assertTrue(result)
@@ -827,6 +1142,214 @@ class SettleThroughTheDriver(unittest.TestCase):
         import driver
         with self.assertRaises(driver.NotRun):
             self.run_step(0.3)
+
+
+
+class Burst(unittest.TestCase):
+    """smoke_burst: one debug.key sequence of real key events (TIP RED 1193's hold path, cmux-ad 11:05Z)."""
+
+    def setUp(self):
+        sys.path.insert(0, str(HERE))
+        import ext_smoke
+
+        class StepError(Exception):
+            pass
+
+        class NotRun(Exception):
+            pass
+
+        ext_smoke.install(type("D", (), {"StepError": StepError, "NotRun": NotRun, "now": staticmethod(lambda: 0.0)}))
+        self.ext, self.NotRun = ext_smoke, NotRun
+
+    def test_a_line_becomes_key_codes_with_shift_for_the_shifted_characters(self):
+        steps = self.ext._seq_text("echo $(", 0)
+        downs = [(st["key_code"], st["down"]) for st in steps]
+        self.assertEqual(downs[:2], [(14, True), (14, False)])  # e
+        self.assertIn((56, True), downs)  # shift for $ and (
+        self.assertEqual(downs[-4:], [(56, True), (25, True), (25, False), (56, False)])  # ( = shift 9
+        cmd_d = self.ext._seq_key(2, ("cmd",))
+        self.assertEqual([(st["key_code"], st["down"]) for st in cmd_d], [(55, True), (2, True), (2, False), (55, False)])
+
+    def test_the_burst_is_one_sequence_in_order_and_needs_the_key_window(self):
+        sent = []
+
+        class App:
+            def rpc(self_, method, params=None):
+                if method == "debug.key":
+                    sent.append(params)
+                    return {"scheduled": len(params["sequence"]), "duration_ms": 0}
+                if method == "debug.input":
+                    return {"holds": [{"path": "creation", "stage": {"count": len(sent) * 5}}]}
+                if method == "debug.window_list":
+                    return {"windows": [{"id": "W1", "kind": "main", "key": True}]}
+                return {}
+
+        class J:
+            app, vars, marks, key_window, smoke_key_ok = App(), {}, {}, "W1", True
+
+            def sub(self_, x):
+                return x
+        sleep = self.ext.time.sleep
+        self.ext.time.sleep = lambda s: None
+        try:
+            result = self.ext.step_smoke_burst(J(), {"burst": [{"key": "d", "modifiers": ["cmd"], "mark": "m"},
+                                                                {"text": "ab"}]})
+        finally:
+            self.ext.time.sleep = sleep
+        self.assertEqual(len(sent), 1)
+        codes = [(st["key_code"], st["down"]) for st in sent[0]["sequence"]]
+        self.assertEqual(codes[:4], [(55, True), (2, True), (2, False), (55, False)])
+        self.assertEqual(codes[-2:], [(36, True), (36, False)])  # Return after the line
+        self.assertEqual(result["held_keys"], {"creation": 5})
+        j = J()
+        j.smoke_key_ok = False
+        with self.assertRaises(self.NotRun):
+            self.ext.step_smoke_burst(j, {"burst": [{"text": "a"}]})
+
+
+    def _burst(self, replies, key=True, burst=None):
+        class App:
+            def rpc(self_, method, params=None):
+                if method == "debug.key":
+                    return replies
+                if method == "debug.window_list":
+                    return {"windows": [{"id": "W1", "kind": "main", "key": key}]}
+                return {}
+
+        class J:
+            app, vars, marks, key_window, smoke_key_ok = App(), {}, {}, "W1", True
+
+            def sub(self_, x):
+                return x
+        sleep = self.ext.time.sleep
+        self.ext.time.sleep = lambda s: None
+        try:
+            return self.ext.step_smoke_burst(J(), {"burst": burst or [{"text": "a"}]})
+        finally:
+            self.ext.time.sleep = sleep
+
+    def test_a_host_refusal_or_a_lost_key_window_is_not_run_and_a_bad_request_is_a_red(self):
+        for error in ("no event timestamp to start the sequence from", "no window", "did not become key"):
+            with self.assertRaises(self.NotRun):
+                self._burst({"error": error})
+        with self.assertRaises(self.ext.D.StepError):
+            self._burst({"error": "each step needs key_code and down"})
+        with self.assertRaises(self.NotRun):  # posted keys dropped with no key window
+            self._burst({"scheduled": 2, "duration_ms": 0}, key=False)
+        with self.assertRaises(self.ext.D.StepError):  # an unknown key name: a step error, never a traceback
+            self._burst({"scheduled": 2}, burst=[{"key": "f13"}])
+
+
+class HoldPath(unittest.TestCase):
+    """smoke_hold_path: a TIP RED 1193 pass counts only on the hold path (cmux-ad 11:05Z)."""
+
+    def setUp(self):
+        sys.path.insert(0, str(HERE))
+        import ext_smoke
+
+        class StepError(Exception):
+            pass
+
+        class NotRun(Exception):
+            pass
+
+        ext_smoke.install(type("D", (), {"StepError": StepError, "NotRun": NotRun, "now": staticmethod(lambda: 0.0)}))
+        self.ext, self.NotRun = ext_smoke, NotRun
+
+    def _j(self, *typed, burst="none"):
+        j = type("J", (), {"sub": lambda self_, x: x})()
+        j.smoke_typed_paths = [{"line": line, "paths": paths} for line, paths in typed]
+        if burst != "none":
+            j.smoke_burst_holds = burst
+        return j
+
+    def test_responder_only_is_not_proven_and_one_held_key_is(self):
+        with self.assertRaises(self.NotRun) as no:
+            self.ext.step_smoke_hold_path(self._j(("echo d1", ["responder"] * 8), ("echo d2", ["responder"] * 8)),
+                                          {"lines": ["echo d1", "echo d2"]})
+        self.assertIn("hold path not proven", str(no.exception))
+        done = self.ext.step_smoke_hold_path(self._j(("echo w1", ["app"] * 8), ("echo d1", ["app", "responder"]),
+                                                     ("echo d2", ["responder"])), {"lines": ["echo d1", "echo d2"]})
+        self.assertEqual((done["hold_path"], done["held_keys"]), (True, 1))  # w1's held keys do not count
+
+    def test_the_second_cmd_d_and_each_d2_line_must_be_held_when_asked(self):
+        j = self._j(("echo d1", ["app"] * 3), ("echo d2", ["app", "responder"]))
+        j.spec = {"steps": [{"do": "key", "mark": "split1"}, {"do": "key", "mark": "split2"}]}
+        j.steps = [{"index": 1, "result": {"reply": {"handled_by": "app"}}},
+                   {"index": 2, "result": {"reply": {"handled_by": "window"}}}]
+        want = {"lines": ["echo d2"], "every_line": True, "held_marks": ["split2"]}
+        with self.assertRaises(self.NotRun) as no:  # the second Cmd-D went to the window: not the hold path
+            self.ext.step_smoke_hold_path(j, want)
+        self.assertIn("'split2' was not held (handled_by 'window'", str(no.exception))
+        # "app" with a dispatcher trace: the router RAN the split at once (no creation pending): not a hold.
+        j.steps[1]["result"]["reply"] = {"handled_by": "app", "trace": ["dispatcher: run(split.right)"]}
+        with self.assertRaises(self.NotRun):
+            self.ext.step_smoke_hold_path(j, want)
+        j.steps[1]["result"]["reply"] = {"handled_by": "app", "trace": []}  # held: capture returned before dispatch
+        done = self.ext.step_smoke_hold_path(j, want)
+        self.assertEqual((done["hold_path"], done["marks"]["split2"]["held"]), (True, True))
+        j.smoke_typed_paths[1]["paths"] = ["responder"]  # d2 not held: not proven
+        with self.assertRaises(self.NotRun):
+            self.ext.step_smoke_hold_path(j, want)
+
+    def test_the_creation_hold_report_proves_the_hold_path_and_a_build_without_the_hook_is_not_run(self):
+        calls = []
+
+        class App:
+            def __init__(self_, replies):
+                self_.replies = replies
+
+            def rpc(self_, method, params=None):
+                calls.append((method, params))
+                reply = self_.replies[method]
+                if isinstance(reply, Exception):
+                    raise reply
+                return reply
+        j = self._j(("echo d2", ["responder"]))
+        j.app = App({"debug.creation.hold": {"armed": [1], "started": 0, "held": [], "released": []},
+                     "debug.creation.release": {"armed": [1], "started": 2, "held": [], "released": [1]}})
+        self.ext.step_smoke_creation(j, {"action": "hold", "n": 1})
+        self.ext.step_smoke_creation(j, {"action": "release", "n": 1})
+        self.assertEqual(calls, [("debug.creation.hold", {"n": 1}), ("debug.creation.release", {"n": 1})])
+        done = self.ext.step_smoke_hold_path(j, {"lines": ["echo d2"], "creation_held": 1})
+        self.assertTrue(done["creation_pending"])
+        j.smoke_creation["release"] = {"started": 1, "held": [], "released": [1]}  # the second Cmd-D never started
+        with self.assertRaises(self.NotRun):
+            self.ext.step_smoke_hold_path(j, {"creation_held": 1})
+        # A hook that reports `resumed`: creation 1 released but never waiting is not proven.
+        j.smoke_creation["release"] = {"started": 2, "held": [], "released": [1], "resumed": []}
+        with self.assertRaises(self.NotRun):
+            self.ext.step_smoke_hold_path(j, {"creation_held": 1})
+        j.smoke_creation["release"]["resumed"] = [1]
+        self.assertTrue(self.ext.step_smoke_hold_path(j, {"creation_held": 1})["creation_pending"])
+        j.app = App({"debug.creation.hold": self.ext.D.StepError("debug.creation.hold: method_not_found")})
+        with self.assertRaises(self.NotRun):
+            self.ext.step_smoke_creation(j, {"action": "hold", "n": 1})
+
+    def test_the_wait_ends_when_the_new_panes_terminal_view_is_first_responder(self):
+        seq = [{"windows": [{"id": "W", "is_key": True, "appkit": {"first_responder": "TerminalSurfaceView", "classified": "content:A"}}]},
+               {"windows": [{"id": "W", "is_key": True, "appkit": {"first_responder": "NSView", "classified": "content:B"}}]},
+               {"windows": [{"id": "W", "is_key": True, "appkit": {"first_responder": "TerminalSurfaceView", "classified": "content:B"}}]}]
+
+        class App:
+            def rpc(self_, method, params=None):
+                return seq.pop(0) if len(seq) > 1 else seq[0]
+        j = self._j()
+        j.app, j.smoke_snapshots = App(), {"before_splits": {"focused_pane": "A"}}
+        sleep, self.ext.time.sleep = self.ext.time.sleep, lambda s: None
+        clock = iter(range(1000))
+        now, self.ext.D.now = self.ext.D.now, staticmethod(lambda: next(clock) * 0.01)
+        try:
+            done = self.ext.step_smoke_wait_new_view(j, {"since": "before_splits", "timeout": 5})
+        finally:
+            self.ext.time.sleep, self.ext.D.now = sleep, now
+        self.assertEqual((done["reached"], done["pane"]), (True, "B"))
+
+    def test_a_burst_without_a_hold_counter_is_not_proven(self):
+        with self.assertRaises(self.NotRun) as no:
+            self.ext.step_smoke_hold_path(self._j(burst=None), {})
+        self.assertIn("no debug.input late_keys hold counter", str(no.exception))
+        self.assertTrue(self.ext.step_smoke_hold_path(self._j(burst={"creation": 3}), {})["hold_path"])
 
 
 class Loads(unittest.TestCase):

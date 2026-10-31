@@ -330,16 +330,39 @@ needs his own "Ghostty-defaults-OK"): no new column, that column gains one pane,
 keeps exactly its width; Cmd-Shift-D (Split Down) adds no column and every column keeps its width
 (`smoke_same_widths`; each old and new width in the result). Each old column is measured from its
 old panes only, so a pane a split just added (no frame yet) never hides it. Any real problem (a width
-change, a lost or extra column, no split in place) fails first; when the only problem is an old pane
-with no frame (an off-screen column whose terminal was closed under memory pressure) for 3 s, the
-round is not judged.
+change, a lost or extra column, no split in place) fails first. When an old pane has no view frame
+(cmux-ad 09:3xZ), the gate tells two cases apart, with the evidence in the result: the terminal is
+GONE (the daemon topology has no pane or terminal tab, its screen read fails, the daemon has no
+process for it, or that shell process is dead): a FAIL, "TERMINAL GONE under memory pressure"
+(a possible P0); or only its view is hidden (daemon pane, screen and shell process alive; proven on
+v2.2.11-opt 2026-10-31: the app unmounts the view of a far off-screen column after a second New
+Column). A hidden column is then judged by the daemon's own column width (`cmux screen ID layout
+export`: `columns[].width`, a share of the viewport) before and after; only when the daemon width
+cannot be read is the round not judged. The daemon share is the layout MODEL's width: it cannot see a
+hidden column that the app alone draws at another width. GONE needs a clear answer (no daemon pane or
+terminal tab, a `dead` tab, a terminal list lifecycle other than running or an exit, a dead shell pid),
+read twice; a failed read only leaves the pane unproven. A GONE terminal ends the step at once.
+
+Sources of each check: column membership from the app's topology (`snapshot.get`, each pane's
+`column`); column widths from the app's terminal view frames (`debug.surfaces` `grid.frame_x` and
+`frame_width`), and for a hidden column from the daemon's layout (`columns[].width`); terminal sizes from `debug.surfaces` (grid, fit_grid, drawn_grid, frame and cell size),
+the daemon (`cmux terminal ID screen read`: cols, rows), the topology tab (columns, rows) and the PTY
+(`stty size`); terminal life from the daemon (`cmux terminal ID process show`) and the process table.
 
 **No pass without the resize checks** (cmux-ad 06:38Z): a round passes only when it reached and passed,
-exactly once each, the 2 R3a checks and the 4 R3b checks (`REQUIRED_CHECKS` in smoke-gate.py: their
+exactly once each, the 2 R3a checks and the 5 R3b checks (the last, from the action fuzzer's case,
+in its own fourth workspace after the reopen: Cmd-N, Ctrl-` and a line, then Ctrl-Cmd-D as its first new
+column) (`REQUIRED_CHECKS` in smoke-gate.py: their
 exact titles; a renamed or duplicated check never counts). A round whose journey passed without them
 is a FAIL that names the missing checks; a round that failed at an earlier step stays a FAIL; a round
 that did not run (no lease, a known gap, a column width that cannot be read) stays NOT JUDGED. None is
 ever a pass, and the `.pass` file needs every round to pass.
+
+**A check that cannot be judged does not end the round** (lead 10:1xZ): the journey has
+`continue_not_judged`, so an expect step that is not judged (a hidden view whose terminal lives, a
+host prompt) is recorded (`ok` null, `not_judged`) and the journey goes on to every later step; the
+round is then "not run" (never a pass), unless a later step fails. The last step
+(`smoke_no_key_gaps`) makes a round with a key-window gap "not run" also under a plain run.py.
 
 **Typed at once** (`smoke_type_now`): no wait for the creation hold, the case Lawrence reports
 (keys into a terminal while it is created). A capture slot's window is never key
@@ -361,6 +384,16 @@ showed no memory pressure), DIAGNOSTIC (`--diagnostic`: where the slot has no ke
 typed after the creation hold, every other check runs and is counted per round; never a `.pass`). A round counts only with its own fresh results for this build; `--out`
 must be a new folder. Writes `summary.json` and `summary.txt`. Test:
 `python3 scripts/journeys/test_smoke_gate.py`.
+
+### Rounds by scheduler GO (`--go-spec`)
+
+When the mini scheduler gives one round per GO (lead, STATUS 1354), `--go-spec NAME` keeps all rounds in one
+gate run: before each round the gate waits for a new GO in `mini-queue/rounds/NAME.go`, runs the round on the
+GO's mini (it must be one of `--hosts`), sets capture-host's acquire timeout and exclusive drain so the lease
+starts before the GO's `until` (less 20 s), and writes `NAME.done` after the round, only while that same GO is
+still open. A GO with less than 60 s left, or on another mini, is given back unused; one GO is never two rounds.
+With `--whole-host`, each round leases the GO's whole mini. No GO within `--go-wait-hours` (4): that round is
+not run. The 10-of-10 rule and the `.pass` file are unchanged.
 
 ### Building a smoke candidate (the only way)
 

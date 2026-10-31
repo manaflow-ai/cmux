@@ -96,6 +96,11 @@ class StepError(Exception):
     pass
 
 
+class TerminalGone(StepError):
+    """A step group's proof that a terminal is gone (its daemon pane, terminal or shell process): a FAIL at once, never
+    a condition that may still hold on a later poll (Journey.evaluate raises it again)."""
+
+
 class Deadline(Exception):
     pass
 
@@ -1347,6 +1352,8 @@ class Journey:
                 image = self.app.snapshot(self.out / f"check-{self.checks:02d}.png")
                 lines = self.app.read_text(image)
                 return ocr_contains(lines, want), {"image": image.name, "text": lines[-12:], "lines": len(lines)}
+        except TerminalGone:
+            raise
         except (StepError, OSError, ValueError, subprocess.TimeoutExpired) as error:
             return False, {"error": str(error)[-300:]}
         return False, {"error": f"unknown condition {name}"}
@@ -1481,6 +1488,7 @@ class Journey:
         frames = Frames(self.app, self.out / "frames", self.frame_interval)
         frames.start()
         status, reason = "pass", ""
+        not_judged = []
         try:
             for index, step in enumerate(self.spec["steps"]):
                 if now() > self.deadline:
@@ -1505,11 +1513,24 @@ class Journey:
                 except StepError as error:
                     record["ok"], record["error"] = False, str(error)[-600:]
                     raise
+                except NotRun as error:
+                    # A journey with `continue_not_judged` (the dogfood smoke gate) records a check it cannot judge
+                    # (a hidden view, a host prompt) and goes on, so one run has data for every later step; the
+                    # journey's status is then "not run" (never a pass), unless a later step fails.
+                    if not (self.spec.get("continue_not_judged") and step["do"] == "expect"):
+                        raise
+                    record["ok"], record["not_judged"] = None, str(error)[-1500:]
+                    not_judged.append(f"step {index + 1} ({step.get('title', step['do'])[:60]}): {str(error)[:300]}")
                 finally:
                     record["seconds"] = round(now() - t, 3)
                     self.steps.append(record)
+            if not_judged:
+                raise NotRun(f"{len(not_judged)} checks not judged: " + " | ".join(not_judged))
         except (Deadline, NotRun) as error:
             status, reason = "not run", str(error)
+            earlier = [n for n in not_judged if n not in reason]
+            if earlier:
+                reason += f" (and {len(earlier)} checks not judged before it: " + " | ".join(earlier) + ")"
         except (StepError, OSError, ValueError, subprocess.TimeoutExpired) as error:
             status, reason = "fail", f"step {len(self.steps)} ({self.steps[-1]['do'] if self.steps else '?'}): {error}"
         finally:

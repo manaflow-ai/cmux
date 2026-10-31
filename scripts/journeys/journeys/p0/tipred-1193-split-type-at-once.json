@@ -1,0 +1,253 @@
+{
+  "id": "tipred-1193-split-type-at-once",
+  "priority": "P0",
+  "title": "TIP RED 1193 red journey: the dogfood smoke gate's steps 1-23 exactly (3 workspaces with a line typed at once, then Cmd-D, d1 at once, Cmd-D, d2 at once); a pass counts only when the second Cmd-D and d2's keys took the hold path",
+  "why": "TIP RED 1193 (STATUS 1202, 1226): on feat 5097a275a876 with the 15 GB hog the smoke gate's step 23 put d1 and d2 both in the FIRST new pane (2 of 3 rounds), with d1's keys held (debug.key handled_by \"app\"). The coordinator (11:2xZ): run the gate's step-23 path exactly (the typing of gate 851818b01b0) with the hold-path check, with the hog, on #29301's base and head builds. The steps are smoke-dogfood.json's steps 1-23 (unchanged, with 8a47689ab1a's left-to-right order assert). smoke_hold_path (the P0 owner's rule): the second Cmd-D (mark split2) and at least one key of each d2 line must be handled_by \"app\"; else the round is not run (hold path not proven). A failure of step 23 counts on any path.",
+  "source": "journeys/dogfood/smoke-dogfood.json steps 1-23",
+  "budget_seconds": 200,
+  "steps": [
+    {
+      "do": "smoke_ready",
+      "timeout": 60
+    },
+    {
+      "do": "smoke_remember_workspaces"
+    },
+    {
+      "do": "smoke_make_key"
+    },
+    {
+      "do": "smoke_snapshot",
+      "name": "before_workspaces"
+    },
+    {
+      "do": "key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "ws1"
+    },
+    {
+      "do": "expect",
+      "title": "Cmd-N (1 of 3) makes a workspace; Ctrl-` follows as soon as it shows, at a person's speed (the frame kept: not blank)",
+      "since": "ws1",
+      "timeout": 20,
+      "all": [
+        {
+          "smoke_workspaces": {
+            "new": 1
+          }
+        },
+        {
+          "smoke_frame": {}
+        }
+      ]
+    },
+    {
+      "do": "key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "wsterm1"
+    },
+    {
+      "do": "smoke_type_now",
+      "text": "echo w1-${nonce}-$((6*7))"
+    },
+    {
+      "do": "key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "ws2"
+    },
+    {
+      "do": "expect",
+      "title": "Cmd-N (2 of 3) makes a workspace; Ctrl-` follows as soon as it shows, at a person's speed (the frame kept: not blank)",
+      "since": "ws2",
+      "timeout": 20,
+      "all": [
+        {
+          "smoke_workspaces": {
+            "new": 2
+          }
+        },
+        {
+          "smoke_frame": {}
+        }
+      ]
+    },
+    {
+      "do": "key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "wsterm2"
+    },
+    {
+      "do": "smoke_type_now",
+      "text": "echo w2-${nonce}-$((6*7))"
+    },
+    {
+      "do": "key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "ws3"
+    },
+    {
+      "do": "expect",
+      "title": "Cmd-N (3 of 3) makes a workspace; Ctrl-` follows as soon as it shows, at a person's speed (the frame kept: not blank)",
+      "since": "ws3",
+      "timeout": 20,
+      "all": [
+        {
+          "smoke_workspaces": {
+            "new": 3
+          }
+        },
+        {
+          "smoke_frame": {}
+        }
+      ]
+    },
+    {
+      "do": "key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "wsterm3"
+    },
+    {
+      "do": "smoke_type_now",
+      "text": "echo w3-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "each new workspace's Ctrl-` terminal ran the line typed into it at once, and no other terminal got it",
+      "since": "wsterm1",
+      "timeout": 30,
+      "all": [
+        {
+          "smoke_new_terminals": {
+            "since": "before_workspaces",
+            "lines": [
+              "w1-${nonce}-42",
+              "w2-${nonce}-42",
+              "w3-${nonce}-42"
+            ],
+            "focused": "w3-${nonce}-42",
+            "placement": "new_workspaces"
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "w3-${nonce}-42"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_snapshot",
+      "name": "before_splits"
+    },
+    {
+      "do": "key",
+      "key": "d",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "split1"
+    },
+    {
+      "do": "smoke_type_now",
+      "text": "echo d1-${nonce}-$((6*7))"
+    },
+    {
+      "do": "key",
+      "key": "d",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "split2"
+    },
+    {
+      "do": "smoke_type_now",
+      "text": "echo d2-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "Cmd-D twice fast: two new panes, and the line typed into each at once ran there and nowhere else",
+      "since": "split1",
+      "timeout": 30,
+      "all": [
+        {
+          "smoke_panes": {
+            "line": "d2-${nonce}-42",
+            "count": 3
+          }
+        },
+        {
+          "smoke_new_terminals": {
+            "since": "before_splits",
+            "lines": [
+              "d1-${nonce}-42",
+              "d2-${nonce}-42"
+            ],
+            "focused": "d2-${nonce}-42",
+            "placement": "new_panes",
+            "order": "left_to_right"
+          }
+        },
+        {
+          "smoke_app_lines": {
+            "lines": [
+              "d1-${nonce}-42",
+              "d2-${nonce}-42"
+            ]
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "d1-${nonce}-42",
+              "d2-${nonce}-42"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_hold_path",
+      "lines": [
+        "echo d2-${nonce}-$((6*7))"
+      ],
+      "every_line": true,
+      "held_marks": [
+        "split2"
+      ]
+    },
+    {
+      "do": "smoke_no_key_gaps"
+    }
+  ],
+  "finally": [
+    {
+      "do": "smoke_close_all"
+    }
+  ]
+}
