@@ -315,6 +315,15 @@ it should be (its own new workspace, its own new pane, or a new tab of the focus
 gained exactly that many tabs), and the last line is on the focused terminal. `smoke_panes` counts the panes of
 the workspace whose terminal shows a line (the driver's `app_layout` needs a terminal it adopted itself).
 
+**Resize (R3a) and new columns (R3b)** (cmux-ad orders 3 and 4, 2026-10-31; Lawrence: "resizing
+terminals is broken", "creating new columns must never resize existing columns"). After Cmd-D twice,
+the journey drags the divider between the two new panes and then the window's right edge. After each,
+in the shown terminal: grid == fitted grid == drawn grid == fit(the view's bounds at the cell size) ==
+the PTY's size (`stty size`) == the daemon's screen size == the topology tab's size, and a line longer
+than the old width wraps at the new width (`smoke_r3`; every size is in the result). Then New Column
+and a Cmd-D that adds a column: every existing pane of the workspace keeps exactly its width
+(`smoke_same_widths`, re-read through a 1.5 s settle; each old and new width in the result).
+
 **Typed at once** (`smoke_type_now`): no wait for the creation hold, the case Lawrence reports
 (keys into a terminal while it is created). A capture slot's window is never key
 (`CMUX_NEXT_NO_ACTIVATE`), and held keys are replayed through `NSApplication.sendEvent`, which

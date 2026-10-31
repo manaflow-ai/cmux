@@ -49,6 +49,25 @@ Conditions (inside `expect.all`; evidence kind app):
                                       which now has len(LINES) more tabs)
   smoke_app_lines    {lines}          every line is a line of some pane's viewport text in the app (any pane)
   smoke_daemon_lines {lines}          (evidence daemon) every line is a line of some terminal's daemon screen
+
+R3a (terminal resize) and R3b (new columns never resize old ones), cmux-ad orders 3 and 4 (2026-10-31):
+  smoke_adopt_line   {line, as}       makes the terminal whose daemon screen shows LINE the current one and names
+                                      its pane AS (ext_window's name_pane), so divider_drag, window_drag, remember
+                                      and typing can use it
+  smoke_long_line    {tag, longer_than: [NAME...]}
+                                      prints one line of TAG and x's longer than the widest grid of the remembered
+                                      panes and the current one (+15 cells), so it must wrap; keeps its length
+  smoke_widths       {name}           keeps the width of every pane of the current pane's workspace (content_size)
+Conditions:
+  smoke_r3           {pane, pty_tag, long_tag?, vs?, cols?: wider|narrower}
+                                      R3: the pane's grid == fitted grid == drawn grid == fit(the view's frame at the
+                                      cell size) == the PTY's size (`echo PTY_TAG $(stty size)`) == the daemon's size
+                                      (screen read) == the topology tab's columns x rows; all sizes in the result. With
+                                      LONG_TAG the long line wraps at the NEW width: its first screen row is exactly
+                                      `cols` long and the rest follows. VS/COLS: the grid is wider/narrower than the
+                                      remembered one.
+  smoke_same_widths  {since, new}     every pane of the snapshot SINCE has EXACTLY its old width (to 0.01 point), and
+                                      the workspace has NEW more panes; each old and new width in the result
 """
 import json
 import time
@@ -351,10 +370,228 @@ def cond_smoke_key_window(j, want, cache):
     return key_now, {"windows": windows}
 
 
+
+# ---- R3a: resize (cmux-ad order 3) ------------------------------------------------------------
+
+def _grid(text):
+    parts = str(text or "").split("x")
+    return (int(parts[0]), int(parts[1])) if len(parts) == 2 and all(x.isdigit() for x in parts) else None
+
+
+def _surfaces(j, cache):
+    if "smoke_surfaces" not in cache:
+        cache["smoke_surfaces"] = j.app.panes()
+    return cache["smoke_surfaces"]
+
+
+def _terminal_of_line(j, line):
+    """(topology pane id, daemon terminal, tab record) of the one terminal whose daemon screen shows LINE."""
+    found = []
+    for ws, pane, tab, term in j.places(j.topology()):
+        if not term:
+            continue
+        try:
+            if line in set(_lines(j.app.screen(term)["text"])):
+                found.append((pane.get("id"), term, tab, ws))
+        except D.StepError:
+            continue
+    if len(found) != 1:
+        raise D.StepError(f"{len(found)} terminals show {line!r}, not exactly one")
+    return found[0]
+
+
+def step_smoke_adopt_line(j, step):
+    pane, term, _tab, ws = _terminal_of_line(j, j.sub(step["line"]))
+    j.term, j.pane, j.host_pid = term, pane, None
+    rec = j.step_name_pane({"as": step["as"]})
+    if not hasattr(j, "smoke_named"):
+        j.smoke_named = {}
+    j.smoke_named[step["as"]] = {"pane": pane, "term": term, "workspace": ws.get("id")}
+    return dict(rec, workspace=ws.get("id"))
+
+
+def _named(j, name):
+    named = getattr(j, "smoke_named", {})
+    if name not in named:
+        raise D.StepError(f"no pane named {name!r} (smoke_adopt_line first)")
+    return named[name]
+
+
+def _pane_grid(j, pane_key, cache):
+    row = next((p for p in _surfaces(j, cache) if p.get("pane") == pane_key), None)
+    return row, _grid(((row or {}).get("surface") or {}).get("grid"))
+
+
+def step_smoke_long_line(j, step):
+    widest = 0
+    for name in step.get("longer_than", []):
+        _row, grid = _pane_grid(j, _named(j, name)["pane"], {})
+        widest = max(widest, grid[0] if grid else 0)
+    for kept in getattr(j, "ext_remembered", {}).values():
+        if kept.get("grid"):
+            widest = max(widest, kept["grid"][0])
+    if widest <= 0:
+        raise D.StepError("smoke_long_line: no grid width to exceed")
+    tag = j.sub(step["tag"])
+    length = widest + 15
+    # The shell prints TAG then x's to LENGTH characters; the typed command itself holds no such run.
+    text = f"printf '%s' {tag}; printf 'x%.0s' $(seq 1 {length - len(tag)}); echo"
+    replies = [j.key(char, [], j.key_window) for char in text] + [j.key("return", [], j.key_window)]
+    if not hasattr(j, "smoke_long"):
+        j.smoke_long = {}
+    j.smoke_long[tag] = length
+    return {"tag": tag, "length": length, "widest_before": widest, "keys": len(replies)}
+
+
+def _pty_size(text, tag):
+    for line in _lines(text):
+        parts = line.split()
+        if len(parts) == 3 and parts[0] == tag and parts[1].isdigit() and parts[2].isdigit():
+            return int(parts[2]), int(parts[1])  # stty size prints rows then cols
+    return None
+
+
+def _wrap_rows(text, tag, length):
+    """The screen rows the long line takes: the row that starts with TAG, then the rows of x's after it."""
+    rows = (text or "").split("\n")
+    for index, row in enumerate(rows):
+        row = row.rstrip()
+        if row.startswith(tag) and set(row[len(tag):]) <= {"x"}:
+            got = [row]
+            for more in rows[index + 1:]:
+                more = more.rstrip()
+                if more and set(more) <= {"x"} and sum(len(r) for r in got) < length:
+                    got.append(more)
+                else:
+                    break
+            return got
+    return None
+
+
+def cond_smoke_r3(j, want, cache):
+    rec = _named(j, want["pane"])
+    row, grid = _pane_grid(j, rec["pane"], cache)
+    surface, info = (row or {}).get("surface") or {}, (row or {}).get("grid") or {}
+    fit, drawn = _grid(surface.get("fit_grid")), _grid(surface.get("drawn_grid"))
+    bounds = None
+    cw, ch = info.get("cell_width"), info.get("cell_height")
+    if cw and ch and "frame_width" in info:
+        pad_x = max(0.0, info.get("origin_x", 0) - info.get("frame_x", 0))
+        pad_y = max(0.0, info.get("origin_y", 0) - info.get("frame_y", 0))
+        bounds = (int((info["frame_width"] - 2 * pad_x) // cw), int((info["frame_height"] - 2 * pad_y) // ch))
+    screen = j.app.screen(rec["term"])
+    daemon = (screen.get("cols"), screen.get("rows"))
+    topo_size = None
+    for _ws, pane, tab, term in j.places(j.topology()):
+        if term == rec["term"]:
+            topo_size = (tab.get("columns"), tab.get("rows"))
+    pty = _pty_size(screen.get("text"), j.sub(want["pty_tag"])) if want.get("pty_tag") else None
+    sizes = {"grid": grid, "fit_grid": fit, "drawn_grid": drawn, "fit_bounds": bounds, "pty": pty, "daemon": daemon,
+             "topology": topo_size}
+    detail = {"pane": rec["pane"], "terminal": rec["term"], "sizes": sizes, "frame": [info.get("frame_width"), info.get("frame_height")],
+              "cell": [cw, ch], "content_size": (row or {}).get("content_size")}
+    problems = []
+    if row is None:
+        problems.append("the pane is not in debug.surfaces")
+    if not grid:
+        problems.append("no grid")
+    for name in ("fit_grid", "drawn_grid", "daemon", "topology"):
+        if sizes[name] != grid:
+            problems.append(f"{name} {sizes[name]} != grid {grid}")
+    if want.get("pty_tag") and pty != grid:
+        problems.append(f"pty {pty} != grid {grid}")
+    # fit(bounds): the view's frame at the cell size holds the grid (Ghostty may keep one cell of slack).
+    if bounds is None or not grid or not (bounds[0] - 1 <= grid[0] <= bounds[0] and bounds[1] - 1 <= grid[1] <= bounds[1]):
+        problems.append(f"grid {grid} does not fit the view's bounds {bounds}")
+    if want.get("vs") and grid:
+        base = (getattr(j, "ext_remembered", {}).get(want["vs"]) or {}).get("grid")
+        detail["vs"] = base
+        if not base:
+            problems.append(f"nothing remembered as {want['vs']}")
+        elif want.get("cols") == "wider" and not grid[0] > base[0]:
+            problems.append(f"cols {grid[0]} not wider than {base[0]}")
+        elif want.get("cols") == "narrower" and not grid[0] < base[0]:
+            problems.append(f"cols {grid[0]} not narrower than {base[0]}")
+    if want.get("long_tag"):
+        tag = j.sub(want["long_tag"])
+        length = getattr(j, "smoke_long", {}).get(tag)
+        rows = _wrap_rows(screen.get("text"), tag, length or 0)
+        detail["long_line"] = {"length": length, "rows": [len(r) for r in rows] if rows else None}
+        if not length or not rows:
+            problems.append("the long line is not on the screen")
+        elif not grid or len(rows[0]) != min(length, grid[0]) or sum(len(r) for r in rows) != length:
+            problems.append(f"the long line ({length} cells) wraps at {len(rows[0])}, not at the new width {grid and grid[0]} "
+                            f"(rows {[len(r) for r in rows]})")
+    detail["problems"] = problems
+    return not problems, detail
+
+
+# ---- R3b: new columns never resize old ones (cmux-ad, Lawrence's P0 rule) ------------------------
+
+def _widths(j, workspace, cache=None):
+    """{pane id: width in points} of every pane of WORKSPACE (debug.surfaces: content_size, else the view frame)."""
+    panes = _surfaces(j, cache) if cache is not None else j.app.panes()
+    out = {}
+    for p in panes:
+        if p.get("workspace") != workspace:
+            continue
+        size = str(p.get("content_size") or "")
+        width = None
+        if "x" in size and size.split("x")[0].lstrip("-").replace(".", "", 1).isdigit():
+            width = float(size.split("x")[0])
+        if width is None and isinstance(p.get("grid"), dict):
+            width = p["grid"].get("frame_width")
+        out[p.get("pane")] = width
+    return out
+
+
+def _current_workspace(j):
+    for p in j.app.panes():
+        if p.get("focused") and p.get("workspace"):
+            return p["workspace"]
+    raise D.StepError("no focused pane: no workspace for smoke_widths")
+
+
+def step_smoke_widths(j, step):
+    workspace = _current_workspace(j)
+    widths = _widths(j, workspace)
+    if not hasattr(j, "smoke_width_snaps"):
+        j.smoke_width_snaps = {}
+    j.smoke_width_snaps[step["name"]] = {"workspace": workspace, "widths": widths}
+    return {"workspace": workspace, "widths": widths}
+
+
+def cond_smoke_same_widths(j, want, cache):
+    snap = getattr(j, "smoke_width_snaps", {}).get(want["since"])
+    if snap is None:
+        return False, {"error": f"no smoke_widths named {want['since']!r}"}
+    now = _widths(j, snap["workspace"], cache)
+    changed, gone = {}, []
+    for pane, before in snap["widths"].items():
+        if pane not in now:
+            gone.append(pane)
+        elif before is None or now[pane] is None or round(before, 2) != round(now[pane], 2):
+            changed[pane] = {"old": before, "new": now[pane]}
+    added = sorted(set(now) - set(snap["widths"]))
+    problems = []
+    if changed:
+        problems.append(f"{len(changed)} existing columns changed width")
+    if gone:
+        problems.append(f"{len(gone)} existing panes are gone")
+    if len(added) != int(want.get("new", 1)):
+        problems.append(f"{len(added)} new panes, not {want.get('new', 1)}")
+    return not problems, {"problems": problems, "changed": changed, "gone": gone, "added": added,
+                          "old_widths": snap["widths"], "new_widths": now}
+
 STEPS = {"smoke_ready": step_smoke_ready, "smoke_make_key": step_smoke_make_key, "smoke_type_now": step_smoke_type_now,
          "smoke_remember_workspaces": step_smoke_remember_workspaces, "smoke_close_all": step_smoke_close_all,
-         "smoke_snapshot": step_smoke_snapshot}
+         "smoke_snapshot": step_smoke_snapshot, "smoke_adopt_line": step_smoke_adopt_line,
+         "smoke_long_line": step_smoke_long_line, "smoke_widths": step_smoke_widths}
 CONDITIONS = {"smoke_workspaces": ("app", cond_smoke_workspaces), "smoke_key_window": ("app", cond_smoke_key_window),
               "smoke_app_lines": ("app", cond_smoke_app_lines), "smoke_daemon_lines": ("daemon", cond_smoke_daemon_lines),
               "smoke_new_terminals": ("daemon", cond_smoke_new_terminals), "smoke_frame": ("frame", cond_smoke_frame),
-              "smoke_panes": ("app", cond_smoke_panes)}
+              "smoke_panes": ("app", cond_smoke_panes), "smoke_r3": ("daemon", cond_smoke_r3),
+              "smoke_same_widths": ("app", cond_smoke_same_widths)}
+# Re-read every poll and through an expect's `settle`: an old column that changes width a moment after the new one
+# shows (an animation, a late layout pass) must fail, not pass on the first poll.
+NEGATIVE = ("smoke_same_widths",)

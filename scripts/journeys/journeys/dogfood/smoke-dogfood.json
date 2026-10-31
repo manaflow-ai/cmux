@@ -53,6 +53,42 @@
        {"smoke_key_window": {}},
        {"frame_screen": {"shows": ["d1-${nonce}-42", "d2-${nonce}-42"]}}
      ]},
+    {"do": "smoke_adopt_line", "line": "d1-${nonce}-42", "as": "left"},
+    {"do": "smoke_adopt_line", "line": "d2-${nonce}-42", "as": "right"},
+    {"do": "remember", "as": "left0", "pane": "left"},
+    {"do": "remember", "as": "right0", "pane": "right"},
+    {"do": "divider_drag", "title": "R3a: drag the divider between the two new panes 120 points left", "between": ["left", "right"], "by": -120, "mark": "r3a-split"},
+    {"do": "type", "text": "echo r3as-${nonce} $(stty size)", "enter": true},
+    {"do": "smoke_long_line", "tag": "r3asw${nonce}"},
+    {"do": "expect", "title": "R3a split resize: the right pane is wider, the left narrower; in each, grid == fit(bounds) == PTY == daemon size, and a long line wraps at the new width", "since": "r3a-split", "timeout": 20,
+     "all": [
+       {"smoke_r3": {"pane": "right", "pty_tag": "r3as-${nonce}", "long_tag": "r3asw${nonce}", "vs": "right0", "cols": "wider"}},
+       {"smoke_r3": {"pane": "left", "vs": "left0", "cols": "narrower"}},
+       {"smoke_frame": {}}
+     ]},
+    {"do": "window_drag", "title": "R3a: drag the window's right edge 160 points left", "edge": "right", "by": [-160, 0], "mark": "r3a-window"},
+    {"do": "type", "text": "echo r3aw-${nonce} $(stty size)", "enter": true},
+    {"do": "smoke_long_line", "tag": "r3aww${nonce}"},
+    {"do": "expect", "title": "R3a window resize: grid == fit(bounds) == PTY == daemon size in the shown terminal, and a long line wraps at the new width", "since": "r3a-window", "timeout": 20,
+     "all": [
+       {"smoke_r3": {"pane": "right", "pty_tag": "r3aw-${nonce}", "long_tag": "r3aww${nonce}"}},
+       {"smoke_r3": {"pane": "left"}},
+       {"smoke_frame": {}}
+     ]},
+    {"do": "smoke_widths", "name": "cols0"},
+    {"do": "action", "action": "newColumn", "mark": "r3b-new"},
+    {"do": "expect", "title": "R3b: New Column adds a column and every existing column keeps exactly its width", "since": "r3b-new", "timeout": 15, "settle": 1.5,
+     "all": [
+       {"smoke_same_widths": {"since": "cols0", "new": 1}},
+       {"smoke_frame": {}}
+     ]},
+    {"do": "smoke_widths", "name": "cols1"},
+    {"do": "key", "key": "d", "modifiers": ["cmd"], "mark": "r3b-split"},
+    {"do": "expect", "title": "R3b: Cmd-D adds a column and every existing column keeps exactly its width", "since": "r3b-split", "timeout": 15, "settle": 1.5,
+     "all": [
+       {"smoke_same_widths": {"since": "cols1", "new": 1}},
+       {"smoke_frame": {}}
+     ]},
     {"do": "smoke_snapshot", "name": "before_tabs"},
     {"do": "key", "key": "`", "modifiers": ["control"], "mark": "tab1"},
     {"do": "smoke_type_now", "text": "echo t1-${nonce}-$((6*7))"},
@@ -89,7 +125,7 @@
        {"app_rpc": {"method": "debug.crashes", "path": "launch.recovery", "equals": "clean"}},
        {"app_rpc": {"method": "debug.surfaces", "path": "blank_panes", "equals": 0}},
        {"smoke_workspaces": {"new": 3, "same_as": "before_splits"}},
-       {"smoke_panes": {"line": "d2-${nonce}-42", "count": 3}},
+       {"smoke_panes": {"line": "d2-${nonce}-42", "count": 5}},
        {"smoke_daemon_lines": {"lines": ["w1-${nonce}-42", "w2-${nonce}-42", "w3-${nonce}-42", "d1-${nonce}-42", "d2-${nonce}-42", "t1-${nonce}-42", "t2-${nonce}-42"]}},
        {"frame_text": "documentation examples"}
      ]},

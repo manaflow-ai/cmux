@@ -467,6 +467,104 @@ class NewTerminals(unittest.TestCase):
         self.assertTrue(any("own new workspace" in p for p in detail["problems"]), detail)
 
 
+class Resize(unittest.TestCase):
+    """R3a (grid == fit(bounds) == PTY == daemon, long line wraps at the new width) and R3b (old columns keep
+    exactly their width): a fake mismatch must fail, with every size in the result."""
+
+    def setUp(self):
+        sys.path.insert(0, str(HERE))
+        import ext_smoke
+
+        class StepError(Exception):
+            pass
+
+        ext_smoke.install(type("D", (), {"StepError": StepError, "NotRun": Exception, "now": staticmethod(lambda: 0.0)}))
+        self.ext = ext_smoke
+
+    def journey(self, grid="80x24", fit="80x24", drawn="80x24", daemon=(80, 24), topo=(80, 24), pty=(80, 24),
+                frame=(80 * 8 + 8, 24 * 16 + 8), long_rows=None, widths=None):
+        screen_text = "$ echo r3-1 $(stty size)\nr3-1 %d %d\n" % (pty[1], pty[0]) if pty else ""
+        if long_rows:
+            screen_text += "\n".join(long_rows) + "\n"
+        panes = [{"pane": "P1", "workspace": "W", "content_size": "%dx%d" % frame, "focused": True,
+                  "surface": {"grid": grid, "fit_grid": fit, "drawn_grid": drawn},
+                  "grid": {"cell_width": 8, "cell_height": 16, "frame_x": 0, "frame_y": 0, "origin_x": 4, "origin_y": 4,
+                           "frame_width": frame[0], "frame_height": frame[1]}}]
+        for key, width in (widths or {}).items():
+            panes.append({"pane": key, "workspace": "W", "content_size": "%sx400" % width})
+
+        class App:
+            def panes(self_):
+                return panes
+
+            def screen(self_, term):
+                return {"text": screen_text, "cols": daemon[0], "rows": daemon[1]}
+
+        class J:
+            app = App()
+            vars = {}
+            smoke_named = {"right": {"pane": "P1", "term": "T1"}}
+            ext_remembered = {"right0": {"grid": (70, 24)}}
+            smoke_long = {"LL": 95}
+
+            def sub(self_, x):
+                return x
+
+            def topology(self_):
+                return {}
+
+            @staticmethod
+            def places(_topology):
+                yield {"id": "W"}, {"id": "P1"}, {"id": "t", "columns": topo[0], "rows": topo[1]}, "T1"
+        return J()
+
+    def r3(self, j, **want):
+        return self.ext.cond_smoke_r3(j, dict({"pane": "right", "pty_tag": "r3-1"}, **want), {})
+
+    def test_r3_holds_when_every_size_agrees(self):
+        ok, detail = self.r3(self.journey())
+        self.assertTrue(ok, detail)
+        self.assertEqual(detail["sizes"]["pty"], (80, 24))
+
+    def test_r3_fails_on_each_mismatch_and_reports_every_size(self):
+        for kwargs, word in ((dict(fit="79x24"), "fit_grid"), (dict(drawn="70x24"), "drawn_grid"),
+                             (dict(daemon=(70, 24)), "daemon"), (dict(topo=(70, 24)), "topology"),
+                             (dict(pty=(70, 24)), "pty"), (dict(frame=(70 * 8 + 8, 24 * 16 + 8)), "bounds"),
+                             (dict(pty=None), "pty")):
+            ok, detail = self.r3(self.journey(**kwargs))
+            self.assertFalse(ok, (kwargs, detail))
+            self.assertTrue(any(word in p for p in detail["problems"]), (kwargs, detail["problems"]))
+            self.assertEqual(set(detail["sizes"]), {"grid", "fit_grid", "drawn_grid", "fit_bounds", "pty", "daemon", "topology"})
+
+    def test_the_long_line_must_wrap_at_the_new_width(self):
+        good = ["LL" + "x" * 78, "x" * 15]
+        ok, detail = self.r3(self.journey(long_rows=good), long_tag="LL", vs="right0", cols="wider")
+        self.assertTrue(ok, detail)
+        old = ["LL" + "x" * 68, "x" * 25]  # wrapped at the old width (70)
+        ok, detail = self.r3(self.journey(long_rows=old), long_tag="LL")
+        self.assertFalse(ok)
+        self.assertTrue(any("wraps at 70" in p for p in detail["problems"]), detail["problems"])
+        ok, detail = self.r3(self.journey(long_rows=None), long_tag="LL")
+        self.assertFalse(ok)
+
+    def test_r3b_any_old_column_width_change_fails_with_old_and_new(self):
+        j = self.journey(widths={"P2": 300.0})
+        self.ext.step_smoke_widths(j, {"name": "c0"})
+        same = self.journey(widths={"P2": 300.0, "P3": 300.0})
+        same.smoke_width_snaps = j.smoke_width_snaps
+        ok, detail = self.ext.cond_smoke_same_widths(same, {"since": "c0", "new": 1}, {})
+        self.assertTrue(ok, detail)
+        moved = self.journey(widths={"P2": 299.5, "P3": 300.0})
+        moved.smoke_width_snaps = j.smoke_width_snaps
+        ok, detail = self.ext.cond_smoke_same_widths(moved, {"since": "c0", "new": 1}, {})
+        self.assertFalse(ok)
+        self.assertEqual(detail["changed"], {"P2": {"old": 300.0, "new": 299.5}})
+        none_new = self.journey(widths={"P2": 300.0})
+        none_new.smoke_width_snaps = j.smoke_width_snaps
+        self.assertFalse(self.ext.cond_smoke_same_widths(none_new, {"since": "c0", "new": 1}, {})[0])
+        self.assertIn("smoke_same_widths", self.ext.NEGATIVE)
+
+
 class Loads(unittest.TestCase):
     def test_the_smoke_journey_and_its_steps_load(self):
         done = subprocess.run([sys.executable, str(HERE / "run.py"), "--check"], capture_output=True, text=True, timeout=120)
