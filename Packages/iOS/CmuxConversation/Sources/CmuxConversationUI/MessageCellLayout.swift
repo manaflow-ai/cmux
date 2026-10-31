@@ -369,13 +369,18 @@ extension MessageCellLayout {
         let lineAtLarge = 11 * font.lineHeight / font.pointSize
         return (29 - lineAtLarge) / 2 * font.pointSize / 11
     }
-    /// "N Replies" under the quote: 7.67 pt below it, its text 10 pt inside the quote's edge.
-    static let quoteRepliesGap: CGFloat = 23.0 / 3
+    /// "N Replies" under the quote when the quoted message has two or more
+    /// (Messages: "3 Replies" under both quotes of "ill merge ok?", none under
+    /// a quote with one): its glyphs 7.33 pt under the quote, 12 pt in.
+    static let quoteRepliesGap: CGFloat = 17.0 / 3
     static let quoteRepliesInset: CGFloat = 12
-    /// The quote's bottom (or its "N Replies") to the reply's top: 12 pt when
-    /// both are on one side (the line runs between them), 9.67 pt across.
+    /// To the reply's top: from the quote, 12 pt on one side (the line runs
+    /// between them) and 9.67 pt across; from "N Replies", 11.33 pt and
+    /// 3 pt from its glyphs.
     static let quoteToSameSideReply: CGFloat = 12
     static let quoteToOtherSideReply: CGFloat = 29.0 / 3
+    static let repliesToSameSideReply: CGFloat = 28.0 / 3
+    static let repliesToOtherSideReply: CGFloat = 1
 
     static func measure(_ text: NSAttributedString, maxWidth: CGFloat) -> CGSize {
         let rect = text.boundingRect(
@@ -444,14 +449,17 @@ extension MessageCellLayout {
             y += h
             // "N Replies" belongs to the quoted message: Messages shows it under
             // the quote when the reply sits on the quote's own side.
-            if quote.replyCount > 0, quote.isOutgoing == model.isOutgoing {
+            let sameSide = quote.isOutgoing == model.isOutgoing
+            if quote.replyCount >= 2 {
                 let h = t.footerHeight
                 quoteRepliesFrame = quote.isOutgoing
                     ? CGRect(x: frame.maxX - Self.quoteRepliesInset - maxBubbleWidth, y: y + Self.quoteRepliesGap, width: maxBubbleWidth, height: h)
                     : CGRect(x: bodyMinX + Self.quoteRepliesInset, y: y + Self.quoteRepliesGap, width: maxBubbleWidth, height: h)
                 y += Self.quoteRepliesGap + h
+                y += sameSide ? Self.repliesToSameSideReply : Self.repliesToOtherSideReply
+            } else {
+                y += sameSide ? Self.quoteToSameSideReply : Self.quoteToOtherSideReply
             }
-            y += quote.isOutgoing == model.isOutgoing ? Self.quoteToSameSideReply : Self.quoteToOtherSideReply
         }
 
         var senderNameFrame: CGRect?
