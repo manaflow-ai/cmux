@@ -19,6 +19,8 @@ dependencies = [
  "cmux-local-auth",
  "cmux-panic-log",
  "cmux-sdk",
+ "cmux-server",
+ "cmux-server-core",
  "cmux-tailnet",
  "cmux-unix-socket",
  "cmux-wg",

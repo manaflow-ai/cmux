@@ -51,8 +51,11 @@ import {
   isLastFooter,
   isContinuationFooter,
   QUEUED_MESSAGE,
+  PENDING_MESSAGES,
 } from "./model";
 import { ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
+import { pendingMessagesRow, searchablePendingRows } from "./conversation/pendingMessages";
+import { PendingMessagesCard } from "./conversation/PendingMessagesCard";
 import {
   QueuedMessageCard,
   SteerWaitingActions,
@@ -1110,10 +1113,13 @@ const MessageRow = memo(
             onOpen={openSenderChat}
             onReply={replyToMessage}
             actions={
-              <>
-                <ReceivedActions row={row} text={row.incoming.message.text} />
-                {row.steer === "waiting" && <SteerWaitingActions promptId={row.steerPromptId} send={sendSteerNow} />}
-              </>
+              <ReceivedActions
+                row={row}
+                text={row.incoming.message.text}
+                more={
+                  row.steer === "waiting" && <SteerWaitingActions promptId={row.steerPromptId} send={sendSteerNow} />
+                }
+              />
             }
             githubRepository={githubRepository}
           />
@@ -1550,6 +1556,20 @@ const QueuedMessageRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.githubRepository === b.githubRepository,
 );
+/// The messages that wait for the agent, as one group (conversation/PendingMessagesCard.tsx): each
+/// message draws in it as its own row draws alone.
+const PendingMessagesRow = memo(
+  function PendingMessagesRow(props: RowProps) {
+    const renderMessage = (message: AcpmuxRow) =>
+      message.kind === QUEUED_MESSAGE ? (
+        <QueuedMessageRow {...props} row={message} />
+      ) : (
+        <MessageRow {...props} row={message} />
+      );
+    return <PendingMessagesCard row={props.row} onOpen={openSenderChat} renderMessage={renderMessage} />;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.githubRepository === b.githubRepository,
+);
 /// Reply on another agent's message card (`chat.message.reply`): its sender gets it in the thread.
 const replyToMessage = (message: IncomingMessage, text: string) =>
   callNative<void>("chat.message.reply", {
@@ -1627,6 +1647,7 @@ const defaultRegistry: NativeRegistry = {
   sessionOffer: SessionOfferRow,
   [OFFER_RESULT]: OfferResultRow,
   [QUEUED_MESSAGE]: QueuedMessageRow,
+  [PENDING_MESSAGES]: PendingMessagesRow,
   [STARTED_SESSIONS]: StartedSessionsRow,
   typing: NoticeRow,
   permission: PermissionRow,
@@ -3733,10 +3754,14 @@ export function VirtualTranscript({
   const findIndex = findTargetRowId !== undefined ? findRowIndex(rows, findTargetRowId) : -1;
   const drawnId = rows[findIndex]?.id;
   const drawnCard = Boolean(rows[findIndex]?.ended);
+  // A match in a message of the group of waiting messages is that message's own: it is drawn in the
+  // group, under its own row id (PendingMessagesCard.tsx), and counted there.
+  const inGroup = rows[findIndex]?.kind === PENDING_MESSAGES && findTargetRowId !== drawnId;
+  const paintedId = inGroup ? findTargetRowId : drawnId;
   const revealing = useRef<string | undefined>(undefined);
   const targetKey =
     findTargetRowId !== undefined && findTargetOccurrence !== undefined && findQuery && drawnId !== undefined
-      ? `${drawnId}:${drawnCard}:${findTargetOccurrence}:${findQuery}`
+      ? `${paintedId}:${drawnId}:${drawnCard}:${findTargetOccurrence}:${findQuery}`
       : undefined;
   // A group or call that opens to show the match asks for a render here, so the highlights and
   // the scroll below see its text.
@@ -3751,9 +3776,10 @@ export function VirtualTranscript({
             card: drawnCard,
             needle: findQuery.toLocaleLowerCase(),
             repaint: () => setRevealed((count) => count + 1),
+            ...(inGroup ? { matchRowId: findTargetRowId } : {}),
           }
         : undefined,
-    [drawnId, drawnCard, findQuery],
+    [drawnId, drawnCard, findQuery, inGroup, findTargetRowId],
   );
   // Find chooses the reader's new place. Discard the previous scroll owners synchronously;
   // closing Find, a query edit or a measurement must never put that old place back.
@@ -3849,7 +3875,7 @@ export function VirtualTranscript({
       node,
       findQuery,
       findTargetRowId !== undefined && findTargetOccurrence !== undefined && drawnId !== undefined
-        ? { rowId: drawnId, card: drawnCard, occurrence: findTargetOccurrence }
+        ? { rowId: paintedId!, card: inGroup ? false : drawnCard, occurrence: findTargetOccurrence }
         : undefined,
     );
     if (!current || revealing.current !== targetKey) return;
@@ -3902,7 +3928,9 @@ export function VirtualTranscript({
     findTargetOccurrence,
     findMoved,
     findTargetRowId,
+    inGroup,
     mountedRangeKey,
+    paintedId,
     revealed,
     rows,
     targetKey,
@@ -5863,16 +5891,24 @@ function AcpmuxPane() {
     subagentTray,
     workflowLabsEnabled,
   ]);
-  // Another agent's messages waiting in the queue: each its own received line after the running
-  // turn, in the queue's order (conversation/queuedMessages.ts), never composer-queue rows. A chat
-  // with none keeps its rows as they are; one with some copies the row list once per change.
+  // Every message other sessions sent that the agent has not read yet, the steers its running turn
+  // has not taken and the messages queued behind it, is in one group at the end
+  // (conversation/pendingMessages.ts), never a loose list of rows and never composer-queue rows. A
+  // chat with none keeps its rows as they are; one with some copies the row list once per change.
   const lastQueuedRows = useRef<readonly AcpmuxRow[] | undefined>(undefined);
   const queuedRows = useMemo(() => {
     if (childRows) return NO_ROWS;
     return (lastQueuedRows.current = queuedMessageRows(snapshot.queue, lastQueuedRows.current));
   }, [childRows, snapshot.queue]);
+  // Find searches the queued messages too: each is its own row, drawn in the group of waiting
+  // messages (its `joined` names them, chatFind.ts findRowIndex).
+  const findRows = useMemo(() => searchablePendingRows(sourceRows, queuedRows), [sourceRows, queuedRows]);
+  const lastPending = useRef<AcpmuxRow | undefined>(undefined);
   const transcriptRows = useMemo(() => {
-    const rows = queuedRows.length ? [...turnRowsShown, ...queuedRows] : turnRowsShown;
+    const steers = childRows ? NO_ROWS : (lastTurns.current?.turns.pending ?? NO_ROWS);
+    const group = pendingMessagesRow(steers, queuedRows, lastPending.current);
+    lastPending.current = group;
+    const rows = group ? [...turnRowsShown, group] : turnRowsShown;
     return childRows ? rows : btwNotes.rows(rows, snapshot.sessionId, btwSnapshot);
   }, [childRows, turnRowsShown, queuedRows, btwNotes, btwSnapshot, snapshot.sessionId]);
   // Failed prompts in a row with one cause share one card (sendFailure.ts); a trust failure's card
@@ -10476,7 +10512,7 @@ function AcpmuxPane() {
                                         <StartedMentionsContext.Provider value={startedMentions}>
                                           <FailedSendsContext.Provider value={failedSends}>
                                             <ChatFindScope
-                                              rows={childRows ?? sourceRows}
+                                              rows={childRows ?? findRows}
                                               shown={childRows ? undefined : transcriptRows}
                                               openFold={openFold}
                                               findRef={findRef}
