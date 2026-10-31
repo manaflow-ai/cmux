@@ -130,10 +130,13 @@ public final class DeviceDirectory {
     /// Removes the acpmux peers `matches` picks by their ssh `[user@]host` (`acp host rm`), then
     /// reads again: a forgotten SSH machine's peer goes with it (HQ #4877 break 8).
     public func removePeers(where matches: (String) -> Bool) async {
-        let names = await sshPeers().filter { matches($0.destination) }.map(\.name)
-        guard !names.isEmpty else { return }
-        for name in names { _ = await run(["acp", "host", "rm", name, "--json"]) }
-        await refresh()
+        var removed = false
+        // The predicate is asked right before each remove, after every await before it.
+        for peer in await sshPeers() where matches(peer.destination) {
+            _ = await run(["acp", "host", "rm", peer.name, "--json"])
+            removed = true
+        }
+        if removed { await refresh() }
     }
 
     /// Lets a paired client machine or phone run chats here in Full access, or stops it (at once:

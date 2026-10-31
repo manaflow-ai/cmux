@@ -61,7 +61,7 @@ import Testing
         ssh.machines.add(main)
         ssh.machines.add(work)
         var calls = 0
-        ssh.removePeers = { _ in calls += 1 }
+        ssh.removePeers = { matches in calls += ["leo@studio.example.ts.net"].filter(matches).count }
         await ssh.forget(work)
         #expect(calls == 0, "the default session still uses that peer")
         await ssh.forget(main)
@@ -77,13 +77,28 @@ import Testing
         ssh.machines.add(main)
         ssh.machines.add(work)
         var calls = 0
-        ssh.removePeers = { _ in calls += 1 }
+        ssh.removePeers = { matches in calls += ["leo@studio.example.ts.net"].filter(matches).count }
         let first = ssh.hide(work)
         let second = ssh.hide(main)
         await ssh.commitForget(first)
         #expect(calls == 0, "the second Forget's Undo would bring back a machine with no peer")
         await ssh.commitForget(second)
         #expect(calls == 1, "written with nothing else on the route: the peer goes")
+    }
+
+    /// A reconnect while the peer removal runs (between `host ls` and each `host rm`) keeps the peer:
+    /// the predicate is asked again right before each remove.
+    @Test func aReconnectDuringThePeerRemovalKeepsThePeer() async throws {
+        let ssh = Self.service()
+        let session = try Self.session("leo@studio.example.ts.net")
+        ssh.machines.add(session)
+        var removed: [String] = []
+        ssh.removePeers = { matches in
+            ssh.machines.add(session) // the person connects it again while `host ls` runs
+            removed += ["leo@studio.example.ts.net"].filter(matches)
+        }
+        await ssh.commitForget(ssh.hide(session))
+        #expect(removed.isEmpty)
     }
 
     @Test func peersAreReadFromTheHostListBySSHRoute() {
