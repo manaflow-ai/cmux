@@ -10,7 +10,7 @@ public struct KeptTabRelaunch: Sendable, Equatable {
     /// The kept tabs of `tree` to restart on connect, in tree order. Parked
     /// ones and ones in a protected folder (``TabRelaunch/startsOnShow(home:)``) wait until
     /// their workspace is first shown.
-    public static func steps(tree: DaemonTree, home: String = NSHomeDirectory()) -> [KeptTabRelaunch] {
+    public static func steps(tree: DaemonTree, home: String? = nil) -> [KeptTabRelaunch] {
         tree.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
             .filter { $0.kind == .pty && $0.dead && $0.relaunch.map { !$0.startsOnShow(home: home) } == true }
             .map { KeptTabRelaunch(surface: $0.surface) }

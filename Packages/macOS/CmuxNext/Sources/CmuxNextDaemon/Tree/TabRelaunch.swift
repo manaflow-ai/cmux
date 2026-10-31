@@ -18,9 +18,9 @@ public struct TabRelaunch: Sendable, Hashable, Codable {
     /// Whether the tab's shell waits until its workspace is shown: parked (``onShow``), or its
     /// folder is privacy-protected (LAUNCH-NO-TCC-PROMPTS). A new shell in ~/Downloads reads it
     /// at once, and macOS asks in cmux's name; a kept tab never does that at launch.
-    /// - Parameter home: the home folder the protected folders are in.
-    public func startsOnShow(home: String = NSHomeDirectory()) -> Bool {
-        onShow || cwd.map { inProtectedFolder($0, home: home) } == true
+    /// - Parameter home: the home folder the protected folders are in; nil: this user's.
+    public func startsOnShow(home: String? = nil) -> Bool {
+        onShow || cwd.map { inProtectedFolder($0, home: home ?? NSHomeDirectory()) } == true
     }
 
     enum CodingKeys: String, CodingKey {
