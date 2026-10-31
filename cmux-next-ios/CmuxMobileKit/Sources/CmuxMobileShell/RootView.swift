@@ -89,6 +89,8 @@ public struct RootView: View {
     @State private var accountUserID: String?
     /// A pairing code opened while signed out: applied once the account's live data starts.
     @State private var heldInvite: PairInvite?
+    /// The signed-in shell's one model, kept across this view's updates (`ShellView.init`).
+    @State private var shellModel = KeptModel<ShellModel>()
     private let options: ShellLaunchOptions
 
     public init(auth: CmuxMobileAuthModel, store: AppStore, options: ShellLaunchOptions = ShellLaunchOptions()) {
@@ -139,7 +141,7 @@ public struct RootView: View {
                             theme.haptics.success()
                         }
                     case .shell:
-                        ShellView(store: store, auth: auth, settings: settings, sidebar: sidebar, live: live, options: options)
+                        ShellView(store: store, auth: auth, settings: settings, sidebar: sidebar, live: live, options: options, kept: shellModel)
                     }
                 }
                 // The launch-to-Welcome swap is a cut on both sides (an
@@ -305,6 +307,7 @@ public struct RootView: View {
         PushReplies.shared.signedOut()
         let ending = live
         live = nil
+        shellModel.discard()
         setupPlan = nil
         asksNotifications = nil
         if auth.isMock {
@@ -430,6 +433,21 @@ public struct RootView: View {
     }
 }
 
+/// One model, built by the first caller and handed to every later one until `discard()`.
+@MainActor
+final class KeptModel<Model: AnyObject> {
+    private var kept: Model?
+
+    func model(make: () -> Model) -> Model {
+        if let kept { return kept }
+        let made = make()
+        kept = made
+        return made
+    }
+
+    func discard() { kept = nil }
+}
+
 /// The signed-in shell: the UIKit drawer container with the team sidebar under
 /// a four-tab `TabView`.
 struct ShellView: View {
@@ -439,24 +457,32 @@ struct ShellView: View {
     /// RootView's coordinator; it can arrive after the shell is built.
     private let live: LiveCoordinator?
 
-    init(store: AppStore, auth: CmuxMobileAuthModel, settings: SettingsStore, sidebar: SidebarModel, live: LiveCoordinator?, options: ShellLaunchOptions) {
-        let shell = ShellModel(store: store, auth: auth, settings: settings, sidebar: sidebar)
-        shell.attach(live: live)
-        #if DEBUG
-        // Synthetic connection metadata for captures; never reads a real machine.
-        if auth.isMock, UserDefaults.standard.bool(forKey: "cmux-mobile-link-status-demo"),
-           let mac = store.activeTeam?.macs.first {
-            let phase = LinkMachine.Phase.connected(.wireGuard, .direct, rttMillis: 27)
-            let status = phase.statusLine(macName: mac.name, media: .up(.turn, rttMillis: 30))
-            let detail = phase.diagnosticLine(macName: mac.name, media: .up(.turn, rttMillis: 30))
-            if store.macLinkStatus[mac.id] != status { store.macLinkStatus[mac.id] = status }
-            if store.macLinkDiagnostics[mac.id] != detail { store.macLinkDiagnostics[mac.id] = detail }
-        }
-        #endif
-        if let tab = options.initialTab.flatMap(RootTab.init(rawValue:)) { shell.tab = tab }
-        if let page = options.settingsPage.flatMap(SettingsRoute.init(name:)) {
-            shell.tab = .settings
-            shell.settingsPath = [page]
+    /// RootView re-creates this view on every update, and each creation runs this initializer. The
+    /// model is built (and wired to `live`, which writes the shared Feed and browser wiring) once, by
+    /// the first creation; later ones get the same model, so no throwaway model overwrites that wiring
+    /// with closures that die with it.
+    init(store: AppStore, auth: CmuxMobileAuthModel, settings: SettingsStore, sidebar: SidebarModel, live: LiveCoordinator?,
+         options: ShellLaunchOptions, kept: KeptModel<ShellModel>) {
+        let shell = kept.model {
+            let shell = ShellModel(store: store, auth: auth, settings: settings, sidebar: sidebar)
+            shell.attach(live: live)
+            #if DEBUG
+            // Synthetic connection metadata for captures; never reads a real machine.
+            if auth.isMock, UserDefaults.standard.bool(forKey: "cmux-mobile-link-status-demo"),
+               let mac = store.activeTeam?.macs.first {
+                let phase = LinkMachine.Phase.connected(.wireGuard, .direct, rttMillis: 27)
+                let status = phase.statusLine(macName: mac.name, media: .up(.turn, rttMillis: 30))
+                let detail = phase.diagnosticLine(macName: mac.name, media: .up(.turn, rttMillis: 30))
+                if store.macLinkStatus[mac.id] != status { store.macLinkStatus[mac.id] = status }
+                if store.macLinkDiagnostics[mac.id] != detail { store.macLinkDiagnostics[mac.id] = detail }
+            }
+            #endif
+            if let tab = options.initialTab.flatMap(RootTab.init(rawValue:)) { shell.tab = tab }
+            if let page = options.settingsPage.flatMap(SettingsRoute.init(name:)) {
+                shell.tab = .settings
+                shell.settingsPath = [page]
+            }
+            return shell
         }
         _shell = State(initialValue: shell)
         self.options = options

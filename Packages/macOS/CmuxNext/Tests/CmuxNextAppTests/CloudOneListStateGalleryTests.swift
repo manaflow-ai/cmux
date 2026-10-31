@@ -4,11 +4,12 @@ import AppKit
 import CmuxTheme
 import Foundation
 import Testing
+import CmuxNextTestSupport
 
 /// Before/after capture for Cloud machine state in the one-list sidebar. The existing machine
 /// section stays unbound to RemoteMachinesSidebar; only each workspace's machine line gains the
 /// live Paused, Connecting or Reconnecting state.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.closesItsWindows, .serialized)
 struct CloudOneListStateGalleryTests {
     private static let local = SidebarMachine(id: .local, name: "This Mac", kind: .local)
 

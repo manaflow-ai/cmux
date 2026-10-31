@@ -30,7 +30,8 @@ ask whether the job needed macOS. This module asks.
   to macOS (the table stays true);
 * a job of an `any` class does not take portable placement's fleet Linux
   output, then its mini output, then a Blacksmith label, in that order
-  (portable_order()).
+  (portable_order()); nightly.yml's light jobs read build-nightly-app's
+  light-job placement (its mini output, then a Blacksmith label) instead.
 
 `linux_followup`, `placement_followup` and `picker_followup` exist only so the
 table can describe today's tree: an existing job that should move but has not yet. A new
@@ -79,10 +80,13 @@ NEEDS = ("macos", "linux", "any")
 
 PORTABLE_LINUX = re.compile(r"needs\.portable-placement\.outputs\.linux_runner$")
 PORTABLE_MINI = re.compile(r"needs\.portable-placement\.outputs\.mini_runner$")
+# nightly.yml's light jobs: build-nightly-app's last step places them (NIGHTLY=1) on a free mini, else
+# Blacksmith. They have no fleet Linux step: a nightly job never takes vars.LINUX_RUNNER as it is.
+NIGHTLY_MINI = re.compile(r"needs\.build-nightly-app\.outputs\.light_mini_runner$")
 BLACKSMITH_LINUX = re.compile(r"^'blacksmith-\d+vcpu-ubuntu-2404'$")
 
 
-def portable_order(runs_on: str) -> str:
+def portable_order(runs_on: str, nightly: bool = False) -> str:
     """Why a portable job's runs-on is out of the routing order, or "".
 
     The order (Leo's rulebook, 2026-10-31): fleet Linux, then a free mini, then Blacksmith as the
@@ -93,8 +97,14 @@ def portable_order(runs_on: str) -> str:
     if len(expressions) != 1:
         return "its runs-on is not one expression"
     terms = [term.strip() for term in value_terms(expressions[0])]
-    linux = next((i for i, term in enumerate(terms) if PORTABLE_LINUX.search(term)), None)
-    mini = next((i for i, term in enumerate(terms) if PORTABLE_MINI.search(term)), None)
+    if nightly:
+        mini = next((i for i, term in enumerate(terms) if NIGHTLY_MINI.search(term)), None)
+        if mini is None:
+            return "it does not read needs.build-nightly-app.outputs.light_mini_runner"
+        linux = -1
+    else:
+        linux = next((i for i, term in enumerate(terms) if PORTABLE_LINUX.search(term)), None)
+        mini = next((i for i, term in enumerate(terms) if PORTABLE_MINI.search(term)), None)
     if linux is None or mini is None:
         return "it does not read needs.portable-placement.outputs.linux_runner and mini_runner"
     if linux > mini:
@@ -370,7 +380,7 @@ def check(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) -> list[str]:
         elif entry.get("picker_followup") and not pin:
             problems.append(f"{job.key} no longer runs on a fixed label; remove its picker_followup")
         if spec["needs"] == "any":
-            why = portable_order(job.runs_on)
+            why = portable_order(job.runs_on, nightly=job.key.startswith("nightly.yml#"))
             if why:
                 problems.append(f"{job.key} is class {entry['class']!r} (fleet Linux, then a free mini, then "
                                 f"Blacksmith), but {why}.")
