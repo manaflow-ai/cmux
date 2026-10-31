@@ -34,7 +34,8 @@ const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The remote gate of the link entry: it admits a frame only when its `cmd`
 /// is one of the seven `fs-v1` ops, exactly; every other frame is denied
-/// as before (`remote_denied`, no detail). Whether the op is served is
+/// as before (`remote_denied`, no detail), except the explicit agent carrier
+/// admitted separately for authenticated Native owners. Whether the op is served is
 /// decided after admission: a daemon that is not a Cloud host answers
 /// `fs.unavailable`.
 pub struct FsGate;
@@ -42,6 +43,10 @@ pub struct FsGate;
 impl RemoteGate for FsGate {
     fn admit(&self, _peer: &RemotePeer, frame: &str) -> bool {
         frame_command(frame).is_some()
+    }
+
+    fn admit_native_owner(&self, frame: &str) -> bool {
+        super::native_owner::admits(frame)
     }
 }
 

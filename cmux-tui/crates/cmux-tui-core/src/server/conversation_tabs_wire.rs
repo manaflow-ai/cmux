@@ -78,6 +78,21 @@ pub(super) struct NewConversationTabParams {
     split: Option<ConversationTabSplitParams>,
 }
 
+impl NewConversationTabParams {
+    /// A Native owner provisions this machine's agent tabs only. Other
+    /// conversation owners and app pages keep their existing admission path.
+    #[cfg(unix)]
+    pub(super) fn native_agent_tab(&self, mux: &Mux) -> bool {
+        self.conversation.is_none()
+            && self.owner.is_none()
+            && self.page.is_none()
+            && self.route.is_none()
+            && self.agent_session.as_ref().is_some_and(|agent| {
+                agent.host == super::agent_session_attach::agent_session_start::store_host(mux)
+            })
+    }
+}
+
 /// The client transaction echo on `new-conversation-tab`.
 pub(crate) const CONVERSATION_TAB_TRANSACTION_CAPABILITY: &str = "conversation-tab-transaction-v1";
 

@@ -47,6 +47,12 @@ pub(super) const REMOTE_DENIED: &str = "remote_denied";
 pub trait RemoteGate: Send + Sync + 'static {
     /// True to dispatch `frame` (one JSON line, unparsed) for `peer`.
     fn admit(&self, peer: &RemotePeer, frame: &str) -> bool;
+
+    /// Extra commands explicitly enabled for a signed Native owner. The
+    /// default remains deny, including DenyAllGate and custom entry policies.
+    fn admit_native_owner(&self, _frame: &str) -> bool {
+        false
+    }
 }
 
 /// The default gate: every frame is refused.
@@ -317,7 +323,10 @@ impl LineAdmission for RemoteAdmission {
     }
 
     fn refusal(&self, line: &str) -> Option<Value> {
-        if self.gate.admit(&self.peer, line) {
+        if self.gate.admit(&self.peer, line)
+            || (self.native_vm_kind == Some(Some(cmux_link::token::VmKind::Owner))
+                && self.gate.admit_native_owner(line))
+        {
             return None;
         }
         Some(denied(line))

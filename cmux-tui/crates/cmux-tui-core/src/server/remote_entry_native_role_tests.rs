@@ -1,7 +1,7 @@
 //! Native ownership is authenticated per connection, never supplied by a frame.
 use super::*;
+use crate::server::AgentStartHost;
 use crate::server::agent_session_attach::Refusal;
-use crate::server::agent_session_start::AgentStartHost;
 use cmux_link::stamp::{LinkPeer, StampCheck};
 use cmux_link::token::VmKind;
 
@@ -20,12 +20,7 @@ fn native_stamp(role: Option<VmKind>) -> String {
 fn native_stamp_binds_role_and_request_owner_cannot_elevate_it() {
     for role in [None, Some(VmKind::Team), Some(VmKind::Owner)] {
         let entry = entry_with(true, Arc::new(AdmitAll), Some(true));
-        entry
-            .mux
-            .control_clients
-            .agent_sessions
-            .starts
-            .set_host(Arc::new(|| AgentStartHost::OwnerCloud));
+        entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
         let (mut stream, mut reader) = connect_as_link(&entry);
         send(&mut stream, &native_stamp(role));
         // Even a frame claiming a different identity/role cannot replace the
@@ -61,19 +56,9 @@ fn native_stamp_binds_role_and_request_owner_cannot_elevate_it() {
         // Removing guest-local Cloud markers cannot promote a signed team or
         // missing-role token either. A real signed owner still needs a host
         // that permits ownership; team-host evidence always wins.
-        entry
-            .mux
-            .control_clients
-            .agent_sessions
-            .starts
-            .set_host(Arc::new(|| AgentStartHost::Allowed));
+        entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::Allowed));
         assert_eq!(entry.mux.agent_host_gate(client, Some("owner")), expected);
-        entry
-            .mux
-            .control_clients
-            .agent_sessions
-            .starts
-            .set_host(Arc::new(|| AgentStartHost::TeamVm));
+        entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::TeamVm));
         assert!(entry.mux.agent_host_gate(client, Some("owner")).is_err());
     }
 }
@@ -100,22 +85,15 @@ fn legacy_entry_and_local_connections_keep_the_existing_host_gate() {
     let writer = MessageWriter::new(QueuedSink { outbound, control: None });
     let local = entry.mux.control_clients.register(ClientTransport::Unix, writer);
     for client in [local, legacy] {
-        entry
-            .mux
-            .control_clients
-            .agent_sessions
-            .starts
-            .set_host(Arc::new(|| AgentStartHost::Allowed));
+        entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::Allowed));
         assert_eq!(entry.mux.agent_host_gate(client, None), Ok(()));
         assert_eq!(entry.mux.agent_host_gate(client, Some("team")), Err(Refusal::HostUnverified));
-        entry
-            .mux
-            .control_clients
-            .agent_sessions
-            .starts
-            .set_host(Arc::new(|| AgentStartHost::OwnerCloud));
+        entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
         assert_eq!(entry.mux.agent_host_gate(client, None), Err(Refusal::HostUnverified));
         assert_eq!(entry.mux.agent_host_gate(client, Some("owner")), Ok(()));
     }
     assert_eq!(entry.mux.agent_host_gate(u64::MAX, Some("owner")), Err(Refusal::HostUnverified));
 }
+
+#[path = "remote_entry_native_dispatch_tests.rs"]
+mod dispatch;
