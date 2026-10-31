@@ -1503,6 +1503,10 @@ path = "tests/test_test_reds.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cargo_test_verdict.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_guard_check_isolation.py"
 lane = "linux-guard"
 
