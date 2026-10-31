@@ -300,3 +300,36 @@ fn a_segments_birth_time_is_read_on_linux() {
     }
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// The copies' folder is owner-only whatever the umask: under 002 (a lane VM's) it was made
+/// group-writable, `private_state_dir` refused it, and no copy was ever written. The umask is the
+/// process's, so the scan runs in a child process of this test binary that runs this test alone.
+#[cfg(unix)]
+#[test]
+fn a_copy_is_written_under_a_group_writable_umask() {
+    use std::os::unix::fs::PermissionsExt;
+    const CHILD: &str = "ACPMUX_TEST_KIND_INDEX_UMASK_CHILD";
+    let name = "store::kind_index::tests::a_copy_is_written_under_a_group_writable_umask";
+    if std::env::var_os(CHILD).is_none() {
+        let out = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([name, "--exact", "--nocapture", "--test-threads=1"])
+            .env(CHILD, "1")
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        let text = String::from_utf8_lossy(&out.stdout);
+        assert!(out.status.success() && text.contains("1 passed"), "{text}");
+        return;
+    }
+    // SAFETY: umask has no preconditions; this process runs this test only.
+    unsafe { libc::umask(0o002) };
+    let root = root();
+    let (store, log) = store_with_log(&root, 3);
+    let first = scanned(&store, &["queued"]);
+    assert_eq!(first.len(), log.iter().filter(|r| r.kind == "queued").count());
+    let dir = root.join("c").join(kind_index::DIR);
+    let mode = std::fs::metadata(&dir).expect("the copies' folder").permissions().mode();
+    assert_eq!(mode & 0o777, 0o700);
+    assert!(std::fs::read_dir(&dir).unwrap().next().is_some(), "a copy was written");
+    let _ = std::fs::remove_dir_all(&root);
+}
