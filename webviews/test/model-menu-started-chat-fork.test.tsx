@@ -637,7 +637,12 @@ test("a new chat still launches a named harness entry whose probe failed from it
   const { switched } = await mount(0, undefined, "claude", catalog);
   await open();
   const launch = railTabs().find((tab) => tab.getAttribute("aria-label") === "Claude (work)");
-  expect(launch, railTabs().map((tab) => tab.getAttribute("aria-label")).join(", ")).toBeDefined();
+  expect(
+    launch,
+    railTabs()
+      .map((tab) => tab.getAttribute("aria-label"))
+      .join(", "),
+  ).toBeDefined();
   await act(async () => launch!.click());
   await settle();
   expect(switched).toEqual(["claude-work"]);
@@ -670,6 +675,9 @@ test("a failed probe's launch tab shows no rows when reached with the arrows, an
     });
     await settle();
   }
-  expect(rows().some((text) => text.includes("Stale")), rows().join(" | ")).toBe(false);
+  expect(
+    rows().some((text) => text.includes("Stale")),
+    rows().join(" | "),
+  ).toBe(false);
   expect(switched).toEqual([]);
 });
