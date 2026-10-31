@@ -165,7 +165,6 @@
   border-top: 1px solid var(--tc-border);
 }
 .tc-focus summary {
-  cursor: pointer;
   padding: 12px 16px;
   font-weight: 600;
 }
@@ -264,7 +263,6 @@
   background: transparent;
   color: rgba(255, 255, 255, 0.55);
   font: inherit;
-  cursor: pointer;
   transition: color 150ms ease-out;
 }
 .proto-picker-item:hover {
