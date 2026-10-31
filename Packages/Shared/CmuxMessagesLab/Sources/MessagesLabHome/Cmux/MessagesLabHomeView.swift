@@ -785,11 +785,6 @@ public final class MessagesLabHomeView: NSView {
     public var headerHeight: CGFloat { (controller.host.bareTop ? controller.host.bareRowsTop : Fixture.headerHeight) * zoom }
     /// The field's top in this view's frame (zoomed) points (the first-run panel's bottom).
     public var fieldTop: CGFloat { controller.demo.map { $0.fieldTop * zoom } ?? frame.height }
-    /// The oldest loaded row's top, measured like `fieldTop`; nil with no rows shown.
-    public var rowsTop: CGFloat? {
-        guard let demo = controller.demo, !projection.shown.isEmpty else { return nil }
-        return demo.windowY(contentY: demo.layout.rowsTop) * zoom
-    }
 
     /// Nothing animates and no wake-up is pending (tests, the harness).
     public var isIdle: Bool { controller.isIdle }
