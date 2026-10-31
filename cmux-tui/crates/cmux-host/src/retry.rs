@@ -22,15 +22,7 @@ pub fn backoff_delay_ms(fast_exits: u32) -> u64 {
     }
 }
 
-/// Why one re-arm attempt failed.
-#[derive(Debug, PartialEq, Eq)]
-pub enum ArmError {
-    /// `ECANCELED`: the clock was set again between the read and the
-    /// re-arm. Drain the timer and retry.
-    Cancelled,
-    /// Any other errno. Not retried.
-    Other(i32),
-}
+pub use cmux_server::deadline::ArmError;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum RearmOutcome {
