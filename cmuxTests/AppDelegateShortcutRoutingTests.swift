@@ -1,6 +1,7 @@
 import XCTest
 import CmuxBrowser
 import CmuxTerminal
+import CmuxSettings
 import AppKit
 import Carbon.HIToolbox
 import Combine
@@ -117,6 +118,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     // Optional, not IUO: setUpWithError() can XCTSkip before this is assigned,
     // and tearDown() still runs after a skip, so it must tolerate a nil here.
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore?
+    private var originalChiefEnabled: Any?
 
     private func makeKeyEvent(
         modifierFlags: NSEvent.ModifierFlags,
@@ -172,6 +174,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
+        let chiefEnabledKey = ChiefCatalogSection().enabled.userDefaultsKey
+        originalChiefEnabled = UserDefaults.standard.object(forKey: chiefEnabledKey)
+        // These routing fixtures count and select ordinary terminal workspaces.
+        // The optional persistent Home workspace changes that topology.
+        ChiefSettings.setEnabled(false)
         // Prevent a single hanging test from consuming the entire CI timeout budget.
         executionTimeAllowance = 30
         AppDelegate.installWindowResponderSwizzlesForTesting()
@@ -229,6 +236,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         Self.retainedTextBoxUndoWindows.removeAll()
         Self.retainedTextBoxRenderScrollViews.removeAll()
         Self.retainedTextBoxRestoreViews.removeAll()
+        let chiefEnabledKey = ChiefCatalogSection().enabled.userDefaultsKey
+        if let originalChiefEnabled {
+            UserDefaults.standard.set(originalChiefEnabled, forKey: chiefEnabledKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: chiefEnabledKey)
+        }
         super.tearDown()
     }
 
