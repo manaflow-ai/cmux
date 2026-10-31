@@ -1,13 +1,20 @@
 import Foundation
 
 /// Secret bytes travel only in writeFile's body. Exec carries a private staging path, never a
-/// token. Who may receive a login is the caller's attach answer (`vmKind == "owner"`, checked by
-/// ``CloudCredentialTransfer`` before and after the login), as the Codex broker decides it: guest
-/// files are controlled by the VM and cannot authorize delivery. The image's launchers stay
-/// authoritative for how the login is used; images without them fail closed.
+/// token. A login goes only where the caller's attach answer says they own the machine
+/// (``CloudCredentialTransfer`` checks it before and after the login) and, by default, where the
+/// guest is an owner machine too: on a team guest every member's terminal runs as the same Unix
+/// user and could read it. `creatorTeamMachine` waives the guest half for the creator of a team
+/// machine; only the DEV/dogfood first-chat path passes it (Leo, 2026-10-31: "the creator of a team
+/// machine counts as its owner"). The image's launchers stay authoritative; old images fail closed.
 nonisolated enum CloudCredentialInstaller {
-    static let preflight = #"""
-        set -eu
+    static func preflight(creatorTeamMachine: Bool = false) -> String {
+        "set -eu\n" + (creatorTeamMachine ? "" : ownerGuestLine + "\n") + preflightBody
+    }
+
+    static let ownerGuestLine = #"[ "$(cat /etc/cmux/vm-kind 2>/dev/null)" = owner ]"#
+
+    static let preflightBody = #"""
         [ -f /etc/cmux/agent-auth.sh ]
         if [ "$(id -u)" = 0 ]; then install -d -m 700 -o cmux -g cmux /home/cmux/.cmux/credential-transfer; else
           [ "$(id -un)" = cmux ]; mkdir -p /home/cmux/.cmux/credential-transfer; chmod 700 /home/cmux/.cmux/credential-transfer
@@ -16,20 +23,21 @@ nonisolated enum CloudCredentialInstaller {
 
     static func quote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'" }
 
-    static func command(provider: CloudCredentialTransfer.Provider, payloadPath: String) -> String {
+    static func command(provider: CloudCredentialTransfer.Provider, payloadPath: String, creatorTeamMachine: Bool = false) -> String {
         // Reuse the image's exact own-mode normalization: only its known endpoint/placeholder
         // values are removed. Custom endpoints remain visible to the installer's conflict guard.
         "set -e\n. /etc/cmux/agent-auth.sh\ncmux_agent_drop_model_plane_env\n"
-            + "python3 - \(quote(provider.rawValue)) \(quote(payloadPath)) <<'CMUX_CREDENTIAL_INSTALL'\n" + script + "\nCMUX_CREDENTIAL_INSTALL"
+            + "python3 - \(quote(provider.rawValue)) \(quote(payloadPath)) \(creatorTeamMachine ? "creator" : "owner") <<'CMUX_CREDENTIAL_INSTALL'\n" + script + "\nCMUX_CREDENTIAL_INSTALL"
     }
 
     /// Tests execute this installer against a scratch HOME/policy directory, then source the real
     /// image's agent-auth.sh to verify that the next launcher chooses the delivered own login.
     static let script = #"""
         import json, os, pathlib, pwd, stat, sys, tempfile
-        provider, source = sys.argv[1:3]
+        provider, source, allowed = sys.argv[1:4]
         policy = pathlib.Path('/etc/cmux')
-        if not (policy / 'agent-auth.sh').is_file():
+        kinds = ('owner', 'team') if allowed == 'creator' else ('owner',)
+        if (policy / 'vm-kind').read_text().strip() not in kinds or not (policy / 'agent-auth.sh').is_file():
             sys.exit(70)
         user = pwd.getpwnam('cmux')
         home = pathlib.Path(user.pw_dir)

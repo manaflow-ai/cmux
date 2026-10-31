@@ -63,10 +63,14 @@ struct CloudCredentialTransferTests {
         #expect(r.writes.isEmpty)
     }
 
-    /// The installer reads no guest kind: who receives a login is the caller's attach answer.
-    @Test func preflightAndInstallerNeverConsultTheGuestKind() {
-        #expect(!CloudCredentialInstaller.preflight.contains("vm-kind"))
-        #expect(!CloudCredentialInstaller.script.contains("vm-kind"))
+    /// By default a login needs an owner guest too; only the creator allowance (the DEV first-chat
+    /// path) waives that half.
+    @Test func onlyTheCreatorAllowanceWaivesTheOwnerGuest() {
+        #expect(CloudCredentialInstaller.preflight().contains("/etc/cmux/vm-kind"))
+        #expect(!CloudCredentialInstaller.preflight(creatorTeamMachine: true).contains("vm-kind"))
+        #expect(CloudCredentialInstaller.command(provider: .claude, payloadPath: "/p").contains("'/p' owner <<"))
+        #expect(CloudCredentialInstaller.command(provider: .claude, payloadPath: "/p", creatorTeamMachine: true).contains("'/p' creator <<"))
+        #expect(CloudCredentialTransfer(provider: .claude, machineID: "m", teamID: nil, userID: "u", openTerminal: { _ in false }).creatorTeamMachine == false)
     }
 
     @Test func firstTransferStoresThenDeliversAndRepeatReusesScopedCache() async throws {
@@ -167,7 +171,7 @@ struct CloudCredentialTransferTests {
         let home = directory.appendingPathComponent("home"), policy = directory.appendingPathComponent("policy")
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: policy, withIntermediateDirectories: true)
-        // A team guest: the installer reads no guest kind (the caller's attach answer decides).
+        // A team guest: refused by default, accepted for its creator (the DEV first-chat allowance).
         try Data("team".utf8).write(to: policy.appendingPathComponent("vm-kind"))
         let root = (0..<6).reduce(URL(fileURLWithPath: #filePath)) { url, _ in url.deletingLastPathComponent() }
         let auth = try String(contentsOf: root.appendingPathComponent("web/services/vms/images/devbox/agent-auth.sh"), encoding: .utf8)
@@ -175,17 +179,26 @@ struct CloudCredentialTransferTests {
         try Data(auth.utf8).write(to: policy.appendingPathComponent("agent-auth.sh"))
         let source = directory.appendingPathComponent("payload")
         try (provider == .claude ? Self.token : Self.codex).write(to: source)
-        let script = CloudCredentialInstaller.command(provider: provider, payloadPath: source.path)
+        func installer(creator: Bool) -> String {
+            CloudCredentialInstaller.command(provider: provider, payloadPath: source.path, creatorTeamMachine: creator)
             .replacingOccurrences(of: "/etc/cmux/agent-auth.sh", with: policy.appendingPathComponent("agent-auth.sh").path)
             .replacingOccurrences(of: "pathlib.Path('/etc/cmux')", with: "pathlib.Path(\(Self.pythonLiteral(policy.path)))")
             .replacingOccurrences(of: "pwd.getpwnam('cmux')", with: "pwd.getpwuid(os.geteuid())")
             .replacingOccurrences(of: "pathlib.Path(user.pw_dir)", with: "pathlib.Path(\(Self.pythonLiteral(home.path)))")
+        }
         let environment = ["PATH": "/usr/bin:/bin", "HOME": home.path,
             "CMUX_CODEROUTER_URL": "https://plane.example", "OPENAI_BASE_URL": custom ? "https://custom.example/v1" : "https://plane.example/v1",
             "OPENAI_API_KEY": "cmux-vm-edge-placeholder", "ANTHROPIC_BASE_URL": "https://plane.example",
             "ANTHROPIC_API_KEY": "cmux-vm-edge-placeholder"]
+        // The default refuses the team guest and leaves no login and no payload behind.
+        let refused = try await ProcessRunner.run(executable: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", installer(creator: false)], environment: environment,
+            timeout: .seconds(10), clock: ContinuousClock())
+        #expect(refused.status != 0)
+        #expect(!FileManager.default.fileExists(atPath: home.appendingPathComponent(".config/cmux/agent-auth/\(provider.rawValue)").path))
+        try (provider == .claude ? Self.token : Self.codex).write(to: source)
         let ran = try await ProcessRunner.run(executable: URL(fileURLWithPath: "/bin/sh"),
-            arguments: ["-c", script], environment: environment,
+            arguments: ["-c", installer(creator: true)], environment: environment,
             timeout: .seconds(10), clock: ContinuousClock())
         #expect(ran.stdout.isEmpty && ran.stderr.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: source.path))

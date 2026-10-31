@@ -70,7 +70,7 @@ extension CloudStartChat {
                 guard await CloudPresenter.confirmFirstLogin(provider: provider, machine: machine.machine.title, services: services) else { return false }
             }
             guard cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return false }
-            let transfer = CloudCredentialTransfer(provider: provider, machineID: machineID, teamID: teamID, userID: userID,
+            let transfer = CloudCredentialTransfer(provider: provider, machineID: machineID, teamID: teamID, userID: userID, creatorTeamMachine: true,
                 openTerminal: { [weak services] line in await services?.openLocalProviderLogin(line) ?? false })
             try await transfer.run(api: cloud.machineAPI, currentTeamID: { cloud.auth.teamID }, currentUserID: { cloud.auth.user?.id },
                                    confirmed: true, callerOwnsVM: { try await cloud.callerOwnsVM(machineID) })

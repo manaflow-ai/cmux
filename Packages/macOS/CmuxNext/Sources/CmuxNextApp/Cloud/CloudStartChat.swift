@@ -125,6 +125,8 @@ struct CloudStartChat {
         // Mac's tab stays.
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         _ = await loginPassed
+        // The login may have waited on a confirm and a sign-in: check the account again after it.
+        try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         report(.init(name: "opening", folder: folderName, machine: name, size: size))
         return try await open(start, tab: tab, on: machine, cwd: remoteChat)
     }
