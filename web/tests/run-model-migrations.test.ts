@@ -4,6 +4,11 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";
+import {
+  cloudRuntimeKind, cloudRuntimeLifecycle, cloudRuntimes, cloudRuntimeWorkspaces, runArtifacts, runAttachTickets,
+  runAttemptStatus, runAttempts, runEventKind, runEvents, runs, runStatus, vmProvider,
+} from "../db/schema";
 import { applyPendingMigrations, readNoTransactionMigrations } from "../scripts/cloud-vm/apply-migrations.mjs";
 
 // B2 of leo-workspace notes/web-next-to-cmux-com.md: next's Run migrations plus the run_model
@@ -55,6 +60,9 @@ const nextEnums: Record<string, string[]> = {
   cloud_runtime_kind: ["persistent", "ephemeral"],
   cloud_runtime_lifecycle: ["provisioning", "ready", "running", "draining", "suspended", "stopped", "released", "failed"],
 };
+// web/db/schema.ts declares the union of main's and next's Run model.
+const schemaTables: PgTable[] = [runs, runAttempts, runEvents, runArtifacts, runAttachTickets, cloudRuntimes, cloudRuntimeWorkspaces];
+const schemaEnums: ReadonlyArray<{ readonly enumName: string; readonly enumValues: readonly string[] }> = [runStatus, runAttemptStatus, runEventKind, vmProvider, cloudRuntimeKind, cloudRuntimeLifecycle];
 const rowTables = ["runs", "run_attempts", "run_events", "run_artifacts", "run_attach_tickets", "cloud_runtimes"];
 
 const scratchRoot = mkdtempSync(path.join(tmpdir(), "cmux-run-model-migrations-"));
@@ -123,14 +131,21 @@ function expectRowsKept(before: Awaited<ReturnType<typeof snapshotRows>>, after:
   }
 }
 
-/** Columns and enum labels next's schema.ts declares that the database lacks. */
+/** Columns and enum labels next's schema.ts, or main's union schema.ts, declares that the database lacks. */
 async function missingFromNext(pool: PgPool) {
   const missing: Record<string, string[]> = {};
-  for (const [table, expected] of Object.entries(nextColumns)) {
+  const expectedColumns = { ...nextColumns };
+  for (const table of schemaTables) {
+    const config = getTableConfig(table);
+    expectedColumns[config.name] = [...new Set([...(expectedColumns[config.name] ?? []), ...config.columns.map((column) => column.name)])];
+  }
+  const expectedEnums = { ...nextEnums };
+  for (const pgEnum of schemaEnums) expectedEnums[pgEnum.enumName] = [...new Set([...(expectedEnums[pgEnum.enumName] ?? []), ...pgEnum.enumValues])];
+  for (const [table, expected] of Object.entries(expectedColumns)) {
     const present = new Set((await rows(pool, "select column_name from information_schema.columns where table_schema = 'public' and table_name = $1", [table])).map((row) => row.column_name));
     missing[table] = expected.filter((column) => !present.has(column));
   }
-  for (const [type, expected] of Object.entries(nextEnums)) {
+  for (const [type, expected] of Object.entries(expectedEnums)) {
     const present = new Set((await rows(pool, "select e.enumlabel from pg_enum e join pg_type t on t.oid = e.enumtypid where t.typname = $1", [type])).map((row) => row.enumlabel));
     missing[type] = expected.filter((label) => !present.has(label));
   }
@@ -170,6 +185,21 @@ async function expectReplayIsNoOp(pool: PgPool) {
 const ids = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const digest = (c: string) => `sha256:${c.repeat(64)}`;
 const catalogs: Record<string, Record<string, string>> = {};
+
+describe("web/db/schema.ts holds the union of main's and next's Run model", () => {
+  test("every column and enum label of next's schema.ts is declared", () => {
+    for (const [table, expected] of Object.entries(nextColumns)) {
+      const config = getTableConfig(schemaTables.find((candidate) => getTableConfig(candidate).name === table)!);
+      expect(expected.filter((name) => !config.columns.some((column) => column.name === name))).toEqual([]);
+    }
+    // vm_provider's 'gcp' is in the database but not in main's declared values until the GCP driver comes.
+    const undeclared = Object.entries(nextEnums).flatMap(([type, expected]) => {
+      const pgEnum = schemaEnums.find((candidate) => candidate.enumName === type)!;
+      return expected.filter((label) => !pgEnum.enumValues.includes(label)).map((label) => `${type}.${label}`);
+    });
+    expect(undeclared).toEqual(["vm_provider.gcp"]);
+  });
+});
 
 describe("Run model migrations on main's three starting shapes", () => {
   dbTest("an empty database gets next's Run schema, and a replay changes nothing", async () => {
