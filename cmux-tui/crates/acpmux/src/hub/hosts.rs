@@ -27,6 +27,9 @@ pub(super) struct OpenWork {
     /// `turn_started` without `turn_result`: (seq, turnId, promptId, prompt,
     /// client, control; a Web steer's `turn_control` raises it).
     turn: Option<(u64, String, String, String, String, Control)>,
+    /// That turn's line on the summary (`turn_started` `promptLine`, `prompt_line.rs`); `None`
+    /// for an older record.
+    turn_line: Option<String>,
     /// That turn was carried on from the turn before (`turn_started` `carried`,
     /// `carried_turn.rs`): its prompt is the hub's own, and a steer is never it.
     turn_carried: bool,
@@ -877,6 +880,8 @@ impl Hub {
                             Control::from_recorded(e.msg.get("control").and_then(Value::as_str))
                         },
                     ));
+                    work.turn_line =
+                        e.msg.get("promptLine").and_then(Value::as_str).map(str::to_owned);
                     work.turn_at = e.at;
                     work.turn_carried = e.msg.get("carried").is_some_and(|c| !c.is_null());
                     work.carry_next = None;
@@ -915,6 +920,7 @@ impl Hub {
                         (from.unwrap_or_default(), c.clone())
                     });
                     work.turn = None;
+                    work.turn_line = None;
                     work.turn_carried = false;
                     work.next_raised = false;
                     work.compacting = false;
@@ -1117,6 +1123,9 @@ impl Hub {
             && work.prompt_request.is_none()
         {
             let mut turn = TurnInfo::prompted(&client, &prompt, &turn_id, &prompt_id, control);
+            if let Some(line) = &work.turn_line {
+                turn.show(line);
+            }
             turn.turn_seq = turn_seq;
             if work.turn_at > 0 {
                 turn.started_at = work.turn_at;
@@ -1150,10 +1159,16 @@ impl Hub {
                     let ended = session.steer_end.subscribe();
                     // Its start as logged: a restart does not make it new.
                     let started_at = if work.turn_at > 0 { work.turn_at } else { now_ms() };
+                    // Its line on the summary as the turn showed it (`prompt_line.rs`); an older
+                    // record's as its client tells it.
+                    let line = work
+                        .turn_line
+                        .clone()
+                        .unwrap_or_else(|| super::prompt_line::prompt_line(&prompt, &client, None));
                     *session.turn.lock().unwrap() = Some(TurnInfo {
                         started_at,
                         client,
-                        masked_preview: crate::secret_scan::mask(&prompt),
+                        masked_preview: super::auto_resume::shown_line(&line),
                         prompt_preview: prompt,
                         turn_id: turn_id.clone(),
                         prompt_id: prompt_id.clone(),
@@ -1731,8 +1746,9 @@ impl Hub {
         } else {
             crate::agent::command_env(&cmd)
         };
-        // From the harness's own env: its profile's value as resolved (`cpu_class.rs`).
-        let cpu_class = crate::cpu_class::CpuClass::for_session(
+        // The class it runs at once its start is over, from the harness's own env: its profile's
+        // value as resolved (`cpu_class.rs`). It starts at normal class.
+        let run_class = crate::cpu_class::CpuClass::for_session(
             env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
         );
         let mut spec = crate::agent_host::SpawnSpec {
@@ -1748,7 +1764,6 @@ impl Hub {
             buffer_cap: crate::agent_host::DEFAULT_BUFFER_CAP,
             router_owner_fifo: crate::daemon::router_owner_path(),
             cwd_pin: crate::cwd_pin::CwdPin::current(),
-            cpu_class,
             orphan_exit: None,
         };
         let launcher = crate::agent_host::link::HostLauncher::current().map_err(internal)?;
@@ -1758,6 +1773,7 @@ impl Hub {
         spec.orphan_exit = servers.orphan_exit(self.orphan_exit());
         let launched = |child: Arc<ChildAgent>| {
             child.record_launch(servers.clone());
+            child.set_run_class(run_class);
             child
         };
         let first = match self.start_hosted(session, meta, &launcher, &spec, tap.clone()).await {
@@ -1800,6 +1816,11 @@ impl Hub {
         let record = crate::agent_host::program_wait::spawn(launcher, spec)
             .await
             .map_err(|error| HostStartFailed { error, started: None })?;
+        // Not at a background class another process set (`cpu_class.rs`, item 1). Its host reaps
+        // it: a harness that already ended leaves the pid to a process of this user at most.
+        if let Some(pid) = record.harness_pid {
+            crate::cpu_class::clear_running(pid);
+        }
         self.forget_adopted_caller(&session.id);
         // Logged before the first entry, so a later controller counts every
         // entry of this incarnation.

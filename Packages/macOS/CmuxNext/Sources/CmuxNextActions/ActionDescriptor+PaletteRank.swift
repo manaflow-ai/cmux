@@ -270,6 +270,8 @@ extension ActionDescriptor {
         PaletteFamily("forkConversation", parent: "palette.forkAgentConversation", members: [
                           "palette.forkAgentConversationRight", "palette.forkAgentConversationLeft",
                           "palette.forkAgentConversationTop", "palette.forkAgentConversationBottom",
+                          "palette.forkAgentConversationNewColumnRight", "palette.forkAgentConversationNewColumnLeft",
+                          "palette.forkAgentConversationNewRow",
                           "palette.forkAgentConversationNewTab", "palette.forkAgentConversationNewWorkspace",
                           "palette.forkAgentConversationNewWindow",
                       ]),
