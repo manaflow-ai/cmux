@@ -11,7 +11,7 @@ import { PendingSteer } from "../src/agent-session/acpmux/conversation/PendingSt
 import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
 import { TurnFooter } from "../src/agent-session/acpmux/conversation/TurnRows";
 import { turnCopyText } from "../src/agent-session/acpmux/conversation/turnCopy";
-import { createT } from "../src/agent-session/acpmux/i18n";
+import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import {
   hasReplyActions,
   nextDrawnRow,
@@ -65,7 +65,7 @@ const run = (id: string): AcpmuxActivity => ({
   text: "git status",
   tool: { id, title: "git status", kind: "execute", status: "completed", command: "git status" },
 });
-const t = createT("en");
+const t = translatorFor("en");
 
 test("no reply inside a turn draws its own row, before a steer, a message or work", () => {
   const source = [
