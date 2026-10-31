@@ -2,13 +2,15 @@ import AppKit
 import os
 
 extension ScreenContentView {
-    /// This screen at its rest frames (``ColumnWidthLedger``).
-    var restShape: ColumnWidthLedger.Shape { ColumnWidthLedger.shape(of: layout, in: baseGeometry) }
+    /// This screen's columns at their rest widths (``ColumnWidthLedger``).
+    var restColumns: [ColumnWidthLedger.Column] {
+        ColumnWidthLedger.columns(of: layout, in: baseGeometry, gap: context.style.stripGap, scale: scale)
+    }
 }
 
 /// Counts and logs R3b violations (``ColumnWidthLedger``): the App's `SurfaceInvariantMonitor` runs it once
 /// the layout settles, in debug builds only (release builds record no widths, so it finds nothing). One
-/// violation per create that resized an existing pane, logged with each one's column and old and new width.
+/// violation per create that resized another column, logged with each such column's old and new width.
 @MainActor
 public final class ColumnWidthInvariant {
     public private(set) var violations = 0
@@ -22,8 +24,10 @@ public final class ColumnWidthInvariant {
     public func check(_ roots: [LayoutRootView], action: String) -> Int {
         var found = 0
         for root in roots {
-            for (id, screen) in root.screenViews.sorted(by: { $0.key < $1.key }) where !screen.isHidden && screen.columnWidths.record != nil {
-                let changes = screen.columnWidths.take(screen.restShape, viewportWidth: screen.bounds.width)
+            for (id, screen) in root.screenViews.sorted(by: { $0.key < $1.key }) where screen.columnWidths.record != nil {
+                // Hidden before its check (a screen switch): the record would blame a later change.
+                guard !screen.isHidden else { screen.columnWidths.drop(); continue }
+                let changes = screen.columnWidths.take(screen.restColumns, viewportWidth: screen.bounds.width)
                 guard !changes.isEmpty else { continue }
                 found += 1
                 let text = changes.map(\.description).joined(separator: ", ")

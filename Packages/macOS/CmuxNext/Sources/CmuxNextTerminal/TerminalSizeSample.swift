@@ -38,12 +38,14 @@ public nonisolated struct TerminalSizeSample: Sendable, Equatable, CustomStringC
         self.link = link
     }
 
-    /// One size everywhere: grid == fit(bounds) == Ghostty's surface == the PTY's == the daemon's,
-    /// and no sent grid waits for its ack.
+    /// One size everywhere: grid == fit(bounds) == Ghostty's surface == the PTY's == the daemon's. The surface
+    /// renders only grids the daemon announced in its stream, so `grid` is the daemon's size as the view
+    /// applied it; the link's record of the announcement (`acked`) is compared when it has one (an attach's
+    /// grid arrives before its link is live and is not recorded there). A pending ack is logged, not judged.
     public var holds: Bool {
         guard let fit, surface == fit, grid == fit else { return false }
         guard let link else { return true }
-        return link.sent == fit && link.acked == fit && !link.awaitingAck
+        return link.sent == fit && (link.acked == nil || link.acked == fit)
     }
 
     public var description: String {
@@ -57,13 +59,14 @@ extension TerminalSession {
     /// The terminal's sizes for the size invariant, from values the view and its IO already hold (a
     /// few Ghostty getters, no daemon round trip). Nil when the invariant does not apply: no surface,
     /// the view is not shown, it does not set the terminal's grid (a follower, or another client sizes
-    /// it, ``TerminalIO/appliesViewGrid(reporting:)``). `settled` is false while its pane is on a
+    /// it, ``TerminalIO/appliesViewGrid(reporting:)``, or the view shows "Sized for"). `settled` is false while its pane is on a
     /// layout spring, its window resizes live or a grid report waits for a spring to land.
     public var sizeSample: (sample: TerminalSizeSample, settled: Bool)? {
         let surfaceView = surfaceView
         guard let surface = surfaceView.surface, surfaceView.isShown, surfaceView.ownsGeometry else { return nil }
         let link = io.linkGrids
-        if link != nil, !io.appliesViewGrid(reporting: false) { return nil }
+        // Another client sizes the terminal, or a claim lost to the size policy ("Sized for"): not this view's grid.
+        if link != nil, !io.appliesViewGrid(reporting: false) || view.sizedForText != nil { return nil }
         let area = view.surfaceSize(forHostSize: view.bounds.size)
         let pixels = surfaceView.convertToBacking(area)
         var columns: UInt16 = 0, rows: UInt16 = 0

@@ -3,11 +3,11 @@ import CmuxNextDesign
 @testable import CmuxNextLayout
 import Testing
 
-/// R3b (Lawrence 2026-10-31, binding: "creating new columns must never resize existing columns"): a create
-/// that adds a column, New Column or Split Right, leaves every pane that existed before at its width in
-/// points; the check counts one violation for a create that changed one, and none for a create that kept
-/// every width, a Split Down or a width change that adds no column. Debug builds record the widths (the
-/// test target builds Debug). No column gap, so a lone split tree is as wide as a full-width column.
+/// R3b (Lawrence's rule, scope by cmux-ad 2026-10-31): a create keeps every other column's width in points.
+/// New Column keeps every old column; Cmd-D (Split Right) and Split Down split inside a column, whose own
+/// panes share it, and no other column changes. The check counts one violation for a create that changed
+/// another column, and none for a create that kept them or a width change that is no create. Debug builds
+/// record the widths (the test target builds Debug).
 @MainActor @Suite(.serialized) struct ColumnWidthInvariantTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }
@@ -48,45 +48,54 @@ import Testing
         })
     }
 
-    nonisolated static let splitRight: SplitNode = .split("h", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2"))
-    nonisolated static let splitDown: SplitNode = .split("v", axis: .vertical, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2"))
+    /// Column a (p1) split by `axis` with a new pane p3 at width `a`, beside column b (p2) at width `b`.
+    nonisolated static func split(_ axis: SplitAxis, a: Double, b: Double) -> ScreenLayout {
+        .columns([LayoutColumn(id: "a", width: a, root: .split("s", axis: axis, ratio: 0.5, a: .leaf("p1"), b: .leaf("p3"))),
+                  LayoutColumn(id: "b", width: b, root: .leaf("p2"))])
+    }
 
-    /// New Column narrows an existing column; Split Right (today's Cmd-D) halves the pane it splits; a lone
-    /// split tree's first New Column takes the rest of the screen (the old `1 - width` rule).
+    nonisolated static let twoColumns = columns([("a", 0.5), ("b", 0.5)])
+
+    /// New Column narrows an old column; Cmd-D and Split Down in column a narrow column b; a lone split
+    /// tree's first New Column takes the rest of the screen (the old `1 - width` rule).
     nonisolated static let resizingCreates: [(from: ScreenLayout, to: ScreenLayout)] = [
-        (columns([("a", 0.5), ("b", 0.5)]), columns([("a", 0.4), ("b", 0.5), ("c", 0.3)])),
-        (.splits(.leaf("p1")), .splits(splitRight)),
+        (twoColumns, columns([("a", 0.4), ("b", 0.5), ("c", 0.3)])),
+        (twoColumns, split(.horizontal, a: 0.6, b: 0.4)),
+        (twoColumns, split(.vertical, a: 0.6, b: 0.4)),
         (.splits(.leaf("p1")), columns([("a", 0.5), ("c", 0.5)])),
     ]
 
-    @Test(arguments: 0..<3)
-    func aCreateThatResizesAnExistingColumnCountsOneViolation(_ index: Int) {
+    @Test(arguments: 0..<4)
+    func aCreateThatResizesAnotherColumnCountsOneViolation(_ index: Int) {
         let (from, to) = Self.resizingCreates[index]
         let screen = Screen(from)
         defer { screen.close() }
         let invariant = ColumnWidthInvariant()
         screen.show(to)
-        #expect(invariant.check([screen.root], action: "layout.newColumn") == 1, "a create that resized a column counted no violation")
+        #expect(invariant.check([screen.root], action: "layout.newColumn") == 1, "a create that resized another column counted no violation")
         #expect(invariant.check([screen.root], action: "layout.newColumn") == 0, "the same create counted again")
         #expect(invariant.violations == 1)
     }
 
-    /// New Columns keeping every width (the new column takes new space, the strip scrolls), a Split Down (it
-    /// adds no column), and a width change that adds no column (a preset, another client's drag).
+    /// New Columns keeping every old width (the new column takes new space, the strip scrolls); Cmd-D and
+    /// Split Down in column a, which halve its panes and keep column b; Cmd-D on a lone split tree (no other
+    /// column); and a width change that is no create (a preset, another client's drag).
     nonisolated static let keepingChanges: [(from: ScreenLayout, to: ScreenLayout)] = [
-        (columns([("a", 0.5), ("b", 0.5)]), columns([("a", 0.5), ("b", 0.5), ("c", 0.3)])),
+        (twoColumns, columns([("a", 0.5), ("b", 0.5), ("c", 0.3)])),
         (.splits(.leaf("p1")), columns([("a", 1), ("c", 0.5)])),
-        (.splits(.leaf("p1")), .splits(splitDown)),
-        (columns([("a", 0.5), ("b", 0.5)]), columns([("a", 0.4), ("b", 0.6)])),
+        (twoColumns, split(.horizontal, a: 0.5, b: 0.5)),
+        (twoColumns, split(.vertical, a: 0.5, b: 0.5)),
+        (.splits(.leaf("p1")), .splits(.split("h", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")))),
+        (twoColumns, columns([("a", 0.4), ("b", 0.6)])),
     ]
 
-    @Test(arguments: 0..<4)
-    func aChangeThatKeepsEveryExistingColumnsWidthCountsNone(_ index: Int) {
+    @Test(arguments: 0..<6)
+    func aChangeThatKeepsEveryOtherColumnsWidthCountsNone(_ index: Int) {
         let (from, to) = Self.keepingChanges[index]
         let screen = Screen(from)
         defer { screen.close() }
         let invariant = ColumnWidthInvariant()
         screen.show(to)
-        #expect(invariant.check([screen.root], action: "layout.newColumn") == 0, "a change that kept every width counted a violation")
+        #expect(invariant.check([screen.root], action: "layout.newColumn") == 0, "a change that kept every other column's width counted a violation")
     }
 }

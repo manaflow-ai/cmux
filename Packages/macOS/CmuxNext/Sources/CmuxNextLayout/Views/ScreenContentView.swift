@@ -68,7 +68,7 @@ final class ScreenContentView: NSView {
     /// The focus the scroll last followed; a window resize re-syncs with it.
     var lastFocused: PaneID?
     var activeDrag: DividerDragState?
-    /// Pane widths before a create, for the R3b check (``ColumnWidthLedger``); recorded in debug builds only.
+    /// Column widths before a create, for the R3b check (``ColumnWidthLedger``); recorded in debug builds only.
     var columnWidths = ColumnWidthLedger()
     /// A person's resize drag as the pane contents hear it (`ScreenContentView+ResizeGesture`).
     var resizeGesture = PaneResizeGesturePhase.idle
@@ -195,7 +195,7 @@ final class ScreenContentView: NSView {
         let unzooming = self.zoomed && !zoomed
         let zooming = !self.zoomed && zoomed
         #if DEBUG
-        let shapeBefore = structural && !isHidden && canvas == nil && !self.zoomed && !zoomed ? restShape : nil
+        let shapeBefore = structural && !isHidden && canvas == nil && !self.zoomed && !zoomed ? restColumns : nil
         #endif
         self.layout = layout
         self.zoomed = zoomed
@@ -203,7 +203,7 @@ final class ScreenContentView: NSView {
         if activeDrag == nil { rowDragPreview = nil }
         let moving = reconcile(animated: animated, structural: structural, unzooming: unzooming, zooming: zooming)
         #if DEBUG
-        if let shapeBefore { columnWidths.noteChange(from: shapeBefore, to: restShape, viewportWidth: bounds.width) }
+        if let shapeBefore { columnWidths.noteChange(from: shapeBefore, to: restColumns, viewportWidth: bounds.width) }
         #endif
         return moving || canvasState.camera.isMoving
     }
