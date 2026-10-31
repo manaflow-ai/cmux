@@ -9,7 +9,9 @@ import { join } from "node:path";
 const css = readFileSync(join(import.meta.dir, "../src/agent-session/acpmux/newtab/screen.css"), "utf8");
 
 function selectorsPadding(prop: RegExp): string[] {
-  return [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].filter((m) => prop.test(m[2])).flatMap((m) => m[1].split(",").map((s) => s.trim()));
+  return [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)]
+    .filter((m) => prop.test(m[2]))
+    .flatMap((m) => m[1].split(",").map((s) => s.trim()));
 }
 
 test("Codex's look (no split) reserves the shell glyph's column", () => {
@@ -18,5 +20,7 @@ test("Codex's look (no split) reserves the shell glyph's column", () => {
 });
 
 test("Claude's look (split) moves the glyph into the lead gap instead", () => {
-  expect(css).toMatch(/\.nt-input\[data-split\] \.nt-field-slot:not\(\[data-glyph-column\]\) \.nt-input-glyph \{[^}]*inset-inline-start:\s*calc\(-1 \* var\(--acpmux-composer-lead-gap\)\)/);
+  expect(css).toMatch(
+    /\.nt-input\[data-split\] \.nt-field-slot:not\(\[data-glyph-column\]\) \.nt-input-glyph \{[^}]*inset-inline-start:\s*calc\(-1 \* var\(--acpmux-composer-lead-gap\)\)/,
+  );
 });

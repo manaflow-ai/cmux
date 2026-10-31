@@ -221,6 +221,8 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     /** Where the placeholder's (or, with a draft, the typed text's) first character's box starts. */
     text: number | null;
     textSource: string;
+    /** The prompt holds an attachment placed in its text (taller than one text line). */
+    inline: boolean;
     /** The rows that hang off the box, from its left edge: a row of boxes by its first box's left
         edge, a row of marks by its leading mark (a glyph or a character). */
     rows: {
@@ -287,9 +289,11 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
           glyphBox: svg ? plain(svg.getBoundingClientRect()) : null,
         };
       };
+      // Codex's row: the chat's bar, or New Tab's pickers row in the box under the field (cmux #28901;
+      // Claude's look puts New Tab's + in the field's row, .nt-input, instead).
       const barElement = card
         ?.querySelector(".acpmux-composer-plus")
-        ?.closest(".acpmux-composer-bar:not(.acpmux-composer-inner)");
+        ?.closest(".acpmux-composer-bar:not(.acpmux-composer-inner), .nt-box > .acpmux-chrome-area > .nt-pickers");
       const bar = barElement ? shown(barElement) : null;
       const plus = control(".acpmux-composer-plus .acpmux-picker-button");
       const mic = control(".acpmux-mic");
@@ -297,6 +301,7 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       let text: number | null = null;
       let textSource = "none";
       let line: Measured["line"] = null;
+      let inline = false;
       const area = card?.querySelector<HTMLTextAreaElement>("textarea.nt-field");
       if (area) {
         // A textarea draws its placeholder and its value from its content box's left edge.
@@ -334,7 +339,16 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
         if (chosen) {
           text = chosen.left;
           textSource = typed ? "typed" : "placeholder";
+        } else {
+          // A prompt that holds only an attachment (placed inline at the caret, cmux #26545) starts its
+          // line where the attachment's margin box starts.
+          const atom = [...(prompt?.querySelectorAll(".acpmux-md-inline") ?? [])].find((element) => shown(element));
+          if (atom) {
+            text = atom.getBoundingClientRect().left - parseFloat(getComputedStyle(atom).marginLeft);
+            textSource = "inline attachment";
+          }
         }
+        inline = !!prompt?.querySelector(".acpmux-md-inline");
         // The first line's text: what is typed, else the placeholder.
         if (chosen) line = { top: chosen.top, center: (chosen.top + chosen.bottom) / 2, source: textSource };
       }
@@ -433,6 +447,7 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
         line,
         text,
         textSource,
+        inline,
         rows,
         clip,
       };
@@ -530,7 +545,9 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
         out.push(`+ stands ${f(left)} px off the box's left, ${f(bottom)} off its bottom`);
       if (!m.bar) {
         const top = b.top - m.box.top;
-        if (Math.abs(top - bottom) > TOLERANCE && !m.rows.chips)
+        // Over the attachments' band or beside an inline attachment the prompt is taller than one
+        // line, and + stays on its last line.
+        if (Math.abs(top - bottom) > TOLERANCE && !m.rows.chips && !m.inline)
           out.push(`+ stands ${f(top)} px under the box's top, ${f(bottom)} over its bottom`);
       }
     }
