@@ -305,7 +305,9 @@ impl Hub {
         // every following chat behind its replay deadline. Keep at most eight in flight;
         // this pass ends once the records are drained and owns no detached adoption tasks.
         futures_util::stream::iter(good)
-            .for_each_concurrent(8, |(_, record)| self.adopt_record(&dir, record, &off))
+            .for_each_concurrent(8, |(_, record)| {
+                super::adopt_retry::adoption_hello_scope(self.adopt_record(&dir, record, &off))
+            })
             .await;
         for unreadable in bad {
             // Nothing proves what it may still write: held until its host is proven gone.
