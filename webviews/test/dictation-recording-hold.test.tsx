@@ -200,3 +200,45 @@ test("a switch that carries the prompt leaves the uploading recording with its o
   expect(intake.attachments).toEqual([]);
   expect(handedOff).toEqual([["chat-a", [remote]]]);
 });
+
+// A composer that goes away while the host still streams the recording has nowhere to put its
+// chip, so the upload stops (`dictation.recording.cancel`). One whose upload already answered is
+// not cancelled.
+test("a composer that goes away while the recording uploads stops the upload, once", async () => {
+  await fresh();
+  const host = upload();
+  let stopped = 0;
+  await act(async () => intake.attachLater("Recording.wav", host.make, FAILED, () => stopped++));
+  // The composer showed another chat before it went, so a late answer would go to chat A's kept chips.
+  chat = "chat-b";
+  await act(async () => root.render(<Probe />));
+  await act(async () => root.render(null));
+  expect(stopped).toBe(1);
+  // A late answer (a transfer that committed anyway) goes nowhere, not even to its chat's kept chips.
+  await act(async () => host.answer({ path: remote }));
+  expect(stopped).toBe(1);
+  expect(handedOff).toEqual([]);
+});
+
+test("a composer that goes away after the upload answered asks no cancel", async () => {
+  await fresh();
+  const host = upload();
+  let stopped = 0;
+  await act(async () => intake.attachLater("Recording.wav", host.make, FAILED, () => stopped++));
+  await act(async () => host.answer({ path: remote }));
+  await act(async () => root.render(null));
+  expect(stopped).toBe(0);
+});
+
+// A host-made chip with nothing to stop on the host still loses its late answer when the
+// composer goes away: it is dropped, not handed to its chat's kept chips.
+test("a composer that goes away drops a late answer for a chip with no stop", async () => {
+  await fresh();
+  const host = upload();
+  await act(async () => intake.attachLater("Recording.wav", host.make, FAILED));
+  chat = "chat-b";
+  await act(async () => root.render(<Probe />));
+  await act(async () => root.render(null));
+  await act(async () => host.answer({ path: remote }));
+  expect(handedOff).toEqual([]);
+});
