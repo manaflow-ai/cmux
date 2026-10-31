@@ -12,7 +12,7 @@ package struct NativeCloudLinkStartup: Sendable, CustomDebugStringConvertible {
 
 /// One app-owned Native link. The app stops it when its selected account/team/mesh ends.
 package actor NativeCloudLinkChild {
-    private static let blockingWork = BackgroundWork(label: "com.cmuxterm.next.native-link")
+    private let blockingWork = BackgroundWork(label: "com.cmuxterm.next.native-link")
     package struct Ready: Sendable {
         package let status: String
         package let pid: Int32
@@ -101,7 +101,8 @@ package actor NativeCloudLinkChild {
             guard let pid = process.pid, let started = NativeCloudProcessStart(pid: pid) else { throw POSIXError(.EACCES) }
             childPID = pid
             // task-owner: bounded startup task; cancellation stops the owned child and closes its peer.
-            let received = Task { try await Self.blockingWork.run(.userVisible, mayBlock: .system) {
+            let work = blockingWork
+            let received = Task { try await work.run(.userVisible, mayBlock: .system) {
                 try NativeBrokerDescriptor.receive(parent)
             } }
             var fd: Int32? = try await withTaskCancellationHandler {
