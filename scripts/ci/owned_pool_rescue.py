@@ -1569,8 +1569,9 @@ def app_jwt(app_id: str, key: str, now: float | None = None,
     return f"{signing}.{_b64(signature)}"
 
 
-def app_token_minter(app_id: str, key: str, repo: str) -> Callable[[], str]:
-    """A function returning a new installation token of the App for `repo`, with BOT_PERMISSIONS."""
+def app_token_minter(app_id: str, key: str, repo: str, *,
+                     permissions: Mapping[str, str] | None = BOT_PERMISSIONS) -> Callable[[], str]:
+    """Mint for `repo`: BOT_PERMISSIONS by default; explicit None preserves the App's installed permissions."""
     def call(method: str, url: str, jwt: str, body: Mapping | None = None) -> Mapping[str, Any]:
         data = json.dumps(body).encode() if body is not None else None
         request = urllib.request.Request(url, method=method, headers=_headers(jwt), data=data)
@@ -1580,8 +1581,10 @@ def app_token_minter(app_id: str, key: str, repo: str) -> Callable[[], str]:
     def mint() -> str:
         jwt = app_jwt(app_id, key)
         installation = call("GET", f"{API}/repos/{repo}/installation", jwt)
-        found = call("POST", f"{API}/app/installations/{int(installation['id'])}/access_tokens", jwt,
-                     {"repositories": [repo.split("/", 1)[-1]], "permissions": BOT_PERMISSIONS})
+        payload: dict[str, Any] = {"repositories": [repo.split("/", 1)[-1]]}
+        if permissions is not None:
+            payload["permissions"] = dict(permissions)
+        found = call("POST", f"{API}/app/installations/{int(installation['id'])}/access_tokens", jwt, payload)
         return str(found["token"])
     return mint
 

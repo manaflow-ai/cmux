@@ -7291,6 +7291,26 @@ class Budget(unittest.TestCase):
         self.assertNotIn("PEM KEY", " ".join(argv))
         self.assertFalse(Path(argv[-1]).exists())
 
+    def test_repo_scoped_app_mint_can_preserve_installed_permissions_without_broadening_the_default(self):
+        for omitted in (False, True):
+            with self.subTest(omitted=omitted):
+                calls = []
+
+                def answer(request, **kwargs):
+                    calls.append((request.method, request.full_url,
+                                  json.loads(request.data) if request.data else None))
+                    payload = {"id": 7} if request.method == "GET" else {"token": "scoped"}
+                    return contextlib.closing(io.BytesIO(json.dumps(payload).encode()))
+                with unittest.mock.patch.object(rescue, "app_jwt", return_value="JWT"), \
+                        unittest.mock.patch.object(rescue.urllib.request, "urlopen", side_effect=answer):
+                    kwargs = {"permissions": None} if omitted else {}
+                    self.assertEqual(rescue.app_token_minter("app", "key", "manaflow-ai/cmux", **kwargs)(), "scoped")
+                self.assertEqual(calls[0], ("GET", f"{rescue.API}/repos/manaflow-ai/cmux/installation", None))
+                expected = {"repositories": ["cmux"]}
+                if not omitted:
+                    expected["permissions"] = rescue.BOT_PERMISSIONS
+                self.assertEqual(calls[1], ("POST", f"{rescue.API}/app/installations/7/access_tokens", expected))
+
     def test_the_workflow_passes_the_app_key_only_when_the_cmux_bot_mint_worked(self):
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text())
         steps = workflow["jobs"]["rescue"]["steps"]

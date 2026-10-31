@@ -89,6 +89,8 @@ GATE_EXEMPT_REPORTING_READS = {
         "validates each runner variable's value; gating would validate empty",
     ("ci-repo-variables.yml", "CMUX_CI_RUNS_ON_VARIABLES"):
         "checks each runs-on variable's value for one machine; gating would check empty",
+    ("ci-queue-janitor.yml", "CMUX_CI_RUNS_ON_VARIABLES"):
+        "evaluates where a queued run would reroute; gating would hide the current route",
     ("ci-cloud-overflow-probe.yml", "CMUX_CI_RUNNER_VARIABLES"):
         "the overflow switch records each value to put back; gating would record empty",
 }
@@ -276,6 +278,12 @@ def self_test_gate_matcher(errors: list[str]) -> None:
         ("ci-health-report.yml",
          "    env:\n      CMUX_CI_RUNNER_VARIABLES: |\n        A=${{ vars.MACOS_RUNNER_15 }}",
          0, "the exempt reporting block"),
+        ("ci-queue-janitor.yml",
+         "    env:\n      CMUX_CI_RUNS_ON_VARIABLES: |\n        A=${{ vars.MACOS_RUNNER_15 }}",
+         0, "the janitor's raw route inventory"),
+        ("ci-queue-janitor.yml",
+         f"runs-on: ${{{{ vars.MACOS_RUNNER_15 || '{free}' }}}}",
+         1, "an ungated janitor runner selection outside its inventory"),
     )
     with tempfile.TemporaryDirectory() as directory:
         for filename, body, expected, description in probes:

@@ -43,6 +43,13 @@ name: CI queue janitor
 # old is stale; readers treat stale or missing as full for jobs queued over
 # 3 min (scripts/ci/queue_janitor.py fleet_gates() documents the fields).
 #
+# A job queued over 3 minutes on a runner label that started nothing in that
+# time, while another label of its family (Blacksmith Linux, or owned and
+# Blacksmith macOS) did, is moved: its run is force-cancelled and re-run in the
+# same sweep, so runs-on is evaluated again against the current runner
+# variables. Never a started nightly, DEV or promote build, a running job's
+# run, or a release run (scripts/ci/dead_labels.py).
+#
 # It also alerts on starved fleet labels: a glaeda-* label with a job queued
 # over 10 minutes and no job on it running or started in that time
 # (scripts/ci/starved_labels.py). Each gets an ::error:: annotation, a summary
@@ -188,6 +195,10 @@ jobs:
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token || github.token }}
           # Takes over when the App's token is refused (queue_janitor.GitHub).
           GH_FALLBACK_TOKEN: ${{ github.token }}
+          # The pinned token action cannot request repository Variables by name. The trusted script mints a
+          # repository-scoped route-App token with Variables:read only, solely for a separate GET-only client.
+          RUNNER_POOLS_APP_ID: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          RUNNER_POOLS_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           # The same cmux-bot token again, so the janitor knows GH_TOKEN is cmux-bot's: only then does
           # category e cancel a lost job at an open PR's head and re-run it as cmux-bot (open_head_lost()).
           CMUX_BOT_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
@@ -210,6 +221,48 @@ jobs:
           # 1: fold admission's owned-warm-keys artifacts into the snapshot's
           # `warm` (scripts/ci/owned_warm_state.py) for warm affinity.
           OWNED_WARM: ${{ vars.CI_OWNED_WARM }}
+          # What each runner variable holds now, so the dead-label pass can tell where a re-run of a job lands
+          # (scripts/ci/dead_labels.py). The same block as ci-repo-variables.yml's, the one list of what a runs-on
+          # reads (tests/test_ci_dead_labels.py keeps them equal). Runner labels only.
+          CMUX_CI_RUNS_ON_VARIABLES: |
+            CI_CLOUD_OVERFLOW_SAVED=${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
+            CI_COMPILE_CHECK_GATEWAY=${{ vars.CI_COMPILE_CHECK_GATEWAY }}
+            CI_CONTROL_RUNNER=${{ vars.CI_CONTROL_RUNNER }}
+            CI_IOS_INTERNAL_RUNNER=${{ vars.CI_IOS_INTERNAL_RUNNER }}
+            CI_LIGHT_LANE_RUNNER=${{ vars.CI_LIGHT_LANE_RUNNER }}
+            CI_NEXT_DAEMON_POOL=${{ vars.CI_NEXT_DAEMON_POOL }}
+            CI_NEXT_PROMOTE_POOL=${{ vars.CI_NEXT_PROMOTE_POOL }}
+            CI_NIGHTLY_NEXT_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER }}
+            CI_NIGHTLY_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
+            CI_PAID_MACOS_OVERFLOW=${{ vars.CI_PAID_MACOS_OVERFLOW }}
+            CI_PERF_CRON_GATEWAY=${{ vars.CI_PERF_CRON_GATEWAY }}
+            CI_PIN_DAEMON_POOL=${{ vars.CI_PIN_DAEMON_POOL }}
+            CI_PR_POOL_OWNED=${{ vars.CI_PR_POOL_OWNED }}
+            CI_SEED_TRUSTED_POOL=${{ vars.CI_SEED_TRUSTED_POOL }}
+            CI_SESSION_LABEL=${{ vars.CI_SESSION_LABEL }}
+            CI_SESSION_LANE_RUNNER=${{ vars.CI_SESSION_LANE_RUNNER }}
+            CI_SIDE_LANE_RUNNER=${{ vars.CI_SIDE_LANE_RUNNER }}
+            CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY=${{ vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY }}
+            CI_TEST_COMPILE_GATEWAY=${{ vars.CI_TEST_COMPILE_GATEWAY }}
+            CI_TIP_TEST_COMPILE_GATEWAY=${{ vars.CI_TIP_TEST_COMPILE_GATEWAY }}
+            CI_TRUSTED_RUNNER=${{ vars.CI_TRUSTED_RUNNER }}
+            LINUX_RUNNER=${{ vars.LINUX_RUNNER }}
+            LINUX_RUNNER_DARWIN_CROSS=${{ vars.LINUX_RUNNER_DARWIN_CROSS }}
+            MACOS_RUNNER_15=${{ vars.MACOS_RUNNER_15 }}
+            MACOS_RUNNER_26=${{ vars.MACOS_RUNNER_26 }}
+            MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}
+            MACOS_RUNNER_DISPLAY=${{ vars.MACOS_RUNNER_DISPLAY }}
+            MACOS_RUNNER_DUAL_XCODE=${{ vars.MACOS_RUNNER_DUAL_XCODE }}
+            MACOS_RUNNER_IOS=${{ vars.MACOS_RUNNER_IOS }}
+            MACOS_RUNNER_PR=${{ vars.MACOS_RUNNER_PR }}
+            MACOS_RUNNER_TESTS=${{ vars.MACOS_RUNNER_TESTS }}
+            NIGHTLY_NEXT_TRAIN_RUNNER=${{ vars.NIGHTLY_NEXT_TRAIN_RUNNER }}
+            RUNNER_POOLS=${{ vars.RUNNER_POOLS }}
+            WINDOWS_RUNNER=${{ vars.WINDOWS_RUNNER }}
+          MAX_REDISPATCH: ${{ vars.CI_JANITOR_MAX_REDISPATCH }}
+          # Each runner pool's live member and `_dead` (scripts/ci/runner_pools.py, cmux#27129): a job queued on a
+          # member a pool moved off is re-dispatched when its runs-on reads RUNNER_POOLS. Unset: nothing from it.
+          RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
           # The gates' own state per glaeda label, written by the fleet
           # dashboard (cmuxterm-hq build-fleet/ci-dash); JSON data only, read
           # through env and never expanded into a script. Into the snapshot as `gates`.
@@ -244,8 +297,10 @@ jobs:
       # the newest copy (scripts/ci/pr_runner_pool.py) to pick the pool a
       # pull request run lands on, for two API requests instead of one job
       # listing per in-flight run.
+      # always(): the snapshot carries the dead-label pass's owed re-runs (scripts/ci/dead_labels.py), which a sweep
+      # cut off at its timeout must still hand to the next one.
       - name: Publish macOS pool load
-        if: ${{ !cancelled() && steps.fresh.outputs.skip != 'true' }}
+        if: ${{ always() && steps.fresh.outputs.skip != 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: macos-pool-load

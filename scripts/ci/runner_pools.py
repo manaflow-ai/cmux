@@ -287,6 +287,12 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
                 dead.add(label)
         for entry in snapshot.get("dead_labels") or ():
             if isinstance(entry, Mapping):
+                # A retired pool member is a re-dispatch candidate, not proof that its
+                # replacement started work.  The janitor records it alongside dead
+                # labels so the move remains visible, but it must not manufacture
+                # health evidence and mask a stalled probe.
+                if entry.get("retired") is True:
+                    continue
                 dead |= _labels(entry.get("label"))
                 live = entry.get("live")
                 if isinstance(live, list):

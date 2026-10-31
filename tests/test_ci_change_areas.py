@@ -2823,9 +2823,10 @@ def test_repository_helpers_route_by_where_they_run() -> None:
 
     # Runs only in the dispatch-only E2E lane.
     assert route("scripts/ci/preflight-e2e-screen-capture.py") == areas()
-    # Runs only in its own dispatched workflow; pr_runner_pool.py names it
-    # in a docstring, which is not a call.
-    assert route("scripts/ci/owned_pool_rescue.py") == areas()
+    # The owner-run dead-label regression imports queue_janitor, which imports
+    # this helper. No CI workflow names that regression, so its possible callers
+    # remain unknown and the router conservatively keeps every product area.
+    assert route("scripts/ci/owned_pool_rescue.py") is None
     # compile admission runs it (and seed_derived_data.py, which imports
     # e2e_warm_derived_data.py): macOS, and the CLI lane that product feeds.
     assert route("scripts/ci/owned_build_state.py") == areas(macos=True, cli=True)
