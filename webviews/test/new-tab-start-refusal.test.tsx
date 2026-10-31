@@ -231,10 +231,31 @@ for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
             ),
       "inline refusal",
     );
+    expect(starts[0]._meta.acpmux.peer).toBe(remoteStart ? "devbox" : undefined);
+    if (!remoteStart) {
+      // A local start becomes its chat at once, with the prompt queued in it (Leo 2026-10-30: "I
+      // SHOULD BE ALWAYS ABLE TO SATRT NEW FUCKGN CHATS"): the refusal shows in the chat, and the
+      // prompt is never lost, back in the chat's composer.
+      await until(() => !host.querySelector(".nt-field"), "the local start becomes its chat");
+      if (!trust) {
+        await until(
+          () =>
+            [...host.querySelectorAll("textarea")].some((node) => node.value.includes("inspect the failed build")),
+          "the refused prompt is back in the chat's composer",
+        );
+        return;
+      }
+      await until(() => !!host.querySelector(".acpmux-trust-ask-primary"), "Trust in the chat");
+      await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-trust-ask-primary")!.click());
+      await until(() => prompts.length === 1, "Trust sends the prompt exactly once");
+      await tick();
+      expect(prompts).toHaveLength(1);
+      expect(prompts[0].prompt[0].text).toBe("inspect the failed build");
+      return;
+    }
     expect(host.querySelector(".nt-field")).toBe(field);
     expect(field.value).toBe("inspect the failed build");
-    if (remoteStart) expect(machine()?.textContent).toContain("devbox");
-    expect(starts[0]._meta.acpmux.peer).toBe(remoteStart ? "devbox" : undefined);
+    expect(machine()?.textContent).toContain("devbox");
     if (trust) {
       await until(() => !!host.querySelector(".acpmux-trust-ask-primary"), "Trust control on the retained New Tab");
       expect(host.querySelector(".nt-field")).toBe(field);
