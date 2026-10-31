@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextOnboarding
 import CmuxNextApps
 import CmuxNextAgentPane
@@ -17,6 +18,7 @@ import CmuxNextMobileHost
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDaemonRecovery
+import CmuxNextDictation
 import CmuxNextFeed
 import CmuxNextFloating
 import CmuxNextFavicons
@@ -339,6 +341,12 @@ final class AppServices {
         overlay: SleepyOverlayWindows(workingAgents: { [weak self] in self?.workingAgentTabCount() ?? 0 },
                                       lockMac: { SleepyMacLock().lock() })
     )
+    /// Share Screen with Chief (docs/chief-screen-share.md): off at every launch; its journal is this
+    /// Mac's Chief home's `optchat/screen`, which the Chief's brain reads into memory notes.
+    lazy var chiefScreenShare = ChiefScreenShare(
+        capture: ChiefScreenSystemCapture(),
+        journal: ChiefScreenJournal(directory: ChiefHome.resolve(tag: environment.tag).muxHome
+            .appending(path: "optchat/screen", directoryHint: .isDirectory)))
     /// Native input for `browser.page.mouse|wheel|insert_text|key` (`BrowserNativeInputs`).
     let browserNativeInputs = BrowserNativeInputs()
     /// Each pane's own Hide Tab Bar choice (`PaneTabBarChoices`).

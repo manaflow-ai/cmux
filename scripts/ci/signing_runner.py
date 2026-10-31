@@ -91,6 +91,14 @@ MAX_OWNED_SIGNING = 1
 # its mini busy, and a mini is offered only when every busy runner on it finishes within DRAIN_HORIZON_SECONDS. With
 # none, the job takes Blacksmith now instead of a drain that cannot end inside the bound.
 DRAIN_HORIZON_SECONDS = 120.0
+# DRAIN_ANYWAY: a caller that sets DRAIN_ANYWAY=1 (nightly.yml's legacy-identity sign) still drains a mini when none
+# frees up within the horizon, instead of signing on Blacksmith. Leo, 2026-10-30, when every legacy sign since #28555
+# queued on blacksmith-6vcpu-macos-26 (15 runners, all busy) and blacksmith-12vcpu-macos-26 (none online) while the
+# old feed sat a day behind: "JUST USE ONE OF THE EXISTING FUCKIBNG FLEET MINIS ... STOP FALLING ONLY TO A FUCKING
+# BLACKSMITH THAT ISN'T AVAILABLE". A waiting nightly job comes first on the fleet (the rulebook), so the mini whose
+# busy runners finish soonest (a known estimate first, then the fewest busy runners, then by name) is drained; glaeda
+# still gives the job the whole mini or refuses it, and a refusal still sends the Blacksmith twin.
+DRAIN_ANYWAY_VALUE = "1"
 # The oldest pool snapshot a drain is chosen from. The janitor writes one about every 10 minutes; an older one may list
 # a job that has since ended on a runner that now runs another, whose end it would put too soon. Older counts as none.
 DRAIN_SNAPSHOT_MAX_MINUTES = 15.0
@@ -127,7 +135,7 @@ def drain_seconds(names: Sequence[str], running: Mapping[str, Any] | None, model
 
 def drained_runner(runners: Sequence[Mapping[str, Any]], labels: Sequence[str], seed: str = "",
                    running: Mapping[str, Any] | None = None, model: Mapping[str, Any] | None = None,
-                   now: dt.datetime | None = None) -> tuple[str, str]:
+                   now: dt.datetime | None = None, drain_anyway: bool = False) -> tuple[str, str]:
     """(the JSON runs-on array for an idle runner on a mini with no busy runner, else one to drain, or "", why).
 
     A candidate runner is online, idle, carries one of `labels` (an owned pool label) and its own
@@ -175,6 +183,7 @@ def drained_runner(runners: Sequence[Mapping[str, Any]], labels: Sequence[str], 
         weights = model if model is not None else warm_distance.load_model()
         waits: dict[str, float | None] = {}
         slots = []
+        anyway = []
         for mini, found in idle.items():
             for label, name in found:
                 if not NIGHTLY_SLOT_LABEL.fullmatch(label):
@@ -184,12 +193,21 @@ def drained_runner(runners: Sequence[Mapping[str, Any]], labels: Sequence[str], 
                 wait = waits[mini]
                 if wait is not None and wait <= DRAIN_HORIZON_SECONDS:
                     slots.append((wait, mini, label, name))
+                # DRAIN_ANYWAY: known waits first (soonest), then unknown ones by fewest busy runners.
+                anyway.append((wait is None, wait or 0.0, busy[mini], mini, label, name))
         if slots:
             wait, mini, label, name = sorted(slots)[0]
             return (json.dumps([label, pool.runner_label(name)], separators=(",", ":")),
                     f"`{name}` on {mini}, to drain: no mini is drained now, and glaeda holds every new job off "
                     f"{mini} while this one waits for its {busy[mini]} busy runner(s) to finish (about "
                     f"{wait:.0f} s)")
+        if anyway and drain_anyway:
+            unknown_wait, wait, count, mini, label, name = sorted(anyway)[0]
+            return (json.dumps([label, pool.runner_label(name)], separators=(",", ":")),
+                    f"`{name}` on {mini}, to drain anyway (DRAIN_ANYWAY): no mini frees up within "
+                    f"{DRAIN_HORIZON_SECONDS:g} s, and glaeda holds every new job off {mini} while this one waits for "
+                    f"its {count} busy runner(s) to finish"
+                    + (" (remaining time unknown)" if unknown_wait else f" (about {wait:.0f} s)"))
         if waits:
             unknown = sorted(mini for mini, wait in waits.items() if wait is None)
             return "", (f"no mini with an idle nightly slot frees up within {DRAIN_HORIZON_SECONDS:g} s "
@@ -317,7 +335,8 @@ def owned_pick(env: Mapping[str, str],
                                           and (pool.snapshot_age_minutes(snapshot, moment) or 0.0)
                                           <= DRAIN_SNAPSHOT_MAX_MINUTES
                                           and isinstance(snapshot.get("running"), Mapping)) else None
-    return drained_runner(runners, (env.get("OWNED_LABELS") or "").split(), running=running, now=moment)
+    return drained_runner(runners, (env.get("OWNED_LABELS") or "").split(), running=running, now=moment,
+                          drain_anyway=(env.get("DRAIN_ANYWAY") or "").strip() == DRAIN_ANYWAY_VALUE)
 
 
 def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
