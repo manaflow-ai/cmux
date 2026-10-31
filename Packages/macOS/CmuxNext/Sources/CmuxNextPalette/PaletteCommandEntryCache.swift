@@ -2,7 +2,6 @@ import AppKit
 import CmuxNextActions
 import Foundation
 import Observation
-import os
 
 /// ``PaletteController/commandEntries()``'s rows, built once per change of what they read and kept per
 /// focus context, so a surface that lists them (the New Tab page's dropdown, on every Cmd-T) takes a list
@@ -24,16 +23,12 @@ import os
 ///   and never reads the live one, so focus that leaves a New Tab page and comes back builds nothing),
 ///   the rows the app hides, and the key window (Stop All Agents reads the front window).
 ///
-/// A row whose availability reads state that is neither observable nor in the key would be stale. With
-/// ``verifiesHits`` (a construction parameter; the cache's tests set it), every kept list is compared with a
-/// fresh build: a difference is logged as
-/// `palette.entries` "stale kept list" with the rows, counted (`staleHits`), and the fresh rows are returned.
-/// Chromium keeps its omnibox providers' data the same way: an index rebuilt on change, never per keystroke or
-/// per new tab.
-public final class PaletteCommandEntryCache {
+/// A row whose availability reads state that is neither observable nor in the key would be stale: such a
+/// source belongs in the key. Chromium keeps its omnibox providers' data the same way: an index rebuilt on
+/// change, never per keystroke or per new tab.
+final class PaletteCommandEntryCache {
     /// The most contexts kept: a person's surfaces see a few, and an old one is cheap to build again.
-    public static let keptContexts = 8
-    private nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "palette.entries")
+    static let keptContexts = 8
 
     private struct Key: Hashable {
         var context: ActionContext
@@ -45,18 +40,8 @@ public final class PaletteCommandEntryCache {
     private var order: [Key] = []
     /// Bumped by every drop: an observation armed before it marks nothing.
     private var generation = 0
-    /// Builds since this cache was made (the cache's tests read it).
-    public private(set) var builds = 0
-    /// Kept lists that differed from a fresh build (``verifiesHits``; the cache's tests read it).
-    public private(set) var staleHits = 0
-    /// Whether every kept list is compared with a fresh build: the check costs the build it saves, so it is a
-    /// diagnostic its owner passes at construction, never the default.
-    public let verifiesHits: Bool
 
-    /// - Parameter verifiesHits: Compare every kept list with a fresh build (a diagnostic).
-    public init(verifiesHits: Bool = false) {
-        self.verifiesHits = verifiesHits
-    }
+    init() {}
 
     /// The kept rows for the registry's context, `hidden` and the key window, else `build(context)`'s, which are
     /// then kept. `build` decides the rows in the context it is given, never the registry's live one.
@@ -66,9 +51,8 @@ public final class PaletteCommandEntryCache {
         if let list = lists[key] {
             order.removeAll { $0 == key }
             order.append(key)
-            return verifiesHits ? checked(list) { build(key.context) } : list
+            return list
         }
-        builds += 1
         let armed = generation
         let list = withObservationTracking {
             _ = registry.actions
@@ -94,19 +78,6 @@ public final class PaletteCommandEntryCache {
         order.append(key)
         if order.count > Self.keptContexts { lists[order.removeFirst()] = nil }
         return list
-    }
-
-    /// ``verifiesHits``: a kept list must equal a fresh build; a difference is a row whose availability reads
-    /// state the cache neither watches nor keys on (logged with the rows, counted, and the fresh rows returned).
-    private func checked(_ kept: [PaletteCommandEntry], _ build: () -> [PaletteCommandEntry]) -> [PaletteCommandEntry] {
-        let fresh = build()
-        guard fresh != kept else { return kept }
-        staleHits += 1
-        let keptIDs = Set(kept.map(\.id)), freshIDs = Set(fresh.map(\.id))
-        let offered = keptIDs.subtracting(freshIDs).map(\.rawValue).sorted().joined(separator: ",")
-        let missing = freshIDs.subtracting(keptIDs).map(\.rawValue).sorted().joined(separator: ",")
-        Self.logger.fault("stale kept list: kept but not runnable [\(offered, privacy: .public)], runnable but not kept [\(missing, privacy: .public)]")
-        return fresh
     }
 
     private func drop(_ armed: Int) {

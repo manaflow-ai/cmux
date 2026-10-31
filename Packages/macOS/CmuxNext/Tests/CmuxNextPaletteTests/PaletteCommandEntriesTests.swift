@@ -1,4 +1,5 @@
 import CmuxNextActions
+import Observation
 @testable import CmuxNextPalette
 import Testing
 
@@ -34,48 +35,53 @@ struct PaletteCommandEntriesTests {
 
     /// The rows are kept per focus context and per hidden set (``PaletteCommandEntryCache``): focus that leaves
     /// and comes back builds nothing, another context gets its own rows, and a binding change drops them all.
+    /// Builds are counted through New Window's palette title, which every build reads once (it needs no focus facts).
     @Test func theEntriesAreKeptPerContextAndDroppedWhenABindingChanges() {
         let registry = Self.registry()
         for descriptor in registry.descriptors where descriptor.isPaletteVisible && descriptor.arguments.isEmpty {
             registry.bind(descriptor.id) {}
         }
+        var builds = 0
+        ActionTargetTitles.setPaletteTitle("newWindow", in: registry) {
+            builds += 1
+            return nil
+        }
         let palette = PaletteController(registry: registry, frecencyPersistence: nil)
-        let cache = palette.commandEntryCache
         let everything = palette.commandEntries()
         #expect(palette.commandEntries() == everything)
-        #expect(cache.builds == 1)
+        #expect(builds == 1)
         // Another focus context: its own rows (fewer actions are available with no facts).
         let full = registry.context
         registry.context = []
         let bare = palette.commandEntries()
-        #expect(cache.builds == 2)
+        #expect(builds == 2)
         #expect(bare.count < everything.count)
-        // Back to the first context: the kept rows, no build.
+        // Back to the first context: the kept rows, no build (a focus move does not drop them).
         registry.context = full
         #expect(palette.commandEntries() == everything)
-        #expect(cache.builds == 2)
+        #expect(builds == 2)
         // Another hidden set is another key.
-        palette.hiddenActionIDs = { ["newWindow"] }
-        #expect(!palette.commandEntries().contains { $0.id == "newWindow" })
-        #expect(cache.builds == 3)
-        // A binding change drops every kept list.
-        registry.bind("newWindow") {}
+        palette.hiddenActionIDs = { ["splitRight"] }
         _ = palette.commandEntries()
-        #expect(cache.builds == 4)
+        #expect(builds == 3)
+        // A binding change drops every kept list.
+        #expect(registry.bind("splitRight") {})
+        _ = palette.commandEntries()
+        #expect(builds == 4)
     }
 
-    /// The opt-in check (`verifiesHits`): a kept list that a fresh build disagrees with is
-    /// counted and the fresh rows are returned, so a source the cache misses shows up in a dogfood run.
-    @Test func theCheckReturnsFreshRowsWhenAKeptListIsStale() {
+    /// A row's availability that reads observable state: its first change drops the kept rows, so a surface
+    /// never lists a row that cannot run.
+    @Test func aRowThatTurnsUnavailableLeavesTheNextEntries() {
         let registry = Self.registry()
-        var open = true // a plain variable: not observable, so the cache cannot see it change
-        registry.bind("newWindow", isEnabled: { open }) {}
-        let palette = PaletteController(registry: registry, frecencyPersistence: nil,
-                                        commandEntryCache: PaletteCommandEntryCache(verifiesHits: true))
+        let gate = PaletteEntryGate()
+        registry.bind("newWindow", isEnabled: { gate.open }) {}
+        let palette = PaletteController(registry: registry, frecencyPersistence: nil)
         #expect(palette.commandEntries().contains { $0.id == "newWindow" })
-        open = false
+        gate.open = false
         #expect(!palette.commandEntries().contains { $0.id == "newWindow" })
-        #expect(palette.commandEntryCache.staleHits == 1)
+        gate.open = true
+        #expect(palette.commandEntries().contains { $0.id == "newWindow" })
     }
 
     @Test func aPlainCommandRunsWithoutShowingThePalette() {
@@ -89,4 +95,10 @@ struct PaletteCommandEntriesTests {
         // An action the palette does not offer here is refused, not run.
         #expect(!palette.runCommand("commandPalette"))
     }
+}
+
+/// Observable state a row's availability reads (``PaletteCommandEntriesTests/aRowThatTurnsUnavailableLeavesTheNextEntries()``).
+@MainActor @Observable
+final class PaletteEntryGate {
+    var open = true
 }

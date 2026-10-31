@@ -26,7 +26,7 @@ public final class PaletteController {
     /// Additional rows the app hides from the registry page based on live Labs/debug state.
     public var hiddenActionIDs: (() -> Set<ActionID>)?
     /// ``commandEntries()``'s kept rows (``PaletteCommandEntryCache``).
-    public let commandEntryCache: PaletteCommandEntryCache
+    let commandEntryCache = PaletteCommandEntryCache()
 
     public private(set) var isVisible = false
     /// Called synchronously when the panel opens (true) or closes (false),
@@ -62,11 +62,9 @@ public final class PaletteController {
         registry: ActionRegistry,
         sources: PaletteSources = PaletteSources(),
         frecencyPersistence: (any FrecencyPersisting)? = UserDefaultsFrecencyPersistence(),
-        usage: (any PaletteUsageStore)? = nil,
-        commandEntryCache: PaletteCommandEntryCache = PaletteCommandEntryCache()
+        usage: (any PaletteUsageStore)? = nil
     ) {
         self.registry = registry
-        self.commandEntryCache = commandEntryCache
         self.sources = sources
         self.model = PaletteModel(usage: usage ?? LocalPaletteUsageStore(persistence: frecencyPersistence))
         // What an open's first frame does not show (the command page's workspaces and tabs)
