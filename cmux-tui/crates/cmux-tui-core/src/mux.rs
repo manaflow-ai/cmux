@@ -210,6 +210,7 @@ mod kitty_reservation;
 mod launch_identity;
 mod ledger_maintenance;
 mod pinned_columns;
+mod pty_reclaim;
 mod workspace_name;
 use kitty_reservation::kitty_image_limits_exceed;
 mod agent_presence;
@@ -756,6 +757,8 @@ pub struct Mux {
     idle_close: Mutex<idle_close::IdleCloseTracker>,
     /// Wakes the idle-close reaper when a policy changes.
     idle_close_waker: Mutex<Option<std::sync::mpsc::Sender<idle_close::ReaperMessage>>>,
+    /// A launch failed for lack of PTYs: the next reclaim pass runs at once (`pty_reclaim.rs`).
+    pty_reclaim_forced: AtomicBool,
     /// Hosts of closed terminals that were asked to exit.
     terminal_host_closes: Arc<host_close::TerminalHostCloses>,
     /// Reap grace period for unplaced terminals, in milliseconds.
@@ -913,6 +916,17 @@ impl Mux {
     #[track_caller]
     pub fn with_state<R>(&self, f: impl FnOnce(&State) -> R) -> R {
         f(&self.state.lock().unwrap())
+    }
+
+    /// Run `f` with the session state if its lock is free now; `None`
+    /// instead of waiting while another thread holds it. A poisoned lock is
+    /// still read: its caller (the accept loop) must not stop on it.
+    pub(crate) fn try_with_state<R>(&self, f: impl FnOnce(&State) -> R) -> Option<R> {
+        match self.state.try_lock() {
+            Ok(state) => Some(f(&state)),
+            Err(std::sync::TryLockError::Poisoned(poison)) => Some(f(&poison.into_inner())),
+            Err(std::sync::TryLockError::WouldBlock) => None,
+        }
     }
 
     pub fn surface_count(&self) -> usize {

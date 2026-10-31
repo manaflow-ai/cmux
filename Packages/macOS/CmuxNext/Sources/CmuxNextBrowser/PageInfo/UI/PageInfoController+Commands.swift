@@ -67,7 +67,7 @@ extension PageInfoController {
     /// Site settings of `origin` (any site of this tab's profile, such as
     /// one whose automatic downloads were blocked), from outside the bubble.
     public func showSiteSettings(origin: String) {
-        guard let store, let provider, let url = URL(string: origin) else { return }
+        guard !isRetired, let store, let provider, let url = URL(string: origin) else { return }
         close()
         let site = PageInfoSite(url: url, security: url.scheme == "https" ? .secure : .insecure)
         windows.showSiteSettings(origin: origin, site: site, store: store, provider: provider, send: { [weak self] in self?.send($0) })
@@ -77,9 +77,12 @@ extension PageInfoController {
         guard let provider else { return }
         close()
         let failure = provider.pageInfoActivity.failedCertificateReason
-        Task { [weak self] in
+        certificateTask?.cancel()
+        // task-owner: the certificate viewer request; retirement cancels it and prevents late presentation
+        certificateTask = Task { [weak self] in
             let chain = await provider.pageInfoCertificateChain().compactMap { try? PageInfoCertificate(der: $0) }
-            self?.windows.showCertificate(chain, site: site, failure: failure)
+            guard !Task.isCancelled, let self, !self.isRetired else { return }
+            self.windows.showCertificate(chain, site: site, failure: failure)
         }
     }
 
