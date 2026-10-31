@@ -41,9 +41,9 @@ nonisolated enum UpdaterStrings {
     static var preparing: String { text("updater.title.preparing", "Preparing Update") }
     static var installing: String { text("updater.title.installing", "Installing…") }
     static var readyToInstall: String { text("updater.title.readyToInstall", "Update Ready") }
-    static var updateAvailableButton: String { text("updater.button.updateAvailable", "Update Available: Click to Download and Install") }
+    static var updateAvailableButton: String { text("updater.button.updateAvailable", "Update Available: Click to Download") }
     static func updateAvailableNamed(_ version: String) -> String {
-        format("updater.button.updateAvailableNamed", "Update Available (%@): Click to Download and Install", version)
+        format("updater.button.updateAvailableNamed", "Update Available (%@): Click to Download", version)
     }
 
     // Rollback
@@ -145,16 +145,11 @@ nonisolated enum UpdaterStrings {
     static var noticeDismiss: String { text("updater.notice.dismiss", "Dismiss") }
     // Short notice titles; the version goes in the detail line.
     static var noticeAvailable: String { text("updater.notice.available", "Update Available") }
-    // The pulled-build banner (PulledBuildWatch)
-    static var pulledTitle: String { text("updater.pulled.title", "This Nightly Was Pulled") }
-    static var pulledWait: String { text("updater.pulled.wait", "Wait for the Fix") }
-    static var pulledRollBack: String { text("updater.pulled.rollBack", "Roll Back") }
-    static func pulledKept(_ version: String) -> String {
-        format("updater.pulled.kept", "Roll back to %@, the build this Mac kept, or keep this one until the fixed build installs by itself.", version)
-    }
-    static var pulledNothingKept: String {
-        text("updater.pulled.nothingKept", "The fixed build installs by itself as soon as it is published.")
-    }
+    // The newest build replaces a stale or pulled one (UpdateCard.gettingNewest)
+    static var gettingNewest: String { text("updater.notice.gettingNewest", "Getting the Newest Build…") }
+    static var runningBuildPulled: String { text("updater.notice.runningBuildPulled", "This build was pulled.") }
+    /// The rollback confirmation's button (``UpdateDropBack/confirmation``).
+    static var rollBackButton: String { text("updater.pulled.rollBack", "Roll Back") }
     static var noticeCheckFailed: String { text("updater.notice.checkFailed", "Update Check Failed") }
     static func foundVersion(_ version: String) -> String { format("updater.notice.foundVersion", "Version %@", version) }
     // The update changelog (cx-lntk)

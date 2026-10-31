@@ -1,9 +1,12 @@
 // l10n-allow-file: test fixture prompts, thoughts and commands, not shipped UI.
 // The steps of a turn read as one list (Leo 2026-10-13, cmux NEXT on macOS 27): tool calls,
-// thoughts and a background shell's end all draw as one 26px row style on one rhythm, whether
-// they share a transcript row or not. A finished thought is one quiet row like the others that
-// opens to its full text, wrapped, with no tooltip (Leo 2026-10-20), and a row shows nothing more
-// on hover: its disclosure chevron is there at rest.
+// thoughts and a background shell's end all draw on one rhythm (22px since #24565), whether
+// they share a transcript row or not. An opened run's steps sit in one card (`.cv-steps`,
+// #27896, the card the message groups draw, #27864): each is still one 22px row, the card's steps
+// on one equal pitch of their own, and the rows outside cards keep the rhythm with no gap. A
+// finished thought is one quiet row like the others that opens to its full text, wrapped, with no
+// tooltip (Leo 2026-10-20), and a row shows nothing more on hover: its disclosure chevron is there
+// at rest.
 //
 // Before: the background task's end used a smaller font in a 22px row with its own margins, a
 // step in the next transcript row sat 10px further down than one in the same row, a thought was
@@ -187,29 +190,41 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  test("every step is one 26px row on one rhythm, across transcript rows", async () => {
+  test("every step is one 22px row on one rhythm, across transcript rows", async () => {
     const page = await open();
     await openRun(page);
     const rows = await page.locator(".acpmux-row .cv-tool").evaluateAll((nodes) =>
       nodes.map((node) => {
         const box = node.getBoundingClientRect();
+        const card = node.closest(".cv-steps");
         return {
           text: node.textContent?.replace(/\s+/g, " ").trim().slice(0, 24) ?? "",
-          top: Math.round(box.top),
+          top: box.top,
           height: Math.round(box.height),
           fontSize: getComputedStyle(node).fontSize,
+          card: card ? [...document.querySelectorAll(".cv-steps")].indexOf(card) : -1,
         };
       }),
     );
     // The finished thought is folded to one line too.
-    expect(rows.map((row) => row.height)).toEqual(rows.map(() => 26));
+    expect(rows.map((row) => row.height)).toEqual(rows.map(() => 22));
     expect(new Set(rows.map((row) => row.fontSize)).size).toBe(1);
-    // Each step starts where the one above it ends.
-    const gaps = rows.slice(1).map((row, index) => row.top - (rows[index]!.top + rows[index]!.height));
-    expect({ rows: rows.map((row) => row.text), gaps }).toEqual({
-      rows: rows.map((row) => row.text),
-      gaps: gaps.map(() => 0),
-    });
+    const pairs = rows.slice(1).map((row, index) => ({
+      above: rows[index]!,
+      row,
+      gap: Math.round((row.top - (rows[index]!.top + rows[index]!.height)) * 10) / 10,
+    }));
+    // Outside a card, each step starts where the one above it ends.
+    const outside = pairs.filter(({ above, row }) => above.card < 0 && row.card < 0);
+    expect(outside.map(({ row, gap }) => ({ row: row.text, gap }))).toEqual(
+      outside.map(({ row }) => ({ row: row.text, gap: 0 })),
+    );
+    // In a card, every step is one pitch below the one above it: the same gap, no drift.
+    const inCard = pairs.filter(({ above, row }) => above.card >= 0 && above.card === row.card);
+    expect(inCard.length).toBeGreaterThanOrEqual(2);
+    expect(inCard.map(({ row, gap }) => ({ row: row.text, gap }))).toEqual(
+      inCard.map(({ row }) => ({ row: row.text, gap: inCard[0]!.gap })),
+    );
     expect(rows.length).toBeGreaterThanOrEqual(5);
     await page.close();
   });

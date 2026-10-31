@@ -67,6 +67,10 @@ public final class HostBrowserSignInFlow {
     @ObservationIgnored private var issuedCallbackStates = HostBrowserIssuedCallbackStates()
     @ObservationIgnored private var isAwaitingCallbackApproval = false
     @ObservationIgnored private var signOutGeneration: UInt64 = 0
+    /// `nextAttemptID` at the last sign-out: no attempt started since, so a late
+    /// callback the sign-out made stale stays quiet instead of reporting a failure.
+    @ObservationIgnored private var signedOutAtAttempt: UInt64?
+    private var signedOutSinceLastAttempt: Bool { signedOutAtAttempt == nextAttemptID }
     /// The attempt whose callback is being completed: its tokens are already
     /// seeded, so a Cancel then is ignored rather than tearing it down mid-way.
     @ObservationIgnored private var completingAttemptID: UInt64?
@@ -212,12 +216,14 @@ public final class HostBrowserSignInFlow {
             log.log("auth.callback.external.routeToActive attempt=\(attemptID)")
             cancelAttemptTimeout()
             cancelSlowSignInHint()
+            // Hold the session continuation while the callback validates.
+            // Safari can report the hosted session cancelled in that window;
+            // resuming then would end the attempt and drop these tokens as
+            // raced.
+            let continuation = takeActiveSessionContinuation()
             let signedIn = await completeCallback(url: url, attemptID: attemptID)
-            resumeActiveSessionContinuation(
-                returning: .cancelled(reason: "external_callback"),
-                reason: "externalCallback",
-                expectedAttemptID: attemptID
-            )
+            log.log("auth.browser.session.resume reason=externalCallback attempt=\(attemptID)")
+            continuation?.resume(returning: .cancelled(reason: "external_callback"))
             return signedIn
         }
         if let state {
@@ -225,11 +231,20 @@ public final class HostBrowserSignInFlow {
             // cannot burn the user's still-pending state.
             guard callbackRouter.callbackPayload(from: url) != nil else {
                 log.log("auth.callback.external.reject reason=invalidPayload")
-                lastFailure = .invalidCallback
+                if !signedOutSinceLastAttempt { lastFailure = .invalidCallback }
                 return false
             }
             guard issuedCallbackStates.consume(state) else {
                 log.log("auth.callback.external.reject reason=unknownOrExpiredState")
+                // Relaunch loses issued states. Keep rejecting the callback, but
+                // let the signed-out UI offer a fresh attempt instead of silence.
+                // A sign-out since the last attempt cleared the states on purpose: stay quiet.
+                guard !signedOutSinceLastAttempt else { return false }
+                let generation = signOutGeneration
+                let attempt = nextAttemptID
+                await coordinator.awaitBootstrapped()
+                if generation == signOutGeneration, attempt == nextAttemptID,
+                   !isSigningIn, !coordinator.isAuthenticated { lastFailure = .invalidCallback }
                 return false
             }
             log.log("auth.callback.external.routeToIssuedState")
@@ -248,7 +263,7 @@ public final class HostBrowserSignInFlow {
     private func completeUnsolicitedCallbackIfApproved(_ url: URL) async -> Bool {
         guard let payload = callbackRouter.callbackPayload(from: url) else {
             log.log("auth.callback.unsolicited.reject reason=invalidPayload")
-            lastFailure = .invalidCallback
+            if !signedOutSinceLastAttempt { lastFailure = .invalidCallback }
             return false
         }
         guard !isAwaitingCallbackApproval else {
@@ -283,6 +298,7 @@ public final class HostBrowserSignInFlow {
         if await signOutCoordinator.joinActive() { return }
         log.log("auth.browser.signOut.begin signingIn=\(isSigningIn) activeAttempt=\(activeAttemptID.map(String.init) ?? "nil") generation=\(signOutGeneration)")
         signOutGeneration &+= 1
+        signedOutAtAttempt = nextAttemptID
         lastFailure = nil
         cancelActiveAttempt()
         await signOutCoordinator.run()
@@ -738,6 +754,15 @@ public final class HostBrowserSignInFlow {
     private func issueCallbackState(_ state: String) {
         let lifetime = browserAttemptTimeout > 0 ? browserAttemptTimeout : 10 * 60
         issuedCallbackStates.issue(state, clock: clock, lifetime: .seconds(lifetime))
+    }
+
+    /// Detach the session continuation so later session completions, attempt
+    /// replacement and sign-out cannot resume it; the caller must resume it.
+    private func takeActiveSessionContinuation() -> CheckedContinuation<HostBrowserAuthSessionResult?, Never>? {
+        let continuation = activeSessionContinuation
+        activeSessionContinuation = nil
+        activeSessionContinuationAttemptID = nil
+        return continuation
     }
 
     private func resumeActiveSessionContinuation(

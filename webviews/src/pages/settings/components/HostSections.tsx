@@ -4,9 +4,10 @@
 import { useState, type ReactNode } from "react";
 import { useRowState, useSettingsState, useStore } from "../context";
 import { Switch } from "../editors/ToggleEditor";
-import type { BrowserProfile, DevicesHostState, HostListRow, HostLists } from "../ops";
+import type { BrowserProfile, DevicesHostState, HostListRow, HostLists, WireError } from "../ops";
 import { rowsByKey } from "../schema";
 import { t, text } from "../strings";
+import { graphemePrefix } from "../../../ui/initials";
 
 const ASSET_ICON = /^(image|svg):sha256-[0-9a-f]{64}$/;
 
@@ -19,7 +20,7 @@ function IconMark({ icon, name }: { icon: string | null | undefined; name: strin
     return <img className="host-avatar-image" alt="" src={`icon/${encodeURIComponent(icon)}`} />;
   }
   if (icon && !/^[a-z0-9.]+$/.test(icon)) return <>{icon}</>;
-  return <>{name.slice(0, 1).toUpperCase() || "?"}</>;
+  return <>{graphemePrefix(name, 1).toUpperCase() || "?"}</>;
 }
 
 function ListRows({
@@ -57,8 +58,8 @@ function ListRows({
           {row.subtitle && <div className="row-help">{row.subtitle}</div>}
         </div>
         {row.active && <span className="host-active" aria-hidden="true" />}
+        {trailing?.(row)}
       </div>
-      {trailing?.(row)}
       {below?.(row)}
     </div>
   ));
@@ -142,7 +143,17 @@ export function MachinesSection({ title }: { title: string }) {
 function DevicesSection({ devices }: { devices: DevicesHostState }) {
   const store = useStore();
   const [confirming, setConfirming] = useState<string | null>(null);
-  const [setting, setSetting] = useState<string | null>(null);
+  // Rows with a Full access request in flight: each row holds its own, so a second row's request
+  // neither frees the first nor is freed by it.
+  const [setting, setSetting] = useState<ReadonlySet<string>>(() => new Set());
+  const markSetting = (id: string, pending: boolean) =>
+    setSetting((current) => {
+      if (current.has(id) === pending) return current;
+      const next = new Set(current);
+      if (pending) next.add(id);
+      else next.delete(id);
+      return next;
+    });
   return (
     <section className="group" data-card="devices">
       <h3 className="group-title">{devices.title}</h3>
@@ -191,11 +202,11 @@ function DevicesSection({ devices }: { devices: DevicesHostState }) {
                   <div className="row-control">
                     <Switch
                       checked={row.full_access}
-                      disabled={setting === row.id}
+                      disabled={setting.has(row.id)}
                       labelId={`device-full-access-${row.id}`}
                       onToggle={(on) => {
-                        setSetting(row.id);
-                        void store.setDeviceFullAccess(row.id, on).finally(() => setSetting(null));
+                        markSetting(row.id, true);
+                        void store.setDeviceFullAccess(row.id, on).finally(() => markSetting(row.id, false));
                       }}
                     />
                   </div>
@@ -234,9 +245,10 @@ function DevicesSection({ devices }: { devices: DevicesHostState }) {
 }
 
 /**
- * A Cloud machine's "Dedicated agent machine" switch (acpmux vmHost): on, its agents run without the
- * sandbox and chats started from this Mac don't ask first; the machine is the boundary. On by default
- * on a machine cmux made; the host sends it only for those. Turning it on takes the person's click.
+ * A Cloud machine's "Dedicated agent machine" switch (acpmux vmHost): on (the default), the machine
+ * takes the VM boundary when this app's own link asks for it, so chats from this Mac run without the
+ * sandbox there; off, they keep it. The host sends it only while the Cloud API says the signed-in
+ * caller owns the machine. Turning it on takes the person's click.
  */
 function MachineVmHost({ row }: { row: HostListRow }) {
   const store = useStore();
@@ -500,16 +512,22 @@ function ClearBrowsingData({ target }: { target: string }) {
     cache: true,
   });
   const [cleared, setCleared] = useState(false);
+  const [error, setError] = useState<WireError | null>(null);
   const title = t("action.browserProfile.clearBrowsingData").replace(/…$/, "");
-  // "Cleared" once the app took the run; a refused run shows nothing.
+  // "Cleared" once the app took the run; a refused run shows the owner's error.
   const clear = async () => {
     setCleared(false);
-    try {
-      await store.runAction("browserProfile.clearBrowsingData", { range, ...kinds }, target);
-      setCleared(true);
-    } catch {
-      setCleared(false);
+    setError(null);
+    const reply = await store.runAction("browserProfile.clearBrowsingData", { range, ...kinds }, target);
+    if (!reply.ok) {
+      setError(reply.error);
+      return;
     }
+    if (typeof reply.value === "object" && reply.value !== null && "ran" in reply.value && reply.value.ran === false) {
+      setError({ code: "cmux.app.action_refused", message: "action refused" });
+      return;
+    }
+    setCleared(true);
   };
   return (
     <div className="host-field" data-clear-browsing-data="">
@@ -560,6 +578,15 @@ function ClearBrowsingData({ target }: { target: string }) {
           </output>
         )}
       </span>
+      {error && (
+        <output className="row-error clear-browsing-data-error" data-clear-error="" role="alert">
+          {t(
+            error.code === "cmux.browser.clear_refused"
+              ? "settingsWindow.browsingDataClearRefused"
+              : "settingsWindow.browsingDataClearFailed",
+          )}
+        </output>
+      )}
     </div>
   );
 }

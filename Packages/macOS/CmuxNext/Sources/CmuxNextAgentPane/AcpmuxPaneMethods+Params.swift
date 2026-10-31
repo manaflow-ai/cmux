@@ -9,7 +9,9 @@ nonisolated extension AcpmuxPaneMethods {
         "initialize": (["protocolVersion", "clientInfo", "clientCapabilities"], []),
         // `noProject` is the pane's own (Do not work in a project): AcpmuxPathPolicy reads and strips it.
         // Never `workspaceId`: the host adds the pane's own after this rule (AcpmuxPathPolicy+Workspace).
-        "session/new": (["cwd", "mcpServers", "_meta"], ["harness", "adopt", "peer", "noProject"]),
+        // `model`: a chat on another machine starts on the model the page showed (direct.ts
+        // newSessionParams); one model id only (``isModelID(_:)``).
+        "session/new": (["cwd", "mcpServers", "_meta"], ["harness", "adopt", "peer", "noProject", "model"]),
         // `context`: a chat's workspace context on its first prompt (cx-ihyx2); acpmux sends it to the
         // agent and keeps it out of the transcript text. `surface`: the place a prompt was typed
         // (labs.previewFeatures; acpmux hub/composers.rs, cmuxterm-hq#2580). No `provenance`: a reply
@@ -25,8 +27,16 @@ nonisolated extension AcpmuxPaneMethods {
         // `maxBytes`: the most one page downloads, opening a chat or paging older turns in (cx-2lv1k).
         "_acpmux/events": (["sessionId", "afterSeq", "beforeSeq", "limit", "maxBytes", "kinds"], []),
         "_acpmux/attachment": (["sessionId", "id"], []),
+        // The pane names the listed chat (its id or `HOST/id`) and takes acpmux's default bounds:
+        // no `host`, `limit` or `maxBytes`.
+        "_acpmux/peer_snapshot": (["sessionId"], []),
+        // The peer machine to retry; `wait` asks the daemon to include the settled doctor result.
+        "_acpmux/peer_reconnect": (["name", "wait"], []),
+        // runRetry sends `{sessionId, subagentId}` for a subagent, `{sessionId}` for a sub-session
+        // (its own id) or the chat's own turn.
+        "_acpmux/retry": (["sessionId", "subagentId"], []),
         // `visible`: whether the pane shows the chat; acpmux owns unread from it (cx-n8ou).
-        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible"], []),
+        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs"], []),
         "_acpmux/detach": (["sessionId"], []),
         "_acpmux/view": (["sessionId", "visible"], []),
         // Whether this pane types in a shared chat, never its text (multiplayer/presenceClient.ts).
@@ -44,6 +54,9 @@ nonisolated extension AcpmuxPaneMethods {
         // The composer's Account menu (direct.ts routes, setChatRoute).
         "_acpmux/route/list": (["sessionId"], []),
         "_acpmux/chat/route.set": (["sessionId", "routeId", "when"], []),
+        // The sign-in check (direct.ts sessionAuth): a chat in scope, or a new chat's `target`
+        // ({harness, host?, routeId?}), and `refresh` to ask the harness now instead of its last answer.
+        "_acpmux/session/auth": (["sessionId", "target", "refresh"], []),
         // The running-limit stepper: `maxRunning` only, never `maxChildren` or `maxDepth`.
         "_acpmux/subsession/limits": (["sessionId", "maxRunning"], []),
         // `server`: one of that chat's MCP servers by name; acpmux refuses a name the chat does not list.
@@ -83,9 +96,12 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/forum/rules": ([], []),
         "_acpmux/side": (["sessionId", "chat"], []),
         // `model`: the side session's model when the page names one; acpmux picks a fast one otherwise.
-        "_acpmux/btw": (["sessionId", "question", "model"], []),
+        "_acpmux/btw": (["sessionId", "question", "model", "inline"], []),
         "_acpmux/offer_respond": (["sessionId", "offerId", "outcome", "childSessionId"], []),
         // `subagentSessionId`: a child of that chat, which acpmux looks up in the chat's own map.
+        "_acpmux/subagent_transcript": (["sessionId", "runId", "agentId", "before", "after", "limit"], []),
+        // `before`: a `native_history` cursor, a byte offset into the chat's own transcript.
+        "_acpmux/native_history": (["sessionId", "before", "mark"], []),
         "_acpmux/subagent_stop": (["sessionId", "subagentSessionId"], []),
         // `peerSessionId`: one of that chat's paused pairs, a selector only (acpmux checks the pair has the chat).
         "_acpmux/agent_pair_resume": (["sessionId", "peerSessionId"], []),
@@ -95,7 +111,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/app_reply": (["sessionId", "to", "replyTo", "threadId", "text", "replyId"], []),
         // `id`: the chat's tool row (`mcp:<server>`); `enabled`: on or off for this chat.
         "_acpmux/set_tools": (["sessionId", "id", "enabled"], []),
-        "acp.session.fork": (["sessionId", "throughSeq"], []),
+        // `live`: Fork Conversation's fork of the whole chat as it is now (acpmux `fork_through.rs`).
+        "acp.session.fork": (["sessionId", "throughSeq", "live"], []),
         "acp.trust.get": (["cwd", "sessionId"], []),
         "acp.trust.set": (["cwd", "level", "sessionId"], []),
         // Never `sha256`: only the relay adds it, after the native sheet's Enable.
@@ -129,6 +146,27 @@ nonisolated extension AcpmuxPaneMethods {
         if meta.keys.contains(where: { $0 != "acpmux" && !(method == "session/prompt" && $0 == gestureTicketKey) }) { return true }
         guard let rawAcpmux = meta["acpmux"] else { return false }
         guard let acpmux = rawAcpmux as? [String: Any] else { return true }
-        return acpmux.keys.contains(where: { !known.acpmux.contains($0) || denied.contains($0) })
+        if acpmux.keys.contains(where: { !known.acpmux.contains($0) || denied.contains($0) }) { return true }
+        // A start's model is a spawn parameter (Claude Code's `--model`, `${model}` in a harness's
+        // argv or env): one model id, never a flag or anything else.
+        if method == "session/new", let model = acpmux["model"] { return !isModelID(model) }
+        return false
+    }
+
+    /// The longest `_meta.acpmux.model` a start may carry, in bytes.
+    static let maximumModelIDBytes = 256
+
+    /// One model id as harnesses name them (`claude-opus-5-5[1m]`, `provider/model:tag`,
+    /// `model@version`): 1 to ``maximumModelIDBytes`` ASCII letters, digits and `._-/:@[]+`, not
+    /// starting with `-`. No whitespace, control, quote, shell or template character.
+    static func isModelID(_ value: Any) -> Bool {
+        guard let model = value as? String, !model.isEmpty, model.utf8.count <= maximumModelIDBytes,
+              !model.hasPrefix("-") else { return false }
+        return model.utf8.allSatisfy { byte in
+            switch byte {
+            case UInt8(ascii: "a")...UInt8(ascii: "z"), UInt8(ascii: "A")...UInt8(ascii: "Z"), UInt8(ascii: "0")...UInt8(ascii: "9"): true
+            default: "._-/:@[]+".utf8.contains(byte)
+            }
+        }
     }
 }

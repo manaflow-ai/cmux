@@ -1,14 +1,10 @@
-// The wave rail in a narrow pane (Leo 2026-10-22: "and when the horizontal space shrinks too far it
-// disapperas... idk i dont like that... we can maybe have a more minimal looking thing when not
-// hovered but..."). The rail hid whenever the chat column started less than 48 px in (MIN_GUTTER),
-// which is every pane narrower than about 816 px. Now it stays: in a narrow pane it draws a minimal
-// rail inside the page edge at rest, clear of the text, and the full wave (the Dock magnify, the
-// card) while the pointer or keyboard focus is on it.
+// The pane-pinned rail in a narrow pane (Leo 2026-10-28: it should compress, then hide only while it
+// would overlap text, with a live hover strip that reveals it). It uses a spacing-token edge inset and
+// keeps the rail and card usable at every pane width.
 import { afterAll, afterEach, expect, jest, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { transcriptColumn } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
@@ -18,6 +14,8 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
   virtualConsole: new VirtualConsole(),
 });
 const scope = globalThis as Record<string, unknown>;
+// Reduce Motion is on unless a test turns it off: the occluded rail's leave grace is skipped under it.
+let reduceMotion = true;
 const replacements: Record<string, unknown> = {
   window: dom.window,
   document: dom.window.document,
@@ -29,7 +27,7 @@ const replacements: Record<string, unknown> = {
   MutationObserver: dom.window.MutationObserver,
   getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
   // Reduce Motion: scrolls land at once, so a test reads where they land.
-  matchMedia: (query: string) => ({ matches: query.includes("reduce"), media: query }),
+  matchMedia: (query: string) => ({ matches: reduceMotion && query.includes("reduce"), media: query }),
   IntersectionObserver: class {
     observe() {}
     unobserve() {}
@@ -73,6 +71,7 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { setBookmarkTransport } = await import("../src/agent-session/acpmux/threadMinimap/bookmarks");
+const { HOVER_INTENT } = await import("../src/ui/hoverIntent");
 // acpmux's bookmarks for the chat, answering at once (thread-bookmarks.test.tsx covers its replies).
 const acpmuxMarks = new Set<number>();
 setBookmarkTransport({
@@ -95,6 +94,7 @@ afterAll(() => {
 });
 afterEach(() => {
   paneWidth = 1040;
+  reduceMotion = true;
 });
 
 const document = dom.window.document;
@@ -152,7 +152,7 @@ const railBox = () => {
 };
 const lengths = () => ticks().map((_, index) => Math.round(length(index) * 10) / 10);
 
-for (const width of [360, 300, 240])
+for (const width of [800, 780])
   test(`a ${width} px pane still draws the rail, every prompt a tick and the band lit`, async () => {
     paneWidth = width;
     const view = await mount(12);
@@ -165,34 +165,32 @@ for (const width of [360, 300, 240])
     }
   });
 
-test("in a narrow pane the rail rests minimal inside the page edge, clear of the text", async () => {
-  paneWidth = 360;
+test("as the pane narrows the rail keeps its full look and stays close to the text", async () => {
+  paneWidth = 800;
   const view = await mount(12);
   try {
     const box = railBox()!;
-    expect(box.rail.hasAttribute("data-narrow")).toBe(true);
+    expect(box.rail.hasAttribute("data-narrow")).toBe(false);
     expect(box.rail.hasAttribute("data-expanded")).toBe(false);
-    // The chat column starts 18 px in (the page edge): the resting rail, ticks and hit area, stays left of it.
-    const inset = transcriptColumn(360).inset;
-    expect(box.left + box.width).toBeLessThanOrEqual(inset);
+    expect(box.left).toBe(8);
     expect(box.left).toBeGreaterThanOrEqual(0);
-    // Shorter ticks than the wide rail's 6 px at rest.
-    expect(lengths().every((px) => px > 0 && px < 6)).toBe(true);
+    expect(box.width).toBe(32);
+    expect(lengths().every((px) => px === 6)).toBe(true);
   } finally {
     await view.unmount();
   }
 });
 
-test("hovering a narrow rail shows the full wave, and leaving puts it back to minimal", async () => {
-  paneWidth = 360;
+test("hovering the close rail shows the full wave without changing its box", async () => {
+  paneWidth = 800;
   const view = await mount(12);
   try {
     const rest = lengths();
     await enter(5);
     const box = railBox()!;
-    expect(box.rail.hasAttribute("data-expanded")).toBe(true);
+    expect(box.rail.hasAttribute("data-expanded")).toBe(false);
     // The full rail's 36 px rows and the Dock magnify: 26 px, then 20, 14 and 10 px, 6 px beyond.
-    expect(box.width).toBe(36);
+    expect(box.width).toBe(32);
     expect(ticks().map((_, index) => Math.round(length(index)))).toEqual([6, 6, 10, 14, 20, 26, 20, 14, 10, 6, 6, 6]);
     await leave(5);
     expect(railBox()!.rail.hasAttribute("data-expanded")).toBe(false);
@@ -202,23 +200,74 @@ test("hovering a narrow rail shows the full wave, and leaving puts it back to mi
   }
 });
 
-test("keyboard focus on a narrow rail's row shows the full wave too", async () => {
-  paneWidth = 360;
+test("keyboard focus on the close rail shows the full wave too", async () => {
+  paneWidth = 760;
   const view = await mount(12);
+  jest.useFakeTimers();
   try {
     await act(async () => tick(3).focus());
-    expect(railBox()!.rail.hasAttribute("data-expanded")).toBe(true);
+    expect(railBox()!.rail.hasAttribute("data-occluded")).toBe(false);
     expect(Math.round(length(3))).toBe(26);
     await act(async () => tick(3).blur());
-    expect(railBox()!.rail.hasAttribute("data-expanded")).toBe(false);
+    await advance(HOVER_INTENT.cardGrace);
+    expect(railBox()!.rail.hasAttribute("data-occluded")).toBe(true);
   } finally {
+    jest.useRealTimers();
+    await view.unmount();
+  }
+});
+
+test("when text would overlap the rail, its edge strip reveals it and then hides it again", async () => {
+  paneWidth = 760;
+  // The leave grace (HOVER_INTENT.cardGrace) runs only with motion on; Reduce Motion hides at once (below).
+  reduceMotion = false;
+  const view = await mount(12);
+  jest.useFakeTimers();
+  try {
+    const box = railBox()!;
+    const strip = document.querySelector<HTMLElement>(".acpmux-minimap__strip")!;
+    expect(box.width).toBe(20);
+    expect(box.rail.hasAttribute("data-occluded")).toBe(true);
+    expect(strip).toBeDefined();
+    // The hidden rail would overlap the text, so its strip stops short of the rail's right edge
+    // (at the text edge) and keeps at least the pane-edge inset: text clicks stay the text's.
+    const stripWidth = Number.parseFloat(strip.style.width);
+    expect(stripWidth).toBeLessThan(box.left + box.width);
+    expect(stripWidth).toBeGreaterThanOrEqual(box.left);
+    await pointer("pointerover", strip, { relatedTarget: document.body });
+    expect(box.rail.hasAttribute("data-occluded")).toBe(false);
+    await pointer("pointerout", strip, { relatedTarget: document.body });
+    await advance(HOVER_INTENT.cardGrace - 1);
+    expect(railBox()!.rail.hasAttribute("data-occluded")).toBe(false);
+    await advance(1);
+    expect(railBox()!.rail.hasAttribute("data-occluded")).toBe(true);
+  } finally {
+    jest.useRealTimers();
+    await view.unmount();
+  }
+});
+
+test("under Reduce Motion the strip's revealed rail hides as soon as the pointer leaves", async () => {
+  paneWidth = 760;
+  const view = await mount(12);
+  jest.useFakeTimers();
+  try {
+    const strip = document.querySelector<HTMLElement>(".acpmux-minimap__strip")!;
+    expect(railBox()!.rail.hasAttribute("data-occluded")).toBe(true);
+    await pointer("pointerover", strip, { relatedTarget: document.body });
+    expect(railBox()!.rail.hasAttribute("data-occluded")).toBe(false);
+    await pointer("pointerout", strip, { relatedTarget: document.body });
+    await advance(0);
+    expect(railBox()!.rail.hasAttribute("data-occluded")).toBe(true);
+  } finally {
+    jest.useRealTimers();
     await view.unmount();
   }
 });
 
 const card = () => document.querySelector<HTMLElement>(".acpmux-minimap__card");
 const advance = (ms: number) => act(async () => void jest.advanceTimersByTime(ms));
-/// Hovers row `index` until its preview card opens (Codex's 250 ms), then moves the pointer into the
+/// Hovers row `index` until its preview card opens (at once), then moves the pointer into the
 /// card, which keeps it open.
 async function holdCard(index: number) {
   await enter(index);
@@ -229,25 +278,22 @@ async function holdCard(index: number) {
   expect(card()?.textContent).toContain(`Question ${index}`);
 }
 
-// The card is part of the full wave: with the pointer on it, the narrow rail stays expanded and
-// keeps the magnify around the prompt it previews, not 6 px ticks in a 36 px glass box (#24525
-// review round 1).
-test("with the pointer on its card, a narrow rail keeps the full wave around the previewed prompt", async () => {
-  paneWidth = 360;
+test("with the pointer on its card, the close rail keeps the full wave around the previewed prompt", async () => {
+  paneWidth = 800;
   const view = await mount(12);
   jest.useFakeTimers();
   try {
     await holdCard(5);
     const box = railBox()!;
-    expect(box.rail.hasAttribute("data-expanded")).toBe(true);
-    expect(box.width).toBe(36);
-    expect(ticks().map((_, index) => Math.round(length(index)))).toEqual([6, 6, 10, 14, 20, 26, 20, 14, 10, 6, 6, 6]);
+    expect(box.rail.hasAttribute("data-expanded")).toBe(false);
+    expect(box.width).toBe(32);
+    expect(ticks().map((_, index) => Math.round(length(index)))).toEqual(Array(12).fill(6));
     expect(tick(5).getAttribute("data-tone")).toBe("active");
-    // Off the card, and not back on the rail: minimal again.
+    // Off the card, and not back on the rail: the same resting rail.
     await pointer("pointerout", card()!, { relatedTarget: document.body });
     await advance(600);
     expect(railBox()!.rail.hasAttribute("data-expanded")).toBe(false);
-    expect(lengths().every((px) => px > 0 && px < 6)).toBe(true);
+    expect(lengths().every((px) => px === 6)).toBe(true);
   } finally {
     jest.useRealTimers();
     await view.unmount();
@@ -263,7 +309,7 @@ test("with the pointer on its card, a wide rail keeps its ticks at rest and the 
     await holdCard(5);
     const box = railBox()!;
     expect(box.rail.hasAttribute("data-narrow")).toBe(false);
-    expect({ left: box.left, width: box.width }).toEqual({ left: 16, width: 36 });
+    expect({ left: box.left, width: box.width }).toEqual({ left: 10, width: 36 });
     expect(ticks().map((_, index) => Math.round(length(index)))).toEqual(Array(12).fill(6));
     expect(tick(5).getAttribute("data-tone")).toBe("active");
   } finally {
@@ -272,38 +318,34 @@ test("with the pointer on its card, a wide rail keeps its ticks at rest and the 
   }
 });
 
-test("a wide pane keeps the rail as it was: 16 px in, 36 px rows, 6 px ticks", async () => {
+test("a wide pane keeps the rail close to the transcript: 36 px rows, 6 px ticks", async () => {
   const view = await mount(12);
   try {
     const box = railBox()!;
     expect(box.rail.hasAttribute("data-narrow")).toBe(false);
-    expect({ left: box.left, width: box.width }).toEqual({ left: 16, width: 36 });
+    expect({ left: box.left, width: box.width }).toEqual({ left: 10, width: 36 });
     expect(ticks().map((_, index) => Math.round(length(index)))).toEqual(Array(12).fill(6));
   } finally {
     await view.unmount();
   }
 });
 
-test("the narrow rail's change of look obeys Reduce Motion and ends on its own", () => {
+test("the rail has no narrow or tucked presentation", () => {
   const css = readFileSync(
     new URL("../src/agent-session/acpmux/threadMinimap/threadMinimap.css", import.meta.url),
     "utf8",
   ).replace(/\/\*[\s\S]*?\*\//g, "");
-  // The backdrop the full wave draws on in a narrow pane fades in over a finite transition...
-  const backdrop =
-    [...css.matchAll(/\.acpmux-minimap__rail\[data-narrow\]::before\s*\{([^}]*)\}/g)]
-      .map((match) => match[1]!)
-      .find((body) => /content:/.test(body)) ?? "";
-  expect(backdrop).toMatch(/transition:\s*opacity\s+var\(--cmux-motion-micro\)/);
+  expect(css).not.toMatch(/data-narrow/);
+  expect(css).not.toMatch(/NARROW_TICK|NARROW_CLEAR|tucked|divider/);
   expect(css).not.toMatch(/acpmux-minimap[^{]*\{[^}]*animation[^}]*infinite/);
-  // ...and not at all under Reduce Motion, from the system or the rail's own read of it.
-  expect(css).toMatch(/\.acpmux-minimap__rail\[data-reduce\]\[data-narrow\]::before\s*\{[^}]*transition:\s*none/);
-  // The system's Reduce Motion rule has the base rule's specificity, so it wins only from after it
-  // in the sheet (#24525 review round 1: it came first, and the base transition won).
-  const base = css.search(/\.acpmux-minimap__rail\[data-narrow\]::before\s*\{[^}]*content:/);
-  expect(base).toBeGreaterThan(-1);
-  const overrides = [...css.matchAll(/@media \(prefers-reduced-motion: reduce\)\s*\{([\s\S]*?)\n\}/g)]
-    .filter((match) => /\.acpmux-minimap__rail\[data-narrow\]::before\s*\{[^}]*transition:\s*none/.test(match[1]!))
-    .map((match) => match.index!);
-  expect(overrides.some((at) => at > base)).toBe(true);
+});
+
+test("the rail keeps a live strip at the smallest pane width", async () => {
+  paneWidth = 760;
+  const view = await mount(12);
+  try {
+    expect(document.querySelector(".acpmux-minimap__strip")).toBeDefined();
+  } finally {
+    await view.unmount();
+  }
 });

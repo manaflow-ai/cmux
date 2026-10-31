@@ -5,14 +5,17 @@
 //   selection to a caret.
 // - Copying a cell selection writes a Markdown table (text/plain) and an HTML table (text/html, for
 //   spreadsheets).
+// - A click places the caret; a drag and a Shift-click select text, also across cells, as in Safari
+//   and the rest of the document (user 2026-10-28: snapping to whole cells was "extremely
+//   unintuitive"). Whole cells are selected by Cmd-A, and Shift-click extends such a selection.
 // - A drag that starts in a cell and leaves the table selects text from the press to the pointer
 //   (MARKDOWN-SELECTION). prosemirror-tables kept a one-cell selection for the rest of such a drag:
 //   it holds the selection while its drag runs and finds no cell under the pointer.
 // - Column widths: a handle on each column's right edge; a drag sets the width, a double-click fits
 //   the column to its content. Widths are a view setting kept per file (`TableWidths`), never
 //   written to the file: GFM has no column widths, and a resize must not mark the file edited.
-import type { Node as ProseNode, Schema } from "@milkdown/kit/prose/model";
-import { AllSelection, Plugin, TextSelection, type EditorState } from "@milkdown/kit/prose/state";
+import type { Node as ProseNode, ResolvedPos, Schema } from "@milkdown/kit/prose/model";
+import { AllSelection, Plugin, TextSelection, type EditorState, type Selection } from "@milkdown/kit/prose/state";
 import {
   CellSelection,
   TableMap,
@@ -21,6 +24,7 @@ import {
   goToNextCell,
   isInTable,
   selectedRect,
+  tableEditingKey,
 } from "@milkdown/kit/prose/tables";
 import type { EditorView, ViewMutationRecord } from "@milkdown/kit/prose/view";
 import { $prose } from "@milkdown/kit/utils";
@@ -767,3 +771,107 @@ export const tableDragOutPlugin = $prose(
       },
     }),
 );
+
+/** The position before the table cell that holds `$pos`, or -1 outside a cell. */
+function cellBefore($pos: ResolvedPos): number {
+  for (let depth = $pos.depth; depth > 0; depth--) {
+    const role = $pos.node(depth).type.spec.tableRole;
+    if (role === "cell" || role === "header_cell") return $pos.before(depth);
+  }
+  return -1;
+}
+
+/**
+ * Whether `next` is prosemirror-tables' normalization of `selection`, a text selection from one
+ * cell into another: its from cell's text (a head at the next cell's start) or a caret at its from
+ * (a selection between two cells' edges). tableEditing's appendTransaction makes it.
+ */
+function normalizesAcrossCells(selection: Selection, next: Selection): boolean {
+  if (!(selection instanceof TextSelection) || !(next instanceof TextSelection)) return false;
+  const from = cellBefore(selection.$from);
+  if (from < 0 || from === cellBefore(selection.$to)) return false;
+  return (
+    (next.from === selection.$from.start() && next.to === selection.$from.end()) ||
+    (next.empty && next.from === selection.from)
+  );
+}
+
+/**
+ * Pointer selection in tables is text selection (user 2026-10-28). prosemirror-tables turns a drag
+ * that crosses into another cell, and a Shift-click from a caret into another cell, into a cell
+ * selection; both start with a transaction that sets `tableEditingKey` to the anchor cell. This
+ * plugin drops that start unless a cell selection already exists (Cmd-A, then Shift-click extends
+ * it), so the browser's own drag selection goes on, and it does the Shift-click itself as a text
+ * selection from the anchor to the click.
+ *
+ * While the button is down it also drops prosemirror-tables' normalization of the drag's text
+ * selection: when the pointer crosses a cell's edge, the head lands at the next cell's start, and
+ * tableEditing cuts the selection to the first cell's text (or a caret). Chromium waits for the
+ * mouseup to write the editor's selection back to the page; WebKit, which the app draws in, writes
+ * it at once, and its drag then stayed on the first cell ("Ada" for a drag from Ada to Navy).
+ */
+export const tableTextSelectPlugin = $prose(() => {
+  // Whether the primary button went down in a cell of this editor and is still down; `release`
+  // ends it. A press can end without a mouseup reaching the page (released over another app or
+  // after a switch away), so the window's blur and a move with the button up end it too, as does
+  // the editor's destroy: a stuck flag would drop a keyboard caret move out of a cross-cell
+  // selection. A key does not: Shift or Cmd pressed mid-drag leaves the button down.
+  let dragging = false;
+  let release: (() => void) | undefined;
+  return new Plugin({
+    view: () => ({ destroy: () => release?.() }),
+    filterTransaction(tr, state) {
+      if (
+        dragging &&
+        tr.steps.length === 0 &&
+        tr.selectionSet &&
+        tr.getMeta("pointer") !== true &&
+        normalizesAcrossCells(state.selection, tr.selection)
+      )
+        return false;
+      const anchor = tr.getMeta(tableEditingKey) as number | undefined;
+      if (typeof anchor !== "number" || anchor < 0) return true;
+      return !(tr.selection instanceof CellSelection) || state.selection instanceof CellSelection;
+    },
+    props: {
+      handleDOMEvents: {
+        mousedown(view, event) {
+          if (event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey) return false;
+          if (!(event.target as Element | null)?.closest?.("td, th")) return false;
+          if (!event.shiftKey) {
+            const window = view.dom.ownerDocument.defaultView;
+            if (!window) return false;
+            release?.();
+            dragging = true;
+            const ends = ["mouseup", "dragstart"] as const;
+            const moved = (move: MouseEvent) => {
+              if ((move.buttons & 1) === 0) stop();
+            };
+            const stop = () => {
+              dragging = false;
+              release = undefined;
+              for (const type of ends) window.removeEventListener(type, stop, true);
+              window.removeEventListener("mousemove", moved, true);
+              window.removeEventListener("blur", stop);
+            };
+            for (const type of ends) window.addEventListener(type, stop, true);
+            window.addEventListener("mousemove", moved, true);
+            // Not capturing: the press itself moves focus into the editor, and that element's blur
+            // reaches a capturing window listener. Only the window's own blur ends the press.
+            window.addEventListener("blur", stop);
+            release = stop;
+            return false;
+          }
+          const { state } = view;
+          if (state.selection instanceof CellSelection) return false;
+          const hit = view.posAtCoords({ left: event.clientX, top: event.clientY });
+          if (!hit) return false;
+          const selection = TextSelection.between(state.selection.$anchor, state.doc.resolve(hit.pos));
+          event.preventDefault();
+          if (!selection.eq(state.selection)) view.dispatch(state.tr.setSelection(selection));
+          return true;
+        },
+      },
+    },
+  });
+});

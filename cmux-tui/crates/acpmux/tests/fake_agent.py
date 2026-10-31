@@ -9,6 +9,10 @@ Behaviour per prompt text:
   "until-cancel" -> streams "running", then waits for session/cancel
   "until-cancel-then-exit" -> "until-cancel", then the agent exits between turns
   "deaf-to-cancel" -> streams "running", ignores session/cancel, answers end_turn after 20 s
+  "cancel-ends-turn" -> streams "running", then answers session/cancel with end_turn, not cancelled
+  "cancel-errors" -> streams "running", then answers session/cancel with an error
+  "works-through-cancel" -> a tool call every 100 ms, titled "step N pid P", through every
+                 session/cancel; answers end_turn after 60 s
   "answer-then-exit" -> answers, then the agent exits between turns
   "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
   "work-gate: <p>" -> a plan step in progress and a running tool call, then as "gate:"
@@ -23,7 +27,8 @@ Its "slow-stop" turn runs until session/cancel and takes 5 s more to stop.
 FAKE_CLAUDE_STEER=1: steering as Claude Code (claude-stdio) does it. The agent
 advertises steering; a prompt while a turn runs is read into that turn and
 answered at once with stopReason "steered"; the turn runs on and its own
-prompt is answered when it ends.
+prompt is answered when it ends. With FAKE_STEER_STEP=<fifo> a steer is
+answered only once the test writes to that FIFO (the agent's next tool step).
 
 FAKE_SESSION_PREFIX=<p>: session ids are <p><n> instead of fake-<n> (an id as
 long as a real agent's, for checks that refuse short ones).
@@ -67,6 +72,7 @@ import time
 lock = threading.Lock()
 cancelled = set()
 failed_once = set()
+cap_failures = {}
 failed_digest = set()
 # Sessions whose "net-down" prompt cut the connection for good (auto-resume tests).
 net_down = set()
@@ -230,6 +236,12 @@ def claude_prompt(rid, params):
             claude_turns.add(sid)
     if steer:
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "steer: " + text}})
+        # FAKE_STEER_STEP=<fifo>: the steer is read at the agent's next tool step, which the
+        # test makes by writing to the FIFO, as Claude Code answers a steer only there.
+        step = os.environ.get("FAKE_STEER_STEP")
+        if step:
+            with open(step) as gate:
+                gate.read()
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "steered"}})
         return
     try:
@@ -295,6 +307,9 @@ def run_gh_pr_create(rid, sid):
 
 def handle_prompt(rid, params):
     sid = params["sessionId"]
+    # Model a harness that scopes an interrupt to the prompt it is processing.
+    if os.environ.get("FAKE_RESET_CANCEL_ON_PROMPT") == "1":
+        cancelled.discard(sid)
     blocks = params.get("prompt", [])
     text = "".join(b.get("text", "") for b in blocks)
     if text.startswith("envs:"):
@@ -321,6 +336,15 @@ def handle_prompt(rid, params):
     if text == "net-refused-later":
         time.sleep(0.5)
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "connection refused: error sending request for url (https://relay.invalid/responses)"}})
+        return
+    # A harness-level RPC failure whose wording resembles a dead daemon must
+    # remain an agent error; the CLI must not replay the prompt.
+    if text == "agent-daemon-closed-error":
+        marker = os.environ.get("FAKE_AGENT_DAEMON_CLOSED_MARKER")
+        if marker:
+            with open(marker, "a") as f:
+                f.write("attempt\n")
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "daemon connection closed while the model was running"}})
         return
     # "net-fail-on-cancel" runs until session/cancel, then fails with that transport error, as
     # an agent stopped mid-stream may.
@@ -351,6 +375,13 @@ def handle_prompt(rid, params):
     if text.startswith("cap-fail-once:") and sid not in failed_once:
         failed_once.add(sid)
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "API Error: 503 no non-exhausted claude accounts available. This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (127.0.0.1:4016). (error type server_error, HTTP 503)"}})
+        return
+    # "cap-fail-three: X" keeps the SR2 capacity error across the first three
+    # turns.  The fourth prompt succeeds so liveness tests can verify that a
+    # successful turn clears a session's stuck state.
+    if (text.startswith("cap-fail-three:") or sid in cap_failures) and cap_failures.get(sid, 0) < 3:
+        cap_failures[sid] = cap_failures.get(sid, 0) + 1
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "API Error: 503 no non-exhausted claude accounts available. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://user:secret@example.invalid/inference. (error type server_error, HTTP 503)"}})
         return
     if text.startswith("net-down"):
         net_down.add(sid)
@@ -734,6 +765,58 @@ def handle_prompt(rid, params):
         MODE_OPTION[sid] = was
         update(sid, {"sessionUpdate": "config_option_update", "configOptions": mode_options(sid)})
         return handle_prompt(rid, dict(params, prompt=[{"type": "text", "text": "guard: rm -rf \"$TARGET\""}]))
+    # "set-option: ID VALUE": the harness moves a config option of its own (not its mode) to VALUE.
+    if text.startswith("set-option:"):
+        oid, value = text[11:].strip().split(" ", 1)
+        update(sid, {"sessionUpdate": "config_option_update", "configOptions": mode_options(sid) + [
+            {"id": oid, "name": oid, "type": "select", "currentValue": value,
+             "options": [{"value": value, "name": value}]}]})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "subagent-mode: X": subagent child-2 starts and reports mode X; the session's own mode stays.
+    if text.startswith("subagent-mode:"):
+        update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": "child-2", "name": "Child", "task": "Child", "capabilities": {}})
+        update("child-2", {"sessionUpdate": "current_mode_update", "currentModeId": text[14:].strip()})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "set-mode-after: MS X": the turn ends; MS later, outside any turn, the harness changes its
+    # own mode to X (a daemon may have left meanwhile: its host keeps the update for the next one).
+    if text.startswith("set-mode-after:"):
+        ms, mode = text[15:].strip().split(" ", 1)
+        later = {"sessionUpdate": "current_mode_update", "currentModeId": mode.strip()}
+        threading.Timer(int(ms) / 1000, update, args=(sid, later)).start()
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "set-mode-on-file: PATH X": the turn ends; once PATH exists (at most 60 s), outside any turn,
+    # the harness changes its own mode to X.
+    if text.startswith("set-mode-on-file:"):
+        path, mode = text[17:].strip().split(" ", 1)
+        later = {"sessionUpdate": "current_mode_update", "currentModeId": mode.strip()}
+
+        def when_there():
+            import time as pause  # main() binds `time` locally
+            until = pause.monotonic() + 60
+            while not os.path.exists(path) and pause.monotonic() < until:
+                pause.sleep(0.05)
+            update(sid, later)
+
+        threading.Thread(target=when_there, daemon=True).start()
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "set-mode-hold: MS X": the harness changes its own mode to X at once, then holds the turn
+    # MS before it ends it.
+    if text.startswith("set-mode-hold:"):
+        import time as pause
+        ms, mode = text[14:].strip().split(" ", 1)
+        update(sid, {"sessionUpdate": "current_mode_update", "currentModeId": mode.strip()})
+        pause.sleep(int(ms) / 1000)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "whoami" replies with the harness's pid.
+    if text.startswith("whoami"):
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"pid={os.getpid()}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "set-mode: X": the harness changes its own mode, as a real one may.
     if text.startswith("set-mode:"):
         update(sid, {"sessionUpdate": "current_mode_update", "currentModeId": text[9:].strip()})
@@ -853,6 +936,21 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "messageId": "m2", "content": {"type": "text", "text": "partial answer"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    if text == "orchestration-fields":
+        update(sid, {"sessionUpdate": "config_option_update", "configOptions": [
+            {"id": "reasoning_effort", "name": "Reasoning", "type": "select", "category": "thought_level",
+             "currentValue": "high", "options": [{"value": "high", "name": "High"}]}]})
+        update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": "orch-child",
+                     "model": "gpt-6", "effort": "high", "name": "Review"})
+        update("orch-child", {"sessionUpdate": "agent_message_chunk", "messageId": "first",
+                             "content": {"type": "text", "text": "old answer"}})
+        update("orch-child", {"sessionUpdate": "agent_message_chunk", "messageId": "last",
+                             "content": {"type": "text", "text": "é" * 300}})
+        # A real cumulative total (`totalTokens`); `used` is context occupancy, never tokens.
+        update("orch-child", {"sessionUpdate": "usage_update", "totalTokens": 1234, "used": 99, "size": 200000})
+        update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": "orch-child", "state": "completed"})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "codex-subagents" starts two subagents as codex-acp 1.10.0 does: with native
     # subagent sessions, a subagent_spawned per child and each child's own
     # updates under its session id; without, only "Start subagent" tool calls.
@@ -964,6 +1062,39 @@ def handle_prompt(rid, params):
                 send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
                 return
             time.sleep(0.05)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "cancel-ends-turn" streams "running" and answers session/cancel with end_turn: an adapter
+    # that stops on a cancel but does not say its turn was cancelled (bounded at 30 s).
+    if text == "cancel-ends-turn":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "running"}})
+        for _ in range(600):
+            if sid in cancelled:
+                cancelled.discard(sid)
+                break
+            time.sleep(0.05)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "cancel-errors" streams "running" and answers session/cancel with an error, as an adapter
+    # whose interrupt fails the turn (bounded at 30 s).
+    if text == "cancel-errors":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "running"}})
+        for _ in range(600):
+            if sid in cancelled:
+                cancelled.discard(sid)
+                break
+            time.sleep(0.05)
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "turn interrupted: request aborted"}})
+        return
+    # "works-through-cancel" ignores every session/cancel and keeps calling tools, as a harness
+    # that went on working after Stop (2026-10-29): a tool call every 100 ms, each titled with
+    # its number and this process's pid, until it ends its turn by itself 60 s later.
+    if text == "works-through-cancel":
+        for n in range(600):
+            update(sid, {"sessionUpdate": "tool_call", "toolCallId": f"work-{os.getpid()}-{n}",
+                         "title": f"step {n} pid {os.getpid()}", "kind": "execute", "status": "in_progress"})
+            time.sleep(0.1)
+        cancelled.discard(sid)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "deaf-to-cancel" streams "running" and never takes a cancel: an agent
@@ -1083,6 +1214,8 @@ def handle_prompt(rid, params):
     if os.environ.get("FAKE_SHORT_ECHO") == "1" and text.strip():
         text = text.strip().splitlines()[-1]
     update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "echo: " + text}})
+    if text == "reply-then-thought":
+        update(sid, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "done"}})
     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
 
 
@@ -1412,20 +1545,32 @@ def main():
                      "options": [{"value": v, "name": n} for v, n in CLAUDE_MODELS]}]
             send({"jsonrpc": "2.0", "id": rid, "result": result})
         elif m == "session/set_mode":
-            # FAKE_SET_MODE_FAIL=1: the harness refuses every mode change.
-            if os.environ.get("FAKE_SET_MODE_FAIL") == "1":
-                send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "mode change refused"}})
-                continue
             # FAKE_SET_MODE_DELAY_MS: each mode change takes that long to answer.
             if os.environ.get("FAKE_SET_MODE_DELAY_MS"):
                 import time as pause  # main() binds `time` locally
                 pause.sleep(int(os.environ["FAKE_SET_MODE_DELAY_MS"]) / 1000)
+            # FAKE_SET_MODE_FAIL=1: the harness refuses every mode change (after that delay).
+            if os.environ.get("FAKE_SET_MODE_FAIL") == "1":
+                send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "mode change refused"}})
+                continue
             send({"jsonrpc": "2.0", "id": rid, "result": {}})
         elif m == "session/set_config_option":
             v = params.get("value")
             if os.environ.get("FAKE_MODE_OPTION") == "1":
+                # FAKE_OPTION_REPORT_FIRST=1: the harness reports its options as they were, then
+                # answers.
+                if os.environ.get("FAKE_OPTION_REPORT_FIRST") == "1":
+                    was = mode_options(params.get("sessionId"))
+                    update(params.get("sessionId"), {"sessionUpdate": "config_option_update", "configOptions": was})
                 if params.get("configId") == "mode":
                     MODE_OPTION[params.get("sessionId")] = v
+                # FAKE_BARE_OPTION_ANSWER=1: the answer carries no configOptions; =null: a null.
+                if os.environ.get("FAKE_BARE_OPTION_ANSWER") == "1":
+                    send({"jsonrpc": "2.0", "id": rid, "result": {}})
+                    continue
+                if os.environ.get("FAKE_BARE_OPTION_ANSWER") == "null":
+                    send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": None}})
+                    continue
                 send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": mode_options(params.get("sessionId"))}})
                 continue
             send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": [{"id": "model", "name": "Model", "type": "select", "currentValue": v, "options": []}]}})
@@ -1439,6 +1584,14 @@ def main():
             if CODEX_STORE:
                 target = codex_store_prompt
             threading.Thread(target=target, args=(rid, params), daemon=True).start()
+            # FAKE_ASK_HOLDS_STDIN=<path>: after an "ask:" prompt, read nothing more until that
+            # file exists: a long answer then waits in the agent host's stdin writer, as it does
+            # for a harness that stopped reading.
+            hold = os.environ.get("FAKE_ASK_HOLDS_STDIN")
+            if hold and "".join(b.get("text", "") for b in params.get("prompt", [])).startswith("ask:"):
+                import time as clock  # main() binds `time` locally
+                while not os.path.exists(hold):
+                    clock.sleep(0.02)
         elif m == "session/cancel":
             cancelled.add(params.get("sessionId"))
         elif rid is not None:

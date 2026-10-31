@@ -30,7 +30,9 @@ public final class MainThreadWatchdog: Sendable {
         /// reports it (``MainThreadWatchdog/onHang``) WHILE it runs, since a
         /// hang that never ends is never recorded as a stall. Default 2 s.
         public var hangThreshold: Duration
-        /// At most one hang report per this interval (default 5 min).
+        /// At most one hang report per this interval. Default zero: every hang is
+        /// reported (2026-10-30: at 5 min, three hangs in 30 s reached Sentry as
+        /// one); the app's sink budgets a flood (`MainThreadHangReporter`).
         public var hangReportInterval: Duration
         /// Debug builds: a hang still running this long fails an assertion
         /// (default 10 s; nil in release builds), if the main thread used
@@ -61,7 +63,7 @@ public final class MainThreadWatchdog: Sendable {
 
         public init(threshold: Duration = Configuration.environmentThreshold, capacity: Int = 128, sampleStacks: Bool = true,
                     logStalls: Bool = ControlService.isDebugBuild, hangThreshold: Duration = .seconds(2),
-                    hangReportInterval: Duration = .seconds(300),
+                    hangReportInterval: Duration = .zero,
                     hangAssertThreshold: Duration? = Configuration.defaultHangAssertThreshold) {
             self.threshold = threshold
             self.capacity = capacity
@@ -251,7 +253,8 @@ public final class MainThreadWatchdog: Sendable {
         let earlyObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, early, true, CFIndex.min) { [weak self] _, activity in
             self?.heartbeat(activity)
         }
-        let lateObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, true, CFIndex.max) { [weak self] _, activity in
+        // The late stamp draws nothing: its context says so to the commit-boundary audit.
+        let lateObserver = MainRunLoopObserver.afterCommitObserver(activities: .beforeWaiting, order: CFIndex.max) { [weak self] activity in
             self?.heartbeat(activity)
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), earlyObserver, .commonModes)

@@ -1,0 +1,7 @@
+◇ Test run started.
+◇ Suite ClassicUpgradeSimulationTests started.
+◇ Test aRunCutOffMidwayFinishesWithoutDuplicates() started.
+━ Test aRunCutOffMidwayFinishesWithoutDuplicates() recorded a known issue at ClassicUpgradeSimulationTests.swift:162:23: Expectation failed: (shown → ["second", "first"]) == (classic → ["first", "second"])
+━ Test aRunCutOffMidwayFinishesWithoutDuplicates() passed after 0.1 seconds with 1 known issue.
+━ Suite ClassicUpgradeSimulationTests passed after 0.1 seconds with 1 known issue.
+━ Test run with 1 test in 1 suite passed after 0.1 seconds with 1 known issue.

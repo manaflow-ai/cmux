@@ -12,17 +12,17 @@ import Testing
 /// the switch; page script alone never turns it on.
 @MainActor struct CloudVmHostTests {
     @Test func theCommandRunsTheMachinesOwnVmHostAsItsWorkUser() {
-        let read = CloudVmHost.command(on: nil)
+        let read = CloudVmHost().command(on: nil)
         #expect(read.hasSuffix(#"as_u env HOME="$h" "$b" acp --json host vm-host"#))
-        #expect(CloudVmHost.command(on: true).hasSuffix("host vm-host on"))
-        #expect(CloudVmHost.command(on: false).hasSuffix("host vm-host off"))
+        #expect(CloudVmHost().command(on: true).hasSuffix("host vm-host on"))
+        #expect(CloudVmHost().command(on: false).hasSuffix("host vm-host off"))
         #expect(read.contains(#"b="$h/.cmux/bin/cmux-tui""#))
         #expect(read.contains("u=cmux; id -u \"$u\" >/dev/null 2>&1 || u=root"), "an image from before the work user runs it as root")
     }
 
     @Test func itReadsAcpmuxsPrettyJSONAndItsErrorEnvelope() {
         let on = CloudExecResult(exitCode: 0, stdout: "{\n  \"vmHost\": true,\n  \"cmuxVm\": true,\n  \"configured\": null\n}\n", stderr: "")
-        #expect(CloudVmHost.parse(on) == CloudVmHost.State(on: true, cmuxVM: true))
+        #expect(CloudVmHost().parse(on) == CloudVmHost.State(on: true, cmuxVM: true))
         let refused = CloudExecResult(exitCode: 1, stdout: "", stderr: """
             {
               "error": {
@@ -31,11 +31,25 @@ import Testing
               }
             }
             """)
-        #expect(CloudVmHost.parse(refused) == nil)
-        #expect(CloudVmHost.failure(refused) == "vmHost stays off here: it is only for a VM cmux created")
+        #expect(CloudVmHost().parse(refused) == nil)
+        #expect(CloudVmHost().failure(refused) == "vmHost stays off here: it is only for a VM cmux created")
         let old = CloudExecResult(exitCode: 2, stdout: "", stderr: "error: unrecognized subcommand 'vm-host'\n\nUsage: acpmux host <COMMAND>")
-        #expect(CloudVmHost.parse(old) == nil)
-        #expect(CloudVmHost.failure(old) == "error: unrecognized subcommand 'vm-host'", "an older cmux-tui says why")
+        #expect(CloudVmHost().parse(old) == nil)
+        #expect(CloudVmHost().failure(old) == "error: unrecognized subcommand 'vm-host'", "an older cmux-tui says why")
+    }
+
+    /// The machine's own answer cannot tell a team VM from the owner's (`vmHost` is on by default on
+    /// any Linux machine; `cmuxVm` is a record its agents can write): the switch shows only while
+    /// the link in use says the signed-in caller owns the machine (the Cloud API's `vmKind`).
+    @Test func theSwitchShowsOnlyWhenTheCloudAPISaysTheCallerOwnsTheMachine() {
+        let team = CloudVmHostStore.Entry.known(CloudVmHost.State(on: true, cmuxVM: true))
+        #expect(SettingsWindowService.vmHostSwitch(team, callerOwnsVM: false, busy: false) == nil)
+        #expect(SettingsWindowService.vmHostSwitch(team, callerOwnsVM: true, busy: false)
+            == ["on": true, "busy": false, "error": .null])
+        let notMarked = CloudVmHostStore.Entry.known(CloudVmHost.State(on: false, cmuxVM: false))
+        #expect(SettingsWindowService.vmHostSwitch(notMarked, callerOwnsVM: true, busy: true)
+            == ["on": false, "busy": true, "error": .null], "the owner's answer, not the guest's marker")
+        #expect(SettingsWindowService.vmHostSwitch(nil, callerOwnsVM: true, busy: false) == nil)
     }
 
     @MainActor final class Machine {
@@ -182,6 +196,8 @@ import Testing
         let recorder = Recorder()
         page.setMachineVmHost = { id, on in recorder.sets.append("\(id) \(on)"); return nil }
         page.setDeviceFullAccess = { id, on in recorder.sets.append("device \(id) \(on)"); return nil }
+        page.ownerConfirm = SettingsWideningSwitchPersonGateTests.AlwaysConfirms() // the confirm: SettingsWideningSwitchPersonGateTests
+        page.personBacksGesture = { _ in true }
         return (page, recorder, directory)
     }
 

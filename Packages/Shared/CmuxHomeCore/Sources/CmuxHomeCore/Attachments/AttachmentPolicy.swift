@@ -9,10 +9,28 @@ public struct HomeAttachmentPolicy {
     /// Per file, every type (decimal megabytes, like the owner).
     public static let maxBytes = 100_000_000
     /// Up to this size a source streams the bytes through the owner's
-    /// Worker; larger files go to a presigned PUT followed by a commit call.
+    /// Worker; larger files use bounded multipart pieces through the Worker.
     public static let streamMaxBytes = 32_000_000
-    /// At most this many parts per message (attachments plus text).
+    /// At most this many parts per message (attachments plus text): the
+    /// owner's bound on one message (cmux-conversation `MAX_PARTS`), never on
+    /// a send. A send with more files goes as several messages
+    /// (``messageGroups(_:extraParts:)``). cap-allow: route
     public static let maxParts = 16
+
+    /// `items` (a send's parts) as the messages one send becomes:
+    /// consecutive slices in order, each within ``maxParts``, the first with
+    /// room for `extraParts` more. No items: one empty group.
+    public static func messageGroups<Item>(_ items: [Item], extraParts: Int) -> [[Item]] {
+        var groups: [[Item]] = []
+        var start = 0
+        repeat {
+            let room = max(1, maxParts - (groups.isEmpty ? extraParts : 0))
+            let end = min(items.count, start + room)
+            groups.append(Array(items[start..<end]))
+            start = end
+        } while start < items.count
+        return groups
+    }
     /// A video's poster: at most this size, one of `posterTypes`.
     public static let posterMaxBytes = 2_000_000
     public static let posterTypes: Set<String> = ["image/jpeg", "image/webp"]

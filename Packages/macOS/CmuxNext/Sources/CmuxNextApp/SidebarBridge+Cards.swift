@@ -61,7 +61,7 @@ enum SidebarCardFeed {
         }
     }
 
-    /// The titlebar's quiet Update Available button (``UpdaterService/availableButton``) on `view`
+    /// The sidebar footer's quiet Update Available button (``UpdaterService/availableButton``) on `view`
     /// until the task is cancelled (the window's sidebar bridge owns it).
     static func followAvailableUpdate(_ view: SidebarView, updater: UpdaterService) -> Task<Void, Never> {
         // task-owner: the sidebar bridge (cancelled with the cards); event-driven (Observation).
@@ -80,6 +80,7 @@ enum SidebarCardFeed {
     static func handle(_ intent: SidebarIntent, services: AppServices) {
         switch intent {
         case .installUpdate: services.updater.installClicked()
+        case .downloadUpdate: services.updater.downloadClicked()
         case .setAutomaticUpdates(let on): services.updater.setAutomaticUpdates(on)
         case .openUpdateLink(let url): openUpdateLink(url, services: services)
         case .openUpdateChanges: _ = services.updater.openStagedChangelog()
@@ -97,13 +98,15 @@ enum SidebarCardFeed {
         }
     }
 
-    /// The "cmux Updated!" card (cx-7py7): its button runs the palette's
-    /// `updates.whatsNew` as the user's (it opens the page and marks this
-    /// version seen); its x marks this version seen, so the card and the
+    /// The "cmux Updated!" card (cx-7py7): its See What's New opens the What's New tab for the
+    /// span this update crossed and marks it seen, as the update island's button does
+    /// (``UpdaterService/openWhatsNewForLastUpdate()``). Not the palette's `updates.whatsNew`:
+    /// that entry stays a Labs preview, and the card shows with Labs off (user 13935), so its
+    /// button did nothing (Leo 2026-10-29). Its x marks this version seen, so the card and the
     /// What's New dot go together. Share cmux is the palette's (`app.shareCmux`).
     static func route(_ intent: SidebarIntent, registry: ActionRegistry, updater: UpdaterService) {
         switch intent {
-        case .openWhatsNew: _ = registry.perform("updates.whatsNew", invocation: ActionInvocation(origin: .user))
+        case .openWhatsNew: _ = updater.openWhatsNewForLastUpdate()
         case .dismissUpdated: updater.whatsNew.dismissUpdated()
         default: break
         }

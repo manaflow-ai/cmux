@@ -60,7 +60,7 @@ afterAll(() => {
   }
 });
 
-type Message = { id?: number; method: string; params?: Record<string, unknown> };
+type Message = { id?: number; method: string; params?: Record<string, unknown>; beforeList?: boolean };
 
 const SESSION = "peer-chat";
 const OTHER = "local-chat";
@@ -102,6 +102,11 @@ class Daemon {
   failAttach = 0;
   /// Live records sent while the chat left is detached (before the attach is asked).
   beforeDetach: ReturnType<typeof record>[] = [];
+  /// The slash commands the session's newest command list names, when it has one (or, as a
+  /// function, the list a read back from `beforeSeq` finds).
+  commandNames: string[] | ((beforeSeq: number) => string[]) | undefined;
+  /// The row's status while the machine is up, when not idle.
+  status: string | undefined;
   /// Another chat, on this Mac, listed beside the peer chat (a tab that switches from it).
   other = false;
   /// The session's `createdAt` a row announces while the attach is out (the machine recreated it),
@@ -128,6 +133,8 @@ class Daemon {
   /// Runs once at the first request after an attach was answered (the reads that follow it).
   afterAttach: (() => void) | undefined;
   private attachAnswered = false;
+  /// Whether the chat list was answered yet.
+  private listed = false;
   readonly asked: Message[] = [];
 
   constructor() {
@@ -140,14 +147,40 @@ class Daemon {
   send(raw: string): void {
     const message = JSON.parse(raw) as Message;
     if (message.id === undefined) return;
+    // An attach the pane asks with the chat list, before it knows the chat runs on a machine
+    // (direct.ts `askEarly`): the open drops it for a peer chat and attaches as these tests script.
+    if (message.method === "_acpmux/attach" && !this.listed) message.beforeList = true;
     this.asked.push(message);
-    if (this.hold.has(message.method)) this.held.push(message);
+    const commandRead =
+      message.method === "_acpmux/events" &&
+      Array.isArray(message.params?.kinds) &&
+      (message.params.kinds as unknown[]).includes("available_commands_update");
+    if (this.hold.has(message.method) || (this.holdCommandReads && commandRead)) this.held.push(message);
     else queueMicrotask(() => this.answer(message));
   }
 
+  /// The reads back for the command list wait, unanswered, until `release` answers them.
+  holdCommandReads = false;
   /// Requests of these methods wait, unanswered, until `release` answers them.
   readonly hold = new Set<string>();
   private held: Message[] = [];
+
+  /// Answers only the oldest request of `method` held so far.
+  releaseFirst(method: string): void {
+    const at = this.held.findIndex((message) => message.method === method);
+    if (at < 0) return;
+    const [message] = this.held.splice(at, 1);
+    this.answer(message!);
+  }
+
+  /// Answers only the newest request of `method` held so far.
+  releaseLast(method: string): void {
+    let at = this.held.length - 1;
+    while (at >= 0 && this.held[at]!.method !== method) at -= 1;
+    if (at < 0) return;
+    const [message] = this.held.splice(at, 1);
+    this.answer(message!);
+  }
 
   /// Answers the requests of `method` held so far, in the order they were asked.
   release(method: string): void {
@@ -167,7 +200,7 @@ class Daemon {
       cwd: "/home/dev/project",
       title: "Lane on huge-blue",
       harness: "claude",
-      status: this.down ? "unreachable" : "idle",
+      status: this.down ? "unreachable" : (this.status ?? "idle"),
       turnCount: 1,
       updatedAt: START,
       createdAt: this.createdAt,
@@ -198,12 +231,31 @@ class Daemon {
     });
   }
 
+  private answerBeforeList(message: Message): void {
+    if (this.down)
+      return this.reply(message.id, {
+        error: { code: -32603, message: "peer_unreachable: huge-blue", data: { reason: "peer_unreachable" } },
+      });
+    const page = this.log.slice(-3);
+    this.reply(message.id, {
+      result: {
+        session: this.summary(),
+        events: page,
+        hasMore: page.length < this.log.length,
+        lastSeq: this.log.at(-1)?.seq ?? 0,
+      },
+    });
+  }
+
   private reply(id: number | undefined, body: Record<string, unknown>) {
     this.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id, ...body }) });
   }
 
   private answer(message: Message): void {
     const p = message.params ?? {};
+    // The scripted attach (its hooks, refusals and replies below) is the one the open asks of the
+    // chat as listed; one asked with the list is answered as the machine is, and changes nothing.
+    if (message.beforeList && p.sessionId !== OTHER) return this.answerBeforeList(message);
     if (message.method === "_acpmux/attach") this.attachAnswered = true;
     else if (this.attachAnswered && this.afterAttach) {
       const hook = this.afterAttach;
@@ -214,6 +266,7 @@ class Daemon {
       return this.reply(message.id, {
         result: { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } },
       });
+    if (message.method === "_acpmux/watch") this.listed = true;
     if (message.method === "_acpmux/watch")
       return this.reply(message.id, {
         result: { sessions: [this.summary(), ...(this.other ? [this.otherSummary()] : [])] },
@@ -299,6 +352,47 @@ class Daemon {
           lastSeq: this.lastSeqAfter ?? this.log.at(-1)?.seq ?? 0,
           ...(this.pageThrough !== undefined ? { pageThrough: this.pageThrough } : {}),
         },
+      });
+    }
+    if (
+      message.method === "_acpmux/events" &&
+      Array.isArray(p.kinds) &&
+      p.kinds.includes("available_commands_update")
+    ) {
+      // The read back for the session's newest command list: one record naming `commandNames`.
+      const seq = this.log.at(-1)?.seq ?? 0;
+      const names =
+        typeof this.commandNames === "function" ? this.commandNames(Number(p.beforeSeq)) : this.commandNames;
+      const events = names
+        ? [
+            {
+              sessionId: SESSION,
+              seq,
+              at: START,
+              dir: "in",
+              kind: "available_commands_update",
+              msg: {
+                method: "session/update",
+                params: {
+                  sessionId: SESSION,
+                  update: {
+                    sessionUpdate: "available_commands_update",
+                    availableCommands: names.map((name) => ({ name, description: name })),
+                  },
+                },
+              },
+            },
+          ]
+        : [];
+      return this.reply(message.id, { result: { events, hasMore: false, lastSeq: seq } });
+    }
+    if (message.method === "_acpmux/events" && p.beforeSeq !== undefined) {
+      // An older page: the newest records before `beforeSeq`, as many as the limit takes.
+      const before = Number(p.beforeSeq);
+      const older = this.log.filter((r) => r.seq < before);
+      const events = older.slice(-Number(p.limit ?? 400));
+      return this.reply(message.id, {
+        result: { events, hasMore: events.length < older.length, lastSeq: this.log.at(-1)?.seq ?? 0 },
       });
     }
     if (message.method === "_acpmux/events") {
@@ -831,7 +925,8 @@ test("an attach reply of the session before a recreation is dropped and the sess
   const shown = text(tab.last());
   expect(shown).toContain("new 3.");
   expect(shown).not.toContain("old ");
-  expect(daemon.asked.filter((m) => m.method === "_acpmux/attach").length).toBe(2);
+  // The attaches the open asks of the chat as listed (not one asked with the list, `beforeList`).
+  expect(daemon.asked.filter((m) => m.method === "_acpmux/attach" && !m.beforeList).length).toBe(2);
 });
 
 test("a select's attach that a reconnect took over leaves the copy on screen when it fails", async () => {
@@ -894,7 +989,8 @@ test("an attach reply that comes after the session moved to another machine is r
   const shown = text(tab.last());
   expect(shown).toContain("vm 3.");
   expect(shown).not.toContain("old ");
-  expect(daemon.asked.filter((m) => m.method === "_acpmux/attach").length).toBe(2);
+  // The attaches the open asks of the chat as listed (not one asked with the list, `beforeList`).
+  expect(daemon.asked.filter((m) => m.method === "_acpmux/attach" && !m.beforeList).length).toBe(2);
 });
 
 test("a session recreated and back at once takes the old copy off screen before it is read", async () => {
@@ -1094,7 +1190,9 @@ test("a row recreated while the attach is out keeps none of the session before's
 test("a row recreated while the reads after the attach are out has the chat read again", async () => {
   const daemon = new Daemon();
   daemon.down = false;
-  daemon.log = turn(1, 3, "old");
+  // More than the page holds: the attach then reads back the turn's opener (a read after it), and
+  // the row changes while that read is out.
+  daemon.log = turn(1, 4, "old");
   daemon.afterAttach = () => {
     daemon.createdAt = 200;
     daemon.log = turn(1, 2, "fresh");
@@ -1275,4 +1373,172 @@ test("a chat read ahead while its row named another session is not kept", async 
   daemon.release("_acpmux/events");
   await flush();
   expect(keptTail(SESSION)).toBeUndefined();
+});
+
+test("an attached chat whose machine recreates the session reads the new one instead of keeping the old rows", async () => {
+  const daemon = new Daemon();
+  daemon.down = false;
+  daemon.log = turn(1, 5, "old");
+  const tab = open(daemon);
+  live.push(await tab.client);
+  await flush();
+  expect(text(tab.last())).toContain("old 5.");
+  // Nothing is out: the machine recreates the session, and its row says so.
+  daemon.createdAt = 200;
+  daemon.log = turn(1, 3, "new");
+  daemon.announce();
+  await flush();
+  const shown = text(tab.last());
+  expect(shown).toContain("new 3.");
+  expect(shown).not.toContain("old ");
+});
+
+test("an attached chat whose session moves to another machine reads it from that machine", async () => {
+  const daemon = new Daemon();
+  daemon.down = false;
+  daemon.log = turn(1, 5, "here");
+  const tab = open(daemon);
+  live.push(await tab.client);
+  await flush();
+  expect(text(tab.last())).toContain("here 5.");
+  daemon.peer = "cloud-vm";
+  daemon.log = turn(1, 2, "vm");
+  daemon.announce();
+  await flush();
+  const shown = text(tab.last());
+  expect(shown).toContain("vm 2.");
+  expect(shown).not.toContain("here ");
+});
+
+test("an attached chat whose row changes only its status keeps its rows and is not read again", async () => {
+  const daemon = new Daemon();
+  daemon.down = false;
+  daemon.log = turn(1, 5, "same");
+  const tab = open(daemon);
+  live.push(await tab.client);
+  await flush();
+  const attaches = daemon.asked.filter((message) => message.method === "_acpmux/attach").length;
+  // The chat starts a turn and ends it: the row changes its status and when it was updated.
+  daemon.status = "running";
+  daemon.announce();
+  await flush();
+  daemon.status = undefined;
+  daemon.announce();
+  await flush();
+  expect(daemon.asked.filter((message) => message.method === "_acpmux/attach").length).toBe(attaches);
+  expect(text(tab.last())).toContain("same 5.");
+});
+
+test("an attached chat whose row names another session and then this one again ends on this one, read a bounded number of times", async () => {
+  const daemon = new Daemon();
+  daemon.down = false;
+  daemon.log = turn(1, 5, "first");
+  const tab = open(daemon);
+  live.push(await tab.client);
+  await flush();
+  const attaches = () => daemon.asked.filter((message) => message.method === "_acpmux/attach").length;
+  const before = attaches();
+  // A row of another session, then a late one of this session again, back to back.
+  daemon.createdAt = 200;
+  daemon.announce();
+  daemon.createdAt = 100;
+  daemon.announce();
+  await flush();
+  expect(text(tab.last())).toContain("first 5.");
+  expect(attaches() - before).toBeLessThanOrEqual(3);
+});
+
+test("an older page read of the session before it was recreated is not drawn above the new one", async () => {
+  const daemon = new Daemon();
+  daemon.down = false;
+  daemon.log = turn(1, 8, "old");
+  const tab = open(daemon);
+  const client = await tab.client;
+  live.push(client);
+  await flush();
+  // The attach drew the newest page (6 to 8); the reader scrolls up and the older page is held.
+  expect(text(tab.last())).toContain("old 8.");
+  daemon.hold.add("_acpmux/events");
+  const older = client.loadOlder().catch(() => undefined);
+  await flush();
+  // The machine recreates the session while that read is out, and the new one is attached.
+  daemon.createdAt = 200;
+  daemon.log = turn(1, 2, "new");
+  daemon.announce();
+  await flush();
+  expect(text(tab.last())).toContain("new 2.");
+  // The old session's older page lands now.
+  daemon.log = turn(1, 8, "old");
+  daemon.hold.delete("_acpmux/events");
+  daemon.release("_acpmux/events");
+  await older;
+  await flush();
+  const shown = text(tab.last());
+  expect(shown).toContain("new 2.");
+  expect(shown).not.toContain("old ");
+});
+
+test("an attach retried because the row moved on while its reads were out shows the command list of the session it ends on", async () => {
+  const daemon = new Daemon();
+  daemon.down = false;
+  daemon.log = turn(1, 5, "first");
+  // Each read back finds the list as of where it starts, so whose list is shown can be told.
+  daemon.commandNames = (beforeSeq) => [`through-${beforeSeq - 1}`];
+  daemon.holdCommandReads = true;
+  const tab = open(daemon);
+  live.push(await tab.client);
+  await flush();
+  expect(text(tab.last())).toContain("first 5.");
+  // The machine recreates the session; while the new one's attach reads what it draws with, it
+  // recreates it once more.
+  daemon.onAttach = () => {
+    daemon.afterAttach = () => {
+      daemon.createdAt = 300;
+      daemon.log = turn(1, 3, "third");
+      daemon.announce();
+    };
+  };
+  daemon.createdAt = 200;
+  daemon.log = turn(1, 4, "second");
+  daemon.announce();
+  await flush();
+  expect(text(tab.last())).toContain("third 3.");
+  expect(text(tab.last())).not.toContain("second 4.");
+  // The list reads back answer newest first: the session it ends on, then any asked before it.
+  daemon.holdCommandReads = false;
+  daemon.releaseLast("_acpmux/events");
+  await flush();
+  daemon.releaseLast("_acpmux/events");
+  daemon.release("_acpmux/events");
+  await flush();
+  const names = (tab.last()!.commands ?? []).map((command) => command.name);
+  expect(names).toEqual(["through-3"]);
+});
+
+test("the command list read of the session before it was recreated is not shown for the new one", async () => {
+  const daemon = new Daemon();
+  daemon.down = false;
+  daemon.log = turn(1, 5, "old");
+  daemon.commandNames = ["old-command"];
+  // The command list's read back waits, for the session before and for the new one.
+  daemon.holdCommandReads = true;
+  const tab = open(daemon);
+  live.push(await tab.client);
+  await flush();
+  expect(text(tab.last())).toContain("old 5.");
+  daemon.createdAt = 200;
+  daemon.log = turn(1, 3, "new");
+  daemon.announce();
+  await flush();
+  expect(text(tab.last())).toContain("new 3.");
+  // The old session's list answers first.
+  daemon.holdCommandReads = false;
+  daemon.releaseFirst("_acpmux/events");
+  await flush();
+  const names = () => (tab.last()!.commands ?? []).map((command) => command.name);
+  expect(names()).not.toContain("old-command");
+  daemon.commandNames = ["new-command"];
+  daemon.release("_acpmux/events");
+  await flush();
+  expect(names()).toContain("new-command");
 });

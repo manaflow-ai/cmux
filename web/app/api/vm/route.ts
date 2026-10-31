@@ -50,6 +50,7 @@ import {
   vmFreeAccessWindowDays,
 } from "../../../services/vms/entitlements";
 import { vcpusByMemoryMb } from "../../../services/vms/images/sizes";
+import { autosizeTag, parseAutosizeRequest, pickMachineSize, type AutosizePick, type AutosizeTag } from "../../../services/vms/autosize";
 import {
   findVmImageManifestEntry,
   inferVmProviderForImage,
@@ -89,13 +90,15 @@ import { annotateVmRequestBilling } from "../../../services/vms/requestContext";
 import {
   createVm,
   listUserVms,
+  runVmWorkflow,
+  countSavedUserVms,
 } from "../../../services/vms/workflows";
+import { listMeasuredRuns, tagMeasuredRun } from "../../../services/vms/autosizeRuns";
 import { recordSpanError, setSpanAttributes } from "../../../services/telemetry";
 import {
   measureVmAsync,
   VmTimingRecorder,
 } from "../../../services/vms/timings";
-import { getGoVmUsage, GO_SAVED_VM_LIMIT } from "../../../services/vms/goUsage";
 import { getPlanBudgetUsage, isBudgetPlanId, type PlanBudgetUsage } from "../../../services/vms/planUsage";
 import { publishVmOps, vmSyncReplaceOp } from "../../../services/vms/presencePublisher";
 import { gcpCredentialFromRequest, gcpProviderMetadataFromRequest, idempotencyKeyFromRequest } from "../../../services/vms/routeInput";
@@ -136,6 +139,11 @@ function setVmServerTiming(response: Response, timing: VmTimingRecorder): void {
   } catch {
     // Immutable headers on a passthrough Response: the span still has them.
   }
+}
+
+/** The quota uses account scope for Plus and the shared billing scope for other plans. */
+function savedMachineListCount(userId: string, billingTeamId: string | null, entitlements: VmEntitlements | null) {
+  return countSavedUserVms(userId, entitlements?.planId === "go" ? undefined : billingTeamId || userId);
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -282,10 +290,18 @@ export async function GET(request: Request): Promise<Response> {
         ...vmCostFields(entry, runningSince.get(entry.providerVmId)),
       }));
       const activeEntries = entries.filter((vm) => vm.status === "running" || vm.status === "provisioning");
+      // Count allocations before a provider ID exists as well as visible machines.
+      // Plus is account-wide; other plans share the create admission billing scope.
+      const counted = await runVmRoute(savedMachineListCount(user.id, billingTeamId, listEntitlements), { request });
+      if (!counted.ok) return counted.response;
+      const savedVmCount = counted.value;
       const limits = listEntitlements
         ? {
           maxActiveVms: listEntitlements.maxActiveVms,
-          activeVmCount: activeEntries.length,
+          // Legacy wire key: the quota counts saved machines, including paused ones.
+          activeVmCount: savedVmCount,
+          savedVmCount,
+          savedVmLimit: listEntitlements.maxActiveVms,
           // The plan's shared pool (null when the plan has none) and what the
           // active machines draw from it. Paused machines do not count.
           poolVcpus: listEntitlements.resourcePool?.vcpus ?? null,
@@ -294,13 +310,6 @@ export async function GET(request: Request): Promise<Response> {
           usedMemoryMb: activeEntries.reduce((sum, entry) => sum + poolShare(entry).memoryMb, 0),
           planId: listEntitlements.planId,
           freeAccessWindowDays,
-          ...(listEntitlements.planId === "go" ? {
-            vmHoursIncluded: 40,
-            vmHoursUsed: await getGoVmUsage(user.id)
-              .then((usage) => usage ? Math.round(usage.usedSeconds / 360) / 10 : null)
-              .catch(() => null),
-            savedVmLimit: GO_SAVED_VM_LIMIT,
-          } : {}),
           // Pro and Max monthly allowance; absent when none applies.
           ...(isBudgetPlanId(listEntitlements.planId)
             ? await getPlanBudgetUsage(user.id).then(planBudgetLimits).catch(() => ({}))
@@ -398,12 +407,6 @@ export async function POST(request: Request): Promise<Response> {
       // Let the workflow inspect an idempotent existing row before rejecting
       // an old, now-over-limit shape. New allocations still receive the same
       // typed plan error from createVm.
-      const memory = await resolveCreateMemory(span, entitlements.planId, candidate.memoryMb as number | undefined, request, !!idempotencyKey);
-      if (!memory.ok) return memory.response;
-      const memoryMb = memory.memoryMb;
-      const machineOptions = parseCreateMachineOptions(candidate);
-      if (!machineOptions.ok) return machineOptions.response;
-
       // Resolve provider/image only after the paid-plan boundary. A free or
       // unknown plan must receive `vm_requires_pro` without consulting
       // provider configuration, image manifests, or provider SDKs.
@@ -411,6 +414,12 @@ export async function POST(request: Request): Promise<Response> {
       // provider-specific image ids without a provider field, and the
       // deployment default must not reroute them under the wrong provider.
       const provider = body.provider ?? inferVmProviderForImage(body.image) ?? defaultProviderId();
+      const memory = await resolveCreateSize(span, user.id, entitlements.planId, candidate, provider, request, !!idempotencyKey);
+      if (!memory.ok) return memory.response;
+      const memoryMb = memory.memoryMb;
+      const machineOptions = parseCreateMachineOptions(candidate);
+      if (!machineOptions.ok) return machineOptions.response;
+
       const selected = resolveCreateImage(provider, body, memoryMb, user.id);
       if (!selected.ok) return selected.response;
       const { imageSelection } = selected;
@@ -482,6 +491,7 @@ export async function POST(request: Request): Promise<Response> {
       if (!run.ok) return run.response;
       const created = run.value;
       setSpanAttributes(span, { "cmux.vm.id": created.providerVmId });
+      const sizePick = settleSizePick(memory, imageSelection.size, created, user.id);
       const attach = createAttachBlock({
         entry: created,
         manifestEntry: findVmImageManifestEntry(created.provider, created.image, imageSelection.kind),
@@ -514,9 +524,111 @@ export async function POST(request: Request): Promise<Response> {
         // resize shape are separate contracts even when they currently match.
         ...createResourceFields(created.resourceReservation),
         ...(attach ? { attach } : {}),
+        ...sizePick,
       });
     },
   );
+}
+
+/**
+ * The size of a machine for a handed-off task (`autosize`), when the caller
+ * sent no `memoryMb` or `image` (which stay the override) and the provider
+ * sizes its machines. With a repo key, the pick reads the owner's measured runs
+ * of that repo and task kind (autosizeRuns.ts), and the new machine becomes one.
+ */
+async function resolveCreateAutosize(
+  span: Span,
+  userId: string,
+  candidate: Record<string, unknown>,
+  provider: ProviderId,
+  planId: string,
+): Promise<{ readonly ok: true; readonly pick: AutosizePick | null; readonly tag: AutosizeTag | null } | { readonly ok: false; readonly response: Response }> {
+  const request = parseAutosizeRequest(candidate.autosize);
+  if (request === null || typeof request === "string") return { ok: true, pick: null, tag: null };
+  // A GPU is refused whatever else the request says: no machine would have one.
+  if (request.gpu) return { ok: false, response: autosizeRefusalResponse("gpu_unavailable", "No cloud machine has a GPU yet.") };
+  // An explicit size or image is the caller's shape (an image boots at its own snapshot's size).
+  if (candidate.memoryMb !== undefined || candidate.image !== undefined || !vmCapabilitiesFor(provider).sizing) return { ok: true, pick: null, tag: null };
+  const repoKey = request.repo?.key;
+  const measuredRuns = repoKey ? await runVmWorkflow(listMeasuredRuns({ userId, repoKey, taskKind: request.taskKind })).catch(() => []) : [];
+  const result = pickMachineSize({
+    taskKind: request.taskKind,
+    repo: request.repo,
+    gpu: request.gpu,
+    measuredRuns,
+    planMemoryOptionsMb: memoryOptionsMbForPlan(planId, process.env),
+  });
+  if (!result.ok) return { ok: false, response: autosizeRefusalResponse(result.code, result.message) };
+  setSpanAttributes(span, {
+    "cmux.vm.autosize_task": request.taskKind,
+    "cmux.vm.autosize_pick": result.pick,
+    "cmux.vm.autosize_capped": result.capped,
+    "cmux.vm.autosize_runs": measuredRuns.length,
+  });
+  return { ok: true, pick: result, tag: repoKey ? autosizeTag(repoKey, request.taskKind, result) : null };
+}
+
+function autosizeRefusalResponse(code: "gpu_unavailable" | "no_plan_sizes", message: string): Response {
+  return vmErrorResponse({
+    error: code === "gpu_unavailable" ? "vm_gpu_unavailable" : "vm_no_plan_sizes",
+    status: 400,
+    message,
+    action: code === "gpu_unavailable" ? "Send `autosize` without `gpu`." : "Send `memoryMb`, or choose a plan with Cloud machines.",
+  });
+}
+
+/** The machine's memory: the caller's `memoryMb` (the override), else the auto-size pick, else the plan default. */
+async function resolveCreateSize(
+  span: Span,
+  userId: string,
+  planId: string,
+  candidate: Record<string, unknown>,
+  provider: ProviderId,
+  request: Request,
+  deferLockedPlanCheck: boolean,
+): Promise<{ readonly ok: true; readonly memoryMb: number; readonly pick: AutosizePick | null; readonly tag: AutosizeTag | null } | { readonly ok: false; readonly response: Response }> {
+  const autosize = await resolveCreateAutosize(span, userId, candidate, provider, planId);
+  if (!autosize.ok) return autosize;
+  const requestedMemoryMb = (candidate.memoryMb as number | undefined) ?? autosize.pick?.size.memoryMb;
+  const memory = await resolveCreateMemory(span, planId, requestedMemoryMb, request, deferLockedPlanCheck);
+  return memory.ok ? { ...memory, pick: autosize.pick, tag: autosize.tag } : memory;
+}
+
+/**
+ * Tags the new machine as a measured run of its pick after the answer, so its
+ * peaks count for the next pick.
+ */
+function recordMeasuredRun(tag: AutosizeTag | null, userId: string, vm: { readonly provider: string; readonly providerVmId: string }): void {
+  if (!tag) return;
+  runAfterResponse(() => runVmWorkflow(tagMeasuredRun({ userId, provider: vm.provider, providerVmId: vm.providerVmId, tag })).then(() => undefined));
+}
+
+/**
+ * The auto-size pick, when the machine answered has its shape: it boots at the
+ * picked shape's snapshot and holds that shape (an idempotent retry answers
+ * the machine the first request made). Only then is it the answer's
+ * `sizePick` (the hand-off's size fields) and a measured run of the pick.
+ */
+/** The answer's `sizePick` for the machine created, and its measured-run tag (after the answer) when it holds the pick. */
+function settleSizePick(
+  sized: { readonly pick: AutosizePick | null; readonly tag: AutosizeTag | null },
+  booted: { readonly name: string } | null | undefined,
+  created: { readonly provider: string; readonly providerVmId: string; readonly resourceReservation?: { readonly vcpus: number; readonly memoryMb: number } | null },
+  userId: string,
+) {
+  const pick = pickedShapeOf(sized.pick, booted, created.resourceReservation);
+  if (!pick) return {};
+  recordMeasuredRun(sized.tag, userId, created);
+  return { sizePick: { vcpus: pick.vcpus, memoryGb: pick.memoryGb, pick: pick.pick, reason: pick.reason } };
+}
+
+function pickedShapeOf(
+  pick: AutosizePick | null,
+  booted: { readonly name: string } | null | undefined,
+  machine: { readonly vcpus: number; readonly memoryMb: number } | null | undefined,
+): AutosizePick | null {
+  if (!pick || booted?.name !== pick.pick || machine?.vcpus !== pick.size.cpu || machine.memoryMb !== pick.size.memoryMb) return null;
+  return pick;
 }
 
 /**
@@ -723,6 +835,14 @@ function invalidCreateFieldResponseWithoutDisplayName(candidate: Record<string, 
       "`memoryMb` must be an integer of at least 512 when provided.",
       "Omit `memoryMb` for the plan default, or send a larger integer memory size in MB.",
       { field: "memoryMb", minimumMemoryMb: 512 },
+    );
+  }
+  const autosize = parseAutosizeRequest(candidate.autosize);
+  if (typeof autosize === "string") {
+    return invalidCreateRequestResponse(
+      autosize,
+      "Omit `autosize` for the plan default, or send `{taskKind, repo: {sizeMb, rootFiles}}`.",
+      { field: "autosize" },
     );
   }
   if (typeof bodyBillingTeamId === "string" && bodyBillingTeamId.trim().length === 0) {
@@ -1025,7 +1145,7 @@ function createErrorResponders(entitlements: {
         limit: error.limit,
         activeMachines: error.activeMachines,
         planId: entitlements.planId,
-        retryAction: "Run `cmux vm ls`, then delete an active VM with `cmux vm rm <id>` before creating another, or upgrade your plan.",
+        retryAction: "Run `cmux vm ls`, then delete a VM with `cmux vm rm <id>` before creating another, or upgrade your plan.",
       }),
     VmCreateCreditsInsufficientError: (error) => {
       const billsUser = entitlements.billingCustomerType === "user";

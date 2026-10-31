@@ -7,7 +7,7 @@
   font: inherit;
   font-weight: 400;
   color: var(--cv-text);
-  cursor: pointer;
+  cursor: default;
   text-align: inherit;
 }
 .cv-chip__icon {
@@ -127,7 +127,7 @@
   background: none;
   color: var(--cv-text);
   font: inherit;
-  cursor: pointer;
+  cursor: default;
 }
 .cv-image-placeholder__load:disabled {
   opacity: 0.5;
@@ -179,7 +179,7 @@
   background: none;
   color: var(--cv-text);
   font: inherit;
-  cursor: pointer;
+  cursor: default;
 }
 .cv-image-file__open:focus-visible {
   outline: 1px solid var(--cv-link);
@@ -236,7 +236,7 @@
   border: 0;
   border-radius: 8px;
   background: transparent;
-  cursor: pointer;
+  cursor: default;
 }
 @media (prefers-reduced-motion: no-preference) {
   .cv-media__poster {
@@ -283,45 +283,81 @@
   line-height: 1.4;
   letter-spacing: var(--text-detail--letter-spacing);
 }
-/* Every control on a playing video takes the pointing hand too (WebKit's own controls). */
+/* Every control on a playing video shows the arrow too (WebKit's own controls). */
 .cv-media__frame.is-playing video,
 .cv-media__frame video::-webkit-media-controls-panel,
 .cv-media__frame video::-webkit-media-controls-play-button,
 .cv-media__frame video::-webkit-media-controls-timeline,
 .cv-media__frame video::-webkit-media-controls-mute-button,
 .cv-media__frame video::-webkit-media-controls-fullscreen-button {
-  cursor: pointer;
+  cursor: default;
 }
-/* Open in tab and Expand: small glass buttons in the top corner, shown while the pointer is on it. */
+/* Open in tab and Expand: glass buttons in the top corner, shown while the pointer is on it. Each
+ * takes a 28 px square click with its 24 px glass drawn inside, 8 px from the other; the row's own
+ * 4 px margin takes a click just off either and does nothing, so a near miss never plays the video
+ * (the poster under it) or presses the other one. While it plays they sit below the player's top row
+ * (WebKit draws Full Screen, Picture in Picture and, on a small video, Mute in a 31 px bar 6 px
+ * inside each top corner), never over its controls. */
 .cv-media__actions {
+  --cv-media-action-margin: 4px;
   position: absolute;
-  top: 6px;
-  right: 6px;
+  top: calc(6px - var(--cv-media-action-margin));
+  right: calc(6px - var(--cv-media-action-margin));
   display: flex;
-  gap: 4px;
+  gap: 8px;
+  padding: var(--cv-media-action-margin);
   opacity: 0;
 }
+.cv-media:not(.has-short-video):has(> .cv-media__frame.is-playing) > .cv-media__actions {
+  top: calc(6px + 31px + 8px - var(--cv-media-action-margin));
+}
+/* Short players have no room between their native control bars. Keep this row outside the
+ * video both before and during playback, so playing does not shift the transcript. */
+.cv-media.has-short-video {
+  padding-top: calc(var(--ds-space-6) + var(--ds-space-2));
+}
+.cv-media.has-short-video > .cv-media__actions {
+  top: 0;
+}
+/* They fade as a message's hover row does (conversation.css --cv-actions-*, #23769): in after a
+ * beat under the pointer, at once from the keyboard, out quickly. */
 @media (prefers-reduced-motion: no-preference) {
   .cv-media__actions {
-    transition: opacity var(--cmux-motion-micro, 120ms);
+    transition: opacity var(--cv-actions-out, 80ms) var(--cv-actions-ease, ease-out);
+  }
+  .cv-media:hover .cv-media__actions {
+    transition: opacity var(--cv-actions-in, 120ms) var(--cv-actions-ease, ease-out) var(--cv-actions-in-delay, 100ms);
+  }
+  .cv-media__actions:focus-within {
+    transition: opacity var(--cv-actions-in, 120ms) var(--cv-actions-ease, ease-out);
   }
 }
 .cv-media__action {
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  background: none;
   color: var(--cv-text);
-  cursor: pointer;
+  cursor: default;
+}
+.cv-media__glass {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
 }
 .cv-media:hover .cv-media__actions,
 .cv-media__actions:focus-within {
   opacity: 1;
 }
 .cv-media__action:focus-visible {
+  outline: none;
+}
+.cv-media__action:focus-visible .cv-media__glass {
   outline: 2px solid var(--agent-accent-soft);
   outline-offset: 1px;
 }

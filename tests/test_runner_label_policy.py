@@ -225,10 +225,12 @@ class TheReportSeesEveryRunnerVariable(unittest.TestCase):
 class NightlyNextBuildVariable(unittest.TestCase):
     def test_an_owned_side_or_dev_label_or_blacksmith_is_allowed(self) -> None:
         name = "CI_NIGHTLY_NEXT_BUILD_RUNNER"
-        for label in ("glaeda-dev-std-xcode-26.6", "glaeda-side-std-xcode-26.6", "blacksmith-6vcpu-macos-26", ""):
+        for label in ("glaeda-dev-std-xcode-26.6", "glaeda-side-std-xcode-26.6", "glaeda-nightly-std-xcode-26.6",
+                      "blacksmith-6vcpu-macos-26", ""):
             with self.subTest(label=label):
                 self.assertEqual(drifted_runner_variables({name: label}), [])
-        for label in ("glaeda-std-xcode-26.6", "glaeda-runner-cmux7s-mac-mini-nightly-next", "self-hosted"):
+        for label in ("glaeda-std-xcode-26.6", "glaeda-runner-cmux7s-mac-mini-nightly-next", "self-hosted",
+                      "glaeda-nightly-nonsense", "glaeda-nightly-std"):
             with self.subTest(label=label):
                 self.assertTrue(drifted_runner_variables({name: label}))
 

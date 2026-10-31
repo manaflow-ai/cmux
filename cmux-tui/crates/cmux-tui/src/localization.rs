@@ -6,6 +6,7 @@ mod agent_wrapper;
 mod agents_doctor;
 mod app_control;
 mod attach;
+mod automation;
 mod billing;
 mod browser;
 mod cli_connection;
@@ -22,6 +23,7 @@ mod pairing;
 mod remote;
 mod remote_client;
 mod runtime;
+mod sandbox_run;
 mod server_mount;
 mod session;
 mod session_reset;
@@ -38,6 +40,7 @@ pub(crate) use agent_wrapper::AgentWrapperMessages;
 pub(crate) use agents_doctor::AgentsDoctorMessages;
 pub(crate) use app_control::{AppControlMessages, VersionLabels};
 pub(crate) use attach::AttachMessages;
+pub(crate) use automation::AutomationMessages;
 pub(crate) use billing::BillingMessages;
 pub(crate) use browser::BrowserMessages;
 pub(crate) use cli_connection::CliConnectionMessages;
@@ -53,6 +56,7 @@ pub(crate) use pairing::PairingMessages;
 pub(crate) use remote::RemoteMessages;
 pub(crate) use remote_client::RemoteClientMessages;
 pub(crate) use runtime::RuntimeMessages;
+pub(crate) use sandbox_run::SandboxRunMessages;
 pub(crate) use server_mount::server_mount;
 pub(crate) use session::SessionMessages;
 pub(crate) use session_reset::SessionResetMessages;
@@ -153,11 +157,18 @@ pub(crate) struct Catalog {
     pub host_share: host_share::Messages,
     pub app_control: AppControlMessages,
     pub coderouter: CodeRouterMessages,
+    pub automation: AutomationMessages,
     pub billing: BillingMessages,
+    pub sandbox_run: SandboxRunMessages,
     pub update_notice: UpdateNoticeMessages,
 }
 
 impl Catalog {
+    /// Whether this is the Japanese catalog, for help text built in code.
+    pub fn is_japanese(&self) -> bool {
+        self.japanese
+    }
+
     pub fn action_label(&self, action: Action) -> &'static str {
         let definition = action.definition();
         if self.japanese { definition.label_ja } else { definition.label_en }
@@ -167,7 +178,9 @@ impl Catalog {
 static ENGLISH: Catalog = Catalog {
     japanese: false,
     coderouter: coderouter::ENGLISH,
+    automation: automation::ENGLISH,
     billing: billing::ENGLISH,
+    sandbox_run: sandbox_run::ENGLISH,
     update_notice: update_notice::ENGLISH,
     app_control: app_control::ENGLISH,
     agent_wrapper: agent_wrapper::ENGLISH,
@@ -200,7 +213,9 @@ static ENGLISH: Catalog = Catalog {
 static JAPANESE: Catalog = Catalog {
     japanese: true,
     coderouter: coderouter::JAPANESE,
+    automation: automation::JAPANESE,
     billing: billing::JAPANESE,
+    sandbox_run: sandbox_run::JAPANESE,
     update_notice: update_notice::JAPANESE,
     app_control: app_control::JAPANESE,
     agent_wrapper: agent_wrapper::JAPANESE,

@@ -10,6 +10,7 @@ import type { AcpmuxSnapshot } from "./model";
 import { ComposerContext } from "./ComposerContext";
 import type { Project } from "./ProjectChooser";
 import { fleetPeers } from "../../gallery/fixtures/acpmux";
+import { thisMacName } from "./environments";
 
 const projects: Project[] = [
   { cwd: "/Users/you/src/atlas-web", label: "atlas-web" },
@@ -49,6 +50,12 @@ const baseProps = {
 
 /// 21 machines, as `acpmux host ls` lists them on a Mac with a fleet.
 const fleetProps = { ...baseProps, ...fleetPeers() };
+/// The account's Cloud machines acpmux does not list (cloudMachines.ts): paused, ready and booting.
+const accountMachines = [
+  { id: "vm-build", name: "build box", stage: "paused" },
+  { id: "vm-eval", name: "eval box", stage: "ready" },
+  { id: "vm-fresh", name: "fresh box", stage: "booting" },
+];
 
 /// The New Tab page's saved environments (SavedEnvironmentRows), with `current` picked.
 function savedProps(current?: string): ComponentProps<typeof ComposerContext> {
@@ -59,7 +66,14 @@ function savedProps(current?: string): ComponentProps<typeof ComposerContext> {
     peerKinds: { "gpu-box": "ssh" },
     saved: {
       environments: [
-        { id: "s1", name: "GPU box training", kind: "ssh", host: "gpu-box", folder: "/home/dev/model", updatedAt: 3 },
+        {
+          id: "s1",
+          name: "GPU box training",
+          kind: "ssh",
+          host: "gpu-box",
+          folder: "/home/dev/model",
+          updatedAt: 3,
+        },
         {
           id: "l1",
           name: "Atlas in a worktree",
@@ -91,10 +105,12 @@ const openFolder: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-location-menu [role="option"]'));
 };
 
-// Leo's list (hq#1957 composer location strip): three checkouts of cmux, each named "cmux".
+// Leo's list (hq#1957 composer location strip): three checkouts of cmux, each named "cmux", in no
+// worktree home the pickers know (a lane's own `wt/lanes/<lane>/cmux` folds under cmux instead:
+// projectRepos.ts), so each keeps its row and is named apart.
 const worktrees: Project[] = [
-  { cwd: "/Users/you/wt/lanes/cg-lane-adopt/cmux", label: "cmux" },
-  { cwd: "/Users/you/wt/lanes/fleet-ci/cmux", label: "cmux" },
+  { cwd: "/Users/you/clones/cg-lane-adopt/cmux", label: "cmux" },
+  { cwd: "/Users/you/clones/fleet-ci/cmux", label: "cmux" },
   { cwd: "/Users/you/src/cmux", label: "cmux" },
   { cwd: "/Users/you/src/atlas-web", label: "atlas-web" },
   { cwd: "/Users/you/src/relay", label: "relay" },
@@ -104,7 +120,13 @@ const worktreeProps = {
   ...baseProps,
   projectChoices: worktrees,
   onNewWorktree: () => undefined,
-  summary: { sessionId: "", harness: "claude", cwd: worktrees[0]!.cwd, host: "This Mac", hostKind: "local" as const },
+  summary: {
+    sessionId: "",
+    harness: "claude",
+    cwd: worktrees[0]!.cwd,
+    host: "This Mac",
+    hostKind: "local" as const,
+  },
 };
 
 // Austin's list (2026-10-20): cmux's agent worktrees each listed as a project of its own. The host
@@ -151,7 +173,11 @@ const leoMirror = (branch: string) => ({
 });
 const laneCheckouts: Project[] = [
   { cwd: "/Users/you/Projects", label: "Projects" },
-  { cwd: "/Users/you/Projects/cmux", label: "cmux", repo: { ...cmuxRepo("main"), root: "/Users/you/Projects/cmux" } },
+  {
+    cwd: "/Users/you/Projects/cmux",
+    label: "cmux",
+    repo: { ...cmuxRepo("main"), root: "/Users/you/Projects/cmux" },
+  },
   {
     cwd: "/Users/you/Projects/checkouts/cmux/lane-host-fg",
     label: "lane-host-fg",
@@ -182,7 +208,10 @@ const laneCheckouts: Project[] = [
     },
   },
   { cwd: "/Users/you/Projects/leo--ask-cost-dollar", label: "leo--ask-cost-dollar" },
-  { cwd: "/Users/you/Projects/codex--protocol-contract-node-version", label: "codex--protocol-contract-node-version" },
+  {
+    cwd: "/Users/you/Projects/codex--protocol-contract-node-version",
+    label: "codex--protocol-contract-node-version",
+  },
   { cwd: "/Users/you", label: "~" },
 ];
 
@@ -226,7 +255,10 @@ const frameworkGlyphs = {
   "ml-pipeline": "python",
   notes: undefined,
 } as const;
-const frameworkProjects = Object.keys(frameworkGlyphs).map((label) => ({ cwd: `/Users/you/src/${label}`, label }));
+const frameworkProjects = Object.keys(frameworkGlyphs).map((label) => ({
+  cwd: `/Users/you/src/${label}`,
+  label,
+}));
 const frameworkProps = {
   ...baseProps,
   projectChoices: frameworkProjects,
@@ -253,6 +285,46 @@ const openComputer: Play = async (ctx) => {
     ctx.document.querySelector('.acpmux-location-menu [role="option"], [role="menu"] [role="menuitemradio"]'),
   );
 };
+
+// Composer warning specimens use the same health shape emitted by the cached `_acpmux/status`
+// snapshot. Keep a quiet specimen beside the warning states so a capture shows the unchanged
+// menu when the host is within budget.
+const machineWarningBase = {
+  ...baseProps,
+  peers: ["gpu-box"],
+  peerKinds: { "gpu-box": "ssh" as const },
+};
+const machineWarningHighLoad = {
+  ...machineWarningBase,
+  peerResources: {
+    "gpu-box": { ramFreeGB: 6.4, coresBusy: 14, cores: 10, busy: true, lowMemory: false },
+  },
+};
+const machineWarningLowMemory = {
+  ...machineWarningBase,
+  peerResources: {
+    "gpu-box": { ramFreeGB: 1.2, coresBusy: 4, cores: 10, busy: false, lowMemory: true },
+  },
+};
+const machineWarningQuiet = {
+  ...machineWarningBase,
+  peerResources: {
+    "gpu-box": { ramFreeGB: 16, coresBusy: 2, cores: 10, busy: false, lowMemory: false },
+  },
+};
+
+// These two temporary styles let the gallery compare warning treatments without adding a
+// presentation switch to shipped props. Each stage is a fresh document, so the style only affects
+// its own capture. The selected product treatment remains the default tint plus detail row.
+const openComputerWithGalleryStyle =
+  (css: string): Play =>
+  async (ctx) => {
+    await openComputer(ctx);
+    const style = ctx.document.createElement("style");
+    style.dataset.galleryWarningTreatment = "true";
+    style.textContent = css;
+    ctx.document.head.append(style);
+  };
 
 export default componentEntry<ComponentProps<typeof ComposerContext>>({
   id: "agent-pane.composer-context",
@@ -290,8 +362,63 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: baseProps,
     },
     "folder-menu": {
-      note: "The folder popover: a search field over the recent projects (paths on hover), then Add project and Choose folder….",
+      note: "Project actions stay directly below search, above the recent projects (paths on hover).",
       props: baseProps,
+      play: openFolder,
+    },
+    "folder-pinned-search": {
+      note: "Typing a project keeps its row active while the actions stay pinned above it.",
+      props: {
+        ...baseProps,
+        onProject: (cwd) => {
+          document.documentElement.dataset.galleryProjectPicked = cwd;
+        },
+        onBrowseProject: () => {
+          document.documentElement.dataset.galleryProjectAction = "browse";
+        },
+        onNoProject: () => {
+          document.documentElement.dataset.galleryProjectAction = "none";
+        },
+      },
+      play: openFolder,
+    },
+    "folder-short-note": {
+      note: "A short pane with a private-folder explanation keeps project rows visible.",
+      props: {
+        ...repoProps,
+        summary: { ...repoProps.summary, cwd: "" },
+        folderNote: "New chats in this workspace start in a private folder.",
+      },
+      play: openFolder,
+    },
+    "folder-short-note-de": {
+      note: "A two-line German private-folder explanation in a short pane.",
+      props: {
+        ...repoProps,
+        summary: { ...repoProps.summary, cwd: "" },
+        folderNote: "Neue Chats in diesem Arbeitsbereich starten in einem privaten Ordner.",
+      },
+      play: openFolder,
+    },
+    "folder-short-note-fr": {
+      note: "A two-line French private-folder explanation in a short pane.",
+      props: {
+        ...repoProps,
+        summary: { ...repoProps.summary, cwd: "" },
+        folderNote: "Les nouvelles discussions de cet espace de travail démarrent dans un dossier privé.",
+      },
+      play: openFolder,
+    },
+    "folder-long-list": {
+      note: "Project actions stay below search while a long folder list scrolls; the thumb stays inside the right edge.",
+      props: {
+        ...baseProps,
+        projectChoices: Array.from({ length: 40 }, (_, index) => ({
+          cwd: `/demo/review-${index + 1}`,
+          label: `review-${index + 1}`,
+        })),
+        onNoProject: () => undefined,
+      },
       play: openFolder,
     },
     "folder-favicons": {
@@ -388,19 +515,80 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
       play: openFolder,
     },
+    "computer-first-setup": {
+      note: "A fresh home, with Labs off and no other computer: Add a computer opens Add Device, and New Cloud Machine uses the existing creation action.",
+      props: { ...baseProps, sessions: [], peers: [], cloudMachines: [], localName: "Studio Mac" },
+      play: openComputer,
+    },
+    "computer-first-setup-chat": {
+      note: "The same first-computer setup footer in an existing local chat, without enabling Labs or allowing the chat to change its machine.",
+      props: {
+        ...baseProps,
+        started: true,
+        sessions: [],
+        peers: [],
+        cloudMachines: [],
+        localName: "Studio Mac",
+        summary: { sessionId: "gallery-local", harness: "claude", hostKind: "local" },
+      },
+      play: openComputer,
+    },
     "computer-menu": {
       note: "The computer menu keeps local and Cloud destinations together with SSH and cmux Cloud actions.",
       props: baseProps,
       play: openComputer,
     },
+    "computer-menu-high-load": {
+      note: "Warning treatment (selected): the Computer menu calls out a machine whose one-minute reading is above its CPU budget, with the tint confined to that row and a precise detail line.",
+      props: machineWarningHighLoad,
+      play: openComputer,
+    },
+    "computer-menu-high-load-icon": {
+      note: "Warning treatment alternative: a small warning glyph plus the same precise CPU detail; gallery-only styling for comparison.",
+      props: machineWarningHighLoad,
+      play: openComputerWithGalleryStyle(
+        '.acpmux-location-name[data-warning="true"]::before { content: "⚠"; display: inline-block; margin-inline-end: 5px; font-size: 0.9em; }',
+      ),
+    },
+    "computer-menu-high-load-detail-only": {
+      note: "Warning treatment alternative: the precise CPU detail carries the warning color while the machine name stays neutral; gallery-only styling for comparison.",
+      props: machineWarningHighLoad,
+      play: openComputerWithGalleryStyle(
+        '.acpmux-location-name[data-warning="true"] { color: var(--agent-text); } .acpmux-location-name[data-warning="true"] .acpmux-menu-description { color: var(--acpmux-warning); }',
+      ),
+    },
+    "computer-menu-low-memory": {
+      note: "Warning specimen: the Computer menu reports the machine's low free memory in GB while keeping the row otherwise quiet and still selectable.",
+      props: machineWarningLowMemory,
+      play: openComputer,
+    },
+    "computer-menu-quiet": {
+      note: "Before/after baseline: a healthy one-minute reading leaves the Computer menu identical to the existing quiet state.",
+      props: machineWarningQuiet,
+      play: openComputer,
+    },
+    "computer-menu-warnings-off": {
+      note: "Setting-off specimen: even with the same high CPU reading, disabling machine load warnings keeps the existing Computer menu unchanged.",
+      props: { ...machineWarningHighLoad, showMachineLoadWarnings: false },
+      play: openComputer,
+    },
     "computer-search": {
+      // The open machine list runs to about y=221, past the entry's 180px stage. On a short stage
+      // the page scrolls to show it, the anchor leaves the view and the popup hides
+      // (`.ui-positioner[data-anchor-hidden]`). When the health runner's step still then sends focus
+      // back to the dialog, focusing the hidden input does nothing and "gpu" goes to the body. A
+      // stage that holds the whole menu keeps the anchor, the popup and the input in view.
+      height: 420,
       note: "The classic machine picker uses the same searchable Combobox as environments and folders; filtering twenty machines leaves gpu-box.",
-      props: { ...baseProps, peers: ["gpu-box", ...Array.from({ length: 20 }, (_, i) => `build-${i + 1}`)] },
+      props: {
+        ...baseProps,
+        peers: ["gpu-box", ...Array.from({ length: 20 }, (_, i) => `build-${i + 1}`)],
+      },
       play: async (ctx) => {
         await openComputer(ctx);
         await ctx.focus({ role: "combobox", name: "Computer" });
         await ctx.type("gpu");
-        await ctx.waitFor(() => ctx.document.querySelectorAll('[role="option"]').length === 1);
+        await ctx.waitFor(() => ctx.document.querySelectorAll('[role="option"]').length === 1, { capMs: 8000 });
       },
     },
     "environment-picker": {
@@ -416,6 +604,95 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.click({ role: "button", name: /^Environment/ });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
       },
+    },
+    "environment-picker-cloud-chat": {
+      // The whole list, down to the Cloud section, past the entry's 180px stage.
+      height: 420,
+      note: "Preview: a chat seeded onto a Cloud machine (kind-aqua-sandpiper). This Mac keeps this Mac's own name (office-mac, the host's `localMachineName`) and the Cloud machine is listed under Cloud and VMs, never under This Mac (Leo, 2026-10-30: \"the ui is so ass in general for this tho\").",
+      props: {
+        ...baseProps,
+        environments: true,
+        summary: { sessionId: "", harness: "claude", host: "kind-aqua-sandpiper", hostKind: "cloud" as const },
+        sessions: [
+          {
+            sessionId: "gallery-sandpiper",
+            displayTitle: "Set up the repo",
+            cwd: "/root/work",
+            host: "kind-aqua-sandpiper",
+            hostKind: "cloud" as const,
+            updatedAt: 0,
+          },
+        ],
+        peers: ["gpu-box"],
+        peerKinds: { "gpu-box": "ssh" },
+        peerConnected: { "gpu-box": true },
+        localName: thisMacName("office-mac", "kind-aqua-sandpiper", { hostKind: "cloud", host: "kind-aqua-sandpiper" }),
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
+    },
+    "environment-picker-sandboxed-option": {
+      note: "Labs (hq#3367): Sandboxed is New Cloud Machine's other face, with no row of its own. Holding ⌥ while the list is open shows it, as a Mac menu's alternate: a pick runs the new chat's first message once on a throwaway Cloud VM.",
+      props: {
+        ...baseProps,
+        environments: true,
+        runMode: { mode: "persistent", onMode: () => undefined },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+        ctx.document.defaultView?.dispatchEvent(new KeyboardEvent("keydown", { key: "Alt", altKey: true }));
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="sandboxed"]'));
+      },
+    },
+    "environment-picker-sandboxed-search": {
+      note: "Labs (hq#3367): searching for it shows Sandboxed in New Cloud Machine's place.",
+      props: {
+        ...baseProps,
+        environments: true,
+        runMode: { mode: "persistent", onMode: () => undefined },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+        await ctx.type("sandbox");
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="sandboxed"]'));
+      },
+    },
+    "environment-picker-sandboxed-picked": {
+      note: "Labs (hq#3367): Sandboxed picked. The control names it where the machine was, and its row stays checked in New Cloud Machine's place; any machine goes back to a Persistent chat.",
+      props: {
+        ...baseProps,
+        environments: true,
+        runMode: { mode: "sandboxed", onMode: () => undefined },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="sandboxed"]'));
+      },
+    },
+    "environment-picker-cloud-machines": {
+      note: "Preview: the environment picker above, then the account's Cloud machines acpmux does not list (`cloudMachine.list`) in Cloud and VMs, each with its stage: build box is paused (a pick resumes it), eval box is ready (a pick opens it), fresh box is still booting. They take no ⌥⌘ digit and are not greyed.",
+      props: {
+        ...baseProps,
+        environments: true,
+        peers: ["gpu-box", "Cloud machine"],
+        peerKinds: { "gpu-box": "ssh", "Cloud machine": "cloud" },
+        peerConnected: { "gpu-box": true, "Cloud machine": false },
+        cloudMachines: accountMachines,
+        onCloudMachine: () => undefined,
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
+    },
+    "computer-menu-cloud-machines": {
+      note: "Previews off: the plain Computer menu lists the account's Cloud machines acpmux does not list the same way, with their stage on the second line.",
+      props: { ...baseProps, cloudMachines: accountMachines, onCloudMachine: () => undefined },
+      play: openComputer,
     },
     "environment-picker-fleet": {
       height: 760,

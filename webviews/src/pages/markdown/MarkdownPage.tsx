@@ -130,6 +130,11 @@ export function MarkdownPage({
           >
             {state.phase === "ready" ? status : ""}
           </span>
+          {!state.readOnly && state.mode !== "source" ? (
+            <ToolbarButton className="md-edit-button" label={t(L.edit)} onPress={() => store.setMode("source")}>
+              {t(L.edit)}
+            </ToolbarButton>
+          ) : null}
           <ToolbarToggleGroup
             className="md-mode"
             label={t(L.modeLabel)}

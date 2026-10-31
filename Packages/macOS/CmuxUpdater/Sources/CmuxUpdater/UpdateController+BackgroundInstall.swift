@@ -62,7 +62,11 @@ extension UpdateController {
     /// app is still running ``installWatchdogTimeout`` after the click, or nothing can install,
     /// the click ends in a visible error that offers a manual download, never a dead button.
     public func installStagedUpdate() {
-        if driver.installStaged() {
+        if driver.quitInstallCommitted, driver.quitInstall != nil {
+            log.append("background install: click while the app quits for the install; it reopens updated")
+            return
+        }
+        if driver.installStaged() || driver.installQuitInstallNow() {
             armStagedInstallWatchdog()
             return
         }
@@ -83,6 +87,24 @@ extension UpdateController {
             return
         }
         setInstallDidNotStartError(diagnostic: "install clicked with no staged update (state=\(model.state))")
+    }
+
+    /// Whether the app still means to quit for an automatic install: false once a click, a cancel
+    /// or the session's end took it over (``dropQuitInstall()``).
+    public var waitsToQuitForInstall: Bool {
+        driver.quitInstall != nil
+    }
+
+    /// The host's wait for the moment ended and its helper quits the app now: a click no longer
+    /// installs through Sparkle (``UpdateActionDelegate/updaterQuitsForAutomaticInstall(build:)``).
+    public func commitQuitInstall() {
+        driver.commitQuitInstall()
+    }
+
+    /// The automatic install the app meant to quit for was taken over (a click, a cancel, the
+    /// session's end) while it waited: its held reply goes, so nothing installs it later.
+    public func dropQuitInstall() {
+        driver.quitInstall = nil
     }
 
     /// The automatic install the app quit for did not end it (the quit was refused, or the helper
@@ -115,14 +137,15 @@ extension UpdateController {
     }
 
     /// Cancels the staged update's pending installer (Sparkle would install it when the app
-    /// quits) without skipping its version. No-op without one; returns whether one was cancelled.
+    /// quits) without skipping its version. A legacy silent installer is cancelled and checked
+    /// again before it reaches this ready reply. No-op without one; returns whether cancelled.
     @discardableResult
     public func cancelStagedUpdate() -> Bool {
         driver.cancelStaged()
     }
 
     /// Whether this driver holds the staged update's installer, so ``cancelStagedUpdate()`` would
-    /// cancel it (not Sparkle's own silent install, nor one already handed to the installer).
+    /// cancel it (not one still resuming from Sparkle's silent cycle or already installing).
     public var canCancelStagedUpdate: Bool {
         driver.stagedCancel != nil
     }
@@ -137,6 +160,10 @@ extension UpdateController {
     /// Downloads the update that waits for the user; it then stages like a background download.
     public func acceptAvailableUpdate() {
         guard case .updateAvailable(let available) = model.state, !available.reply.isConsumed else { return }
+        if driver.refusesBuild?(available.appcastItem.versionString) == true {
+            log.append("not downloading \(available.appcastItem.versionString): the host refuses it")
+            return
+        }
         driver.acceptInBackground(available)
     }
 
@@ -165,5 +192,19 @@ extension UpdateController {
     public var skipsBuildsThrough: String? {
         get { driver.skipsBuildsThrough }
         set { driver.skipsBuildsThrough = newValue }
+    }
+
+    /// Whether the host refuses a found build by its `sparkle:version` (cmux NEXT: a pulled
+    /// build): it is dismissed when found, before any download or prompt, and never accepted.
+    public var refusesUpdate: (@MainActor (String) -> Bool)? {
+        get { driver.refusesBuild }
+        set { driver.refusesBuild = newValue }
+    }
+
+    /// Refreshes the host's refusal policy before an appcast item is offered or downloaded.
+    /// A bounded async read may finish after the appcast, but the item waits for this read.
+    public var prepareUpdate: (@MainActor () async -> Void)? {
+        get { driver.prepareUpdate }
+        set { driver.prepareUpdate = newValue }
     }
 }

@@ -1,7 +1,5 @@
-// The New Tab composer and the agent composer are one card (Leo 2026-10-13: the field, its
-// selection and the project and model pickers under it read as illogical). As in the agent
-// composer (Composer.tsx): the field on top, then the bar with the agent's model chip and Send,
-// then the location row with the project, inside the same card. The project is never in the bar.
+// New Tab preserves the shared composer controls. The model always sits in the footer;
+// Claude may place location in that row while Codex keeps its tray above the box.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -21,6 +19,8 @@ const keys = [
   "getComputedStyle",
   "requestAnimationFrame",
   "cancelAnimationFrame",
+  "ResizeObserver",
+  "MutationObserver",
 ] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let root: Root | undefined;
@@ -40,6 +40,8 @@ beforeAll(() => {
     document: window.document,
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
+    ResizeObserver: window.ResizeObserver,
+    MutationObserver: window.MutationObserver,
     IS_REACT_ACT_ENVIRONMENT: true,
     // The suggestions' Popover (Base UI and Floating UI) reads these.
     Node: window.Node,
@@ -51,8 +53,8 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
-  act(() => root?.unmount());
+afterAll(async () => {
+  await act(async () => root?.unmount());
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];
@@ -70,6 +72,7 @@ async function mount(
     machineName?: string;
     snapshot?: AcpmuxSnapshot;
     onCommands?(harness: string, cwd?: string): void;
+    template?: "cards";
   } = {},
 ) {
   const { createRoot } = await import("react-dom/client");
@@ -80,6 +83,7 @@ async function mount(
     root!.render(
       <NewTabScreen
         snapshot={options.snapshot ?? noChat()}
+        {...(options.template ? { template: options.template } : {})}
         {...(options.machineName ? { machineName: options.machineName } : {})}
         lastAgent="claude"
         cwd="/Users/you"
@@ -117,7 +121,7 @@ test("Codex slash commands are available before the first message and selecting 
   expect(requests).toEqual(["codex"]);
 });
 
-test("the New Tab card is the composer's: the project strip on its top edge, then field, model and Send", async () => {
+test("the New Tab card keeps Send in the box and model in the footer", async () => {
   await mount();
   const composer = host.querySelector<HTMLElement>(".nt-composer")!;
   const card = composer.querySelector<HTMLElement>(".nt-box")!;
@@ -127,14 +131,36 @@ test("the New Tab card is the composer's: the project strip on its top edge, the
   expect(parts.map((part) => part.className.split(" ")[0])).toEqual([
     "acpmux-composer-strip",
     "nt-field",
-    "acpmux-chips",
     "acpmux-send",
+    "acpmux-chips",
   ]);
   // The project is the location strip's (hq#1957 composer location strip), as in the agent
   // composer: never in the card or its bar.
   const row = composer.querySelector<HTMLElement>(".acpmux-composer-strip .acpmux-composer-context")!;
   expect(row.textContent).toContain("app");
-  expect(card.querySelector(".acpmux-composer-context, .acpmux-location-button")).toBeNull();
+  expect(card.querySelector(".acpmux-composer-context, .acpmux-location-button, .acpmux-chips")).toBeNull();
+  expect(composer.querySelector(".acpmux-composer-foot .acpmux-chips")).not.toBeNull();
+});
+
+// Leo 2026-10-29 (#27956, which takes back #24519's one row): "project and cloudness at the top".
+// The Claude split keeps the mode and model in the quiet row under the box and heads the box with
+// the folder/computer, as Codex does.
+test("Claude New Tab location heads the box and the model keeps the quiet row under it", async () => {
+  const { setComposerLook } = await import("../src/agent-session/acpmux/composerLook");
+  act(() => setComposerLook("claude", { remember: false }));
+  await mount({ template: "cards" });
+  const composer = host.querySelector<HTMLElement>(".nt-composer")!;
+  const row = composer.querySelector<HTMLElement>(".nt-foot .acpmux-composer-foot")!;
+  expect(row.querySelector(".acpmux-chips")).not.toBeNull();
+  expect(row.querySelector(".acpmux-composer-context")).toBeNull();
+  expect(composer.querySelector(".nt-above .acpmux-composer-context")?.textContent).toContain("app");
+  expect(composer.querySelectorAll(".acpmux-composer-context")).toHaveLength(1);
+
+  act(() => setComposerLook("codex", { remember: false }));
+  expect(composer.querySelector(".nt-above .acpmux-composer-context")).not.toBeNull();
+  expect(composer.querySelector(".nt-foot .acpmux-chips")).not.toBeNull();
+  expect(composer.querySelector(".nt-foot .acpmux-composer-context")).toBeNull();
+  act(() => setComposerLook("claude", { remember: false }));
 });
 
 // Review (#20148): the composer's Computer menu listed a remote chat's machine, so the row could

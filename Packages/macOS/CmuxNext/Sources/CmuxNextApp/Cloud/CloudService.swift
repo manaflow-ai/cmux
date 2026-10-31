@@ -1,11 +1,13 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextHomeEngine
 import CmuxNextPhoneAccess
+import CmuxNextRemoteLocalhost
 import Foundation
 import Observation
 import os
@@ -21,8 +23,35 @@ final class CloudService {
     let configuration: CloudConfiguration
     let auth: CloudAuth
     @ObservationIgnored let api: CloudAPIClient
+    /// A machine's exec and file routes: ``api`` on the legacy link, the cmux API Worker's on the
+    /// app server link, whose machines have no `/api/vm` row (cmux-platform#89).
+    @ObservationIgnored let machineAPI: CloudAPIClient
+    /// The machines a `cloud deliver-secrets` runs for now: one delivery per machine at a time.
+    @ObservationIgnored var deliveringSecrets: Set<String> = []
     @ObservationIgnored let paths: CloudPaths
+    /// One app-lifetime owner of confirmed, per-account Codex delivery.
+    let codexBroker: CloudCodexBrokerAdapter
+    @ObservationIgnored private let work: BackgroundWork
     @ObservationIgnored private(set) var hub: CloudTunnelHub?
+    /// Whether a cmux Pro offer is on screen (CloudPresenter.offerPro).
+    @ObservationIgnored var proOfferOpen = false
+    /// Each machine list that carries the plan (`limits.planId`) reports it: the paid-plan welcome step
+    /// (AppServices+PaidPlan.swift) watches for the plan turning paid after an upgrade.
+    @ObservationIgnored var planObserved: @MainActor (String?) -> Void = { _ in }
+    /// Open Desktop's `cmux-rd` viewer: each machine's desktop host session token (lowercased id),
+    /// fetched over the signed-in Cloud API when a person opens it, held only in memory.
+    @ObservationIgnored var desktopRdTokens: [String: String] = [:]
+    /// The tunnel's SOCKS socket and client token, starting it when needed: how the browser
+    /// reaches a machine's localhost over this Mac's own WireGuard tunnel (RemoteLocalhostService).
+    /// Nil without the hub.
+    var tunnelSocket: HubLoopbackOpener.Hub? {
+        guard let hub else { return nil }
+        let endpoint: HubLoopbackOpener.Hub = {
+            let endpoint = try await hub.endpoint()
+            return HubLoopbackOpener.Endpoint(socket: endpoint.socket, token: endpoint.clientToken)
+        }
+        return endpoint
+    }
     /// This Mac's Cloud install principal (cx-wb5.64): install tokens for the
     /// credential relay; registered at sign-in, revoked at sign-out.
     @ObservationIgnored let installIdentity: MacInstallIdentity
@@ -33,7 +62,8 @@ final class CloudService {
     @ObservationIgnored private let machines: MachineRegistry
     /// The plan gate for a create, from the last machine list's limits.
     var createGate: CloudMachineCreateFlow.Gate { CloudMachineCreateFlow.gate(machines.cloudLimits) }
-    @ObservationIgnored private let binary: URL?
+    /// The app's `cmux-tui` (the hub's, the moves' and `cloud enroll-machine`'s `wg dial`).
+    @ObservationIgnored let binary: URL?
     /// This Mac's `cmux link` across the session (cx-rtipa S3).
     @ObservationIgnored private let link: CloudLinkLifecycle
     @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
@@ -62,6 +92,8 @@ final class CloudService {
     @ObservationIgnored var confirmCreate: (@MainActor (CloudMachineCreateFlow.Prompt) async -> Bool)?
     /// Machine creations in flight (sidebar can show a placeholder).
     private(set) var creating = 0
+    /// The names app server creates in flight asked for, typed or default: a default picked meanwhile skips them.
+    @ObservationIgnored private var machineNamesInFlight: [String] = []
     /// New Cloud Workspace runs from the click to the open terminal: each
     /// window's progress view and sidebar row (cx-lu8f).
     let creations = CloudCreations()
@@ -80,6 +112,7 @@ final class CloudService {
     @ObservationIgnored let startSessionAsks = CloudStartSessionAsks()
     /// `cmux cloud start-session` runs, joined by a repeat of the same ask (``CloudStartSessionRuns``).
     @ObservationIgnored let startSessionRuns = CloudStartSessionRuns()
+    @ObservationIgnored let signedOutCreation = CloudSignedOutCreationContinuation()
     /// When the loaded list landed (``hasCurrentList(within:)``).
     @ObservationIgnored private var listLoadedAt: ContinuousClock.Instant?
     /// Moved chats' file requests for this Mac, asked in their chats.
@@ -97,6 +130,7 @@ final class CloudService {
     init(machines: MachineRegistry, isDebugBuild: Bool, mainWork: MainWorkScheduler, work: BackgroundWork) {
         self.machines = machines
         self.mainWork = mainWork
+        self.work = work
         configuration = CloudConfiguration.current(isDebugBuild: isDebugBuild)
         auth = CloudAuth(configuration: configuration)
         paths = CloudPaths.standard(bundleID: configuration.bundleID)
@@ -107,7 +141,7 @@ final class CloudService {
             tokens: { try await auth.tokens() },
             teamID: { await auth.teamID }
         )
-        installIdentity = MacInstallIdentity(
+        let identity = MacInstallIdentity(
             store: .forApp(directory: paths.root.appendingPathComponent("install", isDirectory: true),
                            service: "\(configuration.bundleID ?? "cmux").install-key.\(configuration.ownerAPIBaseURL().host ?? "unknown")",
                            team: CodeSigningTeam.current(), isDebugBuild: configuration.isDebugBuild),
@@ -115,6 +149,43 @@ final class CloudService {
             deviceName: Self.deviceName,
             clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
         )
+        installIdentity = identity
+        machineAPI = configuration.linkSource == .appServer
+            ? CloudAPIClient.workerMachines(baseURL: configuration.ownerAPIBaseURL(), accessToken: { try await auth.tokens().access },
+                                            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) })
+            : api
+        let api = api, machineAPI = machineAPI
+        let build = LaunchIdentity.current().build
+        let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
+        let environment = ProcessInfo.processInfo.environment
+        let userHome = FileManager.default.homeDirectoryForCurrentUser
+        codexBroker = CloudCodexBrokerAdapter(root: paths.root, registry: CloudCodexBrokerRegistry(),
+            currentScope: {
+                guard auth.isSignedIn, let user = auth.user else { return nil }
+                return CloudCodexBrokerScope(userID: user.id, teamID: auth.teamID)
+            },
+            launch: {
+                try await work.run(.userVisible, mayBlock: .files) {
+                    guard let acpmux = AcpmuxEnvironment.resolve(build: build, bundledBinDirectory: bin,
+                        environment: environment, userHome: userHome) else { throw CloudCodexBrokerError.brokerUnavailable }
+                    let search = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
+                        + [userHome.appendingPathComponent(".local/bin").path, "/opt/homebrew/bin", "/usr/local/bin"]
+                    guard let codex = search.filter { $0.hasPrefix("/") }.map({ URL(fileURLWithPath: $0).appendingPathComponent("codex") })
+                        .first(where: { FileManager.checked.isExecutableFile(atPath: $0.path) }) else {
+                        throw CloudCodexBrokerError.brokerUnavailable
+                    }
+                    return CloudCodexBrokerAdapter.Launch(executable: acpmux.executable, prefix: [], codex: codex)
+                }
+            }, target: { [linkSource = configuration.linkSource, weak machines] scope, machineID in
+                guard linkSource == .appServer else { return CloudCodexBrokerTarget(api: api, machineID: machineID, scope: scope) }
+                // A Worker machine: its app link's own owner answer and the app's record, never /api/vm.
+                return CloudCodexBrokerTarget(api: machineAPI, machineID: machineID, scope: scope, callerOwnsVM: {
+                    guard let link = await MainActor.run(body: { machines?.session(machineID)?.appLink }) else { return false }
+                    return await link.ownerLink != nil
+                }, isLive: {
+                    await MainActor.run { machines?.session(machineID)?.machine.status.isLive ?? false }
+                })
+            })
         hostReplica = CloudHostReplicaFollower(origin: HomeCloudLease.origin(configuration.ownerAPIBaseURL()),
             clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
             installToken: { [installIdentity] in let token = try await installIdentity.installToken(); return (token, HomeCloudLease.expiry(ofJWT: token) ?? HomeCloudLease.fallbackExpiry(now: Date())) },
@@ -122,7 +193,6 @@ final class CloudService {
         hands = HandsService(
             apiBaseURL: configuration.ownerAPIBaseURL(), accessToken: { [auth] in try await auth.tokens().access }, identity: installIdentity,
             presence: HandPresenceKeyStore(directory: paths.root.appendingPathComponent("install", isDirectory: true)))
-        let identity = installIdentity
         let launcher = configuration.linkSource == .appServer ? CloudLinkLauncher.forApp(build: LaunchIdentity.current().build) : nil
         link = CloudLinkLifecycle(launcher: launcher, installID: { [identity] in await identity.installID() },
                                   connection: { [machines] in machines.local.connection })
@@ -253,7 +323,9 @@ final class CloudService {
             guard let self else { return }
             var last = account
             for await account in ObservationStream({ self.account }) where account != last {
+                signedOutCreation.scopeDidChange(from: last, to: account)
                 last = account
+                await codexBroker.scopeDidChange()
                 startSessionRuns.forgetAll()
                 startSessionAsks.endAll()
             }
@@ -269,7 +341,12 @@ final class CloudService {
     func applyPolicy(disabled: Bool) {
         guard disabled != policyDisabled else { return }
         policyDisabled = disabled
+        // Fence Codex broker requests synchronously with the policy flip. The
+        // adapter tears down holders asynchronously and retains their private
+        // homes for a later confirmed run after policy is restored.
+        codexBroker.setAvailable(!disabled)
         if disabled {
+            signedOutCreation.cancel()
             for session in machines.cloud {
                 session.daemon.policyBlock.set(true)
                 session.disconnect()
@@ -292,6 +369,7 @@ final class CloudService {
     }
 
     func stop() {
+        signedOutCreation.cancel()
         for observer in observers { observer.cancel() }
         observers.removeAll()
         if let linkEvents { machines.local.store.sideEvents.unsubscribe(linkEvents) }
@@ -303,6 +381,10 @@ final class CloudService {
         // task-owner: teardown hop at quit; hub.stop() is idempotent
         if let hub { Task { await hub.stop() } }
     }
+
+    /// The quit coordinator awaits this before AppKit may terminate the
+    /// process, while Cloud transports can still erase delivered access.
+    func prepareForTermination() async { await codexBroker.shutdown() }
 
     /// Serves the `credential` family on the local daemon: answers its
     /// calls on the connection that sent them, and registers again after
@@ -335,6 +417,14 @@ final class CloudService {
     /// after the account's machines were dropped (sign-out, another account),
     /// or after this app added or removed a machine, is stale.
     @ObservationIgnored private var listGeneration = 0
+    /// Orders every read of machine records (a list, Machine Status's one record) by when it was asked.
+    @ObservationIgnored private var recordReads = 0
+    /// Per machine, the read whose record it holds: an older read's answer that lands later changes nothing.
+    @ObservationIgnored private var recordReadApplied: [String: Int] = [:]
+    /// Only one-record reads protect their own machine from an older list's removal.
+    @ObservationIgnored private(set) var recordReadsOutstanding: [Int: String] = [:]
+    /// Omitted machines awaiting a newer status read; retired as soon as that read finishes.
+    @ObservationIgnored private var deferredRecordRemovals: [String: Int] = [:]
 
     /// Fetches `/api/vm` and reconciles sessions: new live machines connect,
     /// gone machines disconnect, records update in place. A stale list (see
@@ -342,12 +432,18 @@ final class CloudService {
     /// one signed in when it lands, changes nothing: it can neither bring back
     /// a signed-out account's machines, nor undo a create or delete it did not
     /// see, nor mark the store loaded with an older answer than the latest.
-    func refresh() async {
-        guard auth.isSignedIn, unavailableReason == nil else { return }
+    /// True only when this call's own list landed: a failed, skipped or superseded call is false,
+    /// whatever the store held before it.
+    @discardableResult
+    func refresh() async -> Bool {
+        guard auth.isSignedIn, unavailableReason == nil else { return false }
         lastRefresh = .now
         listGeneration += 1
         let generation = listGeneration
+        let read = beginRecordRead()
+        defer { finishRecordRead(read) }
         let account = listAccount
+        let connectsAtRead = Dictionary(machines.cloud.map { ($0.machineID, $0.connects) }, uniquingKeysWith: { first, _ in first })
         do {
             let list: [CloudMachine]
             let limits: CloudMachineLimits?
@@ -359,24 +455,30 @@ final class CloudService {
                 list = listed.machines
                 limits = listed.limits
             }
-            guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return }
+            guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return false }
             machines.cloudLimits = limits
+            if let limits { planObserved(limits.planId) }
             lastError = nil
-            reconcile(list)
+            reconcile(list, read: read, connectsAtRead: connectsAtRead)
             hasLoadedMachines = true
             loadedAccount = account
             listLoadedAt = .now
+            await startHubForSSHRoutes()
+            return true
         } catch {
-            guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return }
+            guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return false }
             lastError = CloudStrings.errorText(error)
             logger.error("machine list failed: \(String(describing: error), privacy: .public)")
+            return false
         }
     }
 
-    /// ``refresh()`` unless the list was read within `age`.
-    func refresh(ifOlderThan age: Duration) async {
-        if let last = lastRefresh, last.duration(to: .now) < age { return }
-        await refresh()
+    /// ``refresh()`` unless the list was read within `age`; true when the store then holds a list
+    /// the server answered within `age` for the account signed in now.
+    @discardableResult
+    func refresh(ifOlderThan age: Duration) async -> Bool {
+        if let last = lastRefresh, last.duration(to: .now) < age { return hasCurrentList(within: age) }
+        return await refresh()
     }
 
     /// Whom a machine list is for: the signed-in user and the team the API
@@ -393,33 +495,97 @@ final class CloudService {
         Self.listIsCurrent(loadedAt: hasLoadedMachines ? listLoadedAt : nil, loadedFor: loadedAccount, account: listAccount, now: .now, within: age)
     }
 
-    nonisolated static func listIsCurrent(loadedAt: ContinuousClock.Instant?, loadedFor: [String?]?, account: [String?], now: ContinuousClock.Instant, within age: Duration) -> Bool {
-        guard let loadedAt, loadedFor == account else { return false }
-        return loadedAt.duration(to: now) < age
+    /// Takes a read ticket before sending. A one-record request names its machine; a list does not.
+    func beginRecordRead(machineID: String? = nil) -> Int {
+        recordReads += 1
+        // Lists need ordering only; they must never acquire an outstanding status entry.
+        if let machineID { recordReadsOutstanding[recordReads] = machineID }
+        return recordReads
     }
 
-    private func reconcile(_ list: [CloudMachine]) {
+    /// Retires a completed or superseded status read; an ordering-only list ticket is a no-op.
+    func finishRecordRead(_ read: Int) {
+        guard recordReadsOutstanding.removeValue(forKey: read) != nil else { return }
+        processDeferredRecordRemovals()
+    }
+
+    /// `connectsAtRead` fences a list against a connection begun after that list was requested.
+    func reconcile(_ list: [CloudMachine], read: Int, connectsAtRead: [String: Int] = [:]) {
         // A list that arrives after Cloud was turned off connects nothing.
         guard !policyDisabled else { return }
         let visible = list.filter { $0.status != .destroyed }
         for machine in visible {
             if let session = machines.session(machine.id) {
-                let wasLive = session.machine.status.isLive
-                session.machine = machine
-                if wasLive, !machine.status.isLive {
-                    session.suspend()
-                } else if !wasLive, machine.status.isLive {
-                    session.connect()
-                }
+                apply(machine, to: session, read: read, connectsAtRead: connectsAtRead[machine.id])
             } else {
+                // Do not resurrect a machine removed by a newer detail/list response.
+                guard read > recordReadApplied[machine.id, default: 0] else { continue }
+                // The machine's record now comes from this list: older reads land behind it.
+                recordReadApplied[machine.id] = read
                 addSession(machine)
             }
         }
         let ids = Set(visible.map(\.id))
         for session in machines.cloud where !ids.contains(session.machineID) {
-            creations.machineRemoved(session.machineID)
-            machines.remove(session.machineID)?.disconnect()
+            deferredRecordRemovals[session.machineID] = max(read, deferredRecordRemovals[session.machineID, default: 0])
         }
+        processDeferredRecordRemovals()
+    }
+
+    private func processDeferredRecordRemovals() {
+        guard !policyDisabled else { return }
+        for (machineID, read) in deferredRecordRemovals {
+            // A later successful read saw this machine, superseding the omission.
+            if recordReadApplied[machineID, default: 0] >= read {
+                deferredRecordRemovals[machineID] = nil
+                continue
+            }
+            // A status request for another machine cannot delay this removal.
+            guard !recordReadsOutstanding.contains(where: { $0.key > read && $0.value == machineID }) else { continue }
+            deferredRecordRemovals[machineID] = nil
+            recordReadApplied[machineID] = max(read, recordReadApplied[machineID, default: 0])
+            // A list omission is not proof that the provider VM was destroyed: retired
+            // provider rows can be filtered while the VM still exists. Revoke delivered
+            // access, but retain the broker target/auth mode unless destruction is explicit.
+            removeConfirmedMachine(machineID, destructionConfirmed: false)
+        }
+    }
+
+    /// Remove the app session after an authoritative omission or destroyed detail. Only a
+    /// destroyed detail may discard the broker's target/auth metadata; an omission may be a
+    /// filtered retired-provider row while the VM survives.
+    private func removeConfirmedMachine(_ machineID: String, destructionConfirmed: Bool) {
+        deferredRecordRemovals[machineID] = nil
+        guard machines.session(machineID) != nil else { return }
+        if let user = auth.user {
+            let scope = CloudCodexBrokerScope(userID: user.id, teamID: auth.teamID)
+            // task-owner: confirmed removal stops renewal, then discards the deleted target.
+            Task {
+                try? await codexBroker.revoke(machineID: machineID, scope: scope)
+                if destructionConfirmed {
+                    await codexBroker.machineWasDeleted(machineID, scope: scope)
+                }
+            }
+        }
+        creations.machineRemoved(machineID)
+        machines.remove(machineID)?.disconnect()
+    }
+
+    /// A fresh record for `session` (a list refresh, or Machine Status reading one machine): a
+    /// machine that stopped being live suspends its link, and one that turned live connects.
+    /// `read` (``beginRecordRead(machineID:)``): a record from a read asked before the one the session
+    /// holds changes nothing, so answers that land out of order run no stale transition.
+    func apply(_ machine: CloudMachine, to session: CloudMachineSession, read: Int, connectsAtRead: Int? = nil) {
+        // Apply the newer record before releasing any removal it was protecting.
+        defer { finishRecordRead(read) }
+        guard read > recordReadApplied[machine.id, default: 0], machines.session(machine.id) === session else { return }
+        recordReadApplied[machine.id] = read
+        if machine.status == .destroyed {
+            session.machine = machine
+            removeConfirmedMachine(machine.id, destructionConfirmed: true)
+            return
+        }
+        session.listed(machine, connectsAtRead: connectsAtRead ?? session.connects)
     }
 
     @discardableResult
@@ -440,11 +606,13 @@ final class CloudService {
             session = CloudMachineSession(machine: machine, link: link, mainWork: mainWork)
         }
         session.daemon.workTracker = machines.local.workTracker
+        session.daemon.onPaneNotReady = machines.local.onPaneNotReady
+        session.daemon.paneNotReadyText = machines.local.paneNotReadyText
         // An attach to a paused machine resumes it through Resume Machine's own path.
         session.resumer = { [weak self] id in try await self?.resumeMachine(id) }
         // An attach reads a record that may be stale (paused behind the app) again first.
         session.refresher = { [weak self] force in
-            if force { await self?.refresh() } else { await self?.refresh(ifOlderThan: .seconds(30)) }
+            if force { _ = await self?.refresh() } else { _ = await self?.refresh(ifOlderThan: .seconds(30)) }
         }
         machines.add(session)
         session.connect()
@@ -454,8 +622,11 @@ final class CloudService {
     private func dropAllMachines() {
         // A list in flight belongs to the machines dropped here.
         listGeneration += 1
-        for creation in creations.all { creations.remove(creation) }
+        for creation in creations.all { creations.end(creation) }
         for session in machines.cloud { machines.remove(session.machineID)?.disconnect() }
+        recordReadApplied = [:]
+        recordReadsOutstanding = [:]
+        deferredRecordRemovals = [:]
         machines.cloudLimits = nil
         hasLoadedMachines = false
         listLoadedAt = nil
@@ -477,18 +648,40 @@ final class CloudService {
                        request: CloudMachineRequest = CloudMachineRequest(), proceed: () throws -> Void = {}) async throws -> CloudMachineSession {
         if let reason = unavailableReason { throw ActionFailure(message: reason) }
         guard auth.isSignedIn else { throw ActionFailure(message: CloudStrings.signInFirst) }
-        let name = name ?? request.name
+        var name = name ?? request.name
         // The app server's create takes none of them yet, and its machines have no `/api/vm` file
         // or exec route for a bootstrap: refuse rather than make a machine without what was asked.
         if configuration.linkSource == .appServer, !request.isDefault {
             throw ActionFailure(message: CloudStrings.machineOptionsUnavailable)
         }
+        // Environments live in the cmux-next backend's CloudDO: the classic `/api/vm` path has none.
+        if configuration.linkSource != .appServer, request.environment != nil {
+            throw ActionFailure(message: CloudEnvironmentStrings().unavailable)
+        }
+        // The cmux-next backend stores no name and no slug for an unnamed machine, so it would be titled by
+        // its raw id: give it a readable one, unique among this account's machines and creations in flight.
+        // The classic `/api/vm` create names it itself (its slug).
+        var reserved: String?
+        if configuration.linkSource == .appServer {
+            if let pinned = creation?.pinnedMachineName {
+                name = pinned
+            } else if name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true {
+                name = CloudMachine.defaultName(
+                    taken: machines.cloud.map(\.machine.title) + creations.all.compactMap(\.pinnedMachineName) + machineNamesInFlight,
+                    base: CloudStrings.defaultMachineName, numbered: CloudStrings.defaultMachineName(numbered:))
+            }
+            creation?.pinnedMachineName = name
+            // Held until this create ends, typed names included, so a default picked meanwhile is another one.
+            reserved = name
+            if let name { machineNamesInFlight.append(name) }
+        }
+        defer { if let reserved, let index = machineNamesInFlight.firstIndex(of: reserved) { machineNamesInFlight.remove(at: index) } }
         creating += 1
         defer { creating -= 1 }
         let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }
         let idlePause = request.persistent ? 0 : nil
         var machine = configuration.linkSource == .appServer
-            ? try await appServerCreate(name: name, startedByPerson: startedByPerson, askedBy: askedBy, onSent: onSent)
+            ? try await appServerCreate(name: name, startedByPerson: startedByPerson, askedBy: askedBy, environment: request.environment, creation: creation, request: request, onSent: onSent)
             : try await CloudMachineCreateFlow.legacy(name: name, startedByPerson: startedByPerson, askedBy: askedBy, askFirst: UserDefaults.standard.bool(forKey: "cloud.askBeforeAgentCreate"),
                                                       // A request already sent once (its Retry) goes to the server's lookup of its key, past the local plan gate.
                                                       gate: { [weak self, weak creation] in creation?.request.wasSent == true ? .allowed : self?.createGate ?? .allowed },
@@ -497,7 +690,7 @@ final class CloudService {
                                                           // The first send's team, for every later call about this machine.
                                                           let team = creation?.request.wasSent == true ? creation?.request.team : await api.currentTeam()
                                                           creation?.markRequestSent(team: team)
-                                                          return try await Self.createWithKey(api.pinningTeam(team), name: name, request: request, idlePause: idlePause, onSent: onSent)
+                                                          return try await api.pinningTeam(team).createWithKey(name: name, request: request, idlePause: idlePause, onSent: onSent)
                                                       })
         logger.info("created machine \(machine.id, privacy: .public)")
         try proceed()
@@ -517,44 +710,18 @@ final class CloudService {
             // The write waited: the account is checked again before the machine joins the list.
             try proceed()
         }
-        if let existing = machines.session(machine.id) { return existing }
+        if let existing = machines.session(machine.id) { existing.sizePick = machine.sizePick ?? existing.sizePick; return existing }
         guard let session = addSession(machine) else { throw ActionFailure(message: CloudStrings.noClient) }
         // A list in flight was asked before this machine existed.
         listGeneration += 1
         return session
     }
 
-    /// `POST /api/vm` with the request's one idempotency key. The server answers
-    /// `503 vm_operation_in_progress` when provisioning outlasts its answer deadline and goes on
-    /// creating, and `409 vm_create_in_progress` to the same key while it still has no provider
-    /// machine: the same key is sent again (the server answers the machine once it exists), up
-    /// to ``inProgressRetries`` times, waiting ``inProgressDelay`` between, so a slow create still
-    /// ends with its machine and its bootstrap.
-    static func createWithKey(_ api: CloudAPIClient, name: String?, request: CloudMachineRequest, idlePause: Int?,
-                              onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachine {
-        // `api` is pinned to the first send's team: the server scopes a key per team, so a team
-        // switched in the app meanwhile must not make the same key a new machine in the other team.
-        let send = { try await api.createMachine(displayName: name, memoryMb: request.memoryMb, idlePauseMinutes: idlePause,
-                                                    idempotencyKey: request.idempotencyKey, onSent: onSent) }
-        for _ in 0..<inProgressRetries {
-            do {
-                return try await send()
-            } catch let CloudAPIError.http(status, code, _, _, _)
-                        where (status == 503 && code == "vm_operation_in_progress") || (status == 409 && code == "vm_create_in_progress") {
-                // wakeup-allow: bounded same-key retry of a create the server reports still in progress
-                try await ContinuousClock().sleep(for: inProgressDelay)
-            }
-        }
-        return try await send()
-    }
-
-    /// 70 tries 15 s apart: past the server's 16-minute provisioning budget (routeDeadline.ts
-    /// `create`), with each try's own answer time on top.
-    static let inProgressRetries = 70
-    static let inProgressDelay: Duration = .seconds(15)
-
     func deleteMachine(_ machineID: String) async throws {
+        let brokerScope = auth.user.map { CloudCodexBrokerScope(userID: $0.id, teamID: auth.teamID) }
+        if let brokerScope { try? await codexBroker.revoke(machineID: machineID, scope: brokerScope) }
         try await api.deleteMachine(machineID)
+        if let brokerScope { await codexBroker.machineWasDeleted(machineID, scope: brokerScope) }
         // A list in flight was asked while this machine still existed.
         listGeneration += 1
         creations.machineRemoved(machineID)
@@ -582,6 +749,19 @@ final class CloudService {
         logger.info("set idle pause \(machineID, privacy: .public) to \(minutes) min")
     }
 
+    /// Starts the WireGuard hub once signed in when `cloud enroll-machine` wrote ssh routes that
+    /// dial through it (``CloudPaths/sshRoutesMarker``); without the hub those routes fail.
+    /// Called after each machine list refresh (sign-in, Cloud re-enabled, the periodic list), so a hub
+    /// that failed to start (offline at launch) or to restart gets another try; a running hub
+    /// answers at once. Never while Cloud is unavailable (a team policy, a local backend).
+    func startHubForSSHRoutes() async {
+        guard unavailableReason == nil, auth.isSignedIn else { return }
+        guard let hub, (try? await work.run(.userVisible, mayBlock: .files) { [paths] in paths.hasSSHRoutes() }) == true else { return }
+        // Cloud may have been turned off while the check waited: then no hub starts.
+        guard unavailableReason == nil, auth.isSignedIn else { return }
+        do { _ = try await hub.linkedSocketPath() } catch { logger.error("wireguard hub for ssh routes: \(String(describing: error), privacy: .public)") }
+    }
+
     func renameMachine(_ machineID: String, to name: String) async throws {
         try await api.renameMachine(machineID, to: name.isEmpty ? nil : name)
         machines.session(machineID)?.machine.displayName = name.isEmpty ? nil : name
@@ -592,16 +772,19 @@ final class CloudService {
     var willSignOut: [@MainActor () -> Void] = []
 
     func signOut() async {
+        signedOutCreation.cancel()
         // Start-session asks and runs end now, not after the link and install cleanup below.
         startSessionRuns.forgetAll()
         startSessionAsks.endAll()
         for hook in willSignOut { hook() }
+        await codexBroker.signOut()
         AgentPaneTailCache.shared.clear() // the panes' chat tails: memory only, forgotten whole
         // No ensure starts from here until the session's final endLink (the
         // signed-out branch above, after auth.signOut).
         link.beginEnding()
         dropAllMachines()
         await link.endLink(final: false)
+        desktopRdTokens.removeAll()
         if let hub { await hub.revoke() }
         // Revoke the install while the Stack session still exists.
         if let stackUser = auth.user?.id {

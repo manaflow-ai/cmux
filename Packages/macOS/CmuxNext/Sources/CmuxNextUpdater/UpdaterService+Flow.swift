@@ -13,17 +13,19 @@ extension UpdaterService {
     /// found update the person closed or snoozed (``updateSnooze``) stays
     /// hidden; a check they ask for clears that first (``checkForUpdates()``).
     public var card: UpdateCard? {
-        // A found update nobody asked about (downloads wait for a click) is the titlebar's quiet
+        // A found update nobody asked about (downloads wait for a click) is the sidebar footer's quiet
         // Update Available button (``availableButton``), not this card; a check they asked for shows here.
-        guard let card = flow.card(downloadsAutomatically: true) else { return pulledWatch.card }
-        if card == .installing, installCardDismissed { return pulledWatch.card }
-        if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return pulledWatch.card }
+        if let newestCard { return newestCard }
+        guard !stagedPulledHeld, let card = flow.card(downloadsAutomatically: true) else { return nil }
+        if card == .installing, installCardDismissed { return nil }
+        if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return nil }
         return card
     }
 
-    /// The titlebar's quiet Update Available button: a found update that waits for a click
+    /// The sidebar footer's quiet Update Available button: a found update that waits for a click
     /// (`updates.downloadAutomatically` off, or downloads deferred on a metered network); a click
-    /// downloads and installs it (``installClicked()``). Nil otherwise, and for a version the
+    /// downloads it (``downloadClicked()``), and the staged update then asks before relaunching.
+    /// Nil otherwise, and for a version the
     /// person closed or snoozed (``updateSnooze``), and while a check the person asked for shows
     /// it on the notice card (``card``).
     public var availableButton: UpdateAvailableButton? {
@@ -33,30 +35,55 @@ extension UpdaterService {
 
     /// The footer's update pill, or nil when it does not show.
     public var footerPill: UpdateFooterPill? {
-        flow.footerPill(preferences: preferences)
+        stagedPulledHeld ? nil : flow.footerPill(preferences: preferences)
     }
 
-    /// One click installs (footer pill, palette, `cmux update install`): at
-    /// once, or when the download finishes. The relaunch waits only for busy
-    /// agents and running commands (the quiet-input and daemon-mirror holds are
-    /// for idle installs); `willRelaunch` records keep sessions.
+    /// The answer to the update-found step (the notice card's Update, the sidebar footer's Update
+    /// Available, the sheet's Update): download only. The update then waits on the Update Ready
+    /// card, which asks before relaunching (Leo 2026-10-27: "ask before the download + install
+    /// step, and likewise for the reboot"). With the opt-in too (a download deferred on a metered
+    /// link): the opt-in skips the first ask, never the relaunch's. It never asks to install, so a
+    /// repeated or late press (the download already running, or staged) does nothing.
+    public func downloadClicked() {
+        syncFlowPhase()
+        guard case .available = flow.phase else {
+            log.append("update-found answer ignored: nothing waits on that step (\(flow.phase))")
+            return
+        }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        UpdateHarness.mark("download_clicked")
+        #endif
+        send(.downloadRequested)
+    }
+
+    /// Restart to Update (the Update Ready card, the footer pill): install and relaunch, at once
+    /// or when the download finishes. `willRelaunch` records keep sessions.
     public func installClicked() {
+        syncFlowPhase()
         #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("install_clicked")
         #endif
-        syncFlowPhase()
         send(.installRequested)
     }
 
-    /// The quit is decided: with `updates.installOnQuit` off, cancel the
-    /// staged update's installer before the app exits.
+    /// The quit is decided: with `updates.installOnQuit` off, or a staged build known pulled
+    /// (``stagedPulledHeld``), cancel the staged update's installer before the app exits. A pulled
+    /// build whose installer this app does not hold (Sparkle's silent cycle still resuming) cannot
+    /// be cancelled: the quit proceeds and says so.
     @discardableResult
     public func prepareForQuit() -> UpdateQuitAction {
         syncFlowPhase()
-        let action = flow.handle(.quitRequested, preferences: preferences).lazy.compactMap { effect -> UpdateQuitAction? in
+        var action = flow.handle(.quitRequested, preferences: preferences).lazy.compactMap { effect -> UpdateQuitAction? in
             if case .quit(let action) = effect { action } else { nil }
         }.first ?? .proceed
-        if action == .cancelPendingInstall {
+        if action == .proceed, stagedPulledHeld {
+            if cancelStaged() {
+                log.append("quit: the staged build was pulled, cancelled it instead of installing on quit")
+                action = .cancelPendingInstall
+            } else {
+                log.append("quit: the staged build was pulled, but no installer was held to cancel; Sparkle installs it on quit")
+            }
+        } else if action == .cancelPendingInstall {
             log.append("quit: install on quit is off, cancelling the staged update")
             _ = cancelStaged()
         }
@@ -146,6 +173,7 @@ extension UpdaterService {
     /// Feeds ``indicatorPhase`` to the gate when it moved.
     func syncFlowPhase() {
         stagedRefresh.dropStale(updater: self)
+        dropPulledAvailable()
         let phase = indicatorPhase
         guard phase != flow.phase else { return }
         if userCheckRunning, phase != .checking { userCheckRunning = false }
@@ -160,17 +188,24 @@ extension UpdaterService {
         let wasInstalling = flow.phase == .installing
         let wasReady = if case .ready = flow.phase { true } else { false }
         let clickedInstall = flow.installRequested
+        let previous = flow.phase
         send(.sparkle(phase))
         carryInstallClick(phase)
+        followNewestFetch(phase, previous: previous)
         followInstall(phase)
         followStagedUpdate(phase)
         stagedRefresh.follow(phase, updater: self)
         tipCheck.refresh(self)
         followReleasePush()
+        // A pulled running build read while a check ran is followed once the check ends.
+        if case .hidden = phase { followPulled() } else if case .note = phase { followPulled() }
         switch phase {
         case .ready:
             recordStagedUpdate()
             keepRunningBuildForRollback()
+            followPulled()
+        case .available:
+            followPulled()
         case .note where wasInstalling && automaticInstallInFlight:
             // An install nobody clicked failed: nothing opens over the person's work; the
             // log keeps it and the next check offers the update again.
@@ -221,9 +256,11 @@ extension UpdaterService {
             controller?.idleInstallWaitCap = .seconds(idleInstall.maxWait)
         }
         downloadSetting = (downloadAutomatically, metered)
-        // "Download and Install Updates Automatically": on, a downloaded update installs by itself
-        // (the relaunch keeps every session); off, nothing downloads or relaunches until a click.
-        if let controller, controller.installsUpdatesWhenIdle != downloadAutomatically { controller.installsUpdatesWhenIdle = downloadAutomatically }
+        settingsApplied = true
+        // `updates.downloadAutomatically` downloads found updates and stages them; it never installs
+        // them. The app restarts only on the person's click (Restart to Update), so the idle install
+        // stays off whatever the download setting says (nightly restart policy, 2026-10-27).
+        if let controller, controller.installsUpdatesWhenIdle { controller.installsUpdatesWhenIdle = false }
         stagedRefresh.reschedule(automatic: checkAutomatically, interval: checkInterval, updater: self)
         tipCheck.reschedule(automatic: checkAutomatically, updater: self)
         refreshReleasePush()

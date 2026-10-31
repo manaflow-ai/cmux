@@ -8,9 +8,9 @@
 use super::host_auto_update::take_auto_update_off;
 use super::host_hold::{Holds, holds_path, now_ms};
 use super::{
-    DAEMON_UNIT, IN_PLACE, LockLost, MIGRATING, REFUSED, RESTORE_PREV, Remote, RemoteOut,
-    SshRemote, connect_peer, launchd_reload, linux_restart, lock_updates, migrate, migrate_back,
-    push_update, run, ssh_host,
+    DAEMON_UNIT, IN_PLACE, LockLost, MIGRATING, OLD_SYSTEMD_UNITS, REFUSED, RESTORE_PREV, Remote,
+    RemoteOut, SYSTEMD_UNIT, SshRemote, connect_peer, launchd_reload, linux_restart, lock_updates,
+    migrate, migrate_back, old_unit_check, push_update, run, ssh_host,
 };
 use crate::cli::output::print_json;
 use crate::client::Client;
@@ -109,8 +109,44 @@ const PROBE_SPLIT: &str = "ACPMUX_PROBE";
 
 /// A cmux Cloud VM has this file. Its daemon runs in a keyed `systemd-run`
 /// scope that `cmux link machine update --to-bundled` owns, so `host update`
-/// never replaces its binary or restarts it.
-const CLOUD_VM_MARK: &str = "/etc/cmux/vm-kind";
+/// never replaces its binary or restarts it, unless [`cloud_vm_check`] finds
+/// the daemon is acpmux's own.
+pub(crate) const CLOUD_VM_MARK: &str = "/etc/cmux/vm-kind";
+
+/// `~/.config/systemd/user/acpmux.service` as a path under the user's home.
+pub(crate) const OWN_UNIT: &str = ".config/systemd/user/acpmux.service";
+
+/// Whether `text` is a unit acpmux wrote (this build's or an earlier one's):
+/// what `host setup` installs, running `~/.local/bin/acpmux daemon run`.
+pub(crate) fn is_own_unit(text: &[u8]) -> bool {
+    std::iter::once(SYSTEMD_UNIT).chain(OLD_SYSTEMD_UNITS).any(|unit| unit.as_bytes() == text)
+}
+
+/// Shell that sets `$acpmux_cloud` to 1 on a cmux Cloud VM ([`CLOUD_VM_MARK`])
+/// whose `~/.acpmux` daemon is cmux's, empty otherwise. A Cloud VM the fleet
+/// set up as a lane host (2026-10-30) also runs acpmux's own
+/// `acpmux.service` from `~/.local/bin/acpmux`; `cmux link machine update`
+/// replaces only cmux Cloud's `~/.cmux/bin/acpmux`, so nobody else updates
+/// that one. It is acpmux's when the unit holds acpmux's own text (a regular
+/// file, not a link) and the daemon that answers is that unit's main process.
+/// Anything else (no unit, a unit someone wrote or edited, a daemon outside
+/// the unit, no answer) stays cmux's. It sets `$p` and `$u` as [`DAEMON_UNIT`] does.
+pub(crate) fn cloud_vm_check() -> String {
+    format!(
+        r#"acpmux_cloud=
+if [ -e {CLOUD_VM_MARK} ]; then acpmux_cloud=1
+{old}acpmux_f=$HOME/{OWN_UNIT}
+if [ -f "$acpmux_f" ] && [ ! -L "$acpmux_f" ]; then acpmux_is_old "$acpmux_f"
+if [ -z "$acpmux_ours" ] && cmp -s - "$acpmux_f" <<'ACPMUX_UNIT'
+{SYSTEMD_UNIT}ACPMUX_UNIT
+then acpmux_ours=yes; fi
+if [ -n "$acpmux_ours" ]; then
+{DAEMON_UNIT}[ "$u" != acpmux.service ] || acpmux_cloud=
+fi; fi; fi
+"#,
+        old = old_unit_check(),
+    )
+}
 
 /// What [`probe_script`] prints on a cmux Cloud VM ([`CLOUD_VM_MARK`]).
 const CLOUD_VM: &str = "ACPMUX_CLOUD_VM";
@@ -129,7 +165,8 @@ fn probe_script(if_idle: bool) -> String {
         ":"
     };
     format!(
-        "echo \"{UNAME}$(uname -sm)\"; [ ! -e {CLOUD_VM_MARK} ] || echo {CLOUD_VM}; echo; echo {PROBE_SPLIT}\ns=$(~/.local/bin/acpmux --json daemon status 2>/dev/null); printf '%s\\n' \"$s\"; echo; echo {PROBE_SPLIT}\n{ls}\necho; echo {PROBE_SPLIT}\n{DAEMON_UNIT}{}",
+        "echo \"{UNAME}$(uname -sm)\"\n{}[ -z \"$acpmux_cloud\" ] || echo {CLOUD_VM}; echo; echo {PROBE_SPLIT}\ns=$(~/.local/bin/acpmux --json daemon status 2>/dev/null); printf '%s\\n' \"$s\"; echo; echo {PROBE_SPLIT}\n{ls}\necho; echo {PROBE_SPLIT}\n{DAEMON_UNIT}{}",
+        cloud_vm_check(),
         migrate(true)
     )
 }

@@ -20,9 +20,13 @@ extension PaletteModel {
                 deferred.append(provider)
                 continue
             }
-            if let items = provider.immediateItems {
-                state.providerItems[provider.id] = items
-            } else {
+            // Read once: most providers build their rows in `immediateItems` (the command page's
+            // registry builds a row per catalog action, Go to Workspace one per workspace).
+            let immediate = provider.immediateItems
+            if let immediate {
+                state.providerItems[provider.id] = immediate
+            }
+            if immediate == nil || provider.refreshesOnOpen {
                 pending.insert(provider.id)
             }
         }
@@ -30,24 +34,45 @@ extension PaletteModel {
         state.rebuild()
         if state === current { isLoading = !pending.isEmpty }
         for provider in page.providers where pending.contains(provider.id) {
-            let providerID = provider.id
-            state.tasks.append(Task { [weak self, weak state] in
-                let items = await provider.items()
-                guard !Task.isCancelled, let self, let state else { return }
-                state.providerItems[providerID] = items
-                state.pendingProviders.remove(providerID)
-                state.rebuild()
-                if state === self.current {
-                    self.isLoading = !state.pendingProviders.isEmpty
-                    // Same generation: the rows update, the selection stays.
-                    self.search(state)
-                }
-            })
+            state.tasks.append(loadTask(provider, into: state))
         }
         if !deferred.isEmpty {
             let scheduled = !deferredLoads.isEmpty
             deferredLoads.append(PaletteDeferredLoad(state: state, providers: deferred))
             if !scheduled { afterFrame { [weak self] in self?.flushDeferredLoads() } }
+        }
+    }
+
+    /// Reads `provider` into `state`: its items once, or each list of its updates as it comes
+    /// (``PaletteProvider/itemUpdates()``). Same generation: the rows update, the selection stays.
+    private func loadTask(_ provider: any PaletteProvider, into state: PageState) -> Task<Void, Never> {
+        let providerID = provider.id
+        return Task { [weak self, weak state] in
+            if let updates = provider.itemUpdates() {
+                var any = false
+                for await items in updates {
+                    guard !Task.isCancelled, let self, let state else { return }
+                    any = true
+                    self.apply(items, of: providerID, to: state)
+                }
+                // A stream that ended with no list leaves the provider's rows as they were, not loading.
+                guard !any, !Task.isCancelled, let self, let state else { return }
+                self.apply(state.providerItems[providerID] ?? [], of: providerID, to: state)
+                return
+            }
+            let items = await provider.items()
+            guard !Task.isCancelled, let self, let state else { return }
+            self.apply(items, of: providerID, to: state)
+        }
+    }
+
+    private func apply(_ items: [PaletteItem], of providerID: String, to state: PageState) {
+        state.providerItems[providerID] = items
+        state.pendingProviders.remove(providerID)
+        state.rebuild()
+        if state === current {
+            isLoading = !state.pendingProviders.isEmpty
+            search(state)
         }
     }
 
@@ -62,21 +87,10 @@ extension PaletteModel {
             for provider in load.providers {
                 if let items = provider.immediateItems {
                     state.providerItems[provider.id] = items
-                    continue
+                    if !provider.refreshesOnOpen { continue }
                 }
-                let providerID = provider.id
-                state.pendingProviders.insert(providerID)
-                state.tasks.append(Task { [weak self, weak state] in
-                    let items = await provider.items()
-                    guard !Task.isCancelled, let self, let state else { return }
-                    state.providerItems[providerID] = items
-                    state.pendingProviders.remove(providerID)
-                    state.rebuild()
-                    if state === self.current {
-                        self.isLoading = !state.pendingProviders.isEmpty
-                        self.search(state)
-                    }
-                })
+                state.pendingProviders.insert(provider.id)
+                state.tasks.append(loadTask(provider, into: state))
             }
             state.rebuild()
             if state === current {
@@ -176,37 +190,53 @@ extension PaletteModel {
     }
 
     /// A page that finds its own rows for the query (`queryResults`): the
-    /// newest query's task replaces the one before, and its rows land with
-    /// the typed words highlighted in their titles.
-    func searchQueryResults(_ state: PageState, results: @escaping @MainActor (String) async -> [PaletteItem], generation: Int) {
+    /// newest query's stream replaces the one before, and each of its answers
+    /// lands with the typed words highlighted in their titles. The rows are
+    /// final (Return no longer waits, the spinner stops) when the stream ends.
+    func searchQueryResults(_ state: PageState, results: @escaping @MainActor (String) -> AsyncStream<[PaletteItem]>,
+                            generation: Int) {
         searchGeneration += 1
         let searchID = searchGeneration
         let query = state.query
         searchTask?.cancel()
         // The search field's spinner while the page looks (Search All Windows reads every terminal first).
+        state.answeringSearch = searchID
         if state === current { isLoading = true }
+        let answers = results(query)
         searchTask = Task { [weak self, weak state] in
-            let items = await results(query)
+            // However this search ends, it no longer answers the page (a newer one may).
+            defer { if state?.answeringSearch == searchID { state?.answeringSearch = nil } }
+            let words = query.split(whereSeparator: \.isWhitespace).map(String.init)
+            var last: [PaletteResultSection]?
+            for await items in answers {
+                guard !Task.isCancelled, let self, let state, searchID == self.searchGeneration else { return }
+                let sections = Self.querySections(items, words: words)
+                last = sections
+                self.deliver(sections, to: state, generation: generation, complete: false)
+            }
             guard !Task.isCancelled, let self, let state, searchID == self.searchGeneration else { return }
             self.searchTask = nil
-            let words = query.split(whereSeparator: \.isWhitespace).map(String.init)
-            // One block per section, in the order the sections first appear (linear: a search
-            // can return thousands of terminal lines, and copying a section per row was quadratic).
-            var order: [PaletteSection] = []
-            var rowsBySection: [PaletteSection: [PaletteRow]] = [:]
-            for item in items {
-                let row = PaletteRow(item: item, highlights: Self.wordHighlights(in: item.title, words: words), score: 0)
-                if rowsBySection[item.section] == nil { order.append(item.section) }
-                rowsBySection[item.section, default: []].append(row)
-            }
-            let sections = order.map { PaletteResultSection(section: $0, rows: rowsBySection[$0] ?? []) }
+            state.answeringSearch = nil
             if state === self.current { self.isLoading = false }
-            self.deliver(sections, to: state, generation: generation)
+            self.deliver(last ?? [], to: state, generation: generation)
             if self.pendingClose {
                 self.pendingClose = false
                 self.handle(.closeItem)
             }
         }
+    }
+
+    /// One block per section, in the order the sections first appear (linear: a search
+    /// can return thousands of terminal lines, and copying a section per row was quadratic).
+    static func querySections(_ items: [PaletteItem], words: [String]) -> [PaletteResultSection] {
+        var order: [PaletteSection] = []
+        var rowsBySection: [PaletteSection: [PaletteRow]] = [:]
+        for item in items {
+            let row = PaletteRow(item: item, highlights: wordHighlights(in: item.title, words: words), score: 0)
+            if rowsBySection[item.section] == nil { order.append(item.section) }
+            rowsBySection[item.section, default: []].append(row)
+        }
+        return order.map { PaletteResultSection(section: $0, rows: rowsBySection[$0] ?? []) }
     }
 
     /// Scalar offsets of every case-insensitive occurrence of `words` in `title`.
@@ -244,14 +274,16 @@ extension PaletteModel {
     /// for the level's current generation and keeps or moves the selection.
     /// `provisional` rows stand in until the ranked rows of the same
     /// generation land (`PaletteNavEvent.results`).
-    func deliver(_ sections: [PaletteResultSection], to state: PageState, generation: Int, provisional: Bool = false) {
+    /// `complete` false: more rows of the same generation follow (a `queryResults` stream reads on).
+    func deliver(_ sections: [PaletteResultSection], to state: PageState, generation: Int, provisional: Bool = false,
+                 complete: Bool = true) {
         guard pages[state.levelID] === state, state.generation == generation else { return }
         state.lastSections = sections
         state.awaitsRank = provisional
         if !provisional { recordShownDeferredItems(sections, on: state) }
         if shownLevelID == state.levelID { display(sections) }
         send(.results(levelID: state.levelID, generation: generation, rows: navRows(sections), replace: true,
-                      isFinal: !provisional && state.pendingProviders.isEmpty, emptyQuerySelection: state.emptyQuerySelection,
+                      isFinal: complete && !provisional && state.pendingProviders.isEmpty, emptyQuerySelection: state.emptyQuerySelection,
                       provisional: provisional))
     }
 

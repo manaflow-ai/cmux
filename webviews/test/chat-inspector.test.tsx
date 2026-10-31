@@ -6,8 +6,7 @@
 // (Changes), its subagents and the chats its agent started, a Cloud VM's included, its background
 // commands and what it produced (Outputs). It is open by
 // default, stays open (or closed) in each chat pane on its own, floats outside the chat's layout so it never
-// reflows the chat (the chat's column moves left only when both fit that way; Settings Push always
-// takes a column), hides a section with nothing in it, and shows five pull
+// moves or reflows the chat (Settings Push always takes a column), hides a section with nothing in it, and shows five pull
 // requests under Changes and five running subagents, each then Show more (Claude Code desktop's).
 import { readFileSync } from "node:fs";
 
@@ -25,7 +24,7 @@ import { resetChangesStatuses } from "../src/agent-session/acpmux/inspector/chan
 import {
   ChatInspector,
   inspectorTopOffset,
-  inspectorChatShift,
+  inspectorOverChat,
   pushedWidth,
   pushes,
   useChatInspector,
@@ -45,6 +44,8 @@ import {
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import * as subagentGroup from "../src/agent-session/acpmux/subagents/SubagentGroup";
 import * as tones from "../src/agent-session/acpmux/subagents/agentTones";
+import { openSourceFile } from "../src/agent-session/acpmux/inspector/SourcesSection";
+import { NativeError } from "../src/agent-session/acpmux/nativeError";
 import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";
 
@@ -129,14 +130,23 @@ function Pane({
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
 }) {
   const [shell, setShell] = useState<HTMLElement | null>(null);
-  const inspector = useChatInspector({ snapshot, machineName: "Studio", shell, onOpenOutput, sessions });
+  const inspector = useChatInspector({
+    snapshot,
+    machineName: "Studio",
+    shell,
+    onOpenOutput,
+    sessions,
+  });
   reveal = inspector.reveal;
   return (
     <section
       className="acpmux-shell"
       ref={(element) => {
         if (element && element !== shell) {
-          Object.defineProperty(element, "clientWidth", { configurable: true, get: () => paneWidth });
+          Object.defineProperty(element, "clientWidth", {
+            configurable: true,
+            get: () => paneWidth,
+          });
           setShell(element);
         }
       }}
@@ -159,7 +169,9 @@ function Pane({
 
 const CWD = "/Users/you/src/atlas-web";
 const edited = (path: string, oldText: string | undefined, newText: string) =>
-  tool(`Edit ${path}`, "edit", "completed", { diffs: [{ path: `${CWD}/${path}`, oldText, newText }] });
+  tool(`Edit ${path}`, "edit", "completed", {
+    diffs: [{ path: `${CWD}/${path}`, oldText, newText }],
+  });
 
 const localChat = chat([
   activity([edited("src/fetch.ts", "a\n", "a\nb\n"), edited("src/retry.ts", undefined, "x\ny\nz\n")], 3),
@@ -186,11 +198,92 @@ const meta = (element: HTMLElement | null) =>
   element?.querySelector(".acpmux-chat-inspector-section__meta")?.textContent;
 const head = (element: HTMLElement) => element.querySelector<HTMLElement>("button.ui-disclosure-trigger")!;
 const click = (element: HTMLElement) => act(async () => element.click());
+test("Inspector Sources navigate mixed targets and preserve expansion during streaming", async () => {
+  const container = installDom(true);
+  const sources = [
+    { label: "PR", kind: "pullRequest" as const, url: "https://github.com/acme/app/pull/1" },
+    { label: "Issue", kind: "issue" as const, url: "https://github.com/acme/app/issues/2" },
+    { label: "Docs", kind: "url" as const, url: "https://example.test/docs" },
+    { label: "src/../app.ts", kind: "file" as const },
+    { label: "/project/.claude/worktrees/a/README.md", kind: "file" as const },
+    { label: "../../../README.md", kind: "file" as const },
+    { label: "/shared/README.md", kind: "file" as const },
+    { label: "/project/.claude/worktrees/another/file", kind: "file" as const },
+  ];
+  const urls: string[] = [];
+  const files: string[] = [];
+  const draw = async (rows: AcpmuxSnapshot["rows"] = []) =>
+    act(async () => {
+      root ??= createRoot(container);
+      root.render(
+        <ChatInspector
+          summary={{ sessionId: "chat", cwd: "/project/.claude/worktrees/a" }}
+          rows={rows}
+          made={{ outputs: [], pullRequests: [], scheduled: [], sources }}
+          onOpenUrl={(url) => urls.push(url)}
+          onOpenSourceFile={(path) => files.push(path)}
+        />,
+      );
+    });
+  await draw();
+  const list = () => container.querySelectorAll("[data-section=sources] li");
+  const fold = () => container.querySelector<HTMLButtonElement>(".acpmux-chat-inspector-sources-fold")!;
+  expect(list()).toHaveLength(5);
+  for (const target of container.querySelectorAll<HTMLElement>("ul[data-section=sources] :is(a,button)"))
+    await click(target);
+  expect(urls).toEqual(sources.slice(0, 3).map((source) => source.url!));
+  expect(files).toEqual(["/project/.claude/worktrees/a/app.ts", "/project/.claude/worktrees/a/README.md"]);
+  await click(fold());
+  expect(list()).toHaveLength(8);
+  expect(container.querySelectorAll("ul[data-section=sources] button")).toHaveLength(2);
+  expect(fold().textContent).toContain("Show fewer");
+  await draw([{ ...assistant("stream", 1), streaming: true }]);
+  expect(list()).toHaveLength(8);
+  await click(fold());
+  expect(list()).toHaveLength(5);
+});
+test("file Sources use native editor fallback and show a transient failure", async () => {
+  const container = installDom(true);
+  const calls: unknown[] = [];
+  const native = async (method: string, params: Record<string, unknown>) => {
+    calls.push([method, params]);
+    if (params.where === "tab" || params.path === "/project/missing")
+      throw new NativeError({ code: "transport.path_invalid", userMessage: "Could not open file" });
+  };
+  const sources = ["page.html", "icon.svg", "Dockerfile", "missing"].map((label) => ({ label, kind: "file" as const }));
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ChatInspector
+        summary={{ sessionId: "chat", cwd: "/project" }}
+        made={{ outputs: [], pullRequests: [], scheduled: [], sources }}
+        onOpenSourceFile={(path) => openSourceFile(path, native)}
+      />,
+    );
+  });
+  let expire: (() => void) | undefined;
+  const timer = spyOn(globalThis, "setTimeout").mockImplementation(((callback: () => void) => {
+    expire = callback;
+    return 1;
+  }) as typeof setTimeout);
+  try {
+    for (const button of container.querySelectorAll<HTMLButtonElement>("ul[data-section=sources] button"))
+      await click(button);
+    for (const { label } of sources) {
+      const expected = ["tab", "editor"].map((where) => ["file.open", { path: `/project/${label}`, where }]);
+      expect(calls.splice(0, 2)).toEqual(expected);
+    }
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe("Could not open file");
+    await act(async () => expire!());
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  } finally {
+    timer.mockRestore();
+  }
+});
 
-test("the Inspector inset follows the visible Left chip row only", () => {
-  expect(inspectorTopOffset(0, true)).toBe("calc(var(--acpmux-header-height, 44px) + var(--ui-row-height))");
-  expect(inspectorTopOffset(28, true)).toBe("calc(28px + var(--ui-row-height))");
-  expect(inspectorTopOffset(28, false)).toBe("28px");
+test("the Inspector starts right under the header: no row for a machine and folder label", () => {
+  expect(inspectorTopOffset(0)).toBe("var(--acpmux-header-height, 28px)");
+  expect(inspectorTopOffset(28)).toBe("28px");
 });
 
 test("the Inspector opens with a first chat: its environment, context use and outputs; the toggle closes it", async () => {
@@ -205,13 +298,12 @@ test("the Inspector opens with a first chat: its environment, context use and ou
   // subagents) are left out.
   expect(sectionIds(container)).toEqual(["environment", "context", "outputs"]);
 
-  // Environment: this Mac by its name, never "This computer"; the folder with its parent
-  // home-abbreviated and its full path on hover; the branch.
+  // Environment: this Mac by its name, never "This computer"; the project by its name, its full path
+  // only on hover; the branch.
   const rows = [...section(container, "environment")!.querySelectorAll<HTMLElement>(".acpmux-chat-inspector-row")];
   expect(rows[0]!.textContent).toBe("Studio");
   expect(rows[0]!.dataset.machine).toBe("local");
-  expect(rows[1]!.textContent).toContain("atlas-web");
-  expect(rows[1]!.textContent).toContain("~/src");
+  expect(rows[1]!.textContent).toBe("atlas-web");
   expect(rows[1]!.getAttribute("title")).toBe(CWD);
   expect(rows.map((row) => row.textContent)).toContain("main");
 
@@ -291,12 +383,20 @@ test("a pane switched to another chat shows that chat's Inspector at once, never
     for (const record of records)
       phases.push(`${record.oldValue} -> ${(record.target as HTMLElement).getAttribute("data-presence")}`);
   });
-  observer.observe(container, { subtree: true, attributeOldValue: true, attributeFilter: ["data-presence"] });
+  observer.observe(container, {
+    subtree: true,
+    attributeOldValue: true,
+    attributeFilter: ["data-presence"],
+  });
   await render(container, chatB);
   await act(async () => undefined);
   phases.push(...observer.takeRecords().map((record) => `${record.oldValue} ->`));
   observer.disconnect();
-  expect({ phases, panel: panel(container), pressed: toggle(container)?.getAttribute("aria-pressed") }).toEqual({
+  expect({
+    phases,
+    panel: panel(container),
+    pressed: toggle(container)?.getAttribute("aria-pressed"),
+  }).toEqual({
     phases: [],
     panel: null,
     pressed: "false",
@@ -385,43 +485,30 @@ test("it floats outside the chat's layout in every pane, and pushes only with Se
   paneWidth = 0;
 });
 
-test("the chat shifts left only when the chat and the panel both fit that way", () => {
-  // Leo, 2026-10-24: "except in the case when both would fit if only the agent pane shifted left".
-  // A 1600px pane's 400px gutter holds 320px and its two 8px margins: nothing moves.
-  expect(inspectorChatShift(1600, 320)).toBe(0);
-  // 1200px: a 225px gutter lacks 111px, which the left gutter has: the column moves left by 111px.
-  expect(inspectorChatShift(1200, 320)).toBe(111);
-  // The left gutter keeps the thread rail's room (threadMinimap/model.ts MIN_GUTTER): in a 1100px
-  // pane the column would have to move 146px out of a 190px gutter, onto the rail, so nothing moves.
-  expect(inspectorChatShift(1100, 320)).toBe(0);
-  // At 1140px the transcript's 210px gutter lacks 126px and keeps 84px, past the rail's 48px: it moves.
-  expect(inspectorChatShift(1140, 320)).toBe(126);
-  // A handoff review's form takes the transcript's place, with no rail beside it: its 190px gutter
-  // lacks 146px, and the form moves left by all of it, keeping 44px.
-  expect(inspectorChatShift(1140, 320, undefined, true)).toBe(146);
-  // It keeps its own 18px from the pane's edge (HANDOFF_FORM_EDGE): at 1114px its 177px gutter lacks
-  // 159px and keeps exactly 18px; at 1112px moving 160px would keep 16px, and at 1100px 4px, so
-  // nothing moves and the panel floats over the form.
-  expect(inspectorChatShift(1114, 320, undefined, true)).toBe(159);
-  expect(inspectorChatShift(1112, 320, undefined, true)).toBe(0);
-  expect(inspectorChatShift(1100, 320, undefined, true)).toBe(0);
-  // Where the two gutters together cannot hold it, nothing moves and the panel floats over the chat.
-  expect(inspectorChatShift(720, 320)).toBe(0);
-  expect(inspectorChatShift(0, 320)).toBe(0);
-  // A wider column (the user's Text Width) leaves a 250px gutter: it moves left by the 86px it lacks.
-  expect(inspectorChatShift(1600, 320, { min: 720, max: 1100, share: 1, prose: Infinity })).toBe(86);
-  // A handoff review's 760px form: the shift is measured against the form, so the panel lies over
-  // neither the form nor its fields (1200px: a 220px gutter lacks 116px).
-  expect(inspectorChatShift(1200, 320, undefined, true)).toBe(116);
-  expect(inspectorChatShift(1600, 320, undefined, true)).toBe(0);
-  expect(inspectorChatShift(720, 320, undefined, true)).toBe(0);
+test("the panel lies over the chat only when the right gutter cannot hold it; the chat never moves for it", () => {
+  // Leo, 2026-10-29: "it's not supposed to be a fucking sidebar that pushes the fucking layout". A
+  // 1600px pane's 400px gutter holds 320px and its two 8px margins: it floats beside the column.
+  expect(inspectorOverChat(1600, 320)).toBe(false);
+  // 1200px: a 225px gutter cannot hold it, and the column stays put: it floats over the chat.
+  expect(inspectorOverChat(1200, 320)).toBe(true);
+  expect(inspectorOverChat(720, 320)).toBe(true);
+  // Unmeasured, it is nowhere yet.
+  expect(inspectorOverChat(0, 320)).toBe(false);
+  // A wider column (the user's Text Width) leaves a 250px gutter.
+  expect(inspectorOverChat(1600, 320, { min: 720, max: 1100, share: 1, prose: Infinity })).toBe(true);
+  // A handoff review's 760px form: measured against the form's own gutter.
+  expect(inspectorOverChat(1600, 320, undefined, true)).toBe(false);
+  expect(inspectorOverChat(1200, 320, undefined, true)).toBe(true);
 });
 
-test("the overlay handoff honors the app's reduced-motion policy", () => {
+test("opening Session Info moves no part of the chat", () => {
   const css = readFileSync(new URL("../src/agent-session/acpmux/inspector/inspector.css", import.meta.url), "utf8");
-  expect(css).toContain("var(--agent-motion-move, var(--cmux-motion-quick, 80ms))");
-  expect(css).toContain(':root[data-cmux-motion="reduced"]');
-  expect(css).toContain(':root[data-cmux-motion="off"]');
+  const source = readFileSync(
+    new URL("../src/agent-session/acpmux/inspector/ChatInspector.tsx", import.meta.url),
+    "utf8",
+  );
+  expect(css).not.toContain("--acpmux-chat-shift");
+  expect(source).not.toContain("--acpmux-chat-shift");
 });
 
 test("an output whose diff split leaves no room to push the chat closes the Inspector until the toggle", async () => {
@@ -512,7 +599,12 @@ const opened = (number: number, title: string) =>
     exitCode: 0,
   });
 const ran = (command: string, endedAt?: number) =>
-  tool(command, "execute", "completed", { command, output: "", exitCode: 0, ...(endedAt ? { endedAt } : {}) });
+  tool(command, "execute", "completed", {
+    command,
+    output: "",
+    exitCode: 0,
+    ...(endedAt ? { endedAt } : {}),
+  });
 
 test("Changes lists the pull requests the chat opened or touched, open ones first, five then Show more", async () => {
   const container = installDom(true);
@@ -588,7 +680,10 @@ test("Changes reads every pull request's title, state and checks from the App's 
       additions: 608,
       deletions: 8,
       checks: { state: failed ? "failing" : "passing", passed: 3, total: 3 + failed },
-      checkList: Array.from({ length: failed }, (_, index) => ({ name: `check ${index}`, state: "failed" })),
+      checkList: Array.from({ length: failed }, (_, index) => ({
+        name: `check ${index}`,
+        state: "failed",
+      })),
     },
     fetchedAt: 1_700_000_000,
     reading: false,
@@ -605,8 +700,8 @@ test("Changes reads every pull request's title, state and checks from the App's 
     await render(
       container,
       chat([
-        activity([ran("glaeda-gh wait pr manaflow-ai/cmuxterm-hq#2681 --sha abc")], 3),
-        activity([ran("glaeda-gh status pr manaflow-ai/glaeda#1546")], 2),
+        activity([ran("gh pr update-branch 2681 -R manaflow-ai/cmuxterm-hq")], 3),
+        activity([ran("gh pr merge 1546 -R manaflow-ai/glaeda")], 2),
         assistant("Both are in; glaeda #9 is the issue it fixes.", 1),
       ]),
     );
@@ -627,8 +722,8 @@ test("Changes reads every pull request's title, state and checks from the App's 
     expect(rows[0]!.querySelector(".acpmux-chat-inspector-pr__checks")?.textContent).toBe("2 failing");
     expect(rows[0]!.querySelector(".acpmux-diff-counts")?.textContent).toBe("+608-8");
     expect(meta(changes)).toBe("2");
-    // One registration for the whole list, then the host's cache: never a GitHub read per row.
-    expect(calls.filter((method) => method === "link.inspect")).toHaveLength(1);
+    // The list and the visible rows' hover-card site metadata each register as a batch.
+    expect(calls.filter((method) => method === "link.inspect")).toHaveLength(2);
   } finally {
     setChipHost(undefined);
     resetPullRequestStore();
@@ -649,11 +744,11 @@ test("a folded Changes registers nothing with the host and asks it nothing", asy
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
     expect(section(container, "changes")).not.toBeNull();
     expect(calls).toEqual([]);
-    // Opened: one registration for the list, then the host's cache.
+    // Opened: the list and row hover-card metadata register, then the host's PR cache.
     await act(async () => setInspectorSection("changes", true));
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-    expect(calls).toEqual(["link.inspect", "pr.inspect"]);
+    expect(calls).toEqual(["link.inspect", "link.inspect", "pr.inspect"]);
   } finally {
     setInspectorSection("changes", true);
     setChipHost(undefined);
@@ -662,30 +757,26 @@ test("a folded Changes registers nothing with the host and asks it nothing", asy
   }
 });
 
-test("a folded Changes with only named pull requests the App has not confirmed keeps its header, so it can open", async () => {
+test("read-only Sources neither register nor poll with Changes open by default", async () => {
   const container = installDom(true);
   const calls: string[] = [];
   setChipHost(async (method) => {
     if (method === "link.inspect" || method === "pr.inspect") calls.push(method);
     return method === "pr.inspect" ? { pullRequest: null, reading: true } : {};
   });
-  setInspectorSection("changes", false);
+  const polling = spyOn(globalThis, "setInterval");
   try {
-    // Named only in a reply: hidden until the App says they are pull requests.
-    await render(container, chat([assistant("acme/billing#9 and acme/atlas-web#12 are the ones to watch.", 1)]));
+    await render(
+      container,
+      chat([assistant("https://github.com/acme/app/pull/12 and https://github.com/acme/app/issues/9", 1)]),
+    );
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-    const folded = section(container, "changes");
-    expect(folded).not.toBeNull();
-    // Not presented as confirmed pull requests: no rows and no count.
-    expect(folded!.querySelectorAll("li.acpmux-chat-inspector-pr")).toHaveLength(0);
-    expect(meta(folded!)).toBeUndefined();
+    expect(section(container, "changes")).toBeNull();
+    expect(section(container, "sources")).not.toBeNull();
     expect(calls).toEqual([]);
-    await act(async () => setInspectorSection("changes", true));
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-    expect(calls.filter((method) => method === "link.inspect")).toHaveLength(1);
+    expect(polling.mock.calls.map(([, ms]) => ms).filter((ms) => ms === 60_000 || ms === 1_500)).toEqual([]);
   } finally {
-    setInspectorSection("changes", true);
+    polling.mockRestore();
     setChipHost(undefined);
     resetPullRequestStore();
     resetChangesStatuses();
@@ -716,7 +807,10 @@ test("a pull request row shows its line counts, the failing checks already on ba
           [url]: {
             additions: 120,
             deletions: 30,
-            breakdown: { code: { additions: 100, deletions: 30 }, tests: { additions: 20, deletions: 0 } },
+            breakdown: {
+              code: { additions: 100, deletions: 30 },
+              tests: { additions: 20, deletions: 0 },
+            },
             checks: "failing",
             failing: 3,
             failingOnBase: 2,
@@ -739,7 +833,13 @@ test("a pull request the chat closed shows Closed until the App reads it again a
   const status = (state: string, at: number) => {
     setSystemTime(new Date(at));
     setHeaderState({
-      pullRequest: { url, number: 13, title: "Retry", state, checks: { state: "failing", passed: 3, total: 5 } },
+      pullRequest: {
+        url,
+        number: 13,
+        title: "Retry",
+        state,
+        checks: { state: "failing", passed: 3, total: 5 },
+      },
     });
   };
   // The App read it open before the chat closed it at 2000.
@@ -1012,7 +1112,13 @@ test("a Cloud VM chat's children, as its machine's daemon lists them with the ch
   // A grandchild (acpmux keeps `spawnedBy` one level) lists under its own parent, not this chat.
   const watch = {
     sessions: [
-      { sessionId: "vm-root", title: "Ship the uploader", status: "running", host: "build-01", hostKind: "cloud" },
+      {
+        sessionId: "vm-root",
+        title: "Ship the uploader",
+        status: "running",
+        host: "build-01",
+        hostKind: "cloud",
+      },
       {
         sessionId: "vm-sub",
         title: "Run the e2e suite",

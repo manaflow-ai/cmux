@@ -59,7 +59,7 @@ Object.assign(scope, replacements);
 // and a scroll offset the test moves as the reader would.
 let viewport = 600;
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => viewport });
-// Wide enough for the minimap's gutter (ThreadMinimap MIN_GUTTER).
+// Wide enough for the minimap's pane-edge rail in these layout tests.
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 1040 });
 const offsets = new WeakMap<object, number>();
 Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
@@ -308,10 +308,19 @@ test("a clicked tick keeps focus while the chat scrolls it out of the rail's win
     const clicked = document.querySelector<HTMLElement>(`[data-tick="1999"]`)!;
     await act(async () => clicked.click());
     expect(document.activeElement).toBe(clicked);
-    // The chat scrolls to its top: the rail's list follows the band there, far past the tick.
+    // The reader scrolls the chat to its top: the rail's list follows the band there, far past
+    // the tick. A wheel up first, as a reader's scroll comes: a scroll with no reader input is
+    // layout, which never lets go of the latest row (#26088), so the view went back to its end in
+    // the next frame and the read passed only when it came before that frame. The read now waits
+    // for the frame the transcript commits the scroll in (its scroll pacer).
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-    scroller.scrollTop = 0;
-    await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+    await act(async () => {
+      scroller.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -1000, bubbles: true }));
+      scroller.scrollTop = 0;
+      scroller.dispatchEvent(new dom.window.Event("scroll"));
+      await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
+    });
+    expect(scroller.scrollTop).toBe(0);
     expect(document.querySelector(`[data-tick="0"]`)).not.toBeNull();
     // The focused tick is still drawn and focused, and the keyboard goes on from it.
     expect(clicked.isConnected).toBe(true);

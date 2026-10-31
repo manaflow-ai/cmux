@@ -26,6 +26,8 @@ final class PaneContentView: NSView, PaneContentChrome {
     private var paneBackgroundsObservation: Task<Void, Never>?
     let contentHost = NSView()
     private(set) weak var content: NSView?
+    /// Explicitly observed ownership: first-paint holds can change this without a tab-store update.
+    let nativeToolOwner = PaneNativeToolOwner()
     /// A view in the window that this pane, in no window yet, shows: it moves here when the pane enters one.
     private var windowEntry = WindowEntryHandoff()
     private var tokenObservation: Task<Void, Never>?
@@ -83,8 +85,16 @@ final class PaneContentView: NSView, PaneContentChrome {
     var holdKeepsStrip = false
     /// An agent page's last image under the content at launch (`PaneContentView+LaunchImage`).
     var launchImageView: NSView?
+    var launchImageSize: CGSize?
+    /// Move covers clear without invoking their one-frame reveal callback on resize.
+    var launchImageInvokesResizeCallback = true
     /// Runs once when the launch image goes (`clearLaunchImage`).
     var onLaunchImageCleared: (() -> Void)?
+    /// Asked when the launch image's limit is up, before it goes: `false` keeps the frame, because
+    /// the page it stands in for is still coming and dropping it now would leave the pane empty
+    /// (`PaneContentView+LaunchImage`). Nil means the limit clears it, as it does for a frame held
+    /// over a page that has already painted.
+    var launchImageMayClear: (() -> Bool)?
     let launchImageDeadline = DemandTimer(owner: "pane.launch-image")
     /// Browsers this pane showed before, kept in place and hidden, oldest
     /// first (`PaneContentView+Parking`).
@@ -110,7 +120,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         agentTagObservation = observeAgentTag(stripModel)
         themeDidChange()
         tokenObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (PaneChromeMetrics.current, ChromeTunables.tabRowTools.value) }) {
+            for await _ in ObservationStream({ (PaneChromeMetrics.current, ChromeTunables.tabRowTools.value, ChromeTunables.nativeRowTools.value) }) {
                 self?.needsLayout = true
                 self?.refreshBandHeight()
             }
@@ -165,6 +175,12 @@ final class PaneContentView: NSView, PaneContentChrome {
         reportHeaderIfChanged()
         let hostChanged = contentHost.frame != hostFrame
         if hostChanged { contentHost.frame = hostFrame }
+        if launchImageView != nil, let launchImageSize, launchImageSize != .zero, launchImageSize != contentHost.bounds.size {
+            // A move cover owns the clear callback that reveals the page on its next frame. A
+            // resize must discard old-size pixels without consuming that hand-off early.
+            clearLaunchImage(invokeCallback: launchImageInvokesResizeCallback)
+            launchImageInvokesResizeCallback = true
+        }
         // After the host frame: a strip pinned to a browser's band reads its
         // frame from constraints that depend on the host frame.
         super.layout()
@@ -201,6 +217,20 @@ final class PaneContentView: NSView, PaneContentChrome {
 
     private var visibleContent: NSView? {
         paintHold.kept.flatMap { $0.superview === contentHost ? $0 : nil } ?? (hostsContent ? content : nil)
+    }
+
+    /// The selected agent page, for native controls owned by the page: the incoming one while a
+    /// paint hold still shows the outgoing view.
+    var displayedAgentPaneView: AgentPaneView? { hostsContent ? content as? AgentPaneView : nil }
+
+    /// The controls and their callback follow the selected page, including an outgoing first-paint hold.
+    func refreshNativeToolOwner() {
+        if let agent = content as? AgentPaneView, !hostsContent, agent.superview == nil {
+            // Reparenting invokes this refresh on the old pane before the new pane binds its callback.
+            agent.onNativeToolOwnerChange = nil
+        }
+        nativeToolOwner.model = displayedAgentPaneView?.model
+        toolbar?.refresh()
     }
 
     var paneFramesContent: Bool { !(visibleContent is AgentPaneView) }
@@ -312,8 +342,15 @@ final class PaneContentView: NSView, PaneContentChrome {
         // A terminal's theme scope inherits this pane's workspace theme.
         view?.reparentRootedThemeScope()
         // Another pane may own `previous` now and have taken its callback.
-        if let previous, previous !== view, previous.superview == nil { (previous as? PaneContentChrome)?.onPaneHeaderHeightChange = nil }
+        if let previous, previous !== view, previous.superview == nil {
+            (previous as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
+            (previous as? AgentPaneView)?.onNativeToolOwnerChange = nil
+        }
+        if let agent = view as? AgentPaneView {
+            agent.onNativeToolOwnerChange = { [weak self] in self?.refreshNativeToolOwner() }
+        }
         content = view
+        refreshNativeToolOwner()
         // After the incoming view is in: a browser that leaves stays parked
         // here, and the keyboard it held goes to what shows now.
         if let leaving { retire(leaving) }
@@ -348,10 +385,14 @@ final class PaneContentView: NSView, PaneContentChrome {
     func detachContent(parks: Bool = false) {
         // The strip's band pins end before the browser leaves (R109).
         releaseBand()
+        // A displaced or closed page cannot reveal this pane's saved frame anymore.
+        clearLaunchImage()
         endPaintHold()
         let shown = hostsContent ? content : nil
         (shown as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
+        (shown as? AgentPaneView)?.onNativeToolOwnerChange = nil
         content = nil
+        refreshNativeToolOwner()
         if let shown { if parks { retire(shown) } else { shown.removeFromSuperview() } }
         applyCornerRadius()
         updateBand()
@@ -417,3 +458,4 @@ private let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: 
 private func tabSwitchMark(_ name: String) {
     tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
 }
+

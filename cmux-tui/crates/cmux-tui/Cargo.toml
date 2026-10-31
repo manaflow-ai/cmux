@@ -50,10 +50,13 @@ name = "cmux-tui-host"
 path = "src/bin/cmux-tui-host.rs"
 
 [dependencies]
+cmux-json.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
 # `cmux vm`: the cmux-vm child starts through the daemon-safe spawn.
 cmux-process.workspace = true
+# `cmux automation`: schedules, the local store and the runner.
+cmux-automations.workspace = true
 cmux-api-compat.workspace = true
 # `cmux settings list|schema|validate`: the settings schema and owner state.
 cmux-config.workspace = true
@@ -118,7 +121,8 @@ x25519-dalek.workspace = true
 tokio.workspace = true
 # Machine spend readout: one small JSON GET every few minutes from inside a
 # Cloud VM. chatmux-relay already uses reqwest for pairing bootstrap.
-reqwest.workspace = true
+# `stream`: attachment files upload from disk, never read whole.
+reqwest = { workspace = true, features = ["stream"] }
 rustls.workspace = true
 url.workspace = true
 async-trait.workspace = true
@@ -129,10 +133,16 @@ futures-util.workspace = true
 # cmux NEXT's Chief home adoption copies live SQLite databases with
 # `VACUUM INTO` (build_adopt/copy.rs); already in the graph via cmux-tui-core.
 rusqlite.workspace = true
+# `cmux machine add|list`: the platform's RFC 3339 times; already in the graph via acpmux.
+cmux-chat-index.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 tokio.workspace = true
 windows-sys = { workspace = true, features = ["Win32_System_LibraryLoader"] }
+
+[build-dependencies]
+# build.rs reads the browser registry's ids and names.
+serde_json.workspace = true
 
 [dev-dependencies]
 cmux-pty.workspace = true

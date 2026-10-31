@@ -365,6 +365,8 @@ describe("the tray", () => {
     try {
       const head = shown.root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
       expect(head.getAttribute("aria-expanded")).toBe("true");
+      expect(head.querySelector('svg[data-icon="agent.session"]')).not.toBeNull();
+      expect(head.querySelector('[role="progressbar"]')).toBeNull();
       expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents running · 1 command");
       expect(shown.root.querySelectorAll(".acpmux-agent-line").length).toBe(3);
       // The header's time is its own, not a fourth line's.
@@ -392,6 +394,40 @@ describe("the tray", () => {
       expect(folded.root.querySelectorAll(".acpmux-agent-line").length).toBe(TRAY_OPEN_MAX + 1);
     } finally {
       await folded.done();
+    }
+  });
+
+  test("tray rows reserve the time, status and stop tracks when values are missing", async () => {
+    const running = agent("Reviewer", { startedAt: Date.now() - 5_000 });
+    const chat: StartedSession = { sessionId: "child", title: "Started chat", state: "running" };
+    const { root, done } = await render(
+      createElement(SubagentTray, {
+        items: trayItems([running], [], [chat], true),
+        working: true,
+        waiting: new Set<string>(),
+        onOpen: () => {},
+        onOpenSession: () => {},
+        stop: async () => {},
+      }),
+    );
+    try {
+      const tray = root.querySelector<HTMLElement>(".acpmux-running-tray")!;
+      expect(tray.querySelector(".acpmux-running-tray__head .acpmux-running-tray__time")).not.toBeNull();
+      expect(tray.querySelector(".acpmux-running-tray__head .acpmux-running-tray__status")).not.toBeNull();
+      const lines = [...tray.querySelectorAll<HTMLElement>(".acpmux-agent-line")];
+      expect(lines).toHaveLength(2);
+      expect(lines.every((line) => line.querySelector(".acpmux-agent-line__time"))).toBe(true);
+      expect(lines.every((line) => line.querySelector(".acpmux-agent-line__status"))).toBe(true);
+      expect(lines.every((line) => line.querySelector(".acpmux-agent-line__stop-slot"))).toBe(true);
+      expect(
+        lines.find((line) => line.textContent?.includes("Started chat"))?.querySelector(".acpmux-agent-line__time")
+          ?.textContent,
+      ).toBe("");
+      expect(
+        lines.find((line) => line.textContent?.includes("Reviewer"))?.querySelector(".cv-subagent__stop"),
+      ).not.toBeNull();
+    } finally {
+      await done();
     }
   });
 
@@ -487,17 +523,23 @@ describe("the tray", () => {
   });
 
   test("a hidden pane's tray clock rests and catches up when the pane shows", async () => {
-    // The clock's interval is recorded instead of run, and the time moves by hand: no real waits.
-    const intervals = new Set<number>();
-    const realSet = globalThis.setInterval;
-    const realClear = globalThis.clearInterval;
+    // The clock's timeout is recorded instead of run, and the time moves by hand: no real waits.
+    const timeouts = new Set<number>();
+    const realSet = globalThis.setTimeout;
+    const realClear = globalThis.clearTimeout;
     let ids = 0;
-    globalThis.setInterval = (() => {
+    // Only the tray clock's one-second timeout is recorded; the page's frame loop (jsdom's
+    // requestAnimationFrame, which the shared page-reveal gate uses) keeps its real timers.
+    globalThis.setTimeout = ((handler: () => void, ms?: number) => {
+      if (ms !== 1000) return realSet(handler, ms);
       ids += 1;
-      intervals.add(ids);
+      timeouts.add(ids);
       return ids;
-    }) as unknown as typeof setInterval;
-    globalThis.clearInterval = ((id?: number) => void intervals.delete(id as number)) as typeof clearInterval;
+    }) as unknown as typeof setTimeout;
+    globalThis.clearTimeout = ((id?: unknown) => {
+      if (typeof id === "number" && timeouts.has(id)) timeouts.delete(id);
+      else realClear(id as Parameters<typeof clearTimeout>[0]);
+    }) as typeof clearTimeout;
     let visibility = "visible";
     Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, get: () => visibility });
     const shown = (state: string) =>
@@ -513,20 +555,24 @@ describe("the tray", () => {
     const time = () => root.querySelector(".acpmux-agent-line__time")?.textContent;
     try {
       expect(time()).toBe("10s");
-      expect(intervals.size).toBe(1);
+      expect(timeouts.size).toBe(1);
       await shown("hidden");
-      expect(intervals.size).toBe(0);
+      expect(timeouts.size).toBe(0);
       setSystemTime(new Date(at(130)));
       expect(time()).toBe("10s");
       await shown("visible");
       expect(time()).toBe("40s");
-      expect(intervals.size).toBe(1);
+      expect(timeouts.size).toBe(1);
     } finally {
       await done();
-      setSystemTime();
-      visibility = "visible";
-      globalThis.setInterval = realSet;
-      globalThis.clearInterval = realClear;
+      try {
+        expect(timeouts.size).toBe(0);
+      } finally {
+        globalThis.setTimeout = realSet;
+        globalThis.clearTimeout = realClear;
+        setSystemTime();
+        visibility = "visible";
+      }
     }
   });
 
@@ -599,14 +645,24 @@ describe("a tray line says what it is and what a click does", () => {
     }
   });
 
-  test("a subagent leads with Subagent and ends in a chevron", async () => {
+  // Leo, 2026-10-29: "why are you saying sub-agent so many fucking times? Like, you can just add
+  // the icon when it's in here."
+  test("a subagent leads with its icon, not the word, keeps its spinner and ends in a chevron", async () => {
     const items = trayItems([agent("Reviewer", { startedAt: Date.now(), action: "Read src/app.ts" })], [], NONE, true);
     const { root, done } = await render(
       createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} }),
     );
     try {
       const line = root.querySelector<HTMLElement>(".acpmux-agent-line")!;
-      expect(line.querySelector(".acpmux-agent-line__kind")?.textContent).toBe("Subagent");
+      expect(line.querySelector(".acpmux-agent-line__kind")).toBeNull();
+      const kind = line.querySelector<HTMLElement>(".acpmux-agent-line__kind-icon");
+      // The kind is an accessible SVG title, with no repeated visible label beside the icon.
+      expect(kind?.querySelector('svg[role="img"]')?.getAttribute("aria-label")).toBe("Subagent");
+      expect(kind?.querySelector("title")?.textContent).toBe("Subagent");
+      // The working-state mark stays a spinner, before the subagent's icon.
+      expect(
+        line.querySelector(".acpmux-lineage__icon [data-spinner], .acpmux-lineage__icon .cv-spinner"),
+      ).not.toBeNull();
       expect(line.querySelector(".acpmux-summary-agent__name")?.textContent).toBe("Reviewer");
       expect(line.querySelector(".acpmux-agent-line__chevron")).not.toBeNull();
     } finally {
@@ -901,9 +957,13 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
       const tray = root.querySelector<HTMLElement>(".acpmux-running-tray")!;
       const list = tray.querySelector<HTMLElement>(".acpmux-running-tray__list")!;
       const more = tray.querySelector<HTMLButtonElement>(".acpmux-running-tray__finished")!;
-      // The tray is the header, the list, then View all: neither pinned part is inside the scroller.
+      // The tray is the header, then the fold (trayMotion.tsx) with the list and View all under it:
+      // neither pinned part is inside the scroller.
       expect([...tray.children].map((child) => child.className)).toEqual([
         expect.stringContaining("acpmux-running-tray__head"),
+        "acpmux-running-tray__fold",
+      ]);
+      expect([...tray.children[1]!.children].map((child) => child.className)).toEqual([
         "acpmux-running-tray__list",
         expect.stringContaining("acpmux-running-tray__finished"),
       ]);
@@ -1108,5 +1168,89 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
     } finally {
       await done();
     }
+  });
+});
+
+describe("a failed sub-session's line", () => {
+  test("says why its chat failed, as acpmux recorded it on the chat's own session row", async () => {
+    const { SubagentDoneLine } = await import("../src/agent-session/acpmux/subagents/SubagentDoneLine");
+    const { SubsessionContext, SubsessionStore } = await import("../src/agent-session/acpmux/subagents/subsessions");
+    const store = new SubsessionStore();
+    store.set([{ sessionId: "child", startedBy: "parent", lane: "failed", laneError: "model overloaded" }]);
+    const failed = agent("Overview", { state: "failed", endedAt: at(40), child: "child" });
+    const { root, done } = await render(
+      createElement(
+        SubsessionContext.Provider,
+        { value: { store, open: () => {} } },
+        createElement(SubagentDoneLine, {
+          row: row(`${SUBAGENT_DONE}:Overview`, SUBAGENT_DONE, 40, { subagents: [failed] }),
+        }),
+      ),
+    );
+    try {
+      expect(root.querySelector(".cv-subagent-done")?.textContent).toBe(
+        "Subagent failed: Overview · 30s · model overloaded",
+      );
+    } finally {
+      await done();
+    }
+  });
+});
+
+describe("workflow progress in the default tray and Inspector", () => {
+  const waiting = new Set<string>();
+  for (const surface of ["tray", "inspector"] as const) {
+    test(`${surface} updates counts, warnings and tokens without replacing another row`, async () => {
+      const { SubagentsSection } = await import("../src/agent-session/acpmux/inspector/SubagentsSection");
+      const workflow = agent("Review modules", { kind: "workflow", action: "Review" });
+      const other = agent("Unrelated agent");
+      const draw = (current: Subagent) =>
+        surface === "tray"
+          ? createElement(SubagentTray, {
+              items: trayItems([current, other], [], NONE, true),
+              working: true,
+              waiting,
+              onOpen: () => {},
+            })
+          : createElement(SubagentsSection, { agents: [current, other], waiting, onOpen: () => {} });
+      const view = await render(draw(workflow));
+      try {
+        expect(view.root.querySelector(".acpmux-agent-line__progress")).toBeNull();
+        const buttons = () => [...view.root.querySelectorAll(".acpmux-agent-line__button")];
+        const unrelated = buttons().find((button) => button.textContent?.includes("Unrelated agent"));
+        expect(unrelated).toBeDefined();
+        await view.show(
+          draw({ ...workflow, agents: { done: 37, started: 101, failed: 2, queued: 4 }, tokens: 1_200_000 }),
+        );
+        expect(view.root.querySelector(".acpmux-agent-line__progress")?.textContent).toBe(
+          "37/101 agents · 2 failed · 4 queued · 1.2M tokens",
+        );
+        expect(buttons().find((button) => button.textContent?.includes("Unrelated agent"))).toBe(unrelated);
+        await view.show(draw({ ...workflow, agents: { done: 40, started: 101 }, tokens: 1_300_000 }));
+        expect(view.root.querySelector(".acpmux-agent-line__progress")?.textContent).toBe(
+          "40/101 agents · 1.3M tokens",
+        );
+        expect(buttons().find((button) => button.textContent?.includes("Unrelated agent"))).toBe(unrelated);
+      } finally {
+        await view.done();
+      }
+    });
+  }
+
+  test("missing and zero progress do not fabricate counts or warnings", async () => {
+    const { subagentProgress } = await import("../src/agent-session/acpmux/subagents/subagentProgress");
+    const { translatorFor } = await import("../src/agent-session/acpmux/i18n");
+    const t = translatorFor("en");
+    expect(subagentProgress(t, "en", agent("Workflow", { kind: "workflow" }))).toEqual([]);
+    expect(
+      subagentProgress(
+        t,
+        "en",
+        agent("Workflow", {
+          agents: { done: 0, started: 0, failed: 0, queued: 0 },
+          tokens: 0,
+        }),
+      ),
+    ).toEqual([]);
   });
 });

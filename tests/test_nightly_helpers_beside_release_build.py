@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import re
 import os
 import subprocess
 import sys
@@ -31,6 +32,9 @@ import unittest
 from pathlib import Path
 
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from nightly_workflow_text import nightly_text  # noqa: E402  (moved step scripts put back inline)
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/nightly.yml"
@@ -52,13 +56,16 @@ NOTICES = "Generate third-party notices (cmux-next)"
 STOP = "Stop the helper builds still running"
 CEF = "Fetch the Chromium engine"
 CEF_JOIN = "Finish fetching the Chromium engine"
+# The only step allowed between the engine join and the Release build: it ends the
+# run before the compile once a job publish needs has failed.
+PUBLISH_CHECK = "Stop when the run can no longer publish (before the compile)"
 INPUTS_JOB = "build-nightly-inputs"
 
 
 class WorkflowStructureTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        cls.jobs = yaml.safe_load(nightly_text())["jobs"]
         cls.app = cls.jobs["build-nightly-app"]
         cls.names = [step.get("name", "") for step in cls.app["steps"]]
 
@@ -100,7 +107,8 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertLess(self.index("Fetch the Chromium engine"), self.index(WEB_DOWNLOAD))
         self.assertEqual(self.index(WEB_DOWNLOAD) + 1, self.index(WEB_BUILD))
         self.assertEqual(self.index(WEB_BUILD) + 1, self.index(CEF_JOIN))
-        self.assertEqual(self.index(CEF_JOIN) + 1, self.index(RELEASE))
+        self.assertEqual(self.index(CEF_JOIN) + 1, self.index(PUBLISH_CHECK))
+        self.assertEqual(self.index(PUBLISH_CHECK) + 1, self.index(RELEASE))
         run = self.step(WEB_BUILD)["run"]
         self.assertIn("nightly_inputs.py install-web", run)
         self.assertIn("scripts/cmux-next/build-web-bundles.sh --force", run)
@@ -288,9 +296,9 @@ class NightlyInputsTests(unittest.TestCase):
         builder.chmod(0o755)
         for relative in nightly_inputs.WEB_OUTPUTS:
             path = self.root / relative
-            if relative.endswith(".js"):
+            if relative.endswith((".js", ".html")):
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text("ranker\n")
+                path.write_text(f"{relative}\n")
             else:
                 path.mkdir(parents=True)
                 (path / "index.html").write_text(f"{relative}\n")
@@ -306,6 +314,18 @@ class NightlyInputsTests(unittest.TestCase):
         nightly_inputs.install_web(self.handoff)
         installed = (self.root / "scripts/cmux-next/installed.txt").read_text()
         self.assertEqual(installed.count("\n"), len(nightly_inputs.WEB_OUTPUTS))
+
+    def test_the_hand_off_carries_every_path_build_web_bundles_from_requires(self):
+        script = (ROOT / "scripts/cmux-next/build-web-bundles.sh").read_text()
+        names = dict(re.findall(r'^([A-Z]+)="([^"$]+)"$', script, re.M))
+        loop = re.search(r'^  for path in (.+); do\n    \[ -e "\$FROM_ROOT/\$path" \]', script, re.M)
+        self.assertIsNotNone(loop, "build-web-bundles.sh --from's required-path loop moved")
+        required = set()
+        for word in loop.group(1).split():
+            match = re.fullmatch(r'"\$([A-Z]+)(/[^"]*)?"', word)
+            self.assertIsNotNone(match, word)
+            required.add(names[match.group(1)] + (match.group(2) or ""))
+        self.assertEqual(required, set(nightly_inputs.WEB_OUTPUTS))
 
     def test_web_bundles_of_another_source_key_are_not_used(self):
         nightly_inputs.pack_web(self.handoff, "key-b")

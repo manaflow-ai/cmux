@@ -33,6 +33,7 @@ import Testing
         var candidateAnswers: [[HostCandidate]?] = []
         /// Streams the test drives by hand (``feed(_:)``), when set.
         var live: AsyncThrowingStream<String, any Error>.Continuation?
+        var termination: CheckedContinuation<Void, Never>?
         var holdNextRun = false
         var connectFails = false
 
@@ -52,7 +53,15 @@ import Testing
                     commands.append(command)
                     if holdNextRun {
                         holdNextRun = false
-                        return AsyncThrowingStream { self.live = $0 }
+                        return AsyncThrowingStream { continuation in
+                            self.live = continuation
+                            continuation.onTermination = { @Sendable _ in
+                                Task { @MainActor in
+                                    self.termination?.resume()
+                                    self.termination = nil
+                                }
+                            }
+                        }
                     }
                     let lines = scripts.isEmpty ? [] : scripts.removeFirst()
                     let stop = stops.isEmpty ? nil : stops.removeFirst()
@@ -79,7 +88,7 @@ import Testing
         "{\"report\":{\"name\":\"\(name)\",\"host\":\"\(host)\",\"ok\":\(ok),\"steps\":[\(steps.joined(separator: ","))]}}"
     }
 
-    static let okSteps = ["reach", "install", "daemon", "harness", "peer", "peer-back", "identity"].map { step($0, "ok") }
+    static let okSteps = ["reach", "install", "daemon", "update", "harness", "peer", "peer-back", "identity"].map { step($0, "ok") }
 
     let host = FakeHost()
     let model: AddMachineModel
@@ -152,10 +161,18 @@ import Testing
         list.start()
         list.apply(HostStepResult(step: .reach, state: .ok))
         list.apply(HostStepResult(step: HostStep(rawValue: "firewall"), state: .warn, detail: "port 22 filtered"))
-        #expect(list.rows.map(\.step.rawValue) == ["reach", "firewall", "install", "daemon", "harness", "peer", "peer-back", "identity"])
+        #expect(list.rows.map(\.step.rawValue) == ["reach", "firewall", "install", "daemon", "update", "harness", "peer", "peer-back", "identity"])
         #expect(list.row(HostStep(rawValue: "firewall"))?.status == .done(.warn))
         #expect(AddMachineStrings.step(HostStep(rawValue: "firewall")) == "firewall")
         #expect(list.row(.install)?.status == .running)
+    }
+
+    /// The `update` step (acpmux `host_enroll_update.rs`) has its own row, right after the daemon's.
+    @Test func theUpdateStepHasItsOwnRow() {
+        #expect(HostLine.parse(Self.step("update", "fixed", "installed acpmux-update.timer"))
+            == .step(HostStepResult(step: .update, state: .fixed, detail: "installed acpmux-update.timer")))
+        #expect(HostStep.known.firstIndex(of: .update) == HostStep.known.firstIndex(of: .daemon).map { $0 + 1 })
+        #expect(AddMachineStrings.step(.update) == "Keep it up to date")
     }
 
     @Test func theReportSkipsWhatItDidNotRunAndAStopFailsTheRunningStep() {
@@ -349,6 +366,36 @@ import Testing
         #expect(model.perform(.cancel))
         #expect(model.phase == .pick)
         #expect(host.recorded.isEmpty)
+    }
+
+    @Test func cancelAfterAnInstallReportDoesNotStartTheFallbackInstall() async throws {
+        host.holdNextRun = true
+        model.begin(destination: "test-machine")
+        model.perform(.add)
+        try await waitFor { host.live != nil }
+        let live = try #require(host.live)
+        let installFail = Self.step("install", "fail", "use the app build", reason: "wrong-platform")
+        live.yield(Self.report("test-machine", "test-machine", ok: false, [Self.step("reach", "ok"), installFail]))
+        try await waitFor { model.checklist.row(.install)?.status == .done(.fail) }
+        #expect(model.phase == .running, "the report arrived, but the stream has not ended")
+        #expect(host.installs.isEmpty)
+
+        let terminated = Task {
+            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                host.termination = done
+            }
+        }
+        try await waitFor { host.termination != nil }
+        #expect(model.perform(.cancel))
+        live.finish()
+        _ = await terminated.value
+
+        #expect(host.installs.isEmpty, "a retained report must not start installation after Cancel")
+        #expect(host.connected.isEmpty)
+        #expect(host.recorded.isEmpty)
+        #expect(model.machineID == nil)
+        #expect(model.phase == .pick)
+        #expect(model.checklist.row(.install)?.status == .done(.fail))
     }
 
     @Test func aDestinationFromOutsideOnlyFillsTheCard() async {

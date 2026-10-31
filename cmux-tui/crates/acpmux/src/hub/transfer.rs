@@ -2,10 +2,9 @@
 
 use super::transfer_guard::plain_agent_session;
 use super::*;
+use cmux_json::JsonSet as _;
 use std::sync::Mutex;
 
-/// True when `id` is a single plain path component, so it can name a
-/// directory under the sessions root (no separator, `.`, `..` or root).
 static HARNESS_STATE_LOCK: Mutex<()> = Mutex::new(());
 
 /// Durable markers are made, rolled back and swept under one lock (`HARNESS_STATE_LOCK`), so a
@@ -14,34 +13,7 @@ pub(super) fn harness_state_lock() -> std::sync::MutexGuard<'static, ()> {
     HARNESS_STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-pub(super) fn write_json_atomic(path: &Path, value: &Value) -> Result<()> {
-    let tmp = path.with_extension(format!(
-        "{}.importing",
-        path.extension().and_then(|e| e.to_str()).unwrap_or("json")
-    ));
-    if std::fs::symlink_metadata(&tmp).is_ok() {
-        return Err(anyhow::anyhow!("transaction marker temporary path is occupied"));
-    }
-    let bytes = serde_json::to_vec(value)?;
-    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
-    // The temporary file is this call's own (`create_new`): a failure before the rename takes it
-    // away, so the next write of `path` is not refused as occupied.
-    let written = (|| -> std::io::Result<()> {
-        use std::io::Write;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        drop(file);
-        std::fs::rename(&tmp, path)
-    })();
-    if let Err(e) = written {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(e.into());
-    }
-    if let Some(parent) = path.parent() {
-        std::fs::File::open(parent)?.sync_all()?;
-    }
-    Ok(())
-}
+pub(super) use super::atomic_json::{is_plain_id, write_json_atomic};
 
 /// Whether the durable marker at `marker` stands for the chat `outer_id`.
 fn marker_names(marker: &Path, outer_id: &str) -> bool {
@@ -49,14 +21,6 @@ fn marker_names(marker: &Path, outer_id: &str) -> bool {
         .ok()
         .and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
         .is_some_and(|v| v.get("outerId").and_then(Value::as_str) == Some(outer_id))
-}
-
-pub(super) fn is_plain_id(id: &str) -> bool {
-    let mut parts = Path::new(id).components();
-    matches!(
-        (parts.next(), parts.next()),
-        (Some(std::path::Component::Normal(c)), None) if c.to_str() == Some(id)
-    )
 }
 
 /// Releases an import's claim on its session id however the import ends.
@@ -75,6 +39,11 @@ impl Hub {
     // ------------------------------------------------------------- export
 
     pub fn export(&self, session: &Arc<Session>, dest: &Path) -> Result<PathBuf> {
+        // What the log holds back goes in first (`store/deferred.rs`).
+        anyhow::ensure!(
+            self.store_deferred(session),
+            "could not store the chat's newest tool output"
+        );
         let meta = session.meta();
         let dir = dest.join(&meta.id);
         std::fs::create_dir_all(dir.join("events"))?;
@@ -126,7 +95,7 @@ impl Hub {
                     copied.push(json!({"label": label, "path": rel, "source": src}));
                 }
             }
-            manifest["native"] = Value::Array(copied);
+            manifest.set("native", Value::Array(copied));
         }
         std::fs::write(dir.join("manifest.json"), serde_json::to_string_pretty(&manifest)?)?;
         Ok(dir)
@@ -137,8 +106,7 @@ impl Hub {
         bundle: &Path,
         name: Option<String>,
     ) -> Result<Arc<Session>, RpcError> {
-        let session = self.import_into(bundle, name, false, None, false, false).await?;
-        Ok(session)
+        self.import_into(bundle, name, false, None, false, false).await
     }
 
     /// `import`; a `live` one (a chat moved here, `transfer_in.rs`) has its queue back before
@@ -157,8 +125,17 @@ impl Hub {
             .map_err(|e| RpcError::invalid_params(format!("read session.json: {e}")))?;
         let mut meta: SessionMeta = serde_json::from_str(&meta_text)
             .map_err(|e| RpcError::invalid_params(format!("parse session.json: {e}")))?;
+        // A bundle does not carry the source daemon's transcript authorization. Never import
+        // historical native ids or parent links that could collide with local sessions.
+        meta.previous_agent_session_ids.clear();
+        meta.agent_session_family = None;
+        meta.parent_id = None;
+        meta.fork_seq = None;
+        meta.fork_parent_verified = Some(false);
         // A store comes from this machine's chat index, never from a bundle.
         meta.chat_store = None;
+        // Nor the VM boundary: only a caller's peer link asks for it (`vm_boundary.rs`).
+        meta.vm_boundary = false;
         // Nor is a mode cmux set here, which only this daemon records (`SessionMeta::mode_set_by_cmux`).
         meta.mode_set_by_cmux = None;
         super::bookmarks::capped(&mut meta.bookmarks);
@@ -175,8 +152,7 @@ impl Hub {
                 return Err(RpcError::invalid_params(format!("session name {n:?} is taken")));
             }
         }
-        // Claim the id so a concurrent import of the same bundle fails
-        // instead of writing the store and log a second time.
+        // Claim the id so a concurrent import of the same bundle fails, never writing twice.
         let _reservation = {
             let sessions = self.sessions.lock().unwrap();
             let mut importing = self.importing.lock().unwrap();
@@ -192,8 +168,11 @@ impl Hub {
             }
             ImportReservation { hub: self, id: meta.id.clone() }
         };
+        // A name the import or move gives is someone's (`acpmux ls` lists it); without one the
+        // chat keeps its bundle's name and whether that name was given.
         if let Some(n) = name {
             meta.name = n;
+            meta.name_given = true;
         } else if self.sessions.lock().unwrap().values().any(|s| s.meta().name == meta.name) {
             meta.name = self.unique_name(&meta.name);
         }
@@ -212,7 +191,10 @@ impl Hub {
             return Err(e.with_data(json!({"reason": "cwd_missing", "cwd": meta.cwd})));
         }
         meta.status = SessionStatus::Idle;
-        // A family lives on one daemon: a moved-in sub-session is a root here.
+        // It lives here now, whatever the daemon it came from had recorded.
+        meta.moved_to = None;
+        // An approve-all an older daemon or a vmHost machine gave asks here (`policy_source.rs`).
+        super::policy_source::settle_imported_grant(&mut meta);
         meta.subsession = None;
         meta.lineage = None;
         self.prepare_harness_state(&meta, replace_durable)
@@ -254,25 +236,44 @@ impl Hub {
         };
         // Made once nothing can fail: a failed import leaves nothing in the child index.
         let session = self.make_session(meta.clone());
+        // Its copied log may hold the source's move: unknown until its own `imported` receipt
+        // is logged (`transfer_authority.rs`), so a failed receipt never reads as local.
+        *session.transfer_authority.lock().unwrap_or_else(|e| e.into_inner()) = None;
         session.seq.store(last, Ordering::SeqCst);
         session.meta.lock().unwrap().last_seq = last;
         if live {
             self.restore_queue(&session);
-            // Its log holds the source's move (`transfer_out`), not one of this daemon's.
-            *session.moving.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            // The source's subagent retries stayed there: their prompts do not wait here.
+            self.drop_unsent_subagent_retries(&session);
         }
+        // Published frozen: it is not this daemon's chat until its own receipt is logged (a
+        // failed one removes it), so no prompt starts before that. Its log's `transfer_out` is
+        // the source's move, not one of this daemon's.
+        *session.moving.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some(transfer_out::IMPORTING.to_owned());
         // The source's subagent retries stayed there (`subagent_retry.rs`).
         self.settle_subagent_retries(&session);
         self.sessions.lock().unwrap().insert(meta.id.clone(), session.clone());
         // Indexed again once published: a lookup before that found no session and dropped it.
         self.child_tags.note(&session);
         self.offers.forget(&meta.id);
-        self.append(
+        let (_, logged) = self.append_at(
             &session,
             "mux",
             "imported",
             json!({"from": bundle, "nativeRestored": restored}),
+            None,
+            None,
         );
+        // Without its own receipt the copied records would decide its transfer state after a
+        // restart (`transfer_authority.rs`): the import fails and leaves no chat.
+        if !logged {
+            self.recover_staged_replacements();
+            let _ = self.kill(&session, true).await;
+            return Err(RpcError::internal("import: could not durably record imported"));
+        }
+        // Its queued prompts run now (`end_move` follows its policy, then wakes the queue).
+        self.end_move(&session);
         self.save_meta(&session);
         if !defer_finalize && let Err(error) = self.finalize_harness_state(&session.meta()) {
             self.recover_staged_replacements();
@@ -325,7 +326,7 @@ impl Hub {
         let Some(split) = bytes.iter().position(|b| *b == b'\n') else {
             return Err(anyhow::anyhow!("Pi session file has no header"));
         };
-        let mut header: Value = serde_json::from_slice(&bytes[..split])?;
+        let mut header: Value = serde_json::from_slice(bytes.get(..split).unwrap_or_default())?;
         let id = header.get("id").and_then(Value::as_str);
         if header.get("type").and_then(Value::as_str) != Some("session")
             || header.get("cwd").and_then(Value::as_str).is_none()
@@ -335,10 +336,10 @@ impl Hub {
                 "Pi session header is not a valid session for this ACP id"
             ));
         }
-        header["cwd"] = Value::String(cwd.to_string_lossy().into_owned());
+        header.set("cwd", Value::String(cwd.to_string_lossy().into_owned()));
         let mut out = serde_json::to_vec(&header)?;
         out.push(b'\n');
-        out.extend_from_slice(&bytes[split + 1..]);
+        out.extend_from_slice(bytes.get(split + 1..).unwrap_or_default());
         Ok(out)
     }
 
@@ -722,7 +723,7 @@ impl Hub {
         let Some(root) = session_dir.parent() else { return Ok(()) };
         let state = root.join(format!(".{agent_id}.durable-transfer-state"));
         let mut marker = serde_json::from_slice::<Value>(&std::fs::read(&state)?)?;
-        marker["phase"] = json!("committed");
+        marker.set("phase", json!("committed"));
         write_json_atomic(&state, &marker)
     }
 
@@ -735,7 +736,7 @@ impl Hub {
         let Some(root) = session_dir.parent() else { return Ok(()) };
         let state = root.join(format!(".{agent_id}.durable-transfer-state"));
         let mut marker = serde_json::from_slice::<Value>(&std::fs::read(&state)?)?;
-        marker["phase"] = json!("committed");
+        marker.set("phase", json!("committed"));
         write_json_atomic(&state, &marker)?;
         let filename = marker.get("piFilename").and_then(Value::as_str).unwrap_or("");
         if !filename.is_empty() {
@@ -789,6 +790,10 @@ impl Hub {
         Ok(last)
     }
 }
+
+#[cfg(test)]
+#[path = "import_publish_tests.rs"]
+mod import_publish_tests;
 
 #[cfg(test)]
 mod tests {

@@ -1,6 +1,6 @@
-// The thread minimap's model: one tick per user message at the transcript's left edge
+// The thread minimap's model: one tick per user message at the pane's left edge
 // (the Codex desktop app's prompt rail). Pure functions, so geometry and previews need no DOM.
-import type { AcpmuxRow } from "../model";
+import { transcriptColumn, type AcpmuxRow } from "../model";
 import { opensTurn } from "../turnStart";
 import { MOTION_MS } from "../../../motion/scale.generated";
 
@@ -23,7 +23,7 @@ export type MinimapTurn = {
   /// every session numbers its rows `user-<seq>` and a row's `at` is not stable across snapshots.
   /// Bookmarks use the row id's seq instead (bookmarks.ts), which acpmux checks against its log.
   key: string;
-  /// The prompt on one line.
+  /// The prompt, preserving its line breaks for the card's bounded three-line title.
   prompt: string;
   /// The start of the first reply after the prompt.
   reply: ReplyBlock[];
@@ -34,35 +34,35 @@ export type MinimapTurn = {
 /// rail (lane notes: minimap-ref/SPEC.md). CSS px and ms; the drawn sizes live in threadMinimap.css.
 /// The rail shows from this many prompts...
 export const MIN_PROMPTS = 4;
-/// With the transcript column starting this far right of the scroller's left edge or more, the rail
-/// draws in full (16 px in, 36 px rows); with less (every pane under about 816 px) it draws narrow.
-export const MIN_GUTTER = 48;
-/// The rail's left edge, in from the scroller's.
-export const RAIL_LEFT = 16;
-/// A narrow rail (Leo 2026-10-22: "when the horizontal space shrinks too far it disapperas... idk i
-/// dont like that... we can maybe have a more minimal looking thing when not hovered"): it rests
-/// inside the page edge, left of the text, with shorter ticks, and draws the full wave over the
-/// text while the pointer or keyboard focus is on it.
-export const NARROW_RAIL_LEFT = 4;
-/// Space kept between the resting narrow rail (its ticks and its hit area) and the chat column.
-const NARROW_CLEAR = 2;
-/// A resting narrow rail's tick, in px (the full rail's rest is 6 px).
-export const NARROW_TICK = 4;
-/// Where the rail sits for a chat column `gutter` px in: the full rail, or the narrow one, whose
-/// resting width stops NARROW_CLEAR short of the column.
-export function railPlacement(gutter: number): { narrow: boolean; left: number; restWidth: number } {
-  if (gutter >= MIN_GUTTER) return { narrow: false, left: RAIL_LEFT, restWidth: ROW_WIDTH };
-  const left = Math.min(NARROW_RAIL_LEFT, Math.max(0, gutter - NARROW_TICK - NARROW_CLEAR));
-  return { narrow: true, left, restWidth: Math.max(NARROW_TICK, Math.floor(gutter - left - NARROW_CLEAR)) };
-}
 /// One row per prompt: a fixed 10 px pitch (not proportional to the thread), 36 px wide to hit.
 export const ROW_PITCH = 10;
 export const ROW_WIDTH = 36;
 /// The tick's line box; a tick draws `tickLength(progress)` of it from the left.
 export const TICK_BOX = 26;
-/// Rows past this many, or past 70% of the window's height, scroll inside the rail.
-export const RAIL_MAX_ROWS = 64;
-export const RAIL_MAX_SHARE = 0.7;
+/// Pure pane-edge geometry. CSS spacing tokens are read by useRailPlacement, once per layout change.
+export function railPlacement(
+  paneWidth: number,
+  textInset = transcriptColumn(paneWidth).inset,
+  spacing = { min: 8, max: 16, compact: 12 },
+): { left: number; width: number; overlapsText: boolean; gutter: number } {
+  const left = Math.min(spacing.max, Math.max(spacing.min, Math.round(paneWidth / 100)));
+  const minimumWidth = spacing.min + spacing.compact;
+  const width = Math.min(ROW_WIDTH, Math.max(minimumWidth, textInset - left));
+  // `gutter` is the text's own inset, so the occluded rail's hover strip can stop at the text edge.
+  return { left, width, overlapsText: left + width > textInset, gutter: Math.max(0, textInset) };
+}
+/// Height choices for the compact rail. The initial height keeps a short thread from looking like a
+/// transcript slice; the share and row cap let a long thread grow toward the pane's full height before
+/// its own list scrolls. The gallery compares these arms; the selected default is the middle ground.
+export type RailHeightConfig = { initial: number; maxRows: number; maxShare: number };
+export const RAIL_HEIGHTS = {
+  "initial-240-max-80": { initial: 240, maxRows: 96, maxShare: 0.8 },
+  "initial-320-max-92": { initial: 320, maxRows: 128, maxShare: 0.92 },
+  "initial-400-max-96": { initial: 400, maxRows: 160, maxShare: 0.96 },
+  "initial-480-max-full": { initial: 480, maxRows: 200, maxShare: 1 },
+} as const satisfies Record<string, RailHeightConfig>;
+export type RailHeightArm = keyof typeof RAIL_HEIGHTS;
+export const DEFAULT_RAIL_HEIGHT: RailHeightArm = "initial-320-max-92";
 /// The fisheye by row distance from the hovered (or scrubbed) row: 26, 20, 14, 10, then 6 px.
 const PROGRESS = [1, 0.7, 0.4, 0.2] as const;
 /// Space kept free above and below the card inside the transcript's viewport.
@@ -72,14 +72,17 @@ export const EDGE_MARGIN = 8;
 export const LANDING_OFFSET = 35;
 /// The transcript thread's top padding (.acpmux-thread): row tops start this far down the scroller.
 export const THREAD_PADDING_TOP = 16;
-/// A click's smooth scroll (Codex's Chromium smooth scroll, fitted), and a Previous or Next Turn step's.
+/// A bookmark jump's smooth scroll (Codex's Chromium smooth scroll, fitted), and a Previous or Next
+/// Turn step's. A click on the rail lands at once (ThreadMinimap.tsx `jump`).
 export const JUMP_CURVE = [0.35, 0.05, 0, 1] as const;
 export const STEP_CURVE = [0.3, 0.2, 0, 1] as const;
 export const STEP_MS = MOTION_MS.standard;
-/// The preview card opens this long after the pointer reaches the rail (Codex's `delayOpen`, 250 ms).
-/// Shorter than the app's 450 ms hover delay (ui/hoverIntent.ts): the rail is a deliberate target,
-/// and the card is the point of hovering it. Once one shows, the next row's follows at once.
-export const CARD_DELAY = 250;
+/// The preview card opens on the frame the pointer reaches the rail, with no dwell and no fade (Leo,
+/// 2026-10-29: "giving it faster scrttoll/hover over"; rulebook: the rail is "ultra fast ultra
+/// responsive"). The rail is a deliberate target at the pane's edge, and the card is the point of
+/// hovering it; it was Codex's 250 ms `delayOpen`. The app's other hover cards keep their dwell
+/// (ui/hoverIntent.ts).
+export const CARD_DELAY = 0;
 /// When older turns load above the rail's rows and move them, the rail glides back over this long.
 export const SHIFT_MS = MOTION_MS.standard;
 /// A jump keeps correcting its landing for up to this many frames while the rows it crossed measure.
@@ -104,11 +107,12 @@ export const tickLength = (progress: number) => TICK_BOX * (0.2308 + 0.7692 * pr
 
 /// The transcript's soft edges (conversation.css `.acpmux-scroll[data-fade-*]`): its mask fades
 /// rows out over this many px under the top once scrolled from the start, and above the view's foot
-/// (the bottom stack's top) while more lies below, 56 px while Jump to latest shows (18 px without).
+/// (the bottom stack's top) while more lies below. The composer edge is always 18 px, including
+/// while Jump to latest shows: that control keeps its own glass and does not widen the transcript mask.
 /// The rail is inside the scroller, so the mask fades it too: its rows stay clear of both bands, at
 /// the widest they get, so the rail never moves as the bands come and go. A test reads the CSS.
 export const TRANSCRIPT_FADE_TOP = 18;
-export const TRANSCRIPT_FADE_BOTTOM = 56;
+export const TRANSCRIPT_FADE_BOTTOM = 18;
 /// Where the rail's rows may sit, in px down the transcript's viewport: clear of the mask's bands by
 /// EDGE_MARGIN's half. `foot` is where the mask's view ends (the bottom stack's top), when it is
 /// above `viewportHeight` (a composer grown while the view follows the latest row).
@@ -132,14 +136,16 @@ export function railHeight(
   viewportHeight = windowHeight,
   foot = viewportHeight,
   band = 1,
+  config: RailHeightConfig = RAIL_HEIGHTS[DEFAULT_RAIL_HEIGHT],
 ): number {
+  if (count <= 0) return 0;
   const room = railRoom(viewportHeight, foot);
   const height = Math.min(
-    count * ROW_PITCH,
-    RAIL_MAX_ROWS * ROW_PITCH,
-    Math.floor(windowHeight * RAIL_MAX_SHARE),
+    Math.max(count * ROW_PITCH, config.initial),
+    config.maxRows * ROW_PITCH,
+    Math.floor(windowHeight * config.maxShare),
     // A transcript not measured yet (0) does not cap it.
-    viewportHeight > 0 ? Math.floor(room.bottom - room.top) : Infinity,
+    viewportHeight > 0 ? Math.max(0, Math.floor(room.bottom - room.top)) : Infinity,
   );
   const need = Math.min(count, Math.max(1, band)) * ROW_PITCH;
   const view = viewportHeight > 0 ? Math.floor(Math.min(viewportHeight, foot)) : Infinity;
@@ -216,7 +222,7 @@ export function cardOffset(center: number, cardHeight: number, viewportHeight: n
   return Math.max(EDGE_MARGIN, Math.min(top, max));
 }
 
-/// How long a click's smooth scroll takes for `distance` px: about 200 ms for 150 px up to 400 ms
+/// How long a bookmark jump's smooth scroll takes for `distance` px: about 200 ms for 150 px up to 400 ms
 /// for 650 px and more, as the recorded Chromium scrolls took.
 export function jumpDuration(distance: number): number {
   const share = Math.min(1, Math.max(0, (Math.abs(distance) - 150) / 500));
@@ -376,7 +382,9 @@ export function minimapTurns(
         index: userIndex,
         id: user.id,
         key: turnKey(sessionId, user),
-        prompt: (user.text ?? "").replace(/\s+/g, " ").trim(),
+        // Keep explicit prompt line breaks for the hover card; its CSS clamps the title without
+        // changing what the person wrote. Spaces are normalized by white-space: pre-line there.
+        prompt: (user.text ?? "").trim(),
         reply: sameReply ? kept.turn.reply : reply?.text ? replyPreview(reply.text) : [],
         metadata: nextMetadata,
       };

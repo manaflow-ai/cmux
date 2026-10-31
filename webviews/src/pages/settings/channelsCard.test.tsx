@@ -68,6 +68,18 @@ test("each build shows its health and pull reason and links to its commit, PRs a
   page.unmount();
 });
 
+test("a build with no canary verdict has no badge; a rated one keeps its badge", async () => {
+  const page = await renderPage({ path: "/settings/updates" });
+  await settle();
+  const element = card(page.container)!;
+  const unrated = element.querySelector<HTMLElement>('[data-channel-build="3422"]')!;
+  expect(unrated.dataset.health).toBe("pending");
+  expect(unrated.querySelector(".row-control .badge")).toBeNull();
+  expect(unrated.textContent).not.toContain("Awaiting Verdict");
+  expect(element.querySelector('[data-channel-build="3420"] .badge-warning')?.textContent).toBe("Held");
+  page.unmount();
+});
+
 test("picking Nightly on a Dev build Nightly has not reached offers Go Back into the kept Nightly build", async () => {
   const page = await renderPage({
     path: "/settings/updates",
@@ -180,27 +192,44 @@ test("a machine failing while the card shows joins its row at once, without a re
 });
 
 test("a machine too old to update in place has one Update button, which asks the host for that machine", async () => {
-  const tooOld = "tidy-yellow-tern runs a cmux too old to update in place. Its chats and terminals keep working; features newer than its cmux stay off there.";
+  const tooOld =
+    "tidy-yellow-tern runs a cmux too old to update in place. Its chats and terminals keep working; features newer than its cmux stay off there.";
   const failed = "Couldn't update build-box: Bootstrap failed: 125";
   const page = await renderPage({
     path: "/settings/updates",
     setup: (provider) => {
       provider.channels = {
         ...mockChannels,
-        machines: { title: "Other machines", lines: [tooOld, failed], updates: ["cloud:vm-9c96", null], updateLabel: "Update" },
+        machines: {
+          title: "Other machines",
+          lines: [tooOld, failed],
+          updates: ["cloud:vm-9c96", null],
+          updateLabel: "Update",
+        },
       };
     },
   });
   await settle();
   const buttons = [...card(page.container)!.querySelectorAll<HTMLButtonElement>("[data-channel-update-machine]")];
-  expect(buttons.map((button) => [button.dataset.channelUpdateMachine, button.textContent])).toEqual([["cloud:vm-9c96", "Update"]]);
+  expect(buttons.map((button) => [button.dataset.channelUpdateMachine, button.textContent])).toEqual([
+    ["cloud:vm-9c96", "Update"],
+  ]);
   await run(() => buttons[0]!.click());
   await settle();
   expect(page.provider.updatedMachines).toEqual(["cloud:vm-9c96"]);
   // The app's push: the machine is updating, so its line says so and has no button.
   const updating = "Updating tidy-yellow-tern to this Mac's build…";
-  await run(() => page.provider.setMachines({ title: "Other machines", lines: [updating, failed], updates: [null, null], updateLabel: "Update" }));
-  expect([...card(page.container)!.querySelectorAll("[data-channel-machine]")].map((node) => node.textContent)).toEqual([updating, failed]);
+  await run(() =>
+    page.provider.setMachines({
+      title: "Other machines",
+      lines: [updating, failed],
+      updates: [null, null],
+      updateLabel: "Update",
+    }),
+  );
+  expect([...card(page.container)!.querySelectorAll("[data-channel-machine]")].map((node) => node.textContent)).toEqual(
+    [updating, failed],
+  );
   expect(card(page.container)!.querySelector("[data-channel-update-machine]")).toBeNull();
   page.unmount();
 });
@@ -209,7 +238,10 @@ test("an app that offers no Update button shows the lines only", async () => {
   const page = await renderPage({
     path: "/settings/updates",
     setup: (provider) => {
-      provider.channels = { ...mockChannels, machines: { title: "Other machines", lines: ["Couldn't update build-box: disk full"] } };
+      provider.channels = {
+        ...mockChannels,
+        machines: { title: "Other machines", lines: ["Couldn't update build-box: disk full"] },
+      };
     },
   });
   await settle();

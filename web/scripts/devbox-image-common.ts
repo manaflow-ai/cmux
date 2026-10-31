@@ -43,6 +43,7 @@ export const CMUX_TUI_STATE_MAX_BYTES = 8 * 1024 * 1024 * 1024;
 export const DEVBOX_TEMPLATE_FILES = [
   "Dockerfile",
   "agent-config.sh",
+  "claude-onboarding.py",
   "agent-auth.sh",
   "cmux-claude",
   "cmux-codex",
@@ -298,6 +299,67 @@ export function devboxGhosttyDebSha256(dockerfile = readDevboxDockerfile()): str
   return sha;
 }
 
+/** Muse needs a newer bubblewrap than Ubuntu 24.04's 0.9.0. */
+export function devboxBubblewrapUrl(dockerfile = readDevboxDockerfile()): string {
+  const url = /^ARG CMUX_IMAGE_BUBBLEWRAP_URL=(\S+)$/m.exec(dockerfile)?.[1];
+  if (!url) throw new Error("devbox Dockerfile is missing ARG CMUX_IMAGE_BUBBLEWRAP_URL");
+  return url;
+}
+
+/** Verify the upstream archive before extracting or compiling its contents. */
+export function devboxBubblewrapSha256(dockerfile = readDevboxDockerfile()): string {
+  const sha = /^ARG CMUX_IMAGE_BUBBLEWRAP_SHA256=([0-9a-f]{64})$/m.exec(dockerfile)?.[1];
+  if (!sha) throw new Error("devbox Dockerfile is missing a 64-hex ARG CMUX_IMAGE_BUBBLEWRAP_SHA256");
+  return sha;
+}
+
+/** The pinned release, from the tarball name: what `bwrap --version` must print. */
+export function devboxBubblewrapVersion(dockerfile = readDevboxDockerfile()): string {
+  const version = /\/bubblewrap-(\d+\.\d+\.\d+)\.tar\.xz$/.exec(devboxBubblewrapUrl(dockerfile))?.[1];
+  if (!version) throw new Error("devbox Dockerfile's CMUX_IMAGE_BUBBLEWRAP_URL carries no bubblewrap-<x.y.z>.tar.xz");
+  return version;
+}
+
+/**
+ * The one bubblewrap install both recipes run: the Dockerfile's RUN is this
+ * with the ARG references, the Freestyle bake this with the pinned values
+ * (a test keeps them identical). The tarball is verified before anything is
+ * built from it; the build tools are removed again. `/usr/bin/bwrap` is
+ * diverted first, so the distro package (already on a base, or pulled in
+ * later by apt) installs as `/usr/bin/bwrap.distrib` and never replaces the
+ * pinned binary. `/usr/bin` keeps Ubuntu's AppArmor `bwrap` userns profile,
+ * which is attached by that path, applying to it.
+ */
+export function devboxBubblewrapInstallCommand(url: string, sha256: string, version: string): string {
+  return [
+    "apt-get update",
+    "apt-get install -y --no-install-recommends meson ninja-build libcap-dev",
+    `curl -fsSL -o /tmp/bubblewrap.tar.xz ${url}`,
+    `echo "${sha256}  /tmp/bubblewrap.tar.xz" | sha256sum -c -`,
+    "rm -rf /tmp/bubblewrap",
+    "mkdir /tmp/bubblewrap",
+    "tar -xJf /tmp/bubblewrap.tar.xz -C /tmp/bubblewrap --strip-components=1",
+    "meson setup /tmp/bubblewrap/build /tmp/bubblewrap --prefix=/usr --buildtype=release -Dtests=false -Dman=disabled -Dselinux=disabled -Dbash_completion=disabled -Dzsh_completion=disabled",
+    "meson compile -C /tmp/bubblewrap/build",
+    "dpkg-divert --local --rename --divert /usr/bin/bwrap.distrib --add /usr/bin/bwrap",
+    "meson install -C /tmp/bubblewrap/build --no-rebuild",
+    "apt-get purge -y meson ninja-build libcap-dev",
+    "rm -rf /var/lib/apt/lists/* /tmp/bubblewrap /tmp/bubblewrap.tar.xz",
+    `test "$(/usr/bin/bwrap --version)" = "bubblewrap ${version}"`,
+    `test "$(command -v bwrap)" = /usr/bin/bwrap`,
+  ].join(" && ");
+}
+
+/** Reject an old or shadowed binary and exercise the work user's sandbox. */
+export function devboxBubblewrapCheckCommand(dockerfile = readDevboxDockerfile()): string {
+  return [
+    'test "$(command -v bwrap)" = /usr/bin/bwrap',
+    `test "$(bwrap --version)" = "bubblewrap ${devboxBubblewrapVersion(dockerfile)}"`,
+    `sudo -n -u ${DEVBOX_WORK_USER} bwrap --ro-bind / / --unshare-user --unshare-pid --proc /proc --dev /dev -- /bin/true`,
+    "echo bubblewrap-ok",
+  ].join(" && ");
+}
+
 export const AGENT_PIN_ARGS: readonly { arg: string; pkg: string; binary: string }[] = [
   { arg: "CMUX_IMAGE_CLAUDE_CODE_VERSION", pkg: "@anthropic-ai/claude-code", binary: "claude" },
   { arg: "CMUX_IMAGE_CODEX_VERSION", pkg: "@openai/codex", binary: "codex" },
@@ -526,6 +588,17 @@ export type DevboxSourceRecord = {
 
 export function devboxTemplateFile(name: string): string {
   return readFileSync(path.join(devboxDir, name), "utf8");
+}
+
+/** Reset the bake's temporary owner record and prove team shells drop caller credentials. */
+export function devboxTeamKindDefaultCommand(
+  kindFile = "/etc/cmux/vm-kind",
+  checkHome = "/tmp/team-kind-check",
+  agentConfig = "/etc/cmux/agent-config.sh",
+): string {
+  const kind = shellQuote(kindFile);
+  const home = shellQuote(checkHome);
+  return `echo team > ${kind} && chmod 0644 ${kind} && rm -rf ${home} && env HOME=${home} OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-team-kind-check bash -c ${shellQuote(`. ${shellQuote(agentConfig)}`)} && ! grep -rqs -e cmux-team-kind-check -e example.invalid ${home} && rm -rf ${home} && echo team-kind-keeps-no-caller-env`;
 }
 
 export function devboxDesktopFile(name: string): string {
@@ -1578,19 +1651,39 @@ export function manifestEntryEpoch(entry: Pick<DevboxManifestEntry, "epoch" | "n
  * `baked` and `current` when a main sync brings a new ladder. The desktop
  * sources moved again in 089cd3e3dc92 and 5901bc15bec0 (the codex config
  * merge under a lock) and b5f75830c15f (agent-config.sh bounds that lock's
- * wait), and again with the cmux-machine-health install (the bake steps and
- * the boot script's HOUSEKEEPING_TIMERS), so `current` is their digest.
+ * wait), again with the cmux-machine-health install (the bake steps and
+ * the boot script's HOUSEKEEPING_TIMERS), and again with cmux-vm-kind-sync's
+ * write-only-a-fetched-kind lock and the boot's clone-reset fallback, so
+ * `current` is their digest. The entries live in
+ * services/vms/images/awaiting-rebake.json.
  */
-export const DEVBOX_AWAITING_REBAKE = [
-  {
-    layers: "desktop",
-    schema: 2,
-    baked: "28fce1e49495",
-    current: "c7f978ae71238b86f6907678de05fc212323f91b69a948eea42af71ac5d04bf2",
-  },
-] as const;
+export type DevboxAwaitingRebake = {
+  readonly layers: DevboxImageKind;
+  readonly schema: number;
+  /** First 12 hex of the digest the current defaults recorded. */
+  readonly baked: string;
+  /** This checkout's digest of those layers at `schema`. */
+  readonly current: string;
+};
 
-export type DevboxAwaitingRebake = (typeof DEVBOX_AWAITING_REBAKE)[number];
+/**
+ * Data, not code, so the rebake workflow (cloud-devbox-image-rebake.yml,
+ * `devbox-rebake.ts settle`) can drop the entries its promotion satisfied.
+ */
+export const devboxAwaitingRebakePath = path.join(webRoot, "services/vms/images/awaiting-rebake.json");
+
+export function readDevboxAwaitingRebake(file = devboxAwaitingRebakePath): DevboxAwaitingRebake[] {
+  const rows = JSON.parse(readFileSync(file, "utf8")) as DevboxAwaitingRebake[];
+  if (!Array.isArray(rows)) throw new Error(`${file}: expected a JSON array`);
+  for (const row of rows) {
+    if ((row.layers !== "desktop" && row.layers !== "base") || typeof row.schema !== "number" || !/^[0-9a-f]{12}$/.test(row.baked) || !/^[0-9a-f]{64}$/.test(row.current)) {
+      throw new Error(`${file}: malformed entry ${JSON.stringify(row)}`);
+    }
+  }
+  return rows;
+}
+
+export const DEVBOX_AWAITING_REBAKE: readonly DevboxAwaitingRebake[] = readDevboxAwaitingRebake();
 
 /** Whether a devboxSourceDriftProblems message is the drift `pending` excuses. */
 export function isAwaitingRebake(problem: string, pending: DevboxAwaitingRebake): boolean {

@@ -16,7 +16,8 @@ cmux daemon start [START OPTIONS]
 cmux attach [START OPTIONS] [--terminal <terminal-id>]
 cmux relay [ROUTING OPTIONS]
 cmux machine-agent [OPTIONS]
-cmux wg hub --config <wg-quick file> --socket <unix socket>
+cmux wg hub --config <wg-quick file | -> --socket <unix socket> [--client-token-stdin]
+cmux wg dial --hub <unix socket> <host> <port>
 cmux link dial --host <install or host id> [--service daemon|ssh] [--socket <absolute path>]
 cmux link ensure --state-dir <dir> [--install ID] [--port PORT] [--session-socket PATH] [--server-config PATH] [--handoff]
 cmux link stop --state-dir <dir>
@@ -33,7 +34,11 @@ socket. Machine connectors use it as a transport primitive. `wg hub` owns one
 in-process WireGuard tunnel and serves SOCKS5 CONNECT on an owner-only Unix
 socket so several `remote connect --wireguard-hub <socket>` clients share one
 key; it prints one `hub-ready` JSON line when listening and removes the socket
-on SIGTERM or SIGINT.
+on SIGTERM or SIGINT. With `--client-token-stdin` it reads a token as stdin's
+first line and serves only clients presenting it (`remote connect
+--wireguard-hub-token-stdin`); a client without it reaches port 22 only (`wg dial`, an ssh
+`ProxyCommand` that bridges stdio to HOST:PORT through the hub; ssh authenticates both ends).
+`--config -` reads the config from the rest of stdin.
 
 `cmux-tui __daemon-capabilities [--json]` (private, not in help) prints, with
 no daemon running, the capabilities every daemon
@@ -592,7 +597,8 @@ attention request --tab <tab_…> --reason <text>
 attention clear --tab <tab_…>
 git status [--path <path>|--workspace|--screen|--pane|--tab|--terminal <selector>]
 git diff [TARGET] [--scope uncommitted|unstaged|staged|committed|branch] [--patch]
-  [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>] [<path>...]
+  [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>] [--after-path <path>]
+  [--patch-offset <n> [--patch-revision <revision>]] [<path>...]
 git branches [TARGET] [--limit <n>]
 git files [TARGET] [--limit <n>] <query>...
 git list [TARGET] [--limit <n>]
@@ -604,6 +610,7 @@ git checkpoint list [TARGET] [--cursor <cursor>] [--limit <n>] [--candidates]
 git checkpoint pin [TARGET] <checkpoint> --pin <pin-id> --reason <text>
 git checkpoint unpin [TARGET] <checkpoint> --pin <pin-id>
 git checkpoint diff [TARGET] <from> [<to>] [--only <path,...>] [--patch] [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>]
+  [--after-path <path>] [--patch-offset <n> [--patch-revision <revision>]]
 git commit [TARGET] --message <text> [--all [--include-untracked]] [--amend] [--no-verify] [--expected-head <commit>] [<path>...]
 git push [TARGET] [--remote <name>] [--branch <name>] [--set-upstream | --no-set-upstream] [--expected-head <commit>]
 git worktree create [TARGET] [--name <name>] [--base <revision>]
@@ -719,6 +726,12 @@ status and line counts, adds patches only with `--patch` (each cut at
 hunk keeps `--context-lines` unchanged lines around it, 3 by default), lists at
 most `--max-files` (500) files with the rest counted in `files_omitted`, and
 counts at most 200 untracked files, reporting the rest as `untracked_skipped`.
+`--after-path` (`after_path`) lists the files after a path, so the reply's
+`next_path` reads the next page. With `--patch` and exactly one file path,
+`--patch-offset` (`patch_offset`, a decimal byte offset; start at 0) returns a
+bounded `patch_page` of that file's whole raw patch instead of the clipped
+`patch`; a later page passes the first page's `revision` as `--patch-revision`
+(`patch_revision`). `git checkpoint diff` takes the same three flags.
 The base branch (`git status`'s `base`, the `branch` scope's merge base) is the
 one `git worktree create` recorded for the current branch
 (`branch.<branch>.cmuxBase`) while it still names a commit, else origin's
@@ -1026,6 +1039,8 @@ cmux screen group <group> update [--icon <icon>|--clear-icon] ...
 cmux tab group saved list | saved <saved> delete|reopen --pane <id>
 cmux workspace group list [--room <room>]
 cmux workspace group create --name <name> [--color <c>] [--room <room>] [--index <n>] [--collapse]
+cmux workspace group create --remote <host> [--name <name>]   # app: New Remote Group (remote.newGroup)
+cmux workspace group create --parent <group> --name <name>    # app: New Subgroup (workspaceGroup.newSubgroup)
 cmux workspace group remove --workspace <ws>
 cmux workspace group <group> update|delete|move|add ...
 ```

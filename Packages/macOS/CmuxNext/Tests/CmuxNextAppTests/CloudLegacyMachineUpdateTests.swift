@@ -12,7 +12,9 @@ import Testing
 struct CloudLegacyMachineUpdateTests {
     static let bundled = CloudMachineUpdateTargetTests.bundled
     static let pin = CloudLegacyMachineUpdate.Pin(commit: String(repeating: "b", count: 40), sha256: String(repeating: "a", count: 64))
-    static let unsupported = CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_unsupported", error: "too old to update in place (no fs-v1)")
+    /// The CLI names the build it judged older (`build`): the exec update holds the machine to it.
+    static let unsupported = CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_unsupported", error: "too old to update in place (no fs-v1)",
+                                                 build: String(repeating: "c", count: 40))
 
     /// Leo's machines (tidy-yellow-tern) stayed "too old to update in place" for good. Now the CLI's
     /// `machine_update_unsupported` runs the update through exec: the machine is updated, with no
@@ -26,11 +28,25 @@ struct CloudLegacyMachineUpdateTests {
 
         #expect(machine.updates == 1)
         #expect(machine.legacyUpdates == 1)
+        #expect(machine.legacyJudged == [String(repeating: "c", count: 40)], "the exec update is held to the build the CLI judged")
         #expect(fixture.states == [.updating, .updated(build: Self.bundled)])
         #expect(machine.reconnectRestarts == [true], "the connection is pointed at the new daemon")
         #expect(fixture.notices.isEmpty)
         #expect(fixture.board.otherMachines == nil, "an updated machine still listed as one that cannot update")
         #expect(fixture.ledger.targets == [CloudMachineUpdateTarget.id("vm-1"): "updated"])
+    }
+
+    /// A CLI answer that names no build: no build to hold the exec update to, so it does not run
+    /// (a newer machine must never be moved back); the machine stays "cannot update".
+    @Test func anUnsupportedAnswerWithoutItsBuildRunsNoExecUpdate() async throws {
+        let bare = CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_unsupported", error: "too old to update in place (no fs-v1)")
+        let machine = FakeCloudMachine(build: CloudMachineUpdateTargetTests.older, level: .limited, answers: [bare],
+                                       legacy: [CloudMoveCLI.Answer(ok: true, updated: true, build: Self.bundled)])
+        let fixture = try CloudUpdateFixture()
+        defer { fixture.remove() }
+        await fixture.run(machine)
+        #expect(machine.legacyUpdates == 0)
+        #expect(fixture.board.targets[CloudMachineUpdateTarget.id("vm-1")]?.state == .cannotUpdate(reason: CloudMachineUpdateStrings.unsupported("Leo VM")))
     }
 
     /// No exec (or no pinned build in this app): the machine stays "cannot update", as before.
@@ -161,6 +177,27 @@ struct CloudLegacyMachineUpdateTests {
         #expect(shell.unitStarted == systemd)
     }
 
+    /// The automatic update hands the guest script the build the CLI judged older
+    /// (`<run-dir>/expect-build`), which it checks under the machine's upgrade lock
+    /// (web/tests/vm-cmux-tui-upgrade.test.ts covers the check); its `SKIP changed` is busy, asked
+    /// again. Without a 40-hex build (Update Machine, a refused daemon), no file.
+    @Test func theRunHandsTheGuestTheBuildTheCLIJudged() async throws {
+        let shell = try ShellMachine(systemd: true)
+        defer { shell.remove() }
+        let seen = String(repeating: "1", count: 40)
+        let guest = #"""
+            cp "$3/expect-build" "$3/../seen" 2>/dev/null || true
+            echo "SKIP changed binary=\#(String(repeating: "2", count: 40)) expected=$(cat "$3/expect-build")" > "$3/result"
+            """#
+        let answer = await CloudLegacyMachineUpdate.run(pin: Self.pin, script: guest, expected: seen.uppercased(), nonce: "aaaaaaaaaaaaaaaa",
+                                                        directory: shell.directory.path, waitSeconds: 5, exec: shell.exec)
+        #expect(answer.errorCode == "machine_update_busy", "\(answer)")
+        #expect(try String(contentsOf: shell.directory.appendingPathComponent("seen"), encoding: .utf8) == seen + "\n")
+
+        #expect(!CloudLegacyMachineUpdate.startCommand(pin: Self.pin, script: "", nonce: "c").contains("expect-build"))
+        #expect(!CloudLegacyMachineUpdate.startCommand(pin: Self.pin, script: "", nonce: "c", expected: "not-hex; rm -rf /").contains("expect-build"))
+    }
+
     /// Each result line of the guest script as a `link machine update` answer.
     @Test func resultLinesMapToAnswers() {
         func code(_ stdout: String, exit: Int = 0) -> String? {
@@ -173,6 +210,8 @@ struct CloudLegacyMachineUpdateTests {
         #expect(code("ROLLBACK lost-hosts=[12] old-daemon=7\n") == "machine_update_rolled_back")
         #expect(code("FAIL rollback-daemon-unhealthy reason=x\n") == "machine_update_failed")
         #expect(code("SKIP busy another upgrade run holds the lock\n") == "machine_update_busy")
+        #expect(code("SKIP changed binary=\(String(repeating: "2", count: 40)) expected=\(String(repeating: "1", count: 40))\n") == "machine_update_busy",
+                "a machine updated since the CLI judged it: asked again, never a failure")
         #expect(code("SKIP no-daemon\n") == "machine_unreachable")
         #expect(code("SKIP unsupported-cloud-auth\n") == "machine_update_unsupported")
         #expect(code("SKIP disk-free=120MB\n") == "machine_update_busy", "nothing changed: asked again, not a failure kept for the build")

@@ -21,6 +21,7 @@
 
 use super::*;
 use crate::web_modes::WebModeTable;
+use cmux_json::JsonSet as _;
 
 /// What the table was built from (`webAskingModes` and the refused
 /// families, which follow the profiles), and the table.
@@ -75,11 +76,16 @@ impl Hub {
         };
         let m = s.meta();
         let family = crate::web_modes::family_of(&m);
-        out["session"] =
-            json!({"sessionId": s.id, "family": family, "mode": crate::web_modes::mode_of(&m)});
+        out.set(
+            "session",
+            json!({"sessionId": s.id, "family": family, "mode": crate::web_modes::mode_of(&m)}),
+        );
         let text = |k: &str| params.get(k).and_then(Value::as_str);
         if let (Some(id), Some(value)) = (text("configId"), text("value")) {
-            out["session"]["asks"] = json!(table.config_value_asks(&family, Some(id), Some(value)));
+            out.set_path(
+                &["session", "asks"],
+                json!(table.config_value_asks(&family, Some(id), Some(value))),
+            );
         }
         Ok(out)
     }
@@ -107,6 +113,17 @@ impl Hub {
         session: &Session,
         writes: impl IntoIterator<Item = ModeWrite>,
     ) {
+        self.write_mode_state_settling(session, writes, false);
+    }
+
+    /// `write_mode_state`; `settles`: the write applies a full-access report the tap counted, and
+    /// takes its count back under the same lock (`permissions::settle_full_access_report`).
+    pub(crate) fn write_mode_state_settling(
+        &self,
+        session: &Session,
+        writes: impl IntoIterator<Item = ModeWrite>,
+        settles: bool,
+    ) {
         let table = self.web_modes();
         let left = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
@@ -114,20 +131,29 @@ impl Hub {
             for w in writes {
                 match w {
                     ModeWrite::Modes(v) => m.modes = Some(v),
-                    ModeWrite::CurrentMode(v) => match m.modes.as_mut() {
-                        Some(modes) => modes["currentModeId"] = v,
+                    ModeWrite::CurrentMode(v) => {
+                        let written = m
+                            .modes
+                            .as_mut()
+                            .is_some_and(|modes| modes.set("currentModeId", v.clone()));
                         // A harness that declared no modes reports one: kept
                         // apart (clients read `modes`), for the asking check.
-                        None => {
+                        // Modes that are not an object (a harness's `session/new` answer is not
+                        // checked) hold nothing to write into, so they count as no modes: an
+                        // `IndexMut` write there panicked under this meta lock and poisoned it.
+                        if !written {
                             *session
                                 .floor
                                 .undeclared_mode
                                 .lock()
                                 .unwrap_or_else(|e| e.into_inner()) = v.as_str().map(str::to_owned);
                         }
-                    },
+                    }
                     ModeWrite::ConfigOptions(v) => m.config_options = Some(v),
                 }
+            }
+            if settles {
+                super::permissions::settle_full_access_report(session);
             }
             // A mode cmux set stays cmux's only while the chat runs it: a write that moves the mode
             // anywhere else (the harness's own update, through either form) takes the mark, under
@@ -149,6 +175,12 @@ impl Hub {
         if let Some(mode) = left {
             tracing::warn!(session = %session.id, ?mode, "the session left the asking-mode table: Web control ends");
             self.append(session, "mux", "remote_control_ended", json!({"mode": mode}));
+        }
+        // MDM forces full access off (#23322): a write that moves the chat into full access (the
+        // harness's own update, in any form) ends its agent. The hub's background task does it
+        // under the session's spawn lock (`idle.rs`, `end_every_managed_full_access`).
+        if self.managed_off_runs_full_access(&self.off_latch(), session) {
+            self.idle_wake.notify_one();
         }
         // The remote floor: a Web turn does not go on in a mode that does
         // not ask, whatever the mode was before (`remote_floor.rs`).
@@ -423,8 +455,20 @@ impl Hub {
 }
 
 /// A remote chain's agent adopted with no record that it runs in the
-/// sandbox: no Web control until the chat restarts.
+/// sandbox: no Web control until the chat restarts. A session at its owner's
+/// VM boundary (`vm_boundary.rs`) gets none ever, spawned yet or not: only
+/// the owner's own clients control it, and a request held to the Web's rules
+/// (a paired machine's included, `Hub::refuse_at_vm_boundary`) does not.
 fn unsandboxed_refusal(session: &Session, meta: &crate::store::SessionMeta) -> Option<RpcError> {
+    if meta.vm_boundary {
+        return Some(
+            RpcError::new(
+                -32000,
+                "This chat runs without the sandbox on its owner's own VM: only the owner's own devices control it.",
+            )
+            .with_data(json!({"reason": "remote.unsandboxed_agent", "harness": meta.harness})),
+        );
+    }
     session.floor.unsandboxed.load(Ordering::SeqCst).then(|| {
         RpcError::new(
             -32000,
@@ -513,4 +557,53 @@ pub enum Control {
     Web,
     /// A proven peer daemon acting for its own local user: no mode rule.
     Peer,
+}
+
+#[cfg(test)]
+mod mode_write_tests {
+    use super::*;
+    use crate::config::{Config, StoreMode};
+    use crate::hub::NewRequest;
+    use serde_json::json;
+    use std::path::Path;
+
+    fn test_hub() -> Arc<Hub> {
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut config: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", fake]}},
+            "defaultHarness": "fake",
+        }))
+        .expect("config");
+        config.store.mode = StoreMode::Memory;
+        let store = crate::store::open(&config.store, Path::new("/nonexistent")).expect("store");
+        Hub::new(config, store)
+    }
+
+    /// A harness answers `session/new` with `modes` that is not an object (the answer is stored as
+    /// sent) and later reports its current mode. The write used `modes["currentModeId"] = v`, which
+    /// panics on an array, string, number or bool, under the session's meta lock: that poisoned it
+    /// and every later `Session::meta()` panicked with it.
+    #[tokio::test]
+    async fn a_current_mode_written_over_modes_that_are_not_an_object_does_not_panic() {
+        let hub = test_hub();
+        let session = hub
+            .new_session(NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() })
+            .await
+            .expect("session");
+        for modes in [json!(["plan"]), json!("plan"), json!(7), json!(true)] {
+            hub.write_mode_state(&session, [ModeWrite::Modes(modes.clone())]);
+            hub.write_mode_state(&session, [ModeWrite::CurrentMode(json!("plan"))]);
+            // The modes stay as sent, the mode is kept apart as for a harness with no modes, and
+            // the meta lock still opens.
+            assert_eq!(session.meta().modes, Some(modes));
+            let kept = session.floor.undeclared_mode.lock().unwrap().clone();
+            assert_eq!(kept.as_deref(), Some("plan"));
+            *session.floor.undeclared_mode.lock().unwrap() = None;
+        }
+        // Modes that are an object still take the mode in place.
+        hub.write_mode_state(&session, [ModeWrite::Modes(json!({"availableModes": []}))]);
+        hub.write_mode_state(&session, [ModeWrite::CurrentMode(json!("code"))]);
+        assert_eq!(session.meta().modes.unwrap()["currentModeId"], json!("code"));
+        assert_eq!(*session.floor.undeclared_mode.lock().unwrap(), None);
+    }
 }
