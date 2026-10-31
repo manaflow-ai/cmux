@@ -2799,7 +2799,6 @@ pre.cv-math-source {
   color: var(--cv-activity-text);
 }
 .cv-received__from--open {
-  all: unset;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2830,14 +2829,11 @@ pre.cv-math-source {
   user-select: text;
   -webkit-user-select: text;
 }
-.cv-received:hover,
-.cv-received:focus-within {
+.cv-received:is(:hover, :active, :focus-within) {
   color: var(--cv-text);
 }
-.cv-received:hover .cv-received__from,
-.cv-received:focus-within .cv-received__from,
-.cv-received:hover .cv-received__text,
-.cv-received:focus-within .cv-received__text {
+.cv-received:is(:hover, :active, :focus-within) .cv-received__from,
+.cv-received:is(:hover, :active, :focus-within) .cv-received__text {
   color: var(--cv-text);
 }
 /* Markdown and headings set the primary tone themselves (.cv-md, .cv-h): inside a message from or

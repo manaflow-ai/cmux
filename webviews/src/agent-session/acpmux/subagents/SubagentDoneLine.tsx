@@ -23,9 +23,20 @@ import type { AcpmuxRow } from "../model";
 import { AgentIdentity } from "./AgentIdentity";
 import { agentTone } from "./agentTones";
 import { canRestart, STOP_REASON_LABEL } from "./restart";
-import { retryLabel, subagentRetry, type RetryAction, type RetryNote, type SessionRetryFields } from "./retryState";
-import { elapsed, SubagentNavContext, SubagentPaneContext } from "./SubagentGroup";
+import {
+  retryLabel,
+  subagentRetry,
+  type RetryAction,
+  type RetryNote,
+  type SessionRetryFields,
+} from "./retryState";
+import {
+  elapsed,
+  SubagentNavContext,
+  SubagentPaneContext,
+} from "./SubagentGroup";
 import { useSubsessionInfo } from "./subsessions";
+import { TranscriptActivityRow } from "../conversation/TranscriptActivityRow";
 
 const DONE_LABEL: Record<string, StringKey> = {
   completed: "subagents.ended.completed",
@@ -39,13 +50,20 @@ const DONE_LABEL: Record<string, StringKey> = {
 export type RetryAffordance = "button" | "link" | "menu";
 export const RetryAffordanceContext = createContext<RetryAffordance>("button");
 
-const ACTION_LABEL: Record<RetryAction, StringKey> = { daemon: "retry.action", ask: "retry.askParent" };
+const ACTION_LABEL: Record<RetryAction, StringKey> = {
+  daemon: "retry.action",
+  ask: "retry.askParent",
+};
 
 export function SubagentDoneLine({ row }: { row: AcpmuxRow }) {
   // Only a sub-session's line reads the session list (its retry is on its own session row): the
   // other lines never subscribe to it, so a session update wakes no line but its own.
   const child = row.subagents?.[0]?.child;
-  return child ? <SubsessionDoneLine row={row} child={child} /> : <DoneLine row={row} />;
+  return child ? (
+    <SubsessionDoneLine row={row} child={child} />
+  ) : (
+    <DoneLine row={row} />
+  );
 }
 
 function SubsessionDoneLine({ row, child }: { row: AcpmuxRow; child: string }) {
@@ -53,56 +71,99 @@ function SubsessionDoneLine({ row, child }: { row: AcpmuxRow; child: string }) {
 }
 
 /// `child`: a sub-session's own session row, where acpmux keeps its retry.
-function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }) {
+function DoneLine({
+  row,
+  child,
+}: {
+  row: AcpmuxRow;
+  child?: SessionRetryFields;
+}) {
   const t = useT();
   const nav = useContext(SubagentNavContext);
   const pane = useContext(SubagentPaneContext);
   const affordance = useContext(RetryAffordanceContext);
-  const { restartSubagent, retryAgent, retryCapabilities } = useContext(TurnActionsContext);
+  const { restartSubagent, retryAgent, retryCapabilities } =
+    useContext(TurnActionsContext);
   const agent = row.subagents?.[0];
   // A refusal's note lasts until the row changes. A Retry that went keeps the row's Retry disabled
   // until the row changes (acpmux's next word on it), so it can't go twice; acpmux refuses a second
   // one of its own as `retry.busy` meanwhile.
-  const [note, setNote] = useState<{ version: number; key?: RetryNote; busy?: boolean }>();
+  const [note, setNote] = useState<{
+    version: number;
+    key?: RetryNote;
+    busy?: boolean;
+  }>();
   const open = pane ?? nav;
   if (!agent) return null;
   // The row's retry, as every surface reads it (retryState.ts ``subagentRetry``).
   const phase = subagentRetry(agent, retryCapabilities, child);
   const waiting = phase.kind === "retrying" ? phase.retry : undefined;
-  const action = retryAgent && phase.kind === "failed" ? phase.action : undefined;
-  const label = t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name: agent.name });
-  const reasonKey = agent.state === "cancelled" && agent.stopReason ? STOP_REASON_LABEL[agent.stopReason] : undefined;
+  const action =
+    retryAgent && phase.kind === "failed" ? phase.action : undefined;
+  const reasonKey =
+    agent.state === "cancelled" && agent.stopReason
+      ? STOP_REASON_LABEL[agent.stopReason]
+      : undefined;
   const time = formatDuration(elapsed(agent, agent.endedAt ?? row.at));
   // A sub-session's failure is on its own session row.
-  const error = agent.state === "failed" ? (agent.error ?? child?.error) : undefined;
+  const error =
+    agent.state === "failed" ? (agent.error ?? child?.error) : undefined;
   // While acpmux retries it, or settles whether it will, Restart would run it a second time.
   const restart =
-    restartSubagent && canRestart(agent) && phase.kind !== "retrying" && phase.kind !== "settling"
+    restartSubagent &&
+    canRestart(agent) &&
+    phase.kind !== "retrying" &&
+    phase.kind !== "settling"
       ? restartSubagent
       : undefined;
-  const parts = waiting
-    ? [agent.name, retryLabel(t, waiting)]
-    : [
-        label,
-        ...(reasonKey ? [t(reasonKey)] : []),
-        ...(phase.kind === "failed" && phase.gaveUp ? [t("retry.retriedOut", { of: phase.gaveUp.of })] : []),
-        time,
-        // Why it failed, as acpmux recorded it, last: the line cuts it first.
-        ...(error ? [error] : []),
-      ];
+  const sentence = waiting
+    ? { before: "", after: retryLabel(t, waiting) }
+    : (() => {
+        const [before, after = ""] = t(
+          DONE_LABEL[agent.state] ?? DONE_LABEL.completed!,
+          { name: "\u0000" },
+        ).split("\u0000");
+        return {
+          before,
+          after: [
+            after,
+            ...(reasonKey ? [t(reasonKey)] : []),
+            ...(phase.kind === "failed" && phase.gaveUp
+              ? [t("retry.retriedOut", { of: phase.gaveUp.of })]
+              : []),
+            ...(error ? [error] : []),
+          ]
+            .filter(Boolean)
+            .join(" · "),
+        };
+      })();
+  const whole = waiting
+    ? [agent.name, sentence.after].filter(Boolean).join(" · ")
+    : [sentence.before, agent.name, sentence.after, time]
+        .filter(Boolean)
+        .join(" · ");
+  const rowState = waiting ? "retrying" : agent.state;
+
   const shown = note?.version === row.version ? note : undefined;
   const run = () => {
     if (!retryAgent || shown?.busy) return;
     setNote({ version: row.version, busy: true });
     void retryAgent(agent).then(
-      (key) => setNote(key ? { version: row.version, key } : { version: row.version, busy: true }),
+      (key) =>
+        setNote(
+          key
+            ? { version: row.version, key }
+            : { version: row.version, busy: true },
+        ),
       () => setNote({ version: row.version, key: "retry.failed" }),
     );
   };
   const inline = action && affordance !== "menu" && (
     <button
       type="button"
-      className={affordance === "link" ? "cv-subagent-retry-link" : "cv-subagent-retry"}
+      className={
+        affordance === "link" ? "cv-subagent-retry-link" : "cv-subagent-retry"
+      }
       disabled={shown?.busy}
       onClick={run}
     >
@@ -110,30 +171,10 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
       {t(ACTION_LABEL[action])}
     </button>
   );
-  return (
-    <div className="cv-tools cv-subagent-done-row">
-      <button
-        type="button"
-        className="cv-tool cv-bgtask cv-subagent-done"
-        data-state={waiting ? "retrying" : agent.state}
-        {...(agent.stopReason && { "data-reason": agent.stopReason })}
-        disabled={!open}
-        onClick={() => open?.(agent.id)}
-      >
-        <span className="cv-tool__icon">
-          {waiting ? (
-            <Spinner size={16} loading />
-          ) : (
-            <AgentIdentity harness={agent.harness} tone={agentTone(agent.id)} size={16} />
-          )}
-        </span>
-        {/* tooltip-allow: the line is cut at the pane's width; its whole text, the failure included */}
-        <span className="cv-tool__text" title={parts.join(" · ")}>
-          {parts.join(" · ")}
-        </span>
-      </button>
+
+  const rowActions = (
+    <>
       {inline}
-      {shown?.key && <output className="cv-subagent-done__note">{t(shown.key)}</output>}
       {(restart || action) && (
         <span className="cv-subagent-done__actions">
           {restart && (
@@ -159,8 +200,12 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
               >
                 <Icon name="action.more" size={14} />
               </MenuButton>
-              <MenuPopup side="bottom" align="end" className="acpmux-quick-menu" label={t("retry.menu")}>
-                {/* The one Retry the row offers: acpmux's, or asking the chat's agent where acpmux can't. */}
+              <MenuPopup
+                side="bottom"
+                align="end"
+                className="acpmux-quick-menu"
+                label={t("retry.menu")}
+              >
                 <MenuItem className="acpmux-quick-item" onSelect={run}>
                   {t(ACTION_LABEL[action])}
                 </MenuItem>
@@ -168,6 +213,44 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
             </Menu>
           )}
         </span>
+      )}
+    </>
+  );
+  return (
+    <div className="cv-tools cv-subagent-done-row">
+      <TranscriptActivityRow
+        icon={
+          waiting ? (
+            <Spinner size={16} loading />
+          ) : (
+            <AgentIdentity
+              harness={agent.harness}
+              tone={agentTone(agent.id)}
+              size={16}
+            />
+          )
+        }
+        before={sentence.before}
+        name={agent.name}
+        after={sentence.after}
+        meta={
+          !waiting ? (
+            <span className="cv-command__meta cv-subagent-done__time">
+              {time}
+            </span>
+          ) : undefined
+        }
+        actions={rowActions}
+        ariaLabel={whole}
+        onClick={open ? () => open(agent.id) : undefined}
+        className="cv-bgtask cv-subagent-done"
+        attributes={{
+          "data-state": rowState,
+          ...(agent.stopReason ? { "data-reason": agent.stopReason } : {}),
+        }}
+      />
+      {shown?.key && (
+        <output className="cv-subagent-done__note">{t(shown.key)}</output>
       )}
     </div>
   );

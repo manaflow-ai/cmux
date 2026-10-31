@@ -8,6 +8,7 @@
 // whether it is open, so each direction keeps that across the virtualized transcript its own way.
 import { useId, type ReactNode } from "react";
 import { ChevronRight } from "./icons";
+import { AgentTag } from "./AgentTag";
 import { clipMessagePreview } from "./clipMessagePreview";
 import "./AgentMessageRow.css";
 
@@ -95,25 +96,15 @@ export function AgentMessageRow({
           </span>
         )}
         {onOpenName ? (
-          <button
-            type="button"
+          <AgentTag
+            name={name}
             className="cv-agentmsg__name"
-            aria-label={openNameLabel}
+            ariaLabel={openNameLabel}
             title={nameTitle}
             onClick={onOpenName}
-          >
-            {name}
-          </button>
+          />
         ) : (
-          <span
-            className="cv-agentmsg__name is-plain"
-            data-interactive=""
-            aria-hidden
-            title={nameTitle}
-            onClick={onToggle}
-          >
-            {name}
-          </span>
+          <AgentTag name={name} className="cv-agentmsg__name" title={nameTitle} onClick={onToggle} />
         )}
         {after.trim() && (
           <span className="cv-agentmsg__words" data-interactive="" aria-hidden onClick={onToggle}>

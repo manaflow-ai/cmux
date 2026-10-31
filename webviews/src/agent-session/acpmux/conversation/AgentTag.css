@@ -1,0 +1,29 @@
+/* Agent and lane names use one compact tag in every transcript activity row. */
+.cv-agent-tag {
+  all: unset;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  max-width: 40%;
+  min-width: 0;
+  height: 20px;
+  padding: 0 7px;
+  overflow: hidden;
+  border-radius: 6px;
+  color: var(--cv-text);
+  background: color-mix(in srgb, var(--cv-fg, var(--cv-text)) 8%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px)
+    color-mix(in srgb, var(--cv-fg, var(--cv-text)) 10%, transparent);
+  font-size: var(--text-control);
+  line-height: 20px;
+  letter-spacing: var(--text-control--letter-spacing);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: default;
+}
+.cv-agent-tag:is(button, [data-interactive]):is(:hover, :focus-visible, :active) {
+  color: var(--cv-text);
+  background: color-mix(in srgb, var(--agent-accent) 16%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-accent) 55%, transparent);
+}

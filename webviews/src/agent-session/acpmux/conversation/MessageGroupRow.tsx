@@ -19,7 +19,8 @@ import { useSubsessionInfos } from "../subagents/subsessions";
 import { useNow } from "../subagents/SubagentGroup";
 import { AgentNamesContext, recipientName, shortId } from "./agentNames";
 import { useFindReveal } from "./chatFind";
-import { ChevronRight, Envelope, Spinner } from "./icons";
+import { Envelope, Spinner } from "./icons";
+import { TranscriptActivityRow } from "./TranscriptActivityRow";
 import { useMessageGroupLook } from "./messageGroupLook";
 import { sendKey } from "./SentMessageLine";
 import { leadingVerb, ToolLabel } from "./ToolVerb";
@@ -88,24 +89,10 @@ export function messageGroupLine(
   return split(t("messages.group.sent", { n: new Set(targets).size }));
 }
 
-/// The line's words with its verb in the turn's verb column (ToolVerb.tsx), as a tool group's is:
-/// "Messaged" over "Ran" and "Read", the target after it in the text colour.
-function GroupLabel({ line }: { line: ReturnType<typeof messageGroupLine> }) {
-  if (line.target === undefined) return <ToolLabel text={`${line.before}${line.after}`} />;
-  const subject = (
-    <>
-      <span className="cv-msggroup__target">{line.target}</span>
-      {line.after}
-    </>
-  );
+/// The group line's leading words, keeping its translated verb in the shared verb column.
+function GroupBefore({ line }: { line: ReturnType<typeof messageGroupLine> }) {
   const verb = leadingVerb(line.before);
-  // Outside a column (or where the verb does not lead) the words draw as they are.
-  return (
-    <ToolLabel verb={verb} subject={subject}>
-      {line.before}
-      {subject}
-    </ToolLabel>
-  );
+  return verb ? <ToolLabel verb={verb} subject={null}>{line.before}</ToolLabel> : line.before;
 }
 
 export function MessageGroupRow({
@@ -157,26 +144,23 @@ export function MessageGroupRow({
         : "cv-msggroup__card";
   return (
     <div className="cv-msggroup" data-look={look} data-running={running || undefined} data-open={open || undefined}>
-      <button
-        type="button"
-        className={`cv-tool is-toggle cv-msggroup__line${running ? " is-live" : " is-strong"}`}
-        aria-expanded={open}
-        aria-controls={open ? bodyId : undefined}
-        aria-label={elapsed ? `${label} ${elapsed}` : label}
-        ref={fold.headerRef}
+      <TranscriptActivityRow
+        icon={running ? <Spinner size={16} /> : <Envelope />}
+        before={<GroupBefore line={line} />}
+        name={line.target}
+        after={line.after}
+        meta={elapsed ? <span className="cv-msggroup__time">{elapsed}</span> : undefined}
+        className={`is-toggle cv-msggroup__line${running ? " is-live" : " is-strong"}`}
+        ariaLabel={elapsed ? `${label} ${elapsed}` : label}
+        attributes={{
+          "aria-expanded": String(open),
+          "aria-controls": open ? bodyId : undefined,
+          "data-find-skip": "",
+        }}
+        headerRef={fold.headerRef}
+        expanded={open}
         onClick={fold.toggle}
-      >
-        <span className="cv-tool__icon">{running ? <Spinner size={16} /> : <Envelope />}</span>
-        <span className="cv-tool__text" data-find-skip>
-          <GroupLabel line={line} />
-          {elapsed && <span className="cv-msggroup__time">{elapsed}</span>}
-        </span>
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />
-      </button>
+      />
       {fold.present && (
         <div {...fold.bodyProps}>
           <div className={card} id={bodyId}>

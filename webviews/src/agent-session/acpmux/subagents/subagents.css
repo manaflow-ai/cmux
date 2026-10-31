@@ -991,3 +991,9 @@ button.cv-subagent > :last-child {
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
 }
+/* The shared activity row keeps the finished subagent line's control flexible beside its actions. */
+.cv-subagent-done-row .cv-subagent-done {
+  width: auto;
+  min-width: 0;
+  flex: 1 1 auto;
+}
