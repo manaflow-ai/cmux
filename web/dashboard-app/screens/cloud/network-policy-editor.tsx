@@ -2,7 +2,7 @@
 
 import { Dialog } from "@base-ui-components/react/dialog";
 import { useTranslations } from "next-intl";
-import { useState } from "react";
+import { useId, useState } from "react";
 import {
   NetworkPolicyValidationError,
   parseNetworkPolicy,
@@ -123,7 +123,11 @@ export function MachineNetworkControl({
 
   return (
     <>
-      <button className="border border-border px-2 py-1 hover:bg-code-bg" onClick={openEditor}>
+      <button
+        className="border border-border px-2 py-1 hover:bg-code-bg"
+        aria-label={t("title", { name })}
+        onClick={openEditor}
+      >
         {t("open")}
       </button>
       <Modal open={open} onOpenChange={setOpen} className="max-w-2xl">
@@ -313,13 +317,19 @@ function DomainList({
 }) {
   const t = useTranslations("dashboard.cloud.network");
   const [input, setInput] = useState("");
-  const [addError, setAddError] = useState<string | null>(null);
+  const formId = useId();
+  const [addError, setAddError] = useState<FieldError | null>(null);
+  const addIndex = policy.domains.length;
+  const inputId = `${formId}-domain-input`;
+  const errorId = `${formId}-domain-error`;
+  const fieldError = addError?.path === `domains.${addIndex}` ? addError : null;
+  const formError = addError && !fieldError ? addError : null;
 
   function add() {
     if (!input.trim()) return;
     const result = tryPolicy({ ...policy, domains: [...policy.domains, input] });
     if ("error" in result) {
-      setAddError(result.error.message);
+      setAddError(result.error);
       return;
     }
     onChange({ ...policy, domains: result.policy.domains });
@@ -349,15 +359,19 @@ function DomainList({
       </ul>
       <form className="mt-2 flex gap-2" onSubmit={(event) => { event.preventDefault(); add(); }}>
         <input
+          id={inputId}
           value={input}
           onChange={(event) => { setInput(event.target.value); setAddError(null); }}
           placeholder="api.example.com"
           aria-label={t("domainInput")}
+          aria-describedby={fieldError ? errorId : undefined}
+          aria-invalid={fieldError ? true : undefined}
           className="min-w-0 flex-1 border border-border bg-background px-2 py-1 text-foreground"
         />
         <button className="border border-border px-2 py-1 hover:bg-code-bg">{t("add")}</button>
       </form>
-      <InlineError message={addError} />
+      <InlineError id={fieldError ? errorId : undefined} announce={!fieldError} message={fieldError?.message ?? null} />
+      <InlineError message={formError?.message ?? null} />
     </section>
   );
 }
@@ -372,14 +386,21 @@ function RangeList({
   readonly onChange: (policy: NetworkPolicy) => void;
 }) {
   const t = useTranslations("dashboard.cloud.network");
-  const [addError, setAddError] = useState<string | null>(null);
+  const formId = useId();
+  const [addError, setAddError] = useState<FieldError | null>(null);
+  const addIndex = policy.ranges.length;
+  const errorId = `${formId}-range-error`;
+  const fieldError = (field: "cidr" | "port" | "protocol" | "note") =>
+    addError?.path === `ranges.${addIndex}.${field}` ? addError : null;
+  const rangeFieldError = fieldError("cidr") || fieldError("port") || fieldError("protocol") || fieldError("note");
+  const formError = addError && !rangeFieldError ? addError : null;
 
   function add(formData: FormData) {
     const range = rangeFromForm(formData);
     if (!range) return;
     const result = tryPolicy({ ...policy, ranges: [...policy.ranges, range] });
     if ("error" in result) {
-      setAddError(result.error.message);
+      setAddError(result.error);
       return false;
     }
     onChange({ ...policy, ranges: result.policy.ranges });
@@ -422,17 +443,52 @@ function RangeList({
         }}
         onChange={() => setAddError(null)}
       >
-        <input name="cidr" placeholder="203.0.113.0/24" aria-label={t("cidrInput")} className="col-span-2 min-w-0 border border-border bg-background px-2 py-1 text-foreground sm:col-span-1" />
-        <input name="port" inputMode="numeric" placeholder={t("portInput")} aria-label={t("portInput")} className="min-w-0 border border-border bg-background px-2 py-1 text-foreground" />
-        <select name="protocol" aria-label={t("protocolInput")} defaultValue="" className="min-w-0 border border-border bg-background px-2 py-1 text-foreground">
+        <input
+          id={`${formId}-cidr-input`}
+          name="cidr"
+          placeholder="203.0.113.0/24"
+          aria-label={t("cidrInput")}
+          aria-describedby={fieldError("cidr") ? errorId : undefined}
+          aria-invalid={fieldError("cidr") ? true : undefined}
+          className="col-span-2 min-w-0 border border-border bg-background px-2 py-1 text-foreground sm:col-span-1"
+        />
+        <input
+          id={`${formId}-port-input`}
+          name="port"
+          inputMode="numeric"
+          placeholder={t("portInput")}
+          aria-label={t("portInput")}
+          aria-describedby={fieldError("port") ? errorId : undefined}
+          aria-invalid={fieldError("port") ? true : undefined}
+          className="min-w-0 border border-border bg-background px-2 py-1 text-foreground"
+        />
+        <select
+          id={`${formId}-protocol-input`}
+          name="protocol"
+          aria-label={t("protocolInput")}
+          aria-describedby={fieldError("protocol") ? errorId : undefined}
+          aria-invalid={fieldError("protocol") ? true : undefined}
+          defaultValue=""
+          className="min-w-0 border border-border bg-background px-2 py-1 text-foreground"
+        >
           <option value="">{t("anyProtocol")}</option>
           <option value="tcp">tcp</option>
           <option value="udp">udp</option>
         </select>
-        <input name="note" maxLength={120} placeholder={t("noteInput")} aria-label={t("noteInput")} className="col-span-2 min-w-0 border border-border bg-background px-2 py-1 text-foreground sm:col-span-1" />
+        <input
+          id={`${formId}-note-input`}
+          name="note"
+          maxLength={120}
+          placeholder={t("noteInput")}
+          aria-label={t("noteInput")}
+          aria-describedby={fieldError("note") ? errorId : undefined}
+          aria-invalid={fieldError("note") ? true : undefined}
+          className="col-span-2 min-w-0 border border-border bg-background px-2 py-1 text-foreground sm:col-span-1"
+        />
         <button className="border border-border px-2 py-1 hover:bg-code-bg">{t("add")}</button>
       </form>
-      <InlineError message={addError} />
+      <InlineError id={rangeFieldError ? errorId : undefined} announce={!rangeFieldError} message={rangeFieldError?.message ?? null} />
+      <InlineError message={formError?.message ?? null} />
     </section>
   );
 }
@@ -467,6 +523,14 @@ function RequiredHosts({ domains }: { readonly domains: readonly string[] }) {
   );
 }
 
-function InlineError({ message }: { readonly message: string | null }) {
-  return message ? <p role="alert" className="mt-1 text-foreground">{message}</p> : null;
+function InlineError({
+  id,
+  announce = true,
+  message,
+}: {
+  readonly id?: string;
+  readonly announce?: boolean;
+  readonly message: string | null;
+}) {
+  return message ? <p id={id} role={announce ? "alert" : undefined} className="mt-1 text-foreground">{message}</p> : null;
 }

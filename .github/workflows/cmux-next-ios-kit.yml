@@ -16,11 +16,8 @@ name: cmux-next-ios kit tests
 # - runs the tests on an iOS simulator (`xcodebuild test`): the live link
 #   coordinator, its banner and the FFI transport are iOS only, and #23829 left an
 #   ambiguous type that only the iOS build saw.
-# It runs on Blacksmith macOS 26 (Xcode 26, iOS simulator SDK), as the other
-# mobile FFI job does (cmux-mobile-ffi.yml's apple job, on macOS 15 there): an
-# owned side-lane label needs a placement job (scripts/ci/runner_routing_table.py),
-# which only cmux-next.yml has. CI_PAID_MACOS_OVERFLOW and MACOS_RUNNER_26 are
-# the existing overflow switch and label cmux-next.yml reads.
+# The Linux picker offers an idle owned simulator Mac first, with Blacksmith
+# as fallback. The persistent-pool rescue watches stalled owned jobs.
 on:
   pull_request:
     branches: [feat-cmux-next]
@@ -36,6 +33,7 @@ on:
       - "Packages/Shared/CmuxChiefVoiceCore/**"
       - "Packages/iOS/CmuxTabsKit/**"
       - "Packages/iOS/CmuxConversation/**"
+      - "Packages/iOS/CmuxMobileSupport/**"
       - "vendor/stack-auth-swift-sdk-prerelease/**"
       # The toolchains it uses.
       - ".github/actions/setup-cmux-tui-rust/**"
@@ -58,6 +56,7 @@ on:
       - "Packages/Shared/CmuxChiefVoiceCore/**"
       - "Packages/iOS/CmuxTabsKit/**"
       - "Packages/iOS/CmuxConversation/**"
+      - "Packages/iOS/CmuxMobileSupport/**"
       - "vendor/stack-auth-swift-sdk-prerelease/**"
       # The toolchains it uses.
       - ".github/actions/setup-cmux-tui-rust/**"
@@ -77,10 +76,118 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Pick an idle owned Mac with an iOS simulator, then fall back to Blacksmith
+  # on retries. Keeping this picker ahead of the test job lets the rescue
+  # sweeper re-admit a job that stalls on a dead owned label.
+  runner:
+    environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS || '{}').linux || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      runs_on: ${{ steps.pool.outputs.runs_on }}
+      retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
+      label: ${{ steps.pool.outputs.label }}
+      persistent: ${{ steps.pool.outputs.persistent }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: |
+            scripts/ci/ios_runner_pool.py
+            scripts/ci/e2e_runner_pool.py
+            scripts/ci/pr_runner_pool.py
+            scripts/ci/simple_pool_picker.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Mint the owned-pool routing token
+        id: route-token
+        if: (github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && vars.CI_PR_POOL_OWNED == '1' && vars.CI_IOS_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          # Queue, job and capacity-snapshot reads use this App's quota.
+          permission-actions: read
+          permission-organization-self-hosted-runners: read
+      - name: Mint the repository routing token
+        id: route-token-repo
+        if: steps.route-token.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-actions: read
+      - name: Pick the macOS pool
+        id: pool
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          FORK_PULL_REQUEST: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+          RUNNER_VARIABLE: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}
+          IOS_OWNED: ${{ vars.CI_IOS_OWNED }}
+          POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          PR_XCODE_APP: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
+          POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
+          POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/ios_runner_pool.py \
+            --lane kit --fork "$FORK_PULL_REQUEST" --requested auto \
+            --variable "$RUNNER_VARIABLE" --ios-owned "$IOS_OWNED" --owned "$POOL_OWNED" \
+            --owned-slots "$OWNED_SLOTS" --pr-xcode-app "$PR_XCODE_APP" --order "$POOL_ORDER" \
+            --max-queued "$POOL_MAX_QUEUED" --queue-rounds 0 \
+            --device-family iphone | tee -a "$GITHUB_OUTPUT"
+      - name: Create the owned-pool marker
+        id: marker
+        if: steps.pool.outputs.persistent == 'true' && github.run_attempt == 1
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          marker="$RUNNER_TEMP/macos-pool-persistent.json"
+          echo '{}' > "$marker"
+          echo "path=$marker" >> "$GITHUB_OUTPUT"
+      - name: Upload the persistent pool marker
+        if: steps.marker.outputs.path != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-${{ steps.pool.outputs.label }}
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
+      - name: Upload the simulator capacity marker
+        if: steps.marker.outputs.path != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-glaeda-ios-sim
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
+      - name: Upload the owned-pool watch marker
+        if: steps.marker.outputs.path != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: owned-pool-watch
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
+
   kit-tests:
+    needs: [runner]
     name: CmuxMobileKit tests (macOS swift test, iOS simulator)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
     timeout-minutes: 60
+    env:
+      CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && startsWith(needs.runner.outputs.label, 'glaeda-') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
