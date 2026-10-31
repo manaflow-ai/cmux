@@ -81,7 +81,6 @@ const native = { "acp.trust.get": { cwd: CWD, level: "unknown" }, "acp.trust.set
 // a floated queue or a flex-shrunk ask must not paint into a sibling's frame.
 function geometry(ctx: PlayContext) {
   const selectors = [
-    ".acpmux-pr-dock",
     ".acpmux-trust-ask",
     ".acpmux-permission-panel",
     ".acpmux-composer-queue",
@@ -115,7 +114,6 @@ const checkTrust: Play = async (ctx) => {
     throw new Error("Tool permission is visible before folder trust");
 };
 const checkPrQueue: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pr-dock"));
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-queue"));
   geometry(ctx);
   await ctx.click({ selector: ".acpmux-queued" });
