@@ -406,6 +406,12 @@ class RerunDecisionTests(unittest.TestCase):
         # owned_pool_rescue cancels a stuck run before its own full re-run.
         self.assertFalse(cf.rerun_decision(self.report([cf.MACHINE], conclusion="cancelled"), self.LATEST)[0])
 
+    def test_a_timed_out_run_is_reported_not_rerun(self) -> None:
+        # #15395: attribution reads a timed-out run, but its re-run stays a person's call.
+        rerun, line = cf.rerun_decision(self.report([cf.MACHINE], conclusion="timed_out"), self.LATEST)
+        self.assertFalse(rerun)
+        self.assertIn("timed-out run is not re-run", line)
+
     def test_a_run_someone_else_reran_is_left_alone(self) -> None:
         for latest in ({"run_attempt": 2, "status": "completed", "triggering_actor": {"login": cf.BOT}},
                        {"run_attempt": 1, "status": "in_progress"}):
@@ -1141,6 +1147,33 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("requested", only["if"])
         self.assertIn("vars.CI_QUOTA_HOLD != '1'", only["if"])
         self.assertNotIn("requested", self.workflow["concurrency"]["group"])
+
+    def test_attributes_timed_out_runs(self) -> None:
+        # #15395: a CI run that concluded timed_out got no attribution at all.
+        (only,) = self.workflow["jobs"].values()
+        allowed = re.search(r"fromJSON\('(\[[^']*\])'\), github\.event\.workflow_run\.conclusion", only["if"])
+        self.assertIsNotNone(allowed, only["if"])
+        self.assertIn('"timed_out"', allowed.group(1))
+
+    def test_main_classifies_a_timed_out_run(self) -> None:
+        import io
+        import json
+        import tempfile
+        from contextlib import redirect_stdout
+        from unittest import mock
+
+        run = {"id": 42, "status": "completed", "conclusion": "timed_out", "head_sha": "a" * 40}
+        with tempfile.NamedTemporaryFile("w", suffix=".json") as event:
+            json.dump({"workflow_run": run}, event)
+            event.flush()
+            out = io.StringIO()
+            with mock.patch.dict(os.environ, {"GITHUB_EVENT_PATH": event.name, "GH_TOKEN": "token"}), \
+                    mock.patch.object(cf, "GitHub"), \
+                    mock.patch.object(cf, "classify_run", return_value={"jobs": []}) as classify, \
+                    redirect_stdout(out):
+                self.assertEqual(cf.main(["classify"]), 0)
+        classify.assert_called_once()
+        self.assertNotIn("nothing to attribute", out.getvalue())
 
     def test_runs_mains_script_and_never_checks_out_the_pull_request(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
