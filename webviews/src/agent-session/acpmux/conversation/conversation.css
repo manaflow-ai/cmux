@@ -88,6 +88,8 @@
      draw no action row, the plain gap on both sides (STATUS_GAP_PLAIN). */
   --cv-status-gap: calc(var(--cv-meta-gap) + var(--cv-meta-row) + 2px);
   --cv-status-gap-plain: 12px;
+  /* A plain reply's share of that gap over a status row: the step's 2px top margin is the rest. */
+  --cv-status-gap-plain-over: calc(var(--cv-status-gap-plain) - 2px);
   /* What a reply keeps under its action row over a status row (none: the gap is the action row's). */
   --cv-status-reply-tail: 0px;
   --cv-tool-gap: var(--ds-space-2, 8px);
@@ -4536,7 +4538,7 @@ article.acpmux-row.acpmux-row--before-status {
   padding-bottom: var(--cv-status-reply-tail);
 }
 article.acpmux-row.acpmux-row--before-status-plain {
-  padding-bottom: calc(var(--cv-status-gap-plain) - 2px);
+  padding-bottom: var(--cv-status-gap-plain-over);
 }
 article.acpmux-row.acpmux-row--before-reply {
   padding-bottom: var(--cv-status-gap);
