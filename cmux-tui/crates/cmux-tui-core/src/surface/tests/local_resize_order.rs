@@ -84,6 +84,9 @@ fn check_local_resize_order(add_later_output: bool) {
         surface.resize(40, 4)
     };
     let text = surface.try_with_terminal(|term| term.viewport_text()).unwrap().unwrap();
+    // The drain parsed the queued title before the later output, on the old
+    // grid; the reader is still held here, so only the drain can have set it.
+    let drained_title = surface.as_pty().unwrap().title.lock().unwrap().clone();
     *surface.as_pty().unwrap().geometry_test_hook.lock().unwrap() = None;
     release_tx.send(()).unwrap();
     // No new output or EOF: the resize's wake must publish the drained title
@@ -97,22 +100,24 @@ fn check_local_resize_order(add_later_output: bool) {
             Err(_) => break,
         }
     }
-    let mut title_published = false;
-    let later_output_published = loop {
+    // The event bus keeps only a surface's newest title for a subscriber
+    // that has not read yet (event_bus.rs, CoalescedEventKey::Title), so a
+    // reader that is late sees "after-resize" alone. What must hold for any
+    // reader: the last title it sees is the newest one, and the drained
+    // title never comes after a later one.
+    let mut titles: Vec<String> = Vec::new();
+    loop {
         match events.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-            Ok(MuxEvent::TitleChanged { title, .. }) if title.as_ref() == "resize-drained" => {
-                title_published = true;
-                if !add_later_output {
-                    break true;
+            Ok(MuxEvent::TitleChanged { title, .. }) => {
+                titles.push(title.to_string());
+                if title.as_ref() == last_title {
+                    break;
                 }
             }
-            Ok(MuxEvent::TitleChanged { title, .. }) if title.as_ref() == "after-resize" => {
-                break true;
-            }
             Ok(_) => continue,
-            Err(_) => break false,
+            Err(_) => break,
         }
-    };
+    }
     let later_text = surface.try_with_terminal(|term| term.viewport_text()).unwrap().unwrap();
     drop(child);
     end_tx.send(()).unwrap();
@@ -120,8 +125,21 @@ fn check_local_resize_order(add_later_output: bool) {
     assert!(pty.reader_completion.wait_until(Instant::now() + WAIT));
     assert!(pty.reaper_completion.wait_until(Instant::now() + WAIT));
     resize.unwrap();
-    assert!(title_published, "the resize consumed output without publishing its title");
-    assert!(later_output_published, "output after the drain snapshot was not published");
+    assert_eq!(
+        drained_title, "resize-drained",
+        "the resize drained output without parsing its title"
+    );
+    assert_eq!(
+        titles.last().map(String::as_str),
+        Some(last_title),
+        "the newest title was not published: {titles:?}"
+    );
+    let drained = titles.iter().position(|title| title == "resize-drained");
+    let later = titles.iter().position(|title| title == "after-resize");
+    assert!(
+        drained.zip(later).is_none_or(|(drained, later)| drained < later),
+        "the drained title came after the later output's title: {titles:?}"
+    );
     assert_eq!(text.lines().next().unwrap_or_default().find('X'), Some(19), "{text:?}");
     if add_later_output {
         assert_eq!(
