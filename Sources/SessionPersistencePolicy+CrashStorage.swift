@@ -1,5 +1,6 @@
 import Foundation
 import CmuxTerminalCore
+import CmuxWorkspaces
 
 extension SessionPersistencePolicy {
     static func defaultCmuxCrashDirectoryURL(
@@ -303,9 +304,15 @@ extension SessionPersistencePolicy {
             let originalAnchorWorkspaceId = group.anchorWorkspaceId ?? group.anchorMemberIndex.flatMap { index in
                 originalMembers.indices.contains(index) ? originalMembers[index].workspaceId : nil
             }
-            let newAnchorIndex = originalAnchorWorkspaceId.flatMap { anchorId in
+            let keptAnchorIndex = originalAnchorWorkspaceId.flatMap { anchorId in
                 keptMembers.firstIndex { $0.workspaceId == anchorId }
-            } ?? 0
+            }
+            let newAnchorIndex = keptAnchorIndex ?? 0
+            if keptAnchorIndex == nil {
+                // A member standing in for the pruned anchor is not what the
+                // saved provenance describes.
+                copy.anchorWorkspaceProvenance = WorkspaceGroupAnchorProvenance.unknown.rawValue
+            }
             copy.anchorMemberIndex = newAnchorIndex
             copy.anchorWorkspaceId = keptMembers[newAnchorIndex].workspaceId
             copy.anchorIsEmpty = nil
