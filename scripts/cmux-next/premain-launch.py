@@ -277,7 +277,8 @@ def suspended_exec_ms(binary):
     if libc.posix_spawnattr_init(ctypes.byref(attr)) != 0:
         return None, "posix_spawnattr_init failed"
     try:
-        libc.posix_spawnattr_setflags(ctypes.byref(attr), ctypes.c_short(POSIX_SPAWN_START_SUSPENDED))
+        if libc.posix_spawnattr_setflags(ctypes.byref(attr), ctypes.c_short(POSIX_SPAWN_START_SUSPENDED)) != 0:
+            return None, "posix_spawnattr_setflags failed (not spawned: the app would run)"
         pid = ctypes.c_int()
         argv = (ctypes.c_char_p * 2)(binary.encode(), None)
         envp = (ctypes.c_char_p * 2)(b"PATH=/usr/bin:/bin", None)
@@ -287,7 +288,11 @@ def suspended_exec_ms(binary):
         if code != 0:
             return None, f"posix_spawn: {os.strerror(code)}"
         os.kill(pid.value, _signal.SIGKILL)  # the suspended process this function started, never run
-        os.waitpid(pid.value, 0)
+        deadline = time.monotonic() + 10
+        while os.waitpid(pid.value, os.WNOHANG) == (0, 0):
+            if time.monotonic() > deadline:
+                return ms, f"pid {pid.value} not reaped 10 s after SIGKILL"
+            time.sleep(0.05)
         return ms, None
     finally:
         libc.posix_spawnattr_destroy(ctypes.byref(attr))
@@ -299,11 +304,31 @@ def suspended_series(binary, runs=3):
 
 def notarized_probe(root, adhoc_app):
     """The exec cost of the newest notarized Developer ID nightly-next (what a person runs) against the ad-hoc bench
-    copy, with the same suspended spawn: 3 execs of a fresh copy of each. No code of either app runs."""
+    app, with the same suspended spawn. Each series is 3 execs of ONE new copy: exec 1 is the copy's first, 2 and 3
+    repeat it. No code of either app runs, and the staged copy A is never exec'd here."""
     result = {"method": "posix_spawn START_SUSPENDED, killed before its first instruction",
-              "adhoc_reused": suspended_series(bs.app_binary(use_copy(adhoc_app)))}
-    adhoc_fresh = fresh_copy(adhoc_app, root, "F")
-    result["adhoc_fresh"] = suspended_series(bs.app_binary(use_copy(adhoc_fresh)))
+              "limits": "times only what posix_spawn blocks on (a check that runs after the spawn returns, with the task "
+                        "suspended, is not in it); no copy has a quarantine attribute, so a downloaded app's first "
+                        "Gatekeeper prompt path is not measured"}
+    try:
+        notarized_probe_body(root, adhoc_app, result)
+    except Exception as error:  # noqa: BLE001 - the probe must never lose the report; SystemExit (a cancel) passes
+        result["error"] = f"{type(error).__name__}: {error}"[:300]
+    return result
+
+
+def probe_copy(source, root, name):
+    try:
+        return fresh_copy(source, root, name)
+    except SystemExit as error:
+        if isinstance(error.code, str):  # fresh_copy's own copy failure (a signal's SystemExit carries an int)
+            raise RuntimeError(error.code) from None
+        raise
+
+
+def notarized_probe_body(root, adhoc_app, result):
+    adhoc_fresh = probe_copy(adhoc_app, root, "F")
+    result["adhoc_new_copy"] = suspended_series(bs.app_binary(use_copy(adhoc_fresh)))
     shutil.rmtree(os.path.dirname(adhoc_fresh), ignore_errors=True)
     work = os.path.join(root, "N")
     os.makedirs(work, exist_ok=True)
@@ -311,25 +336,28 @@ def notarized_probe(root, adhoc_app):
     urls = re.findall(r'url="(https://files-next\.cmux\.com/nightly-next/next/[^"]+\.dmg)"', feed)
     if not urls:
         result["error"] = f"no DMG in the feed ({err.strip()[:200] or code})"
-        return result
+        return
     dmg, mount = os.path.join(work, "nightly.dmg"), os.path.join(work, "mnt")
     result["dmg"] = urls[0]
     code, _, err = run(["curl", "-fsSL", "--max-time", "600", "-o", dmg, urls[0]], timeout=660)
     if code != 0:
         result["error"] = f"download failed: {err.strip()[:200]}"
-        return result
+        return
     os.makedirs(mount, exist_ok=True)
     code, _, err = run(["hdiutil", "attach", "-nobrowse", "-readonly", "-noautoopen", "-mountpoint", mount, dmg], timeout=300)
     if code != 0:
         result["error"] = f"hdiutil attach: {err.strip()[:200]}"
-        return result
+        return
     try:
         apps = [name for name in os.listdir(mount) if name.endswith(".app")]
         if not apps:
             result["error"] = "no .app in the DMG"
-            return result
+            return
         app = os.path.join(work, apps[0])
-        run(["ditto", os.path.join(mount, apps[0]), app], timeout=600)  # curl and ditto set no quarantine
+        code, _, err = run(["ditto", os.path.join(mount, apps[0]), app], timeout=600)  # curl and ditto set no quarantine
+        if code != 0:
+            result["error"] = f"ditto from the DMG: {err.strip()[:200]}"
+            return
     finally:
         run(["hdiutil", "detach", "-force", mount], timeout=120)
     os.remove(dmg)
@@ -341,12 +369,11 @@ def notarized_probe(root, adhoc_app):
         plist = plistlib.load(info)
     binary = os.path.join(app, "Contents/MacOS", plist["CFBundleExecutable"])
     result["notarized_version"] = plist.get("CFBundleVersion")
-    result["notarized_fresh"] = suspended_series(binary)
-    second = fresh_copy(app, root, "N2")
+    result["notarized_new_copy"] = suspended_series(binary)
+    second = probe_copy(app, root, "N2")
     result["notarized_second_copy"] = suspended_series(os.path.join(second, "Contents/MacOS", plist["CFBundleExecutable"]))
     shutil.rmtree(work, ignore_errors=True)
     shutil.rmtree(os.path.dirname(second), ignore_errors=True)
-    return result
 
 
 def fresh_copy(source, root, name, clone=False):
@@ -484,6 +511,12 @@ def summarize_table(xml):
     return {"rows": len(re.findall(r"<row>", xml)), "first": rows[:150]}
 
 
+def run_exec_probe(report, root, app, save):
+    report["exec_probe"] = notarized_probe(root, app)
+    log(f"exec probe: {json.dumps({k: v for k, v in report['exec_probe'].items() if k not in ('signature', 'limits')})[:900]}")
+    save()
+
+
 def table(runs):
     lines = ["| copy | run | main_start ms | observed spawn->main ms | first terminal frame ms | app CPU s at main | log lines | naming the app | assessment lines |",
              "|---|---|---|---|---|---|---|---|---|"]
@@ -502,8 +535,9 @@ def main():
     parser.add_argument("--json", required=True)
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--no-xctrace", action="store_true")
-    parser.add_argument("--exec-probe-only", action="store_true",
-                        help="only the suspended-exec probe (ad-hoc bench copy vs the notarized nightly), no app launch")
+    parser.add_argument("--exec-probe", action="store_true",
+                        help="also the suspended-exec probe (ad-hoc bench app vs the notarized nightly), after the launches")
+    parser.add_argument("--exec-probe-only", action="store_true", help="only the suspended-exec probe, no app launch")
     args, _ = parser.parse_known_args()
     app = os.path.abspath(args.app)
     root = os.path.join(os.path.abspath(args.out), "premain-copies")
@@ -526,10 +560,8 @@ def main():
         report["launchctl_maxfiles"] = run(["/bin/launchctl", "limit", "maxfiles"])[1].strip()
         report["exec_floor_ms"] = exec_floor()
         report["exec_floor_inherit_limits_ms"] = exec_floor(limits=False)
-        report["exec_probe"] = notarized_probe(root, app)
-        log(f"exec probe: {json.dumps({k: v for k, v in report['exec_probe'].items() if k != 'signature'})[:900]}")
-        save()
         if args.exec_probe_only:
+            run_exec_probe(report, root, app, save)
             return
         log(f"exec floor (/usr/bin/true, same Popen shape): Finder limits {report['exec_floor_ms']} ms, the caller's "
             f"{report['exec_floor_inherit_limits_ms']} ms (python {report['python']}, nofile {report['nofile_rlimit']}, "
@@ -567,6 +599,8 @@ def main():
             copies.append(copy_e)
             report["xctrace"] = [xctrace_launch(copy_e, "E-fresh"), xctrace_launch(app, "A-reused")]
             save()
+        if args.exec_probe:
+            run_exec_probe(report, root, app, save)
     finally:
         for path in copies:
             use_copy(path)
