@@ -12,7 +12,11 @@ public final class PhoneAccessGate: Sendable {
         var cancel: (@Sendable () async -> Void)?
     }
     private let admission = Mutex(Admission())
-    private let serving = Mutex(false)
+    private struct Serving: Sendable {
+        var on = false
+        var period: UInt64 = 0
+    }
+    private let serving = Mutex(Serving())
     private let startsSessions: Mutex<Bool>
 
     public init(allowsStartingSessions: Bool = true) {
@@ -26,16 +30,19 @@ public final class PhoneAccessGate: Sendable {
         admission.withLock { $0 = Admission(decide: decide, recheck: recheck, cancel: cancel) }
     }
 
-    /// Phone Access is on and signed in. Off, admission asks and saves nothing, and
-    /// turning it off closes the questions still open.
-    public var isServing: Bool { serving.withLock { $0 } }
+    /// The current serving period while Phone Access is on and signed in, else nil.
+    /// Every turn on or off starts a new period, so an answer given in an earlier one
+    /// can't save, and turning off also closes the questions still open.
+    public var servingPeriod: UInt64? { serving.withLock { $0.on ? $0.period : nil } }
 
     public func setServing(_ on: Bool) {
-        let wasServing = serving.withLock { serving in
-            defer { serving = on }
-            return serving
+        let turnedOff = serving.withLock { serving -> Bool in
+            guard serving.on != on else { return false }
+            serving.on = on
+            serving.period &+= 1
+            return !on
         }
-        guard wasServing, !on, let cancel = admission.withLock({ $0.cancel }) else { return }
+        guard turnedOff, let cancel = admission.withLock({ $0.cancel }) else { return }
         // task-owner: one hop that closes this Mac's open admission questions; ends at once
         Task { await cancel() }
     }

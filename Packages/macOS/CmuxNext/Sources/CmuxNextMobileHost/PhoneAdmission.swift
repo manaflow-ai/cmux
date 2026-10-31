@@ -39,6 +39,7 @@ final class PhoneAdmission {
         var id: UUID
         var accountGeneration: UInt64
         var admissionGeneration: UInt64
+        var servingPeriod: UInt64
         var task: Task<Bool, Never>
         var cancel: () -> Void
     }
@@ -58,8 +59,9 @@ final class PhoneAdmission {
     var announce: @MainActor (MobileHostPairRequest) -> Void = { _ in }
     var quiet: @MainActor () -> Void = {}
     var now: () -> ContinuousClock.Instant = { .now }
-    /// Phone Access is on and signed in; off, no question is asked or saved.
-    var serving: () -> Bool = { true }
+    /// The serving period (``PhoneAccessGate/servingPeriod``): nil while Phone Access is off,
+    /// and an answer saves only within the period its question opened in.
+    var servingPeriod: @Sendable () -> UInt64? = { 0 }
 
     init(phones: MobileHostPairedStore, disconnect: @escaping @Sendable (String) async -> Void) {
         self.phones = phones
@@ -91,7 +93,7 @@ final class PhoneAdmission {
     }
 
     func decide(_ phone: MobileHostPairRequest) async -> Bool {
-        guard phone.transport == .iroh, serving(), let user = phones.current?.userID else { return false }
+        guard phone.transport == .iroh, let period = servingPeriod(), let user = phones.current?.userID else { return false }
         let selectedAccountGeneration = phones.generation
         let selectedAdmissionGeneration = admissionGeneration(phone.phoneDeviceID)
         if phones.trusts(phone) { return true }
@@ -99,7 +101,7 @@ final class PhoneAdmission {
         let question: Question
         if let existing = questions[phone.phoneDeviceID] {
             guard existing.accountGeneration == selectedAccountGeneration,
-                  existing.admissionGeneration == selectedAdmissionGeneration else { return false }
+                  existing.admissionGeneration == selectedAdmissionGeneration, existing.servingPeriod == period else { return false }
             question = existing
         } else {
             guard questions.count < 2 else { return false }
@@ -110,7 +112,7 @@ final class PhoneAdmission {
             let id = UUID()
             let task = Task { [self, waiter] in
                 let answer = await waiter.wait { await self.ask(phone, account) }
-                guard !Task.isCancelled, serving(), admissionGeneration(phone.phoneDeviceID) == selectedAdmissionGeneration,
+                guard !Task.isCancelled, servingPeriod() == period, admissionGeneration(phone.phoneDeviceID) == selectedAdmissionGeneration,
                       phones.generation == selectedAccountGeneration, phones.current?.userID == user else { return false }
                 switch answer {
                 case .unavailable: return false
@@ -118,13 +120,18 @@ final class PhoneAdmission {
                 case .allow: break
                 }
                 do {
-                    try await phones.change(for: user, generation: selectedAccountGeneration) { $0.approve(phone, at: Date()) }
-                    return admissionGeneration(phone.phoneDeviceID) == selectedAdmissionGeneration &&
+                    let at = Date()
+                    // The edit runs later on the store's queue; a period that ended meanwhile saves nothing.
+                    try await phones.change(for: user, generation: selectedAccountGeneration) { [servingPeriod] devices in
+                        guard servingPeriod() == period else { return }
+                        devices.approve(phone, at: at)
+                    }
+                    return servingPeriod() == period && admissionGeneration(phone.phoneDeviceID) == selectedAdmissionGeneration &&
                         phones.generation == selectedAccountGeneration && phones.trusts(phone)
                 } catch { return false }
             }
             question = Question(id: id, accountGeneration: selectedAccountGeneration,
-                                admissionGeneration: selectedAdmissionGeneration, task: task,
+                                admissionGeneration: selectedAdmissionGeneration, servingPeriod: period, task: task,
                                 cancel: { [self, waiter] in
                                     waiter.finish(.unavailable)
                                     dismissAsk(phone, account)
@@ -136,7 +143,7 @@ final class PhoneAdmission {
             questions[phone.phoneDeviceID] = nil
             if questions.isEmpty { quiet() }
         }
-        return allowed && admissionGeneration(phone.phoneDeviceID) == selectedAdmissionGeneration &&
+        return allowed && servingPeriod() == period && admissionGeneration(phone.phoneDeviceID) == selectedAdmissionGeneration &&
             phones.generation == selectedAccountGeneration && phones.trusts(phone)
     }
 
@@ -222,7 +229,7 @@ extension IPhoneHostService {
         admission.accountName = { [weak self] in self?.account?.email ?? self?.account?.userID ?? "" }
         admission.announce = { [weak self] request in self?.announcePhoneAccess(request) }
         admission.quiet = { [weak self] in self?.quietAttention() }
-        admission.serving = { gate.isServing }
+        admission.servingPeriod = { gate.servingPeriod }
         phoneAdmission = admission
         gate.setAdmission(decide: { await admission.decide($0) }, recheck: { [pairedStore] in pairedStore.trusts($0) },
                           cancel: { await admission.cancelAll() })

@@ -343,12 +343,46 @@ import Testing
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = await Self.store(at: directory)
         let admission = PhoneAdmission(phones: store, disconnect: { _ in })
-        var serving = true
-        admission.serving = { serving }
+        let period = Mutex<UInt64?>(1)
+        admission.servingPeriod = { period.withLock { $0 } }
         admission.ask = { _, _ in
-            serving = false
+            period.withLock { $0 = nil }
             return .allow
         }
+        #expect(await !admission.decide(Self.phone))
+        #expect(!store.trusts(Self.phone))
+    }
+
+    @Test func anAllowFromBeforeAQuickOffAndOnIsNotSaved() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = await Self.store(at: directory)
+        let admission = PhoneAdmission(phones: store, disconnect: { _ in })
+        let period = Mutex<UInt64?>(1)
+        admission.servingPeriod = { period.withLock { $0 } }
+        admission.ask = { _, _ in
+            // Off and back on before the cancellation hop runs: a new period.
+            period.withLock { $0 = 3 }
+            return .allow
+        }
+        #expect(await !admission.decide(Self.phone))
+        #expect(!store.trusts(Self.phone))
+    }
+
+    @Test func aSaveQueuedBeforeTurningOffSavesNothing() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = await Self.store(at: directory)
+        let admission = PhoneAdmission(phones: store, disconnect: { _ in })
+        let period = Mutex<UInt64?>(1)
+        let reads = Mutex(0)
+        // decide and the answer task read the period before the save is queued; the
+        // store edit's read, the third, comes after Phone Access was turned off.
+        admission.servingPeriod = {
+            let read = reads.withLock { reads in reads += 1; return reads }
+            return read <= 2 ? period.withLock { $0 } : nil
+        }
+        admission.ask = { _, _ in .allow }
         #expect(await !admission.decide(Self.phone))
         #expect(!store.trusts(Self.phone))
     }
