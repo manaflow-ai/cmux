@@ -25,7 +25,7 @@ struct PointerMenuTrimTests {
         // Includes every More/Copy row and every target-dependent action.
         let retained: Set<ActionID> = [
             "agentChat.copyIdentifier", "agentChat.subagentLimit", "agentPane.togglePointerInspector",
-            "browser.openInChromium", "browserProfile.duplicateTab", "browserProfile.moveTab",
+            "browser.editSource", "browser.openInChromium", "browserProfile.duplicateTab", "browserProfile.moveTab",
             "closeOtherTabsInPane", "closeTab", "closeTabsToLeft",
             "closeTabsToRight", "disconnectRemoteTab", "duplicateTab",
             "home.messageAbout", "moveSurfaceLeft", "moveSurfaceRight",
