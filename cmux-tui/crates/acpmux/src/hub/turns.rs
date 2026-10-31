@@ -1913,6 +1913,8 @@ impl Hub {
         if let Some(child) = session.child.lock().await.take() {
             child.kill().await;
         }
+        // Its next start runs the profile as it is now (`profile_respawn.rs`).
+        session.profile_respawn.store(false, Ordering::SeqCst);
         *session.turn.lock().unwrap() = None;
         if session.status() != SessionStatus::Closed {
             self.set_status(session, SessionStatus::Idle);

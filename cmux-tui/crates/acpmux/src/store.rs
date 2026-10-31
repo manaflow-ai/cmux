@@ -124,6 +124,12 @@ pub struct SessionMeta {
     /// it (`harness_argv` is the creation's). None before any start (#23322, review 36).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spawn_argv: Option<Vec<String>>,
+    /// `HarnessProfile::launch_digest` of the profile its agent last started from: a profile
+    /// reload that changes it respawns the agent at its turn end, on the same conversation
+    /// (`hub/profile_respawn.rs`). Kept on disk, so an agent host the next daemon adopts is
+    /// judged too. None before any start, or for a start by an older build.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_digest: Option<String>,
     /// Model family of the profile at creation (`claude`, `codex`, ...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub family: Option<String>,

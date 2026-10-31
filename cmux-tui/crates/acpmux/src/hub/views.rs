@@ -518,6 +518,16 @@ impl Hub {
         summary.set("gitBranch", json!(self.git_branch_now(&m)));
         // Since when work it started runs on past its own turn (`work_below.rs`).
         summary.set("subagentsWorkingSince", json!(self.work_below_since(session)));
+        // Its agent restarts on its profile's new launch when the turn ends (`profile_respawn.rs`).
+        summary.set(
+            "respawnPending",
+            json!(
+                session
+                    .profile_respawn
+                    .load(Ordering::SeqCst)
+                    .then_some(super::profile_respawn::PROFILE_CHANGED)
+            ),
+        );
         // The usage rules it breaks (`usage_warnings.rs`), read from `usageStats` above.
         let limits = *self.usage_limits.lock().unwrap_or_else(|e| e.into_inner());
         let warnings = super::usage_warnings::usage_warnings(&summary, &limits);

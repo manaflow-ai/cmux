@@ -677,6 +677,18 @@ impl DeclaredModel {
     }
 }
 
+impl HarnessProfile {
+    /// The hex SHA-256 of what starts the harness: its kind, argv and env, never its name,
+    /// models or defaults. A session keeps the digest its agent started from
+    /// (`SessionMeta::launch_digest`), and a profile reload that changes it respawns the agent
+    /// at its turn end (`hub/profile_respawn.rs`). A hash, so the env's values are not kept.
+    pub fn launch_digest(&self) -> String {
+        // Strings, a list and a BTreeMap: the JSON is stable.
+        let launch = serde_json::json!({"kind": self.kind, "argv": self.argv, "env": self.env});
+        crate::sha256::sha256_hex(launch.to_string().as_bytes())
+    }
+}
+
 /// Session defaults for a family or a single profile (`defaults` in
 /// config.json). Precedence at `session/new`: explicit request, then the
 /// profile's own entry, then its family's entry, then the daemon defaults.
