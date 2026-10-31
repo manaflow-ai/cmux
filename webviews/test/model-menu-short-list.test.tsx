@@ -267,7 +267,8 @@ for (const [title, harness, family] of [
       await mount({ harness, family });
       await open();
       const rows = modelRows();
-      const keysShown = rows.map((row) => row.querySelector(".ui-menu-shortcut")?.textContent ?? "✓");
+      // The symbols row's menu names its keys ⌘1 to ⌘9 (a bare digit picks the same row).
+      const keysShown = rows.map((row) => row.querySelector(".ui-menu-shortcut")?.textContent?.replace("⌘", "") ?? "✓");
       expect(keysShown).toEqual(
         rows.map((row, index) => (row.getAttribute("aria-checked") === "true" ? "✓" : String(index + 1))),
       );
@@ -306,7 +307,9 @@ for (const harnessFixed of [false, true]) {
     );
     await open();
     expect(modelRows().map(label)).toEqual(choices.slice(0, 6).map((choice) => choice.name));
-    expect(menu()!.textContent).toContain("More models");
+    // A rail's other models are Legacy models in the default symbols layout; a started chat's More
+    // models opens the full picker.
+    expect(menu()!.textContent).toContain(harnessFixed ? "More models" : "Legacy models");
     expect(modelRows().map(label)).not.toContain("Choice 6");
     expect(modelRows().map(label)).not.toContain("Choice 7");
   });

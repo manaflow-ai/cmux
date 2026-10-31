@@ -173,10 +173,18 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              not every record.\n\
              - tab_rename {{tab, name}}, tab_close {{tab}}, tab_focus {{tab}}; workspace_rename \
              {{workspace, name}}; tab_move {{tab, destination_pane}} (or destination_workspace: \
-             its active pane; it goes last); workspace_create {{name}}; terminal_input_keys \
+             its active pane; it goes last); workspace_create {{name}} (it opens with a terminal \
+             pane that a moved tab can go into; initial_content: \"empty\" has no pane); \
+             terminal_input_keys \
              {{terminal, keys: [\"ctrl+c\"]}} presses keys (enter, escape, up).\n\
              - Groups: tab_group_create {{tabs: [ids], name}}; workspace_group_create {{name}}, \
              then workspace_place {{workspace, group: <its id>}} for each member.\n\
+             - Open a file, diff or page in cmux (not a terminal): open {{kind: \"file\" | \
+             \"diff\" | \"page\", path | url, where}} in one call; where: right (default), \
+             left, below, above, here, sticky (a docked column; edge), pane {{pane}}, workspace \
+             {{workspace}}. Several opens with where: right share one column. To make an \
+             existing column sticky: column_update {{screen, column, dock: true, edge}} \
+             (column: its column_id in screen_layout_export).\n\
              - workspace_status_set {{workspace, key, text}} (a sidebar status pill); \
              workspace_status_clear {{workspace, key}} removes it (an empty text leaves an empty \
              pill); \

@@ -1,11 +1,12 @@
 import AppKit
 import CmuxNextPagesTestSupport
+import CmuxNextTestSupport
 import Testing
 @testable import CmuxNextAgentPane
 @testable import CmuxNextPages
 
 /// Chromium follows every alpha hold, including holds outside a pane container.
-@Suite(.serialized)
+@Suite(.serialized, .closesItsWindows)
 @MainActor
 struct AgentPaneChromiumVisibilityTests {
     private actor NoHost: AgentPaneHostProviding {
