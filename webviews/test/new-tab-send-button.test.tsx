@@ -303,7 +303,7 @@ async function commandPage(
       : host.querySelector<HTMLInputElement>(".acpmux-newtab-field")!;
   const value = () =>
     template === "screen"
-      ? ((field as MarkdownFieldElement).acpmuxMarkdownField?.plainText() ?? "")
+      ? ((field as MarkdownFieldElement).acpmuxMarkdownField?.plainText() ?? "").replace(/\n$/, "")
       : (field as HTMLInputElement).value;
   const edit = async (text: string) => {
     await act(async () => {

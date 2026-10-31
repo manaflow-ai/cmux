@@ -96,7 +96,7 @@ async function press(field: MarkdownFieldElement, key: string) {
 }
 
 function promptValue(field = container.querySelector<MarkdownFieldElement>(".nt-field")) {
-  return field?.acpmuxMarkdownField?.plainText() ?? "";
+  return (field?.acpmuxMarkdownField?.plainText() ?? "").replace(/\n$/, "");
 }
 
 test("New Tab exposes the chat composer attachment menu", async () => {
@@ -371,7 +371,7 @@ test("a chosen document uses the New Tab upload path and becomes sendable", asyn
   Object.defineProperty(input, "files", { configurable: true, value: [file] });
   await act(async () => input.dispatchEvent(new dom!.window.Event("change", { bubbles: true })));
   expect(uploaded).toEqual([[file]]);
-  expect(container.querySelector(".acpmux-attachments")).not.toBeNull();
+  expect(container.querySelector(".acpmux-md-inline-chip")).not.toBeNull();
   const send = container.querySelector<HTMLButtonElement>(".nt-send")!;
   expect(send.disabled).toBe(false);
   await act(async () => send.click());

@@ -116,7 +116,7 @@ await requireBrowserLane("new-tab-typing.test.ts", async () => {
       expect(await editor.textContent()).toBe(location);
       expect(await editor.locator("em, strong, code").count()).toBe(0);
       expect(await page.locator(".nt-popover .nt-row").count()).toBe(0);
-      await page.keyboard.press("ArrowRight");
+      await page.keyboard.press("End");
       await page.keyboard.type("/next");
       await page.keyboard.press("Enter");
       expect(await page.evaluate(() => window.newTabOpened)).toEqual([`${location}/next`]);
