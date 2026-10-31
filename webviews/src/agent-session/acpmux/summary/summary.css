@@ -349,4 +349,4 @@ html[data-pr-dock-layout="beside"] .acpmux-pr-comparison[data-mode="compact"] .a
 .acpmux-tools-empty{padding:4px var(--ui-row-padding-inline);color:var(--agent-muted)}
 
 /* The toolbar popover starts with Environment, without a title band or divider above it. */
-.acpmux-summary-card[data-placement=popover] .acpmux-summary-card__body{padding-top:6px;border-top:0}
+.acpmux-summary-card[data-placement=popover] .acpmux-summary-card__body{padding-top:4px;border-top:0}
