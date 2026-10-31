@@ -155,9 +155,10 @@ impl Client {
 /// One field: the request that changes it, and how to read it back after the restart.
 struct Case {
     field: &'static str,
-    /// The request that changes the field, and the value it must keep.
-    change: fn(&str) -> (&'static str, Value),
-    expect: Value,
+    /// The request that changes the field, and the value it must keep, given the chat and the
+    /// seq of its prompt (bookmarks only: a bookmark names a prompt; 0 otherwise).
+    change: fn(&str, u64) -> (&'static str, Value),
+    expect: fn(u64) -> Value,
     read: fn(&mut Client, &str) -> Value,
 }
 
@@ -169,64 +170,68 @@ fn cases() -> Vec<Case> {
     vec![
         Case {
             field: "composerDraft",
-            change: |id| ("_acpmux/draft_set", json!({"sessionId": id, "text": "g2 kept draft"})),
-            expect: json!("g2 kept draft"),
+            change: |id, _| {
+                ("_acpmux/draft_set", json!({"sessionId": id, "text": "g2 kept draft"}))
+            },
+            expect: |_| json!("g2 kept draft"),
             read: |c, id| c.call("_acpmux/draft_get", json!({"sessionId": id}))["draft"].clone(),
         },
         Case {
             field: "name",
-            change: |id| ("_acpmux/rename", json!({"sessionId": id, "newName": "g2-kept-name"})),
-            expect: json!("g2-kept-name"),
+            change: |id, _| ("_acpmux/rename", json!({"sessionId": id, "newName": "g2-kept-name"})),
+            expect: |_| json!("g2-kept-name"),
             read: |c, id| info(c, id)["name"].clone(),
         },
         Case {
             field: "modes.currentModeId",
-            change: |id| ("session/set_mode", json!({"sessionId": id, "modeId": "strict"})),
-            expect: json!("strict"),
+            change: |id, _| ("session/set_mode", json!({"sessionId": id, "modeId": "strict"})),
+            expect: |_| json!("strict"),
             read: |c, id| info(c, id)["currentModeId"].clone(),
         },
         Case {
             field: "unread",
-            change: |id| ("_acpmux/markUnread", json!({"sessionId": id})),
-            expect: json!(true),
+            change: |id, _| ("_acpmux/markUnread", json!({"sessionId": id})),
+            expect: |_| json!(true),
             read: |c, id| info(c, id)["unread"].clone(),
         },
         Case {
             field: "bookmarks",
-            change: |id| {
-                ("_acpmux/bookmark_set", json!({"sessionId": id, "seq": 1, "bookmarked": true}))
+            change: |id, seq| {
+                ("_acpmux/bookmark_set", json!({"sessionId": id, "seq": seq, "bookmarked": true}))
             },
-            expect: json!([1]),
+            expect: |seq| json!([seq]),
             read: |c, id| {
                 c.call("_acpmux/bookmark_get", json!({"sessionId": id}))["bookmarks"].clone()
             },
         },
         Case {
             field: "tags",
-            change: |id| ("_acpmux/tag", json!({"sessionId": id, "set": {"g2": "kept"}})),
-            expect: json!("kept"),
+            change: |id, _| ("_acpmux/tag", json!({"sessionId": id, "set": {"g2": "kept"}})),
+            expect: |_| json!("kept"),
             read: |c, id| info(c, id)["tags"]["g2"].clone(),
         },
         Case {
             field: "turnCapMs",
-            change: |id| ("_acpmux/set_turn_cap", json!({"sessionId": id, "turnCapMs": 123_000})),
-            expect: json!(123_000),
+            change: |id, _| {
+                ("_acpmux/set_turn_cap", json!({"sessionId": id, "turnCapMs": 123_000}))
+            },
+            expect: |_| json!(123_000),
             read: |c, id| {
                 c.call("_acpmux/set_turn_cap", json!({"sessionId": id}))["turnCapMs"].clone()
             },
         },
         Case {
             field: "permissionPolicy",
-            change: |id| ("_acpmux/set_policy", json!({"sessionId": id, "policy": "deny-all"})),
-            expect: json!("deny-all"),
+            change: |id, _| ("_acpmux/set_policy", json!({"sessionId": id, "policy": "deny-all"})),
+            expect: |_| json!("deny-all"),
             read: |c, id| info(c, id)["policy"].clone(),
         },
         Case {
             field: "permissionRules",
-            change: |id| {
+            change: |id, _| {
                 ("_acpmux/set_rules", json!({"sessionId": id, "rules": {"autoDeny": ["g2"]}}))
             },
-            expect: json!({"autoDeny": ["g2"]}),
+            expect: |_| json!({"autoDeny": ["g2"]}),
             read: |c, id| info(c, id)["rulesJson"].clone(),
         },
     ]
@@ -252,6 +257,19 @@ fn meta_save_order_keeps_an_acknowledged_change_over_an_older_save_after_kill_9(
         let made =
             client.call("session/new", json!({"cwd": daemon.home.join("p"), "mcpServers": []}));
         let id = made["sessionId"].as_str().unwrap().to_owned();
+        // A bookmark names a prompt: one turn first (the stand-in echoes it), then its seq.
+        let seq = if case.field == "bookmarks" {
+            let prompt =
+                json!({"sessionId": id, "prompt": [{"type": "text", "text": "g2 prompt"}]});
+            client.call("session/prompt", prompt);
+            let prompts = client.call(
+                "_acpmux/events",
+                json!({"sessionId": id, "afterSeq": 0, "kinds": ["user_message"]}),
+            );
+            prompts["events"][0]["seq"].as_u64().expect("the prompt's seq")
+        } else {
+            0
+        };
         // Hold the next save of this chat: a change of another field, from another client.
         std::fs::write(daemon.holds.join(format!("hold-{id}")), "").unwrap();
         let holder = {
@@ -267,7 +285,7 @@ fn meta_save_order_keeps_an_acknowledged_change_over_an_older_save_after_kill_9(
         };
         wait_held(&daemon, &id);
         // The change, while the older copy waits; then the held save goes.
-        let (method, params) = (case.change)(&id);
+        let (method, params) = (case.change)(&id, seq);
         let request = client.send(method, params);
         let early = client.answer(request, method, Duration::from_secs(5));
         std::fs::write(daemon.holds.join(format!("release-{id}")), "").unwrap();
@@ -280,20 +298,18 @@ fn meta_save_order_keeps_an_acknowledged_change_over_an_older_save_after_kill_9(
         daemon.start();
         let mut reader = Client::connect(&daemon.socket);
         let after = (case.read)(&mut reader, &id);
-        let ok = after == case.expect;
-        report.push(format!(
-            "META-SAVE field={} acked={} after_kill9={} answered_before_release={} ok={ok}",
+        let expect = (case.expect)(seq);
+        let ok = after == expect;
+        let line = format!(
+            "META-SAVE field={} acked={expect} after_kill9={after} answered_before_release={} ok={ok}",
             case.field,
-            case.expect,
-            after,
             early.is_some()
-        ));
+        );
+        println!("{line}");
+        report.push(line);
         if !ok {
             lost.push(case.field);
         }
-    }
-    for line in &report {
-        println!("{line}");
     }
     assert!(
         lost.is_empty(),
