@@ -60,8 +60,7 @@ pub(super) fn parse(rest: &[String]) -> Result<Invocation, UsageError> {
     };
     let mut team = None;
     let mut index = 0;
-    while index < tail.len() {
-        let arg = &tail[index];
+    while let Some(arg) = tail.get(index) {
         index += 1;
         let value = if let Some(value) = arg.strip_prefix("--team=") {
             value.to_owned()

@@ -76,11 +76,20 @@ public struct CloudAccessToken: Sendable, Equatable {
         guard let install = error as? InstallAuthError else { return .badReply }
         switch install {
         case .noSession, .userMismatch: return .signedOut
-        case .refused(let code): return .refused(code)
+        case .refused(let code): return isTransient(code) ? .unreachable : .refused(code)
         case .clientTooOld(let minimum): return .clientTooOld(minimumVersion: minimum)
         case .transport: return .unreachable
         case .invalidPublicKey, .unexpectedChallenge, .malformedReply: return .badReply
         }
+    }
+
+    /// A refusal that is the service's trouble, not the account's: a 5xx or 429 status with no
+    /// owner code (`http_503`), or a rate limit. The caller retries those; it never reads them
+    /// as "not a member of the team".
+    static func isTransient(_ code: String) -> Bool {
+        if code == "http_429" || code.contains("rate_limit") { return true }
+        guard code.hasPrefix("http_5"), code.count == 8 else { return false }
+        return code.dropFirst(5).allSatisfy(\.isNumber)
     }
 
     private static func claims(of token: String) -> [String: Any]? {

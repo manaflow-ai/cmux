@@ -57,6 +57,12 @@ import Testing
         #expect(CloudAccessToken.failure(InstallAuthError.transport) == .unreachable)
         #expect(CloudAccessToken.failure(InstallAuthError.clientTooOld(minimumVersion: "3.0")) == .clientTooOld(minimumVersion: "3.0"))
         #expect(CloudAccessToken.failure(InstallAuthError.unexpectedChallenge) == .badReply)
+        // A server or rate-limit status is the service's trouble, never "not a member".
+        #expect(CloudAccessToken.failure(InstallAuthError.refused("http_503")) == .unreachable)
+        #expect(CloudAccessToken.failure(InstallAuthError.refused("http_429")) == .unreachable)
+        #expect(CloudAccessToken.failure(InstallAuthError.refused("auth.rate_limited")) == .unreachable)
+        #expect(CloudAccessToken.failure(InstallAuthError.refused("http_403")) == .refused("http_403"))
+        #expect(CloudAccessToken.failure(InstallAuthError.refused("auth.forbidden")) == .refused("auth.forbidden"))
         #expect(CloudAccessToken.Failure.signedOut.code == "not_signed_in")
         #expect(CloudAccessToken.Failure.noTeam.code == "no_team")
         #expect(CloudAccessToken.Failure.invalidTeam.code == "invalid_params")
