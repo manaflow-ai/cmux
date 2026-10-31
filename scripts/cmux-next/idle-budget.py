@@ -269,7 +269,7 @@ def display_link_clients(path, limit=8):
         frame = re.match(r"[\s+!:|]*(\d+) (.+?)\s+\(in ([^)]+)\)", line)
         if not (inside and frame):
             continue
-        count, symbol, image = int(frame.group(1)), frame.group(2), frame.group(3)
+        count, symbol, image = int(frame.group(1)), frame.group(2), os.path.basename(frame.group(3))
         if image in ("CoreVideo", "libsystem_pthread.dylib", "libsystem_kernel.dylib", "libdyld.dylib"):
             continue
         key = f"{symbol} ({image})"
@@ -277,15 +277,23 @@ def display_link_clients(path, limit=8):
     return sorted(found.items(), key=lambda kv: -kv[1])[:limit]
 
 
-def bundle(out):
-    """Everything this run wrote under `out`, as one file `out/idle-budget.tgz` (`cmux-ci run --artifact` uploads
-    one regular file, not a directory: artifacts/split-spring/idle-budget.tgz)."""
+def bundle(out, sessions, report_path):
+    """What this run wrote, as one file `out/idle-budget.tgz` (`cmux-ci run --artifact` uploads one regular file,
+    not a directory: artifacts/split-spring/idle-budget.tgz): each session's folder (its app log and sample),
+    idle-budget.md and the report. Nothing else under `out` (split-spring keeps the tagged app and the virtual
+    display there). Returns the path, or None when it could not be written (the run's result stands)."""
     import tarfile
     path = os.path.join(out, "idle-budget.tgz")
-    with tarfile.open(path, "w:gz") as archive:
-        for name in sorted(os.listdir(out)):
-            if name != "idle-budget.tgz":
-                archive.add(os.path.join(out, name), arcname=name)
+    members = [(os.path.join(out, name), name) for name in sessions if os.path.isdir(os.path.join(out, name))]
+    members += [(os.path.join(out, "idle-budget.md"), "idle-budget.md"), (report_path, os.path.basename(report_path))]
+    try:
+        with tarfile.open(path, "w:gz") as archive:
+            for source, name in members:
+                if os.path.exists(source):
+                    archive.add(source, arcname=name)
+    except OSError as error:
+        print(f"IDLE-BUDGET-BUNDLE-FAILED {path}: {error}", flush=True)
+        return None
     print(f"IDLE-BUDGET-BUNDLE {path}", flush=True)
     return path
 
@@ -590,7 +598,7 @@ def main():
     with open(path, "w") as handle:
         json.dump(report, handle, indent=1)
     print(f"IDLE-BUDGET over={len(all_overs)} sessions={json.dumps(report['session_exits'])} json={path}", flush=True)
-    bundle(out)
+    bundle(out, list(report["sessions"]), path)
     sys.exit(1 if opts.gate and all_overs else 0)
 
 

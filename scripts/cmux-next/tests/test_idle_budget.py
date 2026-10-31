@@ -66,7 +66,7 @@ class IdleBudgetTests(unittest.TestCase):
         # client its callback reaches (here a Chromium frame), which the bench must name.
         report = """Call graph:
     2417 Thread_1   DispatchQueue_1: com.apple.main-thread  (serial)
-    + 2417 mach_msg  (in libsystem_kernel.dylib) + 8  [0x1]
+    + 2417 CmuxNextApp.main()  (in cmux DEV.debug.dylib) + 8  [0x1]
     4490 Thread_2: CVDisplayLink
     + 4490 thread_start  (in libsystem_pthread.dylib) + 8  [0x2]
     +   4490 CVDisplayLink::runIOThread()  (in CoreVideo) + 600  [0x3]
@@ -82,7 +82,7 @@ Total number in stack
                 handle.write(report)
             clients = ib.display_link_clients(path)
         self.assertEqual(clients[0], ("ui::DisplayLinkMac::DisplayLinkCallback(__CVDisplayLink*) (Chromium Embedded Framework)", 90))
-        self.assertNotIn("mach_msg (libsystem_kernel.dylib)", dict(clients))
+        self.assertNotIn("CmuxNextApp.main() (cmux DEV.debug.dylib)", dict(clients), "a frame of another thread")
         self.assertTrue(all("CoreVideo" not in frame for frame, _ in clients))
 
     def test_bundle_is_one_regular_file_cmux_ci_can_upload(self):
@@ -92,11 +92,17 @@ Total number in stack
                 handle.write("sample")
             with open(os.path.join(out, "idle-budget.json"), "w") as handle:
                 handle.write("{}")
-            path = ib.bundle(out)
+            with open(os.path.join(out, "idle-budget.md"), "w") as handle:
+                handle.write("# table")
+            # What split-spring keeps beside the run (the tagged app, the virtual display) stays out.
+            os.makedirs(os.path.join(out, "app", "cmux DEV split-spring.app"))
+            os.makedirs(os.path.join(out, "vdisplay"))
+            path = ib.bundle(out, ["stress"], os.path.join(out, "idle-budget.json"))
             self.assertEqual(path, os.path.join(out, "idle-budget.tgz"))
             self.assertTrue(os.path.isfile(path))
             with tarfile.open(path) as archive:
-                self.assertEqual(sorted(archive.getnames()), ["idle-budget.json", "stress", "stress/sample-app.txt"])
+                self.assertEqual(sorted(archive.getnames()),
+                                 ["idle-budget.json", "idle-budget.md", "stress", "stress/sample-app.txt"])
 
     def test_checked_in_budget_parses(self):
         budget = ib.json.load(open(ib.BUDGET_FILE))
