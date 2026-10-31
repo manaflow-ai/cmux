@@ -148,9 +148,11 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
     });
 
     // The ··· menu is already full height: Transcript view takes Text & Width's row (its submenu ends
-    // with Text & Width…), so Archive stays on screen. 620 is the transcript-view gallery's pane.
+    // with Text & Width…), so Archive stays on screen. This chat's menu is 647 px tall (21 rows) and
+    // opens 32 px down: a 690 px pane holds it with less than one row to spare, so a row more (the
+    // review of #28782 at 7f8dfad8) pushes Archive out of view and fails here.
     test("the chat menu still shows Archive; Transcript view and Text & Width are in one submenu", async () => {
-      const page = await browser!.newPage({ viewport: { width: 900, height: 620 } });
+      const page = await browser!.newPage({ viewport: { width: 900, height: 690 } });
       await page.goto(pageUrl());
       await page.getByText(ANSWER).waitFor();
       await page.getByRole("button", { name: "Chat actions" }).click();
