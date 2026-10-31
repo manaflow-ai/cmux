@@ -3761,9 +3761,14 @@ export class AcpmuxDirectClient {
     );
   }
 
-  /// The summary says a turn runs (`running`, or `waiting` on an ask) and is not stale.
+  /// The summary says a turn runs (`running`, or `waiting` on an ask in a turn it names) and is
+  /// not stale. acpmux keeps a chat `waiting` with no turn after its turn ended, while a background
+  /// shell or subagent still asks the person (hub/turns.rs): no turn runs then.
   private summaryRuns(summary: Record<string, any> | undefined): boolean {
-    return (summary?.status === "running" || summary?.status === "waiting") && !this.staleRun(summary);
+    if (!summary) return false;
+    const runs =
+      summary.status === "running" || (summary.status === "waiting" && typeof summary.turn?.turnId === "string");
+    return runs && !this.staleRun(summary);
   }
 
   /// A summary can name a live turn whose opening event is outside the attached page. One older

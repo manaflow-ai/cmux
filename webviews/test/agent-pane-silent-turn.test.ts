@@ -308,6 +308,53 @@ test.each(["running", "waiting"])("a %s attach keeps the turn active while waiti
   }
 });
 
+// acpmux keeps a chat `waiting` after its turn ended while a background shell or subagent still
+// asks the person (hub/turns.rs, cx-jo8yo). That row names no turn, so no turn runs.
+test("a turn-less waiting row after the turn's end does not count as working", async () => {
+  const daemon = fakeDaemon(record([["mux", "user_message", { text: "fix the build" }], started]), {
+    status: "running",
+    turn: { turnId: "t1", startedAt: START + 2_000 },
+  });
+  let snapshot: any;
+  const client = await AcpmuxDirectClient.connect(
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
+    (next: any) => (snapshot = next),
+    undefined,
+    daemon.open,
+  );
+  try {
+    await until(() => snapshot?.connection === "connected", "the attach");
+    expect(snapshot.isWorking).toBe(true);
+    daemon.push(record([["mux", "turn_result", { turnId: "t1", status: "completed" }]], 3));
+    daemon.change({ status: "waiting", turn: null });
+    await until(() => snapshot.summary?.status === "waiting", "the turn-less waiting summary");
+    expect(snapshot.isWorking).toBe(false);
+    expect(client.turnRunning()).toBe(false);
+    await client.continueIn("claude").catch(() => undefined);
+    expect(daemon.calls.filter((method) => method === "_acpmux/handoff_prepare")).toHaveLength(1);
+  } finally {
+    client.close();
+  }
+});
+
+test("an attach to a turn-less waiting chat does not count as working", async () => {
+  const daemon = fakeDaemon([], { status: "waiting", turn: null });
+  let snapshot: any;
+  const client = await AcpmuxDirectClient.connect(
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
+    (next: any) => (snapshot = next),
+    undefined,
+    daemon.open,
+  );
+  try {
+    await until(() => snapshot?.connection === "connected", "the attach");
+    expect(snapshot.isWorking).toBe(false);
+    expect(client.turnRunning()).toBe(false);
+  } finally {
+    client.close();
+  }
+});
+
 test("resync rebuild derives lifecycle from a recovered end and next start", async () => {
   const daemon = fakeDaemon([], { turn: { turnId: "t2", startedAt: START + 20_000 } });
   let snapshot: any;
