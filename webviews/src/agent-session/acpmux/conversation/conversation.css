@@ -1793,7 +1793,24 @@ pre.cv-math-source {
 }
 /* The shimmer's layers (ShimmerText.tsx): the band and its lit words show only while loops run. */
 .cv-thinking.is-shimmer {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: visible;
+}
+.cv-shimmer__row {
   position: relative;
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+.cv-shimmer__base {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .cv-shimmer__band {
   display: none;
@@ -1815,17 +1832,32 @@ pre.cv-math-source {
     -webkit-user-select: none;
     -webkit-mask-image: linear-gradient(100deg, transparent 30%, #000 50%, transparent 70%);
     mask-image: linear-gradient(100deg, transparent 30%, #000 50%, transparent 70%);
-    animation: cmux-shimmer-band var(--cmux-breath-period, 2.4s) linear infinite;
+    animation: cmux-shimmer-band var(--cmux-shimmer-period, 2.8s) linear infinite;
   }
   :root:not([data-status-indicators="static"]) .cv-shimmer__lit {
-    display: block;
+    display: flex;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     color: color-mix(in srgb, var(--agent-accent, var(--cv-text)) 70%, var(--cv-text));
-    animation: cmux-shimmer-lit var(--cmux-breath-period, 2.4s) linear infinite;
+    animation: cmux-shimmer-lit var(--cmux-shimmer-period, 2.8s) linear infinite;
   }
-  /* The lit words are generated content: the DOM holds the line's words once. */
+  :root:not([data-status-indicators="static"]) .cv-shimmer__lit-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  :root:not([data-status-indicators="static"]) .cv-shimmer__lit-time {
+    flex: none;
+    margin-inline-start: 6px;
+  }
+  :root:not([data-status-indicators="static"]) .cv-shimmer__lit-label::before,
+  :root:not([data-status-indicators="static"]) .cv-shimmer__lit-time::before {
+    content: attr(data-text);
+  }
+  /* Plain lit words and timed slots use generated content so the DOM holds the line once. */
   :root:not([data-status-indicators="static"]) .cv-shimmer__lit::before {
     content: attr(data-text);
   }
