@@ -9,9 +9,7 @@ import CmuxNextSettings
 import Foundation
 import Observation
 
-/// Opens `cmux://screenshots` and makes its pages. Every page shares one
-/// thumbnail cache and follows the `screenshots.*` settings: a change finds
-/// the folders again (off the main actor) and updates each open page.
+/// Opens `cmux://screenshots` and makes its pages: one thumbnail cache; a `screenshots.*` change finds the folders again.
 @MainActor
 final class ScreenshotsPageService {
     private weak var services: AppServices?
@@ -20,7 +18,8 @@ final class ScreenshotsPageService {
     private let workspace = AppScreenshotsWorkspace()
     /// Drops, renames and trashes go through the Files pane's operations.
     private let files = FileOperator()
-    private let detector = ScreenshotSourceDetector(environment: SystemScreenshotEnvironment())
+    private let detector: ScreenshotSourceDetector
+    let gate = ScreenshotsGate() // the tabs the person unlocked (Show Screenshots)
     /// Open pages by tab key.
     private var pages: [String: ScreenshotsPageTab] = [:]
     /// The last folders found, and the settings they were found for.
@@ -28,8 +27,9 @@ final class ScreenshotsPageService {
     private var detection: Task<Void, Never>?
     private var followsSettings = false
 
-    init(services: AppServices) {
+    init(services: AppServices, environment: any ScreenshotEnvironment = SystemScreenshotEnvironment()) {
         self.services = services
+        detector = ScreenshotSourceDetector(environment: environment)
     }
 
     /// Selects or opens the Screenshots tab, in front only for the person's own run; any other is told (``ScreenshotsOpen``).

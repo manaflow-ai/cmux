@@ -7,6 +7,7 @@ import CmuxNextFiles
 import CmuxNextIcons
 import CmuxNextScreenshots
 import Foundation
+import os
 import Testing
 
 /// The Screenshots pane in the app: one registered action opens it from the palette, the Window
@@ -32,7 +33,7 @@ import Testing
     }
 
     @Test func thePageFiltersOnFindAndLeavesForAWebAddress() async throws {
-        let model = ScreenshotsModel(watcher: NoWatch())
+        let model = ScreenshotsModel(watcher: NoWatch(), listsAtOnce: true)
         let page = ScreenshotsPageTab(id: BrowserTabID(rawValue: "t1"), engine: .webkit, profile: .default, model: model,
                                       cache: ThumbnailCache(), workspace: RecordingWorkspace(), files: FileOperator())
         defer { page.close() }
@@ -116,4 +117,83 @@ private nonisolated struct NoWatch: FolderWatching {
         #expect(fields["opened"] == .string("background"), "a scripted open with focus said nothing: \(fields)")
         #expect(fields["note"] != nil)
     }
+}
+
+/// Folder detection reads other apps' containers and checks folders under ~/Desktop, so it waits for the person's
+/// first click too; the click is remembered for the tab, and `screenshots.open` says exactly what it did.
+@MainActor @Suite(.serialized) struct ScreenshotsGateWiringTests {
+    @Test func nothingIsDetectedBeforeTheClickAndARemadePageNeedsNoSecondClick() async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let environment = CountingEnvironment()
+        let service = ScreenshotsPageService(services: services, environment: environment)
+        let page = service.makePage(key: "tab-a", engine: .webkit, profile: .default)
+        page.setContentVisible(true)
+        for _ in 0..<20 { await Task.yield() }
+        let beforeClick = environment.reads
+        #expect(beforeClick == 0, "detection read \(beforeClick) places before the person clicked")
+        page.view.showScreenshots()
+        for _ in 0..<200 where environment.reads == 0 { try await Task.sleep(for: .milliseconds(10)) }
+        let afterClick = environment.reads
+        #expect(afterClick > 0, "the click started no detection")
+        page.close()
+        // Hibernation wake or engine switch: the page is made again for the same tab.
+        let remade = service.makePage(key: "tab-a", engine: .webkit, profile: .default)
+        defer { remade.close() }
+        let remadeListing = remade.model.isListing, remadePrompt = remade.view.showsPrompt
+        #expect(remadeListing, "a page made again asked for a second click")
+        #expect(!remadePrompt)
+    }
+
+    @Test func screenshotsOpenSaysWhatItDid() async throws {
+        let (services, controller, _) = try await CanvasLayoutActionTests.window()
+        defer { controller.teardown(); controller.window?.close() }
+        func run(_ invocation: ActionInvocation) async -> [String: ActionResultValue] {
+            let captured = services.registry.capturingRun { _ = services.registry.perform("screenshots.open", invocation: invocation) }
+            var fields: [String: ActionResultValue] = [:]
+            for result in captured.results {
+                if case .success(let value) = await result.value { fields.merge(value) { $1 } }
+            }
+            return fields
+        }
+        var script = ActionInvocation(origin: .cli)
+        script.viaControlSocket = true
+        let first = await run(script)
+        #expect(first["opened"] == .string("background"))
+        let pane = try #require(controller.workspaceContent?.focusedPane)
+        let selected = pane.stripModel.selectedID?.rawValue
+        let tabs = pane.pane.tabs.filter { ScreenshotsPageAddress.matches($0.url.flatMap(URL.init(string:))) }
+        #expect(tabs.count <= 1)
+        if let tab = tabs.first { #expect(selected != tab.id, "a scripted open selected the tab") }
+        // A tab already open and unlocked: the script is told it is there, not that it needs a click.
+        if let tab = tabs.first {
+            services.screenshotsPage.gate.unlock(tab.id)
+            let again = await run(script)
+            #expect(again["opened"] == .string("existing"), "\(again)")
+            #expect(again["listing"] == .bool(true))
+        }
+    }
+
+    @Test func screenshotsOpenWithNoWindowRefuses() {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        var script = ActionInvocation(origin: .cli)
+        script.viaControlSocket = true
+        let refusal = services.registry.capturingRefusal { _ = services.registry.perform("screenshots.open", invocation: script) }
+        #expect(refusal != nil)
+    }
+}
+
+/// Counts every place the detector reads; reports nothing there.
+private nonisolated final class CountingEnvironment: ScreenshotEnvironment {
+    private let count = OSAllocatedUnfairLock(initialState: 0)
+    var reads: Int { count.withLock { $0 } }
+    private func note() { count.withLock { $0 += 1 } }
+    var homeDirectory: URL { URL(fileURLWithPath: "/Users/someone", isDirectory: true) }
+    var temporaryDirectory: URL { URL(fileURLWithPath: "/private/var/folders/x/T", isDirectory: true) }
+    func preference(_ key: String, domain: String) -> String? { note(); return nil }
+    func stringPreferences(domain: String) -> [String: String] { note(); return [:] }
+    func text(at url: URL) -> String? { note(); return nil }
+    func isDirectory(_ url: URL) -> Bool { note(); return false }
 }

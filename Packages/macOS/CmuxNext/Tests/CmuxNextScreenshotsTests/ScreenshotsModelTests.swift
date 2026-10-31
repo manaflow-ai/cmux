@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextFileGrid
 import CmuxNextFiles
 @testable import CmuxNextScreenshots
@@ -14,7 +15,7 @@ import Testing
 
     /// No watch: these tests drive events by hand, so the order is deterministic.
     static func model() -> ScreenshotsModel {
-        ScreenshotsModel(watcher: SilentWatcher())
+        ScreenshotsModel(watcher: SilentWatcher(), listsAtOnce: true)
     }
 
     @Test func mergesEveryFolderNewestFirst() async throws {
@@ -149,7 +150,7 @@ import Testing
     /// The real watch (CmuxNextFiles' FolderWatcher): a screenshot saved into a watched folder shows.
     @Test(.timeLimit(.minutes(1))) func theWatchShowsANewScreenshot() async throws {
         let folder = try TemporaryFolder()
-        let model = ScreenshotsModel(watcher: FolderWatcher(latency: 0.05))
+        let model = ScreenshotsModel(watcher: FolderWatcher(latency: 0.05), listsAtOnce: true)
         defer { model.stop() }
         model.setSources([Self.source("a", folder.url)])
         await model.refresh()
@@ -239,4 +240,40 @@ private final class RecordingWatcher: FolderWatching {
         #expect(!script.selects)
         #expect(script.note?.isEmpty == false)
     }
+}
+
+/// The gate remembers the person's click by tab key, so a page made again (hibernation wake, engine switch)
+/// lists with no second click, and no folder is detected until the first click.
+@MainActor @Suite struct ScreenshotsGateTests {
+    @Test func nothingIsUnlockedOrDetectedBeforeTheClickAndTheClickIsRememberedPerTab() {
+        let gate = ScreenshotsGate()
+        #expect(!gate.mayDetect)
+        #expect(!gate.isUnlocked("tab-a"))
+        gate.unlock("tab-a")
+        #expect(gate.mayDetect)
+        #expect(gate.isUnlocked("tab-a"))
+        #expect(!gate.isUnlocked("tab-b"))
+        gate.forget("tab-a")
+        #expect(!gate.isUnlocked("tab-a"))
+        #expect(!gate.mayDetect)
+    }
+
+    @MainActor @Test func theKeyboardReachesTheButtonWhileThePromptIsUp() {
+        let view = ScreenshotsView(model: ScreenshotsModel(watcher: SilentWatcher(), listsAtOnce: false), cache: ThumbnailCache(),
+                                   workspace: NoWorkspace())
+        let gated = view.focusTarget
+        #expect(gated is NSButton, "the focused view before the click is \(type(of: gated))")
+        view.showScreenshots()
+        let listing = view.focusTarget
+        #expect(!(listing is NSButton))
+    }
+
+    @Test func aModelListsOnlyWhenItsCallerSaysSo() {
+        #expect(!ScreenshotsModel(watcher: SilentWatcher()).isListing, "the default must be the safe one")
+    }
+}
+
+@MainActor private final class NoWorkspace: ScreenshotsWorkspace {
+    func open(_ urls: [URL]) {}
+    func reveal(_ urls: [URL]) {}
 }

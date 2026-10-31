@@ -106,8 +106,14 @@ public final class ScreenshotsView: NSView {
                               width: promptWidth, height: promptSize.height)
     }
 
+    /// Runs when the person clicks Show Screenshots (the app remembers the tab and starts the folder detection).
+    public var onShowScreenshots: (() -> Void)?
+
     /// Focuses the grid (the tab got focus).
     public func focus() { grid.focus() }
+
+    /// The view that takes the keyboard when the tab is focused.
+    public var focusTarget: NSView { grid }
 
     /// Whether the Show Screenshots prompt is up (the page has listed nothing yet).
     public var showsPrompt: Bool { !prompt.isHidden }
@@ -116,6 +122,7 @@ public final class ScreenshotsView: NSView {
     /// frame, with no animation.
     @objc public func showScreenshots() {
         model.startListing()
+        onShowScreenshots?()
         refresh()
     }
 
