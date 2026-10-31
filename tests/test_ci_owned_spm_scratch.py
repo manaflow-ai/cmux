@@ -314,6 +314,102 @@ class Scratch(unittest.TestCase):
         self.assertFalse((source / "stray").exists())
         self.assertEqual(built.read_text(), "built")
 
+    def replace_in_checkout(self, name: str, make) -> None:
+        path = self.workspace / name
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+        elif path.is_dir():
+            import shutil
+            shutil.rmtree(path)
+        make(path)
+        git(self.workspace, "add", "-A")
+        git(self.workspace, "commit", "-qm", "replace")
+
+    def test_a_link_to_a_directory_replaced_by_a_real_directory_is_never_followed(self):
+        # The root's b-link -> Packages/macOS/B; the next checkout makes b-link a real directory. The mirror must
+        # write b-link/new into a real b-link, never through the old link into Packages/macOS/B.
+        self.checkout()
+        source = self.lease()
+        scratch.release_holders()
+
+        def real_dir(path):
+            path.mkdir()
+            (path / "new.swift").write_text("let n = 1\n")
+        self.replace_in_checkout("b-link", real_dir)
+        self.lease()
+        self.assertFalse((source / "b-link").is_symlink())
+        self.assertEqual((source / "b-link/new.swift").read_text(), "let n = 1\n")
+        self.assertFalse((source / "Packages/macOS/B/new.swift").exists())
+        self.assertEqual((source / "Packages/macOS/B/Sources/b.swift").read_text(), "let b = 1\n")
+
+    def test_a_link_outside_the_root_is_never_written_through(self):
+        # A root whose link points outside it (an absolute link the last checkout had) must never take writes
+        # meant for a real directory of the same name.
+        self.checkout()
+        outside = Path(self.tmp.name) / "outside"
+        outside.mkdir()
+        (outside / "keep.swift").write_text("outside\n")
+        os.symlink(str(outside), self.workspace / "ext")
+        git(self.workspace, "add", "-A")
+        git(self.workspace, "commit", "-qm", "ext")
+        source = self.lease()
+        scratch.release_holders()
+
+        def real_dir(path):
+            path.mkdir()
+            (path / "keep.swift").write_text("inside\n")
+            (path / "deeper").mkdir()
+            (path / "deeper/x.swift").write_text("x\n")
+        self.replace_in_checkout("ext", real_dir)
+        self.lease()
+        self.assertEqual((outside / "keep.swift").read_text(), "outside\n")
+        self.assertEqual(sorted(p.name for p in outside.iterdir()), ["keep.swift"])
+        self.assertFalse((source / "ext").is_symlink())
+        self.assertEqual((source / "ext/keep.swift").read_text(), "inside\n")
+        self.assertEqual((source / "ext/deeper/x.swift").read_text(), "x\n")
+
+    def test_a_link_ancestor_of_an_unchanged_file_is_replaced_not_trusted(self):
+        # The file's content matches through the old link, so it would be "kept"; the link must still become a
+        # real directory holding the file.
+        self.checkout()
+        source = self.lease()
+        scratch.release_holders()
+
+        def real_dir(path):
+            path.mkdir()
+            (path / "Sources").mkdir()
+            (path / "Sources/b.swift").write_text("let b = 1\n")
+        self.replace_in_checkout("b-link", real_dir)
+        self.lease()
+        self.assertFalse((source / "b-link").is_symlink())
+        self.assertEqual((source / "b-link/Sources/b.swift").read_text(), "let b = 1\n")
+        self.assertEqual((source / "Packages/macOS/B/Sources/b.swift").read_text(), "let b = 1\n")
+
+    def test_a_file_replaced_by_a_directory_and_back(self):
+        self.checkout()
+        source = self.lease()
+        scratch.release_holders()
+
+        def real_dir(path):
+            path.mkdir()
+            (path / "inner.sh").write_text("inner\n")
+        self.replace_in_checkout("tool.sh", real_dir)
+        self.assertEqual(self.lease(), source)
+        self.assertEqual((source / "tool.sh/inner.sh").read_text(), "inner\n")
+        scratch.release_holders()
+        self.replace_in_checkout("tool.sh", lambda path: path.write_text("file again\n"))
+        self.lease()
+        self.assertEqual((source / "tool.sh").read_text(), "file again\n")
+
+    def test_a_directory_replaced_by_a_link(self):
+        self.checkout()
+        source = self.lease()
+        scratch.release_holders()
+        self.replace_in_checkout("Packages/macOS/B/Sources", lambda path: os.symlink("../../Shared/A", path))
+        self.lease()
+        self.assertEqual(os.readlink(source / "Packages/macOS/B/Sources"), "../../Shared/A")
+        self.assertTrue((source / "Packages/Shared/A/Package.swift").is_file())
+
     def test_a_root_another_job_holds_is_never_shared_and_a_second_root_is_made(self):
         self.checkout()
         first = self.lease()
