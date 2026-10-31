@@ -11622,6 +11622,7 @@ function AcpmuxPane() {
                   if (!openPicker("Location")) void chooseWorkspaceFolder();
                 } else void chooseWorkspaceFolder();
               }}
+              share={{ ...(machineName && { machine: machineName }), call: () => callNative("machine.share.self") }}
             />
           </Notice>
         )}
