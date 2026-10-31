@@ -146,16 +146,21 @@ fn session_children_follows_a_child_only_a_later_watch_page_names() {
     assert_eq!(change["change"]["sessionId"], json!(CHILD));
 }
 
-/// A watch list in pages it cannot be read whole from would follow only some of the
-/// session's descendants: the attach is refused, and the client attaches again.
+/// A watch list that cannot be read whole (a bad page, or one after the first that fails)
+/// would follow only some of the session's descendants: the attach is refused, and the
+/// client attaches again.
 #[test]
-fn an_attach_whose_watch_list_comes_in_bad_pages_is_refused() {
-    let fixture = Fixture { watch_pages: true, watch_bad_page: true, ..Fixture::default() };
-    let fake = FakeAcpmux::start_with("children-bad-watch", fixture);
-    let mux = mux_with(&fake, "asa-children-bad-watch");
-    let surface = agent_tab(&mux, Some(SESSION));
-    let mut client = Client::connect(&mux, "children-bad-watch");
-    assert_code(&attach(&mut client, surface), "agent_session.bad_list");
+fn an_attach_whose_watch_list_cannot_be_read_whole_is_refused() {
+    for (name, fixture) in [
+        ("cw-bad", Fixture { watch_pages: true, watch_bad_page: true, ..Fixture::default() }),
+        ("cw-fail", Fixture { watch_pages: true, watch_page_error: true, ..Fixture::default() }),
+    ] {
+        let fake = FakeAcpmux::start_with(name, fixture);
+        let mux = mux_with(&fake, &format!("asa-{name}"));
+        let surface = agent_tab(&mux, Some(SESSION));
+        let mut client = Client::connect(&mux, name);
+        assert_code(&attach(&mut client, surface), "agent_session.bad_list");
+    }
 }
 
 #[test]

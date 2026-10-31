@@ -166,7 +166,7 @@ impl Failure {
             }
             Self::Timeout => "acpmux did not answer in time",
             Self::Refused => "acpmux refused the request",
-            Self::BadList => "acpmux sent a session list that cannot be read whole",
+            Self::BadList => "acpmux's session list could not be read whole",
         }
     }
 

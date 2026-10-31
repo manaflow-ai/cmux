@@ -4,7 +4,8 @@
 use super::*;
 use std::os::unix::net::UnixListener;
 
-/// A fake acpmux on a fresh socket that answers its requests, in order, with `results`.
+/// A fake acpmux on a fresh socket that answers its requests, in order, with `results`
+/// (`{"$error": message}` answers with that error).
 /// Returns the link to it and the params of each request it read.
 fn scripted(
     results: Vec<Value>,
@@ -21,7 +22,11 @@ fn scripted(
             let Some(Ok(line)) = lines.next() else { return };
             let request: Value = serde_json::from_str(&line).unwrap();
             let _ = asked.send(json!({"method": request["method"], "params": request["params"]}));
-            let reply = json!({"jsonrpc": "2.0", "id": request["id"], "result": result});
+            let reply = match result.get("$error") {
+                Some(message) => json!({"jsonrpc": "2.0", "id": request["id"],
+                                        "error": {"code": -32000, "message": message}}),
+                None => json!({"jsonrpc": "2.0", "id": request["id"], "result": result}),
+            };
             if writeln!(writer, "{reply}").is_err() {
                 return;
             }
@@ -113,4 +118,21 @@ fn a_sessions_reply_with_no_list_fails_and_a_watch_reply_without_one_is_as_befor
         link.call_whole_list("_acpmux/watch", json!({"enabled": true}), WAIT).unwrap(),
         json!({})
     );
+}
+
+#[test]
+fn a_page_after_the_first_that_fails_fails_the_list_as_not_whole() {
+    let (link, _asked, _dir) = scripted(vec![
+        json!({"sessions": [row("a", 2)], "nextCursor": "p1"}),
+        json!({"$error": "list.paced"}),
+    ]);
+    let err = link.call_whole_list("_acpmux/watch", json!({"enabled": true}), WAIT).unwrap_err();
+    assert!(
+        matches!(&err, LinkError::BadList(why) if why.contains("after cursor \"p1\" failed")),
+        "{err:?}"
+    );
+    // The first page's own error is the call's, as before.
+    let (link, _asked, _dir) = scripted(vec![json!({"$error": "no"})]);
+    let err = link.call_whole_list("_acpmux/sessions", json!({}), WAIT).unwrap_err();
+    assert!(matches!(err, LinkError::Rpc(..)), "{err:?}");
 }

@@ -160,6 +160,8 @@ pub(super) struct Fixture {
     pub(super) watch_pages: bool,
     /// With [`Fixture::watch_pages`], the page after the watch's cursor lists no sessions.
     pub(super) watch_bad_page: bool,
+    /// With [`Fixture::watch_pages`], the page after the watch's cursor is an error.
+    pub(super) watch_page_error: bool,
 }
 
 fn serve(
@@ -211,6 +213,8 @@ fn serve(
             "_acpmux/sessions" if params["cursor"] == json!("w1") => {
                 Some(if fixture.watch_bad_page {
                     json!({"nextCursor": null})
+                } else if fixture.watch_page_error {
+                    json!({FAKE_ERROR: "list.paced"})
                 } else {
                     json!({"sessions": fixture.watch})
                 })

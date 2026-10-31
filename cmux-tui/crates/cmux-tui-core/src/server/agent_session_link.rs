@@ -51,9 +51,9 @@ pub(crate) enum LinkError {
     /// acpmux does not know the method (JSON-RPC -32601, an acpmux from
     /// before it): its message.
     MethodNotFound(String),
-    /// A session list read whole (`call_whole_list`) came in pages it cannot
-    /// be read whole from: a bad or repeated cursor, or a page with no
-    /// `sessions`: why.
+    /// A session list read whole (`call_whole_list`) could not be: a bad or
+    /// repeated cursor, a page with no `sessions`, or a page after the first
+    /// that failed. Why.
     BadList(String),
 }
 
@@ -158,8 +158,8 @@ impl AcpmuxLink {
     /// pages itself. A list that fits one reply has no cursor, so an older acpmux
     /// answers as before. `timeout` bounds each reply. The pages come in acpmux's
     /// byte-page order, so the joined rows are sorted newest first again; a cursor given
-    /// twice or not a string, or a page with no `sessions`, fails the list instead of
-    /// looping or passing for whole.
+    /// twice or not a string, a page with no `sessions`, or a page after the first that
+    /// fails, is [`LinkError::BadList`] instead of a loop or a list passing for whole.
     pub(crate) fn call_whole_list(
         &self,
         method: &str,
@@ -196,7 +196,11 @@ impl AcpmuxLink {
                 )));
             };
             p.insert("cursor".into(), Value::String(cursor.clone()));
-            let mut page = self.call("_acpmux/sessions", rest.clone(), timeout)?;
+            // Past the first page the list is no whole one: a caller that took the
+            // first page's error as it is would go on with the first page alone.
+            let mut page = self
+                .call("_acpmux/sessions", rest.clone(), timeout)
+                .map_err(|e| bad(format!("the page after cursor {cursor:?} failed: {e:?}")))?;
             let (Some(Value::Array(rows)), Some(all)) = (
                 page.get_mut("sessions").map(Value::take),
                 reply.get_mut("sessions").and_then(Value::as_array_mut),
