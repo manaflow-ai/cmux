@@ -1907,7 +1907,7 @@ mod agent_messages;
 mod app_reply;
 mod client_request;
 mod clock_text;
-pub(crate) use clock_text::iso;
+pub(crate) use clock_text::{civil_from_days, iso};
 mod change_kind;
 mod chat_windows;
 pub use chat_windows::live_tasks as live_chat_window_tasks;
@@ -2128,6 +2128,10 @@ mod request_admission_tests {
 #[cfg(test)]
 #[path = "acp_list_tests.rs"]
 mod acp_list_tests;
+
+#[cfg(test)]
+#[path = "list_fit_tests.rs"]
+mod list_fit_tests;
 
 #[cfg(test)]
 #[path = "session_list_pages_tests.rs"]
