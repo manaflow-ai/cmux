@@ -1,3 +1,4 @@
+@testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextCloud
 import Foundation
@@ -119,5 +120,56 @@ struct CloudStartChatMachineTests {
         #expect(relaunched.machine(for: keys[1]) == "vm-1")
         #expect(relaunched.machine(for: keys.last!) == "vm-\(CloudStartChat.Destinations.limit)")
         #expect(relaunched.machines.count == CloudStartChat.Destinations.limit)
+    }
+
+    /// A retry after the copy finished opens its chat without copying again: a second push would
+    /// overwrite what the chat already changed on the machine.
+    @Test func aFinishedCopyIsKeptPerSendAndMachineAcrossARelaunch() throws {
+        let suite = "cn-start-chat-copy-\(UUID().uuidString.prefix(8))"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let first = CloudStartChat.Destinations()
+        first.defaults = { defaults }
+        let key = UUID().uuidString
+        first.record("vm-a", for: key)
+        #expect(first.copiedChat(for: key, on: "vm-a") == nil)
+        first.recordCopy("/home/cmux/work/chats/k/paint", for: key, on: "vm-a")
+        // Pinning the same machine again (the retry) keeps the finished copy.
+        first.record("vm-a", for: key)
+
+        let relaunched = CloudStartChat.Destinations()
+        relaunched.defaults = { defaults }
+        #expect(relaunched.copiedChat(for: key.lowercased(), on: "vm-a") == "/home/cmux/work/chats/k/paint")
+        // Another machine (the first one is gone) has no copy of this send yet.
+        #expect(relaunched.copiedChat(for: key, on: "vm-b") == nil)
+        relaunched.record("vm-b", for: key)
+        #expect(relaunched.copiedChat(for: key, on: "vm-a") == nil)
+        #expect(relaunched.copiedChat(for: key, on: "vm-b") == nil)
+        #expect(relaunched.copiedChat(for: UUID().uuidString, on: "vm-a") == nil)
+    }
+
+    /// A folder the page named is copied only as the pane checked it.
+    @Test func aPageNamedFolderIsCopiedOnlyAsItsCheckedUploadRoot() throws {
+        let folder = try #require(CloudMoveFolder(chat: "/Users/me/src/paint"))
+        var start = try #require(AgentPaneCloudStart(params: ["task": "t", "cwd": "/Users/me/src/paint", "key": UUID().uuidString]))
+        #expect(!CloudStartChat.uploads(folder, as: start))
+        start.uploadRoot = folder.root
+        #expect(CloudStartChat.uploads(folder, as: start))
+        start.uploadRoot = "/Users/me/src/paint/sub"
+        #expect(!CloudStartChat.uploads(folder, as: start))
+        // The tab's own folder (no `cwd`) is copied as Move to Cloud copies it.
+        let tabs = try #require(AgentPaneCloudStart(params: ["task": "t", "key": UUID().uuidString]))
+        #expect(CloudStartChat.uploads(folder, as: tabs))
+    }
+
+    /// The create's key is the send's, so a retry after a lost create answer never makes a second VM.
+    @Test func aNewMachineIsCreatedUnderTheSendsKey() throws {
+        let key = UUID().uuidString
+        let start = try #require(AgentPaneCloudStart(params: ["task": "t", "key": key]))
+        let request = CloudStartChat.createRequest(for: start, sizedFor: nil)
+        #expect(request.idempotencyKey == "cloud-start-chat-" + key.lowercased())
+        let retry = try #require(AgentPaneCloudStart(params: ["task": "t", "key": key.uppercased()]))
+        #expect(CloudStartChat.createRequest(for: retry, sizedFor: nil).idempotencyKey == request.idempotencyKey)
+        #expect(!request.wasSent)
     }
 }

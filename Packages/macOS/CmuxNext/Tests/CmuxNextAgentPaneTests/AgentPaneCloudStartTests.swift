@@ -163,6 +163,40 @@ struct AgentPaneCloudStartTests {
         #expect(await model.respond(to: Self.start(Self.good.merging(["cwd": folder]) { $1 }))["ok"] as? Bool == true)
     }
 
+    /// The copy uploads the Git working copy that holds the folder: a grant of /repo/paint never
+    /// uploads /repo (its siblings and its history); a grant of /repo does, as its upload root.
+    @Test func aFolderInsideAGitWorkingCopyIsCopiedOnlyWhenTheWholeCopyIsInScope() async throws {
+        let starts = Starts()
+        let (repo, folder) = try Self.project()
+        defer { try? FileManager.default.removeItem(atPath: repo) }
+        try FileManager.default.createDirectory(atPath: (repo as NSString).appendingPathComponent(".git"), withIntermediateDirectories: true)
+        let narrow = Self.pane(starts, root: folder)
+        narrow.transport.gestures.record()
+        let refused = await narrow.respond(to: Self.start(Self.good.merging(["cwd": folder]) { $1 }))
+        #expect(refused["ok"] as? Bool != true)
+        #expect(narrow.transport.replacements.beginSandbox())
+        #expect(starts.seen.isEmpty)
+
+        let whole = Self.pane(starts, root: repo)
+        whole.transport.gestures.record()
+        let started = await whole.respond(to: Self.start(Self.good.merging(["cwd": folder]) { $1 }))
+        #expect(started["ok"] as? Bool == true)
+        #expect(starts.seen.first?.cwd == Self.canonical(folder))
+        #expect(starts.seen.first?.uploadRoot == Self.canonical(repo))
+        #expect(AgentPaneCloudStart.uploadRoot(of: try #require(Self.canonical(folder))) == Self.canonical(repo))
+    }
+
+    /// The create's key is the send's: a retry after a lost create answer gets the same machine.
+    @Test func aRetryOfTheSameSendCreatesUnderTheSameKey() throws {
+        let key = UUID().uuidString
+        let first = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": key]) { $1 }))
+        let retry = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": key.lowercased()]) { $1 }))
+        let other = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": UUID().uuidString]) { $1 }))
+        #expect(first.createKey == retry.createKey)
+        #expect(first.createKey != other.createKey)
+        #expect(first.createKey.count <= 128)
+    }
+
     @Test func eachSendCopiesTheFolderToItsOwnPlaceOnTheMachine() throws {
         let key = UUID().uuidString
         let first = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": key]) { $1 }))

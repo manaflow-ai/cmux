@@ -89,6 +89,10 @@ extension CloudStartChat {
         private struct Entry: Codable, Equatable {
             var key: String
             var machineID: String
+            /// The chat's folder on that machine once the send's copy finished there: a retry
+            /// opens its chat there without copying again, which would overwrite what the chat
+            /// already changed (`cmux link sync push` rewrites every file the machine changed).
+            var copiedChat: String?
         }
 
         var defaults: @MainActor () -> UserDefaults? = { nil }
@@ -105,12 +109,29 @@ extension CloudStartChat {
         /// Every machine a kept send ran on.
         var machines: Set<String> { Set(entries().map(\.machineID)) }
 
-        /// Pins the send `key` to `machineID` (before anything runs there).
+        /// Pins the send `key` to `machineID` (before anything runs there). A pin to the same
+        /// machine keeps its finished copy.
         func record(_ machineID: String, for key: String) {
             let key = key.lowercased()
-            var all = entries().filter { $0.key != key }
-            all.append(Entry(key: key, machineID: machineID))
-            save(Array(all.suffix(Self.limit)))
+            let all = entries()
+            let copied = all.last { $0.key == key && $0.machineID == machineID }?.copiedChat
+            var kept = all.filter { $0.key != key }
+            kept.append(Entry(key: key, machineID: machineID, copiedChat: copied))
+            save(Array(kept.suffix(Self.limit)))
+        }
+
+        /// The chat's folder on `machineID` when the send `key`'s copy finished there.
+        func copiedChat(for key: String, on machineID: String) -> String? {
+            let key = key.lowercased()
+            return entries().last { $0.key == key && $0.machineID == machineID }?.copiedChat
+        }
+
+        /// The send `key`'s copy finished on `machineID`, its chat's folder there `chat`.
+        func recordCopy(_ chat: String, for key: String, on machineID: String) {
+            let key = key.lowercased()
+            var kept = entries().filter { $0.key != key }
+            kept.append(Entry(key: key, machineID: machineID, copiedChat: chat))
+            save(Array(kept.suffix(Self.limit)))
         }
 
         /// Drops the send `key`'s pin (its machine is gone).
@@ -134,6 +155,15 @@ extension CloudStartChat {
             }
             defaults.set(try? JSONEncoder().encode(all), forKey: Self.defaultsKey)
         }
+    }
+
+    /// The create of the machine for the send `start`: sized for the chat, under the send's own
+    /// idempotency key (``AgentPaneCloudStart/createKey``), so a retry after a create whose answer
+    /// was lost gets the same machine from the server, never a second paid VM.
+    static func createRequest(for start: AgentPaneCloudStart, sizedFor pick: CloudWorkPick?) -> CloudMachineRequest {
+        var request = CloudChatPick.request(sizedFor: pick)
+        request.idempotencyKey = start.createKey
+        return request
     }
 
     /// Where a send goes: a machine by id, or a new one for chats.
@@ -179,7 +209,7 @@ extension CloudStartChat {
         case .new:
             let created = try await cloud.createMachine(name: Self.newMachineName(taken: machines.cloud.map(\.machine.title)),
                                                         startedByPerson: invocation.origin == .user,
-                                                        request: CloudChatPick.request(sizedFor: await pick()))
+                                                        request: Self.createRequest(for: start, sizedFor: await pick()))
             destinations.record(created.machineID, for: start.key)
             invocation.arguments["machine"] = .string(created.machineID)
         }

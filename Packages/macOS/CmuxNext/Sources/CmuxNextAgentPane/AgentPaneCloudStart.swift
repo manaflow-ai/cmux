@@ -13,6 +13,10 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     public var model: String?
     /// The page's send: a second call with the same key while one runs is the same send.
     public var key: String
+    /// The folder the copy uploads (the Git working copy that holds ``cwd``, else ``cwd``), set by
+    /// the pane once it checked that folder against its roots too (``AgentPaneHandOff``); nil when
+    /// the page named no folder. The App copies only this folder, never one it finds anew.
+    public var uploadRoot: String?
 
     public init(task: String, cwd: String?, harness: String? = nil, model: String? = nil, key: String) {
         (self.task, self.cwd, self.harness, self.model, self.key) = (task, cwd, harness, model, key)
@@ -43,6 +47,23 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     /// machine (Move to Cloud's sync overwrites every file the machine changed), and a retry of
     /// the same send lands in the same copy.
     public var remotePlace: String { "chats/" + key.lowercased() }
+
+    /// The idempotency key of the Cloud machine a send creates: a retry of the same send whose
+    /// create reached the server but lost its answer gets that machine back, never a second VM.
+    public var createKey: String { "cloud-start-chat-" + key.lowercased() }
+
+    /// The folder `cmux link sync push` copies for a chat in `folder`: the nearest folder at or
+    /// above it holding `.git` (a Git working copy's top), else `folder` itself (as
+    /// `CloudMoveFolder` picks it). Reads the disk.
+    public nonisolated static func uploadRoot(of folder: String) -> String {
+        var current = folder
+        while true {
+            if FileManager.default.fileExists(atPath: (current as NSString).appendingPathComponent(".git")) { return current }
+            let parent = (current as NSString).deletingLastPathComponent
+            if parent == current || parent.isEmpty { return folder }
+            current = parent
+        }
+    }
 
     /// The seed of the chat on the Cloud machine, in `cwd` (the folder's copy there): the person's
     /// prompt, sent once with the Send's gesture, on the agent and model the page picked.
@@ -76,11 +97,19 @@ struct AgentPaneHandOff {
         // the pane's own folders (AcpmuxPathPolicy's roots, by canonical path and by components),
         // never home or above it, as for a chat that starts here. Nil: the App uses the tab's folder.
         var start = start
+        start.uploadRoot = nil
         if let cwd = start.cwd {
             guard let folder = await Self.folderInScope(cwd, transport: model.transport) else {
                 return AgentPaneModel.transportFailure(.pathOutsideRoots)
             }
+            // What is copied is the Git working copy that holds the folder: it must be in scope too,
+            // so a grant of /repo/project never uploads /repo, its siblings and its history.
+            let root = await Task.detached(priority: .userInitiated) { AgentPaneCloudStart.uploadRoot(of: folder) }.value
+            guard root == folder || (await Self.folderInScope(root, transport: model.transport)) == root else {
+                return AgentPaneModel.transportFailure(.pathOutsideRoots)
+            }
             start.cwd = folder
+            start.uploadRoot = root
         }
         return await held("cloud.startChat") { [start] replacements in
             let reply = await run(start)
