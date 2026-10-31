@@ -333,13 +333,13 @@ import {
   atFoldBottom,
   clickFold,
   FOLD_HOLD_MIN_MS,
+  FOLD_SETTLE_MS,
   foldHoldTarget,
   foldHolding,
   foldRoomFor,
   foldToggleAt,
   holdFold,
   keepFold,
-  STACK_FOLD_MS,
   trimmedFoldRoom,
   verticalWheel,
   type FoldAnchor,
@@ -3108,14 +3108,14 @@ export function VirtualTranscript({
   /// The disclosure line the reader just clicked, held where they clicked it while its fold plays
   /// (conversation/foldAnchor.ts).
   const foldAnchor = useRef<FoldAnchor | undefined>(undefined);
-  /// A fold clicked at the end keeps the physical bottom edge fixed while the whole transcript
-  /// stack makes one short compositor move. Its row observer pins the edge between React placement
-  /// passes while the disclosure's own height animation changes the measured row.
+  // A bottom disclosure lays out once, then the whole thread slides to that layout. Its row
+  // marker tells useFold to skip the competing height animation; away from the end nothing changes.
   type BottomStackFold = {
     toggle: HTMLElement;
-    beforeEnd: number;
+    row: HTMLElement;
+    beforeTop: number;
+    delta: number;
     animation?: Animation;
-    rowObserver?: ResizeObserver;
     cleanupTimer?: ReturnType<typeof setTimeout>;
   };
   const bottomStackFold = useRef<BottomStackFold | undefined>(undefined);
@@ -3124,14 +3124,15 @@ export function VirtualTranscript({
     if (!stack) return;
     bottomStackFold.current = undefined;
     foldAnchor.current = undefined;
-    if (stack.cleanupTimer !== undefined) clearTimeout(stack.cleanupTimer);
-    stack.rowObserver?.disconnect();
+    stack.row.removeAttribute("data-bottom-fold");
+    clearTimeout(stack.cleanupTimer);
     if (stack.animation) {
       stack.animation.onfinish = null;
       stack.animation.oncancel = null;
       stack.animation.cancel();
     }
   }, []);
+  useEffect(() => stopBottomStackFold, [stopBottomStackFold]);
   /// The content end a clicked disclosure keeps (foldAnchor.ts `foldRoomFor`): 0, or the view's end
   /// when the line was clicked. Closing a body at the transcript's end leaves that much room under
   /// the rows instead of letting the browser clamp the offset, which brought every row down by what
@@ -3662,39 +3663,30 @@ export function VirtualTranscript({
       setScrollAt(moved);
     }
     if (bottomStacking && node && stack) {
-      // At the end, the composer is the fixed edge: keep the physical scroll end there while the
-      // disclosure's own height animation reports each new row size. The thread transform starts
-      // at the full measured rise and eases to rest once, so the rows move as one stack.
+      // The body takes its final height before paint. Pin the scroller there, then play the
+      // difference on the compositor. A late measure updates that same effect on its original clock,
+      // never starts another animation or drives a per-frame layout/scroll loop.
       const latest = Math.max(0, layout.totalHeight - height);
       settleFollowBottom(node, latest);
-      const delta = latest - stack.beforeEnd;
+      const delta = layoutScrollTop(node) - stack.beforeTop;
       const host = thread.current;
-      if (!stack.animation && host && Math.abs(delta) > 0.5) {
-        const duration = foldMs(host);
-        if (duration > 0) {
-          const animation = host.animate([{ translate: `0 ${delta}px` }, { translate: "0 0" }], {
-            duration: Math.max(150, Math.min(200, duration)),
-            easing: foldMotion.easing(host),
-          });
-          stack.animation = animation;
-          const finished = () => {
-            if (bottomStackFold.current !== stack) return;
-            if (stack.cleanupTimer !== undefined) clearTimeout(stack.cleanupTimer);
-            stack.rowObserver?.disconnect();
-            bottomStackFold.current = undefined;
-            foldAnchor.current = undefined;
-          };
-          animation.onfinish = finished;
-          animation.oncancel = finished;
-        } else {
-          // With motion disabled the fold has already settled in this layout pass; release the
-          // virtualizer's held row immediately so a programmatic scroll can unmount it.
-          if (stack.cleanupTimer !== undefined) clearTimeout(stack.cleanupTimer);
-          stack.rowObserver?.disconnect();
-          bottomStackFold.current = undefined;
-          foldAnchor.current = undefined;
+      if (host && Math.abs(delta - stack.delta) > 0.5) {
+        stack.delta = delta;
+        const frames = [{ translate: `0 ${delta}px` }, { translate: "0 0" }];
+        if (stack.animation) (stack.animation.effect as KeyframeEffect).setKeyframes(frames);
+        else {
+          const duration = foldMs(host);
+          if (duration > 0) {
+            stack.animation = host.animate(frames, { duration, easing: foldMotion.easing(host) });
+            stack.animation.onfinish = () => {
+              if (bottomStackFold.current === stack) stopBottomStackFold();
+            };
+            stack.animation.oncancel = stack.animation.onfinish;
+          } else stopBottomStackFold();
         }
       }
+      scrollPacer.current?.cancel();
+      setScrollAt(node.scrollTop);
     } else if (folding && node) {
       // What opened pushed the latest row out of view, or what closed left room under it
       // (`foldRoom`): the view is the reader's now, not following, so a reply that streams on
@@ -3899,7 +3891,6 @@ export function VirtualTranscript({
     sessionId,
     seekExpired,
     canLoadOlder,
-    dropFoldRoom,
     followResume,
   ]);
   // A toggled "Worked for" plays when its rows are placed again (watchTurnFold, started at the
@@ -3932,19 +3923,20 @@ export function VirtualTranscript({
       const shown = rowsRef.current;
       const host = thread.current;
       settleTurnFold(host, turnFold.current, foldGhosts.current);
-      const fold = node
-        ? startTurnFold(
-            host,
-            id,
-            !(shown.find((row) => row.id === id)?.foldOpen ?? foldInputs.current.expanded.has(id)),
-            {
-              count: shown.length,
-              idAt: (index) => shown[index]?.id,
-              tops: foldInputs.current.layout.tops,
-            },
-            foldInputs.current.sessionId,
-          )
-        : undefined;
+      const fold =
+        node && !bottomStackFold.current
+          ? startTurnFold(
+              host,
+              id,
+              !(shown.find((row) => row.id === id)?.foldOpen ?? foldInputs.current.expanded.has(id)),
+              {
+                count: shown.length,
+                idAt: (index) => shown[index]?.id,
+                tops: foldInputs.current.layout.tops,
+              },
+              foldInputs.current.sessionId,
+            )
+          : undefined;
       turnFold.current = fold;
       // The rows as placed by the latest render, read when a pass runs.
       const read = () => {
@@ -4019,6 +4011,7 @@ export function VirtualTranscript({
     (node: HTMLDivElement) => {
       stopJump();
       stopScroll(node);
+      stopBottomStackFold();
       foldAnchor.current = undefined;
       scrollPacer.current?.cancel();
       const top = node.scrollTop;
@@ -4041,7 +4034,7 @@ export function VirtualTranscript({
         anchorTimer.current = setTimeout(() => reportAnchorRef.current(), SCROLL_ANCHOR_SETTLE_MS);
       }
     },
-    [stopJump],
+    [stopBottomStackFold, stopJump],
   );
   // The current match's reveal window: 0 until it starts, then the window's own number.
   const revealWindow = useRef(0);
@@ -4257,6 +4250,7 @@ export function VirtualTranscript({
     }
     revealing.current = undefined;
     revealWindow.current = 0;
+    stopBottomStackFold();
     foldAnchor.current = undefined;
     dropFoldRoom();
     stopJump();
@@ -4380,6 +4374,8 @@ export function VirtualTranscript({
     // The room the stack grew while scrolled up comes first, out of view, so following again moves
     // nothing and the glide runs to the end above the card instead of snapping there.
     takeRoom();
+    stopBottomStackFold();
+    foldAnchor.current = undefined;
     dropFoldRoom(true);
     clearScrollOrigin(node);
     follow(true);
@@ -4438,13 +4434,13 @@ export function VirtualTranscript({
       revealing.current = undefined;
       revealWindow.current = 0;
       // A sideways wheel (a code block's own scroll) keeps a disclosure's hold; the rest lets go.
-      if (!(event?.type === "wheel" && !verticalWheel(event as WheelEvent))) foldAnchor.current = undefined;
+      if (!(event?.type === "wheel" && !verticalWheel(event as WheelEvent))) {
+        stopBottomStackFold();
+        foldAnchor.current = undefined;
+      }
       if (findFrame.current !== undefined) cancelAnimationFrame(findFrame.current);
       findFrame.current = undefined;
-      if (reader(event)) {
-        stopBottomStackFold();
-        followIntent(false);
-      }
+      if (reader(event)) followIntent(false);
       // Moving toward the latest row while following keeps following through the hold.
       else if (followingRef.current && movingDown(event)) followRequest.current = intent.request();
       if (jumpTarget.current !== undefined) {
@@ -4537,31 +4533,29 @@ export function VirtualTranscript({
       setFoldRoom(end);
     };
     const beginBottomStackFold = (toggle: HTMLElement, line: HTMLElement): boolean => {
+      // This ask is for tool/work disclosures. Message Show more/less and other controls retain
+      // their established row anchor, including the room they need when closing at the end.
+      if (!toggle.matches(".cv-tool.is-toggle, .cv-worked, .cv-subagents")) return false;
       if (!atFoldBottom(node.scrollTop, node.clientHeight, node.scrollHeight, FOLLOW_BOTTOM_DEADBAND_PX)) {
         stopBottomStackFold();
         return false;
       }
+      const row = line.closest<HTMLElement>(".acpmux-row");
+      if (!row) return false;
       stopBottomStackFold();
+      followGlide.current?.stop();
+      stopJump();
       dropFoldRoom();
-      const stack: BottomStackFold = {
-        toggle,
-        beforeEnd: Math.max(0, node.scrollHeight - node.clientHeight),
-      };
+      const stack: BottomStackFold = { toggle: line, row, beforeTop: layoutScrollTop(node), delta: 0 };
       bottomStackFold.current = stack;
-      if (typeof ResizeObserver !== "undefined") {
-        const row = line.closest<HTMLElement>(".acpmux-row") ?? line;
-        stack.rowObserver = new ResizeObserver(() => {
-          if (bottomStackFold.current !== stack) return;
-          const end = Math.max(0, node.scrollHeight - node.clientHeight);
-          if (end - node.scrollTop > 0.5) node.scrollTop = end;
-        });
-        stack.rowObserver.observe(row);
-      }
+      row.setAttribute("data-bottom-fold", "");
+      // The explicit toggle reacquires follow even a few pixels from the end. Streaming never does.
+      followIntent(true);
       stack.cleanupTimer = setTimeout(
         () => {
           if (bottomStackFold.current === stack) stopBottomStackFold();
         },
-        Math.max(FOLD_HOLD_MIN_MS, STACK_FOLD_MS * 3),
+        Math.max(FOLD_HOLD_MIN_MS, foldMs(line) + FOLD_SETTLE_MS),
       );
       return true;
     };
@@ -4605,6 +4599,7 @@ export function VirtualTranscript({
       const key = (event as KeyboardEvent).key;
       if (key === "Enter" || key === " ") return;
       if (event.type === "wheel" && !verticalWheel(event as WheelEvent)) return;
+      stopBottomStackFold();
       foldAnchor.current = undefined;
     };
     const releases = ["wheel", "touchstart", "keydown"] as const;

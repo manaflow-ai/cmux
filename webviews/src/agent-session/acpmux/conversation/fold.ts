@@ -96,7 +96,7 @@ export function clipFold(node: HTMLElement, on: boolean): void {
 /// midway starts from where it was drawn, as `from` is read while it plays.
 export function playResize(node: HTMLElement, from: number): void {
   resizing.get(node)?.cancel();
-  const ms = foldMs(node);
+  const ms = node.closest("[data-bottom-fold]") ? 0 : foldMs(node);
   const to = node.getBoundingClientRect().height;
   if (ms <= 0 || Math.abs(to - from) < 0.5) return;
   // The rows below are placed before paint while it plays, as a fold's are (`heightFoldInFlight`).
@@ -216,9 +216,13 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
     const node = ref.current;
     // A box a close left pinned shut (below) opens from its own size again.
     if (node) pin(node, undefined);
-    const ms = animates() ? foldMs(node) : 0;
+    // At the bottom VirtualTranscript owns the one stack transform. Settle this body before
+    // measurement instead of relaying a height animation through ResizeObserver on every frame.
+    const stack = node?.closest("[data-bottom-fold]");
+    const ms = !stack && animates() ? foldMs(node) : 0;
     if (!node || ms <= 0) {
       cancelRunning();
+      if (node && !open) pin(node, 0);
       setClosing(false);
       return;
     }

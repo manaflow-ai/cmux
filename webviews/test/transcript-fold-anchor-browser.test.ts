@@ -1,8 +1,6 @@
 // l10n-allow-file: test fixture prompts, answers and tool titles, not shipped UI.
-// Opening or closing a tool call, or a turn's "Worked for", never moves the reader's view (Leo
-// 2026-10-20), in a real layout: while the view follows a streaming reply, the clicked line stays
-// on the pixel it was clicked at through every frame of its fold, and the reply streaming on below
-// does not pull it away. The fold plays (a height animation on `.cv-fold`) except under Reduce Motion.
+// Tool disclosures at the end keep the bottom pinned with one compositor transform (Leo,
+// 2026-10-31). Away from the end, the clicked row holds its pixel through its height fold.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -144,6 +142,7 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
           bottomDrift: number;
           threadAnimations: number;
           threadDuration: number | null;
+          animatedHeights: number;
         }>((resolve) => {
           const start = performance.now();
           let moved = 0;
@@ -151,6 +150,7 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
           let stacked = 0;
           let bottomDrift = 0;
           const threadAnimations = new Set<Animation>();
+          const animatedHeights = new Set<number>();
           let threadDuration: number | null = null;
           window.cmuxAfterPaint(() => {
             const line = document.querySelector<HTMLElement>("[data-probe]");
@@ -165,6 +165,7 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
             for (const animation of thread?.getAnimations() ?? []) {
               if (animation.playState !== "running" || animation.effect?.getTiming().iterations === Infinity) continue;
               threadAnimations.add(animation);
+              if (scroller) animatedHeights.add(scroller.scrollHeight);
               const duration = animation.effect?.getTiming().duration;
               threadDuration = typeof duration === "number" ? duration : null;
             }
@@ -178,7 +179,15 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
               }
             stacked = Math.max(stacked, ...each.values(), 0);
             if (performance.now() - start < duration) return;
-            resolve({ moved, folded, stacked, bottomDrift, threadAnimations: threadAnimations.size, threadDuration });
+            resolve({
+              moved,
+              folded,
+              stacked,
+              bottomDrift,
+              threadAnimations: threadAnimations.size,
+              threadDuration,
+              animatedHeights: animatedHeights.size,
+            });
             return false;
           });
         }),
@@ -208,7 +217,8 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
 
     const opened = await clickAndWatch(page);
     expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
-    expect(opened.folded).toBe(true);
+    expect(opened.folded).toBe(false);
+    expect(opened.animatedHeights).toBe(1);
     expect(opened.bottomDrift).toBeLessThanOrEqual(2);
     expect(opened.threadAnimations).toBe(1);
     expect(opened.threadDuration).toBeGreaterThanOrEqual(150);
@@ -227,9 +237,41 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("false");
     expect(closed.bottomDrift).toBeLessThanOrEqual(2);
     expect(closed.threadAnimations).toBe(1);
+    expect(closed.folded).toBe(false);
+    expect(closed.animatedHeights).toBe(1);
     expect(closed.threadDuration).toBeGreaterThanOrEqual(150);
     expect(closed.threadDuration).toBeLessThanOrEqual(200);
     expect(await atLatest(page)).toBe(true);
+    await page.close();
+  });
+
+  test("a tool toggle just above the end reacquires bottom follow, and user scroll cancels its motion", async () => {
+    const page = await open("no-preference");
+    await show(page, [...done, ...live(1)]);
+    await settle(page);
+    await page.evaluate(() => {
+      const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      node.dispatchEvent(new WheelEvent("wheel", { deltaY: -3, bubbles: true }));
+      node.scrollTop -= 3;
+    });
+    await settle(page);
+    await probe(page, '[data-row-id="live-run"] button.cv-tool.is-toggle[aria-expanded="false"]');
+    const opened = await clickAndWatch(page);
+    expect(opened.bottomDrift).toBeLessThanOrEqual(3);
+    expect(opened.threadAnimations).toBe(1);
+    expect(await atLatest(page)).toBe(true);
+    // Dispatch the reversal and scroll in one task so the cancellation cannot miss a short animation.
+    await page.evaluate(async () => {
+      document.querySelector<HTMLElement>("[data-probe]")!.click();
+      await window.cmuxPaintFrame();
+      const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      node.dispatchEvent(new WheelEvent("wheel", { deltaY: -100, bubbles: true }));
+      node.scrollTop -= 100;
+    });
+    await settle(page);
+    expect(await atLatest(page)).toBe(false);
+    expect(await page.locator("[data-bottom-fold]").count()).toBe(0);
+    expect(await page.locator(".acpmux-thread").evaluate((node) => node.getAnimations().length)).toBe(0);
     await page.close();
   });
 
