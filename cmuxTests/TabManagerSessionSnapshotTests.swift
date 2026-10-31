@@ -111,6 +111,42 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNotEqual(manager.sessionAutosaveFingerprint(), before)
     }
 
+    func testAutosaveFingerprintFollowsSelectedWorkspacePastTheLimit() {
+        let limit = SessionPersistencePolicy.maxWorkspacesPerWindow
+        let manager = makeTabManager()
+        while manager.tabs.count < limit + 2 {
+            manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        }
+        let selected = manager.tabs[limit + 1]
+        manager.selectWorkspace(selected)
+
+        let before = manager.sessionAutosaveFingerprint()
+        selected.setCustomTitle("Renamed")
+        XCTAssertNotEqual(manager.sessionAutosaveFingerprint(), before)
+    }
+
+    func testRestoringGroupWithoutItsSavedAnchorDoesNotCallAMemberGenerated() throws {
+        let manager = makeTabManager()
+        let child = manager.addWorkspace(select: true, autoWelcomeIfNeeded: false)
+        let groupId = try XCTUnwrap(
+            manager.createWorkspaceGroup(name: "Group", childWorkspaceIds: [child.id])
+        )
+
+        var snapshot = manager.sessionSnapshot(includeScrollback: false)
+        var groups = try XCTUnwrap(snapshot.workspaceGroups)
+        let groupIndex = try XCTUnwrap(groups.firstIndex { $0.id == groupId })
+        // What a save writes when the generated anchor is outside the kept set.
+        groups[groupIndex].anchorMemberIndex = nil
+        groups[groupIndex].anchorWorkspaceId = UUID()
+        groups[groupIndex].anchorWorkspaceProvenance = WorkspaceGroupAnchorProvenance.generated.rawValue
+        snapshot.workspaceGroups = groups
+
+        let restored = makeTabManager()
+        restored.restoreSessionSnapshot(snapshot)
+        let group = try XCTUnwrap(restored.workspaceGroups.first { $0.id == groupId })
+        XCTAssertEqual(group.anchorWorkspaceProvenance, .unknown)
+    }
+
     func testSessionSnapshotSerializesWorkspacesAndRestoreRebuildsSelection() {
         let manager = makeTabManager()
         guard let firstWorkspace = manager.selectedWorkspace else {
