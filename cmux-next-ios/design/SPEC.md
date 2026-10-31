@@ -396,7 +396,7 @@ Content (top to bottom):
    - Second line: Mac presence dots: up to 5 dots, each 7 x 7 circle, 4 pt spacing, `success`
      for online and `offline` for offline, online first (stable sort by name within each group),
      then "+N" in `meta` `label2` when more than 5 Macs; then " · 3 of 7 online" is NOT shown
-     (the dots are the summary). No Macs: "No Macs yet" in `meta` `label2`.
+     (the dots are the summary). No Macs: "No Macs" in `meta` `label2`.
    - Selected row: `fillSelected` background, radius 14 continuous, inset 10 pt from the
      sidebar edges (measured `chatgpt-23-sidebar-selected-expanded`).
    - Live updates: presence frames from `TeamHub` animate dot color with `snap`.
