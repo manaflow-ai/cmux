@@ -16,7 +16,7 @@ import { firstProject, isAgentHome, mostRecentProject, projectLabel } from "../s
 import { WorktreeFailure } from "../startFolder";
 import { errorMessage } from "../transportErrors";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
-import { sandboxFailureKey, type RunModeRows } from "../sandboxRun";
+import { sandboxFailureKey, type RunMode, type RunModeRows } from "../sandboxRun";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
 import { useSavedEnvironments } from "./savedEnvironments";
 import type { ComposerAttachment, DroppedKind, LinkItem } from "../attachments";
@@ -171,6 +171,17 @@ export type NewTabScreenActions = NewTabCommandActions & {
   /// Answers true when the send started, false when nothing did (an empty prompt, already sent), or
   /// a refusal code the page shows itself (attachments, an agent a sandbox can't run).
   onSandbox?(harness: string, text: string, attachments: ComposerAttachment[]): boolean | string;
+  /// Cloud is the mode (cloudRun.ts): Enter hands the prompt, its folder and model to `onCloud`,
+  /// which opens the chat on a Cloud machine; a string is a refusal said over the box.
+  onCloud?(
+    harness: string,
+    text: string,
+    cwd: string | undefined,
+    model: string | undefined,
+    attachments: ComposerAttachment[],
+  ): boolean | string;
+  /// How a Cloud send from here goes (CloudStartView): shown over the box while Cloud is the mode.
+  cloudStatus?: React.ReactNode;
   /// The page goes with an unsent draft (a typed prompt, staged attachments): handed over so the
   /// view that replaces it can keep it (the tab's Sandboxed run taking the chat view).
   onLeaveDraft?(text: string, attachments: ComposerAttachment[]): void;
@@ -494,6 +505,18 @@ export function NewTabScreen(props: Props) {
   const envFolder = none
     ? undefined
     : (askFolder ?? (props.cwd && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
+  // Cloud copies a folder on this Mac (cloudRun.ts): picking it drops a saved environment or a
+  // machine picked before, so the folder it sends is the one the chip names.
+  const runMode = props.runMode && {
+    ...props.runMode,
+    onMode: (mode: RunMode) => {
+      if (mode === "cloud") {
+        saved.pick(undefined);
+        setMachine(undefined);
+      }
+      props.runMode?.onMode(mode);
+    },
+  };
   // A prompt's chat, in no project when that was the pick.
   // The images and files pasted or dropped on the page go with the first prompt.
   /// A Sandboxed send refused here (attachments, an agent a sandbox can't run): said over the box,
@@ -524,6 +547,13 @@ export function NewTabScreen(props: Props) {
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
     if (targetAuthPending || authBlocksSend(targetAuth)) return false;
     if (command.intercept(prompt, agent, attachments.length)) return false;
+    if (props.runMode?.mode === "cloud" && props.onCloud) {
+      // The folder the chip names (envFolder), never the raw `cwd` a caller passes: a tab that
+      // inherited home with a start folder elsewhere shows and copies the start folder.
+      const started = props.onCloud(agent, prompt, envFolder, model, attachments);
+      setSandboxRefusal(typeof started === "string" ? started : undefined);
+      return started === true;
+    }
     if (props.runMode?.mode === "sandboxed" && props.onSandbox) {
       const started = props.onSandbox(agent, prompt, attachments);
       setSandboxRefusal(typeof started === "string" ? started : undefined);
@@ -1346,7 +1376,7 @@ export function NewTabScreen(props: Props) {
         {...(props.environments ? { environments: true } : {})}
         {...(newWorktreeHere ? { onNewWorktree: newWorktreeHere } : {})}
         {...(props.onConnect ? { onConnect: props.onConnect, connectOnlyWhenEmpty: !props.environments } : {})}
-        {...(props.environments && props.runMode ? { runMode: props.runMode } : {})}
+        {...(props.environments && runMode ? { runMode } : {})}
         {...(saved.on
           ? {
               saved: {
@@ -1518,6 +1548,12 @@ export function NewTabScreen(props: Props) {
             <span role="alert">{t("composer.offloadNotRun", { action: plusRefused })}</span>
           </output>
         )}
+        {sandboxRefusal && props.runMode?.mode === "cloud" && (
+          <output className="acpmux-switch-notice">
+            <span role="alert">{sandboxRefusal}</span>
+          </output>
+        )}
+        {props.runMode?.mode === "cloud" && props.cloudStatus}
         {/* Above the box: the project and machine strip, in every look (Cards draws it under the
             field). Leo 2026-10-29: "project and cloudness at the top ... and stop making them take
             up so much space"; the quiet row under the box keeps the mode and the model. */}

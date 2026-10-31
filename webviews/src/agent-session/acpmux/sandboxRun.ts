@@ -5,8 +5,9 @@ import type { StringKey } from "./i18n";
 /// (`sandbox.run`, AgentPaneModel.onSandboxRun) and answers the Run's receipt
 /// (`cmux.run.receipt/v1`, web/services/runs/model.ts); nothing of the VM is kept.
 
-/// Where a new chat's first message runs: as a chat (the existing behavior), or once in a sandbox.
-export type RunMode = "persistent" | "sandboxed";
+/// Where a new chat's first message runs: as a chat (the existing behavior), once in a sandbox, or
+/// as a chat on a Cloud machine picked for it (cloudRun.ts).
+export type RunMode = "persistent" | "sandboxed" | "cloud";
 
 /// The picker's Run as rows (EnvironmentPicker `runMode`).
 export type RunModeRows = { mode: RunMode; onMode(mode: RunMode): void };
@@ -200,7 +201,7 @@ export class SandboxTab {
 
   setMode(mode: RunMode) {
     this.mode = mode;
-    if (mode === "persistent") this.refusal = undefined;
+    if (mode !== "sandboxed") this.refusal = undefined;
     this.emit();
   }
 

@@ -443,6 +443,10 @@ import { pullRequestRows as prSourceRows } from "./summary/pullRequestRows";
 import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
 import { RecapCard, useRecapCard } from "./RecapCard";
 import { HarnessStatusCard } from "./HarnessStatusCard";
+import { cloudPageRefusal, cloudStartToasted, oneCloudStart, type CloudStart } from "./cloudRun";
+import { folderRunLocation } from "./runLocationDefault";
+import { cloudStartBegun, cloudStartEnded, cloudStartPushed, type CloudStartProgress } from "./cloudStartProgress";
+import { CloudStartView } from "./CloudStartView";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { chatColumnOf, configureChatWidth, useChatSizing } from "./chatWidth";
 import { registerChatDisplayHost, useChatDisplay } from "./chatDisplay";
@@ -647,6 +651,9 @@ declare global {
       /// Preview features on or off (Settings > Advanced > Labs, `labs.previewFeatures`, off by
       /// default): the session coverage label.
       applyPreview?(on: boolean): void;
+      /// How a Cloud start goes (cloudStartProgress.ts `cloudStartPushed`): `{key, step?, machine?,
+      /// size?, secrets?, network?}` for the start `cloud.startChat {key}` began.
+      cloudStartProgress?(push: unknown): void;
       /// Experimental workflow summary/detail (Labs), separate from environment preview and off by default.
       applyWorkflowLabs?(on: boolean): void;
       /// The native Debug Settings baseline for the sidebar latest-reply preview.
@@ -6972,11 +6979,56 @@ function AcpmuxPane() {
   /// tab's one send is used): a send then is refused, never sent as a Persistent chat instead.
   const sandboxPickedNotOffered = sandbox.mode === "sandboxed" && !snapshot.sessionId && !sandboxing;
   const sandboxNotNow = sandbox.spent() ? "sandbox_spent" : preview ? "unavailable_now" : "labs_off";
-  const sandboxModeRows = { mode: sandbox.mode, onMode: (mode: RunMode) => sandbox.setMode(mode) };
+  /// The person picked where this new chat runs (a Run as row, Cloud, or a machine): their pick
+  /// holds for this chat, and the folder's default (below) no longer changes it.
+  const runModePicked = useRef(false);
+  /// Cloud is this new chat's mode by default, not by the person's pick: the folder may undo it.
+  const cloudByDefault = useRef(false);
+  /// A Cloud start is out (the host answers once the chat opens, minutes for a new machine): the
+  /// folder default changes nothing meanwhile, so the prompt it holds never turns into a local send.
+  const cloudStartPending = useRef(false);
+  /// Counts the Cloud starts that ended, so the folder default looks again once one has.
+  const [cloudStartsEnded, setCloudStartsEnded] = useState(0);
+  const sandboxModeRows = {
+    mode: sandbox.mode,
+    onMode: (mode: RunMode) => {
+      runModePicked.current = true;
+      sandbox.setMode(mode);
+    },
+  };
   /// A Sandboxed send: text only, by an agent a sandbox runs. A page-side refusal comes back as its
   /// code (the prompt stays where it was typed); false: nothing was sent.
   const startSandbox = (text: string, attachmentCount: number, harness: string | undefined): string | boolean =>
     sandboxPageRefusal(attachmentCount, harness) ?? sandbox.send(text, sandboxAgent(harness));
+  /// Cloud picked (cloudRun.ts): the first send goes to the host, which opens the chat on a Cloud
+  /// machine and closes this tab. False keeps the prompt in the composer meanwhile; a string is a
+  /// refusal said here, also while Cloud is picked but not offered now (as `sandboxPickedNotOffered`).
+  /// The host says its own progress and failures (toasts), and the chat shows the start under the
+  /// message as it goes (CloudStartView; the host's `cloudStartProgress` pushes fill it in).
+  const cloudPicked = sandbox.mode === "cloud" && !snapshot.sessionId;
+  const cloudPickedNotOffered = cloudPicked && !sandboxOffered;
+  const [startCloud] = useState(() => oneCloudStart(callNative));
+  const [cloudStart, setCloudStart] = useState<CloudStartProgress>();
+  const sendToCloud = (text: string, attachmentCount: number, start: Omit<CloudStart, "task">): string | false => {
+    const refused = cloudPageRefusal(sandboxOffered, attachmentCount);
+    if (refused === "cloud_not_now")
+      return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
+    if (refused) return translate("composer.cloudAttachments");
+    const key = crypto.randomUUID();
+    const started = startCloud({ task: text, ...start }, key);
+    // Another Return while a start waits starts nothing, and the card keeps that start.
+    if (!started) return false;
+    cloudStartPending.current = true;
+    setCloudStart(cloudStartBegun(key, text, start.cwd));
+    void started.then((answer) => {
+      cloudStartPending.current = false;
+      setCloudStartsEnded((count) => count + 1);
+      setCloudStart((current) => cloudStartEnded(current, key, answer));
+      if (!answer.ok && !cloudStartToasted(answer))
+        directClient.current?.notice(translate("composer.offloadNotRun", { action: translate("composer.cloud") }));
+    });
+    return false;
+  };
   /// A chat shows here while the tab's run is out or ended: a notice offers it, and Show opens it in
   /// place of the chat until Back. Whatever Labs says now: a paid run's receipt stays reachable.
   const sandboxElsewhere =
@@ -6991,7 +7043,14 @@ function AcpmuxPane() {
     setSandboxDraftMoved(false);
     setSandboxViewing(false);
     sandboxWake.current = undefined;
+    runModePicked.current = false;
+    // Another chat shows here: a Cloud start's card belongs to the new chat it was sent from.
+    setCloudStart(undefined);
   }, [snapshot.sessionId, newTabGeneration]);
+  /// The person picked another place to run after a Cloud start failed: its card goes.
+  useEffect(() => {
+    if (sandbox.mode !== "cloud") setCloudStart((current) => (current?.state === "failed" ? undefined : current));
+  }, [sandbox.mode]);
   /// Labs went off: Sandboxed is no longer offered or shown, so the composer is Persistent again
   /// (a send from it isn't refused as Sandboxed). A run already out stays the tab's.
   useEffect(() => {
@@ -7937,6 +7996,45 @@ function AcpmuxPane() {
   useEffect(() => {
     if (snapshot.sessionId) setProjectDraft(undefined);
   }, [snapshot.sessionId]);
+  /// Where a new chat runs by default (runLocationDefault.ts): Cloud when its folder's newest chat
+  /// went to a Cloud machine, else this Mac. Only while Cloud is offered, and only until the person
+  /// picks in this pane. Sandboxed, or Cloud the person picked, is never changed; a Cloud default
+  /// goes back to this Mac when the folder's history no longer says Cloud or Cloud is not offered.
+  const folderRunDefault = useMemo(
+    () =>
+      sandboxOffered
+        ? folderRunLocation(composerSnapshot.summary?.cwd ?? newTab?.cwd, snapshot.sessions, snapshot.peerKinds)
+        : undefined,
+    [sandboxOffered, composerSnapshot.summary?.cwd, newTab?.cwd, snapshot.sessions, snapshot.peerKinds],
+  );
+  /// The chat the folder default last saw (its session, or the New Tab adoption it came with).
+  const defaultedChat = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const chat = `${snapshot.sessionId ?? ""}:${newTabGeneration}`;
+    if (defaultedChat.current !== chat) {
+      defaultedChat.current = chat;
+      // A new chat: Cloud carried over from the chat before (picked there) is only a default here,
+      // which this folder's history may undo.
+      if (sandbox.mode === "cloud") cloudByDefault.current = true;
+    }
+    // A chat starting here (its session not shown yet) keeps the mode it starts with.
+    if (runModePicked.current || snapshot.sessionId || snapshot.summary?.sessionId || cloudStartPending.current) return;
+    if (folderRunDefault === "cloud" && sandbox.mode === "persistent") {
+      cloudByDefault.current = true;
+      sandbox.setMode("cloud");
+    } else if (folderRunDefault !== "cloud" && sandbox.mode === "cloud" && cloudByDefault.current) {
+      cloudByDefault.current = false;
+      sandbox.setMode("persistent");
+    }
+  }, [
+    folderRunDefault,
+    snapshot.sessionId,
+    snapshot.summary?.sessionId,
+    newTabGeneration,
+    sandbox,
+    sandbox.mode,
+    cloudStartsEnded,
+  ]);
   /// A fresh chat's first prompt went: the commands it ran join the session it gets.
   const claimShellRuns = useRef(false);
   useEffect(() => {
@@ -8223,6 +8321,9 @@ function AcpmuxPane() {
       },
       applyShortcuts(labels) {
         setShortcuts(readShortcuts(labels));
+      },
+      cloudStartProgress(push) {
+        setCloudStart((current) => cloudStartPushed(current, push));
       },
       applyPreview(on) {
         setPreview(on === true);
@@ -11207,6 +11308,14 @@ function AcpmuxPane() {
               // The Trust continuation uses ComposerHandle.send(force), but never bypasses auth.
               if (authBlock) return false;
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
+              if (cloudPicked) {
+                const refused = sendToCloud(text, chips?.length ?? 0, {
+                  ...(projectDraft ? { cwd: projectDraft } : {}),
+                  ...heldPick(composerSnapshot),
+                });
+                if (refused) directClient.current?.notice(refused);
+                return false;
+              }
               if (sandboxPickedNotOffered) {
                 sandbox.refuse(text, sandboxNotNow);
                 return false;
@@ -11790,11 +11899,24 @@ function AcpmuxPane() {
                     heldBack.current = [...(heldBack.current ?? []), { text: text.trim() ? text : "", attachments }];
                     setSandboxDraftMoved(true);
                   }}
-                  {...(sandboxOffered || sandboxPickedNotOffered
+                  {...(sandboxOffered || sandboxPickedNotOffered || cloudPickedNotOffered
                     ? {
                         runMode: sandboxModeRows,
                         // A page-side refusal goes to the chat view, which says why (SandboxRunView), with
                         // the prompt and attachments put back in its composer.
+                        ...(cloudStart ? { cloudStatus: <CloudStartView start={cloudStart} bubble={false} /> } : {}),
+                        onCloud: (
+                          harness: string,
+                          text: string,
+                          cwd: string | undefined,
+                          model: string | undefined,
+                          attachments: ComposerAttachment[],
+                        ) =>
+                          sendToCloud(text, attachments.length, {
+                            harness,
+                            ...(cwd ? { cwd } : {}),
+                            ...(model ? { model } : {}),
+                          }),
                         onSandbox: (harness: string, text: string, attachments: ComposerAttachment[]) => {
                           const started = sandboxPickedNotOffered
                             ? sandboxNotNow
@@ -12209,6 +12331,8 @@ function AcpmuxPane() {
                   />
                 ) : freshView && pastTurns && (!pastWaitsForTrust || trustAsk.ask) ? (
                   <PastChat turns={pastTurns} {...(githubRepository ? { githubRepository } : {})} />
+                ) : cloudStart && !snapshot.sessionId ? (
+                  <CloudStartView start={cloudStart} />
                 ) : sandboxView && !snapshot.sessionId && (sandboxHoldsChat || sandbox.mode === "sandboxed") ? (
                   <SandboxRunView
                     run={sandboxView}
