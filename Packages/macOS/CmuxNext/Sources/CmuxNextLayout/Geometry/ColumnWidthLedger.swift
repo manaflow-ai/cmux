@@ -89,8 +89,12 @@ nonisolated struct ColumnWidthLedger: Sendable, Equatable {
     /// The recorded panes whose width differs in `current`, and clears the record. A pane that is gone
     /// is not compared.
     mutating func take(_ current: Shape, viewportWidth: CGFloat) -> [Change] {
-        // Red stub (R3b): compares nothing yet.
-        record = nil
-        return []
+        guard let record else { return [] }
+        self.record = nil
+        guard record.viewportWidth == viewportWidth else { return [] }
+        return record.widths.sorted { $0.key < $1.key }.compactMap { pane, before in
+            guard let after = current.widths[pane], abs(after - before) > Self.tolerance else { return nil }
+            return Change(pane: pane, column: current.columnOf[pane] ?? "screen", before: before, after: after)
+        }
     }
 }
