@@ -144,7 +144,8 @@ public final class CloudMachineChanges {
         // A provider error has no operation id: attribute a new terminal error only to the
         // newest acknowledged operation. Never let one failure retire every older mutation,
         // including when both reconciliation and the poller inspect this same record.
-        if let last = outstanding.last, last.requestReturnedRead != nil, !record.status.isChanging,
+        if let last = outstanding.last, let returnedRead = last.requestReturnedRead,
+           read.map({ $0 > returnedRead }) ?? true, !record.status.isChanging,
            let failure = record.lastChangeFailure, failure != last.baselineFailure {
             failedMutationID = outstanding.removeLast().id
             for index in outstanding.indices { outstanding[index].baselineFailure = failure }
