@@ -992,7 +992,6 @@ case "$*" in
   *fetch*) touch "$REMOTE_FETCH_MARKER" ;;
   *diff*) exit 0 ;;
   *cat-file*) exit 0 ;;
-  *ls-tree*) printf '100644 blob %040d\\tCargo.toml\\0' 1 ;;
   *rev-parse*) printf '%040d\\n' 1 ;;
   *mktree*) cat >/dev/null; if [[ -e "$REMOTE_FETCH_MARKER" ]]; then printf '%s\\n' "$REMOTE_TREE_KEY"; else printf '%040d\\n' 2; fi ;;
   *) exit 1 ;;
