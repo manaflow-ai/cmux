@@ -275,12 +275,16 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
               time: rect(".acpmux-agent-line__time", row),
               status: rect(".acpmux-agent-line__status", row),
               stop: rect(".acpmux-agent-line__stop-slot", row),
+              chevron: rect(".acpmux-agent-line__chevron", row),
               hasStop: Boolean(row.querySelector(".acpmux-agent-line__stop-slot > button")),
             })),
+            footer: tray.querySelector(".acpmux-running-tray__finished")
+              ? rect(".acpmux-running-tray__finished > svg", tray)
+              : undefined,
             head: {
               time: rect(".acpmux-running-tray__time", head),
               status: rect(".acpmux-running-tray__status", head),
-              stop: rect(".acpmux-running-tray__stop-slot", head),
+              chevron: rect(".acpmux-running-tray__status > svg", head),
             },
           };
         });
@@ -292,7 +296,11 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         expect(columns.head.time.right).toBe(first!.time.right);
         expect(columns.head.status.left).toBe(first!.status.left);
         expect(columns.head.status.right).toBe(first!.status.right);
-        expect(columns.head.stop.left).toBe(first!.stop.left);
+        // One trailing track (Leo, 2026-10-29: "There's this right indent for no reason."): the
+        // header's, every line's and View all's chevrons end on one x.
+        expect(rest.every((row) => row.chevron.right === first!.chevron.right)).toBe(true);
+        expect(columns.head.chevron.right).toBe(first!.chevron.right);
+        if (columns.footer) expect(columns.footer.right).toBe(first!.chevron.right);
         expect(columns.rows.some((row) => row.hasStop)).toBe(true);
         expect(columns.rows.some((row) => !row.hasStop)).toBe(true);
 

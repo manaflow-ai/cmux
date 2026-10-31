@@ -1531,6 +1531,12 @@
       "result": true
     },
     {
+      "kind": "request",
+      "name": "_acpmux/turn_attestation",
+      "params": true,
+      "result": true
+    },
+    {
       "kind": "notification",
       "name": "_acpmux/event",
       "params": {
@@ -1590,6 +1596,11 @@
     {
       "kind": "notification",
       "name": "_acpmux/prompt_accepted",
+      "params": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/cancel_refused",
       "params": true
     },
     {
