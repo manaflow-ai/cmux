@@ -2058,9 +2058,10 @@ class RateLimitTests(unittest.TestCase):
             github.request("POST", "/repos/manaflow-ai/cmux/actions/runs/1/cancel")
         self.assertEqual(sent, ["Bearer app", "Bearer workflow", "Bearer workflow"])
         # The snapshot download (previous_lost_reruns()) follows the handover too.
-        with mock.patch.object(janitor, "PoolClient") as pool_client:
-            github.download({"archive_download_url": "https://example.invalid/0"})
-        self.assertEqual(pool_client.call_args.args[0], "workflow")
+        with mock.patch.object(github, "_download_once", return_value=b"zip") as download:
+            self.assertEqual(github.download({"archive_download_url": "https://example.invalid/0"}), b"zip")
+        self.assertEqual(download.call_count, 1)
+        self.assertEqual(github._token, "workflow")
         # Without a fallback the refusal is still an error.
         github = janitor.GitHub("app", "manaflow-ai/cmux")
         with mock.patch.object(janitor.urllib.request, "urlopen", urlopen), self.assertRaises(RuntimeError):
@@ -4440,6 +4441,20 @@ class ReviewEightTests(unittest.TestCase):
                 redirect_stderr(io.StringIO()), self.assertRaises(RuntimeError):
             fake.download({"archive_download_url": "u"})
         self.assertIn("DOWNLOAD", janitor.READS.hold())
+
+    def test_artifact_rate_limit_never_falls_back_to_workflow_token(self):
+        fake = janitor.GitHub("app", "manaflow-ai/cmux", fallback_token="wf")
+        headers = email.message.Message()
+        headers["X-RateLimit-Remaining"] = "0"
+        limited = urllib.error.HTTPError("https://api.github.com/artifact", 403, "rate limited", headers, None)
+        opener = mock.Mock()
+        opener.open.side_effect = limited
+        with mock.patch.object(janitor.urllib.request, "build_opener", return_value=opener), \
+                self.assertRaises(janitor.RateLimited):
+            fake.download({"archive_download_url": "https://api.github.com/artifact"})
+        self.assertEqual(opener.open.call_args.args[0].get_header("Authorization"), "Bearer app")
+        self.assertTrue(fake.app_token)
+        self.assertEqual(fake.fallback_token, "wf")
 
     def test_corrupt_newest_snapshot_holds_sweeps_without_publishing_empty_obligations(self):
         stuck, other, jobs = lost_world(age=85, event="push", branch="feature")

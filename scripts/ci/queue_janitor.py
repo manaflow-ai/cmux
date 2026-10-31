@@ -221,7 +221,6 @@ from pr_runner_pool import MAX_RUN_JOBS  # noqa: E402
 from pr_runner_pool import persistent as owned_pool  # noqa: E402
 from pr_runner_pool import CAPABILITY_LABELS, pool_label, root_label, side_label  # noqa: E402
 from pr_runner_pool import LANE_LABEL  # noqa: E402
-from pr_runner_pool import GitHub as PoolClient  # noqa: E402
 from pr_runner_pool import ARTIFACT_NAME as SNAPSHOT_ARTIFACT  # noqa: E402
 from pr_runner_pool import SNAPSHOT_BRANCH, SNAPSHOT_FILE, trusted_snapshot_artifact  # noqa: E402
 import owned_pool_rescue as rescue  # noqa: E402
@@ -3863,6 +3862,10 @@ class GitHub:
         for delay in (*RETRY_DELAYS, None):
             try:
                 return self._download_once(artifact)
+            except RateLimited:
+                # A rate-limited App must never hand this artifact read to the
+                # shared workflow token; that would spend the repository budget.
+                raise
             except (OSError, RuntimeError) as error:
                 text = str(error)
                 if ("(401)" in text or "(403)" in text) and self.fallback_token:
@@ -3876,10 +3879,31 @@ class GitHub:
         raise AssertionError("unreachable")
 
     def _download_once(self, artifact: Mapping[str, Any]) -> bytes:
-        """pr_runner_pool.py's redirect-safe download, with this client's current token."""
+        """Download the redirect and signed blob while preserving rate-limit responses."""
         self.calls += 1
         self.kinds["GET /actions/artifacts/{id}/zip"] = self.kinds.get("GET /actions/artifacts/{id}/zip", 0) + 1
-        return PoolClient(self._token, self.repo).download(artifact)
+        opener = urllib.request.build_opener(_NoRedirect)
+        request = urllib.request.Request(str(artifact["archive_download_url"]), headers=self.headers)
+        try:
+            opener.open(request, timeout=15)
+            raise RuntimeError("artifact download did not redirect")
+        except urllib.error.HTTPError as error:
+            self.note_rate_limit(error.headers)
+            if error.code in (403, 429) and rate_limited(error):
+                raise RateLimited(f"DOWNLOAD /actions/artifacts/{{id}}/zip failed ({error.code}: rate limit; "
+                                  "the sweep stops rather than spend the workflow token)") from error
+            location = error.headers.get("Location") if error.code in (301, 302, 303, 307, 308) else None
+            if not location:
+                raise RuntimeError(f"artifact download failed ({error.code})") from error
+        blob = urllib.request.Request(location, headers={"User-Agent": self.headers["User-Agent"]})
+        try:
+            with urllib.request.urlopen(blob, timeout=30) as response:
+                return response.read()
+        except urllib.error.HTTPError as error:
+            if error.code in (403, 429) and rate_limited(error):
+                raise RateLimited(f"DOWNLOAD /actions/artifacts/{{id}}/zip failed ({error.code}: rate limit; "
+                                  "the sweep stops rather than spend the workflow token)") from error
+            raise RuntimeError(f"artifact download failed ({error.code})") from error
 
     def get(self, path: str) -> Any:
         """pr_runner_pool.GitHub's get() through this client's request(), so owned_warm_state.py's reads are
@@ -4001,6 +4025,13 @@ def env_int(name: str, default: int) -> int:
 
 class _Transient(Exception):
     """A 5xx or a dropped connection: GitHub.request() makes a read again."""
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Keep the GitHub artifact token off the signed blob redirect."""
+
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+        return None
 
 
 def read_run_jobs(github: GitHub, runs: Sequence[Mapping[str, Any]], linux_only: frozenset[str],
