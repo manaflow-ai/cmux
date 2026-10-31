@@ -30,7 +30,7 @@ const SCROLLBACK: usize = 1 << 20;
 /// resize P0). While they are open it is off here, so this test does not turn
 /// the base red; the fuzz runs keep it on (scratch branch
 /// `cp/fuzz-vt-replay-on`), and the fix PR for e1/e2 sets it to true.
-const REPLAY_ORACLE: bool = false;
+const REPLAY_ORACLE: bool = true;
 
 #[derive(Debug, Clone)]
 enum Op {
