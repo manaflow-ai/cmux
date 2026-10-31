@@ -197,6 +197,13 @@ struct CoderouterSetupWorkspaceCoordinator {
               Self.isLocal(workspace) else {
             throw SurfacePaneFactory.FactoryError.workspaceNotFound(workspaceID)
         }
+        // The split selects its workspace before the terminal's own room
+        // check, so refuse a full destination here: a refused setup must
+        // leave the person's selected workspace where it was.
+        if let anchor = workspace.focusedPanelId,
+           workspace.terminalSplitSpaceVerdict(splittingPanel: anchor, orientation: .horizontal) == .noSpace {
+            throw SurfacePaneFactory.FactoryError.noSpace
+        }
         let command = ["sh", "-lc", initialTerminalCommand ?? provider.addCommand]
         let created = try SurfacePaneFactory.makeTerminalPane(
             initialCommand: command.map(LocalSurfaceProvider.shellQuote).joined(separator: " "),
