@@ -26,6 +26,8 @@ if (!built) console.warn("agent-pane-no-capsules: skipping (run scripts/cmux-nex
 const SHAPES = new Set([
   ".acpmux-switch",
   ".acpmux-quick-fast-toggle",
+  // Session Info's Remote Control switch track (#28981), styled like Settings' ds-switch.
+  ".acpmux-chat-inspector-switch__input",
   ".acpmux-effort-track",
   ".acpmux-effort-fill",
   ".acpmux-context-card-bar",
