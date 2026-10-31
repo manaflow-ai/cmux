@@ -161,7 +161,8 @@ test("in flight it is live, with the spinner", async () => {
 
 test("a send whose text comes from a file names only its target", async () => {
   const unknown = await line(bash(`acpmux send reports:leo "$(cat /tmp/summary.md)"`, { output: "" }));
-  expect(unknown.querySelector(".cv-sent")!.textContent).toBe("Sent to reports:leo");
+  expect(unknown.querySelector(".cv-sent")!.textContent).toBe("Sent to reports:leo /tmp/summary.md");
+  expect(unknown.querySelector(".cv-sent__file")?.textContent).toBe("/tmp/summary.md");
 });
 
 test("a failed send says it could not send and opens to its output", async () => {

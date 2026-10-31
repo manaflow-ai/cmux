@@ -137,7 +137,7 @@ const columns = (row: Element): string[] =>
         ],
   );
 
-test("the four row kinds share one grid: icon, sentence, trailing column, chevron last", async () => {
+test("the four row kinds share one row grammar: icon, sentence, trailing column, chevron last", async () => {
   const { rows } = await fourRows();
   for (const [kind, row] of Object.entries(rows)) {
     const order = columns(row);
@@ -209,19 +209,18 @@ test("an opened send shows its message once, under the row, not again on the lin
   }
 });
 
-test("the trailing column and the chevron hold fixed grid columns in the shared stylesheet", () => {
+test("the trailing column and chevron use the shared flex row contract", () => {
   const css = readFileSync(new URL("./conversation.css", import.meta.url), "utf8");
   const block = (selector: string) =>
     new RegExp(`(?:^|\\n)${selector.replace(/[.]/g, "\\.")} \\{([^}]*)\\}`).exec(css)?.[1] ?? "";
-  expect(block(".cv-tool")).toContain(
-    "grid-template-columns: var(--cv-glyph-slot) minmax(0, 1fr) auto var(--cv-disclosure-slot)",
-  );
-  expect(block(".cv-tool__trail")).toContain("grid-column: 3");
-  expect(block(".cv-tool__chevron")).toContain("grid-column: 4");
-  // The message line is that grid, not a flex row of its own whose chevron moves with its meta.
+  expect(block(".cv-tool")).toContain("display: flex");
+  expect(block(".cv-tool__chevron")).toContain("order: 3");
+  expect(block(".cv-tool:not(.cv-agentmsg__line) > .cv-command__meta")).toContain("order: 4");
+  // Message rows use the same shared flex sentence, with the trailing status outside it.
   const agentCss = readFileSync(new URL("./AgentMessageRow.css", import.meta.url), "utf8");
-  const line = /\.cv-agentmsg__line \{([^}]*)\}/.exec(agentCss)?.[1] ?? "";
-  expect(line).not.toContain("display: flex");
+  const sentence = /\.cv-agentmsg__sentence \{([^}]*)\}/.exec(agentCss)?.[1] ?? "";
+  expect(sentence).toContain("flex: 1 1 0");
+  expect(sentence).toContain("overflow: hidden");
 });
 
 test("the subagent row's one button reaches its trailing markers", () => {

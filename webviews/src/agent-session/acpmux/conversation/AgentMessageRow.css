@@ -75,6 +75,16 @@
   cursor: default;
   letter-spacing: var(--text-control--letter-spacing);
 }
+/* Opened, the line names its other chat whole: the panel under it never names it. */
+.cv-agentmsg[data-open] .cv-agentmsg__name {
+  flex: 0 1 auto;
+  max-width: 100%;
+  height: auto;
+  min-height: 20px;
+  white-space: normal;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}
 button.cv-agentmsg__name:hover,
 button.cv-agentmsg__name:focus-visible {
   background: color-mix(in srgb, var(--agent-accent) 16%, transparent);
