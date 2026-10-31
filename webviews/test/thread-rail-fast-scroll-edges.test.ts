@@ -146,7 +146,14 @@ await requireBrowserLane("thread-rail-fast-scroll-edges.test.ts", async () => {
         // No frame shows a blank strip: a row past the drawn ticks shows its resting tick.
         const blank = seen.filter((frame) => frame.blank.length > 0);
         expect(
-          blank.slice(0, 3).map((frame) => ({ top: frame.top, height: frame.height, blank: frame.blank.length, first: frame.blank[0] })),
+          blank
+            .slice(0, 3)
+            .map((frame) => ({
+              top: frame.top,
+              height: frame.height,
+              blank: frame.blank.length,
+              first: frame.blank[0],
+            })),
         ).toEqual([]);
         // No row the fling brings into view replays the entrance (#26635): it would start at opacity 0.
         const faded = seen.filter((frame) => frame.faded.length > 0);
@@ -183,14 +190,17 @@ await requireBrowserLane("thread-rail-fast-scroll-edges.test.ts", async () => {
             const top = node.scrollTop;
             const first = Math.ceil(top / 10 - 0.5);
             const last = Math.floor((top + node.clientHeight) / 10 + 0.5);
-            const drawn = new Set([...node.querySelectorAll<HTMLElement>("[data-tick]")].map((tick) => Number(tick.dataset.tick)));
+            const drawn = new Set(
+              [...node.querySelectorAll<HTMLElement>("[data-tick]")].map((tick) => Number(tick.dataset.tick)),
+            );
             let undrawn = 0;
             for (let row = first; row < last; row++) if (!drawn.has(row)) undrawn += 1;
             const gaps = [...node.querySelectorAll(".acpmux-minimap__gap")];
             return {
               undrawn,
               rows: last - first,
-              painted: gaps.length > 0 && gaps.every((gap) => getComputedStyle(gap).backgroundImage.includes("gradient")),
+              painted:
+                gaps.length > 0 && gaps.every((gap) => getComputedStyle(gap).backgroundImage.includes("gradient")),
             };
           });
           if (process.env.CMUX_RAIL_STILLS) {
