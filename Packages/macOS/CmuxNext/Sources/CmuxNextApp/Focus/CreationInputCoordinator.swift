@@ -22,6 +22,7 @@ final class CreationInputCoordinator {
     private var replaying = false
     /// The longest a key waits for a selected terminal's surface (the slowest takes about 350 ms).
     var holdLimit: Duration = .seconds(2)
+    var runKey: @MainActor (NSEvent, NSWindow) -> Void = { event, _ in NSApp.sendEvent(event) } // a held key runs again as typed
 
     /// Why a window's creation hold ended (R-L5: its end is a signal). `focusLanded`: every creation of the hold replied
     /// and the focus it asked for holds, with a responder that takes the keys. `limitReached`: the hold's 2 s bound ended
@@ -44,10 +45,7 @@ final class CreationInputCoordinator {
     func lastHoldEnd(in window: NSWindow?) -> HoldEnd? { window.flatMap { lastHoldEnd[$0.windowNumber] } }
 
     /// Whether `window`'s keys wait in a creation hold now (tests: a key typed meanwhile is replayed later).
-    func isHolding(in window: NSWindow?) -> Bool {
-        guard let window else { return false }
-        return buffers[window.windowNumber] != nil
-    }
+    func isHolding(in window: NSWindow?) -> Bool { window.map { buffers[$0.windowNumber] != nil } ?? false }
 
     init(router: KeyRouter) { self.router = router }
 
@@ -152,7 +150,7 @@ final class CreationInputCoordinator {
             let held = buffer.take(), opened = buffer.openedCount
             for (index, key) in held.enumerated() {
                 replaying = true
-                NSApp.sendEvent(key)
+                runKey(key, shell)
                 replaying = false
                 // A key run again started another creation: the rest, and this key, wait for it, in order.
                 if buffer.openedCount != opened {
@@ -233,7 +231,7 @@ final class CreationInputCoordinator {
         }
         for (index, event) in pending.enumerated() {
             replaying = true
-            NSApp.sendEvent(event)
+            runKey(event, window)
             replaying = false
             // A replayed key started another creation: the rest wait for that one, in order.
             if let next = buffers[window.windowNumber] {
