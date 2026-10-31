@@ -26,9 +26,10 @@ in CmuxNext. The problems are elsewhere:
   terminal's "Restoring…" are examples.
 - **Too many `static let shared` singletons:** 141 in all.
 
-The first item on the plan below has landed: the ACP chat index mirror now runs in Rust.
+The first item on the plan below is in progress. The Rust ACP chat index mirror has landed. The Swift switch onto it
+(commit 336867f0ae20) lands with the next `CCmuxAppFFI` re-pin, because the app links the published library.
 
-## Landed: the ACP chat index mirror is in Rust
+## First item: the ACP chat index mirror in Rust
 
 | | Before (Swift `AcpmuxChatsStore` value) | After (`cmux-chats-mirror` through `CCmuxChatsMirrorFFI`) |
 |---|---|---|
@@ -232,7 +233,7 @@ pattern, the one already used by `SidebarMirror` and now the chats mirror:
 
 | # | Item | Where it goes | Cost | Why first |
 |---|---|---|---|---|
-| 1 | ACP chat index mirror | Rust in process (`cmux-chats-mirror`) | M | **Landed.** 540 µs → 0.3 µs per change on main; 1.26 s → 0.7 ms per 2,000-change burst |
+| 1 | ACP chat index mirror | Rust in process (`cmux-chats-mirror`) | M | **Rust landed; Swift switch lands with the re-pin.** 540 µs → 0.3 µs per change on main; 1.26 s → 0.7 ms per 2,000-change burst |
 | 2 | Tab status merge (`StatusMapping`) | cmux-tui-core publishes one status per tab | M | Removes the stale-spinner bug class (a868, 8a2b6905) at the source |
 | 3 | acpmux session watch (`AgentTurnStateFeed` → one store) | Rust in process, same shape as the chats mirror; delete the Swift title rules | M | Per-event O(cells) `syncCells` and whole-map invalidation; two stores fed by one watch |
 | 4 | Delete Swift duplicates | — | S each | `CmuxSyncStore` (orphan), the history fallbacks, `LocalPaletteUsageStore`, the bookmark file fallback, `HomeConversationSession` and `HomeService.conversations`/`sessions`, the old sidebar path (`SidebarEdits`, `SidebarPendingEdits`, `sidebarSections`). About 5k lines and 4 duplicate truths |
