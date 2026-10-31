@@ -67,6 +67,7 @@ extension IPhoneHostService {
             followNewChatPicks()
         }
         followAccount { Self.account(of: auth, signedIn: auth.isSignedIn) }
+        servesPhones = executable != nil
         dependencies = Dependencies(
             executable: executable,
             baseURL: base,

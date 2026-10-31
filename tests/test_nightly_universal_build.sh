@@ -159,7 +159,7 @@ if ! awk '
   exit 1
 fi
 if ! awk '
-  /^  prepare-nightly-variant-fallback:/ { in_fallback=1 }
+  /^  prepare-nightly-variant:/ { in_fallback=1 }
   in_fallback && /needs: .*prepare-nightly-variant-primary/ { saw_dependency=1 }
   in_fallback && /result == '\''failure'\''/ { saw_failure_gate=1 }
   END { exit !(saw_dependency && saw_failure_gate) }

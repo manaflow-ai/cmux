@@ -101,10 +101,8 @@ class DefaultsGuardTests(unittest.TestCase):
         pull = {"author": {"login": author}, "headRefOid": head, "merged": False,
                 "reviews": {"nodes": [{"author": {"login": who}, "state": state, "commit": {"oid": oid}}
                                       for who, state, oid in reviews]},
-                "comments": {"nodes": [{"databaseId": n, "body": body, "createdAt": at,
-                                        "authorAssociation": association,
-                                        "author": {"login": AUTHOR, "__typename": kind}}
-                                       for n, (body, at, association, kind) in enumerate(comments)]}}
+                "comments": {"nodes": [self.comment_node(n, item)
+                                       for n, item in enumerate(comments)]}}
         path = self.repo.root.parent / f"{self.repo.root.name}-pull.json"
         path.write_text(json.dumps(pull), encoding="utf-8")
         summary = self.repo.root.parent / f"{self.repo.root.name}-summary.md"
@@ -113,6 +111,17 @@ class DefaultsGuardTests(unittest.TestCase):
                                  env={"GITHUB_STEP_SUMMARY": str(summary)})
         result.summary = summary.read_text(encoding="utf-8")
         return result
+
+    @staticmethod
+    def comment_node(number, item):
+        body, at, association, kind = item[:4]
+        login = item[4] if len(item) > 4 else AUTHOR
+        node_id = item[5] if len(item) > 5 else None
+        author = {"login": login, "__typename": kind}
+        if node_id is not None:
+            author["id"] = node_id
+        return {"databaseId": number, "body": body, "createdAt": at,
+                "authorAssociation": association, "author": author}
 
     # The cases that just bit us.
 
@@ -530,8 +539,9 @@ enum BrowserResize { static let `default` = true }
 
     # An independent review receipt on the head passes any change (Leo 2026-10-21).
 
-    def receipt(self, text, at="2026-10-21T10:00:00Z", association="MEMBER", kind="User"):
-        return (text, at, association, kind)
+    def receipt(self, text, at="2026-10-21T10:00:00Z", association="MEMBER", kind="User",
+                login=AUTHOR, node_id=None):
+        return (text, at, association, kind, login, node_id)
 
     def test_a_ship_receipt_on_the_head_passes_without_a_teammate(self):
         head = self.changed_head()
@@ -575,6 +585,48 @@ enum BrowserResize { static let `default` = true }
                         self.receipt(f"Review (subagent): SHIP at {head}", association="CONTRIBUTOR"),
                         self.receipt(f"Review (subagent): SHIP at {head}", kind="Bot")):
             self.assertEqual(self.check(head, comments=[receipt]).returncode, 1, receipt)
+
+    def test_the_cmux_bot_ship_receipt_at_the_head_passes(self):
+        head = self.changed_head()
+        receipt = self.receipt(f"Review (codex gpt-6-astra high, next-review): SHIP at {head}",
+                               kind="Bot", login="cmux-bot[bot]", node_id="BOT_kgDOFMYsLQ")
+        result = self.check(head, comments=[receipt])
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_the_cmux_bot_receipt_at_an_old_head_fails(self):
+        head = self.changed_head()
+        receipt = self.receipt(f"Review (codex gpt-6-astra high, next-review): SHIP at {self.base}",
+                               kind="Bot", login="cmux-bot[bot]", node_id="BOT_kgDOFMYsLQ")
+        result = self.check(head, comments=[receipt])
+        self.assertEqual(result.returncode, 1, result.stdout)
+
+    def test_a_bot_with_the_right_login_but_wrong_node_id_fails(self):
+        head = self.changed_head()
+        receipt = self.receipt(f"Review (codex gpt-6-astra high, next-review): SHIP at {head}",
+                               kind="Bot", login="cmux-bot[bot]", node_id="BOT_wrong")
+        self.assertEqual(self.check(head, comments=[receipt]).returncode, 1)
+
+    def test_a_later_cmux_bot_block_beats_an_earlier_ship(self):
+        head = self.changed_head()
+        ship = self.receipt(f"Review (codex gpt-6-astra high, next-review): SHIP at {head}",
+                            at="2026-10-21T10:00:00Z", kind="Bot", login="cmux-bot[bot]",
+                            node_id="BOT_kgDOFMYsLQ")
+        block = self.receipt(f"Review (codex gpt-6-astra high, next-review): BLOCK at {head}",
+                             at="2026-10-21T11:00:00Z", kind="Bot", login="cmux-bot[bot]",
+                             node_id="BOT_kgDOFMYsLQ")
+        result = self.check(head, comments=[ship, block])
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("BLOCK", result.summary)
+
+    def test_a_user_with_the_bot_login_or_node_id_does_not_pass(self):
+        head = self.changed_head()
+        for login, node_id in (("cmux-bot[bot]", "BOT_kgDOFMYsLQ"), ("trusted-user", "BOT_kgDOFMYsLQ"),
+                               ("cmux-bot[bot]", "BOT_wrong")):
+            receipt = self.receipt(f"Review (codex gpt-6-astra high, next-review): SHIP at {head}",
+                                   kind="User", login=login, node_id=node_id,
+                                   association="CONTRIBUTOR")
+            self.assertEqual(self.check(head, comments=[receipt]).returncode, 1,
+                             (login, node_id))
 
     def private_member_check(self, head, roles, body=None, extra_comments=()):
         """A receipt from a member whose org membership is private: the workflow's token sees

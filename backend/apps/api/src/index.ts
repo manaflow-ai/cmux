@@ -28,6 +28,7 @@ import { handlePairBegin, handlePairWait } from "./pair-routes.ts"
 import { handleSsoCallback, handleSsoRedeem, handleSsoStart } from "./sso-routes.ts"
 import { sweepDeps, sweepFeedText } from "./feed-sweep.ts"
 import { GITHUB_TOKEN_PATH, handleGithubToken } from "./integrations/github-token-route.ts"
+import { platformForward } from "./platform-forward.ts"
 
 export { AccountIndexDO } from "./account-index-do.ts"
 // Named entrypoint for service bindings only (the platform Worker's environment setups); no HTTP route reaches it.
@@ -65,6 +66,7 @@ import { BILLING_LEVELS_PATH, BILLING_SYNC_PATH, handleBillingLevels, handleBill
 import { BILLING_TEAM_MODE_PATH, handleBillingTeamMode } from "./billing-team-mode.ts"
 import { CREDITS_ADMIN_PATH, handleCreditsAdmin } from "./credits-admin.ts"
 import { CREDITS_PATH, CREDITS_WEBHOOK_PATH, handleCredits, handleCreditsWebhook } from "./credits-routes.ts"
+import { CHIEF_JOB_HOOK, handleChiefJobHook, handleUpstashChiefJob, UPSTASH_WORKFLOW_PATH } from "./chief-brain-cc/jobs-upstash.ts"
 import { handlePlanCheckout, PLAN_PATH } from "./plan-checkout.ts"
 import { HOME_HEALTH_CRON, runHomeHealth, sentryFetch } from "./home-health.ts"
 export { AutomationRunWorkflow } from "./automation-workflow.ts"
@@ -204,6 +206,9 @@ export default {
     const url = new URL(request.url)
     // A wire ticket is spent by the first request that carries it, on any path (wire-ticket.ts).
     const spent = await spendTicketAtEntry(request, env)
+    // The platform cutover (platform-forward.ts): a surface in PLATFORM_SURFACES goes to the PLATFORM binding. Unset: nothing changes.
+    const forwarded = await platformForward(request, env, url.pathname)
+    if (forwarded) return forwarded
     // The Cloud VM's bind agent (state-placement.md 5.8 item 2): the one-time bind token is the credential.
     if (url.pathname === "/v1/cloud/bind" && request.method === "POST") return handleCloudBind(request, env)
     if (url.pathname === "/v1/cloud/keyset") return handleCloudKeyset(request, env)
@@ -293,6 +298,8 @@ export default {
     // The console's billing page: plan, usage, credits, upgrades (billing-summary.ts, paid-plans-DESIGN.md §3).
     if (url.pathname === "/v1/billing/summary") return (await import("./billing-summary.ts")).handleBillingSummary(request, env)
     if (url.pathname === CREDITS_WEBHOOK_PATH) return handleCreditsWebhook(request, env)
+    // Chief jobs on Upstash Workflow: QStash-signed requests only (jobs-upstash.ts).
+    if (url.pathname === UPSTASH_WORKFLOW_PATH && request.method === "POST") return handleUpstashChiefJob(request, env)
     if (url.pathname === CREDITS_ADMIN_PATH) return handleCreditsAdmin(request, env)
     if (url.pathname === "/v1/admin/cloud/abandoned/clear") return handleCloudAbandonedClear(request, env)
     // The reviewed app registry (custom-panes-DESIGN.md 6): public approved reads, person submits, reviewer decisions.
@@ -304,6 +311,8 @@ export default {
     if (url.pathname === STACK_WEBHOOK_PATH) return handleStackWebhook(request, env)
     const hook = url.pathname.match(/^\/v1\/hooks\/automation\/([^/]+)\/([^/]+)$/)
     if (hook) return handleAutomationHook(request, env, hook[1]!, hook[2]!)
+    const chiefHook = url.pathname.match(CHIEF_JOB_HOOK)
+    if (chiefHook) return handleChiefJobHook(request, env, chiefHook[1]!, chiefHook[2]!)
     if (url.pathname === "/v1/sso/discover") return handleSsoDiscover(request, env)
     // cmux server pairing: no account on the server side; each route verifies its own proof.
     if (url.pathname === "/v1/pair/begin") return handlePairBegin(request, env)
