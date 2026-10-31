@@ -1,5 +1,16 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-30: a workspace row has no second line of its own. Leo, of a row titled "claude-sr2-coord"
+  over "local · claude-sr2-coord": "and yes ofc remove the second line". The compact and comfortable
+  row's second line used to lead with the computer (another machine in the one-list sidebar), its
+  folder, a Cloud stage and the description's first line, whatever `sidebar.workspaceRow` showed. It
+  now holds only the second-line elements the person turned on (none by default), so a default row
+  is one line. The computer stays in the row's machine mark, its hover card and its accessibility
+  label; the description in the hover card; an expanded row keeps its own meta line (computer, stage,
+  pull request). Nothing else about rows changes. Regression: `SidebarNoSecondLineTests`.
+  The comments that described the old line (`SidebarWorkspace.workspaceDescription`,
+  `SidebarLayoutOptions.flattensMachines`) say where the description and the computer show now
+  (653053e21f7, comments only, logged here: no visual change of its own).
 - 2026-10-30: the narrowest sidebar fits its titlebar row. Lawrence: "get rid of this intersect thing",
   then "not remove glyph but just make min width of sidebar bigger": at the 160 pt minimum the toolbar band's
   Forward chevron drew over the +. `SidebarModel.minimumWidth` is now the wider of the `sidebarMinWidth`
@@ -40,10 +51,11 @@
   Regression: `CloudLinkEndedHeaderTests`.
 
 - 2026-10-29: an unnamed workspace of another computer (SSH, Cloud) reads as that computer ("dev-vm"), never as its
-  account's home folder ("cmux" from `/home/cmux`, only an idle shell's: a tab named that word keeps it) or `workspace-N`; a row titled by its computer drops the computer's
-  name from its second line (`dev-vm · ~` reads `~`; a status such as Paused stays). Only the whole name drops: the label keeps name and
-  status apart (`SidebarMachineLabel`), so `dev-vm` on a machine named `dev-vm · staging` keeps the name. Leo: "why is there all this
-  weird stuff at the bottom of the sidebar". Regression: `SidebarRemoteHomeTitleTests`.
+  account's home folder ("cmux" from `/home/cmux`; only an idle shell's: a tab named that word keeps it) or
+  `workspace-N`. An expanded row titled by its computer drops the computer's name from its meta line (a status such
+  as Paused stays); only the whole name drops (`SidebarMachineLabel` keeps name and status apart), so `dev-vm` on a
+  machine named `dev-vm · staging` keeps the name. Leo: "why is there all this weird stuff at the bottom of the
+  sidebar". Regression: `SidebarRemoteHomeTitleTests`.
 
 - 2026-10-29 (https://github.com/manaflow-ai/cmux/issues/27701): Shift-click, Cmd-click and Cmd-Shift-click select
   pinned workspaces as list rows, as classic: the range runs over the drawn order, pinned tiles and rows alike. A pinned

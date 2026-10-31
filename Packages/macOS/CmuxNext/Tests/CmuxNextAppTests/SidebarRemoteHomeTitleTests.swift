@@ -62,17 +62,16 @@ import Testing
         #expect(try Self.title(cwd: "/Users/leo", machine: SidebarMachine(id: .local, name: "This Mac", kind: .local)) == "leo")
     }
 
-    /// A row titled by its computer does not say the computer again on its second line; its status stays.
+    /// A row titled by its computer does not say the computer again on its expanded meta line; its status stays.
     @Test func aRowTitledByItsMachineDoesNotRepeatIt() {
         let ws = SidebarWorkspace(id: WorkspaceID("w"), title: "dev-vm", directory: "~")
-        let preferences = WorkspaceRowPreferences(base: WorkspaceRowElements(shown: []))
-        #expect(WorkspaceRowContent(ws, preferences: preferences, machine: "dev-vm").detail == "~")
-        #expect(WorkspaceRowContent(ws, preferences: preferences, machine: SidebarMachineLabel(name: "dev-vm", status: "Paused")).detail == "Paused · ~")
-        #expect(WorkspaceRowContent(ws, preferences: preferences, machine: "build-vm").detail == "build-vm · ~")
+        #expect(WorkspaceRowContent(expanded: ws, now: Date(), machine: "dev-vm").meta == nil)
+        #expect(WorkspaceRowContent(expanded: ws, now: Date(), machine: SidebarMachineLabel(name: "dev-vm", status: "Paused")).meta == "Paused")
+        #expect(WorkspaceRowContent(expanded: ws, now: Date(), machine: "build-vm").meta == "build-vm")
     }
 
-    /// The second line the one-list sidebar gives a Cloud row titled `title` on `machine` (status `status`), normal
-    /// rows and expanded ones (`meta`).
+    /// The second line the one-list sidebar gives a Cloud row titled `title` on `machine` (status `status`): normal
+    /// rows have none of their own (Leo 2026-10-30: "remove the second line"), expanded ones a meta line.
     private static func secondLines(title: String, machine name: String, status: String? = nil) -> (normal: String?, expanded: String?) {
         let machine = SidebarMachine(id: MachineID("vm"), name: name, kind: .cloud)
         let ws = SidebarWorkspace(id: WorkspaceID("w"), machineID: machine.id, title: title, directory: "~")
@@ -91,19 +90,19 @@ import Testing
     /// nothing about the rest of it (`dev-vm` on `dev-vm · staging` read `staging`).
     @Test func aTitleThatStartsTheMachinesNameKeepsTheName() {
         let lines = Self.secondLines(title: "dev-vm", machine: "dev-vm · staging")
-        #expect(lines.normal == "dev-vm · staging · ~")
+        #expect(lines.normal == nil)
         #expect(lines.expanded == "dev-vm · staging")
         let paused = Self.secondLines(title: "dev-vm", machine: "dev-vm · staging", status: "Paused")
-        #expect(paused.normal == "dev-vm · staging · Paused · ~")
+        #expect(paused.normal == nil)
         #expect(paused.expanded == "dev-vm · staging · Paused")
     }
 
     @Test func aRowTitledByAMachineNameWithTheSeparatorDropsOnlyThatName() {
         let lines = Self.secondLines(title: "dev-vm · staging", machine: "dev-vm · staging", status: "Paused")
-        #expect(lines.normal == "Paused · ~")
+        #expect(lines.normal == nil)
         #expect(lines.expanded == "Paused")
         let idle = Self.secondLines(title: "dev-vm · staging", machine: "dev-vm · staging")
-        #expect(idle.normal == "~")
+        #expect(idle.normal == nil)
         #expect(idle.expanded == nil)
     }
 }

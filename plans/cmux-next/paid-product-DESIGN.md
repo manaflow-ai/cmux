@@ -37,14 +37,17 @@ Numbers from `pricing-DESIGN.md` section 4 (proposal; prices are today's Stripe 
 | | Free | Pro | Max | Team |
 | --- | --- | --- | --- | --- |
 | Price | $0 | $50/mo ($40/mo yearly) | $200/mo ($160/mo yearly) | $60/seat/mo |
-| Cloud VMs at once | none (`cloud.plan.required`) | 5 | 20 | 5 |
+| Cloud VMs at once | none (`cloud.plan.required`) | 5 | 5 | 5 |
 | Largest VM | | 8 vCPU / 16 GB | 32 vCPU / 64 GB | 8 vCPU / 16 GB |
 | CodeRouter / model router | free open-model tier (300k tokens/device/day) | paid gate on, included AI usage, then at cost | same, more included | same, per seat |
 | Chief credits included / month | $3, hard stop | $25 | $100 | $25/seat pooled |
 | Own Claude Code / Codex on your Mac | free | free | free | free |
 
-Go ($10) stays a classic plan. It is not offered by the cmux-next CLI, and the web refuses it
-unless the Go flag is on for that user. Founders (one-time) gets Pro limits.
+Plus ($15/mo, plan id `go`, classic #26732, 2026-10-29) is sold by cmux-next too
+(`cmux billing checkout --plan plus`): one Cloud machine at Pro sizes, disk up to 128 GB, no hour
+cap. Max is five machines (up to 32 vCPU / 64 GB, 256 GB disk), as classic sells it.
+`backend/apps/api/test/cloud-plan-classic-parity.test.ts` pins these to classic's
+`web/services/vms/entitlements.ts`. Founders (one-time) gets Pro limits.
 
 ## 3. Checkout flow
 
@@ -136,7 +139,7 @@ Shipped skill `paid-plans` (`Native/OptChat/optchat-chief/skills/paid-plans/SKIL
 an unpaid model-router refusal, out of credits), the Chief:
 
 1. says in one line what the plan adds and its price,
-2. runs `cmux billing checkout --plan <pro|max|team> --json`,
+2. runs `cmux billing checkout --plan <plus|pro|max|team> --json`,
 3. tells the person where it opened (cmux tab or default browser) and that nothing is charged
    until they pay on the Stripe page,
 4. after they pay, checks `cmux billing status --json` and retries the blocked step.
