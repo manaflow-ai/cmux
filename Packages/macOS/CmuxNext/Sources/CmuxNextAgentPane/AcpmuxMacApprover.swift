@@ -162,6 +162,8 @@ public nonisolated final class AcpmuxMacApprover: Sendable {
 
     @MainActor
     private static func registerNow(_ environment: AcpmuxEnvironment) async {
+        AgentPanePeerApprovals.daemons[environment.socketPath] = ["ACPMUX_HOME": environment.home.path,
+                                                                  "ACPMUX_SOCKET": environment.socketPath]
         guard let identity = await shared.loadedIdentity() else { return }
         guard let line = await AcpmuxPersonLine.open(environment) else { return }
         defer { line.close() }

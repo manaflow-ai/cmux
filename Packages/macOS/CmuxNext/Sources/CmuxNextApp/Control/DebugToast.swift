@@ -42,7 +42,9 @@ enum DebugToast {
                     }
                 }
             }
-            let invocation = ActionInvocation(target: target, arguments: arguments, origin: .user)
+            var invocation = ActionInvocation(target: target, arguments: arguments, origin: .user)
+            // A person's run as far as the action goes, but carried by the socket: a screenshot stays masked.
+            invocation.viaControlSocket = true
             result["performed"] = .bool(services.registry.perform(ActionID(rawValue: id), invocation: invocation))
         }
         let windowID = params["window"]?.stringValue

@@ -2,6 +2,7 @@
 
 use super::person::ANSWERED_BY_SLOT;
 use super::*;
+use cmux_json::JsonSet as _;
 
 tokio::task_local! {
     /// The fence of the ancestor's answer the agent's request in this task got, until its
@@ -64,6 +65,11 @@ impl Hub {
                     ..
                 } => {
                     if m == method::SESSION_UPDATE {
+                        // What an agent a Stop ended still had in flight is not the next turn's
+                        // (`cancel.rs`): none of it lands in the turn that runs now.
+                        if agent == session.stopped_agent.load(Ordering::SeqCst) {
+                            continue;
+                        }
                         // Debug builds only: `ACPMUX_TEST_UPDATE_DELAY_MS` holds each update
                         // before it is applied (the log has it already), as a busy inbound loop
                         // does, so the daemon's integration tests can reach an agent first.
@@ -165,6 +171,9 @@ impl Hub {
                         hub.register_agent_request(&s, &id, host_incarnation.as_deref());
                     }
                     let request_id = id.clone();
+                    // Counted until its task ends: the idle exit never ends an agent that
+                    // waits on an answer to one of its own requests (`idle.rs`).
+                    let busy = super::idle::AgentRequest::new(&session);
                     tokio::spawn(async move {
                         let finish_hub = hub.clone();
                         hub.on_agent_request(
@@ -184,18 +193,26 @@ impl Hub {
                             &request_id,
                             host_incarnation.as_deref(),
                         );
+                        drop(busy);
                     });
                 }
-                Inbound::Stderr(line, host_seq) => {
-                    let line = short_text(&line, 4000);
+                Inbound::Stderr(raw, host_seq, agent) => {
+                    let line = short_text(&raw, STDERR_LINE_CAP);
                     tracing::debug!(session = %session.id, "stderr: {line}");
-                    if !line.trim().is_empty() {
-                        let mut tail = session.stderr_tail.lock().unwrap();
-                        if tail.len() >= 6 {
-                            tail.pop_front();
-                        }
-                        tail.push_back(line.clone());
-                    }
+                    // Each pipe of each agent process is its own stream; a line with no agent is
+                    // a line of its own.
+                    let clean = match agent {
+                        Some(source) => session
+                            .stderr_stream
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .clean_line(source, &raw),
+                        None => crate::stderr::StderrStream::default().clean_line_of(&raw),
+                    };
+                    remember_stderr(
+                        &mut session.stderr_tail.lock().unwrap_or_else(|e| e.into_inner()),
+                        &clean,
+                    );
                     // An agent host's stderr was logged before its ack.
                     if host_seq.is_none() {
                         self.append(&session, "mux", "stderr", json!({"text": line}));
@@ -205,6 +222,20 @@ impl Hub {
                     let _ = done.send(());
                 }
                 Inbound::ReplayDone { agent } => session.end_replay(agent),
+                // Under MDM's off an unheard agent ends now (review 65 of #23322): the background
+                // check ends it (`end_every_managed_full_access`, `host_unheard`). What waits on it
+                // is answered first, as its stopped reader never will: a start waiting on its
+                // `initialize` holds the spawn lock that check takes (review 1 of #26059), unless a
+                // reattach replaced the link since (review 2).
+                Inbound::LinkBroken { agent } => {
+                    if self.full_access_managed_off() {
+                        let child = session.child.lock().await.clone();
+                        if let Some(child) = child.filter(|c| c.generation == agent) {
+                            child.fail_pending_if_unheard().await;
+                        }
+                        self.idle_wake.notify_one();
+                    }
+                }
                 Inbound::Exited { pid, code, host_seq } => {
                     {
                         let mut slot = session.child.lock().await;
@@ -221,19 +252,27 @@ impl Hub {
                     session.floor.harness_grant.store(false, Ordering::SeqCst);
                     session.floor.unsandboxed.store(false, Ordering::SeqCst);
                     *session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                    session.floor.asked_options.lock().unwrap_or_else(|e| e.into_inner()).clear();
                     // Its background processes ended with it (`processes.rs`).
                     self.processes_lost(&session, processes::HARNESS_EXIT);
                     // So did its background subagents (`work_below.rs`).
                     self.end_background_subagents(&session);
-                    let intentional =
-                        matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed);
+                    // The idle exit marked it before it ended the harness (`idle.rs`); a stop clears the mark.
+                    let hibernating = session.hibernated_at.load(Ordering::SeqCst) != 0
+                        && session.status() != SessionStatus::Closed;
+                    let intentional = hibernating
+                        || matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed);
                     // An agent host's exit was logged before its ack.
                     if host_seq.is_none() {
                         self.append(
                             &session,
                             "mux",
                             if intentional { "stopped" } else { "exited" },
-                            json!({"code": code}),
+                            if hibernating {
+                                json!({"code": code, "hibernated": true})
+                            } else {
+                                json!({"code": code})
+                            },
                         );
                     }
                     if !intentional {
@@ -249,6 +288,11 @@ impl Hub {
         let Some(update) = params.and_then(|p| p.get("update")) else {
             return;
         };
+        // The tap persists a redacted receipt for ambiguous hosted metadata; the
+        // same fence must also keep its original update out of in-memory state.
+        if session.fences_compaction_update(update) {
+            return;
+        }
         // A subagent's messages and settings are not the session's own.
         let sid = params.and_then(|p| p.get("sessionId")).and_then(Value::as_str);
         let owned = sid.is_some_and(|sid| {
@@ -889,7 +933,7 @@ impl Hub {
                 let mut record = json!({"permissionId": permission_id, "policy": policy.to_string(), "rule": rule.map(|r| format!("{r:?}").to_lowercase()), "optionId": option_id, "chatAllowance": chat_option.is_some() && full_access.is_none(), "request": request});
                 // The mode that answered it, for the transcript's "Approved: … (Full access)".
                 if let Some((mode, _)) = &full_access {
-                    record["fullAccess"] = json!(mode);
+                    record.set("fullAccess", json!(mode));
                     tracing::info!(session = %session.id, %mode, "full access approved a request the harness raised");
                 }
                 self.append(session, "mux", "permission_auto", record);
@@ -956,7 +1000,7 @@ impl Hub {
         self.settle_permission(session, &permission_id, outcome.clone(), answered_by, prev);
         let mut out = json!({"outcome": outcome});
         if let Some(m) = out["outcome"].get("_meta").cloned() {
-            out["_meta"] = m;
+            out.set("_meta", m);
             if let Some(o) = out["outcome"].as_object_mut() {
                 o.remove("_meta");
             }
@@ -978,7 +1022,7 @@ impl Hub {
     ) {
         let mut decision = json!({"permissionId": permission_id, "outcome": outcome});
         if let Some(by) = answered_by {
-            decision["answeredBy"] = by;
+            decision.set("answeredBy", by);
         }
         self.append(session, "mux", "permission_decision", decision.clone());
         let mut state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
@@ -1230,11 +1274,11 @@ impl Hub {
         if let Some(a) = answers {
             let mut input =
                 pending.request.pointer("/toolCall/rawInput").cloned().unwrap_or(json!({}));
-            input["answers"] = a;
+            input.set("answers", a);
             if let Some(notes) = annotations {
-                input["annotations"] = notes;
+                input.set("annotations", notes);
             }
-            outcome["_meta"] = json!({"updatedInput": input});
+            outcome.set("_meta", json!({"updatedInput": input}));
         }
         if let Some(by) = answered_by {
             outcome[ANSWERED_BY_SLOT] = by;
@@ -1494,4 +1538,162 @@ pub(super) fn settle_full_access_report(session: &Session) {
             .floor
             .unapplied_full_access
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1));
+}
+
+/// How long a stderr line the tail keeps is (the event log keeps the same cut).
+const STDERR_LINE_CAP: usize = 4000;
+
+/// Keeps cleaned stderr line `clean` (`Session::stderr_stream`) in the session's tail, which
+/// explains a failed start or exit. A line that is empty once cleaned (a terminal reset, a string
+/// control's payload) never evicts an explanation.
+fn remember_stderr(tail: &mut std::collections::VecDeque<String>, clean: &str) {
+    if clean.is_empty() {
+        return;
+    }
+    if tail.len() >= 6 {
+        tail.pop_front();
+    }
+    tail.push_back(short_text(clean, STDERR_LINE_CAP));
+}
+
+#[cfg(test)]
+mod stderr_tests {
+    /// Each raw line through one session's stream into its tail, as `Inbound::Stderr` does.
+    fn feed(lines: &[String]) -> Vec<String> {
+        let mut stream = crate::hub::session::SessionStderr::default();
+        let mut tail = std::collections::VecDeque::new();
+        for line in lines {
+            super::remember_stderr(
+                &mut tail,
+                &stream.clean_line((1, crate::agent::StderrPipe::Stderr), line),
+            );
+        }
+        tail.into_iter().collect()
+    }
+
+    #[test]
+    fn a_long_payload_neither_grows_the_tail_nor_hides_later_lines() {
+        let mut lines = vec!["\x1bPstart".to_owned()];
+        lines.extend(std::iter::repeat_n("A".repeat(4096), 1000));
+        lines.push(format!("{}\x1b\\", "B".repeat(5000)));
+        lines.push("error: request timed out".to_owned());
+        assert_eq!(feed(&lines), vec!["error: request timed out"]);
+    }
+
+    #[test]
+    fn a_long_line_keeps_the_control_it_ends_in() {
+        // The opener sits past where the tail cuts a line: the lines after it are still payload.
+        let lines = [
+            format!("{} \x1b]8;;https://x", "w".repeat(4100)),
+            "leaked payload".to_owned(),
+            "end\x07error: request timed out".to_owned(),
+        ];
+        let tail = feed(&lines);
+        assert!(tail.iter().all(|line| !line.contains("leaked")), "{tail:?}");
+        assert_eq!(tail.last().map(String::as_str), Some("error: request timed out"));
+        // A DCS closed and an OSC opened late in a long line: a BEL on the next line ends the OSC.
+        let lines = [
+            format!("\x1bP{}\x1b\\\x1b]title", "d".repeat(5000)),
+            "\x07error: request timed out".to_owned(),
+        ];
+        assert_eq!(feed(&lines), vec!["error: request timed out"]);
+    }
+
+    #[test]
+    fn a_turn_boundary_keeps_the_open_control() {
+        // The tail is cleared at each turn; the stream is not, so a payload that runs into the
+        // next turn stays hidden.
+        let mut stream = crate::hub::session::SessionStderr::default();
+        let mut tail = std::collections::VecDeque::new();
+        super::remember_stderr(
+            &mut tail,
+            &stream.clean_line((1, crate::agent::StderrPipe::Stderr), "\x1bPsecret"),
+        );
+        tail.clear();
+        super::remember_stderr(
+            &mut tail,
+            &stream.clean_line((1, crate::agent::StderrPipe::Stderr), "leaked payload"),
+        );
+        super::remember_stderr(
+            &mut tail,
+            &stream.clean_line(
+                (1, crate::agent::StderrPipe::Stderr),
+                "\x1b\\error: request timed out",
+            ),
+        );
+        assert_eq!(tail.into_iter().collect::<Vec<_>>(), vec!["error: request timed out"]);
+    }
+
+    #[test]
+    fn an_old_agents_late_line_keeps_its_open_control_however_many_agents_followed() {
+        let mut stream = crate::hub::session::SessionStderr::default();
+        let mut tail = std::collections::VecDeque::new();
+        super::remember_stderr(
+            &mut tail,
+            &stream.clean_line((1, crate::agent::StderrPipe::Stderr), "\x1bPsecret"),
+        );
+        for generation in 2..10 {
+            super::remember_stderr(
+                &mut tail,
+                &stream.clean_line((generation, crate::agent::StderrPipe::Stderr), "ok"),
+            );
+        }
+        super::remember_stderr(
+            &mut tail,
+            &stream.clean_line((1, crate::agent::StderrPipe::Stderr), "late payload"),
+        );
+        assert!(tail.iter().all(|line| !line.contains("payload")), "{tail:?}");
+        // Its open control lasts until its own terminator, even after it exited.
+        assert_eq!(stream.clean_line((1, crate::agent::StderrPipe::Stderr), "\x1b\\done"), "done");
+    }
+
+    #[test]
+    fn many_agents_left_inside_a_control_never_free_an_older_ones_state() {
+        let mut stream = crate::hub::session::SessionStderr::default();
+        let err = |generation| (generation, crate::agent::StderrPipe::Stderr);
+        for generation in 1..200 {
+            assert_eq!(stream.clean_line(err(generation), "\x1bPsecret"), "");
+        }
+        assert_eq!(stream.clean_line(err(1), "late payload"), "");
+        assert_eq!(stream.clean_line(err(1), "\x1b\\shown"), "shown");
+    }
+
+    #[test]
+    fn an_agents_stdout_notes_are_their_own_stream() {
+        let mut stream = crate::hub::session::SessionStderr::default();
+        let out = (1, crate::agent::StderrPipe::Stdout);
+        let err = (1, crate::agent::StderrPipe::Stderr);
+        assert_eq!(stream.clean_line(out, "[non-json stdout] \x1bPsecret"), "[non-json stdout]");
+        assert_eq!(stream.clean_line(err, "error: on stderr"), "error: on stderr");
+        assert_eq!(stream.clean_line(out, "[non-json stdout] more payload"), "");
+        assert_eq!(stream.clean_line(out, "[non-json stdout] \x1b\\shown"), "shown");
+    }
+
+    #[test]
+    fn a_new_agent_starts_a_new_stream() {
+        // The old agent left a control open; the agent that replaced it starts clean, and a late
+        // line of the old one stays in the old one's stream.
+        let mut stream = crate::hub::session::SessionStderr::default();
+        let mut tail = std::collections::VecDeque::new();
+        super::remember_stderr(
+            &mut tail,
+            &stream.clean_line((1, crate::agent::StderrPipe::Stderr), "\x1bPsecret"),
+        );
+        super::remember_stderr(
+            &mut tail,
+            &stream.clean_line((2, crate::agent::StderrPipe::Stderr), "error: request timed out"),
+        );
+        super::remember_stderr(
+            &mut tail,
+            &stream.clean_line((1, crate::agent::StderrPipe::Stderr), "late payload"),
+        );
+        assert_eq!(tail.into_iter().collect::<Vec<_>>(), vec!["error: request timed out"]);
+    }
+
+    #[test]
+    fn stderr_resets_do_not_evict_the_explanation() {
+        let mut lines = vec!["\x1b[31mERROR failed to refresh models\x1b[0m".to_owned()];
+        lines.extend(std::iter::repeat_n("\x1b[0m".to_owned(), 8));
+        assert_eq!(feed(&lines), vec!["failed to refresh models"]);
+    }
 }

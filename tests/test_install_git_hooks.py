@@ -12,7 +12,9 @@ from pathlib import Path
 import shutil
 import shlex
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
 
 
@@ -614,8 +616,12 @@ cat > node_modules/.bin/vp <<'VP'
         import next_batch
         files = [path for path in subprocess.run(["git", "ls-files", "-z"], cwd=SOURCE, check=True,
                                                  capture_output=True, text=True).stdout.split("\0") if path]
-        attributes = subprocess.run(["git", "check-attr", "merge", "--stdin", "-z"], cwd=SOURCE, check=True,
-                                    input="\0".join(files), capture_output=True, text=True).stdout.split("\0")
+        # The paths go through a file, never `input=`: a pipe write can block for good (scripts/cmux-next/git_batch.py).
+        with tempfile.TemporaryFile() as paths:
+            paths.write("\0".join(files).encode())
+            paths.seek(0)
+            attributes = subprocess.run(["git", "check-attr", "merge", "--stdin", "-z"], cwd=SOURCE, check=True,
+                                        stdin=paths, capture_output=True, text=True).stdout.split("\0")
         kept = [path for path, _, value in zip(attributes[0::3], attributes[1::3], attributes[2::3])
                 if value == "cmux-generated-v1"]
         self.assertTrue(kept)
@@ -769,6 +775,115 @@ cat > node_modules/.bin/vp <<'VP'
         self.assert_trusted_hooks_installed()
         self.assert_merge_driver_installed()
 
+    # An agent's push gate runs the clone's installed checks copy. post-merge refreshes it only when a checkout is
+    # fast-forwarded to exactly feat-cmux-next; agents fetch and rebase in worktrees, so their copy stayed at the
+    # last pull (2026-10-28: the per-symbol compile trailer rule landed and no agent ran it). pre-push refreshes the
+    # copy from the fetched feat-cmux-next before a push to it.
+    CANONICAL = "https://github.com/manaflow-ai/cmux.git"
+
+    def commit_all(self, message):
+        self.git("add", "-A")
+        self.git("-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-qm", message)
+        return self.git("rev-parse", "HEAD").stdout.strip()
+
+    def installed_checks(self):
+        return self.common_dir() / "cmux-git-hooks" / "cmux-next-checks"
+
+    def refresh(self, remote_ref="refs/heads/feat-cmux-next", url=None):
+        hook_dir = self.common_dir() / "cmux-git-hooks"
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        python3 = (hook_dir / "python3-path").read_text(encoding="utf-8").strip()
+        return subprocess.run([python3, "-I", str(hook_dir / "refresh_checks.py"), "--hook-dir", str(hook_dir),
+                               "--repo", str(self.repo), "--remote-url", url or self.CANONICAL],
+                              input=f"refs/heads/topic {head} {remote_ref} {'0' * 40}\n", cwd=self.repo, env=self.env,
+                              text=True, capture_output=True)
+
+    def stale_install(self):
+        """Install at an old feat-cmux-next, then move the fetched feat-cmux-next to a newer gate rule."""
+        rule = self.repo / "scripts/cmux-next/compile_trailer.py"
+        rule.write_text("RULE = 'old'\n")
+        self.git("remote", "add", "origin", self.CANONICAL)
+        old = self.commit_all("old rule")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", old)
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.installed_checks() / "compile_trailer.py").read_text(), "RULE = 'old'\n")
+        rule.write_text("RULE = 'new'\n")
+        new = self.commit_all("new rule")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", new)
+        rule.write_text("RULE = 'from the working tree'\n")
+        return old, new
+
+    def test_pre_push_refreshes_a_stale_checks_copy_from_the_fetched_feat_cmux_next(self):
+        _old, new = self.stale_install()
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.installed_checks() / "compile_trailer.py").read_text(), "RULE = 'new'\n")
+        self.assertIn(new[:12], result.stdout + result.stderr)
+        gate = self.common_dir() / "cmux-git-hooks" / "cmux_next_prepush_gate.py"
+        self.assertEqual(gate.read_bytes(), (SOURCE / "scripts/cmux-next/prepush-gate.py").read_bytes())
+        again = self.refresh()  # current: nothing to do
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertEqual(again.stdout + again.stderr, "")
+        hook = (SOURCE / "scripts/git-hooks/pre-push").read_text()
+        self.assertLess(hook.index("refresh_checks.py"), hook.index("cmux_next_prepush_gate.py"),
+                        "pre-push refreshes the checks before it runs them")
+
+    def test_installed_and_refreshed_checks_carry_the_swift_source_masker(self):
+        # Review of #28365: check-package-dependency-lists.py imports scripts/swift_source_mask.py, and the hook runs
+        # its copy from the checks folder, so both the install and a refresh put the masker beside it.
+        masker = self.repo / "scripts/swift_source_mask.py"
+        if not masker.is_file():
+            masker.parent.mkdir(parents=True, exist_ok=True)
+            masker.write_bytes((SOURCE / "scripts/swift_source_mask.py").read_bytes())
+        self.stale_install()
+        self.assertTrue((self.installed_checks() / "swift_source_mask.py").is_file(), "the install has no masker")
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.installed_checks() / "swift_source_mask.py").read_bytes(),
+                         (SOURCE / "scripts/swift_source_mask.py").read_bytes(), "the refreshed copy has no masker")
+
+    def test_refresh_leaves_other_pushes_and_lookalike_remotes_alone(self):
+        self.stale_install()
+        for result in (self.refresh(remote_ref="refs/heads/topic"),
+                       self.refresh(url="https://attacker.invalid/github.com/manaflow-ai/cmux")):
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((self.installed_checks() / "compile_trailer.py").read_text(), "RULE = 'old'\n")
+        self.git("remote", "set-url", "origin", "https://attacker.invalid/github.com/manaflow-ai/cmux")
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.installed_checks() / "compile_trailer.py").read_text(), "RULE = 'old'\n")
+
+    def test_refresh_never_goes_back_to_an_older_feat_cmux_next(self):
+        old, new = self.stale_install()
+        self.git("checkout", "-q", "--", ".")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", new)
+        self.assertEqual(self.refresh().returncode, 0)
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", old)
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.installed_checks() / "compile_trailer.py").read_text(), "RULE = 'new'\n")
+
+    def test_refresh_replaces_a_copy_installed_from_a_commit_feat_cmux_next_never_got(self):
+        # setup.sh in an agent's worktree stamps its unpushed (later rebased away) commit: that commit never becomes
+        # an ancestor of feat-cmux-next, so an ancestor-only rule kept its unreviewed checks on every later push.
+        old, new = self.stale_install()
+        rule = self.repo / "scripts/cmux-next/compile_trailer.py"
+        self.git("checkout", "-q", "--", ".")
+        self.git("checkout", "-q", "-b", "side", old)
+        rule.write_text("RULE = 'local, never landed'\n")
+        self.commit_all("local rule")
+        self.assertEqual(self.install().returncode, 0)
+        self.assertEqual((self.installed_checks() / "compile_trailer.py").read_text(),
+                         "RULE = 'local, never landed'\n")
+        self.git("checkout", "-q", new)
+        rule.write_text("RULE = 'newest'\n")
+        newest = self.commit_all("newest rule")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", newest)
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.installed_checks() / "compile_trailer.py").read_text(), "RULE = 'newest'\n")
+
     def test_post_merge_rejects_lookalike_github_url(self):
         marker = self.root / "untrusted-installer-ran"
         installer = self.repo / INSTALLER
@@ -908,6 +1023,32 @@ cat > node_modules/.bin/vp <<'VP'
         result = self.install(plain)
 
         self.assertNotEqual(result.returncode, 0)
+
+    def test_an_install_behind_a_held_lock_gives_up_and_names_the_holder(self):
+        """2026-10-28 (a803, a817, about 25 agents): a refresh stuck holding install.lock made every install and
+        push behind it wait for good, naming pid 85305, the last installer's pid left in the file and long gone.
+        An install now waits a bounded time, then fails naming the process that holds the lock."""
+        self.assertEqual(self.install().returncode, 0)
+        lock_path = self.common_dir() / "cmux-git-hooks" / "install.lock"
+        lock_path.write_text("85305\n")  # the stale pid text of a finished install
+        holder = subprocess.Popen(
+            [sys.executable, "-I", "-c",
+             "import fcntl, os, sys, time\n"
+             "fd = os.open(sys.argv[1], os.O_RDWR)\nfcntl.flock(fd, fcntl.LOCK_EX)\n"
+             "print('held', flush=True)\ntime.sleep(120)\n", str(lock_path)],
+            stdout=subprocess.PIPE, text=True, start_new_session=True)
+        self.addCleanup(holder.wait)
+        self.addCleanup(holder.kill)
+        self.assertEqual(holder.stdout.readline().strip(), "held")
+        self.env["CMUX_HOOKS_INSTALL_LOCK_WAIT_SECONDS"] = "2"
+        try:
+            result = subprocess.run(["bash", INSTALLER], cwd=self.repo, env=self.env, text=True, capture_output=True,
+                                    timeout=30)
+        except subprocess.TimeoutExpired:
+            self.fail("the install waited past 30 s for a lock another process holds")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(f"pid {holder.pid}", result.stderr)
+        self.assertNotIn("85305", result.stderr)
 
 
 if __name__ == "__main__":

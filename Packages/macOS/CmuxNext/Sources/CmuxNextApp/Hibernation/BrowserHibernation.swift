@@ -84,7 +84,7 @@ final class BrowserHibernation {
     /// Hidden pages frozen now (`browser.freezeHiddenTabs`); they thaw when shown or driven.
     private(set) var frozen: Set<String> = []
     /// Pages a freeze probe is asking (media, Web Audio, capture).
-    private var freezeProbing: Set<String> = []
+    private(set) var freezeProbing: Set<String> = []
     /// When a page the probe kept awake (playing audio) is asked again.
     private var freezeKeptAt: [String: ContinuousClock.Instant] = [:]
     /// What each hidden page's probes said lately: the benefit of the doubt while it does not
@@ -121,6 +121,13 @@ final class BrowserHibernation {
     static let standInCap: Duration = .milliseconds(500)
     /// The clock of the stand-in cap (a seam for tests).
     var standInClock: any Clock<Duration> = ContinuousClock()
+    /// The clock hidden, grace and backoff times are read from (tests set it, as for
+    /// `AgentPageHibernation.now`). The probe's own deadlines stay on the wall clock.
+    var now: () -> ContinuousClock.Instant = { .now }
+    /// How long a hidden page has to answer the probe or say whether its `beforeunload` asks
+    /// (a seam: tests that do not check a silent page set it longer, so a starved test machine is not
+    /// a page that did not answer).
+    var pageDeadline: Duration = .seconds(2)
     /// Wakes with a picture whose page could show no stand-in (`debug.surfaces`).
     var uncoveredWakes = 0
     private let lowPower: LowPowerMode
@@ -135,6 +142,9 @@ final class BrowserHibernation {
     static let focusLimit = 64
     /// Tabs whose browser lease an agent holds now (`noteLease`).
     private(set) var leased: Set<String> = []
+    /// Hidden pages whose workspace hibernates (`hibernateForWorkspace`): discarded without
+    /// `browser.hibernation`, still after every page check; cleared when shown or closed.
+    private(set) var workspaceDue: Set<String> = []
     /// A download tab `key` started still runs; injected by the App.
     var isDownloading: (String) -> Bool = { _ in false }
     /// Samples each browser tab's memory (renderer footprint, shared renderers split); injected
@@ -215,14 +225,14 @@ final class BrowserHibernation {
     /// replans with it (the heaviest of equally idle pages goes first).
     private func refreshMemoryIfNeeded() {
         guard pressure != .normal, let measureMemory, !measuringMemory else { return }
-        if let at = memoryMeasuredAt, (ContinuousClock.now - at).seconds < Self.memoryMaxAge { return }
+        if let at = memoryMeasuredAt, (now() - at).seconds < Self.memoryMaxAge { return }
         measuringMemory = true
         Task { @MainActor [weak self] in
             let sample = await measureMemory()
             guard let self else { return }
             self.measuringMemory = false
             self.memoryBytes = sample
-            self.memoryMeasuredAt = .now
+            self.memoryMeasuredAt = self.now()
             self.replan()
         }
     }
@@ -243,7 +253,7 @@ final class BrowserHibernation {
             guard leased.remove(key) != nil else { return }
             if exemptions[key] == .agentLease { exemptions[key] = nil }
             // The agent left it: its hidden clock starts now.
-            if cache?.lifecycle.phase(key) == .mountedHidden { hiddenAt[key] = .now }
+            if cache?.lifecycle.phase(key) == .mountedHidden { hiddenAt[key] = now() }
         }
         replan()
     }
@@ -252,7 +262,7 @@ final class BrowserHibernation {
 
     func tabDidHide(_ key: String) {
         guard cache?.browsers[key] != nil else { return }
-        hiddenAt[key] = .now
+        hiddenAt[key] = now()
         replan()
     }
 
@@ -268,7 +278,8 @@ final class BrowserHibernation {
         probeKeptAt[key] = nil
         askedBeforeUnload.remove(key)
         discardedByUser.remove(key)
-        noteFocus(key, at: .now)
+        workspaceDue.remove(key)
+        noteFocus(key, at: now())
     }
 
     /// Records a show of tab `key` for its ranking, dropping shows older than `focusWindow`.
@@ -290,11 +301,11 @@ final class BrowserHibernation {
     /// agent woke sleeps again once the agent leaves it alone that long.
     func noteAgentUse(_ key: String) {
         guard let cache, cache.browsers[key] != nil else { return }
-        agentUsedAt[key] = .now
+        agentUsedAt[key] = now()
         // Before the agent's call goes out: a frozen page runs no script.
         thaw(key)
         guard cache.lifecycle.phase(key) == .mountedHidden else { return }
-        hiddenAt[key] = .now
+        hiddenAt[key] = now()
         replan()
     }
 
@@ -307,6 +318,7 @@ final class BrowserHibernation {
         probing.remove(key)
         askedBeforeUnload.remove(key)
         discardedByUser.remove(key)
+        workspaceDue.remove(key)
         prewarmCauses[key] = nil
         exemptions[key] = nil
         frozen.remove(key)
@@ -346,7 +358,7 @@ final class BrowserHibernation {
         hoverDwell.cancel()
         guard let key, neighborRadius > 0, let cache, cache.browsers[key] != nil,
               cache.lifecycle.phase(key) != .mountedVisible else { return }
-        hoveredAt[key] = .now
+        hoveredAt[key] = now()
         thaw(key, prewarm: true)
         if cache.lifecycle.phase(key) == .hibernated {
             // Justified delay: a dwell, not a poll; the next hover change cancels it.
@@ -369,7 +381,7 @@ final class BrowserHibernation {
         let left = awakeNeighbors.subtracting(next)
         let joined = next.subtracting(awakeNeighbors)
         awakeNeighbors = next
-        let now = ContinuousClock.now
+        let now = self.now()
         for key in left where cache.lifecycle.phase(key) == .mountedHidden {
             hiddenAt[key] = now
             if exemptions[key] == .neighbor { exemptions[key] = nil }
@@ -419,7 +431,7 @@ final class BrowserHibernation {
     /// freezes alone (a probe that kept a page: planning its discard again would ask it at once).
     func replan(freezeOnly: Bool = false) {
         guard let cache else { return }
-        let now = ContinuousClock.now
+        let now = self.now()
         var graceEnds: Double?
         let candidates = cache.lifecycle.keys(in: .mountedHidden).compactMap { key -> HibernationPlanner.Candidate? in
             guard let at = hiddenAt[key], !probing.contains(key), let entry = cache.browsers[key] else { return nil }
@@ -472,7 +484,7 @@ final class BrowserHibernation {
     /// for the next (`HibernationPlanner.freezePlan`). Events only, as for hibernation.
     private func replanFreeze(_ hidden: [HibernationPlanner.Candidate]) {
         guard let cache else { return }
-        let now = ContinuousClock.now
+        let now = self.now()
         let threshold = setting.freezeSeconds
         var recheck: Double?
         let candidates = hidden.filter { candidate in
@@ -501,8 +513,9 @@ final class BrowserHibernation {
     private func freeze(_ key: String) {
         guard let cache, let tab = cache.browsers[key]?.tab, let page = freezer(tab),
               let generation = cache.lifecycle.record(key)?.generation, freezeProbing.insert(key).inserted else { return }
+        let limit = pageDeadline
         Task { @MainActor [weak self] in
-            let probe = await Self.probe(tab)
+            let probe = await Self.probe(tab, within: limit)
             guard let self, let cache = self.cache else { return }
             self.freezeProbing.remove(key)
             guard cache.browsers[key]?.tab === tab, cache.lifecycle.record(key)?.generation == generation,
@@ -516,7 +529,7 @@ final class BrowserHibernation {
             guard self.mayFreeze(key) else { return }
             let doubted = self.probeHistory.record(probe, for: key, step: .freeze)
             if probe.stopsWhenFrozen || doubted {
-                self.freezeKeptAt[key] = .now
+                self.freezeKeptAt[key] = self.now()
                 self.replan()
                 return
             }
@@ -527,17 +540,17 @@ final class BrowserHibernation {
     /// No agent called the hidden page within `agentGrace` or holds its lease, and it is no
     /// neighbor or hovered tab.
     private func mayFreeze(_ key: String) -> Bool {
-        if let used = agentUsedAt[key], (ContinuousClock.now - used).seconds < Self.agentGrace { return false }
+        if let used = agentUsedAt[key], (now() - used).seconds < Self.agentGrace { return false }
         // An agent holds its lease: its next call would wait on a thaw.
         if leased.contains(key) { return false }
-        return !awakeNeighbors.contains(key) && hoverLeft(key, now: .now) == nil
+        return !awakeNeighbors.contains(key) && hoverLeft(key, now: now()) == nil
     }
 
     private func freeze(_ key: String, _ page: any BrowserFreezing) {
         // The engine refuses a page it still counts visible: it stays awake and is asked again
         // after `freezeSeconds` (a hidden page's visibility reaches the engine within a frame).
         guard page.setFrozen(true) else {
-            freezeKeptAt[key] = .now
+            freezeKeptAt[key] = now()
             cache?.trace(key, "freeze refused")
             replan()
             return
@@ -559,7 +572,7 @@ final class BrowserHibernation {
     /// switches neighbors exist to avoid (`debug.surfaces`, the bench).
     private(set) var coldShows = 0
 
-    private func candidate(_ key: String, entry: BrowserEntry, hiddenFor: Double, now: ContinuousClock.Instant = .now) -> HibernationPlanner.Candidate {
+    private func candidate(_ key: String, entry: BrowserEntry, hiddenFor: Double, now: ContinuousClock.Instant) -> HibernationPlanner.Candidate {
         let tab = entry.tab
         let capturing = (tab as? any PageInfoProviding).map { !$0.pageInfoInUse.union($0.pageInfoActivity.inUse).isEmpty } ?? false
         var candidate = HibernationPlanner.Candidate(
@@ -584,7 +597,7 @@ final class BrowserHibernation {
     /// its engine cannot restore it. Returns why not, or nil when it started.
     func hibernateNow(_ key: String) -> HibernationPlanner.Exemption? {
         guard let cache, let entry = cache.browsers[key], cache.lifecycle.phase(key) == .mountedHidden else { return .disabled }
-        let facts = candidate(key, entry: entry, hiddenFor: 0)
+        let facts = candidate(key, entry: entry, hiddenFor: 0, now: now())
         guard facts.canRestore else { return .unsupported }
         // An agent holds its lease: its next call would find no page.
         guard !facts.hasAgentLease else { exemptions[key] = .agentLease; return .agentLease }
@@ -593,14 +606,40 @@ final class BrowserHibernation {
         return nil
     }
 
+    /// Its workspace hibernates (plans/cmux-next/workspace-hibernation-DESIGN.md): hidden page `key`
+    /// is discarded unless the page check keeps it (edited fields, media, capture, a device, a
+    /// `beforeunload` handler, an agent lease) or cmux.json turned `browser.hibernation` off. Unlike
+    /// the timeout this runs without `browser.hibernation` set: the person's workspace setting asked.
+    /// Returns why not, or nil when it started.
+    @discardableResult
+    func hibernateForWorkspace(_ key: String) -> HibernationPlanner.Exemption? {
+        guard let cache, let entry = cache.browsers[key] else { noteWorkspacePage("no_page"); return .disabled }
+        guard !(entry.tab is HibernatedBrowserTab) else { noteWorkspacePage("already_hibernated"); return .disabled }
+        let phase = cache.lifecycle.phase(key)
+        guard phase == .mountedHidden else { noteWorkspacePage("phase_\(phase.rawValue)"); return .disabled }
+        // What keeps a page from the timeout keeps it here: a pinned tab, an excluded site, DevTools,
+        // capture, a download, a form result, an agent lease, an engine that cannot restore it.
+        let facts = candidate(key, entry: entry, hiddenFor: 0, now: now())
+        if let kept = HibernationPlanner.exemption(facts, setting: setting) {
+            exemptions[key] = kept
+            noteWorkspacePage("kept_\(kept.rawValue)")
+            return kept
+        }
+        workspaceDue.insert(key)
+        if !prepare(key, cause: "workspace-idle") { noteWorkspacePage("not_prepared") }
+        return nil
+    }
+
     /// Probes the page, captures its history and snapshot, then hibernates
     /// it if it is still hidden with the same generation.
-    private func prepare(_ key: String, user: Bool = false, cause: String) {
+    @discardableResult
+    private func prepare(_ key: String, user: Bool = false, cause: String) -> Bool {
         guard let cache, let entry = cache.browsers[key], let source = entry.tab as? any BrowserHibernationSource,
-              let generation = cache.lifecycle.record(key)?.generation, probing.insert(key).inserted else { return }
+              let generation = cache.lifecycle.record(key)?.generation, probing.insert(key).inserted else { return false }
         let tab = entry.tab
         // The probe and the history capture run script: a frozen page runs none.
         thaw(key)
+        let limit = pageDeadline
         Task { @MainActor [weak self] in
             // The person's Hibernate Tab asks the page nothing (only a form result keeps it).
             var exemption: HibernationPlanner.Exemption?
@@ -608,7 +647,7 @@ final class BrowserHibernation {
             if user {
                 exemption = source.showsFormSubmission ? .formSubmission : nil
             } else {
-                let probe = await Self.probe(tab)
+                let probe = await Self.probe(tab, within: limit)
                 // The freeze probe counts the misses (it runs beside this one and refreezes the
                 // page); this one records an answer only.
                 let doubted = probe.answered ? self?.probeHistory.record(probe, for: key) ?? false : self?.probeHistory.doubted(key) ?? true
@@ -629,6 +668,7 @@ final class BrowserHibernation {
             switch self.discardCheck(key, tab: tab, generation: generation, user: user) {
             case .stale:
                 cache.trace(key, "hibernate probe dropped (stale)")
+                if self.workspaceDue.contains(key) { self.noteWorkspacePage("stale") }
                 // The probe thawed the page, and a hide meanwhile (shown, then hidden again) replanned
                 // without it: plan again so a page still hidden freezes.
                 self.replan()
@@ -637,7 +677,8 @@ final class BrowserHibernation {
                 // The page's own answer (form input, audio) is the reason it reports, else why the
                 // check kept it.
                 self.exemptions[key] = exemption ?? reason
-                if exemption != nil { self.probeKeptAt[key] = .now }
+                if self.workspaceDue.contains(key) { self.noteWorkspacePage("kept_\((exemption ?? reason).rawValue)") }
+                if exemption != nil { self.probeKeptAt[key] = self.now() }
                 // The probe thawed the page and the replans meanwhile skipped it: plan again so it
                 // freezes. No `.keep` reason (neighbor, hover, agent grace, the setting) makes it due.
                 self.replan()
@@ -647,7 +688,8 @@ final class BrowserHibernation {
             }
             if let exemption {
                 self.exemptions[key] = exemption
-                self.probeKeptAt[key] = .now
+                if self.workspaceDue.contains(key) { self.noteWorkspacePage("kept_\(exemption.rawValue)") }
+                self.probeKeptAt[key] = self.now()
                 // The probe thawed it and the replans meanwhile skipped it: its freeze is planned
                 // again (not its discard, which would ask the page again at once).
                 self.replan(freezeOnly: true)
@@ -656,12 +698,23 @@ final class BrowserHibernation {
             // Its renderer ended while the probe ran: it keeps the crash notice.
             guard tab.state.processExit == nil, let state = source.hibernationState() else {
                 self.exemptions[key] = .unsupported
+                if self.workspaceDue.contains(key) { self.noteWorkspacePage("no_restore_state") }
                 return
             }
+            if self.workspaceDue.contains(key) { self.noteWorkspacePage("discarding") }
             self.prepared[key] = (state, snapshot, cause)
             if user { self.discardedByUser.insert(key) } else { self.discardedByUser.remove(key) }
             cache.applyLifecycle(cache.lifecycle.send(.hibernate(key)))
         }
+        return true
+    }
+
+    /// How workspace hibernation's page discards ended, by outcome (`debug.surfaces`
+    /// `workspace_pages`): a page that stayed says why.
+    private(set) var workspacePageOutcomes: [String: Int] = [:]
+
+    private func noteWorkspacePage(_ outcome: String) {
+        workspacePageOutcomes[outcome, default: 0] += 1
     }
 
     /// Takes a hidden page's picture (a seam for tests).
@@ -708,12 +761,14 @@ final class BrowserHibernation {
         // plan): a leased page is never discarded, not even by Hibernate Tab.
         if leased.contains(key) { return .keep(.agentLease) }
         if user { return .go }
+        // Its workspace hibernates: the page's own answers above decided; the timeout's setting does not.
+        if workspaceDue.contains(key) { return setting.isEnabled ? .go : .keep(.disabled) }
         // The setting changed while the probe ran: an automatic discard started under a timeout
         // the person has since removed (or turned off) does not happen.
         if !setting.isEnabled { return .keep(.disabled) }
         if !setting.discardsAutomatically { return .keep(.keepsState) }
-        if awakeNeighbors.contains(key) || hoverLeft(key, now: .now) != nil { return .keep(.neighbor) }
-        if let used = agentUsedAt[key], (ContinuousClock.now - used).seconds < Self.agentGrace { return .keep(.agentDriving) }
+        if awakeNeighbors.contains(key) || hoverLeft(key, now: now()) != nil { return .keep(.neighbor) }
+        if let used = agentUsedAt[key], (now() - used).seconds < Self.agentGrace { return .keep(.agentDriving) }
         return .go
     }
 
@@ -726,7 +781,7 @@ final class BrowserHibernation {
     /// its handlers once per hidden period; a page that asked, or could not be asked, stays.
     private func asksBeforeUnload(_ key: String, _ tab: any BrowserTab) async -> Bool {
         if askedBeforeUnload.contains(key) { return true }
-        let asks = (try? await ControlDeadline.shared.run(method: "hibernation.beforeunload", deadline: .now + .seconds(2)) { @MainActor in
+        let asks = (try? await ControlDeadline.shared.run(method: "hibernation.beforeunload", deadline: .now + pageDeadline) { @MainActor in
             try await tab.asksBeforeUnload()
         }) ?? true
         if asks { askedBeforeUnload.insert(key) }
@@ -737,9 +792,9 @@ final class BrowserHibernation {
 
     /// Asks hidden page `tab` what it does (`PageProbe`). Runs no page code: whether a `beforeunload`
     /// handler would ask is learned only right before a discard (`asksBeforeUnload`).
-    static func probe(_ tab: any BrowserTab) async -> PageProbe {
+    static func probe(_ tab: any BrowserTab, within limit: Duration = .seconds(2)) async -> PageProbe {
         do {
-            let (value, busy) = try await ControlDeadline.shared.run(method: "hibernation.probe", deadline: .now + .seconds(2)) { @MainActor in
+            let (value, busy) = try await ControlDeadline.shared.run(method: "hibernation.probe", deadline: .now + limit) { @MainActor in
                 (try await tab.evaluate(BrowserPageBusy.fieldProbeScript, world: .isolated, gesture: .cmux), try await tab.pageBusy())
             }
             guard case .string(let json) = value, let data = json.data(using: .utf8),

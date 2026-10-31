@@ -138,7 +138,7 @@ struct CloudMove {
         guard let chat = try await chatFolder(tab: tab, workspace: workspace, session: session, invocation: invocation),
               let folder = CloudMoveFolder(chat: chat) else { throw Failure(message: CloudMoveStrings.noFolder) }
         guard !folder.isTooBroad else { throw Failure(message: CloudMoveStrings.homeFolder) }
-        let machine = try await self.machine(invocation)
+        let machine = try await self.machine(invocation) { await CloudChatPick(services: services).read(folder: chat, tab: tab) }
         let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)
         // From here the chat may move to this machine: a quit or a crash before the move ends
         // leaves Retry pinned to it, and the relaunched app finishes the move there.
@@ -154,9 +154,15 @@ struct CloudMove {
             toast("cloud-move-" + tab.id, CloudMoveStrings.moving, duration: .seconds(600))
         }
         let remote = try await sync(folder, to: machineSocket, machine: name, cli: cli, retry: again)
+        // The Cloud API's answer for this app on the link in use, read now and never kept: the
+        // machine takes the chat only on `owner`, never on its own record (its agents can write it).
+        // The answer is bound to the link process it came from (`--to-pid`): the pump sends it
+        // only over a connection that process serves, so a link replaced meanwhile gets none.
+        let ownerPID = await machine.link?.ownerPID
         let moved: CloudMoveCLI.Answer
         do {
-            moved = try await cli.agentMove(from: localSocket, surface: tab.surface.rawValue, to: machineSocket, cwd: remote.chat)
+            moved = try await cli.agentMove(from: localSocket, surface: tab.surface.rawValue, to: machineSocket, cwd: remote.chat,
+                                            vmKind: ownerPID == nil ? "none" : "owner", toPID: ownerPID)
         } catch {
             // Timed out or didn't run to its answer: the move may have committed, and a rerun resolves it.
             services.cloud.logger.error("cloud move: link agent move: \(String(describing: error), privacy: .public)")
@@ -249,8 +255,8 @@ struct CloudMove {
         return (chats + tabs).lazy.compactMap(\.cwd).first { $0.hasPrefix("/") }
     }
 
-    /// The machine the chat moves to, connected.
-    private func machine(_ invocation: ActionInvocation) async throws -> CloudMachineSession {
+    /// The machine the chat moves to, connected; a new one is sized for the chat (`pick`).
+    private func machine(_ invocation: ActionInvocation, pick: () async -> CloudWorkPick?) async throws -> CloudMachineSession {
         let machines = services.machines
         let named = invocation["machine"]?.targetValue?.id ?? invocation["machine"]?.stringValue
         if let named {
@@ -261,7 +267,8 @@ struct CloudMove {
         if let live = machines.cloud.first(where: { $0.daemon.connection != nil }) ?? machines.cloud.first {
             return try await connected(live, invocation)
         }
-        let created = try await services.cloud.createMachine(name: nil, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession)
+        let created = try await services.cloud.createMachine(name: nil, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession,
+                                                             request: CloudChatPick.request(sizedFor: await pick()))
         return try await connected(created, invocation)
     }
 

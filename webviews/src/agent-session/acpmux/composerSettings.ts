@@ -25,8 +25,10 @@
 // `escapeDoublePress` is Debug Settings' "Esc stops a turn on a double press" (Swift
 // AgentPaneTunables.escapeStopDoublePress, on by default; no cmux.json key): on, Esc on an empty
 // composer stops a running turn only on the second press inside the window (escapeStop.ts).
+// `showMachineLoadWarnings` is the user setting for the Computer menu's cached host-health detail.
 import { useSyncExternalStore } from "react";
 
+export type HarnessPlacement = "left" | "top" | "compact";
 export type ReasoningSliderStyle = "accent" | "minimal";
 export type AttachmentView = "inline" | "strip";
 export type ComposerSettings = {
@@ -38,8 +40,10 @@ export type ComposerSettings = {
   reasoningSlider: boolean;
   reasoningSliderStyle: ReasoningSliderStyle;
   plainFooter: boolean;
+  harnessPlacement: HarnessPlacement;
   harnessSwitch: boolean;
   escapeDoublePress: boolean;
+  showMachineLoadWarnings: boolean;
 };
 
 export const DEFAULT_COMPOSER: ComposerSettings = {
@@ -51,8 +55,10 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   reasoningSlider: false,
   reasoningSliderStyle: "accent",
   plainFooter: true,
+  harnessPlacement: "left",
   harnessSwitch: false,
   escapeDoublePress: true,
+  showMachineLoadWarnings: true,
 };
 const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
 type ComposerFlag =
@@ -63,7 +69,8 @@ type ComposerFlag =
   | "plainFooter"
   | "harnessSwitch"
   | "scrollToBottomOnSend"
-  | "escapeDoublePress";
+  | "escapeDoublePress"
+  | "showMachineLoadWarnings";
 
 /// The host's value; anything it does not know keeps the default.
 export function readComposerSettings(value: unknown): ComposerSettings {
@@ -80,8 +87,11 @@ export function readComposerSettings(value: unknown): ComposerSettings {
     reasoningSlider: flag("reasoningSlider"),
     reasoningSliderStyle,
     plainFooter: flag("plainFooter"),
+    harnessPlacement:
+      raw.harnessPlacement === "top" || raw.harnessPlacement === "compact" ? raw.harnessPlacement : "left",
     harnessSwitch: flag("harnessSwitch"),
     escapeDoublePress: flag("escapeDoublePress"),
+    showMachineLoadWarnings: flag("showMachineLoadWarnings"),
   };
 }
 
@@ -124,6 +134,8 @@ export function useComposerSettings(): ComposerSettings {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
+    () => current,
+    // A static render (a sent bubble's markup, renderToStaticMarkup) reads the same page value.
     () => current,
   );
 }

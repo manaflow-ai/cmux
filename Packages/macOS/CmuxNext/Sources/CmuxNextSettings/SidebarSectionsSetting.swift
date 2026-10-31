@@ -26,6 +26,7 @@ public nonisolated enum SidebarSectionsSetting {
     public static let showProfileControlPath = ["sidebar", "showProfileControl"]
     public static let showSearchButtonPath = ["sidebar", "showSearchButton"]
     public static let noFadePath = ["sidebar", "noFade"]
+    public static let controlsOnHoverPath = ["sidebar", "controlsOnHover"]
     public static let tipsPath = ["sidebar", "cards", "tips"]
     public static let detailedStatusIconsPath = ["sidebar", "detailedStatusIcons"]
     public static let showTimestampsPath = ["sidebar", "showTimestamps"]
@@ -158,7 +159,8 @@ public nonisolated enum SidebarSectionsSetting {
                           title: SettingsText.keyed("settings.sidebar.showWorkspaceTabs", "Show Workspace Tabs"),
                           help: SettingsText.keyed("settings.sidebar.showWorkspaceTabs.help", "Lists tabs beneath each workspace in the sidebar."),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showWorkspaceTabs),
-                          keywords: ["sidebar", "workspace", "tabs"])
+                          keywords: ["sidebar", "workspace", "workspaces", "tabs", "panes", "under", "beneath", "nested",
+                                     "expand", "list", "tree", "disclosure"])
     }
 
     /// Projects, which its header's menu hides (Leo 2026-10-06). All chats has
@@ -200,6 +202,13 @@ public nonisolated enum SidebarSectionsSetting {
                                                        "The sidebar's edges stop fading and the whole list shows. It also hides the bottom profile and search bar. Off, the edges fade and the bar shows."),
                               kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.noFade),
                               keywords: ["sidebar", "fade", "whole", "full", "everything", "edges", "profile", "search", "footer", "show", "hide"]),
+            // Show Sidebar Controls Only on Hover: the controls show only while the pointer is over the sidebar.
+            SettingDescriptor(controlsOnHoverPath, section: .appearance, group: group,
+                              title: SettingsText.keyed("settings.sidebar.controlsOnHover", "Show Sidebar Controls Only on Hover"),
+                              help: SettingsText.keyed("settings.sidebar.controlsOnHover.help",
+                                                       "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show."),
+                              kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.controlsOnHover),
+                              keywords: ["sidebar", "minimal", "hover", "hide", "show", "controls", "buttons", "search", "profile", "spaces", "footer", "clean"]),
         ]
     }
 
@@ -283,6 +292,7 @@ public nonisolated enum SidebarSectionsSetting {
         result.showProfileControl = flag(root, showProfileControlPath, fallback: result.showProfileControl, &diagnostics)
         result.showSearchButton = flag(root, showSearchButtonPath, fallback: result.showSearchButton, &diagnostics)
         result.noFade = flag(root, noFadePath, fallback: result.noFade, &diagnostics)
+        result.controlsOnHover = flag(root, controlsOnHoverPath, fallback: result.controlsOnHover, &diagnostics)
         result.minimal = flag(root, minimalPath, fallback: result.minimal, &diagnostics)
         result.detailedStatusIcons = flag(root, detailedStatusIconsPath, fallback: result.detailedStatusIcons, &diagnostics)
         result.showTimestamps = flag(root, showTimestampsPath, fallback: result.showTimestamps, &diagnostics)

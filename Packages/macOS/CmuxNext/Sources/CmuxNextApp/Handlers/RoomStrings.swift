@@ -18,6 +18,8 @@ nonisolated enum RoomStrings {
     /// The toast after Delete Space (RECOVERABLE-BY-DEFAULT).
     static func deletedToast(_ name: String) -> String { String(format: text("rooms.deletedToast", "Space “%@” deleted"), name) }
     static var delete: String { text("rooms.delete", "Delete") }
+    /// The name a New Incognito Space gets when none is given.
+    static var incognitoName: String { text("rooms.incognitoName", "Incognito") }
     static func noRoom(_ id: String) -> String { String(format: text("rooms.refusal.noRoom", "no space %@"), id) }
     static var defaultCannotBeDeleted: String { text("rooms.refusal.defaultCannotBeDeleted", "the Default space cannot be deleted") }
     static var roomAtEdge: String { text("rooms.refusal.atEdge", "the space is already at the edge") }
@@ -88,7 +90,7 @@ enum RoomConfirmation {
         let prompt = DestructiveConfirmation.Prompt(title: RoomStrings.clearDefaultsTitle(room.name), body: RoomStrings.clearDefaultsBody,
                                                     button: RoomStrings.clearDefaults)
         if let defaults = room.defaults, !defaults.isEmpty { return prompt }
-        if RoomDefaultsUpdates.inFlight(room.id) { return prompt }
+        if context.services.roomDefaults.inFlight(room.id) { return prompt }
         guard let connection = context.services.machines.local.connection else { return nil }
         let id = room.id
         guard let personal = try? await connection.listPersonal() else { return prompt }

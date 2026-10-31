@@ -43,6 +43,11 @@ pub(crate) struct FloorState {
     /// Under MDM's off, the log of the host a restart left was read back and found no full
     /// access: what this daemon keeps of it is complete from then on (`full_access_bound.rs`).
     pub(super) left_host_read: AtomicBool,
+    /// Values a `set_config_option` took whose answer carried no options: the agent runs them,
+    /// though the chat's options do not say so. Read by the full-access bound
+    /// (`FullAccessView::of_session`); a later answer that reports an option's value replaces it,
+    /// and they go when the agent exits or ends (reviews 60 and 61 of #23322).
+    pub(super) asked_options: StdMutex<Vec<Value>>,
     /// Under MDM's off, the end of this session's agent failed and its host may still run: every
     /// check counts it as full access until the end succeeds or a new host starts (review 51 of
     /// #23322).
@@ -155,7 +160,20 @@ impl Hub {
             return;
         };
         let Ok(rt) = tokio::runtime::Handle::try_current() else { return };
+        #[cfg(test)]
+        let cancel_write_seam = self.cancel_write_seam.clone();
         rt.spawn(async move {
+            // A session-wide cancel has no turn id. Share the prompt/Stop handoff gate so a
+            // delayed policy cancellation cannot overtake the next prompt's transport write.
+            let input_handoff = s.input_handoff.clone().lock_owned().await;
+            #[cfg(test)]
+            {
+                let seam = cancel_write_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+                if let Some((arrived, release)) = seam {
+                    let _ = arrived.send(());
+                    let _ = release.await;
+                }
+            }
             let child = s.child.lock().await.clone();
             // Only the turn the floor cancelled, never a newer one.
             if s.turn().map(|t| t.turn_id) != Some(turn.turn_id) {
@@ -164,6 +182,7 @@ impl Hub {
             if let (Some(c), Some(sid)) = (child, s.meta().agent_session_id) {
                 let _ = c.notify(method::SESSION_CANCEL, json!({"sessionId": sid})).await;
             }
+            drop(input_handoff);
         });
     }
 }

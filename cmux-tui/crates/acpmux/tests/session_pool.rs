@@ -20,6 +20,9 @@ const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 /// The fake adapter's boot and session start: a cold start pays both.
 const INIT_MS: u64 = 300;
 const NEW_MS: u64 = 700;
+/// Text whose host entry fails its acknowledgement, once per daemon (`ACPMUX_TEST_ACK_FAILS_ONCE`):
+/// a fake that reports it as its mode after its `session/new` answer stops its link's reader then.
+const ACK_FAILS: &str = "ackstop-mode";
 
 struct Daemon {
     child: Option<Child>,
@@ -111,6 +114,9 @@ impl Daemon {
             // While this file exists, MDM's off is pushed and unset as a chat takes the pooled
             // agent it claimed: `take_off_seam`.
             .env("ACPMUX_TEST_POOL_TAKE_OFF_FILE", self.home.join("take-off"))
+            // The first host entry holding this text fails its acknowledgement (debug builds'
+            // seam): only a fake that reports it as a mode sends one.
+            .env("ACPMUX_TEST_ACK_FAILS_ONCE", ACK_FAILS)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -445,7 +451,10 @@ async fn pooled_sessions_end_with_the_daemon_and_after_a_crash() {
     assert!(daemon.pool_records().is_empty());
     assert_eq!(daemon.stored_sessions(), 0, "an untaken pooled session leaves no trace");
 
-    // A crash leaves the pooled host running; the next daemon ends it.
+    // A crash: no daemon can use a pooled host nobody took, so the host ends its harness
+    // and itself as its daemon's link closes (`agent_host/host.rs` `on_frame`), with no
+    // next daemon. Whether it is still alive right after the SIGKILL is a race with that
+    // end, so the test never asks it.
     daemon.start();
     {
         let mut rpc = daemon.rpc().await;
@@ -453,11 +462,13 @@ async fn pooled_sessions_end_with_the_daemon_and_after_a_crash() {
         wait_pool_ready(&mut rpc, "fakeb").await;
     }
     let r = daemon.pool_records().pop().expect("a pooled host");
-    let harness = r["harness_pid"].as_i64().unwrap();
+    let (host, harness) = (r["host_pid"].as_i64().unwrap(), r["harness_pid"].as_i64().unwrap());
     daemon.sigkill();
-    assert!(alive(harness), "a crashed daemon cannot end it");
+    assert!(gone_within(harness, Duration::from_secs(15)), "pooled harness outlived a crash");
+    assert!(gone_within(host, Duration::from_secs(15)), "pooled host outlived a crash");
+    assert!(daemon.pool_records().is_empty(), "the ended host left its record");
+    // The next daemon starts clean: nothing listed, nothing stored.
     daemon.start();
-    assert!(gone_within(harness, Duration::from_secs(15)), "the next daemon ended it");
     let mut rpc = daemon.rpc().await;
     let listed = rpc.call("_acpmux/sessions", json!({})).await;
     assert!(listed["sessions"].as_array().unwrap().is_empty(), "{listed}");
@@ -1291,6 +1302,34 @@ async fn a_wedged_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host() 
         unsafe { libc::kill(helper as i32, libc::SIGKILL) };
     }
     assert!(ended, "a process under the wedged host runs on without an owner");
+}
+
+/// A pooled host whose link stopped reading (an acknowledgement failed while its socket still
+/// looks open) still answers the claim's query, but nothing it sends from then on is heard: it
+/// is not served, it is ended, and the session starts on a fresh host.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pooled_host_whose_link_stopped_is_not_served() {
+    let mut fakeb = profile("b");
+    // Half a second after its `session/new` answer, once the entry is ready.
+    fakeb["env"]["FAKE_LATE_MODE"] = json!(ACK_FAILS);
+    let daemon = Daemon::with_fakeb("ackstop", 0, &fakeb);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let r = daemon.pool_records().pop().expect("a pooled host");
+    let (host, harness) = (r["host_pid"].as_i64().unwrap(), r["harness_pid"].as_i64().unwrap());
+    // Past the late report: the entry's reader stopped at it.
+    tokio::time::sleep(Duration::from_millis(2000)).await;
+    let (id, _) = new_session(&mut rpc, &home, "fakeb").await;
+    assert!(!taken(&daemon, &id), "the pooled host whose link stopped was served");
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "hi"}]});
+    let reply = tokio::time::timeout(Duration::from_secs(30), rpc.call("session/prompt", prompt))
+        .await
+        .expect("the prompt was answered");
+    assert_eq!(reply["stopReason"], "end_turn", "{reply}");
+    assert!(gone_within(host, Duration::from_secs(15)), "the pooled host whose link stopped runs");
+    end_group(harness);
 }
 
 /// A pooled host that died is not served either.

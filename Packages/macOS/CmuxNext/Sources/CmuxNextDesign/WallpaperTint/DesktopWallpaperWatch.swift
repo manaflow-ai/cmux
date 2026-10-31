@@ -10,9 +10,13 @@ import Foundation
 /// `NSWorkspace.desktopImageURL(for:)` when one could have: a write to the wallpaper store
 /// (`~/Library/Application Support/com.apple.wallpaper/Store`, which macOS rewrites when a
 /// picture is chosen or shuffles), macOS's own `com.apple.desktop` notice, a Space switch (each
-/// Space has its own picture), a screen change, waking, and another window becoming key or a
-/// window moving to another display (the main screen may now be a different one). A view
-/// that sees the light or dark appearance flip asks too (``appearanceDidChange()``). A read that
+/// Space has its own picture), a screen change, waking, and one of the app's windows becoming
+/// key, showing or moving to another display (``windowDidChange()``: the main screen may now be
+/// a different one). A view
+/// that sees the light or dark appearance flip asks too (``appearanceDidChange()``). The read is a
+/// synchronous WindowServer round trip, so it runs on the watch's own queue, never on the main
+/// thread (a busy WindowServer held a key-window change past the debug hang assertion, #26394);
+/// one read runs at a time, and events during it read once more when it lands. A read that
 /// matches the last one costs nothing more; a new picture is decoded small and averaged off the
 /// main actor, once per picture (switching back to a Space reuses its color), and only while
 /// ``tintEnabled``. Registered material views re-apply at once (the Desktop Wallpaper art) and
@@ -30,7 +34,11 @@ import Foundation
 public final class DesktopWallpaperWatch {
     /// A watch over the main screen's desktop picture that keeps its last color in `defaults`.
     public static func live(defaults: UserDefaults? = .standard) -> DesktopWallpaperWatch {
-        DesktopWallpaperWatch(read: readMainScreen, sample: sample, defaults: defaults, isHidden: showsNoWindow)
+        // Where this watch reads pictures: `NSWorkspace.desktopImageURL(for:)` and
+        // `desktopImageOptions(for:)` wait on the WindowServer, and the reading stats the file. A
+        // serial queue, not the cooperative pool, whose threads must not block.
+        let queue = DispatchQueue(label: "com.cmuxterm.next.desktop-picture", qos: .utility)
+        return DesktopWallpaperWatch(read: { await readMainScreen(on: queue) }, sample: sample, defaults: defaults, isHidden: showsNoWindow)
     }
 
     /// Where the last color is kept, so the next launch's first window has it before a sample.
@@ -88,7 +96,7 @@ public final class DesktopWallpaperWatch {
         }
     }
 
-    private let read: @MainActor () -> Reading?
+    private let read: @MainActor () async -> Reading?
     private let sample: @Sendable (Reading) async -> WallpaperTint?
     private let defaults: UserDefaults?
     private let isHidden: @MainActor () -> Bool
@@ -100,17 +108,21 @@ public final class DesktopWallpaperWatch {
     /// The one sample under way. A decode can't be stopped once it runs, so a newer reading never
     /// starts a second one: it waits, and this one's end samples the reading shown then.
     private var sampling: (reading: Reading, task: Task<Void, Never>)?
+    /// The one read under way; `rereads` when an event came during it, so the desktop is read
+    /// once more when it lands (its reading may predate the event).
+    private var readTask: Task<Void, Never>?
+    private var rereads = false
     private let storeSettle = DemandTimer(owner: "desktop-wallpaper-store")
     private var observers: [MainActorObservation] = []
     private var storeSource: WallpaperStoreSource?
     private let views = NSHashTable<WindowMaterialView>.weakObjects()
 
     /// - Parameters:
-    ///   - read: What the desktop shows now; nil without a screen.
+    ///   - read: What the desktop shows now, read off the main thread; nil without a screen.
     ///   - sample: The color of a reading, off the main actor.
     ///   - defaults: Where the last color is kept between launches; nil keeps none.
     ///   - isHidden: Whether nothing of the app shows (hidden, or no visible window): no reading then.
-    init(read: @escaping @MainActor () -> Reading?, sample: @escaping @Sendable (Reading) async -> WallpaperTint?,
+    init(read: @escaping @MainActor () async -> Reading?, sample: @escaping @Sendable (Reading) async -> WallpaperTint?,
          defaults: UserDefaults? = nil, isHidden: @escaping @MainActor () -> Bool = { false }) {
         self.read = read
         self.sample = sample
@@ -136,10 +148,6 @@ public final class DesktopWallpaperWatch {
             MainActorObservation(NSWorkspace.activeSpaceDidChangeNotification, center: workspace) { [weak self] in self?.refresh() },
             MainActorObservation(NSWorkspace.didWakeNotification, center: workspace) { [weak self] in self?.refresh() },
             MainActorObservation(NSApplication.didChangeScreenParametersNotification) { [weak self] in self?.refresh() },
-            // A window shown, unhidden or uncovered (a panel that never becomes key too).
-            MainActorObservation(NSWindow.didChangeOcclusionStateNotification) { [weak self] in self?.refresh() },
-            MainActorObservation(NSWindow.didBecomeKeyNotification) { [weak self] in self?.refresh() },
-            MainActorObservation(NSWindow.didChangeScreenNotification) { [weak self] in self?.refresh() },
         ]
         watchStore()
         refresh()
@@ -162,12 +170,56 @@ public final class DesktopWallpaperWatch {
         refresh()
     }
 
-    /// Reads the desktop (not while the app is hidden); a new reading re-applies the views at once
-    /// and, while ``tintEnabled``, takes its color (sampled once).
+    /// Reads the desktop again once one of the app's windows became key, was shown, unhidden or
+    /// uncovered (its occlusion changed) or moved to another display (after ``start()``). The
+    /// app's window owner calls it from its window delegate, for its own windows only: an
+    /// app-wide window observer woke on every menu, tooltip and panel too (#25308).
+    public func windowDidChange() {
+        guard !observers.isEmpty else { return }
+        refresh()
+    }
+
+    /// The picture of the last reading; nil before the first one lands (or without a screen).
+    var picture: DesktopPicture? { current?.picture }
+
+    /// Reads the desktop (not while the app is hidden), off the main thread: when the reading
+    /// lands, a new one re-applies the views and, while ``tintEnabled``, takes its color (sampled
+    /// once). During a read under way it only asks for one more read after it.
     func refresh() {
         // A store that could not be watched again (macOS had not made it yet) is tried on each event.
         if storeSource == nil, !observers.isEmpty { watchStore() }
-        guard !isHidden(), let reading = read() else { return }
+        guard !isHidden() else { return }
+        guard readTask == nil else {
+            rereads = true
+            return
+        }
+        let read = self.read
+        // task-owner: the one read under way (`readTask`); its end applies the reading or reads again
+        readTask = Task { [weak self] in
+            let next = await read()
+            self?.landed(next)
+        }
+    }
+
+    /// Refreshes and waits for the reading to land, not for its sample (tests).
+    func refreshed() async {
+        refresh()
+        while let task = readTask { await task.value }
+    }
+
+    /// A read ended: a reading that differs from the last one is the desktop now. An event during
+    /// the read reads once more after applying it (this reading may be older than the event), so a
+    /// slow WindowServer with events during every read still shows each reading.
+    private func landed(_ next: Reading?) {
+        readTask = nil
+        let readsAgain = rereads
+        rereads = false
+        apply(next)
+        if readsAgain { refresh() }
+    }
+
+    private func apply(_ next: Reading?) {
+        guard !isHidden(), let reading = next else { return }
         // The same picture: nothing moved, but a color that landed while nothing showed shows now.
         guard reading != current else {
             sampleIfNeeded()
@@ -210,9 +262,9 @@ public final class DesktopWallpaperWatch {
         sampleIfNeeded()
     }
 
-    /// Waits until no sample is under way (tests).
+    /// Waits until no read or sample is under way (tests).
     func settled() async {
-        while let task = sampling?.task { await task.value }
+        while let task = readTask ?? sampling?.task { await task.value }
     }
 
     private func publish(_ color: WallpaperTint?, for reading: Reading) {
@@ -247,10 +299,30 @@ public final class DesktopWallpaperWatch {
     }
 
     /// The main screen's desktop picture (the screen with the key window) in the app's appearance.
-    private static func readMainScreen() -> Reading? {
+    /// The screen and the appearance are read here; the picture on `queue`.
+    private static func readMainScreen(on queue: DispatchQueue) async -> Reading? {
         guard let screen = NSScreen.main ?? NSScreen.screens.first else { return nil }
         let dark = NSApp?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        return Reading(picture: DesktopPicture(screen: screen), dark: dark)
+        let handle = ScreenHandle(screen: screen)
+        return await readPicture(dark: dark, on: queue) { DesktopPicture(screen: handle.screen) }
+    }
+
+    /// The reading of `picture()` in the appearance `dark`, taken on `queue` and returned to the caller.
+    /// - Parameters:
+    ///   - dark: Whether the app is in the dark appearance.
+    ///   - queue: The queue the picture is read on.
+    ///   - picture: Reads the picture; it may block.
+    nonisolated static func readPicture(dark: Bool, on queue: DispatchQueue,
+                                        _ picture: @escaping @Sendable () -> DesktopPicture) async -> Reading? {
+        await withCheckedContinuation { continuation in
+            queue.async { continuation.resume(returning: Reading(picture: picture(), dark: dark)) }
+        }
+    }
+
+    /// The screen handed to the picture queue.
+    // crash-allow: the queue only passes the screen to NSWorkspace, which reads its display; nothing writes it, and the main thread keeps no lock on it.
+    private nonisolated struct ScreenHandle: @unchecked Sendable {
+        let screen: NSScreen
     }
 
     /// The reading's picture resolved to a file, decoded small (64 px) and averaged, off the main actor.

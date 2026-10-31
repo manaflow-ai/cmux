@@ -70,15 +70,12 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     }
                 }
                 Section {
-                    NavigationLink(value: SettingsRoute.transport) {
-                        SettingsLabel("Transport", symbol: "antenna.radiowaves.left.and.right", value: transportValue)
-                    }
                     NavigationLink(value: SettingsRoute.devices) {
                         SettingsLabel("Devices", symbol: "laptopcomputer.and.iphone", value: devicesValue)
                     }
                     .accessibilityIdentifier("settings.devices")
                 } header: {
-                    Text("Connection").cmuxMobileTextColumn()
+                    Text("Connection")
                 }
                 Section {
                     NavigationLink(value: SettingsRoute.chiefCalls) {
@@ -100,7 +97,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                         SettingsLabel("Haptic feedback", symbol: "iphone.radiowaves.left.and.right")
                     }
                 } header: {
-                    Text("Appearance").cmuxMobileTextColumn()
+                    Text("Appearance")
                 }
                 .id("appearance")
                 Section {
@@ -112,23 +109,30 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                         SettingsLabel("Require Face ID", symbol: "faceid")
                     }
                 } header: {
-                    Text("Privacy & notifications").cmuxMobileTextColumn()
+                    Text("Privacy & notifications")
                 } footer: {
-                    Text("Require Face ID or passcode to open cmux on this device.").cmuxMobileTextColumn()
+                    Text("Require Face ID or passcode to open cmux on this device.")
+                }
+                Section {
+                    NavigationLink(value: SettingsRoute.transport) {
+                        SettingsLabel("Transport", symbol: "antenna.radiowaves.left.and.right", value: transportValue)
+                    }
+                } header: {
+                    Text("Advanced")
                 }
                 #if DEBUG
-                DeveloperSection(auth: auth)
+                DeveloperSection(auth: auth, store: store)
                 #endif
                 Section {
                     LinkRow("Help", symbol: "questionmark.circle", url: "https://cmux.com/docs")
                     LinkRow("Report a problem", symbol: "flag", url: "https://github.com/manaflow-ai/cmux/issues")
-                    LinkRow("Terms of Use", symbol: "doc.text", url: "https://cmux.com/terms")
-                    LinkRow("Privacy Policy", symbol: "hand.raised", url: "https://cmux.com/privacy")
+                    LinkRow("Terms of Use", symbol: "doc.text", url: "https://cmux.com/terms-of-service")
+                    LinkRow("Privacy Policy", symbol: "hand.raised", url: "https://cmux.com/privacy-policy")
                     NavigationLink(value: SettingsRoute.acknowledgements) {
                         SettingsLabel("Acknowledgements", symbol: "info.circle")
                     }
                 } header: {
-                    Text("About").cmuxMobileTextColumn()
+                    Text("About")
                 }
                 Section {
                     Button(role: .destructive) {
@@ -218,7 +222,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
             if let team = store.activeTeam {
                 TeamPage(team: team, auth: auth, edit: { editingTeam = team }, invite: { inviteToTeam(team) })
             }
-        case .transport: TransportPage(settings: settings, relayAvailable: directory?.relayAvailable)
+        case .transport: TransportPage(settings: settings, store: store, relayAvailable: directory?.relayAvailable)
         case .devices: DevicesPage(store: store, directory: directory, list: deviceList)
         case .terminal: TerminalPage(settings: settings)
         case .terminalSizing: TerminalSizingMacsPage(store: store)
@@ -491,6 +495,7 @@ private struct DiagonalHalf: Shape {
 /// Transport page.
 private struct DeveloperSection: View {
     let auth: CmuxMobileAuthModel
+    let store: AppStore
     @AppStorage(DeveloperOptions.mockDataKey) private var mockData = false
     @AppStorage(DeveloperOptions.launchDemoKey) private var launchDemo = ""
     @AppStorage(DeveloperOptions.slowFaceIDKey) private var slowFaceID = false
@@ -499,6 +504,7 @@ private struct DeveloperSection: View {
     var body: some View {
         let mock = DeveloperOptions.mockSwitch(stored: mockData)
         Section {
+            TransportDetails(store: store)
             Toggle(isOn: Binding(get: { mock.on }, set: { mockData = $0 })) {
                 SettingsLabel("Mock (layout only)", symbol: "theatermasks")
             }
@@ -533,13 +539,12 @@ private struct DeveloperSection: View {
                 }
             }
         } header: {
-            Text("Developer").cmuxMobileTextColumn()
+            Text("Developer")
         } footer: {
             VStack(alignment: .leading, spacing: 8) {
                 Text(mock.forced ? "Set by the launch environment." : "Sample user, teams and Macs for checking layout. Applies at next launch.")
                 Text("Dev test account: enter 42 as the email.")
             }
-            .cmuxMobileTextColumn()
         }
     }
 }

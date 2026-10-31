@@ -73,6 +73,8 @@ public final class SettingsController {
     @ObservationIgnored var statusTarget: (url: URL, context: ManagedStatusReport.Context)?
     @ObservationIgnored var lastStatusBody: JSONValue?
     @ObservationIgnored private var loadWaiters: [LoadWaiter] = []
+    /// ``onEveryLoad(_:)``'s calls, in the order they were added.
+    @ObservationIgnored private var loadHooks: [@MainActor () -> Void] = []
     /// The launch's read (`readAtLaunch`), adopted by the first load.
     @ObservationIgnored private var launchRead: LaunchRead?
     /// Writes `setSetting` validated and made, by dotted key (tests check
@@ -163,6 +165,13 @@ public final class SettingsController {
         }
     }
 
+    /// Runs `body` in every later load itself, before it changes ``snapshot`` or ``loadCount``, on the
+    /// main actor: nothing can read the new settings first. For a check that must never lag a load (a
+    /// consent grant the Labs switch gates); everything else observes ``snapshot``. Ends with the controller.
+    public func onEveryLoad(_ body: @escaping @MainActor () -> Void) {
+        loadHooks.append(body)
+    }
+
     private func resumeWaiter(_ token: UUID) {
         guard let index = loadWaiters.firstIndex(where: { $0.token == token }) else { return }
         loadWaiters.remove(at: index).continuation.resume()
@@ -184,6 +193,18 @@ public final class SettingsController {
     public func setShortcut(_ shortcut: Shortcut?, for id: ActionID) async throws {
         let value: JSONValue = shortcut.map { .string(ShortcutBindingFormat.configString(SettingsApplier.stroke(for: $0))) } ?? .null
         try await set(value, at: ["shortcuts", "bindings", id.rawValue])
+    }
+
+    /// Writes `keys` (each one key or a two-key chord) as `id`'s binding:
+    /// one key, a chord, or `{"any": [...]}` for several (a repeated key
+    /// counts once); none unbinds it.
+    public func setShortcuts(_ keys: [[Shortcut]], for id: ActionID) async throws {
+        let bindings = keys.map { key in
+            key.count == 2 ? ShortcutBinding.chord(SettingsApplier.stroke(for: key[0]), SettingsApplier.stroke(for: key[1]))
+                : .stroke(SettingsApplier.stroke(for: key[0]))
+        }.reduce(into: [ShortcutBinding]()) { if !$0.contains($1) { $0.append($1) } }
+        let binding = bindings.count > 1 ? ShortcutBinding.alternates(bindings) : bindings.first ?? .unbound
+        try await set(ShortcutBindingFormat.configValue(binding), at: ["shortcuts", "bindings", id.rawValue])
     }
 
     /// Removes the override for `id`, restoring its default shortcut.
@@ -345,6 +366,7 @@ public final class SettingsController {
     }
 
     private func adopt(_ loaded: Loaded) {
+        loadHooks.forEach { $0() }
         if loaded.inputs != lastSource || loadCount == 0 {
             lastSource = loaded.inputs
             // A file change ends a preview: the loaded values apply.
@@ -360,6 +382,12 @@ public final class SettingsController {
             let policy = ManagedPreferences.disabledFeatures(in: effective.policy)
             applier.registry.disabledFeatures = policy.features
             if let problem = policy.problem { diagnostics.append(problem) }
+            // Settings > Menus: the person's right-click menu arrangements (ContextMenusSetting).
+            var menuProblems: [SettingsDiagnostic] = []
+            let menus = ContextMenusSetting.parse(effective.root, diagnostics: &menuProblems)
+            applier.registry.contextMenuLayouts = menus.layouts
+            applier.registry.showsCustomizeMenuItem = menus.showsCustomizeItem
+            diagnostics += menuProblems
             file.managedGuard.update(effective.managedKeys)
             reportManagedStatus(managed: loaded.inputs.managed, team: loaded.inputs.team, effective: effective)
         }

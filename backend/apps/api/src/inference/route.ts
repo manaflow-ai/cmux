@@ -15,6 +15,8 @@ import { callUpstream } from "./upstream.ts"
 import { freeCaller, freeSettle, freeAdmit } from "./free.ts"
 import { includedMicrosFor, includedReached } from "./included-stop.ts"
 import { creditsMargin, creditsMinReserveUsd } from "../credits.ts"
+import { Effect, Result } from "effect"
+import { allowedModels, validateChat } from "./chat-request.ts"
 
 const creditFloorMicros = (env: Env) => Math.ceil(creditsMinReserveUsd(env) * 1_000_000)
 
@@ -54,8 +56,18 @@ const disabledProviders = (env: Env) => new Set((env.INFERENCE_DISABLED_PROVIDER
 export const liveRoutes = (env: Env, m: ModelEntry) => {
   const off = disabledProviders(env)
   // Cheapest first (paid-plan.md §2); sort is stable, so equal or unpriced routes keep catalog order.
-  return m.routes.filter((r) => !off.has(r.provider) && providerTarget(env, r.provider) !== undefined).sort((a, b) => routeCost(a) - routeCost(b))
+  // The primary provider (staging and production: Vercel AI Gateway, funded: user 2026-10-28) goes first, then cheapest first.
+  const primary = env.INFERENCE_PRIMARY_PROVIDER
+  const rank = (r: { provider: string }) => (r.provider === primary ? 0 : 1)
+  return m.routes.filter((r) => !off.has(r.provider) && providerTarget(env, r.provider) !== undefined).sort((a, b) => rank(a) - rank(b) || routeCost(a) - routeCost(b))
 }
+
+/**
+ * The routes one request may use, cheapest first: a free device gets only the model's `freeProviders`
+ * (when it names any), and a pin (outside production) keeps only that provider.
+ */
+export const servingRoutes = (env: Env, m: ModelEntry, free: boolean, pinned?: string) =>
+  liveRoutes(env, m).filter((r) => (pinned === undefined || r.provider === pinned) && (!free || !m.freeProviders || m.freeProviders.includes(r.provider)))
 
 /** Outside production, `x-cmux-provider` pins one provider (per-provider staging checks); production ignores it. */
 export const PROVIDER_PIN_HEADER = "x-cmux-provider"
@@ -116,8 +128,9 @@ export const resolveCaller = async (env: Env, request: Request): Promise<Caller 
 export const handleInferenceModels = (env: Env): Response => {
   const on = switchOn(env.INFERENCE_ENABLED)
   const freeOn = on && switchOn(env.INFERENCE_FREE_ENABLED)
+  const allowed = allowedModels(env)
   const data = on
-    ? MODELS.filter((m) => liveRoutes(env, m).length > 0).map((m) => ({
+    ? MODELS.filter((m) => allowed.has(m.id) && liveRoutes(env, m).length > 0).map((m) => ({
         id: m.id,
         object: "model",
         created: 0,
@@ -126,6 +139,7 @@ export const handleInferenceModels = (env: Env): Response => {
         context_length: m.context,
         max_output_tokens: m.maxOutput,
         tools: m.tools,
+        vision: Boolean(m.vision),
         free: Boolean(m.free && freeOn),
         pricing: { input_per_million_usd: m.card.input, output_per_million_usd: m.card.output }
       }))
@@ -141,24 +155,6 @@ export const handleInferenceStatus = async (env: Env, request: Request): Promise
 }
 
 export const guard = (env: Env) => env.SPEND_GUARD_DO.get(env.SPEND_GUARD_DO.idFromName("global"))
-
-/**
- * Message content is text only: a string, or parts of type "text". Images, files, audio and video
- * are refused, because their token cost has no bound we can compute from the body (a file part can
- * pull in a large document). Then every prompt token is at least one byte of the body, so the body
- * size bounds the prompt tokens. Tools must be plain functions (no billed server-side tools).
- */
-const contentRefusal = (messages: ReadonlyArray<unknown>, tools: unknown): string | undefined => {
-  for (const m of messages) {
-    if (!m || typeof m !== "object") return "each message must be an object"
-    const content = (m as { content?: unknown }).content
-    if (content === undefined || content === null || typeof content === "string") continue
-    if (!Array.isArray(content)) return "message content must be a string or an array of text parts"
-    for (const part of content as Array<{ type?: unknown }>) if (part?.type !== "text") return "only text content parts are accepted"
-  }
-  if (tools !== undefined && (!Array.isArray(tools) || (tools as Array<{ type?: unknown }>).some((t) => t?.type !== "function"))) return "tools must be an array of function tools"
-  return undefined
-}
 
 /** Switch, caller and a JSON object body of at most MAX_BODY_BYTES (shared by both API shapes). */
 export const admitRequest = async (env: Env, request: Request): Promise<{ caller: Caller; body: Record<string, unknown>; bytes: number } | Response> => {
@@ -190,25 +186,23 @@ export const handleChatCompletions = async (env: Env, request: Request, ctx: Exe
  * tokens (one token is at least one byte of the request).
  */
 export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller, body: Record<string, unknown>, promptBytes: number, pin?: string | null): Promise<Response> => {
-  const model = typeof body.model === "string" ? modelById(body.model) : undefined
-  if (!model) return err(404, "model.not_found", "unknown model; GET /v1/inference/models lists the models")
-  if (!Array.isArray(body.messages) || body.messages.length === 0) return err(400, "validation.invalid", "messages must be a non-empty array")
-  if (body.tools !== undefined && !model.tools) return err(400, "validation.invalid", "this model does not take tools")
-  if (body.n !== undefined && body.n !== 1) return err(400, "validation.invalid", "n must be 1")
-  const refused = contentRefusal(body.messages as ReadonlyArray<unknown>, body.tools)
-  if (refused) return err(400, "validation.invalid", refused)
+  const checked = await Effect.runPromise(Effect.result(validateChat(env, body)))
+  if (Result.isFailure(checked)) return err(checked.failure.status, checked.failure.code, checked.failure.message)
+  const { model, images } = checked.success
   const requested = Number(body.max_completion_tokens ?? body.max_tokens ?? model.defaultMaxTokens)
   if (!Number.isInteger(requested) || requested < 1) return err(400, "validation.invalid", "max_tokens must be a positive integer")
   const free = caller.kind === "free"
+  if (free && images > 0) return err(403, "free.images", "the free tier takes text only; sign in to send images")
   if (free && !model.free) return err(403, "free.model", "the free tier serves only the free models; sign in for the others")
   const maxTokens = Math.min(requested, model.maxOutput, free ? Number(env.INFERENCE_FREE_MAX_TOKENS ?? "4096") || 4096 : model.maxOutput)
   const pinned = env.ENVIRONMENT !== "production" && pin ? pin : undefined
-  const routes = liveRoutes(env, model).filter((r) => pinned === undefined || r.provider === pinned)
+  const routes = servingRoutes(env, model, free, pinned)
   if (pinned !== undefined && routes.length === 0) return err(400, "provider.not_on_route", `${pinned} does not serve this model on this deployment`)
   if (routes.length === 0) return err(503, "provider.unavailable", "no provider can serve this model now")
 
   const id = crypto.randomUUID()
-  const promptBound = promptBytes
+  // Images: their bytes are not their tokens, so each adds the model's per-image ceiling.
+  const promptBound = promptBytes + images * (model.vision?.tokensPerImage ?? 0)
   const maxUsd = cardCost(model, Math.min(promptBound, model.context), maxTokens)
   const maxMicros = Math.ceil(maxUsd * 1_000_000)
 

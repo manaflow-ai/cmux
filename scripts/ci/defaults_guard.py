@@ -2,17 +2,24 @@
 """Guard against unannounced default changes (Leo 2026-10-13).
 
 A default is what someone gets without configuring anything: an action's
-default keys, a setting's default value, a Ghostty keybind cmux writes (an
-unbind takes a chord from Ghostty), a feature flag compiled on or off. Changing
-one changes what everyone gets, so it needs a call.
+default keys, a setting's default value, a Debug Tunable's `default:`, a
+Ghostty keybind cmux writes (an unbind takes a chord from Ghostty), a feature
+flag compiled on or off. Changing one changes what everyone gets, so it needs
+a call.
 
 schemas/defaults/<app>.json is the golden snapshot of every default, made from
 the sources of truth with no hand list:
 - cmux NEXT: plans/cmux-next/action-surfaces.json (each action's default
   shortcut, chord and aliases, exported from the catalog by Swift) and
   schemas/settings/settings-schema.json (each setting's default), both kept
-  current by the generated-files check; the Ghostty `keybind = ...` lines and
-  the `static let ...Enabled = true|false` flags in the app's Swift sources.
+  current by the generated-files check; the Ghostty `keybind = ...` lines, the
+  `static let ...Enabled = true|false` flags and each
+  `Tunable<T>.choice|toggle|number|color|spring("key", ..., default: ...)` in
+  the app's Swift sources. Tunable initializers/helpers and their symbolic source
+  dependencies also have conservative declaration fingerprints (not whole-file hashes),
+  so helper, interpolated-key and nonliteral defaults cannot silently remain unchanged
+  when their defining declaration changes. An edit to a tracked declaration's help text
+  also needs review; comments and formatting do not.
 
   python3 scripts/ci/defaults_guard.py snapshot           # regenerate it
   python3 scripts/ci/defaults_guard.py check-fresh        # it matches the sources
@@ -41,8 +48,11 @@ the head: a comment or review whose first line is
 `Review (<reviewer>): SHIP at <full head sha>` from a member (OWNER, MEMBER or
 COLLABORATOR, a user, not a bot), not a self-review, the grammar
 scripts/ci/risk_tier.py reads. The newest verdict naming the head decides, so
-a later BLOCK beats an earlier SHIP, and a push needs a new receipt. An
-approving review of the head from a call owner in
+a later BLOCK beats an earlier SHIP, and a push needs a new receipt. The
+workflow's token cannot see a private org membership (GitHub reports such a
+member as CONTRIBUTOR to it), so a receipt's author who reads as untrusted is
+looked up once: write, maintain or admin access to the repository trusts them
+too. An approving review of the head from a call owner in
 .github/defaults-call-owners.json other than the author still passes too. The
 `needs a call` label alone never passes. The workflow (pull_request_target
 only) runs this script and reads the owners file from the base branch, so a
@@ -102,12 +112,18 @@ MODIFIER_ORDER = ("ctrl", "opt", "shift", "cmd")
 KEYBIND_RE = re.compile(r'"keybind\s*=\s*([^"=]+?)\s*=\s*([^"]*)"')
 YIELDS_RE = re.compile(r"static\s+let\s+(yieldsTo\w+)\s*:\s*Set<ActionID>\s*=\s*\[(.*?)\]", re.S)
 FLAG_RE = re.compile(r"\bstatic\s+(?:let|var)\s+(\w*Enabled)\s*(?::\s*Bool\s*)?=\s*(true|false)\b")
+# A Debug Tunable with a constant default. The call parser below handles commas and
+# parentheses in nested arguments and string literals; interpolated keys are skipped.
+TUNABLE_RE = re.compile(r'\bTunable<[\w.?]+>\s*\.(choice|toggle|number|color|spring)\(\s*"([^"\\]+)"')
 # An independent review's verdict on the exact head, on a comment's or review's first line:
 # "Review (subagent, correctness first): SHIP at <full head sha>". Same grammar as
 # scripts/ci/risk_tier.py RECEIPT (and next_autoland, merge_audit).
 RECEIPT = re.compile(r"^\W*(?:independent\s+)?review\s*\(([^)\n]*)\)\s*:\W*(ship|block|fix|not ship|hold)(?![\w-])",
                      re.I)
 TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
+# Repository roles that trust a receipt's author whose association reads as untrusted: a member who
+# keeps the org membership private is CONTRIBUTOR to the workflow's token (#26153).
+WRITER_ROLES = ("admin", "maintain", "write")
 # Default values that read as "off": a new setting with one of them changes nothing for anyone.
 OFF_WORDS = ("off", "never", "none", "disabled", "")
 
@@ -293,6 +309,12 @@ def defaults(tree: Tree) -> dict[str, object]:
                 found[f"ghostty.{trigger.strip()}"] = action.strip()
     for name, block in YIELDS_RE.findall(tree.read(KEY_BINDING_DEFAULTS) or ""):
         found[f"steps-aside.{name}"] = sorted(re.findall(r'"([^"]+)"', block))
+    sources = sorted(name for name in tree.files(SWIFT_SOURCES) if name.endswith(".swift"))
+    swift = {name: text.decode("utf-8") for name, text in tree.read_bytes(sources).items()}
+    found.update(tunable_source_defaults(swift))
+    for text in swift.values():
+        for key, value in tunables(text):
+            found[f"tunable.{key}"] = value
     for name, line in tree.grep(r"static +(let|var) +[A-Za-z0-9_]*Enabled *(: *Bool *)?= *(true|false)", SWIFT_SOURCES):
         for flag, value in FLAG_RE.findall(line):
             # The file's path under the sources keeps two `isEnabled` flags apart; a second one in
@@ -303,6 +325,200 @@ def defaults(tree: Tree) -> dict[str, object]:
                 key, n = f"{base}#{n}", n + 1
             found[key] = value == "true"
     return dict(sorted(found.items()))
+
+
+def call_arguments(text: str, start: int) -> list[str]:
+    """Return top-level arguments in a Swift call whose arguments start at ``start``."""
+    args, depth, current, i = [], 0, [], start
+    while i < len(text):
+        char = text[i]
+        if char == '"':
+            end = i + 1
+            while end < len(text) and text[end] not in '"\n':
+                end += 2 if text[end] == "\\" else 1
+            current.append(text[i:end + 1])
+            i = end + 1
+            continue
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            if depth == 0:
+                break
+            depth -= 1
+        elif char == "," and depth == 0:
+            args.append("".join(current))
+            current = []
+            i += 1
+            continue
+        current.append(char)
+        i += 1
+    return [argument.strip() for argument in [*args, "".join(current)]]
+
+
+def strip_swift_comments(text: str) -> str:
+    """Replace Swift comments with spaces while preserving literals and newlines.
+
+    The defaults guard reads source as data, so it must not treat an example in a comment as a
+    live Tunable. Keeping string bytes and line breaks intact also means a quoted default retains
+    its exact contents when it is reported.
+    """
+    output, i, block_depth = [], 0, 0
+    while i < len(text):
+        if block_depth:
+            if text.startswith("/*", i):
+                block_depth += 1
+                output.extend("  ")
+                i += 2
+            elif text.startswith("*/", i):
+                block_depth -= 1
+                output.extend("  ")
+                i += 2
+            else:
+                output.append("\n" if text[i] == "\n" else " ")
+                i += 1
+            continue
+        if text.startswith("//", i):
+            output.extend("  ")
+            i += 2
+            while i < len(text) and text[i] != "\n":
+                output.append(" ")
+                i += 1
+            continue
+        if text.startswith("/*", i):
+            block_depth = 1
+            output.extend("  ")
+            i += 2
+            continue
+        if text[i] == '"':
+            end = i + 1
+            while end < len(text):
+                if text[end] == "\\":
+                    end += 2
+                elif text[end] == '"':
+                    end += 1
+                    break
+                else:
+                    end += 1
+            output.append(text[i:end])
+            i = end
+            continue
+        output.append(text[i])
+        i += 1
+    return "".join(output)
+
+
+# Source fingerprints complement the readable literal values. Swift defaults may be built by a
+# helper or depend on other declarations; reading an unchanged expression is not its value.
+# Track those declarations and their dependencies instead of evaluating untrusted Swift.
+SWIFT_TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|[A-Za-z_]\w*|[^\s]', re.S)
+STATIC_DECL = re.compile(r"\bstatic\s+(let|var|func)\s+(`?\w+`?)")
+
+
+def static_declarations(text: str) -> list[tuple[str, str, list[str]]]:
+    """Static initializer/function tokens; comments and formatting do not change a stamp."""
+    text = strip_swift_comments(text)
+    found = []
+    # A help string may contain a Swift example; only actual declarations count.
+    syntax = SWIFT_TOKEN.sub(lambda match: " " * len(match.group())
+                             if match.group().startswith('"') else match.group(), text)
+    for match in STATIC_DECL.finditer(syntax):
+        kind, name = match.groups()
+        name = name.strip("`")
+        tokens = [kind, name]
+        depth, started, previous_end = 0, False, match.end()
+        for token in SWIFT_TOKEN.finditer(text, match.end()):
+            value = token.group()
+            gap = text[previous_end:token.start()]
+            if depth == 0 and started:
+                if value in ("}", ";"):
+                    break
+                if "\n" in gap and tokens[-1] not in ("=", ",", ".", ":", "+", "-", "*", "/", "%", "&", "|", "?", "??") and value not in (".", "{", "(", "+", "-", "*", "/", "%", "&", "|", "?", "=", "<", ">", "!"):
+                    break
+            if value in ("(", "[", "{"):
+                depth += 1
+            elif value in (")", "]", "}"):
+                if depth == 0:
+                    break
+                depth -= 1
+            if value == "=" or (value == "{" and kind in ("func", "var")):
+                started = True
+            tokens.append(value)
+            previous_end = token.end()
+        if started:
+            found.append((kind, name, tokens))
+    return found
+
+
+def tunable_source_defaults(sources: Mapping[str, str]) -> dict[str, object]:
+    """Fingerprint tunable initializers, their helpers and symbolic source dependencies.
+
+    This is conservative source tracking, not a Swift interpreter: editing a selected declaration's
+    help text or implementation also needs review. Unrelated declarations in its file do not.
+    Same-file names and qualified Type.member references resolve to all possible source declarations
+    (including extensions); ambiguity adds evidence rather than silently choosing one definition.
+    """
+    nodes, by_file_name, types = {}, {}, {}
+    for path, text in sources.items():
+        for type_name in re.findall(r"\b(?:enum|struct|class|extension)\s+(\w+)", strip_swift_comments(text)):
+            types.setdefault(type_name, set()).add(path)
+        for kind, name, tokens in static_declarations(text):
+            key = f"tunable-source.{path.removeprefix(SWIFT_SOURCES + '/')}:{name}"
+            while key in nodes:
+                key += "#"
+            nodes[key] = (path, kind, name, tokens)
+            by_file_name.setdefault((path, name), set()).add(key)
+    selected = {key for key, (_, _, _, tokens) in nodes.items()
+                if any(re.fullmatch(r"(?:Derived)?Tunable|\w+Tunable", token) for token in tokens)}
+    # A helper returning Tunable (e.g. points) has callers whose initializer has no Tunable token.
+    helper_names = {name for key, (_, kind, name, _) in nodes.items()
+                    if key in selected and kind == "func"}
+    for key, (_, _, _, tokens) in nodes.items():
+        if any(token in helper_names for token in tokens):
+            selected.add(key)
+    pending = list(selected)
+    while pending:
+        key = pending.pop()
+        path, _, _, tokens = nodes[key]
+        dependencies = set()
+        for i, token in enumerate(tokens):
+            dependencies.update(by_file_name.get((path, token), ()))
+            if i + 2 < len(tokens) and tokens[i + 1] == ".":
+                for owner in types.get(token, ()):
+                    dependencies.update(by_file_name.get((owner, tokens[i + 2]), ()))
+        for dependency in dependencies - selected:
+            selected.add(dependency)
+            pending.append(dependency)
+    return {key: hashlib.sha256(json.dumps(nodes[key][3], ensure_ascii=False).encode()).hexdigest()
+            for key in sorted(selected)}
+
+
+def tunables(text: str) -> list[tuple[str, object]]:
+    """Return (key, default) for Tunables with a literal default value."""
+    text = strip_swift_comments(text)
+    found = []
+    for match in TUNABLE_RE.finditer(text):
+        kind, key = match.groups()
+        value = next((argument.partition(":")[2].strip()
+                      for argument in call_arguments(text, match.end())
+                      if re.match(r"^default\s*:", argument)), None)
+        if value is None:
+            continue
+        if kind == "toggle" and value in ("true", "false"):
+            found.append((key, value == "true"))
+            continue
+        if value.startswith('"') and value.endswith('"'):
+            try:
+                found.append((key, json.loads(value)))
+                continue
+            except json.JSONDecodeError:
+                pass
+        if re.fullmatch(r"\.[A-Za-z_]\w*", value):
+            found.append((key, value[1:]))
+        elif re.fullmatch(r"-?\d+(?:\.\d+)?", value):
+            found.append((key, float(value)))
+        # Nonliteral defaults are covered by tunable-source dependency fingerprints above.
+        # Never present an expression such as devDefault as though it were the default value.
+    return found
 
 
 def render_snapshot(values: Mapping[str, object]) -> str:
@@ -417,19 +633,34 @@ class Approval:
         return bool(self.approvers) or self.shipped is not None
 
 
-def receipt_verdict(pull: Mapping[str, object], head: str) -> tuple[str, str] | None:
-    """("ship" or "block", reviewer) of the newest receipt naming the full head sha on the first line
-    of a trusted comment or review body; a self-review never counts and a BLOCK wins a tie."""
-    found = []
+def receipt_items(pull: Mapping[str, object]) -> list[tuple[Mapping[str, object], object]]:
     items = [(c, c.get("createdAt")) for c in (pull.get("comments") or {}).get("nodes") or []]
-    items += [(r, r.get("submittedAt")) for r in (pull.get("reviews") or {}).get("nodes") or []]
-    for item, at in items:
+    return items + [(r, r.get("submittedAt")) for r in (pull.get("reviews") or {}).get("nodes") or []]
+
+
+def receipt_line(item: Mapping[str, object], head: str) -> re.Match[str] | None:
+    """The receipt on the item's first line when it names the full head and is not a self-review."""
+    first = next((line for line in str(item.get("body") or "").splitlines() if line.strip()), "")
+    line = RECEIPT.match(first)
+    return line if head and line and "self" not in line.group(1).lower() and head in first else None
+
+
+def receipt_verdict(pull: Mapping[str, object], head: str,
+                    writers: Iterable[str] = ()) -> tuple[str, str] | None:
+    """("ship" or "block", reviewer) of the newest receipt naming the full head sha on the first line
+    of a trusted comment or review body; a self-review never counts and a BLOCK wins a tie. A user
+    whose association reads as untrusted is trusted when listed in `writers` (repository write
+    access, looked up by `repo_writers`)."""
+    writers = {w.lower() for w in writers}
+    found = []
+    for item, at in receipt_items(pull):
         author = item.get("author") or {}
-        if author.get("__typename") != "User" or item.get("authorAssociation") not in TRUSTED:
+        if author.get("__typename") != "User":
             continue
-        first = next((line for line in str(item.get("body") or "").splitlines() if line.strip()), "")
-        line = RECEIPT.match(first)
-        if head and line and "self" not in line.group(1).lower() and head in first:
+        if item.get("authorAssociation") not in TRUSTED and str(author.get("login") or "").lower() not in writers:
+            continue
+        line = receipt_line(item, head)
+        if line:
             verdict = "ship" if line.group(2).lower() == "ship" else "block"
             found.append((str(at or ""), verdict == "block", verdict, f"review ({line.group(1).strip()})"))
     if not found:
@@ -444,7 +675,31 @@ def owners_for(text: str | None) -> list[str]:
     return [str(o) for o in json.loads(text).get(APP, [])]
 
 
-def approval(owners: list[str], pull: Mapping[str, object]) -> Approval:
+def repo_writers(repo: str, pull: Mapping[str, object], head: str) -> list[str]:
+    """The authors of receipts on the head whose association reads as untrusted but who have write,
+    maintain or admin access to the repository. GitHub hides a private org membership from the
+    workflow's token, so such a member reads as CONTRIBUTOR here (#26153). One lookup per author;
+    a lookup that fails (404: not a collaborator) trusts nobody."""
+    logins: dict[str, str] = {}
+    for item, _ in receipt_items(pull):
+        author = item.get("author") or {}
+        login = str(author.get("login") or "")
+        if (login and author.get("__typename") == "User" and item.get("authorAssociation") not in TRUSTED
+                and receipt_line(item, head)):
+            logins.setdefault(login.lower(), login)
+    writers = []
+    for login in logins.values():
+        result = subprocess.run(["gh", "api", f"repos/{repo}/collaborators/{login}/permission", "--jq", ".role_name"],
+                                capture_output=True, text=True)
+        if result.returncode == 0 and result.stdout.strip() in WRITER_ROLES:
+            writers.append(login)
+        elif result.returncode != 0 and "404" not in result.stderr:
+            print(f"::warning title=Defaults reviewer lookup failed::{command_text(login)}: "
+                  f"{command_text(result.stderr.strip()[:200])}")
+    return writers
+
+
+def approval(owners: list[str], pull: Mapping[str, object], writers: Iterable[str] = ()) -> Approval:
     """Who approved the head: each reviewer's latest decisive review counts."""
     author = str((pull.get("author") or {}).get("login") or "")
     head = str(pull.get("headRefOid") or "")
@@ -462,7 +717,7 @@ def approval(owners: list[str], pull: Mapping[str, object]) -> Approval:
             result.approvers.append(owner)
         else:
             result.stale.append(owner)
-    receipt = receipt_verdict(pull, head)
+    receipt = receipt_verdict(pull, head, writers)
     if receipt:
         if receipt[0] == "ship":
             result.shipped = receipt[1]
@@ -557,16 +812,18 @@ def summary(text: str) -> None:
 
 
 def post_comment(repo: str, number: int, pull: Mapping[str, object], body: str, found: list[Change]) -> None:
-    existing = None
-    for comment in (pull.get("comments") or {}).get("nodes") or []:
-        if MARKER in str(comment.get("body") or "") and str((comment.get("author") or {}).get("login") or "") == "github-actions":
-            existing = comment.get("databaseId")
-    if existing is None and not found:
-        return  # nothing changed and nothing said before: no comment
-    if existing is None:
-        gh(["api", f"repos/{repo}/issues/{number}/comments", "-f", f"body={body}"])
-    else:
-        gh(["api", "-X", "PATCH", f"repos/{repo}/issues/comments/{existing}", "-f", f"body={body}"])
+    # Snapshot/check-fresh also run from small fixture checkouts without the writer.
+    import pr_status
+
+    if not found:
+        # Do not create a clean-defaults section unless this PR previously had one.
+        # Read the full comment list, not fetch_pull's last-100 receipt window.
+        comments = pr_status.list_comments(pr_status.http_api, repo, number)
+        previous = pr_status.bot_comments(comments, MARKER)
+        status = pr_status.bot_comments(comments, pr_status.MARKER)
+        if not previous and not any("defaults" in pr_status.parse(c["body"]) for c in status):
+            return
+    pr_status.upsert(repo, number, "defaults", body.removeprefix(MARKER).strip(), legacy=MARKER)
 
 
 # MARK: Commands
@@ -643,7 +900,8 @@ def command_check(args: argparse.Namespace) -> int:
                 break
             time.sleep(5)
             pull = fetch_pull(args.repo, args.pr)
-    verdict = approval(owners, pull) if pull is not None else None
+    writers = repo_writers(args.repo, pull, head_sha) if pull is not None and args.repo else []
+    verdict = approval(owners, pull, writers) if pull is not None else None
     if pull is not None and verdict is not None and verdict.head != head_sha:
         problems.append(f"DEFAULTS head: the pull request's head is {verdict.head[:12]}, not {head_sha[:12]}; re-run on the new head")
     merged = str((pull.get("mergeCommit") or {}).get("oid") or "") if pull and pull.get("merged") else None
@@ -657,7 +915,9 @@ def command_check(args: argparse.Namespace) -> int:
     if args.comment and pull is not None:
         try:
             post_comment(args.repo, args.pr, pull, body, found)
-        except SystemExit as error:  # a fork's review event has a read-only token: the verdict stands
+        # comment failures never change the verdict; a checkout without the writer (main's
+        # pull_request_target sparse list may lag the guard) is one of them
+        except (SystemExit, RuntimeError, OSError, ImportError) as error:
             print(f"::warning title=Defaults comment not posted::{error}")
     if problems:
         return 1

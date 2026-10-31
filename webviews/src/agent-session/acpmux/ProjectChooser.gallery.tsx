@@ -12,6 +12,7 @@ type Props = {
   icon: ReactNode;
   onPick(cwd: string): void;
   onBrowse?(): void;
+  onNoProject?(): void;
 };
 
 const icon = createElement(
@@ -33,6 +34,12 @@ const projects: Project[] = [
   { cwd: "/Users/you/src/atlas-web", label: "atlas-web" },
   { cwd: "/Users/you/src/cmux", label: "cmux" },
   { cwd: "/Users/you/src/relay", label: "relay" },
+];
+
+// A folder the host names by its path (a home folder has no project name), then a named project.
+const pathTitled: Project[] = [
+  { cwd: "/Users/sample", label: "/Users/sample" },
+  { cwd: "/Users/sample/projects/atlas-web", label: "atlas-web" },
 ];
 
 const longProjects: Project[] = [
@@ -84,6 +91,8 @@ export default componentEntry<Props>({
   id: "agent-pane.project-chooser",
   title: "Project chooser",
   area: "Agent pane",
+  // Its rows use the pane's Tailwind (`data-[highlighted]:bg-hover`), which only a pane entry loads.
+  pane: true,
   covers: ["agent-session/acpmux/ProjectChooser.tsx#ProjectChooser"],
   load: () => import("./ProjectChooser").then((module) => module.ProjectChooser),
   styles: () => import("./styles.css"),
@@ -116,8 +125,28 @@ export default componentEntry<Props>({
         current: projects[0]!.cwd,
         currentLabel: projects[0]!.label,
         icon,
+        onPick: (cwd) => {
+          document.documentElement.dataset.galleryProjectPicked = cwd;
+        },
+        onBrowse: () => {
+          document.documentElement.dataset.galleryProjectAction = "browse";
+        },
+        onNoProject: () => {
+          document.documentElement.dataset.galleryProjectAction = "none";
+        },
+      },
+      play: open,
+    },
+    "open-path-titled": {
+      note: 'A folder titled by its own path (Leo, ":( alignemnt"): Do not work in a project, New project and the folder share one icon column and one text inset, the folder shows its path once, and a hairline splits the actions from the folders.',
+      props: {
+        projects: pathTitled,
+        current: pathTitled[0]!.cwd,
+        currentLabel: pathTitled[0]!.label,
+        icon,
         onPick: () => undefined,
         onBrowse: () => undefined,
+        onNoProject: () => undefined,
       },
       play: open,
     },
@@ -154,6 +183,18 @@ export default componentEntry<Props>({
       note: "An absolute path query offers the typed path as a selectable project.",
       props: { projects, current: projects[0]!.cwd, currentLabel: projects[0]!.label, icon, onPick: () => undefined },
       play: typedPath,
+    },
+    "long-no-actions": {
+      note: "A long recent-project list without action rows still scrolls to its last folder.",
+      props: {
+        projects: Array.from({ length: 40 }, (_, index) => ({
+          cwd: `/demo/review-${index + 1}`,
+          label: `review-${index + 1}`,
+        })),
+        icon,
+        onPick: () => undefined,
+      },
+      play: open,
     },
     "long-names": {
       note: "Long project labels and paths truncate inside stable rows while badges remain visible.",
