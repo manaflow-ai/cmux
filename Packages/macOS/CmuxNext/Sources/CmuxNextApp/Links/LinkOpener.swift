@@ -72,10 +72,11 @@ final class LinkOpener {
     /// A source that takes no tabs (Home's pinned dock) finds the pane on its right by the layout's
     /// column order (``LinkOpenPlacement/paneRight(of:columns:takesTabs:recency:)``), not by drawn
     /// frames, which miss a strip column that is scrolled or not laid out yet.
-    func target(from source: PaneController, mainPane: Bool = true) -> LinkOpenPlacement<LayoutPaneID>.Target {
+    func target(from source: PaneController, mainPane: Bool = true, besideChat: Bool = false) -> LinkOpenPlacement<LayoutPaneID>.Target {
         let content = source.workspace
         let width: (LayoutPaneID) -> CGFloat? = { content?.panes[$0].flatMap(RightColumn.width(of:)) }
-        if mainPane, let services, let side = MainPaneLayout.side(from: source, services: services) {
+        if let services, let side = besideChat ? ChatColumnPlacement.resolve(from: source, services: services)
+            : (mainPane ? MainPaneLayout.side(from: source, services: services) : nil) {
             switch side {
             case .tab(let pane):
                 // The strip column right of the docked chat is its right side: the same lower split (ux-owner 2026-10-30).
@@ -99,32 +100,35 @@ final class LinkOpener {
             column = RightColumn.panes(beside: source.layoutPaneID, in: content)
             return PaneHandlers.neighbor(of: source.layoutPaneID, direction: .right, in: content).flatMap { takes($0) ? $0 : nil }
         }
-        return LinkOpenPlacement(setting: placement()).target(source: source.layoutPaneID, takesTabs: takesTabs, right: right, column: column,
+        return LinkOpenPlacement(setting: besideChat ? .splitRight : placement()).target(source: source.layoutPaneID, takesTabs: takesTabs, right: right, column: column,
                                                               sourceWidth: RightColumn.width(of: source), width: width)
     }
 
     /// Opens through `make` where the rule puts it. `background`: the opened tab takes no focus.
     /// `mainPane` false: main pane layout does not apply (a chat, which belongs in the dock, not
     /// the column on its right). False with no source pane (no window) or when `make` refused.
+    /// `besideChat`: an explicit chat tool open follows the right-column rule regardless of the link
+    /// placement or main-pane setting.
     /// Opens beside one source run one at a time (``RightColumn/serially(beside:_:)``): one asked for
     /// while another is still moving into place waits, answers true, and decides its place once that
     /// one has landed, from the column it made.
     @discardableResult
-    func open(from source: PaneController?, background: Bool = false, mainPane: Bool = true, _ make: @escaping Make) -> Bool {
+    func open(from source: PaneController?, background: Bool = false, mainPane: Bool = true, besideChat: Bool = false,
+              _ make: @escaping Make) -> Bool {
         guard let source = source ?? services?.windows.active?.focusedPane else { return false }
         var opened = true
         let now = RightColumn.serially(beside: source.layoutPaneID) { [weak self, weak source] done in
             guard let self, let source else { return done() }
-            opened = self.place(from: source, background: background, mainPane: mainPane, make, done: done)
+            opened = self.place(from: source, background: background, mainPane: mainPane, besideChat: besideChat, make, done: done)
         }
         return now ? opened : true
     }
 
     /// ``open(from:background:mainPane:_:)`` in its turn: `done` runs once the open has landed or
     /// failed, so the next open beside `source` reads the column it left.
-    private func place(from source: PaneController, background: Bool, mainPane: Bool, _ make: Make,
+    private func place(from source: PaneController, background: Bool, mainPane: Bool, besideChat: Bool, _ make: Make,
                        done: @escaping @MainActor () -> Void) -> Bool {
-        switch target(from: source, mainPane: mainPane) {
+        switch target(from: source, mainPane: mainPane, besideChat: besideChat) {
         case .pane(let id):
             defer { done() }
             return make(id == source.layoutPaneID ? source : source.workspace?.panes[id] ?? source, nil)
