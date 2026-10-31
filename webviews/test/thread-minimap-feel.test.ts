@@ -4,8 +4,9 @@
 // measured worse than Codex in a 60-turn chat:
 // - a jump lands the prompt's bubble 35 px below the top, also when the rows it crosses were never
 //   drawn (it landed 262 px above the view, for a prompt 50 turns up);
-// - the hover card opens 250 ms after the pointer reaches the rail, as Codex's does (it took 465 ms),
-//   while the tick magnifies at once;
+// - the hover card opens with the tick's magnification, on the pointer's own commit (Leo,
+//   2026-10-29: "faster scrttoll/hover over"; it waited Codex's 250 ms, and 465 ms before that);
+// - a click lands the prompt in the frame of the click, with no glide;
 // - the band of lit rows follows the scroll on the scroll's own frame (it lagged 1-2 frames and lit
 //   a turn still below the view), with the turns on screen as Codex counts them;
 // - older turns that load above the reader leave the band where it is on screen (it moved 150 px in
@@ -177,7 +178,8 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
   describe("thread minimap feel (Chromium)", () => {
     test("a click lands the prompt's bubble 35 px down, near or far, drawn or not", async () => {
       const page = await open(turns(0, COUNT), 9000);
-      // Near: a drawn prompt about 600 px down, on the smooth scroll.
+      // Near: a drawn prompt about 600 px down. It lands with the click itself, before any frame of
+      // motion (no glide: Leo, 2026-10-29, "faster scrttoll").
       const near = await page.evaluate(() => {
         const view = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
         const prompt = [...document.querySelectorAll<HTMLElement>(".acpmux-row.acpmux-user")].find(
@@ -187,6 +189,7 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       });
       let point = await tickPoint(page, near);
       await page.mouse.click(point.x, point.y);
+      expect(Math.abs((await landing(page, near))! - 35)).toBeLessThanOrEqual(1);
       expect(Math.abs((await landed(page, near))! - 35)).toBeLessThanOrEqual(1);
       // Far: a prompt well up the chat, never drawn, whose rows' heights are estimates.
       const far = await firstVisibleTick(page);
@@ -203,7 +206,7 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       await page.close();
     });
 
-    test("hovering magnifies at once and opens the card 250 ms after the pointer reaches the rail", async () => {
+    test("hovering magnifies and opens the card at once", async () => {
       const page = await open(turns(0, COUNT), 9000);
       const point = await tickPoint(page, 30);
       await page.mouse.move(point.x + 400, point.y);
@@ -255,10 +258,9 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       const growsAt = frames.filter((frame) => frame.t >= hovering).indexOf(grows!);
       expect(growsAt).toBeGreaterThanOrEqual(0);
       expect(growsAt).toBeLessThan(4);
-      // The card: Codex's 250 ms (its frames show 267-283 ms with the render), not the app's 450,
-      // painted by the second frame after.
-      expect(carded - over).toBeGreaterThan(230);
-      expect(carded - over).toBeLessThan(400);
+      // The card: no dwell. It commits before the second painted frame after the pointer arrives, as
+      // the hover does, and paints by the second frame after its commit.
+      expect(frames.filter((frame) => frame.t >= over && frame.t < carded).length).toBeLessThanOrEqual(1);
       const opensAt = frames.filter((frame) => frame.t >= carded).indexOf(opens!);
       expect(opensAt).toBeGreaterThanOrEqual(0);
       expect(opensAt).toBeLessThan(2);

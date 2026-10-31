@@ -28,7 +28,7 @@ struct AgentCursorSnapshotBuilder {
 
     /// The workspace and pane of tab `id` (daemon tabs, then this session's local browser tabs).
     private func locate(_ id: String, _ services: AppServices) -> AgentCursorVisibilitySnapshot.TabLocation? {
-        if let (_, pane) = services.locateTab(id), let workspace = workspaceID(containingPane: pane.id, services) {
+        if let (_, pane) = services.locateTabOnAnyMachine(id), let workspace = workspaceID(containingPane: pane.id, services) {
             return .init(workspace: workspace, pane: pane.id)
         }
         for controller in services.windows.controllers {
@@ -49,7 +49,7 @@ struct AgentCursorSnapshotBuilder {
 
     /// Windows front to back (`NSApp.orderedWindows`); unordered ones last.
     private func orderedControllers(_ services: AppServices) -> [WindowController] {
-        let order = NSApp.orderedWindows
+        let order = NSApp?.orderedWindows ?? []  // never the unwrapped global: nil in a test process
         func rank(_ controller: WindowController) -> Int {
             order.firstIndex { $0 === controller.window } ?? Int.max
         }
