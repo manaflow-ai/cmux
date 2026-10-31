@@ -42,6 +42,7 @@ enum TabLifecycle {
             })
             return
         }
+        if openTerminalFromDock(ctx, invocation, pane: focused, cwd: cwd, keep: keep) { return }
         // `layout.newPanePlacement: split`: a new pane like New Pane (Auto Layout) (PanePlacementRouting).
         let pane: PaneModel
         switch asTab ? PanePlacementRouting.Route.tab(focused) : PanePlacementRouting.route(ctx, invocation, from: focused, tiles: true) {
@@ -230,6 +231,7 @@ enum TabLifecycle {
         }
         guard let invoked = ctx.daemonPane(invocation) else { return }
         let engine = plan.engine
+        if openBrowserFromDock(ctx, invocation, pane: invoked, url: url, engine: engine, profile: profileRequest) { return }
         // From the docked agent chat, a tab in the strip (ChatColumnPlacement)
         // that opens what the chat works on, not the strip's selected tab. The
         // chat header's Preview is placed beside the chat as an agent's is.

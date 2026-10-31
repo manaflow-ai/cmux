@@ -29,6 +29,16 @@ extension ChatColumnPlacement {
         tab.agentSession != nil && !services.agentTabs.isNewTabPage(tab.id)
     }
 
+    /// A terminal or browser opened from the chat dock uses its right column: split below its
+    /// one pane, then add tabs in the lower pane. The open waits for preceding right-side opens
+    /// before measuring; the New Tab page keeps `route` and its own docking behavior.
+    @MainActor static func openTool(from controller: PaneController, services: AppServices, background: Bool = false,
+                                    _ make: @escaping LinkOpener.Make) -> Bool {
+        guard case .tab = resolve(from: controller, services: services) else { return false }
+        services.linkOpener.open(from: controller, background: background, besideChat: true, make)
+        return true
+    }
+
     /// Where a person's new tab from `controller`'s pane opens: the pane
     /// to open it in (`controller` itself, or the strip pane, focused), or
     /// nil when it is already open. A lone chat moves into a new left dock
