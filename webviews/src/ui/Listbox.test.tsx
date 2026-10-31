@@ -15,7 +15,15 @@ function mount(ran: string[]) {
   dom = new JSDOM('<!doctype html><html><body><main id="root"></main></body></html>', {
     url: "http://localhost/",
   });
-  for (const key of ["window", "document", "navigator", "HTMLElement", "Element", "MouseEvent", "IS_REACT_ACT_ENVIRONMENT"])
+  for (const key of [
+    "window",
+    "document",
+    "navigator",
+    "HTMLElement",
+    "Element",
+    "MouseEvent",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ])
     saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
@@ -60,7 +68,9 @@ test("secondary and middle mouse presses leave a recent item unopened and keep n
   const row = mount(ran);
   for (const button of [2, 1]) {
     const event = new MouseEvent("mousedown", { bubbles: true, cancelable: true, button });
-    act(() => row.dispatchEvent(event));
+    act(() => {
+      row.dispatchEvent(event);
+    });
     expect(event.defaultPrevented).toBe(false);
     expect(ran).toEqual([]);
   }
@@ -70,7 +80,9 @@ test("a primary press still opens the chosen recent item immediately", () => {
   const ran: string[] = [];
   const row = mount(ran);
   const event = new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 });
-  act(() => row.dispatchEvent(event));
+  act(() => {
+    row.dispatchEvent(event);
+  });
   expect(event.defaultPrevented).toBe(true);
   expect(ran).toEqual(["recent"]);
 });
