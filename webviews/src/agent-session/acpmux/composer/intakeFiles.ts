@@ -12,16 +12,16 @@ import {
   type DroppedKind,
   type LinkItem,
 } from "../attachments";
-import type { UploadResult } from "../cloudUploads";
+import type { UploadCancelled, UploadResult } from "../cloudUploads";
 
 export type IntakeOptions = {
   allowImages: boolean;
   /// The host knows a local drop's paths, matched by position. Never used for another machine.
   localPaths?(files: File[]): Promise<LinkItem[] | undefined>;
   /// Session storage owns transport limits and chunking; intake imposes no file or batch cap.
-  upload?(files: File[], cancelled?: (index: number) => boolean): Promise<UploadResult>;
+  upload?(files: File[], cancelled?: UploadCancelled): Promise<UploadResult>;
   /// Whether the person cancelled file `index` (its tile's ×): it is left out of the upload.
-  cancelled?(index: number): boolean;
+  cancelled?: UploadCancelled;
 };
 
 export type IntakeError = AttachmentError | { text: string };
@@ -155,14 +155,14 @@ export async function intakeFiles(
       void prepared[index]!.then(() => {
         if (sending) events.uploading?.(index);
       });
-    const sent = await options
-      .upload?.(
-        waiting.map(({ file }) => file),
-        (at) => options.cancelled?.(waiting[at]!.index) ?? false,
-      )
-      .catch((failure: unknown): UploadResult => ({
-        error: failure instanceof Error ? failure.message : String(failure),
-      }));
+    const cancelled: UploadCancelled = Object.assign((at: number) => options.cancelled?.(waiting[at]!.index) ?? false, {
+      subscribe: (at: number, changed: () => void) =>
+        options.cancelled?.subscribe?.(waiting[at]!.index, changed) ?? (() => {}),
+    });
+    const uploads = waiting.map(({ file }) => file);
+    const sent = await options.upload?.(uploads, cancelled).catch((failure: unknown): UploadResult => ({
+      error: failure instanceof Error ? failure.message : String(failure),
+    }));
     sending = false;
     // Each file is its chip (or its image's original) on its own, never after a sibling's preview.
     await Promise.all(

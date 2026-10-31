@@ -119,6 +119,8 @@ final class CloudService {
     @ObservationIgnored let accessAsks = CloudAccessAsks()
     /// Files the person drops or pastes into a moved chat, sent to its machine (``CloudUploads``).
     @ObservationIgnored let uploads = CloudUploads()
+    /// Staged uploads into ssh-peer chats, beside the Cloud ones (``AgentPeerUploads``).
+    @ObservationIgnored let peerUploads = AgentPaneStagedUploads<AgentPeerUploads.Target>(owner: "AgentPeerUploads.stageExpiry")
 
     /// The app's main-thread scheduler, passed by the composition root: every Cloud machine's event
     /// batches run on it (one main thread, one budget).

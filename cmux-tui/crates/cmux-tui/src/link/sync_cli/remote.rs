@@ -210,6 +210,20 @@ impl Remote {
         reader: &mut dyn Read,
         permissions: u32,
     ) -> anyhow::Result<String> {
+        let mut ignored = || {};
+        self.write_with_progress(path, reader, permissions, &mut ignored)
+    }
+
+    /// Writes a file while notifying the caller after each remote write. The
+    /// callback is intentionally synchronous: upload callers use it to emit a
+    /// stdout heartbeat that keeps their bounded idle deadline alive.
+    pub(super) fn write_with_progress(
+        &mut self,
+        path: &str,
+        reader: &mut dyn Read,
+        permissions: u32,
+        progress: &mut dyn FnMut(),
+    ) -> anyhow::Result<String> {
         let first = read_part(reader)?;
         let second = if first.len() == PART_BYTES { read_part(reader)? } else { Vec::new() };
         if second.is_empty() {
@@ -217,6 +231,7 @@ impl Remote {
                 "fs.write",
                 json!({ "path": path, "bytes_base64": encode(&first), "mode": "overwrite", "permissions": permissions }),
             )?;
+            progress();
             return revision_of(&entry);
         }
         let (parent, name) = split(path)?;
@@ -225,12 +240,14 @@ impl Remote {
             "fs.write",
             json!({ "path": part, "bytes_base64": encode(&first), "mode": "overwrite", "permissions": permissions }),
         )?)?;
+        progress();
         let mut chunk = second;
         while !chunk.is_empty() {
             revision = revision_of(&self.call(
                 "fs.write",
                 json!({ "path": part, "bytes_base64": encode(&chunk), "mode": "append", "expected": revision }),
             )?)?;
+            progress();
             chunk = read_part(reader)?;
         }
         // Only a file is replaced; a folder in the way stays and the rename
