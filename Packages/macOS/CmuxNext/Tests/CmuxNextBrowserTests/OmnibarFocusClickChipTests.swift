@@ -20,19 +20,19 @@ struct OmnibarFocusClickChipTests {
 
     @Test func theChipKeepsItsLabelThroughTheFocusingClick() throws {
         let rest = OmnibarState(pageURL: try #require(URL(string: "http://example.com/a")))
-        #expect(OmnibarPresentation(rest).chip == .page(focused: false))
+        #expect(OmnibarPresentation(rest).chip == .page)
         let pressed = reduce(rest, [.fieldMouseDown(clickCount: 1), .focusGained(.mouse)])
         #expect(pressed.hasFocus)
-        #expect(OmnibarPresentation(pressed).chip == .page(focused: false))
+        #expect(OmnibarPresentation(pressed).chip == .page)
         let released = reduce(pressed, [.fieldMouseUp])
-        #expect(OmnibarPresentation(released).chip == .page(focused: false))
+        #expect(OmnibarPresentation(released).chip == .page)
     }
 
     /// Keyboard focus (Cmd-L) keeps the label too; typing replaces the chip with the input's icon.
     @Test func keyboardFocusKeepsTheLabelUntilTyping() throws {
         let rest = OmnibarState(pageURL: try #require(URL(string: "http://example.com/a")))
         let focused = reduce(rest, [.focusGained(.keyboard)])
-        #expect(OmnibarPresentation(focused).chip == .page(focused: false))
+        #expect(OmnibarPresentation(focused).chip == .page)
         let typed = reduce(focused, [.fieldChanged(.init(text: "s", selection: NSRange(location: 1, length: 0)), .insert)])
         if case .input = OmnibarPresentation(typed).chip {} else { Issue.record("typing keeps the page chip") }
     }
