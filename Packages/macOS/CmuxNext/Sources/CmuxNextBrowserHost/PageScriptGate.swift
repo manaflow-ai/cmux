@@ -1,6 +1,6 @@
 import Foundation
 import CmuxNextBrowserAutomation
-import CmuxNextControl
+public import CmuxNextControl
 
 /// A ``ProviderScriptGate`` from a tab lookup and the guard's four answers, so the app passes its
 /// one login guard in without an adapter type of its own.
