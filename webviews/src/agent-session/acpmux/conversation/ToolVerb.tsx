@@ -49,7 +49,8 @@ export function verbsCss(verbs: readonly string[]): string {
   return `"${verbs.map((verb) => verb.replace(/[\\"]/g, (c) => `\\${c}`)).join("\\A ")}"`;
 }
 
-/// The element whose tool rows share one verb column (TurnRows.tsx `ToolRows`).
+/// The element whose tool rows share one verb column (the gallery's ToolRowColumn.gallery.tsx); the
+/// transcript draws none (Leo, 2026-10-31: "why are these indented for no reason").
 export function ToolVerbColumn({ className, children }: { className: string; children: ReactNode }) {
   const t = useT();
   const leads = verbLeads(t);
