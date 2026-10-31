@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 532,
+  "count": 531,
   "sections": [
     {
       "id": "general",
@@ -1090,7 +1090,6 @@
             "minimal",
             "cards",
             "default",
-            "composer",
             "threads",
             "console",
             "classic",
@@ -3579,6 +3578,19 @@
           ]
         },
         {
+          "key": "sidebar.textSize",
+          "title": "Sidebar Text Size",
+          "help": "Makes the sidebar's names, headers, icons and rows larger together. Larger matches the ChatGPT app's sidebar.",
+          "kind": "choice",
+          "default": "default",
+          "group": "Sidebar",
+          "values": [
+            "default",
+            "large",
+            "larger"
+          ]
+        },
+        {
           "key": "sidebar.topBandMaxShare",
           "title": "Top Sections Height",
           "help": "The share of the sidebar the top sections fill before they scroll.",
@@ -5687,26 +5699,6 @@
           "kind": "string_map",
           "default": {},
           "group": "Machine Colors"
-        },
-        {
-          "key": "cloud.newWorkspaceFolder",
-          "title": "New Cloud Workspaces Start In",
-          "help": "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder.",
-          "kind": "choice",
-          "default": "inherit",
-          "group": "Cloud Workspaces",
-          "values": [
-            "inherit",
-            "empty"
-          ]
-        },
-        {
-          "key": "cloud.newWorkspacesInCloud",
-          "title": "Run New Workspaces in Cloud",
-          "help": "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Cloud Workspaces"
         },
         {
           "key": "phone.allowConnections",
