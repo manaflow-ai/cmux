@@ -34,7 +34,7 @@
 #             scripts/ci/package-test-lane.sh --ref SHA --arg=suite
 #             --arg=Packages/macOS/CmuxNext --arg=SuiteA,SuiteB,SuiteC
 #             --env CMUX_CI_XCODE_APP=/Applications/Xcode_26.6.app
-#   compile-tests MERGE_BASE_SHA
+#   compile-tests MERGE_BASE_SHA [--skip-package=DIR ...]
 #             compile, without running, the test targets this commit's change
 #             can break: scripts/ci/compile_test_plan.py over `git diff
 #             MERGE_BASE_SHA HEAD` (the CmuxNext test targets that depend on a
@@ -47,6 +47,10 @@
 #             compile", anything else when there is no verdict. The marker is
 #             printed as soon as a target fails, so a later package's setup
 #             failure (any exit) never hides an earlier compile failure.
+#             --skip-package=DIR leaves that package out of the plan
+#             (compile_test_plan.py --skip-package); the pull-request check
+#             skips CmuxNext, whose test targets cmux-next.yml's swift test
+#             job already builds.
 #
 # --event and --full-suite default to EVENT_NAME and FULL_SUITE. Run from the
 # repository root; every helper path is relative to it.
@@ -58,11 +62,18 @@ case "${1:-}" in
   prebuild-one) phase="$1"; prebuild_package="$2"; prebuild_log="$3"; shift 3 ;;
   compile-tests)
     phase="$1"
-    if [ "$#" -ne 2 ] || ! [[ "$2" =~ ^[0-9a-f]{40}$ ]]; then
-      echo "usage: package-test-lane.sh compile-tests MERGE_BASE_SHA (the full sha of the change's merge base)" >&2; exit 2
+    if [ "$#" -lt 2 ] || ! [[ "$2" =~ ^[0-9a-f]{40}$ ]]; then
+      echo "usage: package-test-lane.sh compile-tests MERGE_BASE_SHA [--skip-package=DIR ...] (the full sha of the change's merge base)" >&2; exit 2
     fi
     compile_base="$2"
     shift 2
+    compile_skip=()
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --skip-package=?*) compile_skip+=(--skip-package "${1#--skip-package=}"); shift ;;
+        *) echo "usage: package-test-lane.sh compile-tests MERGE_BASE_SHA [--skip-package=DIR ...]: unknown argument $1" >&2; exit 2 ;;
+      esac
+    done
     ;;
   suite)
     phase="$1"; suite_package="${2:-}"
@@ -929,7 +940,7 @@ run_compile_tests() {
   local changed="$work/compile-tests-changed.txt" plan="$work/compile-tests-plan.txt"
   git diff --no-renames --name-only "$compile_base" HEAD > "$changed" \
     || { echo "compile-tests: no diff from $compile_base" >&2; exit 3; }
-  python3 scripts/ci/compile_test_plan.py --changed-files "$changed" > "$plan" \
+  python3 scripts/ci/compile_test_plan.py --changed-files "$changed" ${compile_skip[@]+"${compile_skip[@]}"} > "$plan" \
     || { echo "compile-tests: compile_test_plan.py failed" >&2; exit 3; }
   echo "compile-tests: $(wc -l < "$changed" | tr -d ' ') files changed since ${compile_base:0:12}"
   if [ ! -s "$plan" ]; then
