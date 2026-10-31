@@ -6,6 +6,10 @@
 // (gallery `pages.settings`) and holds their rows to one column rule (leo-workspace
 // design/settings.md, "Columns"; design/grid.md rule 2): the rows of one list share one text column,
 // one leading mark column and one trailing control edge, and a row's control centers on its label.
+// A row's label sits one gap after its leading mark, and an account's buttons start on its title's
+// column. Before: Settings > Accounts put a provider's or a machine's name 40 to 90 px past its mark
+// (the row's free space split around the label), Spaces started an active space's title 122 px right
+// of the others', and an account's buttons sat 40 px in whether or not the row had a mark.
 // Before: the Harnesses page drew each harness's status ("Ready", "Signed out") as a padded card
 // 18 px right of its name, as wide as its text, because the page's status line shared its class
 // with the Session status card's root.
@@ -181,7 +185,17 @@ await requireBrowserLane("settings-columns-browser.test.ts", async () => {
   type CardReport = {
     page: string;
     card: string;
-    rows: { key: string; text: number | null; mark: number | null; control: number | null; offset: number | null }[];
+    rows: {
+      key: string;
+      text: number | null;
+      mark: number | null;
+      control: number | null;
+      offset: number | null;
+      /** How much wider than the row's gap the space between its leading mark and its label is. */
+      lead: number | null;
+      /** How far the row's body (an account's buttons) starts from its title's column. */
+      body: number | null;
+    }[];
   };
 
   /** Every card of rows on a Settings page: each row's text column, mark center, control end and
@@ -221,18 +235,32 @@ await requireBrowserLane("settings-columns-browser.test.ts", async () => {
               // Only a control on the label's own line(s): a wrapped control sits under it.
               if (top < l.bottom) offset = (top + bottom) / 2 - (l.top + l.bottom) / 2;
             }
-            const mark = row.querySelector(".accounts-mark");
+            const mark = row.querySelector(".accounts-mark, .host-avatar");
             const m = mark?.getBoundingClientRect();
+            const main = label?.parentElement;
+            let lead: number | null = null;
+            const before = label?.previousElementSibling;
+            if (main?.classList.contains("row-main") && before && visible(before))
+              lead =
+                label!.getBoundingClientRect().left -
+                before.getBoundingClientRect().right -
+                parseFloat(getComputedStyle(main).columnGap || "0");
+            const title = ink(row.querySelector(".row-title") ?? label);
+            const bodyPart = row.querySelector(":scope > .accounts-body > *");
+            const body =
+              bodyPart && title !== null && visible(bodyPart) ? bodyPart.getBoundingClientRect().left - title : null;
             return {
               key:
                 row.dataset.rowKey ??
                 row.dataset.harness ??
                 row.querySelector(".row-title")?.textContent?.trim().slice(0, 40) ??
                 "",
-              text: ink(row.querySelector(".row-title") ?? label),
+              text: title,
               mark: m && m.width ? m.left + m.width / 2 : null,
               control: end,
               offset,
+              lead,
+              body,
             };
           });
         return rows.length ? [{ page: name, card: title, rows }] : [];
@@ -260,12 +288,23 @@ await requireBrowserLane("settings-columns-browser.test.ts", async () => {
     for (const row of card.rows)
       if (row.offset !== null && Math.abs(row.offset) > 1)
         found.push(`${where}: ${row.key} control ${row.offset.toFixed(1)}px off its label's center`);
+    for (const row of card.rows) {
+      if (row.lead !== null && Math.abs(row.lead) > 0.5)
+        found.push(`${where}: ${row.key} label ${row.lead.toFixed(1)}px past one gap from its mark`);
+      if (row.body !== null && Math.abs(row.body) > 0.5)
+        found.push(`${where}: ${row.key} body starts ${row.body.toFixed(1)}px from its title's column`);
+    }
     return found;
   }
 
   const pages = [...categories.map((category) => category.id), "agents-harnesses-registry"];
+  /** The cards whose stills a PR shows, by page: the ones the rule changed. */
+  const stills: Record<string, string[]> = {
+    accounts: ['[data-card="accounts"]', '[data-card="machines"]'],
+    general: ['[data-card="rooms"]'],
+  };
 
-  test("every Settings page: one text column, one control edge, controls centered on their labels", async () => {
+  test("every Settings page: one text column, one gap after a mark, one control edge, controls centered", async () => {
     const found: string[] = [];
     let cards = 0;
     for (const variant of pages)
@@ -281,7 +320,15 @@ await requireBrowserLane("settings-columns-browser.test.ts", async () => {
             cards += report.length;
             for (const card of report) found.push(...breaks(card));
           }
-          if (out) await page.screenshot({ path: path.join(out, `settings-${variant}-${colorScheme}.png`) });
+          if (out) {
+            await page.screenshot({ path: path.join(out, `settings-${variant}-${colorScheme}.png`) });
+            for (const selector of stills[variant] ?? []) {
+              const card = page.locator(selector).first();
+              const name = /"([^"]+)"/.exec(selector)![1];
+              if (await card.count())
+                await card.screenshot({ path: path.join(out, `card-${name}-${colorScheme}.png`) });
+            }
+          }
         } finally {
           await page.close();
         }
