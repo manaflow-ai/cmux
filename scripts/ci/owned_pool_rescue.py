@@ -2175,6 +2175,15 @@ class GitHub:
                 lines = scan(response)
         return lines
 
+    def next_feed_newest_build(self) -> int | None:
+        """The newest build in cmux NEXT's nightly appcast (NEXT_FEED_URL), or None when it cannot be read."""
+        try:
+            request = urllib.request.Request(NEXT_FEED_URL, headers={"User-Agent": "cmux-owned-pool-rescue"})
+            with urllib.request.urlopen(request, timeout=20) as response:
+                return newest_feed_build(response.read().decode("utf-8", "replace"))
+        except (*READ_ERRORS, UnicodeError):
+            return None
+
     def annotations(self, job_id: int, *, final: bool = False) -> list[Mapping[str, Any]]:
         """The annotations of a job's check run (GitHub's "The run was canceled by @actor." among them). `final`: the
         job has finished, so its annotations no longer change and are read once per job (canceller())."""
@@ -3127,6 +3136,55 @@ def e2e_build_unfinished(api: GitHub, target: Target, sleep: Callable[[float], N
     return build is None or build.get("conclusion") != "success"
 
 
+# cmux NEXT's nightly appcast (nightly.yml's NIGHTLY_NEXT_FEED_BASE). A nightly build number is its run id and a
+# two-digit attempt (4119158082902 is run 41191580829, attempt 2), and publish-nightly refuses a build no newer
+# than the feed's, so a nightly-next run older than the feed's newest build's run can never publish there.
+NEXT_FEED_URL = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"
+_FEED_VERSION = re.compile(r"<sparkle:version>\s*(\d+)\s*</sparkle:version>")
+# glaeda's job-started hook refuses an owned-Mac signing job when scripts/ci/glaeda-signing-hooks.txt at the run's
+# own commit does not list the mini's hook. A re-run runs that same commit, so it is refused the same way every
+# time: on 2026-10-31 the rescue re-ran old nightly-next runs' sign-nightly-identity-legacy up to attempt 15, each
+# refused within seconds, while adding the hook to the list (at the tip) could never reach those commits.
+HOOK_UNLISTED = "glaeda-signing-hooks.txt at this run's commit does not list this hook"
+
+
+def newest_feed_build(xml: str) -> int | None:
+    """The highest <sparkle:version> in an appcast, or None when it has none."""
+    builds = [int(found) for found in _FEED_VERSION.findall(xml)]
+    return max(builds) if builds else None
+
+
+def nightly_next_moot(api: GitHub, target: Target, sleep: Callable[[float], None],
+                      log: Callable[[str], None]) -> str:
+    """Why re-running this finished nightly-next run can never publish, or "".
+
+    Only a finished run is ever moot here: a newer tip or a refusal never cancels a started nightly (Nightly
+    freshness), so a run that is still going keeps "" and its own path. A finished one is moot when cmux NEXT's
+    feed already has a build of a newer run (publish-nightly would refuse this one), or when a job of this attempt
+    was refused because its commit's signing-hook list lacks the mini's hook (a re-run is refused the same way).
+    Any read that fails answers "", as before this check."""
+    try:
+        jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+        if not jobs or not run_finished(jobs):
+            return ""
+        newest = getattr(api, "next_feed_newest_build", None)
+        build = newest() if newest is not None else None
+        if build and target.run_id < build // 100:
+            return (f"cmux NEXT's feed already has build {build} of a newer run ({build // 100}), and "
+                    "publish-nightly refuses an older build")
+        for found in jobs:
+            if not refused(found) or not found.get("id"):
+                continue
+            notes = read(lambda: api.annotations(int(found["id"]), final=True), sleep, log)
+            if any(HOOK_UNLISTED in str(note.get("message") or "") for note in notes if isinstance(note, Mapping)):
+                return (f"{found.get('name') or found['id']} was refused because scripts/ci/glaeda-signing-hooks.txt at "
+                        f"{target.head_sha[:12]} does not list the minis' runner hook, and a re-run of that commit "
+                        "is refused the same way")
+    except (*READ_ERRORS, AnnotationsCapped) as error:
+        log(f"could not tell whether nightly-next run {target.run_id} is moot ({error}); treating it as wanted")
+    return ""
+
+
 def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
                log: Callable[[str], None]) -> str:
     """Why the pull request (or main) no longer wants this run, or "" when it still does.
@@ -3139,8 +3197,10 @@ def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
         # scopes them to github.run_id), so a newer tip builds alongside this one
         # and never makes it moot: a newer tip is never a reason to cancel a
         # nightly (Nightly freshness). publish-nightly's order check refuses a
-        # build no newer than the feed, so re-running an older one never downgrades.
-        return ""
+        # build no newer than the feed, so re-running an older one never downgrades,
+        # but it never publishes either: a finished run that can no longer publish
+        # is not re-run (nightly_next_moot()).
+        return nightly_next_moot(api, target, sleep, log)
     if target.nightly:
         # nightly.yml's concurrency group never cancels in progress: a newer
         # run waits behind this one, and a re-run of this one would join the
