@@ -175,17 +175,20 @@ import Testing
         #expect(AddMachineStrings.step(.update) == "Keep it up to date")
     }
 
-    /// Enroll's last step, `approvals` (acpmux `host_approvals.rs`), has its own named row, not
-    /// its raw word (HQ #4877 break 9).
-    @Test func theApprovalsStepHasItsOwnNamedRow() {
-        #expect(HostLine.parse(Self.step("approvals", "warn", "this Mac is not enrolled on hb"))
-            == .step(HostStepResult(step: .approvals, state: .warn, detail: "this Mac is not enrolled on hb")))
+    /// Enroll's last step, `approvals` (acpmux `host_approvals.rs`), has its own row with a name,
+    /// not its raw word after the identity row.
+    @Test func theApprovalsStepHasItsOwnRow() {
+        #expect(HostLine.parse(Self.step("approvals", "fixed", "enrolled this Mac's app key"))
+            == .step(HostStepResult(step: .approvals, state: .fixed, detail: "enrolled this Mac's app key")))
         #expect(HostStep.known.last == .approvals)
-        #expect(AddMachineStrings.step(.approvals) == "Answer its prompts from this Mac")
+        #expect(AddMachineStrings.step(.approvals) == "Let this Mac allow its prompts")
         var list = HostChecklist()
         list.start()
-        list.apply(HostStepResult(step: .approvals, state: .ok))
-        #expect(list.rows.filter { $0.step == .approvals }.count == 1, "the line fills the known row, never a second one")
+        list.apply(HostStepResult(step: .identity, state: .ok))
+        list.apply(HostStepResult(step: .approvals, state: .fixed))
+        let approvalRows = list.rows.filter { $0.step == HostStep.approvals }
+        #expect(approvalRows.count == 1)
+        #expect(list.row(.approvals)?.status == .done(.fixed))
     }
 
     @Test func theReportSkipsWhatItDidNotRunAndAStopFailsTheRunningStep() {
