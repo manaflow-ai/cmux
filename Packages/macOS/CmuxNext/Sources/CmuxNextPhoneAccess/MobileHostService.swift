@@ -100,17 +100,14 @@ public final class MobileHostService {
     private func startHost(auth: any MobileHostAuth, launch: LaunchIdentity, daemon: DaemonService) {
         generation += 1
         let current = generation
-        let previous = host
-        host = nil
         starting?.cancel()
         phaseFollower?.cancel()
         status.reset()
+        let teardown = retireHost()
         let access = access
         let status = status
-        let stopping = stopping
         starting = Task { [weak self, logger] in
-            await stopping?.value
-            await previous?.stop()
+            await teardown.value
             let displayName = await self?.displayName() ?? "Mac"
             guard let self, self.generation == current, !Task.isCancelled else { return }
             guard let configuration = Self.configuration(launch: launch, daemon: daemon, displayName: displayName) else {
@@ -148,14 +145,22 @@ public final class MobileHostService {
         phaseFollower?.cancel()
         phaseFollower = nil
         status.reset()
+        _ = retireHost()
+    }
+
+    /// Stops the current listener after every earlier teardown, and records that in `stopping`, so
+    /// a start cancelled by a quicker one still leaves its old listener's stop for the next to await.
+    private func retireHost() -> Task<Void, Never> {
         let host = host
         self.host = nil
         let previous = stopping
         // task-owner: teardown hop, kept in `stopping`; MobileIrxHost.stop() is idempotent and bumps its lifetime
-        stopping = Task {
+        let teardown = Task {
             await previous?.value
             await host?.stop()
         }
+        stopping = teardown
+        return teardown
     }
 
     static func configuration(launch: LaunchIdentity, daemon: DaemonService, displayName: String,
