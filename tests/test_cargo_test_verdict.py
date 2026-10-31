@@ -2,6 +2,7 @@
 flake (it passed run again alone) or fails on the merge base too; a crash, a cut-short binary, a compile error or a
 test the base passes is the change's own red."""
 import importlib.util
+import re
 import subprocess
 import sys
 import tempfile
@@ -124,6 +125,56 @@ class Judge(unittest.TestCase):
         self.assertFalse(self.judge(stamped, retry=retry)[0])
 
 
+def workflow_paths(workflow: str) -> dict[str, list[str]]:
+    """Each trigger's `paths:` globs in WORKFLOW, read without a YAML parser."""
+    found, event, inside = {}, None, False
+    for line in workflow.splitlines():
+        if match := re.match(r"^  (push|pull_request):", line):
+            event, inside = match.group(1), False
+        elif re.match(r"^\S", line):
+            event = None
+        elif event and re.match(r"^    paths:", line):
+            inside = True
+            found[event] = []
+        elif inside and (match := re.match(r'^      - "([^"]+)"', line)):
+            found[event].append(match.group(1))
+        elif inside and not re.match(r"^\s*(#.*)?$", line):
+            inside = False
+    return found
+
+
+def glob_matches(glob: str, path: str) -> bool:
+    pattern = "".join(".*" if part == "**" else "[^/]*" if part == "*" else re.escape(part)
+                      for part in re.split(r"(\*\*|\*)", glob))
+    return re.fullmatch(pattern, path) is not None
+
+
+class Scope(unittest.TestCase):
+    CRATE = "cmux-tui/crates/acpmux"
+
+    def test_the_crate_its_path_dependencies_and_their_includes_are_inputs(self):
+        dirs, files = verdict.crate_inputs(ROOT, self.CRATE)
+        self.assertIn(self.CRATE, dirs)
+        self.assertIn("cmux-tui/crates/cmux-server", dirs)  # a direct path dependency
+        self.assertIn("cmux-tui/crates/cmux-json", dirs)  # through `workspace = true`
+        self.assertIn("skills/cmux-cua/SKILL.md", files)  # include_str! from outside the crates
+        changed = ["cmux-tui/crates/cmux-json/src/lib.rs", "skills/cmux-cua/SKILL.md", "cmux-tui/Cargo.lock",
+                   "README.md", "webviews/src/app.tsx", "cmux-tui/crates/ghostty-vt/src/lib.rs"]
+        self.assertEqual(verdict.touches(ROOT, self.CRATE, changed), changed[:3])
+
+    def test_the_workflow_runs_for_every_included_file_outside_cmux_tui(self):
+        _, files = verdict.crate_inputs(ROOT, self.CRATE)
+        outside = [path for path in files if not path.startswith("cmux-tui/")]
+        self.assertTrue(outside)
+        paths = workflow_paths((ROOT / ".github/workflows/cmux-tui-spec.yml").read_text())
+        self.assertEqual(set(paths), {"push", "pull_request"})
+        for event, globs in paths.items():
+            for path in outside + [p.rstrip("/") + ("/x" if p.endswith("/") else "") for p in verdict.ALWAYS]:
+                with self.subTest(event=event, path=path):
+                    self.assertTrue(any(glob_matches(glob, path) for glob in globs),
+                                    f"cmux-tui-spec.yml's {event} paths miss {path}, an input of acpmux's tests")
+
+
 class Cli(unittest.TestCase):
     def run_cli(self, *args):
         return subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True, check=False,
@@ -144,6 +195,15 @@ class Cli(unittest.TestCase):
                                 binary(("agent_inbox::delivers", "FAILED"))))
             out = self.run_cli("judge", "--head", str(head), "--base", str(base), "--job", JOB)
             self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+
+    def test_touches(self):
+        run = lambda changed: subprocess.run(  # noqa: E731
+            [sys.executable, str(SCRIPT), "touches", "cmux-tui/crates/acpmux", "--repo", str(ROOT)],
+            input=changed, capture_output=True, text=True, check=False)
+        out = run("README.md\ncmux-tui/crates/cmux-server/src/lib.rs\n")
+        self.assertEqual((out.returncode, out.stdout), (0, "cmux-tui/crates/cmux-server/src/lib.rs\n"), out.stderr)
+        out = run("README.md\n")
+        self.assertEqual((out.returncode, out.stdout), (1, ""), out.stderr)
 
 
 if __name__ == "__main__":

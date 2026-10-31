@@ -21,6 +21,15 @@ on:
       - "scripts/ci/cargo_test_verdict.py"
       - "scripts/ci/test_reds.py"
       - "tests/test_cargo_test_verdict.py"
+      # Files outside cmux-tui that acpmux or its path dependencies include_str!
+      # (tests/test_cargo_test_verdict.py keeps this list whole).
+      - "docs/remote-agents-and-cloud.md"
+      - "schemas/deeplinks/agent-link.json"
+      - "schemas/link-token/keyset-vectors.json"
+      - "schemas/settings/source/subsessions.json"
+      - "schemas/settings/source/trust.json"
+      - "skills/cmux-browser/**"
+      - "skills/cmux-cua/SKILL.md"
   pull_request:
     paths:
       - "cmux-tui/**"
@@ -36,6 +45,15 @@ on:
       - "scripts/ci/cargo_test_verdict.py"
       - "scripts/ci/test_reds.py"
       - "tests/test_cargo_test_verdict.py"
+      # Files outside cmux-tui that acpmux or its path dependencies include_str!
+      # (tests/test_cargo_test_verdict.py keeps this list whole).
+      - "docs/remote-agents-and-cloud.md"
+      - "schemas/deeplinks/agent-link.json"
+      - "schemas/link-token/keyset-vectors.json"
+      - "schemas/settings/source/subsessions.json"
+      - "schemas/settings/source/trust.json"
+      - "skills/cmux-browser/**"
+      - "skills/cmux-cua/SKILL.md"
   workflow_dispatch:
     inputs:
       commit:
@@ -215,7 +233,7 @@ jobs:
 
       # As acpmux-protocol-ir: pull requests compare with their merge commit's first parent,
       # pushes with the commit before them; with no usable base the suites run.
-      - name: Does the change touch acpmux or its build inputs
+      - name: Does the change touch an input of acpmux's tests
         id: scope
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -228,9 +246,11 @@ jobs:
           if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ && "$BASE_SHA" != 0000000000000000000000000000000000000000 ]] \
             && git fetch --no-tags --depth=1 origin "$BASE_SHA" \
             && changed=$(git diff --no-renames --name-only "$BASE_SHA" HEAD); then
-            if ! grep -qE '^(cmux-tui/(crates/acpmux/|Cargo\.(toml|lock)$|rust-toolchain(\.toml)?$|\.cargo/)|\.github/workflows/cmux-tui-spec\.yml$|\.github/actions/setup-cmux-tui-rust/|scripts/ci/(cargo_test_verdict|test_reds)\.py$)' <<<"$changed"; then
+            # acpmux, its path dependencies, the files they include_str!, the workspace
+            # manifest, lockfile and toolchain, and this job's own files.
+            if ! python3 scripts/ci/cargo_test_verdict.py touches cmux-tui/crates/acpmux <<<"$changed"; then
               run=false
-              echo "No acpmux or cmux-tui build input changed since ${BASE_SHA:0:12}; nothing to test." >> "$GITHUB_STEP_SUMMARY"
+              echo "No input of acpmux's tests changed since ${BASE_SHA:0:12}; nothing to test." >> "$GITHUB_STEP_SUMMARY"
             fi
           fi
           echo "run=$run" >> "$GITHUB_OUTPUT"
