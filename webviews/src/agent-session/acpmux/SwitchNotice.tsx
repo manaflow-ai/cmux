@@ -1,5 +1,5 @@
 import { useT } from "./i18n";
-import { type MachineShareProps, useMachineShare } from "./MachineShare";
+import { type MachineShareProps, useMachineShare } from "./MachineShareAction";
 import type { AcpmuxSnapshot } from "./model";
 import { type StartRefusalAction, startRefusalAction } from "./startRefusal";
 
@@ -8,7 +8,7 @@ import { type StartRefusalAction, startRefusalAction } from "./startRefusal";
 /// Failed says why, with Retry; the prompts it held are back in the composer. Deferred says the
 /// pick waits for the next prompt while the current reply keeps streaming. A refusal with a way out
 /// (startRefusal.ts) offers it in one click beside Retry: New Cloud Machine, or Choose Folder. A
-/// teammate's machine also offers Share with Me, then Ask the Owner (MachineShare.tsx).
+/// teammate's machine also offers Share with Me, then Ask the Owner (MachineShareAction.tsx).
 export function SwitchNotice({
   switching,
   onRetry,
