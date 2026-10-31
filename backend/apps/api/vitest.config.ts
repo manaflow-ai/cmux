@@ -123,6 +123,8 @@ export default defineConfig({
           TEAM_VM_BIND_ENABLED: "1",
           // Cloud machines use the in-object fake provider under the test prefix (cloud-driver.ts).
           CLOUD_DRIVER: "fake",
+          // ACP chat trajectories kept outside the VM (cloud-trajectory.ts); off unless "1".
+          CLOUD_TRAJECTORIES_ENABLED: "1",
           CLOUD_API_ORIGIN: "https://api.test",
           CLOUD_LINK_SIGNING_KEYS: JSON.stringify({ active: "test-link-2", keys: linkKeys, published_at: { "test-link-1": 0, "test-link-2": 0 } }),
           CLOUD_ADMIN_KEY: "test-cloud-admin-key-0123456789abcdef",

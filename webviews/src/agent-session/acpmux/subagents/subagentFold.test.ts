@@ -13,6 +13,72 @@ function feed(fold: SubagentFold, update: any, acpmux: Record<string, unknown> =
 }
 const say = (text: string) => ({ sessionUpdate: "agent_message_chunk", content: { type: "text", text } });
 
+test("a child's tag isolates its work when the loaded page has no spawn record", () => {
+  const fold = new SubagentFold();
+  fold.chat = "parent";
+  expect(feed(fold, say("Parent reply"), { subagent: "parent" })).toBe(false);
+  expect(feed(fold, say("Helper reply"), { subagent: "helper" })).toBe(true);
+  expect(
+    feed(
+      fold,
+      { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "Helper thought" } },
+      { subagent: "helper" },
+    ),
+  ).toBe(true);
+  expect(
+    feed(
+      fold,
+      { sessionUpdate: "tool_call", toolCallId: "read", title: "Read helper.ts", status: "in_progress" },
+      { subagent: "helper" },
+    ),
+  ).toBe(true);
+  expect(
+    feed(fold, { sessionUpdate: "tool_call_update", toolCallId: "read", status: "completed" }, { subagent: "helper" }),
+  ).toBe(true);
+  expect(fold.all()).toEqual([]);
+  expect(fold.takeRows()).toEqual([]);
+  const rows = fold.views().helper!;
+  expect(rows[0]?.text).toBe("Helper reply");
+  expect(rows.flatMap((row) => row.items ?? []).map((item) => item.text)).toContain("Helper thought");
+  expect(rows.flatMap((row) => row.items ?? []).find((item) => item.tool?.id === "read")?.tool?.status).toBe(
+    "completed",
+  );
+
+  feed(
+    fold,
+    { sessionUpdate: "subagent_progress" },
+    { subagents: [{ id: "helper", parent: null, name: "Reviewer", state: "running" }] },
+  );
+  expect(fold.all().map((agent) => agent.name)).toEqual(["Reviewer"]);
+  expect(fold.views().helper![0]?.text).toBe("Helper reply");
+  expect(feed(fold, say(" finished"), { subagent: "helper" })).toBe(true);
+  expect(feed(fold, say("Parent continues"))).toBe(false);
+  expect(fold.views().helper!.at(-1)?.text).toBe(" finished");
+});
+
+test("seeded root tags remain parent content even when the current thread differs", () => {
+  const fold = new SubagentFold();
+  fold.setRoot("earlier-parent-thread");
+  fold.chat = "current-parent-thread";
+  expect(feed(fold, say("Earlier parent reply"), { subagent: "earlier-parent-thread" })).toBe(false);
+  expect(fold.views()).toEqual({});
+});
+
+test("a helper missing its spawn still shows a nested dispatch only as the child group", () => {
+  const fold = new SubagentFold();
+  expect(
+    feed(
+      fold,
+      { sessionUpdate: "tool_call", toolCallId: "spawn", title: "Agent", status: "in_progress" },
+      { subagent: "helper", subagents: [{ id: "nested", parent: "helper", name: "Nested", toolCallId: "spawn" }] },
+    ),
+  ).toBe(true);
+  const rows = fold.views().helper!;
+  expect(rows.map((row) => row.kind)).toEqual([SUBAGENTS]);
+  expect(rows[0]?.subagents?.map((agent) => agent.id)).toEqual(["nested"]);
+  expect(fold.takeRows()).toEqual([]);
+});
+
 test("a subagent's own updates draw as its view, with the subagents it spawned as a group", () => {
   const fold = new SubagentFold();
   feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null, name: "Audit" }] });
