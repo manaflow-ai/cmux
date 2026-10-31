@@ -388,7 +388,7 @@ public actor DaemonConnection {
             if pacer.isExhausted {
                 logger.info("cmux-tui reconnect: timed retries spent; waiting for the daemon socket or another event")
                 // A busy daemon keeps its timed retry: still reconnecting, not offline.
-                if pacer.waitsForEventOnly { retriesSpentObserver?() }
+                if pacer.waitsForEventOnly, !Task.isCancelled, !isClosedPhase { retriesSpentObserver?() }
             }
         }
         reconnectTask = nil

@@ -61,9 +61,8 @@ final class SSHMachineSession {
     @ObservationIgnored var offersInstall = false
     @ObservationIgnored var onStatusChange: ((SSHMachineSession, SSHConnectionMachine.Status) -> Void)?
     @ObservationIgnored var connectRecovery: SSHConnectRecovery?
-    /// Its session is in use by another cmux daemon: only a person's Reconnect takes it over (G5).
+    /// In use by another cmux daemon: only a person's Reconnect takes it over (G5). Retries spent: Offline (G4).
     var waitsForUser: Bool { if case .failed = linkStatus { link.waitsForUser } else { false } }
-    /// The daemon's reconnect spent its timed retries: Offline, not Connecting (HQ #4877 G4).
     var retriesSpent: Bool { daemon.store.retriesSpent }
     /// Changes at the start of every user or automatic connection attempt, even when the
     /// transport and daemon report the same failure again.
@@ -71,6 +70,7 @@ final class SSHMachineSession {
     @ObservationIgnored var connectPresentationTask: Task<Void, Never>?
     @ObservationIgnored private var statusTask: Task<Void, Never>?
     @ObservationIgnored private var startupTask: Task<Void, Never>?
+    @ObservationIgnored private var restartTask: Task<Void, Never>?
 
     /// - Parameter mainWork: The app's main-thread scheduler (the local daemon's), for the machine's event batches.
     init(host: SSHHost, binary: URL, paths: SSHPaths, environment: @escaping @Sendable () async -> [String: String],
@@ -198,10 +198,12 @@ final class SSHMachineSession {
         daemon.shutdownConnection()
         beginConnectionAttempt()
         linkStatus = .connecting
-        // task-owner: teardown hop; connect() runs once the old link client is stopped
-        Task { [weak self, link] in
+        // task-owner: teardown hop; cancelled by the next restart and by close(), so a closed session never connects
+        restartTask?.cancel()
+        restartTask = Task { [weak self, link] in
             await link.stop()
-            if self?.autoConnect == true { self?.connect() }
+            guard !Task.isCancelled, let self, self.autoConnect else { return }
+            self.connect()
         }
     }
 
@@ -224,6 +226,7 @@ final class SSHMachineSession {
 
     func disconnect(keepAutoConnect: Bool = false) {
         if !keepAutoConnect { autoConnect = false }
+        restartTask?.cancel()
         daemon.shutdownConnection()
         linkStatus = .offline
         let link = link

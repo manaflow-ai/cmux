@@ -214,9 +214,8 @@ final class SSHService {
         return text
     }
 
-    /// Only a person's Reconnect (`byPerson`) takes over a session in use elsewhere (HQ #4877 G5).
     func reconnect(_ session: SSHMachineSession, byPerson: Bool = true) {
-        guard !policyDisabled, byPerson || !session.waitsForUser else { return }
+        guard !policyDisabled, byPerson || !session.waitsForUser else { return } // only a person takes over a session in use (G5)
         // A retry gets a fresh error from the new attempt. Do not let the
         // recovery sheet copy the previous attempt while the link is working.
         session.lastError = nil

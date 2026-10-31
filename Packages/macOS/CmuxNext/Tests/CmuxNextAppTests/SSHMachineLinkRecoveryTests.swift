@@ -78,6 +78,17 @@ import Testing
         session.close()
     }
 
+    @Test func aRestartedSessionThatClosesNeverConnectsAgain() async throws {
+        let session = try Self.session()
+        session.linkStatus = .connected
+        session.daemon.store.noteRetriesSpent(true)
+        Self.service().reconnect(session)
+        session.close()
+        for _ in 0..<40 { await Task.yield() }
+        #expect(session.linkStatus == .offline, "The restart's connect was cancelled by close()")
+        #expect(session.connectionAttemptID == 1)
+    }
+
     // MARK: G5
 
     @Test func aSessionInUseWaitsForAPerson() {
