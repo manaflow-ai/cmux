@@ -2131,8 +2131,8 @@ jobs:
           if [ "${{ needs.decide.outputs.track }}" = nightly-next ]; then
             # A trusted worker keeps only its package checkouts and its
             # content-keyed compilation cache on disk, and deletes the build
-            # state that earlier revisions kept. Elsewhere NEXT restores no
-            # compilation cache, so its build is fully cold.
+            # state that earlier revisions kept. Fresh builders restore only
+            # the clean NEXT compilation/source namespace below.
             python3 scripts/ci/nightly_build_state.py prepare nightly-next
             exit 0
           fi
@@ -2160,6 +2160,62 @@ jobs:
               ;;
           esac
 
+      - name: Compute Xcode compilation cache key
+        if: inputs.nightly_next_unsigned_run == ''
+        id: compilation-cache-key
+        run: |
+          set -euo pipefail
+          if [ "${{ needs.decide.outputs.track }}" = nightly-next ]; then
+            # No restore on an older build checkout that lacks this recipe.
+            if [ -f scripts/ci/nightly_next_cache.py ]; then
+              if keys="$(python3 scripts/ci/nightly_next_cache.py)"; then
+                printf '%s\n' "$keys" >> "$GITHUB_OUTPUT"
+              else
+                echo "::notice::NEXT cache identity unavailable; building cold"
+              fi
+            fi
+            exit 0
+          fi
+          # The key is OS, arch and toolchain. An owned mini (runner
+          # <member>-glaeda[-K]) runs the same Xcode build as an ephemeral
+          # runner but compiles in another workspace path, so its cache
+          # entries would mostly miss there and push the ephemeral entry out
+          # of the prefix restore. Fold its workspace path into the toolchain
+          # hash: each lineage restores only its own, and the ephemeral key is
+          # unchanged.
+          identity="$(xcodebuild -version)"
+          case "${RUNNER_NAME:-}" in
+            *-glaeda | *-glaeda-[0-9]*)
+              identity="$identity"$'\n'"owned-workspace:$GITHUB_WORKSPACE"
+              if [ "${{ needs.decide.outputs.track }}" = nightly-next ]; then identity="$identity"$'\n'"track:nightly-next"; fi
+              ;;
+          esac
+          echo "toolchain=$(printf '%s\n' "$identity" | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Xcode compilation cache
+        id: compilation-cache-restore
+        # A cold measurement run skips the restore; every gate below treats the
+        # missing output like a cache miss, so the cold build still saves.
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track != 'nightly-next' || steps.compilation-cache-key.outputs.restore == 'true') && needs.decide.outputs.cold_cache != 'true'
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ needs.decide.outputs.track == 'nightly-next' && 'github' || (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') }}
+          path: build-universal/CompilationCache.noindex
+          key: ${{ needs.decide.outputs.track == 'nightly-next' && steps.compilation-cache-key.outputs.prefix || format('xcode-compilation-release-{0}-{1}-{2}-', runner.os, runner.arch, steps.compilation-cache-key.outputs.toolchain) }}${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          restore-keys: ${{ needs.decide.outputs.track == 'nightly-next' && steps.compilation-cache-key.outputs.prefix || format('xcode-compilation-release-{0}-{1}-{2}-', runner.os, runner.arch, steps.compilation-cache-key.outputs.toolchain) }}
+
+      - name: Cache Swift packages
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track != 'nightly-next' || (steps.compilation-cache-key.outputs.restore == 'true' && needs.decide.outputs.cold_cache != 'true'))
+        id: swift-packages-restore
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ needs.decide.outputs.track == 'nightly-next' && 'github' || (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') }}
+          path: .spm-cache
+          key: ${{ needs.decide.outputs.track == 'nightly-next' && steps.compilation-cache-key.outputs.spm_key || format('spm-{0}', hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout')) }}
+          restore-keys: ${{ needs.decide.outputs.track != 'nightly-next' && 'spm-' || '' }}
+
+      # Measure the build start AFTER cache restore: a warmed compile must never
+      # publish a clean-builder whole-product record (#25886).
       # Reuse the unsigned app of an earlier nightly-next build on the same inputs
       # (scripts/ci/nightly_release_product_reuse.py has the key and trust rules). A hit skips the
       # steps that only feed xcodebuild; stamping, signing and notarization always run.
@@ -2188,40 +2244,6 @@ jobs:
           NIGHTLY_PRODUCT_EMPTY_BROWSER_SOURCES: ${{ needs.decide.outputs.empty_browser_sources }}
           NIGHTLY_PRODUCT_PASSWORD_READERS_OUT: ${{ needs.decide.outputs.password_readers_out }}
         run: scripts/ci/nightly-release-product.sh lookup >> "$GITHUB_OUTPUT"
-
-      - name: Compute Xcode compilation cache key
-        if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
-        id: compilation-cache-key
-        run: |
-          set -euo pipefail
-          # The key is OS, arch and toolchain. An owned mini (runner
-          # <member>-glaeda[-K]) runs the same Xcode build as an ephemeral
-          # runner but compiles in another workspace path, so its cache
-          # entries would mostly miss there and push the ephemeral entry out
-          # of the prefix restore. Fold its workspace path into the toolchain
-          # hash: each lineage restores only its own, and the ephemeral key is
-          # unchanged.
-          identity="$(xcodebuild -version)"
-          case "${RUNNER_NAME:-}" in
-            *-glaeda | *-glaeda-[0-9]*)
-              identity="$identity"$'\n'"owned-workspace:$GITHUB_WORKSPACE"
-              if [ "${{ needs.decide.outputs.track }}" = nightly-next ]; then identity="$identity"$'\n'"track:nightly-next"; fi
-              ;;
-          esac
-          echo "toolchain=$(printf '%s\n' "$identity" | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
-
-      - name: Restore Xcode compilation cache
-        id: compilation-cache-restore
-        # A cold measurement run skips the restore; every gate below treats the
-        # missing output like a cache miss, so the cold build still saves.
-        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track != 'nightly-next' && (needs.decide.outputs.cold_cache != 'true')
-        uses: ./.github/actions/cache-restore
-        with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
-          path: build-universal/CompilationCache.noindex
-          key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
-          restore-keys: |
-            xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-
 
       - name: Install compilation dependencies
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
@@ -2369,16 +2391,6 @@ jobs:
           if "wireguard-hub" not in probe.get("capabilities", []):
               raise SystemExit("fast cmux-tui client lacks wireguard-hub capability")
           PY
-
-      - name: Cache Swift packages
-        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track != 'nightly-next'
-        id: swift-packages-restore
-        uses: ./.github/actions/cache-restore
-        with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
-          path: .spm-cache
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
-          restore-keys: spm-
 
       - name: Sanitize Swift package cache
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
@@ -2707,7 +2719,7 @@ jobs:
           fi
 
       - name: Save Xcode compilation cache
-        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track != 'nightly-next' && steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.compilation-cache-bound.outputs.save == 'true'
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track != 'nightly-next' || (steps.compilation-cache-key.outputs.clean == 'true' && steps.compilation-cache-restore.outputs.cache-matched-key == '' && steps.swift-packages-restore.outputs.cache-matched-key == '')) && steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.compilation-cache-bound.outputs.save == 'true'
         uses: ./.github/actions/cache-save
         env:
           # Only an R2 save sees the bucket credentials.
@@ -2716,12 +2728,12 @@ jobs:
           CI_CACHE_R2_ENDPOINT: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
           CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
+          backend: ${{ needs.decide.outputs.track == 'nightly-next' && 'github' || (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') }}
           path: build-universal/CompilationCache.noindex
-          key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          key: ${{ needs.decide.outputs.track == 'nightly-next' && steps.compilation-cache-key.outputs.prefix || format('xcode-compilation-release-{0}-{1}-{2}-', runner.os, runner.arch, steps.compilation-cache-key.outputs.toolchain) }}${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
 
       - name: Save Swift packages
-        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track != 'nightly-next' && steps.swift-packages-restore.outputs.cache-hit != 'true'
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track != 'nightly-next' || (steps.compilation-cache-key.outputs.clean == 'true' && steps.nightly-product.outputs.hit != 'true' && steps.swift-packages-restore.outputs.cache-matched-key == '' && steps.compilation-cache-restore.outputs.cache-matched-key == '')) && steps.swift-packages-restore.outputs.cache-hit != 'true'
         uses: ./.github/actions/cache-save
         env:
           # Only an R2 save sees the bucket credentials.
@@ -2730,9 +2742,9 @@ jobs:
           CI_CACHE_R2_ENDPOINT: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
           CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
+          backend: ${{ needs.decide.outputs.track == 'nightly-next' && 'github' || (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') }}
           path: .spm-cache
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
+          key: ${{ needs.decide.outputs.track == 'nightly-next' && steps.compilation-cache-key.outputs.spm_key || format('spm-{0}', hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout')) }}
 
       # The fast arm64 build bundles the client it just compiled. Full builds
       # take the published client in build-sign-notarize-nightly instead: the

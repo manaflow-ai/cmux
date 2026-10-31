@@ -66,7 +66,8 @@ if ! awk '
   job && /^      - name: Restore Xcode compilation cache/ { in_cache=1; next }
   in_cache && /^      - name:/ { in_cache=0 }
   in_cache && /path: build-universal\/CompilationCache\.noindex/ { saw_path[job]=1 }
-  in_cache && /key: xcode-compilation-release-/ { saw_key[job]=1 }
+  # The app selects the isolated NEXT prefix or formats this classic prefix.
+  in_cache && /key:/ && /xcode-compilation-release-/ { saw_key[job]=1 }
   in_cache && /steps\.compilation-cache-key\.outputs\.toolchain/ { saw_toolchain[job]=1 }
   # The warmer keys by the tip it builds; the app build by the resolved build_sha it builds.
   job == "refresh" && in_cache && /needs\.decide\.outputs\.head_sha/ { saw_head_sha[job]=1 }
@@ -674,9 +675,10 @@ fi
 # Renaming it on either side, or on a key but not its restore-keys, silently
 # turns every PR release build or every nightly restore cold.
 XCODE_CACHE_PREFIX='xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-'
+XCODE_CACHE_FORMAT="format('xcode-compilation-release-{0}-{1}-{2}-', runner.os, runner.arch, steps.compilation-cache-key.outputs.toolchain)"
 for cache_workflow in "$WORKFLOW_FILE" "$CI_WORKFLOW_FILE"; do
   if ! grep -qF -- "$XCODE_CACHE_PREFIX" "$cache_workflow" \
-    || grep -F 'xcode-compilation-release-' "$cache_workflow" | grep -vqF -- "$XCODE_CACHE_PREFIX"; then
+    || grep -F 'xcode-compilation-release-' "$cache_workflow" | grep -vF -- "$XCODE_CACHE_PREFIX" | grep -vqF -- "$XCODE_CACHE_FORMAT"; then
     echo "FAIL: nightly and PR release builds must share one Xcode compilation cache key prefix"
     exit 1
   fi
