@@ -13,7 +13,8 @@ import CmuxNextSettings
 ///
 /// Params: `window` (id; default the first window); a point as `x`,`y`
 /// (window-local points from the top-left, as the journal records them) or
-/// `pane` (the center of that pane's content) or `row` (a sidebar workspace row, `DebugMouse+Rows`); `action`: `click` (default),
+/// `pane` (the center of that pane's content) or `row` (a sidebar workspace row, `DebugMouse+Rows`) or `divider` (a pane
+/// divider's center, `DebugMouse+Rows`); `action`: `click` (default),
 /// `double_click`, `down`, `up`, `drag` (to `to_x`,`to_y`
 /// or `to_edge` of the shown workspace, in `steps`), `move` (pointer motion with no button, for hover: tab and workspace
 /// hover cards), `hover` (tracking-area owners get entered, moved and
@@ -171,6 +172,7 @@ enum DebugMouse {
     private static func point(_ params: [String: JSONValue], controller: WindowController, window: NSWindow) -> NSPoint? {
         if let x = params["x"]?.doubleValue, let y = params["y"]?.doubleValue { return NSPoint(x: x, y: y) }
         if let row = params["row"]?.stringValue { return rowPoint(row, controller: controller, window: window) }
+        if let divider = params["divider"]?.stringValue { return dividerPoint(divider, controller: controller, window: window) }
         guard let key = params["pane"]?.stringValue, let pane = controller.content?.paneController(key: key) else { return nil }
         let view: NSView = pane.view.content ?? pane.view
         let center = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)

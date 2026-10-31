@@ -147,6 +147,10 @@ fn main() -> std::process::ExitCode {
         if a == "--stop-host" {
             *a = "--stop-host=1".to_owned();
         }
+        // `memory import-from detect --exports`: a boolean too.
+        if a == "--exports" {
+            *a = "--exports=1".to_owned();
+        }
     }
     let mut flags = Flags::parse(&args);
     // `memory search --json` (and only there: `trace` and `stats` read their
@@ -178,8 +182,8 @@ fn main() -> std::process::ExitCode {
         }
         Some(
             tool @ ("zoom" | "date" | "spawn" | "tell" | "peers" | "react" | "reply" | "send"
-            | "stop" | "sleep" | "remember" | "transcript" | "control" | "profile"
-            | "chiefs" | "escalate-auth" | "escalate_auth" | "cloud-workspace"
+            | "stop" | "sleep" | "watch" | "remember" | "transcript" | "control"
+            | "profile" | "chiefs" | "escalate-auth" | "escalate_auth" | "cloud-workspace"
             | "cloud_workspace"),
         ) => {
             let socket = flags

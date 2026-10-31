@@ -7,6 +7,7 @@ import { useContext, useMemo, useState, type ReactNode } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { copyText } from "./clipboard";
 import { MessageCard } from "./MessageCard";
+import { MessageGroupRow } from "./MessageGroupRow";
 import { DispatchCard } from "./DispatchCard";
 import { McpCallRows } from "./McpCallRows";
 import { SubsessionCallCard } from "./SubsessionCallCard";
@@ -16,9 +17,11 @@ import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
 import { ToolRun } from "./ToolRun";
 import { ThoughtRow } from "./ThoughtRow";
-import { awaitsPermission, toolGroups, type ToolGroup } from "./toolGroups";
+import { awaitsPermission, groupId, messageGroupKey, toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun } from "./toolRunSummary";
+import type { RetryNote } from "../subagents/retryState";
 import { TurnActionsContext } from "./turnActions";
+import { errorRecovery, type ErrorRecovery } from "./errorRecovery";
 import { footerLabel, isEmptyFooter, workedLabel } from "./turns";
 import { hasTokens, TimedLabel, TurnTokens } from "./TurnTokens";
 import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
@@ -109,11 +112,11 @@ function groupNode(
     case "group":
       return (
         <ToolGroupRow
-          key={group.items[0]!.tool!.id || index}
+          key={groupId(group.items) || index}
           kind={group.kind}
           items={group.items}
           folded={folded}
-          disclosureKey={`group:${group.kind}:${group.items[0]!.tool!.id || `${rowId}:${index}`}`}
+          disclosureKey={`group:${group.kind}:${groupId(group.items) || `${rowId}:${index}`}`}
           thoughtId={(n) => `${rowId}:thought:${thoughts + n}`}
         />
       );
@@ -133,6 +136,16 @@ function groupNode(
           message={group.message}
           messageAt={group.item.tool!.startedAt ?? rowAt}
         />
+      );
+    case "messages":
+      return (
+        <MessageGroupRow
+          key={group.items[0]!.tool!.id || index}
+          members={group.members}
+          disclosureKey={messageGroupKey(group.items, rowId, index)}
+        >
+          {group.members.map((member, at) => groupNode(member, at, rowId, rowAt, false))}
+        </MessageGroupRow>
       );
     case "dispatch":
       return <DispatchCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;
@@ -231,6 +244,7 @@ export function thoughtIds(groups: readonly ToolGroup[]): number[] {
 function staysInSight(group: ToolGroup): boolean {
   if (
     group.type === "message" ||
+    group.type === "messages" ||
     group.type === "send" ||
     group.type === "subsession" ||
     group.type === "subsessionGroup" ||
@@ -297,6 +311,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     forkSeq,
     forkAny,
     retry,
+    retryFailed,
     retryWith,
     reauthenticate,
     transferCloudCredentials,
@@ -320,6 +335,39 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // prompt row takes the button away first). A chat without the action (View Only, disconnected)
   // draws no Continue, so its footer is empty or not as it would be without one.
   const [resuming, setResuming] = useState(false);
+  // A failed turn's Retry (card and footer) asks acpmux's turn retry where the chat has one
+  // (turnRetry.ts): one at a time, and a refusal leaves its note on the card.
+  const [retrying, setRetrying] = useState(false);
+  const [retryNote, setRetryNote] = useState<RetryNote>();
+  // acpmux's retry needs no prompt: an attempt it sent (a hidden prompt row) that failed again
+  // still offers Retry. Without it, Retry sends the turn's prompt again, so it needs one.
+  const failedRetry = !failed
+    ? undefined
+    : retryFailed && row.retryable
+      ? () => {
+          setRetrying(true);
+          setRetryNote(undefined);
+          void retryFailed(row.retryRowId, prompt)
+            .then(setRetryNote, () => setRetryNote("retry.failed"))
+            .finally(() => setRetrying(false));
+        }
+      : retry && prompt && row.retryRowId
+        ? () => retry(row.retryRowId!, prompt)
+        : undefined;
+  // The card's lead (errorRecovery.ts): Continue when the turn had done work, Retry when nothing
+  // ran; it shares the footer Retry's one-at-a-time state and refusal note.
+  const recovery = failed ? errorRecovery(row, route, { resume, retry, retryFailed }) : undefined;
+  const goOn =
+    recovery &&
+    (() => {
+      if (retrying) return;
+      setRetrying(true);
+      setRetryNote(undefined);
+      void recovery
+        .run()
+        .then(setRetryNote, () => setRetryNote("retry.failed"))
+        .finally(() => setRetrying(false));
+    });
   // A failure reads as the turn's answer does: its own block above the footer row, never squeezed
   // into it (Codex, Claude desktop). The row is one quiet line under the answer's left edge; it
   // shows on hover or keyboard focus, and always for a failed turn (VirtualTranscript marks the
@@ -333,7 +381,11 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           route={route}
           switchModel={switchModel}
           compact={compact}
-          retry={retry && prompt && row.retryRowId ? () => retry(row.retryRowId!, prompt) : undefined}
+          retry={failedRetry}
+          goOn={goOn}
+          goOnLabel={recovery?.label}
+          retrying={retrying}
+          retryNote={retryNote}
         />
       )}
       <div
@@ -377,13 +429,14 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           )}
           <span className="cv-turn-action-group">
             {text && <MessageCopy text={text} />}
-            {failed && retry && prompt && (
+            {failedRetry && (
               <button
                 type="button"
                 className="cv-iconbtn cv-iconbtn--compact"
                 aria-label={t("turn.retry")}
                 title={t("turn.retryLabel")}
-                onClick={() => retry(row.retryRowId ?? "", prompt)}
+                disabled={retrying}
+                onClick={failedRetry}
               >
                 <Retry size={ROW_ICON} />
               </button>
@@ -440,17 +493,31 @@ function TurnFailure({
   switchModel,
   compact,
   retry,
+  goOn,
+  goOnLabel,
+  retrying = false,
+  retryNote,
 }: {
   message: string | undefined;
   code?: string;
   route?: FailureRoute;
   switchModel?: () => void;
   compact?: () => Promise<void>;
+  /// Sends the prompt again; CodeRouter's move runs it once the chat is on the new route.
   retry?: () => void;
+  /// The way on (errorRecovery.ts): Continue or Retry, the card's lead and its Return.
+  goOn?: () => void;
+  /// What the lead says: Continue when the turn had done work, Retry when nothing ran.
+  goOnLabel?: ErrorRecovery["label"];
+  /// A Continue or Retry is in flight: its button waits.
+  retrying?: boolean;
+  /// Why acpmux refused the last Continue or Retry (turnRetry.ts), shown beside the actions.
+  retryNote?: RetryNote;
 }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const { access } = useContext(TurnActionsContext);
   // One click sends one /compact: the button stays disabled until that send settles.
   const [compacting, setCompacting] = useState(false);
   const kind = failureKind(message, route, code);
@@ -460,9 +527,28 @@ function TurnFailure({
   // A sign-in failure offers it too: the picker moves the chat to a route that is signed in (cx-gz0dz).
   const offersSwitch =
     switchModel &&
-    ["rate-limited", "unreachable", "invalid-key", "proxy-auth", "subscription-login", "auth"].includes(kind);
-  // Retry is the way out, or the second one after Switch model; never for a sign-in or trust failure.
-  const offersRetry = recovery !== undefined && retry !== undefined;
+    [
+      "rate-limited",
+      "unreachable",
+      "invalid-key",
+      "proxy-auth",
+      "subscription-login",
+      "auth",
+      "needs-credits",
+    ].includes(kind);
+  // The cmux model router refused the turn: no paid plan and no credits, or credits that do not cover
+  // the call (accessOffer.ts; Leo 2026-10-26: "we offer them to add credits or add their own api key").
+  // A paid plan lifts both, so Add Credits… leads as the card's one filled button.
+  const accessOffer = kind === "needs-credits" ? access : undefined;
+  const accessLeads = accessOffer !== undefined;
+  const accessButtons = accessOffer && (
+    <button type="button" className="cv-turn-auth-action cv-turn-error__primary" onClick={accessOffer.addCredits}>
+      {t("access.addCredits")}
+    </button>
+  );
+  // Continue or Retry is the way out, or the second one after Switch model for a key or proxy
+  // failure; never for a sign-in or trust failure (errorRecovery.ts).
+  const offersRetry = goOn !== undefined;
   // A chat that outgrew its context window fails the same way on Retry until it is compacted, so
   // Compact leads and Retry follows it; a harness without /compact keeps Retry alone.
   const compactFirst = recovery === "compact" && compact !== undefined;
@@ -479,7 +565,7 @@ function TurnFailure({
   const switchButton = offersSwitch && (
     <button
       type="button"
-      className={`cv-turn-auth-action${switchFirst && !offerLeads ? " cv-turn-error__primary" : ""}`}
+      className={`cv-turn-auth-action${switchFirst && !offerLeads && !accessLeads ? " cv-turn-error__primary" : ""}`}
       onClick={switchModel}
     >
       {t("turn.failure.switchModel")}
@@ -503,6 +589,7 @@ function TurnFailure({
         </span>
       </span>
       <span className="cv-turn-error__actions">
+        {accessButtons}
         {offerLeads && (
           <CodeRouterAction choice={codeRouter} retry={retry} className="cv-turn-auth-action cv-turn-error__primary" />
         )}
@@ -523,10 +610,13 @@ function TurnFailure({
         {offersRetry && (
           <button
             type="button"
-            className={`cv-turn-auth-action${switchFirst || offerLeads || compactFirst ? "" : " cv-turn-error__primary"}`}
-            onClick={retry}
+            className={`cv-turn-auth-action${switchFirst || offerLeads || accessLeads || compactFirst ? "" : " cv-turn-error__primary"}`}
+            // The card's first stop in the tab order, so Return on the focused card goes on.
+            aria-keyshortcuts="Enter"
+            disabled={retrying}
+            onClick={goOn}
           >
-            {t("turn.retry")}
+            {goOnLabel === "continue" ? t("turn.continue") : t("turn.retry")}
           </button>
         )}
         {!switchFirst && switchButton}
@@ -537,6 +627,7 @@ function TurnFailure({
             className={`cv-turn-auth-action${offerFilled ? " cv-turn-error__primary" : ""}`}
           />
         )}
+        {retryNote && <output className="cv-turn-error__note text-detail text-dim">{t(retryNote)}</output>}
         {message && (
           <details className="cv-turn-error__details" onToggle={(event) => setDetailsOpen(event.currentTarget.open)}>
             {/* The chat's chevron, as on Worked for, not the browser's triangle. */}

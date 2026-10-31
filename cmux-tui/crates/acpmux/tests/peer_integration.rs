@@ -2951,17 +2951,23 @@ async fn auto_placement_takes_a_running_name_only_with_reuse_here_or_on_a_peer()
     tokio::spawn(acpmux::server::serve_unix(a.clone(), l));
     let cli = acpmux::client::Client::connect(&sock).await.unwrap();
 
-    let here = resolve(&cli, "agent", Some("near"), false).await.unwrap_err().to_string();
+    let here =
+        resolve(&cli, "agent", Some("near"), false, false, false).await.unwrap_err().to_string();
     assert!(here.contains("already runs on this machine") && here.contains("--reuse"), "{here}");
-    assert_eq!(resolve(&cli, "agent", Some("near"), true).await.unwrap(), None);
-    let there = resolve(&cli, "agent", Some("far"), false).await.unwrap_err().to_string();
+    assert_eq!(resolve(&cli, "agent", Some("near"), true, false, false).await.unwrap(), None);
+    let there =
+        resolve(&cli, "agent", Some("far"), false, false, false).await.unwrap_err().to_string();
     assert!(there.contains("already runs on b"), "{there}");
-    assert_eq!(resolve(&cli, "agent", Some("far"), true).await.unwrap().as_deref(), Some("b"));
+    assert_eq!(
+        resolve(&cli, "agent", Some("far"), true, false, false).await.unwrap().as_deref(),
+        Some("b")
+    );
     // On two machines: not guessed at, even with --reuse.
-    let two = resolve(&cli, "agent", Some("both"), true).await.unwrap_err().to_string();
+    let two =
+        resolve(&cli, "agent", Some("both"), true, false, false).await.unwrap_err().to_string();
     assert!(two.contains("this machine, b") && two.contains("--host"), "{two}");
     // A new name goes to the pick (which a busy test machine may refuse).
-    if let Err(e) = resolve(&cli, "agent", Some("fresh"), false).await {
+    if let Err(e) = resolve(&cli, "agent", Some("fresh"), false, false, false).await {
         let e = e.to_string();
         assert!(!e.contains("runs on") && !e.contains("--reuse"), "{e}");
     }

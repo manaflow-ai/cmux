@@ -21,12 +21,18 @@ public struct HoverCardBody {
     /// An interactive body receives mouse events inside the card and may consume
     /// keyboard navigation before the coordinator dismisses the card.
     public var interactive: Bool
+    /// The card's corner radius; nil is the floating panels' (`HoverCardPanel.cornerRadius`). A card
+    /// that hangs from its target with no gap takes the target's shape (a tab's card, the tab's
+    /// `Metrics.tabCornerRadius`).
+    public var cornerRadius: CGFloat?
     public init(view: NSView, placement: HoverCardPlacement, themeAnchor: NSView?, interactive: Bool = false,
+                cornerRadius: CGFloat? = nil,
                 applyTheme: @escaping () -> Void) {
         self.view = view
         self.placement = placement
         self.themeAnchor = themeAnchor
         self.interactive = interactive
+        self.cornerRadius = cornerRadius
         self.applyTheme = applyTheme
     }
 }

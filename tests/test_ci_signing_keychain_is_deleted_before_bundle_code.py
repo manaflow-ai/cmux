@@ -90,6 +90,9 @@ BUNDLE_CODE = [
     re.compile(r"test_bundled_ghostty_theme_picker_helper\.sh"),
     re.compile(r"verify_remote_daemon_release\.py(?=.*--verify-cli)"),
     re.compile(r"verify-diff-sidecar-artifact\.sh(?!.*--static-only)"),
+    # The cmux NEXT fresh-home launch smoke (nightly.yml's pre-publish gate and its harness).
+    re.compile(r"launch-smoke-gate\.sh"),
+    re.compile(r"fresh_home_launch_smoke\.py"),
 ]
 # Run blocks moved out of a workflow into their own script (inline_step_scripts).
 STEP_SCRIPT = re.compile(r"scripts/ci/nightly-steps/[A-Za-z0-9_.-]+\.sh")

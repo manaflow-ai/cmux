@@ -8,6 +8,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { HarnessesScreen } from "../src/agent-session/acpmux/harnesses/HarnessesScreen";
+import { INSTALL_COMMANDS } from "../src/agent-session/acpmux/harnesses/harnessRows";
 import { buildPickerCatalog, BUNDLED_MODEL_CATALOG } from "../src/agent-session/acpmux/modelCatalogData";
 import { NewTabScreen } from "../src/agent-session/acpmux/newtab/NewTabScreen";
 import type { HarnessHealth } from "../src/agent-session/acpmux/HarnessHealthNotice";
@@ -69,6 +70,7 @@ type Page = {
   update?: HarnessHealth["update"];
   checking?: boolean;
   refreshed?: string[];
+  openTerminal?(): Promise<unknown>;
 };
 
 async function renderPage(calls: Call[] = [], closed: string[] = [], page: Page = {}) {
@@ -77,6 +79,7 @@ async function renderPage(calls: Call[] = [], closed: string[] = [], page: Page 
   let reads = 0;
   const native = (method: string, params: Record<string, unknown> = {}) => {
     calls.push({ method, params });
+    if (method === "tab.open" && params.kind === "terminal" && page.openTerminal) return page.openTerminal();
     if (method === "harness.health")
       return Promise.resolve({
         health: {
@@ -175,6 +178,52 @@ test("Sign In runs the CLI's login in a terminal tab in the chat's folder", asyn
   ]);
 });
 
+test("a failed sign-in terminal launch shows its error and retries the same login", async () => {
+  const calls: Call[] = [];
+  let attempts = 0;
+  const container = await renderPage(calls, [], {
+    openTerminal: () => {
+      attempts += 1;
+      return attempts === 1 ? Promise.reject(new Error("Terminal could not open")) : Promise.resolve({});
+    },
+  });
+  const codex = row(container, "Codex")!;
+  await act(async () => codex.querySelector<HTMLButtonElement>("button")!.click());
+  expect(status(container, "Codex")).toBe("Failed: Terminal could not open");
+  expect(codex.querySelector(".acpmux-harness-spinner")).toBeNull();
+  expect(codex.querySelector("button")?.textContent).toBe("Sign In");
+  await act(async () => codex.querySelector<HTMLButtonElement>("button")!.click());
+  expect(attempts).toBe(2);
+  expect(codex.dataset.harnessStatus).toBe("waiting");
+  const logins = calls.filter((call) => call.method === "tab.open");
+  expect(logins[1]).toEqual(logins[0]);
+  expect(calls.some((call) => call.method === "chat.new" || call.method === "chat.send")).toBe(false);
+});
+
+test("a failed sign-in retries its saved login after health refresh marks the row ready", async () => {
+  const calls: Call[] = [];
+  let attempts = 0;
+  const auth: Record<string, HarnessHealth["auth"]> = { codex: "signedOut" };
+  const container = await renderPage(calls, [], {
+    auth,
+    openTerminal: () => {
+      attempts += 1;
+      return attempts === 1 ? Promise.reject(new Error("Terminal could not open")) : Promise.resolve({});
+    },
+  });
+  const codex = row(container, "Codex")!;
+  await act(async () => codex.querySelector<HTMLButtonElement>("button")!.click());
+  expect(status(container, "Codex")).toBe("Failed: Terminal could not open");
+  auth.codex = "signedIn";
+  // The page's own Event: jsdom refuses the runtime's global one.
+  await act(async () => window.dispatchEvent(new window.Event("focus")));
+  await until(() => codex.dataset.harnessStatus === "ready", "the refreshed ready row");
+  expect(codex.querySelector("button")?.textContent).toBe("Start Chat");
+  await act(async () => codex.querySelector<HTMLButtonElement>("button")!.click());
+  expect(attempts).toBe(1);
+  expect(calls.filter((call) => call.method === "chat.new")).toHaveLength(1);
+});
+
 test("Start Chat starts a chat on that harness in this tab", async () => {
   const calls: Call[] = [];
   const closed: string[] = [];
@@ -208,7 +257,7 @@ test("Install runs the install command in place, shows its progress, then checks
   // In place: no terminal or browser tab, and the row says it is installing.
   expect(calls.filter((call) => call.method === "tab.open")).toEqual([]);
   expect(calls.find((call) => call.method === "shell.run")?.params).toEqual({
-    command: "npm install -g opencode-ai",
+    command: INSTALL_COMMANDS.opencode,
     cwd: "/Users/you/src/cmux",
   });
   await until(() => status(container, "OpenCode") === "added 1 package in 3s", "the second output line");

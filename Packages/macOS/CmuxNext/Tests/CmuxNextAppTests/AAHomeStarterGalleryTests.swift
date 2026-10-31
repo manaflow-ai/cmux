@@ -34,7 +34,7 @@ import Testing
                                       fill: Palette.elevatedBackground, hover: Palette.hoverFill, border: Palette.separator,
                                       attention: Palette.attention, danger: Palette.danger, done: Palette.highlight)
                 }
-                panel.hero.setAvatar(picture: nil, text: "🫡")
+                panel.hero.setAvatar(picture: nil, text: nil, name: "Chief")
                 panel.setShortcuts(terminal: "⌘T", agent: "⇧⌘N", switching: nil)
                 if let look {
                     panel.starters.look = look
