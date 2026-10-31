@@ -19,6 +19,7 @@ import { acpmuxKeyedStartOn, acpmuxPersonHoldsOn, type AcpmuxHost, type AcpmuxRe
 import type { MachineExecReply } from "./automation-machine.ts"
 import { ClientIdentityStore, mintClientSessionOn, sweepClientIdentities, type ClientSessionReply } from "./cloud-client-session.ts"
 import { teamPlan } from "./domains/cloud-plan.ts"
+import { DriverError } from "./providers/contract.ts"
 
 /** How often connect_info and link_token may read a machine's real state from the provider. */
 const STATE_CHECK_EVERY_MS = 30_000
@@ -266,7 +267,14 @@ export class CloudDO extends CloudIdle {
     if (row.status !== "running") return { ok: false, refusal: "not_running" }
     const driver = await Promise.resolve().then(() => this.driverFor(row)).catch(() => null)
     if (!driver) return { ok: false, refusal: "provider_failed" }
-    const r = await driver.execStdin(row.provider_name, { team: entity, machine: row.id }, command, stdin, timeoutMs).catch(() => null)
+    // An answer too large to read is final: the same command answers the same way, so never "retry".
+    const r = await driver.execStdin(row.provider_name, { team: entity, machine: row.id }, command, stdin, timeoutMs).catch((error: unknown) =>
+      error instanceof DriverError && error.code === "cloud.exec.output_limit" ? ("output_limit" as const) : null
+    )
+    if (r === "output_limit") {
+      this.audit.record({ action: audit.action, machine, who: audit.who, at: Date.now(), outcome: "output_limit" })
+      return { ok: false, refusal: "output_limit" }
+    }
     // Never the command or its stdin (a credential or a file's content may be on it).
     this.audit.record({ action: audit.action, machine, who: audit.who, at: Date.now(), outcome: r ? `exit ${r.exitCode}` : "provider_failed" })
     return r ? { ok: true, exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr } : { ok: false, refusal: "provider_failed" }
@@ -381,7 +389,10 @@ export class CloudDO extends CloudIdle {
       tombstoned: (machine) => rows()?.get(TABLE_TOMBSTONE, machine) !== undefined,
       exec: async (row, command, stdin, timeoutMs) => {
         const driver = await Promise.resolve().then(() => this.driverFor(row)).catch(() => null)
-        return driver ? driver.execStdin(row.provider_name, { team: entity, machine: row.id }, command, stdin, timeoutMs).catch(() => null) : null
+        return driver ? driver.execStdin(row.provider_name, { team: entity, machine: row.id }, command, stdin, timeoutMs).catch((error: unknown) => {
+          if (error instanceof DriverError && error.code === "cloud.exec.output_limit") throw error
+          return null
+        }) : null
       },
       audit: (e) => this.audit.record(e)
     }, user, call)
