@@ -24,11 +24,12 @@ the window and the newest pending one replaces older pending ones, which never s
 (one sleep, never a polling loop), reads the tip, and dispatches.
 
 Once the tip has a base tier run, an older base tier run none of whose Mac jobs (MAC_JOBS) has started
-is superseded and the kick cancels it: the tip's run covers every landing it would have, and
+and created before the newest base tier run is superseded and the kick cancels it (first attempts
+only): the tip's run covers every landing it would have, and
 base_red_excuse.py reads the newest base verdict, not a given commit's. With the Mac pools saturated
 (2026-10-31) base tier runs waited up to two hours and 682 of their 826 Mac minutes in a day started
-after a newer base tier run had been dispatched. A run whose Mac job started is never cancelled, nor is
-anything that is not a base tier run (a nightly, DEV or promote build above all).
+after a newer base tier run had been dispatched. A run whose Mac job had started when read is never
+cancelled, nor is anything that is not a base tier run (a nightly, DEV or promote build above all).
 Needs GH_TOKEN with actions: write and contents: read.
 """
 
@@ -173,17 +174,31 @@ def mac_job_started(api: Api, repo: str, run_id: int) -> bool:
 
 
 def cancel_superseded(api: Api, repo: str, newest: str, log: Callable[[str], None] = print) -> list[int]:
-    """Cancel the open base tier runs of commits other than NEWEST (the tip, which has a base tier run)
-    whose Mac jobs have not started; returns their ids. NEWEST's own runs, finished runs, runs whose Mac
-    job started and every other workflow's or title's runs are left alone."""
+    """Cancel the open base tier runs that a newer base tier run supersedes and whose Mac jobs have not
+    started; returns their ids. A run is superseded only when it was created before the newest listed
+    base tier run and names another commit than that run and than NEWEST (the tip read before the
+    dispatch): a run the dispatch titled with a commit that landed after that read is the newest listed,
+    so it is kept. First attempts only (a re-run may have finished its Mac jobs in an earlier attempt).
+    Finished runs, runs whose Mac job started and every other workflow's or title's runs are left alone.
+    Each run's jobs are read just before its cancel; a Mac job that starts in the instant between that
+    read and the cancel loses seconds of superseded work, never a verdict anything waits on."""
     listed = api.get(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={BRANCH}"
                      f"&event=workflow_dispatch&per_page=100")
-    cancelled: list[int] = []
+    tier_runs = []
     for run in listed.get("workflow_runs") or []:
         title = run.get("display_title") or run.get("name") or ""
         sha = title[len(TITLE):].strip() if title.startswith(TITLE) else ""
+        if SHA.match(sha) and run.get("created_at"):
+            tier_runs.append((stamp(run["created_at"]), sha, run))
+    if not tier_runs:
+        return []
+    latest_at, latest_sha, _ = max(tier_runs, key=lambda item: item[0])
+    keep = {newest, latest_sha}
+    cancelled: list[int] = []
+    for at, sha, run in tier_runs:
         run_id = run.get("id")
-        if not SHA.match(sha) or sha == newest or not isinstance(run_id, int) or run.get("status") not in OPEN:
+        if (sha in keep or at >= latest_at or not isinstance(run_id, int) or run.get("status") not in OPEN
+                or run.get("run_attempt", 1) != 1):
             continue
         if mac_job_started(api, repo, run_id):
             log(f"base tier run {run_id} ({sha[:12]}) has a Mac job running or done; left alone")
@@ -191,7 +206,7 @@ def cancel_superseded(api: Api, repo: str, newest: str, log: Callable[[str], Non
         status = api.post(f"repos/{repo}/actions/runs/{run_id}/cancel", {})
         if status in (202, 204):
             cancelled.append(run_id)
-            log(f"cancelled base tier run {run_id} ({sha[:12]}): superseded by {newest[:12]}, no Mac job started")
+            log(f"cancelled base tier run {run_id} ({sha[:12]}): superseded by {latest_sha[:12]}, no Mac job started")
         else:
             log(f"could not cancel base tier run {run_id} ({sha[:12]}): HTTP {status}")
     return cancelled

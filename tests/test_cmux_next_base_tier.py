@@ -49,6 +49,7 @@ class FakeApi:
         self.dispatch_status = dispatch_status
         self.dispatched: list[tuple[str, dict]] = []
         self.cancelled: list[int] = []
+        self.landed: str | None = None  # a commit that lands between the tip read and the dispatch
         self.jobs: dict[int, list[dict]] = {}
         self.gets: list[str] = []
 
@@ -82,6 +83,10 @@ class FakeApi:
             self.cancelled.append(int(match.group(1)))
             return 202
         self.dispatched.append((path, body))
+        if self.dispatch_status == 204:
+            # The run the dispatch starts, titled with the branch tip when GitHub took it.
+            self.runs.insert(0, {"id": 99, "status": "queued", "display_title": f"{tier.TITLE}{self.landed or self.tip}",
+                                 "created_at": stamp(T0 + 10**6)})
         return self.dispatch_status
 
 
@@ -121,6 +126,23 @@ class CancelSuperseded(unittest.TestCase):
         self.assertEqual(kick(api, clock), TIP)
         self.assertEqual(len(api.dispatched), 1)
         self.assertEqual(sorted(api.cancelled), [11, 12])
+
+    def test_a_run_titled_with_a_commit_that_landed_after_the_tip_read_is_kept(self):
+        # The dispatch takes the branch ref, so its run may name a newer commit than the tip read.
+        api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 + 20 * 60)
+        api.landed = "d" * 40
+        api.jobs[99] = QUEUED_MAC
+        api.open_run(11, OLD, T0, "queued", QUEUED_MAC)
+        self.assertEqual(kick(api, clock), TIP)
+        self.assertEqual(api.cancelled, [11])
+
+    def test_a_re_run_is_left_alone(self):
+        # An earlier attempt may have run its Mac jobs; the latest attempt's list would not show them.
+        api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 + 20 * 60)
+        api.open_run(11, OLD, T0, "queued", QUEUED_MAC)
+        api.runs[0]["run_attempt"] = 2
+        kick(api, clock)
+        self.assertEqual(api.cancelled, [])
 
     def test_a_tip_that_already_has_a_run_still_cancels_the_older_waiting_ones(self):
         # A hand dispatch on the tip leaves the older waiting runs to the next kick.
