@@ -131,7 +131,7 @@ extension ActionRegistry {
                 guard let descriptor = descriptor(for: id), isAvailable(descriptor.id, in: context),
                       let item = makeChoicesItem(for: descriptor, target: target, in: context)
                 else { continue }
-                if let machineID { Self.scope(item, toMachine: machineID) }
+                if let machineID { scope(item, toMachine: machineID) }
                 item.image = Self.menuIcon(descriptor.symbol)
                 if let label = labels[id] { item.title = label.droppingEllipsis }
                 items.append(item)
@@ -144,9 +144,10 @@ extension ActionRegistry {
 
 extension ActionRegistry {
     /// Gives every run in `item` and its submenus the machine that owns their target.
-    static func scope(_ item: NSMenuItem, toMachine machineID: String) {
+    func scope(_ item: NSMenuItem, toMachine machineID: String) {
         (item.representedObject as? ActionMenuPayload)?.targetMachineID = machineID
-        item.submenu?.items.forEach { scope($0, toMachine: machineID) }
+        if let submenu = item.submenu { choiceCoordinators.object(forKey: submenu)?.machineID = machineID }
+        item.submenu?.items.forEach { self.scope($0, toMachine: machineID) }
     }
 
     /// A right-click row's icon: its action's SF Symbol as a template, inked like the row's text.
