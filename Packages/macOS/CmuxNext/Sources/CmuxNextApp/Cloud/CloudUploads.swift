@@ -156,7 +156,7 @@ final class CloudUploads {
                 batchID = id
             } else { batchID = nil }
             if let batchID { batches[batchID]?.authorization.begin(name: name, size: size, stage: token) }
-            stages[token] = Stage(target: target, folder: folder, file: file, name: name, size: size, received: 0, expires: Date().addingTimeInterval(Self.stageLifetime), batchToken: batchID)
+            stages[token] = Stage(target: target, folder: folder, file: file, name: name, size: size, received: 0, expires: Date().addingTimeInterval(Self.stageLifetime), batchToken: batchID, cleanup: nil)
             armExpiry(work: services.work)
             var response: [String: Any] = ["token": token, "size": size, "chunkSize": Self.stageChunkBytes]
             if let batchID { response["batchToken"] = batchID }

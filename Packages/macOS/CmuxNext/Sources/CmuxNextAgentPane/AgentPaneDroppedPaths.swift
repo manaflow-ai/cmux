@@ -55,7 +55,7 @@ public final class AgentPaneDroppedPaths {
         held.removeValue(forKey: kind)?.expiry.cancel()
         let paths = urls.map { url in (url as NSURL).isFileReferenceURL() ? (url as NSURL).filePathURL ?? url : url }
         guard !paths.isEmpty, paths.count <= Self.maximumNames else { return }
-        var budget = AgentPaneUpload.maximumTotalBytes
+        var budget = AgentPaneRecordingSnapshot.maximumPinnedTotalBytes
         let items = paths.map { url -> Item in
             let needsSnapshot = AgentPaneRecordingSnapshot.needsSnapshot(url)
             var snapshot = needsSnapshot ? AgentPaneRecordingSnapshot.pin(url) : nil

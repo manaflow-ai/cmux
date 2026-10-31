@@ -2,12 +2,19 @@ import Darwin
 import Foundation
 
 /// Pins a recording from macOS's floating preview before the drop returns and the OS may unlink
-/// it. Only the descriptor is opened on the main actor; bytes are read off-main, within the
-/// existing local-upload limits, then saved by the app's existing Chat Uploads owner.
+/// it. Only the descriptor is opened on the main actor; bytes are read off-main, within
+/// ``maximumPinnedBytes``, then saved by the app's existing Chat Uploads owner.
 nonisolated struct AgentPaneRecordingSnapshot: Sendable {
     private let name: String
     let size: Int
     private let handle: FileHandle
+
+    /// A pinned recording's bytes are read into memory before the save (``upload()``), so one
+    /// recording, and all of one drop's, keep this in-memory budget (the 1 GiB the local upload
+    /// limits held before staged uploads took files of any size). A larger recording keeps no
+    /// snapshot and the drop never returns its temporary path.
+    static let maximumPinnedBytes = 1 * 1024 * 1024 * 1024
+    static let maximumPinnedTotalBytes = 1 * 1024 * 1024 * 1024
 
     /// Whether this is a movie in macOS's temporary floating-preview folder. Ordinary files keep
     /// their own paths. Comparing the two `/var` spellings needs no file-system work at drag time.
@@ -28,7 +35,7 @@ nonisolated struct AgentPaneRecordingSnapshot: Sendable {
         guard descriptor >= 0 else { return nil }
         var info = stat()
         guard fstat(descriptor, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG,
-              info.st_size > 0, info.st_size <= AgentPaneUpload.maximumFileBytes else {
+              info.st_size > 0, info.st_size <= Self.maximumPinnedBytes else {
             close(descriptor)
             return nil
         }

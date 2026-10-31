@@ -73,7 +73,7 @@ struct AgentPeerUploads {
                     batches[batchID]?.authorization.begin(name: name, size: size, stage: token)
                     armBatchExpiry(batchID)
                 }
-                stages[token] = Stage(target: target, file: file, name: name, size: size, received: 0, expires: Date().addingTimeInterval(10 * 60), batchToken: batchID, finish: nil)
+                stages[token] = Stage(target: target, file: file, name: name, size: size, received: 0, expires: Date().addingTimeInterval(10 * 60), batchToken: batchID, finish: nil, expiry: nil, cleanup: nil)
                 armStageExpiry(token, work: services.work)
                 var reply: [String: Any] = ["token": token, "size": size, "chunkSize": 512 * 1024]
                 if let batchID { reply["batchToken"] = batchID }

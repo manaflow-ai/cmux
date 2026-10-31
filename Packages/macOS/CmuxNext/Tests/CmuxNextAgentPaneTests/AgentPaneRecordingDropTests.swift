@@ -164,7 +164,7 @@ struct AgentPaneRecordingDropTests {
         }
         let rig = Rig(saved: saved)
         let handle = try FileHandle(forWritingTo: source)
-        try handle.truncate(atOffset: UInt64(AgentPaneUpload.maximumFileBytes + 1))
+        try handle.truncate(atOffset: UInt64(AgentPaneRecordingSnapshot.maximumPinnedBytes + 1))
         try handle.close()
         rig.model.droppedPaths.stash([source], kind: .drop)
         #expect(Self.paths(await rig.ask([source.lastPathComponent])).isEmpty)
