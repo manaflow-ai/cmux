@@ -44,6 +44,9 @@ Runs on a fleet mini through scripts/measure/chat-open.sh, never on an interacti
   chat-open-bench.py --app BUNDLE [--runs 3] [--turns 3000] [--sessions 1500]
                      [--conditions idle,load,load_utility,load_nice] [--cases sidebar,reopen,subagent,big,restore]
                      [--json FILE] [--md FILE]
+The table is also printed between CHAT-OPEN-TABLE-BEGIN and -END. A fleet step returns ONE file (`cmux-ci run
+--artifact` takes a single path; a second one replaces the first), so ask for artifacts/chat-open.json: it has
+every open's marks, frames, page timing and wire log, and the table can be rebuilt from it.
 Kills only the processes it started (the app it launched through bench_memory, the seeding daemon,
 and the load's own process groups).
 """
@@ -334,12 +337,24 @@ def traced(run, open_fn):
 def open_workspace(run, session):
     """Opens `session` in a new workspace and shows it, as a sidebar click does. The action makes the
     workspace and selects its tab but never switches to it (it is the Chief's background spawn), so
-    alone it left every open off screen: no agent pane was made and no trace bound."""
+    alone it left every open off screen: no agent pane was made and no trace bound.
+
+    It shows the workspace the open created, by its ref (`goToWorkspace`, as MCP's
+    agents_workspace_select does): `workspace.selectLast` reads the sidebar's order, which can lag
+    the open on a loaded host, and then showed the previous workspace. selectLast is only the
+    fallback when the open names no workspace or the switch is refused; `shown` says which ran."""
     opened = run.app.action("agent.openSessionWorkspace", focus=True, session=session)
     if opened.get("error"):
         return opened
-    shown = run.app.action("workspace.selectLast", focus=True)
-    return {**opened, "shown": shown} if shown.get("error") else opened
+    created = next((ref for ref in opened.get("created") or [] if str(ref).startswith("ws_")), None)
+    refused = None
+    if created:
+        reply = run.app.action("goToWorkspace", focus=True, workspace=created)
+        if not reply.get("error"):
+            return {**opened, "shown": {"via": "goToWorkspace", "reply": reply}}
+        refused = reply
+    reply = run.app.action("workspace.selectLast", focus=True)
+    return {**opened, "shown": {"via": "workspace.selectLast", "reply": reply, "refused": refused}}
 
 
 def settle_open(run, session):
@@ -364,7 +379,11 @@ def why(record):
             parts.append(f"{key}={str(record[key])[:200]}")
     if not record.get("first_content_ms"):
         reply = record.get("open_reply")
+        shown = reply.pop("shown", None) if isinstance(reply, dict) else None
         parts.append(f"open_reply={json.dumps(reply, default=str)[:200]}")
+        if shown:
+            parts.append(f"shown={json.dumps(shown, default=str)[:200]}")
+            reply["shown"] = shown
         # Frames are [ms, surface] pairs (flashes, first_of).
         surfaces = sorted({str(f[1]) for f in record.get("frames") or [] if isinstance(f, (list, tuple)) and len(f) > 1})
         # `order` lists the marks that ran; `marks_ms` names every mark, null for one that did not.
@@ -473,7 +492,8 @@ def main():
 def markdown(results):
     lines = [f"chat-open-bench on {results['host']} ({results['model']}, {results['ncpu']} CPUs); "
              f"median of {opts.runs} opens, milliseconds from the action to the first frame of chat content; "
-             f"FAILED: a case with an open that showed no content or no empty time (no median over the rest)",
+             f"a cell reads FAILED when an open of its case timed out, errored, or showed no content or no empty time "
+             f"(no median over the rest)",
              "", "| case | " + " | ".join(CONDITIONS) + " |", "|---|" + "---|" * len(CONDITIONS)]
     for case in CASES:
         cells = []

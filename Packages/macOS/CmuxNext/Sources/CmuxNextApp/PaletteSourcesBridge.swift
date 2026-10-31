@@ -76,8 +76,10 @@ enum PaletteSourcesBridge {
         func option(_ row: AgentChatDestinations.Destination) -> PaletteTargetOption {
             PaletteTargetOption(id: row.id, title: row.title, subtitle: row.state, symbol: row.symbol, isEnabled: row.isReady)
         }
+        // A slow acpmux never holds the picker: past the bound it shows "Other Macs not loaded yet",
+        // then the peers when acpmux lists them (AgentChatDestinations.updates).
         return RefreshingPaletteTargetSource(kind: .machine, actions: ["palette.newAgentChat", "palette.newAgentChatOn"],
-            initial: [option(destinations.local)], next: next, load: { await destinations.load().map(option) })
+            initial: [option(destinations.local)], next: next, updates: { destinations.updates() }, option: option)
     }
 
     /// The active window's focused objects when the palette opens: the
@@ -201,9 +203,9 @@ enum PaletteSourcesBridge {
 
 extension AgentChatDestinations {
     init(services: AppServices) {
-        let host = services.agentTabs.host
+        let (host, machines) = (services.agentTabs.host, services.agentTabs.cloudMachines)
         self.init(localTitle: WorkspaceVerbStrings.thisMac, peers: { try await host.chatPeers() }, cloud: {
-            await AgentPaneCloudMachines.shared.list?() ?? .init(signedIn: false, loaded: false, machines: [])
+            await machines.list?() ?? .init(signedIn: false, loaded: false, machines: [])
         })
     }
 }

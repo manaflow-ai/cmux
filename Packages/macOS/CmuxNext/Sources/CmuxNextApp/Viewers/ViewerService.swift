@@ -43,9 +43,10 @@ final class ViewerService {
     }
 
     /// Opens `file` through ``fileOpener`` (the markdown page, a previewing tab, or the editor).
-    /// `userChose` false for a page's or an agent's open. Returns why it did not open.
-    func openFile(_ file: URL, in pane: PaneController?, userChose: Bool) -> String? {
-        if let opener = fileOpener as? FilePageOpener { return opener.open(file, in: pane, userChose: userChose) }
+    /// `userChose` false for a page's or an agent's open. `asText` (Open as Text): HTML, SVG or
+    /// Markdown opens as its source in the code editor. Returns why it did not open.
+    func openFile(_ file: URL, in pane: PaneController?, userChose: Bool, asText: Bool = false) -> String? {
+        if let opener = fileOpener as? FilePageOpener { return opener.open(file, in: pane, userChose: userChose, asText: asText) }
         return fileOpener.open(file, in: pane)
     }
 
@@ -150,6 +151,6 @@ final class ViewerService {
     /// A refusal after the action returned (the picker answered later).
     func showRefusal(_ reason: String) {
         guard let services else { return }
-        services.refusalHUD.show(reason, in: services.windows.active?.window ?? NSApp.keyWindow)
+        services.refusalHUD.show(reason, in: services.windows.active?.window ?? services.keyWindowSource())
     }
 }

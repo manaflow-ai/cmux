@@ -159,7 +159,10 @@ final class LinkOpener {
         }
         return open(from: from, background: background) { [weak self, weak from] pane, placed in
             let here = pane === from && placed == nil
-            let opener = here ? from?.selectedTab?.surface : nil
+            // A pane-local tab keeps Chrome's opener relationship. When placement moves the new
+            // tab into another pane, the source pane must not claim it as a child; the placement
+            // callback owns focus and insertion for that destination.
+            let opener = here ? pane.selectedTab?.surface : nil
             let back = background || here ? nil : from
             var then = placed
             if back != nil {
