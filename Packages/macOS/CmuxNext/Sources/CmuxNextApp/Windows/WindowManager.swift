@@ -395,7 +395,7 @@ final class WindowManager {
         let controller = WindowController(state: state, services: services, frame: frame)
         controller.sidebar.restore(width: state.sidebarWidth, hidden: state.sidebarHidden)
         if registry.value.isIncognito(window.id) { controller.showIncognitoBadge() }
-        SidebarTabRowHandoff.install(on: controller, session: services.dragSession)
+        services.dragSession.installWorkspaceHandoff(on: controller)
         controllers.append(controller)
         // Its content goes in before it is ordered in (the launch snapshot's workspace, else the
         // connecting state), so its first frame on screen draws it, never the backdrop alone; the
@@ -496,15 +496,25 @@ final class WindowManager {
         userClosed(id)
     }
 
-    /// Flushes state and stops saving (quit).
+    /// Flushes state and stops saving (quit). The records go first: they
+    /// never hold an incognito window, and a slow daemon close of an
+    /// incognito workspace must not keep them past the quit step's limit.
     func prepareForTermination() async {
         loadObservation?.cancel()
         recordSaver.geometryTimer.cancel()
+        await recordSaver.flushSaves()
         await closeIncognitoWindowsForTermination()
         await recordSaver.flushSaves()
+        stopSavingForTermination()
+        // Chromium stops later, as the last quit step (QuitSteps).
+    }
+
+    /// Stops saving for the quit at once: also when ``prepareForTermination()``
+    /// passed its quit-step limit and still runs (`QuitSaveSteps`).
+    func stopSavingForTermination() {
+        recordSaver.geometryTimer.cancel()
         isTerminating = true
         membershipObservation?.cancel()
-        // Chromium stops later, as the last quit step (QuitCompletion).
     }
 
     /// Copies each open window's frame and display into the registry.

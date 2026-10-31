@@ -19540,6 +19540,138 @@
         }
       }
     },
+    "composer.cloudSignIn": {
+      "comment": "Agent pane: environment picker row that starts cmux Cloud sign-in when the account is signed out",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sign in for Cloud"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in for Cloud"
+          }
+        }
+      }
+    },
     "composer.cloud": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -38452,6 +38584,568 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "更多…"
+          }
+        }
+      }
+    },
+    "picker.legacyModels": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "النماذج القديمة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stariji modeli"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ældre modeller"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ältere Modelle"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legacy models"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelos anteriores"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modèles précédents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelli precedenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前のモデル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ូដែលចាស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이전 모델"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eldre modeller"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starsze modele"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelos anteriores"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прежние модели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โมเดลรุ่นก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eski modeller"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попередні моделі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mô hình cũ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "旧版模型"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "舊版模型"
+          }
+        }
+      }
+    },
+    "picker.modelCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} نماذج"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} نموذج"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} نموذجان"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} نماذج"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} نموذجًا"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} نموذج"
+                }
+              }
+            }
+          }
+        },
+        "bs": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} model"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modela"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modela"
+                }
+              }
+            }
+          }
+        },
+        "da": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} model"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modeller"
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} Modell"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} Modelle"
+                }
+              }
+            }
+          }
+        },
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} model"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} models"
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modelo"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modelos"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modelos"
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modèle"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modèles"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modèles"
+                }
+              }
+            }
+          }
+        },
+        "it": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modello"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modelli"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modelli"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} 個のモデル"
+                }
+              }
+            }
+          }
+        },
+        "km": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "ម៉ូដែល {n}"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "모델 {n}개"
+                }
+              }
+            }
+          }
+        },
+        "nb": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modell"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modeller"
+                }
+              }
+            }
+          }
+        },
+        "pl": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} model"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modele"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modeli"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modelu"
+                }
+              }
+            }
+          }
+        },
+        "pt-BR": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modelo"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modelos"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} modelos"
+                }
+              }
+            }
+          }
+        },
+        "ru": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} модель"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} модели"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} моделей"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} модели"
+                }
+              }
+            }
+          }
+        },
+        "th": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} โมเดล"
+                }
+              }
+            }
+          }
+        },
+        "tr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} model"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} model"
+                }
+              }
+            }
+          }
+        },
+        "uk": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} модель"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} моделі"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} моделей"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} моделі"
+                }
+              }
+            }
+          }
+        },
+        "vi": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} mô hình"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} 个模型"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{n} 個模型"
+                }
+              }
+            }
           }
         }
       }
@@ -206801,127 +207495,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "حفظ"
+            "value": "حفظ البيئة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sačuvaj"
+            "value": "Sačuvaj okruženje"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gem"
+            "value": "Gem miljø"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sichern"
+            "value": "Umgebung speichern"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Save"
+            "value": "Save environment"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Guardar"
+            "value": "Guardar entorno"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enregistrer"
+            "value": "Enregistrer l’environnement"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Salva"
+            "value": "Salva ambiente"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "保存"
+            "value": "環境を保存"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "រក្សាទុក"
+            "value": "រក្សាទុកបរិស្ថាន"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "저장"
+            "value": "환경 저장"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lagre"
+            "value": "Lagre miljø"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zapisz"
+            "value": "Zapisz środowisko"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Salvar"
+            "value": "Salvar ambiente"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Сохранить"
+            "value": "Сохранить окружение"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "บันทึก"
+            "value": "บันทึกสภาพแวดล้อม"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kaydet"
+            "value": "Ortamı kaydet"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Зберегти"
+            "value": "Зберегти середовище"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lưu"
+            "value": "Lưu môi trường"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "存储"
+            "value": "保存环境"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "儲存"
+            "value": "儲存環境"
           }
         }
       }
@@ -211414,6 +212108,9 @@
         }
       }
     },
+    "trust.continueWithoutFolderLabel": {"comment":"Folder trust: action to continue without a project","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Continue without folder"}},"ar":{"stringUnit":{"state":"translated","value":"المتابعة دون مجلد"}},"bs":{"stringUnit":{"state":"translated","value":"Nastavi bez foldera"}},"da":{"stringUnit":{"state":"translated","value":"Fortsæt uden mappe"}},"de":{"stringUnit":{"state":"translated","value":"Ohne Ordner fortfahren"}},"es":{"stringUnit":{"state":"translated","value":"Continuar sin carpeta"}},"fr":{"stringUnit":{"state":"translated","value":"Continuer sans dossier"}},"it":{"stringUnit":{"state":"translated","value":"Continua senza cartella"}},"ja":{"stringUnit":{"state":"translated","value":"フォルダなしで続行"}},"km":{"stringUnit":{"state":"translated","value":"បន្តដោយគ្មានថត"}},"ko":{"stringUnit":{"state":"translated","value":"폴더 없이 계속"}},"nb":{"stringUnit":{"state":"translated","value":"Fortsett uten mappe"}},"pl":{"stringUnit":{"state":"translated","value":"Kontynuuj bez folderu"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Continuar sem pasta"}},"ru":{"stringUnit":{"state":"translated","value":"Продолжить без папки"}},"th":{"stringUnit":{"state":"translated","value":"ดำเนินการต่อโดยไม่มีโฟลเดอร์"}},"tr":{"stringUnit":{"state":"translated","value":"Klasör olmadan devam et"}},"uk":{"stringUnit":{"state":"translated","value":"Продовжити без папки"}},"vi":{"stringUnit":{"state":"translated","value":"Tiếp tục không có thư mục"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"在没有文件夹的情况下继续"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"在沒有資料夾的情況下繼續"}}}},
+    "trust.continueWithoutFolder": {"comment":"Folder trust: continue after declining access","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Continue without folder context: project hooks and config won't load. Only draft text is copied. Attachments are not carried; they stay in the original chat."}},"ar":{"stringUnit":{"state":"translated","value":"المتابعة دون سياق المجلد: لن تُحمّل إعدادات المشروع وخطافاته. يُنسخ نص المسودة فقط. لا تُنقل المرفقات؛ وتبقى في المحادثة الأصلية."}},"bs":{"stringUnit":{"state":"translated","value":"Nastavi bez konteksta foldera: postavke i hookovi projekta se neće učitati. Kopira se samo tekst nacrta. Prilozi se ne prenose; ostaju u izvornom razgovoru."}},"da":{"stringUnit":{"state":"translated","value":"Fortsæt uden mappekontekst: projektets hooks og konfiguration indlæses ikke. Kun kladdeteksten kopieres. Vedhæftninger flyttes ikke; de bliver i den oprindelige chat."}},"de":{"stringUnit":{"state":"translated","value":"Ohne Ordnerkontext fortfahren: Projekt-Hooks und -Konfiguration werden nicht geladen. Nur der Entwurfstext wird kopiert. Anhänge werden nicht übertragen; sie bleiben im ursprünglichen Chat."}},"es":{"stringUnit":{"state":"translated","value":"Continuar sin contexto de carpeta: no se cargarán los hooks ni la configuración del proyecto. Solo se copia el texto del borrador. Los archivos adjuntos no se transfieren; permanecen en el chat original."}},"fr":{"stringUnit":{"state":"translated","value":"Continuer sans contexte de dossier : les hooks et la configuration du projet ne seront pas chargés. Seul le texte du brouillon est copié. Les pièces jointes ne sont pas transférées ; elles restent dans la conversation d’origine."}},"it":{"stringUnit":{"state":"translated","value":"Continua senza contesto della cartella: hook e configurazione del progetto non verranno caricati. Viene copiato solo il testo della bozza. Gli allegati non vengono trasferiti e restano nella chat originale."}},"ja":{"stringUnit":{"state":"translated","value":"フォルダのコンテキストなしで続行：プロジェクトのフックと設定は読み込まれません. 下書きのテキストのみコピーされます。添付ファイルは引き継がれず、元のチャットに残ります。"}},"km":{"stringUnit":{"state":"translated","value":"បន្តដោយគ្មានបរិបទថត៖ hooks និងការកំណត់គម្រោងនឹងមិនត្រូវបានផ្ទុកទេ. មានតែអត្ថបទព្រាងប៉ុណ្ណោះដែលត្រូវបានចម្លង។ ឯកសារភ្ជាប់មិនត្រូវបានផ្ទេរទេ ហើយនៅក្នុងការជជែកដើម។"}},"ko":{"stringUnit":{"state":"translated","value":"폴더 컨텍스트 없이 계속: 프로젝트 훅과 구성을 불러오지 않습니다. 초안 텍스트만 복사됩니다. 첨부 파일은 전달되지 않고 원래 채팅에 남습니다."}},"nb":{"stringUnit":{"state":"translated","value":"Fortsett uten mappekontekst: prosjektets hooks og konfigurasjon lastes ikke inn. Bare utkastteksten kopieres. Vedlegg overføres ikke; de blir i den opprinnelige chatten."}},"pl":{"stringUnit":{"state":"translated","value":"Kontynuuj bez kontekstu folderu: hooki i konfiguracja projektu nie zostaną załadowane. Kopiowany jest tylko tekst wersji roboczej. Załączniki nie są przenoszone; pozostają w pierwotnym czacie."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Continuar sem contexto da pasta: os hooks e a configuração do projeto não serão carregados. Apenas o texto do rascunho é copiado. Os anexos não são transferidos; permanecem no chat original."}},"ru":{"stringUnit":{"state":"translated","value":"Продолжить без контекста папки: хуки и конфигурация проекта не загрузятся. Копируется только текст черновика. Вложения не переносятся и остаются в исходном чате."}},"th":{"stringUnit":{"state":"translated","value":"ดำเนินการต่อโดยไม่มีบริบทโฟลเดอร์: จะไม่โหลด hooks และการตั้งค่าโปรเจกต์. คัดลอกเฉพาะข้อความร่าง ไฟล์แนบจะไม่ถูกย้ายและยังคงอยู่ในแชทเดิม"}},"tr":{"stringUnit":{"state":"translated","value":"Klasör bağlamı olmadan devam et: proje kancaları ve yapılandırması yüklenmeyecek. Yalnızca taslak metni kopyalanır. Ekler aktarılmaz; özgün sohbette kalır."}},"uk":{"stringUnit":{"state":"translated","value":"Продовжити без контексту папки: хуки та конфігурацію проєкту не буде завантажено. Копіюється лише текст чернетки. Вкладення не переносяться й залишаються у вихідному чаті."}},"vi":{"stringUnit":{"state":"translated","value":"Tiếp tục không có ngữ cảnh thư mục: hook và cấu hình dự án sẽ không được tải. Chỉ sao chép văn bản nháp. Tệp đính kèm không được chuyển và vẫn ở trong cuộc trò chuyện gốc."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"在没有文件夹上下文的情况下继续：不会加载项目钩子和配置. 仅复制草稿文本。附件不会转移，仍保留在原聊天中。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"在沒有資料夾內容的情況下繼續：不會載入專案掛鉤和設定. 僅複製草稿文字。附件不會轉移，仍保留在原聊天中。"}}}},
+
     "trust.notNow": {
       "comment": "Agent pane: the folder trust question above the composer (scope: repo or folder; what trusting allows; Not now)",
       "extractionState": "manual",
