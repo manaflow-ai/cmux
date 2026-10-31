@@ -286,30 +286,22 @@ final class LinkOpener {
     /// A file: the Markdown page, the code editor or the browser tab's preview (``FilePageOpener``).
     /// A tab that already shows the file is selected where it is. False when it did not open (the
     /// refusal shows). `position` (a Find result): the code editor opens with the cursor there.
+    /// `machine`: the file lives on that machine; nil or the local daemon opens this Mac’s file.
     @discardableResult
     /// `asText` (Open as Text, u9489): a page cmux renders (Markdown, HTML, SVG) opens as its source
     /// in the code editor, placed as any open is.
-    func openFile(_ file: URL, from source: PaneController?, markdown: Bool = false, asText: Bool = false,
+    func openFile(_ file: URL, on machine: DaemonService? = nil, from source: PaneController?, markdown: Bool = false, asText: Bool = false,
                   at position: FilePosition? = nil) -> Bool {
         open(from: source) { [weak self] pane, placed in
             // A tab that already shows the file is selected where it is and never reports to `placed`:
             // it says so, so its turn ends now (review of the #28044 carry at 1eb458cf).
             var inPlace: (@MainActor () -> Void)?
             if placed != nil { inPlace = { self?.openedInPlace() } }
+            if let machine, !machine.isLocal {
+                return pane.services.viewers.openFile(file, on: machine, in: pane, asText: asText, at: position, placed: placed,
+                                                      shownInPlace: inPlace)
+            }
             return pane.services.viewers.openFile(file, in: pane, markdown: markdown, asText: asText, at: position, placed: placed,
-                                                  shownInPlace: inPlace)
-        }
-    }
-
-    /// A file of `machine` (#25581, a Cloud workspace's path): its page, read from that machine,
-    /// placed as ``openFile(_:from:markdown:asText:at:)`` places a file of this Mac.
-    @discardableResult
-    func openFile(_ file: URL, on machine: DaemonService, from source: PaneController?, asText: Bool = false, at position: FilePosition? = nil) -> Bool {
-        guard !machine.isLocal else { return openFile(file, from: source, asText: asText, at: position) }
-        return open(from: source) { [weak self] pane, placed in
-            var inPlace: (@MainActor () -> Void)?
-            if placed != nil { inPlace = { self?.openedInPlace() } }
-            return pane.services.viewers.openFile(file, on: machine, in: pane, asText: asText, at: position, placed: placed,
                                                   shownInPlace: inPlace)
         }
     }
