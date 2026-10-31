@@ -126,7 +126,7 @@ import Testing
 
     /// The cases the layout test runs: every built-in density, and overrides that push the text
     /// against the bar (large text in a short bar, a tall bar with small text).
-    static let cases: [(preset: DensityPreset, height: Double?, fontSize: Double?)] =
+    nonisolated static let cases: [(preset: DensityPreset, height: Double?, fontSize: Double?)] =
         DensityPreset.allCases.map { ($0, nil, nil) }
             + [(.compact, 20, 24), (.compact, 20, 10), (.comfortable, 56, 10), (.ultraCompact, nil, 24), (.comfortable, 30.4, 15.6)]
 
