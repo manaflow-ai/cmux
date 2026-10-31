@@ -16,6 +16,7 @@ extension UpdaterService: UpdateActionDelegate {
         #endif
         recordRelaunchFocus()
         willRelaunch?()
+        hidesForRelaunch?()
     }
 
     /// An install nobody clicked, in an app the user was not in when it started (and is not in now),

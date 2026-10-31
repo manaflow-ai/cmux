@@ -145,7 +145,6 @@ extension UpdaterService {
             return
         }
         recordBeforeInstall()
-        willInstallStaged?()
         installStaged()
         #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("install_handed_to_sparkle")
