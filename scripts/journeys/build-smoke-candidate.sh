@@ -14,7 +14,9 @@
 #   1. a detached worktree of SHA (default: a sibling of this checkout, smoke-candidate-<sha12>);
 #   2. if SHA has no dogfood bench mapping (Resources/build/cmux-next.dogfood.conf + reload.sh's RELEASE_FLAG),
 #      cherry-picks the mapping commit BENCH_MAPPING (no app source change) onto it;
-#   3. pushes that as branch cp/smoke-candidate-<sha12> (a dogfood line: never merge it), through the normal hooks;
+#   3. pushes that as branch cp/smoke-candidate-<sha12> (a dogfood line: never merge it), through the normal hooks:
+#      when SHA is already on origin, the branch is first made at SHA (gh api git/refs), so the hook judges only the
+#      mapping commit (fleet rules "Cutting a dogfood line"; never --no-verify);
 #   4. submits `cmux-ci build cmux --ref <that commit> --tag TAG --release --backend-mode local` and prints the job id.
 # The tag defaults to feat-tip-fixes-<sha10> (a release_bench_tags glob). A dogfood line's commit already has the
 # mapping, for its own globs only (chrome-parity-*): pass --tag chrome-parity-<name>. Then:
@@ -35,7 +37,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$sha" ] || { echo "usage: $0 SHA [--tag TAG] [--worktree DIR] [--dry-run]" >&2; exit 2; }
-git -C "$root" fetch -q origin "$sha" 2>/dev/null || true
+git -C "$root" fetch -q origin "$sha" feat-cmux-next 2>/dev/null || git -C "$root" fetch -q origin "$sha" 2>/dev/null || true
 full="$(git -C "$root" rev-parse --verify "$sha^{commit}")" || { echo "unknown commit $sha (push it first)" >&2; exit 2; }
 short="${full:0:12}"
 tag="${tag:-feat-tip-fixes-${full:0:10}}"
@@ -89,6 +91,11 @@ if [ -n "$remote" ]; then
     exit 2
   fi
 else
+  # The base is already on origin (a feat or dogfood commit): make the branch there first, so the pre-push hook
+  # judges only the candidate's own mapping commit (fleet rules, "Cutting a dogfood line"; never --no-verify).
+  if [ "$head" != "$full" ] && git branch -r --contains "$full" 2>/dev/null | grep -q .; then
+    gh api "repos/manaflow-ai/cmux/git/refs" -f ref="refs/heads/$branch" -f sha="$full" >/dev/null
+  fi
   git push -q origin "HEAD:refs/heads/$branch"
 fi
 receipt="${TMPDIR:-/tmp}/smoke-candidate-$short-submit.json"
