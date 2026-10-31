@@ -334,6 +334,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             contentSignature = nextContent
             if structureUnchanged, !self.nodes.isEmpty {
                 portsDemand.update(nodes: self.nodes)
+                portsDemand.schedule(coordinator: self)
                 displaysDemand.update(nodes: self.nodes, actions: nodeActions)
                 guard let outlineView else { return }
                 let changedRows = update.rowIndexes(in: outlineView)
@@ -346,6 +347,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
             self.nodes = nodes
             portsDemand.update(nodes: nodes)
+            portsDemand.schedule(coordinator: self)
             displaysDemand.update(nodes: nodes, actions: nodeActions)
             structureSignature = nextStructure
             guard let outlineView else { return }

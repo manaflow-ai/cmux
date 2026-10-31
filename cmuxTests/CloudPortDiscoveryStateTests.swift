@@ -89,16 +89,47 @@ struct CloudPortDiscoveryStateTests {
         #expect(discovery.state == .available && discovery.scan?.ports == [3000, 8000])
     }
 
-    @Test("A fresh cached scan settles a repeated request instead of leaving it loading")
-    func cachedScanSettlesRequest() {
+    /// Opening the Ports tab requests again; its rows and count must not flash
+    /// back to loading while that refresh runs.
+    @Test("A repeated request keeps the settled inventory visible")
+    func repeatedRequestKeepsSettledState() {
         var discovery = readyDiscovery()
         discovery.request()
         let request = discovery.beginScan()
         _ = discovery.complete(CloudPortScanResult(ports: [3000]), request: request, at: now, socketPath: "first")
         discovery.request()
-        #expect(discovery.state == .loading)
-        #expect(discovery.cachedScan(at: now.addingTimeInterval(5), socketPath: "first", force: false)?.ports == [3000])
         #expect(discovery.state == .available)
+        #expect(discovery.cachedScan(at: now.addingTimeInterval(3), socketPath: "first", force: false)?.ports == [3000])
+        #expect(discovery.state == .available)
+    }
+
+    /// A server started just after a scan must not wait for the next panel poll
+    /// or a Ports tab click: a refresh served from the cache asks for a rescan
+    /// once the cache expires.
+    @Test("A cached scan reports when its trailing rescan is due")
+    func cachedScanSchedulesTrailingRescan() {
+        var discovery = readyDiscovery()
+        discovery.request()
+        let request = discovery.beginScan()
+        _ = discovery.complete(CloudPortScanResult(ports: []), request: request, at: now, socketPath: "first")
+        #expect(discovery.cachedScan(at: now.addingTimeInterval(2), socketPath: "first", force: false) != nil)
+        #expect(discovery.rescanDelay(at: now.addingTimeInterval(2)) == 3)
+        #expect(discovery.rescanDelay(at: now.addingTimeInterval(6)) == nil)
+        discovery.invalidate()
+        #expect(discovery.rescanDelay(at: now.addingTimeInterval(2)) == nil)
+    }
+
+    /// A failed scan keeps no cache, but rescans after it must still be paced,
+    /// or a stream of terminal changes would rescan back to back.
+    @Test("A failed scan still throttles the next rescan")
+    func failedScanThrottlesRescan() {
+        var discovery = readyDiscovery()
+        discovery.request()
+        let request = discovery.beginScan()
+        _ = discovery.complete(nil, request: request, at: now, socketPath: "first")
+        #expect(discovery.cachedScan(at: now.addingTimeInterval(1), socketPath: "first", force: false) == nil)
+        #expect(discovery.rescanDelay(at: now.addingTimeInterval(1)) == 4)
+        #expect(discovery.rescanDelay(at: now.addingTimeInterval(5)) == nil)
     }
 
     /// A refresh cancelled while another refresh's scan runs must leave that scan's loading state alone.
@@ -178,9 +209,9 @@ struct CloudPortDiscoveryStateTests {
         discovery.request()
         let request = discovery.beginScan()
         _ = discovery.complete(CloudPortScanResult(ports: [3000]), request: request, at: now, socketPath: "first")
-        let cached = discovery.cachedScan(at: now.addingTimeInterval(20), socketPath: "first", force: false)
+        let cached = discovery.cachedScan(at: now.addingTimeInterval(3), socketPath: "first", force: false)
         #expect(cached?.ports == [3000])
-        let expired = discovery.cachedScan(at: now.addingTimeInterval(31), socketPath: "first", force: false)
+        let expired = discovery.cachedScan(at: now.addingTimeInterval(6), socketPath: "first", force: false)
         #expect(expired == nil)
         let otherSocket = discovery.cachedScan(at: now, socketPath: "second", force: false)
         #expect(otherSocket == nil)
