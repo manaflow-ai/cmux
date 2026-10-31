@@ -33,6 +33,7 @@ mod batch;
 mod call;
 mod classic;
 mod events;
+mod group_create;
 mod keybinding;
 mod open;
 mod open_link;
@@ -169,6 +170,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         return right::parse(&args[2..]).map(Some);
     }
     if let Some(command) = agent_open::parse(args)? {
+        return Ok(Some(command));
+    }
+    if let Some(command) = group_create::parse(args)? {
         return Ok(Some(command));
     }
     if scope == "version" {
@@ -604,8 +608,18 @@ pub(super) fn run_cli_action(global: &GlobalArgs, name: &str, args: &[String]) -
         return Some(super::wire::print_operation_error(&refusal, global.output));
     }
     // A named socket that is missing or not an app (a daemon's `--socket`)
-    // has no CLI action; the caller reports its own usage error.
-    let mut stream = connect_command(global).ok()?;
+    // has no CLI action; the caller reports its own usage error. An action the
+    // app's catalog offers says it needs the app, where "unknown action" sent
+    // agents hunting for another way (tests/tool-evals r13d: `cmux pane screenshot`
+    // headless took GPT 6.1 Sol 25 steps and 550k tokens).
+    let mut stream = match connect_command(global) {
+        Ok(stream) => stream,
+        Err(error) if super::action_hint::offered_app_action(name) => {
+            let message = error.get("message").and_then(Value::as_str).unwrap_or_default();
+            return Some(failure("app.unreachable", message, global.output, 3));
+        }
+        Err(_) => return None,
+    };
     match call(global, &mut stream, command) {
         Ran::Done(code) => Some(code),
         Ran::NoSuchCliAction { .. } => None,
