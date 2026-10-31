@@ -26,7 +26,7 @@ extension BrowserPageService {
             .async("browser.page.cookies.set") { call in
                 let tab = try Self.tab(call)
                 let cookies = try Self.cookiesToSet(call, tab: tab)
-                _ = try await Self.guardedAgentScript(engine, tab, guards) { try await Self.run(engine, .cookies(.set(cookies)), tab) }
+                _ = try await Self.guardedAgentScript(engine, tab, guards) { _ in try await Self.run(engine, .cookies(.set(cookies)), tab) }
                 var result: [String: JSONValue] = Self.base(tab)
                 result["set"] = JSONValue(cookies.count)
                 return .object(result)
@@ -47,7 +47,7 @@ extension BrowserPageService {
                 let now = Date()
                 let doomed = try await Self.cookies(engine, tab).filter { $0.isOnSite(site) && filter.cleared($0, now: now) }
                 if !doomed.isEmpty {
-                    _ = try await Self.guardedAgentScript(engine, tab, guards) { try await Self.run(engine, .cookies(.delete(doomed)), tab) }
+                    _ = try await Self.guardedAgentScript(engine, tab, guards) { _ in try await Self.run(engine, .cookies(.delete(doomed)), tab) }
                 }
                 var result: [String: JSONValue] = Self.base(tab)
                 result["cleared"] = JSONValue(doomed.count)
@@ -72,8 +72,8 @@ extension BrowserPageService {
             let tab = try Self.tab(call)
             let area = try Self.storageArea(call)
             let operation = try make(call, area)
-            let value = try await Self.guardedAgentScript(engine, tab, guards) {
-                try await Self.run(engine, .evaluate(BrowserPageScripts.storage(operation)), tab)
+            let value = try await Self.guardedAgentScript(engine, tab, guards) { origin in
+                try await Self.run(engine, .evaluate(BrowserPageScripts.pinnedAgentExpression(BrowserPageScripts.storage(operation), origin: origin)), tab)
             }["value"] ?? .null
             if let error = value["error"]?.stringValue {
                 throw ControlError(code: "invalid_state", message: error)

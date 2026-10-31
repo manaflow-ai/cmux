@@ -107,8 +107,8 @@ public struct BrowserPageService: Sendable {
                 let tab = try Self.tab(call)
                 // The agent's own script: never on a site holding a filled login, and the site it
                 // runs on takes no login from then on (BrowserLoginGuards).
-                let value = try await Self.guardedAgentScript(engine, tab, guards) {
-                    try await Self.evaluateAgentScript(engine, script, tab)
+                let value = try await Self.guardedAgentScript(engine, tab, guards) { origin in
+                    try await Self.evaluateAgentScript(engine, script, tab, origin: origin)
                 }
                 if let thrown = value["value"]?[BrowserPageScripts.thrownKey]?.stringValue {
                     throw ControlError(code: "js_error", message: thrown)
@@ -180,14 +180,14 @@ public struct BrowserPageService: Sendable {
 
     /// An agent's `eval` script: as an expression through ``BrowserPageScripts/jsonSafe(_:)``,
     /// else (a parse failure: nothing ran) as statements.
-    private static func evaluateAgentScript(_ engine: any BrowserPageEngine, _ script: String, _ tab: Tab) async throws -> JSONValue {
+    private static func evaluateAgentScript(_ engine: any BrowserPageEngine, _ script: String, _ tab: Tab, origin: String?) async throws -> JSONValue {
         do {
             // Objects WebKit cannot return (DOMRect, Map, …) go through toJSON.
-            return try await run(engine, .evaluate(BrowserPageScripts.jsonSafe(script)), tab)
+            return try await run(engine, .evaluate(BrowserPageScripts.pinnedAgentExpression(BrowserPageScripts.jsonSafe(script), origin: origin)), tab)
         } catch let error as ControlError where error.code == "js_error" && error.message.contains("SyntaxError") {
             // The wrapper reports what the script throws, so this is a
             // parse failure: nothing ran. Statements, not an expression.
-            return try await run(engine, .evaluate(script), tab)
+            return try await run(engine, .evaluate(BrowserPageScripts.pinnedAgentExpression(script, origin: origin)), tab)
         }
     }
 

@@ -366,8 +366,16 @@ impl Brain {
                     *live = true;
                     changed = true;
                 }
-                let next_target = browsing.target.or_else(|| target.clone());
-                let next_url = browsing.url.or_else(|| url.clone());
+                let same_surface = *surface == browsing.surface;
+                let next_target = browsing
+                    .target
+                    .or_else(|| same_surface.then(|| target.clone()).flatten());
+                let next_url = browsing
+                    .url
+                    .or_else(|| same_surface.then(|| url.clone()).flatten());
+                if !same_surface && shown.take().is_some() {
+                    changed = true;
+                }
                 if *surface != browsing.surface
                     || *line != browsing.step
                     || *target != next_target

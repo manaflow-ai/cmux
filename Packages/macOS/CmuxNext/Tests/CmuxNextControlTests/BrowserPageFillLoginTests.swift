@@ -341,7 +341,7 @@ import Testing
         let blocker = folder.appendingPathComponent("blocked")
         try Data().write(to: blocker)
         let guards = BrowserLoginGuards(file: blocker.appendingPathComponent("guards.json"))
-        #expect(await guards.beginScript(profile: nil, origins: ["https://a.test"]))
+        #expect(await !guards.beginScript(profile: nil, origins: ["https://a.test"]))
         #expect(await guards.beginFill(tab: "tab_x", profile: nil, origins: ["https://b.test"]).admission == .unsaved)
         // The marks stay in memory: the scripted site still refuses a fill, the filled one a script.
         #expect(await guards.beginFill(tab: "tab_x", profile: nil, origins: ["https://a.test"]).admission == .scripted)

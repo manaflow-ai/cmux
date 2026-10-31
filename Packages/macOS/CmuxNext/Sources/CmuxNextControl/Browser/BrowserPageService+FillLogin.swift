@@ -126,14 +126,14 @@ extension BrowserPageService {
         guard let raw, let url = URL(string: raw), let probed else { return (nil, probed, opener) }
         var origins: [String] = []
         if let engineOrigin = webOrigin(url) { origins.append(engineOrigin) }
-        if probed != "null", !origins.contains(probed) { origins.append(probed) }
+        if !origins.contains(probed) { origins.append(probed) }
         return (origins, probed, opener)
     }
 
     /// Before an agent's own script (`eval`, `wait --function`): refused with `login_filled` on a
     /// site holding a filled login (or, when the page's origin cannot be read, while this profile
     /// holds any); else the site takes no login from then on.
-    static func beginAgentScript(_ engine: any BrowserPageEngine, _ tab: Tab, _ guards: BrowserLoginGuards) async throws {
+    static func beginAgentScript(_ engine: any BrowserPageEngine, _ tab: Tab, _ guards: BrowserLoginGuards) async throws -> String? {
         let page = await pageOrigin(engine, tab)
         guard await guards.beginScript(profile: tab.browserProfileID, origins: page.origins) else {
             throw ControlError(code: "login_filled",
@@ -141,6 +141,7 @@ extension BrowserPageService {
                                                             "This site holds a filled sign-in; agent scripts cannot run on it"),
                                data: ["tab": .string(tab.id)])
         }
+        return page.probed
     }
 
     /// Before a capture (a screenshot): refused with `login_filled` on a site holding a filled
@@ -164,12 +165,12 @@ extension BrowserPageService {
     /// `body`, the agent's own page code (a script, a storage or cookie write), between
     /// ``beginAgentScript(_:_:_:)`` and ``endAgentScript(_:_:_:)``; with no guards only `body`.
     static func guardedAgentScript(_ engine: any BrowserPageEngine, _ tab: Tab, _ guards: BrowserLoginGuards?,
-                                   _ body: () async throws -> JSONValue) async throws -> JSONValue {
-        guard let guards else { return try await body() }
-        try await beginAgentScript(engine, tab, guards)
+                                   _ body: (String?) async throws -> JSONValue) async throws -> JSONValue {
+        guard let guards else { return try await body(nil) }
+        let origin = try await beginAgentScript(engine, tab, guards)
         let value: JSONValue
         do {
-            value = try await body()
+            value = try await body(origin)
         } catch {
             await endAgentScript(engine, tab, guards)
             throw error

@@ -137,11 +137,8 @@ impl Brain {
                     // under a new key, since the refused key is spent; each
                     // other card as a line of it (cards.rs).
                     let head = &mut self.state.outbox[0];
-                    let text = super::cards::text_fallback(
-                        head.plain_text.take(),
-                        &head.op,
-                        &head.cards,
-                    );
+                    let text =
+                        super::cards::text_fallback(head.plain_text.take(), &head.op, &head.cards);
                     let mut fallback = super::reply_entry(
                         head.conversation.clone(),
                         &format!("{key}:text"),
@@ -211,6 +208,23 @@ impl Brain {
                         },
                         other => other,
                     };
+                    // `top` already includes the composed cards. A later retry must not append
+                    // them a second time (and the text fallback can read these parts directly).
+                    head.cards.clear();
+                    // Keep card acknowledgements and any later text fallback tied to this key.
+                    if let Some(card) = self.state.browser_card.as_mut().filter(|c| c.key == key) {
+                        card.key = head.idempotency_key.clone();
+                        card.thread = None;
+                    }
+                    for card in self
+                        .state
+                        .browser_cards_ending
+                        .iter_mut()
+                        .filter(|c| c.key == key)
+                    {
+                        card.key = head.idempotency_key.clone();
+                        card.thread = None;
+                    }
                     self.save();
                     (self.log)(&format!(
                         "op {key}: the owner refused its thread ({reason}); posting it at the top level"
@@ -249,7 +263,10 @@ fn has_cards(op: &Op) -> bool {
     let Op::MessageSend { parts, .. } = op else {
         return false;
     };
-    parts
-        .iter()
-        .any(|p| matches!(p, Part::LinkPreview { .. } | Part::Question(_) | Part::Card(_)))
+    parts.iter().any(|p| {
+        matches!(
+            p,
+            Part::LinkPreview { .. } | Part::Question(_) | Part::Card(_)
+        )
+    })
 }

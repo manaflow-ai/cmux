@@ -13,8 +13,9 @@ import os
 ///   behind in another tab of the origin, an opener handle or a service worker. So is a tab that
 ///   ever had a raw DevTools relay (it reaches every site that tab visits) or that a page opened,
 ///   and any tab of a profile while a raw DevTools relay is attached in it.
-/// - Raw DevTools (sessions reach other frames and targets) is all or nothing per profile: while
-///   the profile holds ANY filled sign-in, no relay attaches and no raw message passes.
+    /// - Raw DevTools (sessions reach other frames and targets) is all or nothing per profile: while
+    ///   the profile holds ANY filled sign-in, no relay attaches and no raw message passes. Before
+    ///   attaching, the whole profile is durably marked scripted, including after detach/restart.
 ///
 /// An origin is `scheme://host[:port]` as `location.origin` gives it, keyed with the tab's
 /// profile (each profile has its own storage and service workers). Check and mark happen in one
@@ -95,15 +96,18 @@ public actor BrowserLoginGuards {
     /// Otherwise false when one of the origins holds a fill; else each is marked scripted.
     public func beginScript(profile: String?, origins: [String]?) -> Bool {
         load()
-        let origins = origins ?? []
+        var origins = origins ?? []
         if origins.isEmpty || origins.contains("null") {
             guard !holdsFill(profile) else { return false }
-            insertScripted([Self.key(profile: profile, origin: "null")])
+            if !origins.contains("null") { origins.append("null") }
         }
         let keys = origins.map { Self.key(profile: profile, origin: $0) }
         if keys.contains(where: filled.contains) { return false }
         insertScripted(keys)
-        return true
+        // New persistent code cannot run until its exclusion survives a restart. Retry a
+        // previously failed write, too: restoring the directory must allow a safe admission.
+        if keys.contains(where: unsaved.contains) { save(changed: Set(keys)) }
+        return !unreadable && !keys.contains(where: unsaved.contains)
     }
 
     /// Marks `origins` scripted after agent code ran (it may have moved to another site).
@@ -125,8 +129,9 @@ public actor BrowserLoginGuards {
     /// and no tab of the profile gets one while the relay stays attached (``rawDevToolsEnded(tab:)``).
     public func beginRawDevTools(tab: String, profile: String?, origins: [String]?) -> Bool {
         load()
-        guard !holdsFill(profile) else { return false }
-        insertScripted((origins ?? []).map { Self.key(profile: profile, origin: $0) })
+        // A raw session reaches child frames and other targets without a trustworthy origin
+        // notification. Reserve the whole profile durably before exposing that capability.
+        guard beginScript(profile: profile, origins: ["null"] + (origins ?? [])) else { return false }
         rawTabs.insert(tab)
         let prefix = Self.key(profile: profile, origin: "")
         mirrorState.withLock { $0.attached[tab] = prefix }

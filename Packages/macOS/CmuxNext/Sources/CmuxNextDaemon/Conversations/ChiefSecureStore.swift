@@ -42,11 +42,13 @@ public struct ChiefSecureStore: Sendable {
     public func save(site: String, username: String, password: String) throws {
         guard let site = Self.normalized(site) else { throw Failure.invalidSite }
         guard !username.isEmpty, !password.isEmpty else { throw Failure.emptyCredential }
-        // One item per site: an older one (another username) goes first.
-        let removed = deleteItem(Self.query(site: site))
-        guard removed == errSecSuccess || removed == errSecItemNotFound else { throw Failure.keychain(removed) }
-        let add = Self.query(site: site, adding: [kSecAttrAccount as String: username, kSecValueData as String: Data(password.utf8),
-                                                  kSecAttrDescription as String: Self.label])
+        // Update in place: a rejected replacement must leave the previous credential intact.
+        let attributes: [String: Any] = [kSecAttrAccount as String: username, kSecValueData as String: Data(password.utf8),
+                                          kSecAttrDescription as String: Self.label]
+        let updated = updateItem(Self.query(site: site), attributes)
+        if updated == errSecSuccess { return }
+        guard updated == errSecItemNotFound else { throw Failure.keychain(updated) }
+        let add = Self.query(site: site, adding: attributes)
         let status = addItem(add)
         guard status == errSecSuccess else { throw Failure.keychain(status) }
     }
