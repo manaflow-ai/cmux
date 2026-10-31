@@ -12,6 +12,15 @@ inputs:
     description: "`warp` writes the runner provider store on Warp runners, `r2` writes the R2 bucket. Anything else writes the GitHub store."
     required: false
     default: ""
+  pack-to:
+    description: "With the `r2` backend, pack into this directory instead of uploading, for `scripts/ci/r2-cache.sh publish` in a job that holds the bucket credentials. Needs none itself. Other backends save as usual."
+    required: false
+    default: ""
+
+outputs:
+  packed-sha256:
+    description: "With `pack-to`, the sha256 of what was packed, for `r2-cache.sh publish` to check."
+    value: ${{ steps.pack.outputs.sha256 }}
 
 runs:
   using: composite
@@ -30,10 +39,20 @@ runs:
         key: ${{ inputs.key }}
     # The calling step supplies the bucket credentials through its env.
     - name: Save to the R2 store
-      if: ${{ inputs.backend == 'r2' }}
+      if: ${{ inputs.backend == 'r2' && inputs.pack-to == '' }}
       shell: bash
       env:
         CACHE_PATH: ${{ inputs.path }}
         CACHE_KEY: ${{ inputs.key }}
       run: |
         "$GITHUB_ACTION_PATH/../../../scripts/ci/r2-cache.sh" save "$CACHE_PATH" "$CACHE_KEY"
+    - name: Pack for the R2 store
+      id: pack
+      if: ${{ inputs.backend == 'r2' && inputs.pack-to != '' }}
+      shell: bash
+      env:
+        CACHE_PATH: ${{ inputs.path }}
+        CACHE_KEY: ${{ inputs.key }}
+        PACK_TO: ${{ inputs.pack-to }}
+      run: |
+        "$GITHUB_ACTION_PATH/../../../scripts/ci/r2-cache.sh" pack "$CACHE_PATH" "$CACHE_KEY" "$PACK_TO"

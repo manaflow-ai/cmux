@@ -26,6 +26,8 @@ import main_compile_attribution as mca  # noqa: E402
 ATTRIBUTION = ROOT / ".github/workflows/ci-compile-attribution.yml"
 PROBE = ROOT / ".github/workflows/main-compile-probe.yml"
 SEED = ROOT / ".github/workflows/seed-derived-data.yml"
+# seed-derived-data.yml calls this per pool; its `seed` job builds.
+SEED_POOL = ROOT / ".github/workflows/seed-derived-data-pool.yml"
 
 # Trimmed from job 109345503595 (seed, glaeda-trusted-std-xcode-26.6).
 SEED_LOG = textwrap.dedent("""\
@@ -254,17 +256,29 @@ class Workflows(unittest.TestCase):
         self.assertEqual(data["jobs"]["report"]["name"], "${{ needs.analyze.outputs.headline || 'report' }}")
 
     def test_the_verdict_steps_exist_where_attribution_reads_them(self):
-        seed = yaml.safe_load(SEED.read_text())["jobs"]["seed"]
+        # GitHub lists the build as "seed (<pool>) / seed"; run_state reads its steps by name.
+        self.assertEqual(yaml.safe_load(SEED.read_text())["jobs"]["seed"]["uses"],
+                         "./.github/workflows/seed-derived-data-pool.yml")
+        seed = yaml.safe_load(SEED_POOL.read_text())["jobs"]["seed"]
         probe = yaml.safe_load(PROBE.read_text())["jobs"]["compile"]
         self.assertIn(mca.COMPILE_STEPS[mca.SEED_WORKFLOW_FILE], [s.get("name") for s in seed["steps"]])
         self.assertIn(mca.COMPILE_STEPS[mca.PROBE_WORKFLOW_FILE], [s.get("name") for s in probe["steps"]])
 
     def test_the_seed_starts_attribution_only_after_its_build_fails(self):
-        seed = yaml.safe_load(SEED.read_text())["jobs"]["seed"]
-        step = next(s for s in seed["steps"] if s.get("name") == "Start compile attribution")
-        self.assertIn("steps.build.outcome == 'failure'", step["if"])
+        # Its own job beside the build, so the build on the pool holds no write token.
+        jobs = yaml.safe_load(SEED_POOL.read_text())["jobs"]
+        self.assertEqual(jobs["seed"]["outputs"]["build"], "${{ steps.build.outcome }}")
+        self.assertEqual(jobs["seed"]["permissions"], {"contents": "read"})
+        attribute = jobs["attribute"]
+        self.assertEqual(attribute["needs"], "seed")
+        self.assertIn("failure()", attribute["if"])
+        self.assertIn("needs.seed.outputs.build == 'failure'", attribute["if"])
+        self.assertIn("github.event_name == 'push'", attribute["if"])
+        self.assertEqual(attribute["permissions"], {"actions": "write"})
+        step = next(s for s in attribute["steps"] if s.get("name") == "Start compile attribution")
         self.assertTrue(step["continue-on-error"])
         self.assertIn("ci-compile-attribution.yml/dispatches", step["run"])
+        self.assertNotIn("Start compile attribution", [s.get("name") for s in jobs["seed"]["steps"]])
 
     def test_the_probe_is_named_by_its_commit(self):
         data = yaml.safe_load(PROBE.read_text())

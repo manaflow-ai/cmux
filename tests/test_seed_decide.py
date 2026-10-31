@@ -21,9 +21,21 @@ def run(run_id, sha, status="completed", conclusion="success"):
 
 
 def seed_job(conclusion="success", status="completed", saved=True, pool="blacksmith-12vcpu-macos-26"):
-    # The seed job is a matrix over pools, so GitHub names it "seed (<pool>)".
+    # A run from before seed-derived-data-pool.yml: one job per pool, "seed (<pool>)", built and saved.
     steps = [{"name": "Save seed", "conclusion": "success" if saved else "skipped"}]
     return {"name": f"seed ({pool})", "status": status, "conclusion": conclusion, "steps": steps}
+
+
+def pool_jobs(build=("completed", "success"), save=("completed", "success"), saved=True,
+              pool="blacksmith-12vcpu-macos-26"):
+    # The seed matrix calls seed-derived-data-pool.yml, so GitHub lists "seed (<pool>) / seed"
+    # (the build, no R2 key) and "seed (<pool>) / save" (uploads it, with "Save seed").
+    jobs = [{"name": f"seed ({pool}) / seed", "status": build[0], "conclusion": build[1],
+             "steps": [{"name": "Build", "conclusion": build[1]}, {"name": "Pack seed", "conclusion": build[1]}]}]
+    if save is not None:
+        jobs.append({"name": f"seed ({pool}) / save", "status": save[0], "conclusion": save[1],
+                     "steps": [{"name": "Save seed", "conclusion": "success" if saved else "skipped"}]})
+    return jobs
 
 
 class Api:
@@ -177,6 +189,52 @@ class Decide(unittest.TestCase):
                          {"include": [{"pool": trusted}, {"pool": trusted, "root": "2"}]})
 
 
+class SplitJobs(unittest.TestCase):
+    """seed-derived-data.yml calls seed-derived-data-pool.yml per pool: the build and the R2 save are two jobs."""
+
+    def test_only_the_save_jobs_saved_seed_counts(self):
+        self.assertTrue(seed_decide.saved(pool_jobs(), LARGE))
+        self.assertFalse(seed_decide.saved(pool_jobs(saved=False), LARGE))
+        self.assertFalse(seed_decide.saved(pool_jobs(save=("completed", "failure")), LARGE))
+        self.assertFalse(seed_decide.saved(pool_jobs(save=("in_progress", None)), LARGE))
+        self.assertFalse(seed_decide.saved(pool_jobs(save=None), LARGE))
+        # A built seed of another pool or root is not this lane's.
+        self.assertFalse(seed_decide.saved(pool_jobs(pool=SMALL), LARGE))
+        trusted = "glaeda-trusted-std-xcode-26.6"
+        self.assertTrue(seed_decide.saved(pool_jobs(pool=f"{trusted}, 2"), f"{trusted}@2"))
+        self.assertFalse(seed_decide.saved(pool_jobs(pool=trusted), f"{trusted}@2"))
+        # Runs from before the split still count.
+        self.assertTrue(seed_decide.saved([seed_job()], LARGE))
+
+    def test_a_saved_split_seed_lets_a_push_with_its_inputs_skip(self):
+        api = Api([run(2, "p1")], {2: pool_jobs()})
+        build, reasons = decide(api, ["p1"], {"HEAD": "v1", "p1": "v1"})
+        self.assertEqual(build, [], reasons)
+
+    def test_a_built_seed_is_committed_until_its_save_ends(self):
+        # The concurrency group holds the whole call, so a newer push can no longer replace it.
+        for build, save, committed in (
+                (("pending", None), ("pending", None), False),
+                (("queued", None), ("pending", None), True),
+                (("in_progress", None), ("pending", None), True),
+                (("completed", "success"), ("pending", None), True),
+                (("completed", "success"), ("queued", None), True),
+                (("completed", "success"), ("in_progress", None), True),
+                (("completed", "success"), None, True),
+                # A failed build saves no seed, whatever the save job still uploads beside it.
+                (("completed", "failure"), ("in_progress", None), False),
+                (("completed", "success"), ("completed", "success"), False)):
+            with self.subTest(build=build, save=save):
+                self.assertIs(seed_decide.running(pool_jobs(build=build, save=save), LARGE), committed)
+        self.assertFalse(seed_decide.running(pool_jobs(build=("in_progress", None), pool=SMALL), LARGE))
+
+    def test_a_running_split_seed_covers_its_commit(self):
+        api = Api([run(2, "p1", status="in_progress", conclusion=None), run(1, "p0")],
+                  {2: pool_jobs(build=("completed", "success"), save=("in_progress", None)), 1: pool_jobs()})
+        reasons = decide(api, ["p1", "p0"], {"HEAD": "v2", "p0": "v0"}, tiers={"p1": "near", "p0": "far"})[1]
+        self.assertIn("near from p1", reasons[0])
+
+
 class FarLane(unittest.TestCase):
     def test_a_push_far_from_its_covering_seed_takes_the_far_lane(self):
         api = Api([run(2, "p1")], {2: [seed_job()]})
@@ -285,12 +343,19 @@ class Wiring(unittest.TestCase):
         seed = workflow["jobs"][seed_decide.SEED_JOB]
         self.assertEqual(seed["strategy"]["matrix"], "${{ fromJSON(needs.decide.outputs.matrix) }}")
         self.assertEqual(decide_job["outputs"]["matrix"], "${{ steps.inputs.outputs.matrix }}")
-        stage = next(step for step in seed["steps"] if step.get("id") == "stage-products")
-        self.assertIn("matrix.pool == needs.decide.outputs.publisher", stage["if"])
+        self.assertEqual(seed["uses"], "./.github/workflows/seed-derived-data-pool.yml")
+        self.assertEqual(seed["with"], {"pool": "${{ matrix.pool }}", "root": "${{ matrix.root }}",
+                                        "publisher": "${{ needs.decide.outputs.publisher }}"})
+        pool = yaml.safe_load((ROOT / ".github/workflows/seed-derived-data-pool.yml").read_text())
+        stage = next(step for step in pool["jobs"][seed_decide.BUILD_JOB]["steps"] if step.get("id") == "stage-products")
+        self.assertIn("inputs.pool == inputs.publisher", stage["if"])
         self.assertNotIn("job-index", yaml.safe_dump(workflow))
-        # A rename would silently turn every skip into a build.
-        seed_steps = [step.get("name") for step in workflow["jobs"][seed_decide.SEED_JOB]["steps"]]
-        self.assertIn(seed_decide.SAVE_STEP, seed_steps)
+        # A rename would silently turn every skip into a build: GitHub lists the
+        # called jobs as "seed (<pool>) / seed" and "seed (<pool>) / save".
+        self.assertEqual(pool["jobs"][seed_decide.SAVE_JOB]["needs"], seed_decide.BUILD_JOB)
+        save_steps = [step.get("name") for step in pool["jobs"][seed_decide.SAVE_JOB]["steps"]]
+        self.assertIn(seed_decide.SAVE_STEP, save_steps)
+        self.assertNotIn(seed_decide.SAVE_STEP, [step.get("name") for step in pool["jobs"][seed_decide.BUILD_JOB]["steps"]])
 
 
 if __name__ == "__main__":
