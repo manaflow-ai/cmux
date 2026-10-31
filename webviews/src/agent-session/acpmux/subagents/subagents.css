@@ -678,7 +678,7 @@ button.cv-subagent > :last-child {
   border-radius: 0;
   background: none;
 }
-.acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button:enabled):hover:not(:has(> .acpmux-agent-line__stop-slot:hover)),
+.acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button:enabled):hover,
 .acpmux-running-tray .acpmux-running-tray__head:hover {
   background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
 }
