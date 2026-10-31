@@ -384,6 +384,14 @@
 .nt-screen .nt-composer {
   --acpmux-composer-inset: var(--nt-composer-inset);
 }
+/* The suggestions' popover frosts what is under it (the Chats header and cards read through its lower
+   half at the plain popup tint, as the pills did through the + menu, Leo 2026-10-31: "they show
+   through"): the menus' denser tint and blur (desktop.css --ds-glass-menu-*, as ui.css gives select
+   popups), still glass. Reduce Transparency keeps the solid popup surface (glass.css). */
+.nt-popover.ui-glass {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-menu-tint), transparent);
+  --glass-backdrop: var(--ds-glass-menu-blur);
+}
 /* The suggestions' rows: each row's 16 px glyph centered under the + glyph (inset + 14), past the
    popover's padding (Leo 2026-10-31: the suggestion rows start at a different x than + and the text). */
 .nt-popover .nt-rows > .nt-row {

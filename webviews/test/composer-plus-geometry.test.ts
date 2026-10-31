@@ -229,6 +229,8 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       suggestions: { left: number; center: number; kind: string } | null;
     };
     clip: { x: number; y: number; width: number; height: number } | null;
+    /** New Tab's suggestions popover: its fill's alpha and its backdrop filter. */
+    popover: { alpha: number; backdrop: string } | null;
   };
   const measure = (page: Page) =>
     page.evaluate((): Measured => {
@@ -390,7 +392,20 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
             return { x, y, width: right - x, height: bottom - y };
           })()
         : null;
+      const popoverElement = [...document.querySelectorAll(".nt-popover")].find((element) => shown(element));
+      const popover = popoverElement
+        ? (() => {
+            const style = getComputedStyle(popoverElement);
+            // rgba(r, g, b, a), rgb(r, g, b) or color(srgb r g b / a).
+            const color = style.backgroundColor;
+            const slash = color.match(/\/\s*([\d.]+)\s*\)$/);
+            const rgba = color.match(/^rgba\([^,]+,[^,]+,[^,]+,\s*([\d.]+)\)$/);
+            const alpha = slash ? Number(slash[1]) : rgba ? Number(rgba[1]) : 1;
+            return { alpha, backdrop: style.backdropFilter || style.getPropertyValue("-webkit-backdrop-filter") };
+          })()
+        : null;
       return {
+        popover,
         look:
           document.querySelector("[data-composer-look]")?.getAttribute("data-composer-look") ??
           (document.querySelector(".nt-box, .acpmux-composer-box") ? "claude" : null),
@@ -429,6 +444,16 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     const glyph = m.plus.glyphBox;
     const glyphLeft = glyph ? glyph.left - m.box.left : null;
     const glyphCenter = glyph ? centerX(glyph) - m.box.left : null;
+    // The suggestions' popover frosts what is under it: the menus' tint (78%) and a blur.
+    if (layout.expect?.includes("suggestions")) {
+      if (!m.popover) out.push("the suggestions' popover is not drawn");
+      else {
+        if (m.popover.alpha < 0.75)
+          out.push(`the suggestions' fill is ${f(m.popover.alpha)} opaque, under the menus' 0.78`);
+        if (!/blur\(/.test(m.popover.backdrop))
+          out.push(`the suggestions' popover has no blur (${m.popover.backdrop})`);
+      }
+    }
     for (const row of layout.expect ?? []) {
       const at = m.rows[row];
       if (at === null || at === undefined) {
