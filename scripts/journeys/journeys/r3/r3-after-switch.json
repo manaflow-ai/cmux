@@ -7,6 +7,31 @@
  "budget_seconds": 260,
  "steps": [
   {
+   "do": "smoke_remember_workspaces"
+  },
+  {
+   "do": "key",
+   "title": "Cmd-N: a workspace first (a person's Ctrl-` in Home opens the terminal in Home, which no workspace switch returns to)",
+   "key": "n",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "ws-a"
+  },
+  {
+   "do": "expect",
+   "title": "the first workspace shows",
+   "since": "ws-a",
+   "timeout": 20,
+   "all": [
+    {
+     "smoke_workspaces": {
+      "new": 1
+     }
+    }
+   ]
+  },
+  {
    "do": "new_terminal",
    "via": "key",
    "name": "jr-r3-switch"
@@ -105,6 +130,12 @@
     {
      "smoke_workspaces": {
       "new": 1
+     }
+    },
+    {
+     "pane_state": {
+      "pane": "main",
+      "gone": true
      }
     }
    ]
@@ -275,6 +306,12 @@
     {
      "smoke_workspaces": {
       "new": 1
+     }
+    },
+    {
+     "pane_state": {
+      "pane": "main",
+      "gone": true
      }
     }
    ]

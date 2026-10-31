@@ -82,6 +82,11 @@
    ]
   },
   {
+   "do": "remember",
+   "as": "before-drag",
+   "pane": "main"
+  },
+  {
    "do": "window_drag",
    "title": "drag the bottom-right corner 260 right, 160 down",
    "by": [
@@ -108,6 +113,13 @@
    "timeout": 10,
    "settle": 1,
    "all": [
+    {
+     "window_frame": {
+      "from": "before-drag",
+      "dw": 260,
+      "dh": 160
+     }
+    },
     {
      "pane_state": {
       "pane": "main",

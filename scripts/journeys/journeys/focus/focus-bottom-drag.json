@@ -88,6 +88,11 @@
    ]
   },
   {
+   "do": "remember",
+   "as": "before-drag",
+   "pane": "main"
+  },
+  {
    "do": "window_drag",
    "title": "drag the bottom edge (at the window's horizontal middle) 160 down",
    "by": [
@@ -115,6 +120,12 @@
    "timeout": 10,
    "settle": 1,
    "all": [
+    {
+     "window_frame": {
+      "from": "before-drag",
+      "dh": 160
+     }
+    },
     {
      "pane_state": {
       "pane": "right",

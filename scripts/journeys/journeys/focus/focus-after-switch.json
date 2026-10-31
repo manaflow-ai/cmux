@@ -7,6 +7,31 @@
  "budget_seconds": 120,
  "steps": [
   {
+   "do": "smoke_remember_workspaces"
+  },
+  {
+   "do": "key",
+   "title": "Cmd-N: a workspace first (a person's Ctrl-` in Home opens the terminal in Home, which no workspace switch returns to)",
+   "key": "n",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "ws-a"
+  },
+  {
+   "do": "expect",
+   "title": "the first workspace shows",
+   "since": "ws-a",
+   "timeout": 20,
+   "all": [
+    {
+     "smoke_workspaces": {
+      "new": 1
+     }
+    }
+   ]
+  },
+  {
    "do": "new_terminal",
    "name": "jr-focus-drag",
    "via": "key"
@@ -80,13 +105,19 @@
   },
   {
    "do": "expect",
-   "title": "the new workspace shows",
+   "title": "the new workspace shows, and the first workspace's left pane is no longer shown",
    "since": "away",
    "timeout": 20,
    "all": [
     {
      "smoke_workspaces": {
       "new": 1
+     }
+    },
+    {
+     "pane_state": {
+      "pane": "main",
+      "gone": true
      }
     }
    ]

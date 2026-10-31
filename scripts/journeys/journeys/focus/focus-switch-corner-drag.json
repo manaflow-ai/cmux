@@ -7,6 +7,9 @@
  "budget_seconds": 150,
  "steps": [
   {
+   "do": "smoke_remember_workspaces"
+  },
+  {
    "do": "key",
    "title": "Cmd-N: a workspace first (a person's Ctrl-` in Home opens the terminal in Home, which no workspace switch returns to)",
    "key": "n",
@@ -16,8 +19,17 @@
    "mark": "ws-a"
   },
   {
-   "do": "wait",
-   "seconds": 1.0
+   "do": "expect",
+   "title": "the first workspace shows",
+   "since": "ws-a",
+   "timeout": 20,
+   "all": [
+    {
+     "smoke_workspaces": {
+      "new": 1
+     }
+    }
+   ]
   },
   {
    "do": "new_terminal",
@@ -93,13 +105,19 @@
   },
   {
    "do": "expect",
-   "title": "the new workspace shows",
+   "title": "the new workspace shows, and the first workspace's left pane is no longer shown",
    "since": "away",
    "timeout": 20,
    "all": [
     {
      "smoke_workspaces": {
       "new": 1
+     }
+    },
+    {
+     "pane_state": {
+      "pane": "main",
+      "gone": true
      }
     }
    ]
@@ -152,6 +170,11 @@
    ]
   },
   {
+   "do": "remember",
+   "as": "before-drag",
+   "pane": "main"
+  },
+  {
    "do": "window_drag",
    "title": "drag the bottom-right corner 260 right, 160 down",
    "by": [
@@ -178,6 +201,13 @@
    "timeout": 10,
    "settle": 1,
    "all": [
+    {
+     "window_frame": {
+      "from": "before-drag",
+      "dw": 260,
+      "dh": 160
+     }
+    },
     {
      "pane_state": {
       "pane": "main",
