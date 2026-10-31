@@ -62,18 +62,21 @@ struct HomeHeaderPanelsTests {
         #expect(services.pages.keys(of: .chiefMemory).isEmpty)
     }
 
-    /// Nothing is open by default: a fresh window's header shows both toggles off (a Chief's
-    /// conversation), and only the sidebar toggle elsewhere.
+    /// Nothing is open by default: a fresh window's header shows every toggle off (a Chief's
+    /// conversation), and only the sidebar toggle elsewhere. Share Screen with Chief shows even
+    /// while the Debug toggle hides the rest: it is the sharing indicator too.
     @Test func aFreshWindowShowsEveryToggleOff() throws {
         let h = try Self.harness()
         defer { h.close() }
         let chief = HomeHeaderPanels.items(h.context(isChief: true), enabled: true)
-        #expect(chief.map(\.id) == ["memory", "rightSidebar"])
+        #expect(chief.map(\.id) == ["screenShare", "memory", "rightSidebar"])
         #expect(chief.allSatisfy { !$0.isOn }, "nothing opens on the right by default")
         #expect(!h.controller.rightSidebar.isVisible)
         let dm = HomeHeaderPanels.items(h.context(isChief: false), enabled: true)
         #expect(dm.map(\.id) == ["rightSidebar"], "a DM has no Chief memory")
-        #expect(HomeHeaderPanels.items(h.context(isChief: true), enabled: false).isEmpty, "the Debug toggle hides the cluster")
+        #expect(HomeHeaderPanels.items(h.context(isChief: true), enabled: false).map(\.id) == ["screenShare"],
+                "the Debug toggle hides the cluster but the sharing toggle")
+        #expect(HomeHeaderPanels.items(h.context(isChief: false), enabled: false).isEmpty)
     }
 
     /// The sidebar toggle follows the window's right sidebar, whichever entry point moved it, and a

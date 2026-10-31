@@ -75,6 +75,9 @@ enum HomeMapping {
         return PartRef(messageId: r.id, partIndex: homePart == 0 ? last : r.owners.firstIndex(of: homePart) ?? last)
     }
 
+    /// The client id prefix of Chief's first-launch welcome messages (CmuxNext `ChiefWelcome`).
+    static let welcomeKeyPrefix = "chief-welcome-"
+
     static func message(_ item: TranscriptItem, aliases: [IdempotencyKey: ID], me: ParticipantID,
                         summary: ConversationSummary?, media: Media = { _ in nil }, links: Links = { _ in nil },
                         roots: Roots = { _ in nil }) -> Message {
@@ -91,6 +94,8 @@ enum HomeMapping {
                 reactions: item.reactions.map { reaction($0, partIndex: projectedIndex($0.partIndex, owners)) }, format: format)
         // ThreadMode.tree: the message a nested reply answers (HomeMapping+Tree.swift).
         message.parent = parent(item, roots: roots)
+        // Chief's first-launch welcome (CmuxNext ChiefWelcome, client ids "chief-welcome-…"): each bubble its own group.
+        if item.key.rawValue.hasPrefix(welcomeKeyPrefix) { message.cmuxStandsAlone = true }
         if !item.isRetracted, !item.parts.isEmpty, parts.isEmpty {
             // Nothing to read (a Chief turn's done marker, a work part with no preview): kept so
             // its seq still moves the read cursor, drawn as no row and counted as no reply.
@@ -121,6 +126,11 @@ enum HomeMapping {
     static func projectedParts(_ item: TranscriptItem, summary: ConversationSummary?, media: Media = { _ in nil },
                                links: Links = { _ in nil }) -> (parts: [Part], owners: [Int]) {
         guard !item.isRetracted else { return ([], []) }
+        if let row = item.agentMessage {
+            // An agent-message row: its words, as Markdown (the fold's link, the bold "Chief → a917" line).
+            let shown = self.parts(.text(agentMessageText(row)), media: media, markdown: true, links: links)
+            return (shown, Array(repeating: 0, count: shown.count))
+        }
         let markdown = isAgent(item.author, summary)
         var parts: [Part] = [], owners: [Int] = []
         for (i, p) in item.parts.enumerated() {
@@ -129,6 +139,30 @@ enum HomeMapping {
             owners += Array(repeating: i, count: shown.count)
         }
         return (parts, owners)
+    }
+
+    /// What an agent-message row says, as Markdown. The fold names its agents after a link that
+    /// expands or collapses it ("Agent messages (6) · a938, a917"); a message is its "from → to"
+    /// line in bold, then the whole message (the agent's own Markdown, its links kept).
+    static func agentMessageText(_ row: HomeAgentMessageRow) -> String {
+        switch row.kind {
+        case let .fold(count, peers, expanded):
+            let label = expanded ? CmuxStrings.hideAgentMessages(count) : CmuxStrings.showAgentMessages(count)
+            let link = "[\(expanded ? "▾" : "▸") \(label)](\(HomeAgentMessageRow.toggleLink(group: row.group)))"
+            return expanded ? link : "\(link) · \(peers.map(markdownEscaped).joined(separator: ", "))"
+        case let .message(from, to, _, text):
+            return "**\(markdownEscaped(from)) → \(markdownEscaped(to))**\n\(text)"
+        }
+    }
+
+    /// `name` with the Markdown punctuation that would change its look escaped (an agent id, a display name).
+    private static func markdownEscaped(_ name: String) -> String {
+        var out = ""
+        for ch in name {
+            if "\\`*_[]<>#|~".contains(ch) { out.append("\\") }
+            out.append(ch)
+        }
+        return out
     }
 
     /// A HomeStore part index as the first MessagesLab part it shows as
@@ -388,15 +422,6 @@ enum HomeMapping {
 
     static func title(_ summary: ConversationSummary?, me: ParticipantID) -> String {
         summary?.displayTitle(me: me) ?? ""
-    }
-
-    /// The other participant's initials (the header avatar); a group shows
-    /// the title's.
-    static func initials(_ summary: ConversationSummary?, me: ParticipantID) -> String {
-        let others = (summary?.participants ?? []).filter { $0.id != me }
-        if others.count == 1, let other = others.first { return other.initials }
-        let words = title(summary, me: me).split(separator: " ").prefix(2).compactMap(\.first)
-        return String(words).uppercased()
     }
 
     /// The loaded window's place in the history: (messages before it, total).

@@ -33,7 +33,7 @@ export const KNOWN_PROGRAMS = [
  * Programs the lock may carry but does not require yet: their release does not
  * exist, so they are pinned only once it does (cloud-automation.md section 2.2).
  */
-export const OPTIONAL_PROGRAMS = ["cmux-cua", "chrome-for-testing", "cmux-browser-host"] as const;
+export const OPTIONAL_PROGRAMS = ["cmux-cua", "chrome-for-testing", "cmux-browser-host", "agent-desktop"] as const;
 export type ProgramName = (typeof KNOWN_PROGRAMS)[number] | (typeof OPTIONAL_PROGRAMS)[number];
 
 /** Role names a program or a lock role may use (vm-image.md 4.3, cloud-automation.md 2.1). */
