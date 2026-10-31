@@ -34,8 +34,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from pr_runner_pool import PR_XCODE_VARIABLE, SLOTS_VARIABLE, slot_problems  # noqa: E402
-from runner_label_policy import PolicyUnreadable, drifted_runner_variables  # noqa: E402
-from cloud_overflow_switch import RECORD_VARIABLE, parse_record  # noqa: E402
+from runner_label_policy import HOSTED_MACOS_LABEL, PolicyUnreadable, drifted_runner_variables  # noqa: E402
+from cloud_overflow_switch import (RECORD_VARIABLE, TRUSTED_BLACKSMITH_LABELS, TRUSTED_VARIABLE,  # noqa: E402
+                                   parse_record)
+from signing_runner_variables import allowed_value  # noqa: E402
 
 RUNNER_VARIABLES_ENV = "CMUX_CI_RUNNER_VARIABLES"
 DAEMON_POOL_VARIABLE = "CI_NEXT_DAEMON_POOL"
@@ -125,10 +127,26 @@ def problems(env: dict[str, str]) -> list[str]:
                              "that gate the nightly-next promotion queue behind pull request side lanes. "
                              "Fix: point it at a pool pull requests do not fill, or clear it for the promote pool")
             found.extend(pin_pool_findings(env.get(PIN_POOL_VARIABLE, "").strip(), daemon_pool, variables)[0])
-            for name, value, reason in drifted_runner_variables(variables):
-                if switched.get(name) == value:
-                    continue  # the overflow switch's failover while Blacksmith is down
+            drifted = list(drifted_runner_variables(variables))
+            reported = {name for name, _, _ in drifted}
+            for name, value in sorted(variables.items()):
+                # Checked on their own: the drift policy accepts some labels (an older provider's,
+                # say) that no signing job may run on.
+                if name not in reported and not allowed_value(name, value):
+                    found.append(f"{name}={value!r}: signing jobs run on it, so it may only name blacksmith-* "
+                                 "or ubuntu-* (scripts/ci/signing_runner_variables.py)")
+            for name, value, reason in drifted:
+                if (switched.get(name) == value and not HOSTED_MACOS_LABEL.search(value.strip().lower())
+                        and allowed_value(name, value)):
+                    # The overflow switch's failover while Blacksmith is down; never a hosted Mac, and a
+                    # variable signing jobs read is never excused for naming a reused machine, record or not.
+                    continue
                 found.append(f"{name}={value!r}: {reason}")
+            trusted = variables.get(TRUSTED_VARIABLE, "").strip()
+            if trusted and trusted != "ubuntu-24.04" and trusted not in TRUSTED_BLACKSMITH_LABELS:
+                # Its readers accept only these, so any other value silently falls back to Blacksmith 4 vCPU.
+                found.append(f"{TRUSTED_VARIABLE}={trusted!r}: its readers accept only ubuntu-24.04, "
+                             + ", ".join(sorted(TRUSTED_BLACKSMITH_LABELS)) + "; anything else falls back")
         except (ValueError, PolicyUnreadable) as error:
             found.append(str(error))
     for problem in slot_problems(env.get(SLOTS_VARIABLE), env.get(PR_XCODE_VARIABLE)):

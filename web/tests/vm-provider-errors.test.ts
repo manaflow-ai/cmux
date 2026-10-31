@@ -4,6 +4,7 @@ import { ProviderError } from "../services/vms/drivers/types";
 import {
   isProviderDeletionConfirmed,
   isProviderIdentityNotFoundError,
+  isProviderMachineGone,
   isProviderNotFoundError,
 } from "../services/vms/providerErrors";
 
@@ -51,6 +52,16 @@ describe("provider error classification", () => {
 
     expect(isProviderIdentityNotFoundError(err)).toBe(true);
     expect(isProviderNotFoundError(err)).toBe(false);
+  });
+
+  // https://github.com/manaflow-ai/cmux/issues/21820: retiring a row hides the
+  // machine from its owner, so only a 404 that names the machine gone may do it.
+  test("a machine is gone only on a 404 whose code names it missing or deleted", () => {
+    expect(isProviderMachineGone(new ProviderError("freestyle", "getStatus", new FreestyleApiError(404, { code: "NOT_FOUND", message: "VM not found" })))).toBe(true);
+    expect(isProviderMachineGone({ cause: { status: 404, code: "VM_DELETED" } })).toBe(true);
+    expect(isProviderMachineGone({ cause: { status: 404, code: "UNKNOWN_ERROR", message: "<html>404 Not Found</html>" } })).toBe(false);
+    expect(isProviderMachineGone({ cause: { status: 502, code: "NOT_FOUND" } })).toBe(false);
+    expect(isProviderMachineGone(new Error("VM_DELETED: Vm vm-1 is marked as deleted"))).toBe(false);
   });
 
   test("background deletion confirmation requires the explicit NOT_FOUND code", () => {
