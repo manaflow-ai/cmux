@@ -208,7 +208,7 @@ final class FakeHomeOwner: @unchecked Sendable {
         Task {
             // Runs once the wait below has looked and gone to sleep: hold the main
             // thread past its watchdog, then finish a few main-actor turns later.
-            Thread.sleep(forTimeInterval: 0.5)
+            holdTheMainThread(seconds: 0.5)
             Task {
                 await Task.yield()
                 await Task.yield()
@@ -382,6 +382,11 @@ final class PushLink: MacLink, @unchecked Sendable {
 /// Set by a main-actor task in the wait tests; observable, as the feed is.
 @MainActor @Observable final class WaitFlag {
     var done = false
+}
+
+/// Blocks the calling thread: synchronous, as a UIKit suite holding the main thread is.
+func holdTheMainThread(seconds: TimeInterval) {
+    Thread.sleep(forTimeInterval: seconds)
 }
 
 /// How often a wait checked its condition: plain state, so counting never wakes it.

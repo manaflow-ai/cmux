@@ -377,8 +377,9 @@ func within<T: Sendable>(_ limit: Duration, _ work: @escaping @Sendable () async
 /// their first look, before the work they waited on (held just as long) got its turn.
 let waitWatchdog: Duration = .seconds(60)
 
-/// A wall-clock stop for a wait whose main thread never comes free: only a backstop,
-/// so a run that hangs still ends.
+/// A wall-clock stop for a wait whose main thread stays busy but keeps coming back to
+/// it: only a backstop. A main thread blocked for good stops the wait too; the suite's
+/// time limit ends that.
 let waitBackstop: Duration = .seconds(600)
 
 /// Whether `condition` came to hold within `watchdog` of the wait's own running time,
@@ -399,7 +400,7 @@ let waitBackstop: Duration = .seconds(600)
         if met { return true }
         if Task.isCancelled || left <= .zero || ContinuousClock.now >= backstop { return false }
         // Never past what is left, however long the tick.
-        let nap = min(tick, left)
+        let nap = min(max(tick, .milliseconds(1)), left)
         let start = ContinuousClock.now
         let ticker = Task { @MainActor in
             try? await Task.sleep(for: nap)
