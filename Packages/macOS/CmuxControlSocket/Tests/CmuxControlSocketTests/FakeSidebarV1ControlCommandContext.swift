@@ -32,6 +32,7 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         key: String,
         value: String,
         icon: String?,
+        url: URL?,
         panelID: UUID?,
         workState: ControlSidebarAgentWorkState?
     )?
@@ -82,7 +83,7 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         pid: Int32?,
         workState: ControlSidebarAgentWorkState?
     ) {
-        statusUpsertCall = (target, key, value, icon, panelID, workState)
+        statusUpsertCall = (target, key, value, icon, url, panelID, workState)
     }
 
     nonisolated func controlSidebarScheduleStatusClear(

@@ -23222,6 +23222,10 @@ struct CMUXCLI {
               --icon <name>          Icon name (e.g. "sparkle", "hammer")
               --color <#hex>         Pill color (e.g. "#ff9500")
                                      "#4C8DFF" draws as the cmux accent (app.accentColor)
+              --url <url>            Click target. Any URL scheme that macOS can open
+                                     is accepted: https://, http://, obsidian://,
+                                     vscode://, slack://, linear://, file://, mailto:,
+                                     tel:, plus your own custom dev-tool schemes.
               --priority <n>         Sort priority; higher appears first (default: 0)
               --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
               --window <id|ref|index>      Window context for workspace refs and indexes
@@ -23229,6 +23233,7 @@ struct CMUXCLI {
             Example:
               cmux set-status build "compiling" --icon hammer --color "#ff9500" --priority 80
               cmux set-status deploy "v1.2.3" --workspace workspace:2
+              cmux set-status notes "open" --url "obsidian://open?vault=Work&file=meeting.md"
             """)
         case "clear-status":
             return """

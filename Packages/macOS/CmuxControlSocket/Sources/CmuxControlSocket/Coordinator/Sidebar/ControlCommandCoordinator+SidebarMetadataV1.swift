@@ -60,10 +60,16 @@ extension ControlCommandCoordinator {
 
         let parsedURL: URL?
         if let rawURL = sidebarNormalizedOptionValue(parsed.options["url"] ?? parsed.options["link"]) {
+            // LaunchServices routes scheme-bearing metadata links to their owning apps.
             guard let candidate = URL(string: rawURL),
-                  let scheme = candidate.scheme?.lowercased(),
-                  scheme == "http" || scheme == "https" else {
-                return "ERROR: Invalid metadata URL '\(rawURL)' — expected http(s) URL"
+                  let scheme = candidate.scheme,
+                  !scheme.isEmpty else {
+                let format = String(
+                    localized: "socket.sidebarMetadata.invalidURL",
+                    defaultValue: "ERROR: Invalid metadata URL '%@' — must include a scheme (e.g. https://, obsidian://, file://)",
+                    bundle: .module
+                )
+                return String.localizedStringWithFormat(format, rawURL)
             }
             parsedURL = candidate
         } else {
