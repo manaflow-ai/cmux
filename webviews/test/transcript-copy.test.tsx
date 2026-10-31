@@ -207,7 +207,9 @@ test("keyboard transcript selection copies source without a floating button", as
 // left??? just remove it". A prompt drawn as the person's bubble keeps only the Copy in the row under
 // its bubble. Tool rows have no floating action over their duration or disclosure.
 test("transcript rows have no floating Copy; message actions own their copy", async () => {
-  // Another agent's message is a user row drawn as a line, not the person's bubble: it keeps its Copy.
+  // Another agent's message is a user row drawn as a line, not the person's bubble: closed, its line
+  // has no Copy (Leo, 2026-10-30: "all these weird button stuff from messages from other sessions");
+  // opened, its card's corner Copy is its one Copy.
   const incoming: AcpmuxRow = {
     id: "selection-4",
     version: 1,
@@ -240,8 +242,12 @@ test("transcript rows have no floating Copy; message actions own their copy", as
     expect(row("selection-3").getAttribute("data-floating-copy")).toBeNull();
     expect(row("selection-4").querySelector(".cv-user__bubble")).toBeNull();
     expect(row("selection-4").querySelector(".acpmux-row__copy")).toBeNull();
+    expect(copies("selection-4")).toHaveLength(0);
+    expect(row("selection-4").querySelector(".cv-message-pin")).toBeNull();
+    await act(async () => row("selection-4").querySelector<HTMLButtonElement>("button.cv-disclosure__toggle")!.click());
     expect(copies("selection-4")).toHaveLength(1);
-    expect(copies("selection-4")[0]!.closest(".cv-received-actions")).not.toBeNull();
+    expect(copies("selection-4")[0]!.closest(".cv-card-copy")).not.toBeNull();
+    expect(copies("selection-4")[0]!.closest(".cv-received-actions")).toBeNull();
   } finally {
     await act(async () => root.unmount());
     restore();

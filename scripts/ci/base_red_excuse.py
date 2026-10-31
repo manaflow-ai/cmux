@@ -116,26 +116,75 @@ BASE_JOB_READS = 40
 # HTTP 502 at 100 and 50 per page, every time, and at 30 it answered (2026-10-30).
 JOBS_PAGE = 30
 # A job no feat-cmux-next push runs gets its base verdict from a dispatch: main's tip suite dispatcher
-# (cmux-next-tip-swift-suite-dispatch.yml, a run named `<title><tested sha>`) or a hand dispatch. Base
-# pushes land every minute or two, so the window above can miss them (2026-10-30: no daemon-test verdict
-# on the base for hours, #27692). When it does, the base's newest completed dispatches are read too,
-# newest first, and the first with a verdict for the job decides, a green one included: an older red never
-# stands over a newer green. DEV daily runs and the other job's tip suite never run the job, so they are
-# skipped unread. At most TIP_SUITE_JOB_READS job lists; none of them with a verdict refuses as before.
-TIP_SUITES = {
-    "cmux-next swift test": "cmux-next tip Swift suite · ",
-    "cmux-next daemon tests": "cmux-next tip daemon suite · ",
+# (cmux-next-tip-swift-suite-dispatch.yml), cmux-next-base-tier-kick.yml (the base Mac tier, at most
+# once every 15 minutes on the tip, cmuxterm-hq#5424), each a run named `<title><tested sha>`, or a hand
+# dispatch. Base pushes land every minute or two, so the window above can miss them (2026-10-30: no
+# daemon-test verdict on the base for hours, #27692). When it does, the base's newest completed dispatches
+# are read too, newest first, and the first with a verdict for the job decides, a green one included: an
+# older red never stands over a newer green. A suite that never runs the job (DEV daily runs, the other
+# suites) is skipped unread, here and in the window above. At most TIP_SUITE_JOB_READS job lists; none of
+# them with a verdict refuses as before.
+SUITES = {
+    "cmux-next tip Swift suite · ": frozenset({"cmux-next swift test"}),
+    "cmux-next tip daemon suite · ": frozenset({"cmux-next daemon tests"}),
+    # cmux-next.yml base_tier: path routing's base_tier branch routes these, and nothing else. Its generated
+    # files are checked on the generated-files job itself (path routing's generated_host), never folded.
+    "cmux-next base tier · ": frozenset({
+        "cmux-next daemon tests", "cmux-next generated files", "cmux app scheme compile (Debug)",
+        "cmux-next crash ends the app",
+    }),
+    # cmux-next.yml dispatches that route neither swift-test nor daemon-test (path routing's dev_daily branch).
+    "cmux NEXT DEV daily": frozenset(),
 }
 TIP_SUITE_JOB_READS = 6
-# cmux-next.yml dispatches that route neither swift-test nor daemon-test (path routing's dev_daily branch).
-DISPATCHES_WITHOUT_TESTS = ("cmux NEXT DEV daily",)
-TESTS = (
-    re.compile(r"✘ Test (.+?\)) (?:recorded an issue|failed)"),  # Swift Testing
-    re.compile(r"Test Case '-\[(\S+ \S+)\]' failed"),  # XCTest
-    re.compile(r"^test (\S+) \.\.\. FAILED$"),  # cargo test
-    re.compile(r"^(?:FAIL|ERROR): (\S+ \([^)]+\))"),  # unittest
-    re.compile(r"^FAILED (\S+::\S+)"),  # pytest
-)
+# The jobs of the cmux-tui tree tiers (cmux_next_tree_notify.TIERS: daemon, scheme). A tip daemon suite or base tier
+# dispatch whose tree has not published yet skips them and leaves them to the same-tree run its publish dispatches,
+# which carries the same `<title><tested sha>` name. So a suite run with a newer run of the same name (queued,
+# running or done) is that first run: it is skipped unread for these jobs and never spends a job-list read. On
+# 2026-10-31 the base tier's six newest completed dispatches were all such first runs, and the tip daemon suite
+# run with the verdict, behind them, was never read: no pull request's daemon-test red could be compared.
+TREE_JOBS = frozenset({"cmux-next daemon tests", "cmux app scheme compile (Debug)", "cmux-next crash ends the app"})
+
+
+def deferred_first_runs(runs: list[dict]) -> set[int]:
+    """The ids of suite runs in RUNS (newest first) that have a newer run of the same name: first runs whose
+    tree jobs went to that later same-tree run."""
+    seen: set[str] = set()
+    deferred: set[int] = set()
+    for run in runs:
+        title = run.get("display_title") or ""
+        if not suite_jobs(run):
+            continue
+        if title in seen:
+            deferred.add(run["id"])
+        seen.add(title)
+    return deferred
+
+
+def suite_jobs(run: dict) -> frozenset[str] | None:
+    """The jobs a base run's suite can carry, or None for a run of no known suite (a push, a hand dispatch)."""
+    title = run.get("display_title") or ""
+    return next((jobs for prefix, jobs in SUITES.items() if title.startswith(prefix)), None)
+
+
+# The jobs some suite above is the base verdict for. Only these are ever skipped: every other job (checks,
+# web bundles, the placement jobs) may run in any suite, so a suite run's verdict for it always counts.
+SUITE_JOBS = frozenset().union(*SUITES.values())
+
+
+def never_carries(run: dict, name: str) -> bool:
+    """Whether RUN's suite never runs job NAME, so it has no verdict for it to read."""
+    jobs = suite_jobs(run)
+    return name in SUITE_JOBS and jobs is not None and name not in jobs
+
+
+def tested_sha(run: dict) -> str:
+    """The commit a cmux-next.yml run tested: the sha its name ends in (a same-tree run tests it after the
+    branch moved on), else its head_sha."""
+    match = re.search(r" · ([0-9a-f]{40})$", run.get("display_title") or "")
+    return match.group(1) if match else str(run.get("head_sha") or "")
+
+
 ERROR = re.compile(r"##\[error\]|\berror:")
 WARNING = re.compile(r"##\[warning\]|\bwarning:")
 # Summaries carry counts, and a test's own lines already name it.
@@ -318,15 +367,17 @@ def lines_of(log: str) -> list[str]:
 
 
 def signature(job: dict, log: str) -> tuple[set[str], set[str], set[str]]:
-    """(failed step names, failing test names, error lines with numbers masked)."""
+    """(failed step names, failing test names, error lines with numbers masked), from what the steps printed: the
+    runner's echo of each step's script is never a test or an error (test_reds.echoed; 2026-10-30, cmux#28145 was
+    excused because the base's log echoed the same `echo "::error::..."` lines of its step's script)."""
     steps = {step["name"] for step in job.get("steps") or []
              if step.get("conclusion") not in (None, "success", "skipped")}
-    tests: set[str] = set()
+    tests = test_reds.failed_names(test_reds.lines_of(log))
     errors: set[str] = set()
-    for text in lines_of(log):
-        for pattern in TESTS:
-            if match := pattern.search(text):
-                tests.add(match.group(1))
+    skip = test_reds.echoed(test_reds.log_lines(log))
+    for n, text in enumerate(lines_of(log)):
+        if n in skip:
+            continue
         if ERROR.search(text) and not GENERIC.search(text) and not WARNING.search(text) and not CRASH_LINE.search(text):
             errors.add(re.sub(r"\d+", "#", mask_shas(text.replace("##[error]", "").strip())))
     return steps, tests, errors
@@ -373,6 +424,56 @@ def compile_pass_at(repo: str, sha: str, github) -> str | None:
                 return f"the {COMPILE_PASS_STATUS} status"
             break
     return None
+
+
+# The Rust panic ratchet (scripts/cmux-next/rust_panic_ratchet.py, run by .github/scripts/cmux-tui-clippy-changed.py).
+# Its error line names the packages the run checked, and a base run may check the whole workspace while a PR checks
+# only its changed packages, so that line never matches (2026-10-31: cmux#26849's run 41176610742 failed on two rows
+# that base run 41176544319 failed on word for word, and was refused). Its red is judged by the rows of its RED
+# block instead (ratchet_red): each head row `CRATE: clippy::LINT N > WHERE` must be on the base with the same
+# crate, lint and WHERE (`baseline M` or `new crate (must be 0)`) and a count at least the head's; every other
+# line of the block but a hit location must be on the base word for word. A red with no row is never excused.
+RATCHET_SCOPE = re.compile(r"^the panic ratchet is red for .+; its log above names each new hit")
+RATCHET_RED, RATCHET_END = "rust-panic-ratchet: RED", "Fix the hit "
+RATCHET_ROW = re.compile(r"^(\S+): clippy::(\w+) (\d+) > (baseline \d+|new crate \(must be 0\))$")
+RATCHET_HIT = re.compile(r"^[^\s:]+\.rs:\d+:\d+$")
+
+
+def ratchet_red(log: str) -> tuple[dict[tuple[str, str, str], int], set[str]]:
+    """({(crate, lint, where): count} of the ratchet's RED rows, its other RED lines), hit locations left out."""
+    rows: dict[tuple[str, str, str], int] = {}
+    other: set[str] = set()
+    skip = test_reds.echoed(test_reds.log_lines(log))
+    inside = False
+    for n, text in enumerate(lines_of(log)):
+        if n in skip:
+            continue
+        if text == RATCHET_RED:
+            inside = True
+        elif inside and (text.startswith(RATCHET_END) or text.startswith("##[")):
+            inside = False
+        elif inside and text:
+            if row := RATCHET_ROW.match(text):
+                crate, lint, count, where = row.groups()
+                key = (crate, lint, where)
+                rows[key] = max(rows.get(key, 0), int(count))
+            elif not RATCHET_HIT.match(text):
+                other.add(text)
+    return rows, other
+
+
+def ratchet_unmatched(head_log: str, base_log: str) -> list[str]:
+    """The head's panic ratchet failures its base run does not have (empty when every one is covered)."""
+    head_rows, head_other = ratchet_red(head_log)
+    if not head_rows:
+        raise Refused("the panic ratchet is red with no per-lint row to compare with the base "
+                      "(a clippy run that did not finish, say)")
+    base_rows, base_other = ratchet_red(base_log)
+    missing = [f"{crate}: clippy::{lint} {count} > {where}" + (
+                   f" (the base has {base_rows[(crate, lint, where)]})" if (crate, lint, where) in base_rows else "")
+               for (crate, lint, where), count in sorted(head_rows.items())
+               if base_rows.get((crate, lint, where), -1) < count]
+    return missing + sorted(head_other - base_other)
 
 
 def crash_signals(log: str) -> set[str]:
@@ -516,13 +617,15 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github) -
 
 def tip_suite_verdict(repo: str, base: str, workflow, name: str, github,
                       base_jobs: dict[int, list[dict]]) -> tuple[dict | None, dict | None]:
-    """The newest completed tip suite run of BASE with a verdict for job NAME, and that job."""
-    others = tuple(title for job, title in TIP_SUITES.items() if job != name) + DISPATCHES_WITHOUT_TESTS
+    """The newest completed suite run of BASE with a verdict for job NAME, and that job."""
+    # Every status, so a first run's same-tree run is seen while it still queues or runs (TREE_JOBS).
     listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}&event=workflow_dispatch"
-                         f"&status=completed&per_page={BASE_RUNS_PAGE}")
-    candidates = [run for run in listed.get("workflow_runs") or []
-                  if run.get("conclusion") != "skipped"
-                  and not (run.get("display_title") or "").startswith(others)]
+                         f"&per_page={BASE_RUNS_PAGE}")
+    runs = listed.get("workflow_runs") or []
+    deferred = deferred_first_runs(runs) if name in TREE_JOBS else set()
+    candidates = [run for run in runs
+                  if run.get("status") == "completed" and run.get("conclusion") != "skipped"
+                  and not never_carries(run, name) and run["id"] not in deferred]
     for run in candidates[:TIP_SUITE_JOB_READS]:
         if run["id"] not in base_jobs:
             base_jobs[run["id"]] = [found for page in github.json(
@@ -574,6 +677,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         # run's Mac job is often cancelled by the next push, or refused by a mini.
         base_run = base_job = None
         for candidate_run in base_runs[workflow]:
+            if never_carries(candidate_run, name):
+                continue
             if candidate_run["id"] not in base_jobs:
                 if job_reads.get(workflow, 0) >= BASE_JOB_READS:
                     break
@@ -585,7 +690,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             if found is not None and found.get("conclusion") in VERDICTS and not refused_at_setup(found):
                 base_run, base_job = candidate_run, found
                 break
-        if base_run is None and name in TIP_SUITES:
+        if base_run is None and name in SUITE_JOBS:
             base_run, base_job = tip_suite_verdict(repo, base, workflow, name, github, base_jobs)
         if base_run is None:
             raise Refused(f"'{name}': no completed {base} run of its workflow has a verdict for it to compare with "
@@ -607,15 +712,33 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if missing := sorted(head_crash - crash_signals(base_log)):
             raise Refused(f"'{name}': the process died on signal {', '.join(missing)}, "
                           f"and {base} run {base_run['id']} did not")
+        # The ratchet's error line names the run's packages, not its red: its rows are compared instead (RATCHET_SCOPE).
+        ratchet = {error for error in head_errors if RATCHET_SCOPE.match(error)}
+        if ratchet:
+            try:
+                unmatched = ratchet_unmatched(head_log, base_log)
+            except Refused as error:
+                raise Refused(f"'{name}': {error}") from None
+            if unmatched:
+                raise Refused(f"'{name}': panic ratchet failures not on {base} run {base_run['id']}: "
+                              f"{'; '.join(unmatched)[:600]}")
+            head_errors = head_errors - ratchet
         compared = [("failed steps", head_steps, base_steps), ("failing tests", head_tests, base_tests)]
         if not head_tests:
             compared.append(("errors", head_errors, base_errors))
         for kind, head, seen in compared:
             if missing := sorted(head - seen):
                 raise Refused(f"'{name}': {kind} not on {base} run {base_run['id']}: {'; '.join(missing)[:600]}")
-        what = "; ".join(sorted(head_tests)) or "; ".join(sorted(head_errors))
+        rows = [f"{crate}: clippy::{lint} {count} > {where}"
+                for (crate, lint, where), count in sorted(ratchet_red(head_log)[0].items())] if ratchet else []
+        what = "; ".join(sorted(head_tests)) or "; ".join(rows + sorted(head_errors))
         url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
-        audit.append(f"excused '{name}': {base} run {base_run['id']} fails the same way ({url}): {what[:400]}")
+        # The base verdict is the newest one, not necessarily the base tip's: the base tier runs at most
+        # once every 15 minutes, so name the commit and time it is from.
+        at = f" at {tested_sha(base_run)[:10]}" if tested_sha(base_run) else ""
+        when = f", {base_run['created_at']}" if base_run.get("created_at") else ""
+        audit.append(f"excused '{name}': {base} run {base_run['id']}{at} (the newest {base} verdict for it{when}) "
+                     f"fails the same way ({url}): {what[:400]}")
     return audit
 
 

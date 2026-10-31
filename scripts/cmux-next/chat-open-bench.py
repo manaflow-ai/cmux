@@ -44,6 +44,9 @@ Runs on a fleet mini through scripts/measure/chat-open.sh, never on an interacti
   chat-open-bench.py --app BUNDLE [--runs 3] [--turns 3000] [--sessions 1500]
                      [--conditions idle,load,load_utility,load_nice] [--cases sidebar,reopen,subagent,big,restore]
                      [--json FILE] [--md FILE]
+The table is also printed between CHAT-OPEN-TABLE-BEGIN and -END. A fleet step returns ONE file (`cmux-ci run
+--artifact` takes a single path; a second one replaces the first), so ask for artifacts/chat-open.json: it has
+every open's marks, frames, page timing and wire log, and the table can be rebuilt from it.
 Kills only the processes it started (the app it launched through bench_memory, the seeding daemon,
 and the load's own process groups).
 """
@@ -393,6 +396,21 @@ def why(record):
     return (" " + " ".join(parts)) if parts else ""
 
 
+def click_subagent(run):
+    """Clicks a subagent line the chat shows, newest first. The click needs the line in the page,
+    and which of the chat's subagent lines it renders depends on the build: a fixed name per open
+    failed with "no visible element matches" for "Auditor 0" at one base and "Auditor 1" at
+    another (2026-10-31). A click that matches nothing returns that error at once and does
+    nothing, so the next name is tried. Each open is its own copy of the chat with its own
+    subagents, so the same name in two opens opens two subagents."""
+    reply = None
+    for k in range(SUBAGENTS - 1, -1, -1):
+        reply = run.rpc("debug.agent_pane", {"action": "click", "text": f"Auditor {k}"}) or {}
+        if reply.get("error") != "no visible element matches":
+            return {**reply, "clicked": f"Auditor {k}"}
+    return reply
+
+
 def measure_case(run, case, sessions, index):
     session = sessions[case][index] if case != "reopen" else sessions["reopen"][index]
     if case in ("sidebar", "big", "bloated"):
@@ -404,8 +422,7 @@ def measure_case(run, case, sessions, index):
         return traced(run, lambda: open_workspace(run, session))
     if case == "subagent":
         settle_open(run, session)
-        name = f"Auditor {index}"
-        return traced(run, lambda: run.rpc("debug.agent_pane", {"action": "click", "text": name}))
+        return traced(run, lambda: click_subagent(run))
     raise ValueError(case)
 
 
@@ -489,7 +506,8 @@ def main():
 def markdown(results):
     lines = [f"chat-open-bench on {results['host']} ({results['model']}, {results['ncpu']} CPUs); "
              f"median of {opts.runs} opens, milliseconds from the action to the first frame of chat content; "
-             f"FAILED: a case with an open that showed no content or no empty time (no median over the rest)",
+             f"a cell reads FAILED when an open of its case timed out, errored, or showed no content or no empty time "
+             f"(no median over the rest)",
              "", "| case | " + " | ".join(CONDITIONS) + " |", "|---|" + "---|" * len(CONDITIONS)]
     for case in CASES:
         cells = []
