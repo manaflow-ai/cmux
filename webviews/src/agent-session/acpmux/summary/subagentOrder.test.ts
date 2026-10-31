@@ -3,7 +3,10 @@ import { orderedSubagents } from "./subagentOrder";
 
 type Agent = { id: string; parent: string | null; startedAt: number; priority: number };
 const agent = (id: string, parent: string | null, priority: number, startedAt = 1): Agent => ({
-  id, parent, priority, startedAt,
+  id,
+  parent,
+  priority,
+  startedAt,
 });
 
 test("attention and recency order siblings without changing depth-first parentage", () => {
@@ -28,7 +31,9 @@ test("attention and recency order siblings without changing depth-first parentag
 test("an absent parent and a self-parent stay visible at the root", () => {
   const agents = [agent("orphan", "gone", 2), agent("self", "self", 0), agent("child", "self", 1)];
   expect(orderedSubagents(agents, (a) => a.priority).map(({ agent: a, depth }) => [a.id, depth])).toEqual([
-    ["self", 0], ["child", 1], ["orphan", 0],
+    ["self", 0],
+    ["child", 1],
+    ["orphan", 0],
   ]);
 });
 
