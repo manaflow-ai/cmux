@@ -21,7 +21,7 @@ import UIKit
         surface.foldHold = TranscriptFoldHold(begin: { holds.begun += 1 }, end: { holds.ended += 1 })
         let call = ACPToolCall(id: "c1", title: "Run tests", kind: .execute, status: .completed)
         var actions = ChatNativeActions()
-        ChatNativeRowActions.configure(&actions, row: SmoothChatTests.row(.tool(call), id: "tool-c1"),
+        ChatNativeRowActions.configure(&actions, row: ChatRow(id: "tool-c1", turnID: "t", kind: .tool(call), gap: 0),
                                        context: ChatRowContext(store: store, surface: surface))
         actions.hit(.toggle("tool-c1"))
         #expect(holds.begun == 1, "the tap holds the line before the row opens")
