@@ -279,9 +279,18 @@ def acquire_lease(ch, exclusive, log_path=None, whole_host=False):
             got = signal.sigwait(STOP_SIGNALS)
             proc.terminate()
             try:
-                proc.wait(timeout=60)
+                late, _ = proc.communicate(timeout=60)
             except subprocess.TimeoutExpired:
                 proc.kill()
+                try:
+                    late, _ = proc.communicate(timeout=10)
+                except subprocess.TimeoutExpired:
+                    late = b""
+            # The acquire may have handed out a lease just before the TERM reached it (cmux19, 2026-10-31T09:36Z: the
+            # lease stayed until released by hand): release whatever it printed before stopping.
+            for word in (late or b"").decode(errors="replace").split():
+                if re.fullmatch(r"(slot-)?[A-Za-z0-9._-]+", word):
+                    subprocess.run([ch, "release", word], capture_output=True, timeout=120)
             raise Terminated(f"signal {got} while acquiring")
         if time.monotonic() > deadline:
             proc.terminate()  # our own child: capture-host's acquire_interrupted unreserves and exits

@@ -22,7 +22,8 @@ HERE = Path(__file__).resolve().parent
 FAKE_CH = r"""#!/bin/sh
 echo "$*" >> "$CH_LOG"
 case "$1" in
-  acquire) [ -n "$CH_ACQUIRE_SLEEP" ] && { trap 'echo acquire-ended >> "$CH_LOG"; exit 143' TERM; sleep "$CH_ACQUIRE_SLEEP" & wait; }
+  acquire) if [ -n "$CH_ACQUIRE_LATE" ]; then trap 'echo slot-cmux99-late; echo acquire-ended-late >> "$CH_LOG"; exit 143' TERM; sleep 30 & wait; fi
+           [ -n "$CH_ACQUIRE_SLEEP" ] && { trap 'echo acquire-ended >> "$CH_LOG"; exit 143' TERM; sleep "$CH_ACQUIRE_SLEEP" & wait; }
            echo "slot-cmux99-abc" ;;
   slot-info) echo "host=cmux99 slot=1 root=/tmp/fake-root" ;;
   launch) echo "pid=1 socket=/tmp/fake.sock bundle_id=x app=/tmp/fake.app" ;;
@@ -108,6 +109,22 @@ class Release(unittest.TestCase):
         self.assertEqual(p.returncode, 143, err)
         self.assertIn("acquire-ended", self.lines())
         self.assertFalse(any(l.startswith("launch") for l in self.lines()))
+
+
+class LateLease(unittest.TestCase):
+    def test_a_lease_printed_as_the_stop_arrives_is_released(self):
+        t = Release("test_error_inside_the_round_releases")
+        t.setUp()
+        p = t.start("sleep", CH_ACQUIRE_LATE="1")
+        end = time.time() + 10
+        while time.time() < end and not any(l.startswith("acquire") for l in t.lines()):
+            time.sleep(0.1)
+        time.sleep(0.5)
+        p.send_signal(signal.SIGTERM)
+        p.communicate(timeout=90)
+        self.assertEqual(p.returncode, 143)
+        self.assertIn("release slot-cmux99-late", t.lines())
+        self.assertFalse(any(l.startswith("launch") for l in t.lines()))
 
 
 class DoubleStop(unittest.TestCase):

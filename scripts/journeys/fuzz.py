@@ -48,7 +48,9 @@ HANDOFF = Path("/Users/lawrence/fun/wt/handoff/dogfood-fuzz")
 # cmux17 is reserved for the Cua grant (STATUS "CUA GRANTED cmux17"); cmux16 is Leo's builder.
 # cmux20-bench is the quiet measurement host (cmux-ad 07:1xZ): no fuzz there except row m on --host cmux20, one lease.
 # cmux21 holds the tip watcher's smoke candidates since 08:47Z (mini scheduler 09:1xZ): not a default fuzz host.
-DEFAULT_HOSTS = "cmux18 cmux19 cmux22 cmux23 cmux24"
+# cmux18, 22, 23 and 24 are in the scheduler's Cua grant list (lead 09:3xZ): each needs an empty slot until STATUS has
+# a line that starts with "CUA GRANTED <mini>"; a fuzz run names them in --hosts only after that line.
+DEFAULT_HOSTS = "cmux19"
 # A speed regression: at least MIN_SAMPLES on each side, the build's median above the base's by RATIO and by
 # FLOOR_MS, and its p90 worse too (one slow sample does not make a red).
 MIN_SAMPLES = 4
