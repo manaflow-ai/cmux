@@ -422,6 +422,19 @@ def _pane_grid(j, pane_key, cache):
     return row, _grid(((row or {}).get("surface") or {}).get("grid"))
 
 
+def _wait_prompt(j, timeout):
+    """Seconds until the current terminal's last non-empty daemon screen line is the bare prompt (`$`)."""
+    t0 = D.now()
+    last = None
+    while D.now() - t0 < timeout:
+        lines = [l for l in _lines(j.app.screen(j.need_term())["text"]) if l]
+        last = lines[-1] if lines else None
+        if last == "$":
+            return round(D.now() - t0, 2)
+        time.sleep(0.1)
+    raise D.StepError(f"the prompt did not come back within {timeout} s (last screen line {last!r})")
+
+
 def step_smoke_long_line(j, step):
     widest = 0
     for name in step.get("longer_than", []):
@@ -434,13 +447,16 @@ def step_smoke_long_line(j, step):
         raise D.StepError("smoke_long_line: no grid width to exceed")
     tag = j.sub(step["tag"])
     length = widest + 15
+    # As a person does: wait until the command before has finished and the prompt is back (the last screen line
+    # is the bare prompt), so these keys do not echo into that command's output.
+    waited = _wait_prompt(j, float(step.get("timeout", 10)))
     # The shell prints TAG then x's to LENGTH characters; the typed command itself holds no such run.
     text = f"printf '%s' {tag}; printf 'x%.0s' $(seq 1 {length - len(tag)}); echo"
     replies = [j.key(char, [], j.key_window) for char in text] + [j.key("return", [], j.key_window)]
     if not hasattr(j, "smoke_long"):
         j.smoke_long = {}
     j.smoke_long[tag] = length
-    return {"tag": tag, "length": length, "widest_before": widest, "keys": len(replies)}
+    return {"tag": tag, "length": length, "widest_before": widest, "keys": len(replies), "prompt_wait_s": waited}
 
 
 def _pty_size(text, tag):

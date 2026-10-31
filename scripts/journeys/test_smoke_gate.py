@@ -547,6 +547,28 @@ class Resize(unittest.TestCase):
         ok, detail = self.r3(self.journey(long_rows=None), long_tag="LL")
         self.assertFalse(ok)
 
+    def test_the_long_line_waits_for_the_prompt_before_its_keys(self):
+        j = self.journey()
+        screens = iter(["$ echo r3-1 $(stty size)\n", "$ echo r3-1 $(stty size)\nr3-1 24 80\n$ \n"])
+        state = {"text": next(screens)}
+
+        def screen(term):
+            state["text"] = next(screens, state["text"])
+            return {"text": state["text"], "cols": 80, "rows": 24}
+        j.app.screen = screen
+        j.need_term = lambda: "T1"
+        typed = []
+        j.key = lambda *a: typed.append(a)
+        j.key_window = None
+        sleep = self.ext.time.sleep
+        self.ext.time.sleep = lambda s: None
+        try:
+            result = self.ext.step_smoke_long_line(j, {"tag": "LL", "longer_than": ["right"]})
+        finally:
+            self.ext.time.sleep = sleep
+        self.assertEqual(result["length"], 95)
+        self.assertGreater(len(typed), 0)
+
     def test_r3b_any_old_column_width_change_fails_with_old_and_new(self):
         j = self.journey(widths={"P2": 300.0})
         self.ext.step_smoke_widths(j, {"name": "c0"})
