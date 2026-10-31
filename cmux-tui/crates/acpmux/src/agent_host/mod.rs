@@ -126,6 +126,11 @@ pub enum HostFrame {
         max_out_id: i64,
         /// The harness exit code once it exited (`Some(None)` = killed).
         exited: Option<Option<i32>>,
+        /// The harness's MCP servers, as the daemon that started it read them: the daemon that
+        /// adopts the host judges the idle harness by them (`hub/idle_census.rs`). None from a
+        /// host of an older build, or one started while idle hibernation was off.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        servers: Option<HostServers>,
     },
     Incompatible {
         min: u16,
@@ -243,6 +248,22 @@ pub struct OrphanExit {
     /// The harness's folder, for the servers its sessions name by a relative path.
     #[serde(default)]
     pub cwd: std::path::PathBuf,
+}
+
+/// What a host's hello tells the daemon that adopts it of its harness's MCP servers
+/// (`HostFrame::HostHello`): what the daemon that started it read just before the start
+/// ([`OrphanExit`]'s), and the ACP `mcpServers` its sessions opened with, each as its command
+/// and args only (`hub::census_servers`: a server's env, which may hold a token, stays out).
+/// Without it an adopted harness's own MCP servers kept it up for good: every daemon restart
+/// (each app update) left every agent running (160 harnesses idle for days on one Mac,
+/// 2026-10-30).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HostServers {
+    pub servers: Vec<crate::hub::Sidecar>,
+    pub path: String,
+    pub cwd: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub given: Option<Value>,
 }
 
 /// How long a host waits with no controller before an idle agent ends ([`OrphanExit`]): longer
