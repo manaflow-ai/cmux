@@ -348,11 +348,25 @@ def drop_resource_bundles(build: Path) -> list[Path]:
     beside the description.json SwiftPM writes there), so the next build copies only the resources
     the checkout has."""
     dropped = []
-    for description in sorted(build.glob("*/*/description.json")):
-        for bundle in sorted(description.parent.glob("*.bundle")):
-            if bundle.is_dir() and not bundle.is_symlink():
-                shutil.rmtree(bundle, ignore_errors=True)
-                dropped.append(bundle)
+
+    def real_dirs(path: Path) -> list[Path]:
+        # Never through a link: a kept build's <triple> or <config> that links elsewhere holds no bundle of ours.
+        try:
+            with os.scandir(path) as listed:
+                return sorted(Path(entry.path) for entry in listed if entry.is_dir(follow_symlinks=False))
+        except OSError:
+            return []
+    if build.is_symlink():
+        return dropped
+    for triple in real_dirs(build):
+        for config in real_dirs(triple):
+            description = config / "description.json"
+            if not (description.is_file() and not description.is_symlink()):
+                continue
+            for bundle in real_dirs(config):
+                if bundle.suffix == ".bundle":
+                    shutil.rmtree(bundle, ignore_errors=True)
+                    dropped.append(bundle)
     return dropped
 
 
@@ -710,15 +724,19 @@ def lease(workspace: Path, store: Path, runner: str, verdict: dict[str, object] 
             fd = take(target)
             if fd is None:
                 continue
-            held = (target, fd)
-            break
+            if not target.is_symlink() and target.is_dir():
+                held = (target, fd)  # drop() renames a root only under its lock: ours now, it stays
+                break
+            os.close(fd)  # pruned between the scan and the lock: making it again goes through admission
         # A new root is admitted under one scratch-wide lock, each against the free disk left after the
         # roots other jobs made and have not built yet, so jobs starting together never make more roots
         # than the disk above the reserve can hold.
         with open(scratch / ADMISSION, "a") as admission:
             fcntl.flock(admission, fcntl.LOCK_EX)
             if estimate is None:
-                estimate = max((size for size, _ in (tree_stats(entry) for entry in known)), default=0)
+                # The largest root measured, and never less than a whole build: a store with no root yet, or
+                # only partly built ones, must not admit roots for zero bytes.
+                estimate = max([ROOT_BYTES_UNMEASURED, *(size for size, _ in (tree_stats(entry) for entry in known))])
                 prune(scratch, sizes=sizes, room=estimate)
             pending = sum(1 for entry in entries(scratch) if entry != target and unbuilt_and_held(entry))
             if free_bytes(scratch) - disk_reserve_bytes() - pending * estimate < estimate:
