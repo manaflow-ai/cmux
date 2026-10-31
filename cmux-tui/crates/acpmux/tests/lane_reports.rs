@@ -9,6 +9,8 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+#[path = "lane_reports/reads.rs"]
+mod reads;
 // This process runs stand-in agents (the fake agents under tests/).
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
@@ -41,9 +43,9 @@ fn hub() -> Arc<Hub> {
             // Steers as Claude Code does: a prompt during a turn is read into it.
             "steer": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_CLAUDE_STEER": "1"}},
             // A turn on a lane report runs until it is cancelled.
-            "slow": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_UNTIL_CANCEL_IN": "lane report:"}},
+            "slow": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_UNTIL_CANCEL_IN": " · turn "}},
             "steer-slow": {"argv": ["python3", FAKE], "family": "fake",
-                           "env": {"FAKE_CLAUDE_STEER": "1", "FAKE_UNTIL_CANCEL_IN": "lane report:"}},
+                           "env": {"FAKE_CLAUDE_STEER": "1", "FAKE_UNTIL_CANCEL_IN": " · turn "}},
             // Starts no more once the file `FLAKY_MARK` names exists. Each variant is of the
             // starter's family, so a lane started from a `fake` parent inherits its mode.
             "flaky": {"argv": ["sh", "-c", "[ -e \"$FLAKY_MARK\" ] && exit 1; exec python3 \"$0\"", FAKE], "family": "fake",
@@ -294,17 +296,19 @@ async fn lane_report_a_lane_reports_each_turn_once_to_the_session_that_started_i
     let got = person.exactly(&coord, 1).await;
     let report = &got[0];
     let t = text(report);
-    assert!(t.starts_with("[lane-a] lane report: turn 1 ended, idle."), "{t}");
-    assert!(t.contains(&format!("Session: {lane}")), "{t}");
-    assert!(t.contains(&format!("Last message: echo: Opened {PR}, merged as {SHA}.")), "{t}");
+    assert!(t.starts_with("[lane-a] echo: Opened "), "{t}");
+    assert!(t.lines().next().unwrap().ends_with(" · turn 1, idle"), "{t}");
+    assert!(!t.contains("Session:"), "details are not visible text: {t}");
+    assert!(t.contains(&format!("echo: Opened {PR}, merged as {SHA}.")), "{t}");
     assert!(t.contains(&format!("Pull requests: {PR}")), "{t}");
-    assert!(t.contains(&format!("Commits named: {SHA}")), "{t}");
+    assert!(!t.contains("Commits named:") && !t.contains("acpmux sends this"), "{t}");
     let p = &report["_meta"]["provenance"];
     assert_eq!(p["kind"], "lane_report", "{report}");
     assert_eq!(p["from"], json!(lane), "{report}");
     assert_eq!(p["to"], json!(coord), "{report}");
     assert_eq!(p["turn"], 1, "{report}");
     assert_eq!(p["state"], "idle", "{report}");
+    assert_eq!(p["details"], json!({"session": lane, "commits": [SHA]}));
     assert!(report["promptId"].as_str().unwrap().starts_with("lane-report-"), "{report}");
 
     let incoming: Vec<_> = person
@@ -317,7 +321,7 @@ async fn lane_report_a_lane_reports_each_turn_once_to_the_session_that_started_i
     assert_eq!(incoming[0]["sessionId"], coord);
     assert_eq!(incoming[0]["sender"]["sessionId"], lane);
     assert_eq!(incoming[0]["messageId"], report["promptId"]);
-    assert!(incoming[0]["text"].as_str().unwrap().contains("lane report:"));
+    assert!(incoming[0]["text"].as_str().unwrap().contains(" · turn 1, idle"));
     let outgoing: Vec<_> = person
         .message_events(&lane)
         .await
@@ -345,7 +349,8 @@ async fn lane_report_a_lane_reports_each_turn_once_to_the_session_that_started_i
     from_coord.prompt(&lane, &format!("Still on {PR}, waiting on CI.")).await;
     let got = person.exactly(&coord, 2).await;
     let t = text(&got[1]);
-    assert!(t.starts_with("[lane-a] lane report: turn 3 ended, idle."), "{t}");
+    assert!(t.starts_with("[lane-a] echo: Still on "), "{t}");
+    assert!(t.lines().next().unwrap().ends_with(" · turn 3, idle"), "{t}");
     assert!(!t.contains("Pull requests:"), "{t}");
 }
 
@@ -518,7 +523,7 @@ async fn lane_report_a_prompt_that_takes_a_reports_id_does_not_pass_for_one() {
         )
         .await;
     let got = person.exactly(&coord, 1).await;
-    assert!(text(&got[0]).contains("Last message: echo: work"), "{}", got[0]);
+    assert!(text(&got[0]).contains("echo: work"), "{}", got[0]);
 }
 
 #[tokio::test]
@@ -693,10 +698,10 @@ async fn lane_report_a_turn_whose_agent_cannot_start_reports_the_lane_blocked() 
     let got = person.exactly(&coord, 2).await;
     let _ = std::fs::remove_file(&mark);
     let t = text(&got[1]);
-    assert!(t.starts_with("[lane-x] lane report: turn 2 ended, blocked"), "{}", got[1]);
+    assert!(t.starts_with("[lane-x] (no reply) · turn 2, blocked"), "{}", got[1]);
     // The turn that never started has no reply: turn 1's is not passed off as its.
-    assert!(text(&got[0]).contains("Last message: answered"), "{}", got[0]);
-    assert!(t.contains("Last message: (no reply)"), "{t}");
+    assert!(text(&got[0]).contains("answered"), "{}", got[0]);
+    assert!(t.contains("(no reply)"), "{t}");
     assert!(!t.contains("answered") && !t.contains("Commits named"), "{t}");
 }
 
@@ -819,7 +824,65 @@ async fn lane_report_a_turn_that_ends_before_replying_never_reports_the_last_tur
     assert!(r.get("error").is_some(), "{r}");
     let got = person.exactly(&coord, 2).await;
     let t = text(&got[1]);
-    assert!(t.starts_with("[lane-r] lane report: turn 2 ended"), "{t}");
+    assert!(t.starts_with("[lane-r] (no reply) · turn 2,"), "{t}");
     assert!(!t.contains("first-reply-marker"), "{t}");
-    assert!(t.contains("Last message: (no reply)"), "{t}");
+    assert!(t.contains("(no reply)"), "{t}");
+}
+
+#[tokio::test]
+async fn lane_report_surfaces_review_verdict_counts_and_whole_findings_after_prose() {
+    let hub = hub();
+    let mut person = Client::new(&hub);
+    let coord = person.new_session("coord", json!({})).await;
+    let lane = Client::as_session(&hub, &coord).await.new_session("review-1", json!({})).await;
+    let padding = "Background context that is not a finding.\n".repeat(30);
+    let reply = format!(
+        "I checked it. Review (Astra): BLOCK at {SHA}\n{padding}\n\
+         - **P1 — The parent loses the result.** This explains how.\n\
+         - P2: A menu never opens. Further context.\n\
+         - [P2] The second failure persists. Further context.\n\
+         - P3: Improve the test name."
+    );
+    Client::as_session(&hub, &coord).await.prompt(&lane, &reply).await;
+    let got = person.exactly(&coord, 1).await;
+    let report = text(&got[0]);
+    assert!(
+        report.starts_with(&format!(
+            "[review-1] BLOCK at {} · 1 P1, 2 P2, 1 P3 · turn 1, idle",
+            &SHA[..12]
+        )),
+        "{report}"
+    );
+    for finding in
+        ["The parent loses the result.", "A menu never opens.", "The second failure persists."]
+    {
+        assert!(report.contains(finding), "missing whole finding {finding}: {report}");
+    }
+    assert!(
+        !report.contains("This explains how.") && !report.contains("Further context."),
+        "findings use their first sentence: {report}"
+    );
+}
+
+#[tokio::test]
+async fn lane_report_ship_without_findings_and_non_review_first_sentence() {
+    let hub = hub();
+    let mut person = Client::new(&hub);
+    let coord = person.new_session("coord", json!({})).await;
+    let lane = Client::as_session(&hub, &coord).await.new_session("review-2", json!({})).await;
+    let mut parent = Client::as_session(&hub, &coord).await;
+    parent.prompt(&lane, &format!("Some prose Review (Sol): SHIP at {SHA}\nNone")).await;
+    let got = person.exactly(&coord, 1).await;
+    assert!(
+        text(&got[0]).starts_with(&format!(
+            "[review-2] SHIP at {} · no findings · turn 1, idle",
+            &SHA[..12]
+        ))
+    );
+    parent.prompt(&lane, "Fixed the missing callback. Tests pass.").await;
+    let got = person.exactly(&coord, 2).await;
+    assert_eq!(
+        text(&got[1]).lines().next(),
+        Some("[review-2] echo: Fixed the missing callback. · turn 2, idle")
+    );
 }

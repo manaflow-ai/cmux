@@ -27,6 +27,8 @@ public final class PageInfoController {
     private let card = PageInfoCardView()
     var observation: ObservationLoop?
     var loadTask: Task<Void, Never>?
+    var certificateTask: Task<Void, Never>?
+    var isRetired = false
     var livePermissions: [SitePermissionKind: SitePermissionSetting] = [:]
     var openedURL: URL?
     private var pageHadFocus = false
@@ -78,6 +80,7 @@ public final class PageInfoController {
 
     /// Runs a command (the registry handlers call this).
     public func perform(_ command: PageInfoCommand) {
+        guard !isRetired else { return }
         switch command {
         case .show(let page): show(page)
         case .close: close()
@@ -91,6 +94,8 @@ public final class PageInfoController {
     /// The pane shows another tab: a bubble for the old one closes.
     public func tabDidChange() {
         close()
+        certificateTask?.cancel()
+        certificateTask = nil
         windows.closeAll()
     }
 
@@ -123,8 +128,12 @@ public final class PageInfoController {
 
     /// Closes the bubble's panel for good (its page is closing): ``close()`` only orders it out.
     func closePanel() {
+        isRetired = true
+        certificateTask?.cancel()
+        certificateTask = nil
         close()
         popup.closePanel()
+        windows.closeAll()
     }
 
     /// The bubble closed (``close()`` or a host dismiss rule): live data stops, the page gets

@@ -431,6 +431,7 @@ await requireBrowserLane("composer-draft-overflow.test.ts", async () => {
       after.port1.onmessage = check;
       const frame = () => {
         after.port2.postMessage(0);
+        // raf-read: reads nothing here; the check runs from the MessageChannel message, after the frame paints.
         requestAnimationFrame(frame);
       };
       requestAnimationFrame(frame);

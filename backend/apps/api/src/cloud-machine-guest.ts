@@ -46,6 +46,16 @@ export const OUTPUT_MAX_BYTES = 1024 * 1024
 const PATH_MAX_BYTES = 4096
 /** One file read or write (classic allows 16 MiB; this one crosses the provider's exec as stdin or stdout). */
 export const FILE_MAX_BYTES = 8 * 1024 * 1024
+/** A directory listing's entries (classic's limit). */
+export const DIR_MAX_ENTRIES = 10_000
+/**
+ * A directory listing's JSON, as the file program writes it. json.dumps escapes every control and
+ * non-ASCII character, so that JSON is printable ASCII; the provider's JSON around it escapes each such
+ * byte as at most 6 (\u003c at worst), so a listing of at most DIR_MAX_BYTES stays within 12 MiB of the
+ * provider's answer, under EXEC_RESPONSE_MAX_BYTES (providers/freestyle/exec.ts). Without it, 10,000
+ * names of 255 control characters would be about 18.6 MiB there. freestyle-exec-errors.test.ts checks it.
+ */
+export const DIR_MAX_BYTES = 2 * 1024 * 1024
 const FS_TIMEOUT_MS = 60_000
 /** A write's JSON body: the base64 of the largest file plus its path and mode. */
 const BODY_MAX = Math.ceil(FILE_MAX_BYTES / 3) * 4 + 16 * 1024
@@ -58,26 +68,35 @@ const ok = (value: unknown) => Response.json(value, { headers: NO_STORE })
 const NOT_FOUND = 44
 const WRONG_KIND = 45
 const TOO_LARGE = 46
+/** A remove whose path resolves to the machine's root (see the remove branch below). */
+const ROOT = 47
 
 /**
  * The file operations, run with python3 as root on the machine (the image has it: the machine-config
  * applier and the credential installer use it). argv: op, path, and for a write its mode. A write
  * replaces the file atomically (a temporary file in the same folder, then rename); a new file without
  * a mode is 0600, as classic's.
+ *
+ * A remove first drops trailing "." and "/" segments (so a symlink named with them is removed itself, never its
+ * target's contents) and refuses a path that resolves to "/" (`/proc/self/root/.`, a symlink to the root).
  */
 export const FS_PROGRAM = `import base64,json,os,shutil,stat,sys,tempfile
 op,p=sys.argv[1],sys.argv[2]
 M=${FILE_MAX_BYTES}
+DN,DB=${DIR_MAX_ENTRIES},${DIR_MAX_BYTES}
 def k(m):return "directory" if stat.S_ISDIR(m) else "symlink" if stat.S_ISLNK(m) else "file"
 def i(s):return {"kind":k(s.st_mode),"size":s.st_size,"mode":stat.S_IMODE(s.st_mode),"modifiedAt":int(s.st_mtime*1000)}
 try:
  if op=="stat":o={"path":p,**i(os.lstat(p))}
  elif op=="dir":
-  e=[]
+  e=[];n=16
   with os.scandir(p) as d:
    for x in d:
-    if len(e)>=10000:sys.exit(${TOO_LARGE})
-    e.append({"name":x.name,**i(x.stat(follow_symlinks=False))})
+    if len(e)>=DN:sys.exit(${TOO_LARGE})
+    y={"name":x.name,**i(x.stat(follow_symlinks=False))}
+    n+=len(json.dumps(y))+2
+    if n>DB:sys.exit(${TOO_LARGE})
+    e.append(y)
   o={"entries":e}
  elif op=="read":
   s=os.stat(p)
@@ -109,9 +128,11 @@ try:
   os.makedirs(p,exist_ok=True)
   o={"ok":True,"path":p}
  elif op=="remove":
-  s=os.lstat(p)
-  if stat.S_ISDIR(s.st_mode):shutil.rmtree(p)
-  else:os.unlink(p)
+  q=os.path.normpath(p)
+  if os.path.realpath(q)=="/":sys.exit(${ROOT})
+  s=os.lstat(q)
+  if stat.S_ISDIR(s.st_mode):shutil.rmtree(q)
+  else:os.unlink(q)
   o={"ok":True,"path":p}
  else:sys.exit(2)
 except FileNotFoundError:sys.exit(${NOT_FOUND})
@@ -186,7 +207,8 @@ const REFUSAL: Readonly<Record<Exclude<MachineExecReply, { ok: true }>["refusal"
   not_found: [404, "vm_not_found", "no such machine in this team"],
   forbidden: [403, "vm_forbidden", "this user may not use the team's machines"],
   not_running: [409, "vm_not_running", "the machine is not running; start it first"],
-  provider_failed: [502, "vm_unavailable", "the machine did not answer; retry"]
+  provider_failed: [502, "vm_unavailable", "the machine did not answer; retry"],
+  output_limit: [413, "vm_output_too_large", "the machine's answer exceeded the response limit; its output was discarded"]
 }
 
 /** A JSON object body of at most BODY_MAX bytes, or the refusal. */
@@ -246,13 +268,15 @@ export const handleCloudMachineGuest = async (request: Request, env: Env, machin
       if (stdin.byteLength > FILE_MAX_BYTES) return refuse(413, "vm_file_too_large", `the file is over ${FILE_MAX_BYTES} bytes`)
     }
   } else path = url.searchParams.get("path")?.trim()
-  if (!validPath(path) || (fsOp === "remove" && path.replace(/\/+$/, "") === "")) return refuse(400, "vm_invalid_path", "path must be absolute, without a .. segment, at most 4096 bytes")
+  // Removing the root is refused however it is spelled: "/", "///", "/." or "/./".
+  if (!validPath(path) || (fsOp === "remove" && path.split("/").every((segment) => segment === "" || segment === "."))) return refuse(400, "vm_invalid_path", "path must be absolute, without a .. segment, at most 4096 bytes")
   const r = await run(fsCommand(fsOp, path, mode), stdin, FS_TIMEOUT_MS)
   stdin?.fill(0)
   if (r instanceof Response) return r
   if (r.exitCode === NOT_FOUND) return refuse(404, "vm_file_not_found", `no such file: ${path}`)
+  if (fsOp === "remove" && r.exitCode === ROOT) return refuse(400, "vm_invalid_path", "the path is the machine's root")
   if (r.exitCode === WRONG_KIND) return refuse(400, "vm_invalid_path", fsOp === "dir" ? "not a directory" : "the path is a directory, or a part of it is a file")
-  if (r.exitCode === TOO_LARGE) return refuse(413, "vm_file_too_large", fsOp === "dir" ? "the directory has over 10000 entries" : `the file is over ${FILE_MAX_BYTES} bytes`)
+  if (r.exitCode === TOO_LARGE) return refuse(413, "vm_file_too_large", fsOp === "dir" ? `the directory has over ${DIR_MAX_ENTRIES} entries, or its listing is over ${DIR_MAX_BYTES} bytes` : `the file is over ${FILE_MAX_BYTES} bytes`)
   let value: unknown = null
   try {
     value = r.exitCode === 0 ? JSON.parse(r.stdout) : null
