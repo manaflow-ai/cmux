@@ -205,6 +205,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_MCP_RECONNECT, Request),
         untyped(method::MUX_SUBAGENT_STOP, Request),
         untyped(method::MUX_SUBAGENT_TRANSCRIPT, Request),
+        untyped(method::MUX_NATIVE_HISTORY, Request),
         untyped(method::MUX_WORKFLOWS, Request),
         untyped(method::MUX_APP_REPLY, Request),
         untyped(method::MUX_STATS, Request),
@@ -303,6 +304,9 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/set_default_policy", Request),
         untyped(method::MUX_SET_RULES, Request),
         untyped(method::MUX_SET_TURN_CAP, Request),
+        untyped(method::MUX_INBOX_THREADS, Request),
+        untyped(method::MUX_INBOX_THREAD, Request),
+        untyped(method::MUX_INBOX_REPLY, Request),
         untyped(method::MUX_PERSON_ENROLL, Request),
         untyped(method::MUX_COMPUTER_USE_ENROLL, Request),
         untyped(method::MUX_PERSON_PROVE, Request),
@@ -403,6 +407,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_MACHINE_CONSENT_GET, Request),
         untyped(method::MUX_MACHINE_CONSENT_REFUSED, Request),
         untyped(method::MUX_PAIR_REDEEM, Request),
+        untyped(method::MUX_TURN_ATTESTATION, Request),
         // Notifications.
         notification::<events::SessionEvent>(method::MUX_EVENT),
         notification::<MessageEvent>(method::MUX_MESSAGE),
@@ -414,6 +419,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_HARNESS_INVENTORY, Notification),
         untyped(method::MUX_START_MODE_CHANGED, Notification),
         untyped(method::MUX_PROMPT_ACCEPTED, Notification),
+        untyped(method::MUX_CANCEL_REFUSED, Notification),
         untyped("_acpmux/lagged", Notification),
         untyped(method::MUX_DISCONNECTED, ClientLocal),
     ]

@@ -64,7 +64,7 @@ extension CloudHandlers {
             let cloud = context.services.cloud, services = context.services
             let userID = cloud.auth.user?.id, teamID = cloud.auth.teamID
             let availability = CloudWorkspaceSetupWizard.CredentialAvailability.resolve(
-                teamID: cloud.auth.teamID, supportsFileRoute: cloud.configuration.linkSource == .legacy)
+                teamID: cloud.auth.teamID, supportsFileRoute: AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: cloud.configuration.linkSource, isSignedIn: true))
             let present: (CmuxDialogSpec) async -> CmuxDialogAnswer = { spec in
                 let scope: CmuxDialogScope = services.windows.active?.window.map(CmuxDialogScope.window) ?? .app
                 return await CmuxDialogCenter.shared.present(spec, in: scope)
@@ -161,7 +161,7 @@ extension CloudHandlers {
                     machineID: session.machineID, teamID: teamID, userID: userID, openTerminal: { [weak services] line in
                         await services?.openLocalProviderLogin(line) ?? false
                     })
-                try await transfer.run(api: cloud.api, currentTeamID: { cloud.auth.teamID },
+                try await transfer.run(api: cloud.machineAPI, currentTeamID: { cloud.auth.teamID },
                                        currentUserID: { cloud.auth.user?.id }, confirmed: true)
             }
         }
@@ -394,7 +394,7 @@ extension CloudHandlers {
             // The bootstrap and the machine config go with the machine, so a Retry starts each too while it
             // has not started.
             bootstrap: { creation, session in
-                let machine = CloudMachineBootstrap.Machine(api: cloud.api.pinningTeam(creation.request.team), machineID: session.machineID)
+                let machine = CloudMachineBootstrap.Machine(api: cloud.machineAPI.pinningTeam(creation.request.team), machineID: session.machineID)
                 await CloudCreationFlow.startBootstrap(creation, on: machine)
             }
         )

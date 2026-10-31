@@ -54,6 +54,9 @@ export type IncomingMessage = {
   /// Relayed from an acpmux on another machine (`acpmux send` there): the paths it names are
   /// that machine's, not this Mac's.
   remote?: true;
+  /// The sender's harness when the message names it (`fromHarness`: a peer's relayed message, whose
+  /// chat is not listed here), for its mark.
+  harness?: string;
   /// What the sender wrote.
   text: string;
   /// The prompt as the agent got it.
@@ -150,11 +153,17 @@ const linkLabel = (label: string) => label.trim().replace(/\s+/g, " ").toLowerCa
 /// A line's leading marks, nested: quotes, a heading, a list item (with a task box).
 const LINE_LEAD = /^(?:\s*(?:>\s?|#{1,6}(?:\s+|$)|[-*+]\s+(?:\[[ xX]\]\s+)?|\d{1,9}[.)]\s+))+/;
 
+/// A bare GitHub pull request or issue address, which a one-line preview names as `owner/repo#N`
+/// (the chip's label, LinkChips.tsx `githubRefLabel`) instead of the raw URL.
+const GITHUB_REF_URL =
+  /https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/(?:pull|issues)\/(\d+)(?:[/?#](?:[^\s)\]>]*[^\s)\]>.,;:!?'"])?)?/g;
+
 /// A line's words without inline Markdown: links and images read as their labels, emphasis (strong,
 /// `*italic*` and `_italic_`, never a snake_case word's underscores) and code ticks dropped.
 function inlineText(line: string, defined: ReadonlySet<string>): string {
   return withoutLinks(line, defined)
     .replace(/<((?:https?|mailto):[^>\s]+)>/g, "$1")
+    .replace(GITHUB_REF_URL, "$1#$2")
     .replace(/(\*\*|__|~~|`)/g, "")
     .replace(/(^|[^\w*])\*([^\s*](?:[^*\n]*?[^\s*])?)\*(?![\w*])/g, "$1$2")
     .replace(/(^|[^\w])_([^\s_](?:[^_\n]*?[^\s_])?)_(?!\w)/g, "$1$2")
@@ -245,12 +254,15 @@ export function cliHost(client: unknown): string | undefined {
 /// What a `user_message` is when not the person's own as recorded, or undefined when it is.
 export function incomingPrompt(
   text: string,
-  msg: { _meta?: { provenance?: unknown }; client?: unknown } | undefined,
+  msg: { _meta?: { provenance?: unknown }; client?: unknown; fromHarness?: unknown } | undefined,
   context?: IncomingContext,
 ): IncomingPrompt | undefined {
   const provenance = msg?._meta?.provenance as Record<string, unknown> | undefined;
   // Relayed from another machine (acpmux hub/peers.rs): its files are that machine's, on every path.
   const remote = String(msg?.client ?? "").startsWith("acpmux-peer#") ? { remote: true as const } : {};
+  // The sender's harness, when acpmux names it (a relayed message's sender is not listed here).
+  const fromHarness = trimmed(provenance?.fromHarness) ?? trimmed(msg?.fromHarness);
+  const harness = fromHarness ? { harness: fromHarness } : {};
   const fromSession =
     provenance?.kind === "subsession_message" ||
     provenance?.kind === "session_message" ||
@@ -277,6 +289,7 @@ export function incomingPrompt(
         ...(chief && { chief }),
         ...(relation && { relation }),
         ...remote,
+        ...harness,
         text: signed?.text ?? text.trim(),
         raw: text,
       },
@@ -326,14 +339,19 @@ export function incomingPrompt(
         ...id("msgId"),
         ...id("threadId"),
         ...remote,
+        ...harness,
         text: signed?.text ?? body,
         raw: text,
       },
     };
   }
+  if (!provenance && typeof msg?.client === "string" && OUTBOX_CLIENT.test(msg.client)) {
+    const named = fromFirst(text.trim());
+    if (named) return { kind: "message", message: { ...named, ...remote, ...harness, raw: text } };
+  }
   if (!provenance && typeof msg?.client === "string" && CLI_CLIENT.test(msg.client)) {
     const named = namedFirst(text.trim()) ?? fromFirst(text.trim()) ?? addressedFirst(text.trim(), context);
-    if (named) return { kind: "message", message: { ...named, ...remote, raw: text } };
+    if (named) return { kind: "message", message: { ...named, ...remote, ...harness, raw: text } };
   }
   if (msg?.client !== "adopt" && msg?.client !== "watch") return undefined;
   // Claude Code's envelopes start the prompt, after its line about them; one quoted later in it is
@@ -391,6 +409,10 @@ const RENDERED_NOTE =
 
 /// The clients `acpmux send` records: at a shell here, and relayed from a peer machine.
 const CLI_CLIENT = /^acpmux-(?:cli|peer)#/;
+/// The daemon's outbox (`acpmux send --no-wait`, server/outbox.rs), which is how a sub-session's
+/// note to its parent usually arrives ("From claude-sr2/ui-think-tank: merged …"). The person sends
+/// through it too, so only that strict lead names a sender there, never a bracket (`[P1] Fix it`).
+const OUTBOX_CLIENT = /^acpmux-outbox#/;
 /// A sender's name in brackets before its message, which follows on the line or below it.
 const NAME_PREFIX = /^\[([^\]\n]{1,64})\]\s+(\S[\s\S]*)$/;
 /// An agent's name: a word or a few (`coord-deputy`, `claude-sr2/coordinator`, `Grid fix`).

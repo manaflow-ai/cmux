@@ -57,6 +57,10 @@ UNWIRED: set[str] = {
     # lane = "manual" for the same rule. It reads nightly-next-launch-smoke.yml and nightly.yml to assert
     # the post-publish smoke never gates a publish; run it by hand when the smoke or its workflow changes.
     "tests/test_nightly_next_launch_smoke.py",
+    # lane = "manual" for the same rule. It reads nightly.yml only to keep the pinned Sparkle key of
+    # nightly_next_artifact_check.py equal to NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY; run it by hand when that
+    # helper or the workflows that call it change.
+    "tests/test_nightly_next_artifact_check.py",
 }
 
 

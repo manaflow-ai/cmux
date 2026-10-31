@@ -60,10 +60,6 @@ final class GroupHeaderRowView: SidebarRowView {
     /// Archived in the sidebar document: the bar and its ink draw dimmed (`SidebarStyle.archivedAlpha`).
     private var archived = false
     private var hasIcon = false
-    /// No members: the + is not offered (the editor's New Workspace in Group
-    /// is), so a click on it can never race the editor closing on a new,
-    /// still empty group that then goes.
-    private var isEmpty = false
     private var tint: GroupTint = .palette(.grey)
     private var collapsed = false
     private var chevronFrame: CGRect = .zero
@@ -73,8 +69,17 @@ final class GroupHeaderRowView: SidebarRowView {
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
     /// Arrow keys stopped here (`SidebarListView+GroupKeys`): a focus ring, not a selection.
     var isKeyboardFocused = false { didSet { if isKeyboardFocused != oldValue { needsLayout = true; needsDisplay = true } } }
-    /// The group editor is open for this group.
-    var isEditing = false { didSet { if isEditing != oldValue { needsLayout = true; needsDisplay = true } } }
+    /// The group editor is open for this group. Its trigger, the more button, stays shown and lit while it is open,
+    /// though the pointer leaves for the editor (Leo 2026-10-26: "you keep it on when you click ... the popover"); the
+    /// bar keeps its own fill, so only that button lights (Leo 2026-10-27: "Don't ever do that.").
+    var isEditing = false {
+        didSet {
+            guard isEditing != oldValue else { return }
+            moreButton.showsMenu = isEditing
+            needsLayout = true
+            needsDisplay = true
+        }
+    }
     /// How far this header's frame reaches left of its members' x, over their rail (`SidebarListView.railReach(for:)`):
     /// the bar and the dot start there, at the rail's left edge, and the name keeps the members' text column.
     var railReach: CGFloat = 0 { didSet { if railReach != oldValue { needsLayout = true } } }
@@ -107,7 +112,7 @@ final class GroupHeaderRowView: SidebarRowView {
                 return self?.onMore != nil
             },
             NSAccessibilityCustomAction(name: GroupEditorStrings.newWorkspace) { [weak self] in
-                guard let self, let onAdd = self.onAdd, !self.isEmpty else { return false }
+                guard let self, let onAdd = self.onAdd else { return false }
                 onAdd()
                 return true
             },
@@ -149,7 +154,6 @@ final class GroupHeaderRowView: SidebarRowView {
                               fontSize: SidebarStyle.headerFont.pointSize, details: details, status: rollUp)
         guard needsConfigure(content) else { return }
         tint = group.tint
-        isEmpty = group.workspaces.isEmpty && group.items.isEmpty
         name.stringValue = group.name
         pinned = group.isPinned
         archived = group.isArchived
@@ -192,9 +196,9 @@ final class GroupHeaderRowView: SidebarRowView {
         collapsed ? .disclosureCollapsed : .disclosureExpanded
     }
 
-    /// A state fill on the bar (hover, open editor, drop); the bar itself always shows.
+    /// A state fill on the bar (hover, drop); the bar itself always shows. The open editor lights its more button only.
     override var debugArchived: Bool { archived }
-    override var debugFill: Bool { super.debugFill || isHovered || isEditing || isDropTarget }
+    override var debugFill: Bool { super.debugFill || isHovered || isDropTarget }
     override var debugDisclosure: (icon: String, frame: CGRect, shown: Bool)? { (chevronIcon.rawValue, chevron.frame, !chevron.isHidden) }
 
     override var titleFrame: NSRect { name.frame }
@@ -256,14 +260,14 @@ final class GroupHeaderRowView: SidebarRowView {
 
     override func updateLayer() {
         performWithTheme {
-            // The solid bar in the group's color (Lawrence 2026-10-11); hover,
-            // the open editor and a drop take tonal steps over it.
+            // The solid bar in the group's color (Lawrence 2026-10-11); hover
+            // and a drop take tonal steps over it (the open editor lights its more button only).
             let tokens = themeTokens
             let look = look
             if look.style != .band { return paintQuiet(tokens, look) }
             let chip = tint.headerChip(themed: look.themed)
             var fill = chip.fill
-            if isHovered || isEditing { fill = tokens.hoverFill.composited(over: fill) }
+            if isHovered { fill = tokens.hoverFill.composited(over: fill) }
             if isDropTarget { fill = tokens.pressedFill.composited(over: fill) }
             // One ink for every glyph on the bar (cx-qno.22): name, icon, pin,
             // chevron, + and more, chosen once on the bar's color; it holds
@@ -293,7 +297,7 @@ final class GroupHeaderRowView: SidebarRowView {
 
     /// The quieter headers (cx-7yywz): the name in primary ink (`tinted`: in the group's color) with
     /// the group's color as the dot where its line starts; `wash` adds a faint tint behind the name.
-    /// Hover, the open editor and a drop take the row's own fill.
+    /// Hover and a drop take the row's own fill; the open editor lights its more button only.
     private func paintQuiet(_ tokens: ThemeTokens, _ look: (style: SidebarGroupHeaderStyle, themed: Bool)) {
         let line = tint.lineRGB(themed: look.themed)
         let ink = (look.style == .tinted
@@ -320,11 +324,11 @@ final class GroupHeaderRowView: SidebarRowView {
         CATransaction.commit()
         guard look.style == .wash else {
             pill.backgroundColor = nil
-            return paintFill(isDropTarget ? tokens.pressedFill.nsColor : isHovered || isEditing ? tokens.hoverFill.nsColor : nil)
+            return paintFill(isDropTarget ? tokens.pressedFill.nsColor : isHovered ? tokens.hoverFill.nsColor : nil)
         }
         // The wash covers the row, so its states step over the wash, as the band's do.
         var fill = tint.headerWash(themed: look.themed)
-        if isHovered || isEditing { fill = tokens.hoverFill.composited(over: fill) }
+        if isHovered { fill = tokens.hoverFill.composited(over: fill) }
         if isDropTarget { fill = tokens.pressedFill.composited(over: fill) }
         ChromeHover.paint(pill, fill.nsColor, animated: fadesNextFill)
         paintFill(nil)
@@ -382,7 +386,9 @@ final class GroupHeaderRowView: SidebarRowView {
         setHoverShown(moreButton, showsActions, fades: fades, token: .hoverReveal)
         moreButton.setAccessibilityElement(showsActions)
         addButton.frame = slotFrame(2)
-        let offersAdd = onAdd != nil && !isEmpty
+        // An empty group offers its + too (user 17912, "empty workspace needs plus button"): New Workspace in Group
+        // keeps a new group the editor would drop when it closes (`SidebarGroupFlow.performEditorItem`).
+        let offersAdd = onAdd != nil
         setHoverShown(addButton, offersAdd && showsActions, fades: fades, token: .hoverReveal)
         addButton.setAccessibilityElement(offersAdd && showsActions)
         // Lawrence 2026-10-20: at rest a loading spinner takes the chevron's place, on the trailing

@@ -15,6 +15,9 @@ on:
       - ".github/scripts/cmux-tui-clippy-changed.py"
       - ".github/scripts/test_cmux_tui_clippy_changed.py"
       - ".github/actions/setup-cmux-tui-rust/**"
+      - "scripts/cmux-next/rust_panic_ratchet.py"
+      - "scripts/cmux-next/rust-panic-baseline.json"
+      - "plans/cmux-next/rust-panic-free.md"
   pull_request:
     paths:
       - "cmux-tui/**"
@@ -24,6 +27,9 @@ on:
       - ".github/scripts/cmux-tui-clippy-changed.py"
       - ".github/scripts/test_cmux_tui_clippy_changed.py"
       - ".github/actions/setup-cmux-tui-rust/**"
+      - "scripts/cmux-next/rust_panic_ratchet.py"
+      - "scripts/cmux-next/rust-panic-baseline.json"
+      - "plans/cmux-next/rust-panic-free.md"
   workflow_dispatch:
     inputs:
       commit:
@@ -320,3 +326,22 @@ jobs:
         env:
           BASE_SHA: ${{ steps.base.outputs.sha }}
         run: python3 "$RUNNER_TEMP/cmux-tui-clippy-changed.py" --repo "$GITHUB_WORKSPACE" --base "$BASE_SHA"
+
+      # The panic ratchet (plans/cmux-next/rust-panic-free.md) on the same packages:
+      # their production targets with the ratchet's lints, judged against the baseline
+      # at HEAD. Only cmux-tui.yml's dispatch run checked it before, so #27935 landed two
+      # acpmux indexing_slicing hits and turned base lint red.
+      - name: Rust panic ratchet on changed cmux-tui packages
+        if: ${{ !cancelled() }}
+        env:
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+        run: python3 "$RUNNER_TEMP/cmux-tui-clippy-changed.py" --repo "$GITHUB_WORKSPACE" --base "$BASE_SHA" --panic-ratchet "$RUNNER_TEMP/panic-clippy.jsonl"
+
+      - name: Upload panic ratchet clippy JSON
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: panic-clippy-pr-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/panic-clippy.jsonl
+          if-no-files-found: ignore
+          retention-days: 3
