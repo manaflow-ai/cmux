@@ -41,7 +41,9 @@ struct CmuxMobileApp: App {
         WindowGroup {
             Group {
             #if DEBUG
-            if TerminalFloodBenchRoot.isRequested {
+            if BrowserEventsDemoRoot.isRequested {
+                BrowserEventsDemoRoot()
+            } else if TerminalFloodBenchRoot.isRequested {
                 TerminalFloodBenchRoot()
             } else if TerminalDemoRoot.isRequested || DeveloperOptions.launchDemo == "terminal" {
                 TerminalDemoRoot()

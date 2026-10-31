@@ -157,7 +157,8 @@ struct StreamedBrowserOverlay: View {
 
     static var enabled: Bool {
         #if DEBUG
-        true
+        // Public fixture captures show the product controls without the diagnostic meter.
+        !ProcessInfo.processInfo.arguments.contains("-cmux-mobile-browser-events")
         #else
         // Release (Production, TestFlight): only for a measurement launch with
         // the explicit argument, never from a stored setting (Codex QA F13).
