@@ -58,7 +58,7 @@ enum TabIconHandlers {
     static func change(_ target: Target, to icon: String?, origin: ActionOrigin, _ ctx: AppActionContext) {
         // The icon the tab shows now (the picker may have been open while it changed).
         let previous = ctx.services.locateTab(model: target.tab)?.0.userIcon ?? target.tab.userIcon
-        try? history(ctx, machineID: ctx.services.machines.daemon(forTab: target.tab).machineID).change(target.tab.id, from: previous, to: icon, origin: origin)
+        try? history(ctx, machineID: target.daemon.machineID).change(target.tab.id, from: previous, to: icon, origin: origin)
     }
 
     /// Icon updates by tab id, so an undo after the tab moved still finds it; the undo step goes on
