@@ -568,12 +568,20 @@ function shapeTurn(
     const after = segment.after ?? [];
     // Work after the last answer folds with the work before it, so the answer stays last.
     // Edits after it join the card too, so its Undo covers the whole turn.
-    const work = [...before, ...after].filter((row) => !staysOut(row));
-    edits.push(...work.filter(isEdit));
-    if (work.length) {
+    const id = `${WORKED}-${segment.anchor.id}`;
+    const open = foldOpen || expanded.has(id);
+    // A call still waiting for its permission stays in sight: beside the closed fold, and in its
+    // folded run once the fold opens (TurnRows.tsx `staysInSight`).
+    const out = (row: AcpmuxRow) =>
+      staysOut(row) ||
+      (!open && row.kind === "activity" && (row.items ?? []).some((item) => awaitsPermission(item.tool)));
+    const work = [...before, ...after].filter((row) => !out(row));
+    edits.push(...[...before, ...after].filter((row) => !staysOut(row) && isEdit(row)));
+    // A turn of nothing but replies and steers did no work to fold: its dialogue stays drawn as
+    // it ran, the steer between the replies (agent-pane-steer-split.test.ts).
+    const dialogue = work.every((row) => row.kind === "user" || isAnswer(row));
+    if (work.length && !dialogue) {
       folded = true;
-      const id = `${WORKED}-${segment.anchor.id}`;
-      const open = foldOpen || expanded.has(id);
       const from = segment.anchor.at;
       const worked: AcpmuxRow = {
         id,
@@ -607,7 +615,7 @@ function shapeTurn(
     // Context and actionable rows stay available beside the fold. Render cards keep their
     // source order among them, before or after the answer exactly where the call happened.
     const outside = (rows: readonly AcpmuxRow[]) =>
-      rows.flatMap((row) => (staysOut(row) ? [endedPlan(row)] : renderRows([row], version)));
+      rows.flatMap((row) => (out(row) ? [endedPlan(row)] : dialogue ? [row] : renderRows([row], version)));
     shaped.push(...outside(before));
     if (said) shaped.push(said);
     shaped.push(...outside(after));
@@ -732,7 +740,6 @@ function editsCard(edits: AcpmuxRow[]): AcpmuxRow[] {
 const staysOut = (row: AcpmuxRow) =>
   isSubagentGroup(row) ||
   (row.kind === "plan" && row.plan !== undefined) ||
-  (row.kind === "activity" && row.items?.some((item) => awaitsPermission(item.tool))) ||
   row.kind === "backgroundTask" ||
   // An error or a refusal the pane noted, and an ask still waiting on the person.
   row.kind === "notice" ||
@@ -1218,22 +1225,20 @@ const mixVersion = (a: number, b: number) => (a * 1_009 + b * 7 + 1) % 2_147_483
 /// already related to that turn walk back to the same anchor. An unrelated incoming prompt still
 /// opens its own turn, and a pending or failed prompt opens nothing unless it is the first one.
 export function turnFoldFor(rows: readonly AcpmuxRow[], index: number): string | undefined {
-  let unsent: AcpmuxRow | undefined;
-  let provisional: AcpmuxRow | undefined;
+  // With no accepted prompt before it, the turn is the first one turnView draws, which starts at
+  // the first user row (a prompt not sent or refused, or a landed steer a history page starts at,
+  // its temporary prompt until the older one is loaded): the earliest one walking back.
+  let first: AcpmuxRow | undefined;
   for (let at = Math.min(index, rows.length - 1); at >= 0; at -= 1) {
     const row = rows[at]!;
     if (row.kind === "user" && isUnsent(row)) {
-      unsent = row;
+      first = row;
       continue;
     }
     if (opensTurn(row)) return `${WORKED}-${row.id}`;
-    // A paged history may start at a landed steer, which the renderer uses as its temporary
-    // prompt until the older one is loaded. Walk all the way back so multiple steers resolve to
-    // the first visible row, matching that provisional renderer anchor.
-    if (row.kind === "user" && continuesTurn(row)) provisional = row;
+    if (row.kind === "user" && continuesTurn(row)) first = row;
   }
-  const anchor = unsent ?? provisional;
-  return anchor && `${WORKED}-${anchor.id}`;
+  return first && `${WORKED}-${first.id}`;
 }
 
 /// Toggle at the person's click, clearing provisional steer keys for the same turn too. This
