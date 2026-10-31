@@ -10718,11 +10718,14 @@ function AcpmuxPane() {
   const toolCards = useToolCards();
   const computerUsePreview = useComputerUsePreview();
   // The live preview card shows beside the column, which keeps its room, in a pane wide enough. With
-  // the Inspector open it sits under the Inspector's card instead (inspector/underInspector.ts), whose
-  // shift or push keeps the chat clear of both: the column keeps no room of its own.
+  // Session Info open it sits under Session Info's card instead (inspector/underInspector.ts). Floating,
+  // the column keeps its room, so opening or closing Session Info never reflows the chat (Leo,
+  // 2026-10-31: "why is the session info thing still pushing my layout when it doesnt need to???");
+  // only Settings Push always, whose column already keeps the chat clear of both, gives it back.
   const previewRoom = useComputerUsePreviewRoom();
   const previewShown = computerUsePreview !== null && previewRoom && !quick && !diffView && !inspectorOpen;
-  const previewBeside = previewShown && !inspector.shown;
+  const inspectorPushes = useChatDisplay().inspector === "push";
+  const previewBeside = previewShown && !(inspector.shown && inspectorPushes);
   // What the chat waits on the person for: the running turn's line says it, never "Thinking".
   const waiting = chatWaitsOn({
     trust: trustAsk.ask,
