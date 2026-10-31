@@ -162,7 +162,10 @@ fn a_browsing_turn_shows_one_live_card_and_ends_it() {
         "{first:?}"
     );
     let (_, last) = shown.last().unwrap();
-    let Card::Browser { step, live, url, .. } = last else {
+    let Card::Browser {
+        step, live, url, ..
+    } = last
+    else {
         panic!("{last:?}");
     };
     assert_eq!(step, "Sending the reply");
@@ -184,6 +187,57 @@ fn a_turn_without_browsing_shows_no_browser_card() {
     h.say("user_local", "list the files");
     h.settle_posts();
     assert!(cards(&h).is_empty(), "{:?}", cards(&h));
+}
+
+#[test]
+fn a_targetless_step_posts_its_card_while_live() {
+    for (tool, command) in [
+        ("Bash", "cmux browser tab_0123abcd click '#send'"),
+        ("mcp__browser__click", ""),
+        ("mcp__computer_use__click", ""),
+    ] {
+        let mut h = Harness::new(Box::new(move |_, _| {
+            vec![
+                json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+                update(
+                    "tool_call",
+                    json!({
+                        "toolCallId": "first", "title": tool, "kind": "execute",
+                        "rawInput": {"command": command}, "_meta": {"claude": {"tool": tool}}
+                    }),
+                ),
+                update(
+                    "tool_call_update",
+                    json!({"toolCallId": "first", "status": "completed"}),
+                ),
+                json!({"dir": "mux", "kind": "turn_end", "msg": {}}),
+            ]
+        }));
+        h.connect();
+        h.say("user_local", "click the button");
+        h.settle_posts();
+        let shown = cards(&h);
+        assert!(
+            matches!(
+                shown.first(),
+                Some((
+                    _,
+                    Card::Browser {
+                        live: true,
+                        target: None,
+                        url: None,
+                        image: None,
+                        ..
+                    }
+                ))
+            ),
+            "{tool}: the first card must appear before the turn ends: {shown:?}"
+        );
+        assert!(matches!(
+            shown.last(),
+            Some((_, Card::Browser { live: false, .. }))
+        ));
+    }
 }
 
 fn spawner(h: &Harness) -> Arc<Spawner> {
@@ -248,10 +302,8 @@ fn send_refuses_a_sign_in_that_is_not_a_host_name() {
         &json!({"sign_in": {"site": "https://linkedin.com/login"}}),
     );
     assert!(call.is_err(), "{call:?}");
-    let ok = optchat_chief::tools::Call::parse(
-        "send",
-        &json!({"sign_in": {"site": "LinkedIn.com"}}),
-    );
+    let ok =
+        optchat_chief::tools::Call::parse("send", &json!({"sign_in": {"site": "LinkedIn.com"}}));
     assert!(ok.is_ok(), "a host name in any case: {ok:?}");
 }
 
@@ -274,7 +326,10 @@ fn the_text_fallback_answers_the_same_messages() {
         })
         .collect();
     assert_eq!(answers.len(), 1, "{:?}", ops(&h));
-    assert!(!answers[0].is_empty(), "the fallback answers the person's message");
+    assert!(
+        !answers[0].is_empty(),
+        "the fallback answers the person's message"
+    );
 }
 
 #[test]
@@ -326,7 +381,10 @@ fn a_browsing_turns_reply_stays_right_under_its_message() {
         .expect("the turn's reply");
     assert_eq!(reply.0, None, "no thread: the card is an aside: {reply:?}");
     assert_eq!(reply.1, None, "{reply:?}");
-    assert!(!reply.2.is_empty(), "the reply answers the person's message");
+    assert!(
+        !reply.2.is_empty(),
+        "the reply answers the person's message"
+    );
 }
 
 #[test]

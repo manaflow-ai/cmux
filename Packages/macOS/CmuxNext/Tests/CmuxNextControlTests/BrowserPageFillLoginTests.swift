@@ -25,12 +25,15 @@ import Testing
         let probeCount = Mutex(0)
         let fill: JSONValue
         let failure: ControlError?
+        let fillResult: (@Sendable (String) async -> JSONValue)?
 
-        init(url: String, fill: JSONValue, failure: ControlError? = nil) {
+        init(url: String, fill: JSONValue, failure: ControlError? = nil,
+             fillResult: (@Sendable (String) async -> JSONValue)? = nil) {
             let origin = URL(string: url).flatMap(BrowserPageService.webOrigin) ?? "null"
             self.page = Mutex((url, origin))
             self.fill = fill
             self.failure = failure
+            self.fillResult = fillResult
         }
 
         var url: String { page.withLock { $0.url } }
@@ -46,6 +49,9 @@ import Testing
             case .evaluateIsolated(let script):
                 isolatedScripts.withLock { $0.append(script) }
                 if let failure { throw failure }
+                if !script.contains("requestSubmit"), let fillResult {
+                    return ["value": await fillResult(tabID)]
+                }
                 let answer: JSONValue = script.contains("requestSubmit") ? ["value": true] : fill
                 return ["value": answer]
             case .evaluate(let script):
