@@ -47,6 +47,9 @@ type Drag = {
   before: InspectorSectionId[];
 };
 
+/// How far below its top the held section looks for its place (at most its middle).
+const PROBE = 24;
+
 function motionOn(): boolean {
   if (isAgentMotionOff()) return false;
   return !(globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false);
@@ -193,23 +196,29 @@ export function InspectorSectionList({
       [...list.current!.querySelectorAll<HTMLElement>(":scope > [data-slot]")].map(
         (node) => node.dataset.slot as InspectorSectionId,
       );
-    const move = (event: PointerEvent) => {
+    // Where the held section belongs now. It probes near its top, where the handle is, not at its
+    // middle: a section taller than the panel could never carry its middle above the first one.
+    const place = () => {
       const held = drag.current;
       const root = list.current;
       if (!held || !root) return;
-      held.y = event.clientY;
       follow();
       const node = slot(held.id);
       if (!node) return;
       const scrolled = (held.scroller?.scrollTop ?? 0) - held.startScroll;
-      const middle = held.grabTop + (held.y - held.startY) + scrolled + node.offsetHeight / 2;
+      const probe = held.grabTop + (held.y - held.startY) + scrolled + Math.min(node.offsetHeight / 2, PROBE);
       const others = shownNow().filter((id) => id !== held.id);
       const at = others.filter((id) => {
         const other = slot(id)!;
-        return other.offsetTop + other.offsetHeight / 2 < middle;
+        return other.offsetTop + other.offsetHeight / 2 < probe;
       }).length;
       const next = moveTo(others, held.id, at);
       setDraft((current) => (current && current.join(" ") === next.join(" ") ? current : next));
+    };
+    const move = (event: PointerEvent) => {
+      if (!drag.current) return;
+      drag.current.y = event.clientY;
+      place();
     };
     const up = () => end(false);
     const key = (event: KeyboardEvent) => {
@@ -218,7 +227,8 @@ export function InspectorSectionList({
       event.stopPropagation();
       end(true);
     };
-    const scroll = () => follow();
+    // Scrolling under a still pointer carries the section past its neighbours too.
+    const scroll = () => place();
     const scroller = drag.current?.scroller;
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -262,7 +272,8 @@ export function InspectorSectionList({
     step: (id, by) => {
       const at = shown.indexOf(id);
       const to = at + by;
-      if (at < 0 || to < 0 || to >= shown.length) return;
+      // A pointer drag owns the order until it drops or Escape puts it back.
+      if (drag.current || at < 0 || to < 0 || to >= shown.length) return;
       focus.current = id;
       setSectionOrder(moveTo(shown, id, to));
     },

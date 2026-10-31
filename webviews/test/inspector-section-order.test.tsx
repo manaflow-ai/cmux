@@ -168,7 +168,8 @@ test("a section drags into another block, lifted while held, and the order stays
   await act(async () => handle(container, "outputs").dispatchEvent(pointer("pointerdown", 400)));
   expect(slotOf(container, "outputs").hasAttribute("data-lifted")).toBe(true);
   expect(container.querySelector('section[data-section="outputs"]')!.hasAttribute("data-dragging")).toBe(true);
-  // Its middle at 356 - 260 + 30 = 126: below Context's middle, above Connectors' (142).
+  // It looks for its place 24px below its top, 356 - 260 + 24 = 120: below Context's middle (114),
+  // above Connectors' (142).
   await act(async () => dom.window.dispatchEvent(pointer("pointermove", 140)));
   expect(order(container)).toEqual([
     "environment",
@@ -220,6 +221,36 @@ test("Escape during a drag puts the section back and saves nothing", async () =>
   // The drag is over: a later move moves nothing.
   await act(async () => dom.window.dispatchEvent(pointer("pointermove", 10)));
   expect(layout(container)).toEqual(DEFAULT);
+  await act(async () => root.unmount());
+});
+
+test("a section taller than the panel still drags above the first one", async () => {
+  const { container, root } = await mount();
+  // Sources expanded far past the panel's height: its middle can never reach the top.
+  stack(container, { ...HEIGHTS, sources: 2000 });
+  // Sources' top is 276; the pointer goes from its handle to the panel's top edge.
+  await act(async () => handle(container, "sources").dispatchEvent(pointer("pointerdown", 290)));
+  await act(async () => dom.window.dispatchEvent(pointer("pointermove", 14)));
+  expect(order(container)[0]).toBe("sources");
+  await act(async () => dom.window.dispatchEvent(pointer("pointerup", 14)));
+  expect(JSON.parse(dom.window.localStorage.getItem(ORDER_KEY)!)[0]).toBe("sources");
+  await act(async () => root.unmount());
+});
+
+test("an arrow key during a pointer drag changes nothing, so Escape still restores the order", async () => {
+  const { container, root } = await mount();
+  stack(container, HEIGHTS);
+  await act(async () => handle(container, "tasks").dispatchEvent(pointer("pointerdown", 580)));
+  await act(async () => {
+    const up = new dom.window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true });
+    handle(container, "tasks").dispatchEvent(up);
+  });
+  expect(dom.window.localStorage.getItem(ORDER_KEY)).toBeNull();
+  await act(async () => {
+    dom.window.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  });
+  expect(layout(container)).toEqual(DEFAULT);
+  expect(dom.window.localStorage.getItem(ORDER_KEY)).toBeNull();
   await act(async () => root.unmount());
 });
 
