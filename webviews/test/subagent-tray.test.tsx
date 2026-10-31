@@ -108,7 +108,12 @@ const row = (id: string, kind: string, seconds: number, fields: Partial<Row> = {
   ...fields,
 });
 
-async function render(node: ReturnType<typeof createElement>): Promise<{
+/// Mounts `node`. With `open`, a headed tray, which starts folded to its header (cmux#28875), is
+/// opened as the person would, by clicking its header.
+async function render(
+  node: ReturnType<typeof createElement>,
+  { open = false }: { open?: boolean } = {},
+): Promise<{
   root: HTMLElement;
   show: (next: ReturnType<typeof createElement>) => Promise<void>;
   done: () => Promise<void>;
@@ -116,6 +121,8 @@ async function render(node: ReturnType<typeof createElement>): Promise<{
   const host = dom.window.document.getElementById("root")!;
   const root = createRoot(host);
   await act(async () => root.render(node));
+  const head = host.querySelector<HTMLButtonElement>('.acpmux-running-tray__head[aria-expanded="false"]');
+  if (open && head) await act(async () => head.click());
   return {
     root: host,
     show: async (next) => act(async () => root.render(next)),
@@ -406,14 +413,25 @@ describe("the tray", () => {
     resetTrayOpenMemory();
     const now = Date.now();
     const items = trayItems(
-      [agent("A", { startedAt: now - 5000 })],
-      [command("bg1", { command: "bun run dev", startedAt: now - 3000 }), command("bg2", { startedAt: now - 2000 })],
+      // Between turns: a background subagent and two commands with their own processes.
+      [agent("A", { background: true, startedAt: now - 5000 })],
+      [
+        command("s/1", { command: "bun run dev", processId: "s/1", startedAt: now - 3000 }),
+        command("s/2", { processId: "s/2", startedAt: now - 2000 }),
+      ],
       NONE,
       false,
     );
     // App.tsx keys the tray by chat, so a switch remounts it.
     const tray = (chat: string) =>
-      createElement(SubagentTray, { key: chat, chat, items, working: false, waiting: new Set<string>(), onOpen: () => {} });
+      createElement(SubagentTray, {
+        key: chat,
+        chat,
+        items,
+        working: false,
+        waiting: new Set<string>(),
+        onOpen: () => {},
+      });
     const { root, show, done } = await render(tray("chat-1"));
     const head = () => root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
     try {
@@ -452,6 +470,7 @@ describe("the tray", () => {
         onOpenSession: () => {},
         stop: async () => {},
       }),
+      { open: true },
     );
     try {
       const tray = root.querySelector<HTMLElement>(".acpmux-running-tray")!;
@@ -528,6 +547,7 @@ describe("the tray", () => {
         onOpenSession: (id: string) => opened.push(`chat:${id}`),
         stopProcess: async (id: string) => void stopped.push(id),
       }),
+      { open: true },
     );
     try {
       expect(root.querySelector(".acpmux-running-tray__title")?.textContent).toBe(
@@ -966,6 +986,7 @@ describe("the tray tells the truth", () => {
     const items = trayItems([], commands, NONE, true);
     const { root, done } = await render(
       createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} }),
+      { open: true },
     );
     try {
       expect(names(liveLines(root))).toEqual(["Start the dev server", "nice bun test"]);
@@ -995,6 +1016,7 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
     const { items, finished } = panel(2, 116);
     const { root, done } = await render(
       createElement(SubagentTray, { items, finished, working: true, waiting: new Set<string>(), onOpen: () => {} }),
+      { open: true },
     );
     try {
       const tray = root.querySelector<HTMLElement>(".acpmux-running-tray")!;
@@ -1257,7 +1279,7 @@ describe("workflow progress in the default tray and Inspector", () => {
               onOpen: () => {},
             })
           : createElement(SubagentsSection, { agents: [current, other], waiting, onOpen: () => {} });
-      const view = await render(draw(workflow));
+      const view = await render(draw(workflow), { open: true });
       try {
         expect(view.root.querySelector(".acpmux-agent-line__progress")).toBeNull();
         const buttons = () => [...view.root.querySelectorAll(".acpmux-agent-line__button")];
