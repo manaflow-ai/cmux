@@ -142,46 +142,56 @@ public final class MobileHostPairedStore: Sendable {
     public func change(for user: String, generation: UInt64? = nil,
                        _ edit: @escaping @Sendable (inout MobileHostPairedDevices) -> Void) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            state.withLock { state in
-                let selected = state.generation
-                let startedRevision = state.revision
-                guard let file = state.file, state.userID == user, state.list != nil,
-                      generation == nil || generation == selected else {
-                    continuation.resume(throwing: CocoaError(.userCancelled)); return
-                }
-                MobileHostPairedDevicesFile.enqueue { [self] in
-                    guard let current = self.state.withLock({ state in
-                        state.generation == selected ? state.list : nil
-                    }) else { continuation.resume(throwing: CocoaError(.userCancelled)); return }
-                    var next = current
-                    edit(&next)
-                    do {
-                        let completed = self.state.withLock { state -> [Removal: UUID] in
-                            guard state.generation == selected, state.userID == user else { return [:] }
-                            var completed: [Removal: UUID] = [:]
-                            for (removal, marker) in state.removals {
-                                // Only an edit that started after the removal may
-                                // explicitly approve the same endpoint again.
-                                guard startedRevision >= marker.revision else { continue }
-                                let before = current.devices.first { $0.id == removal.id && $0.transport == removal.transport }
-                                let after = next.devices.first { $0.id == removal.id && $0.transport == removal.transport }
-                                if before != after { completed[removal] = marker.id }
-                            }
-                            return completed
+            submit(for: user, generation: generation, edit) { error in
+                if let error { continuation.resume(throwing: error) } else { continuation.resume() }
+            }
+        }
+    }
+
+    /// Queues `edit` before it returns, so a removal made after this call, even one made before
+    /// the edit runs, still wins over it; `done` gets nil once the edit is saved.
+    public func submit(for user: String, generation: UInt64? = nil,
+                       _ edit: @escaping @Sendable (inout MobileHostPairedDevices) -> Void,
+                       done: @escaping @Sendable ((any Error)?) -> Void) {
+        state.withLock { state in
+            let selected = state.generation
+            let startedRevision = state.revision
+            guard let file = state.file, state.userID == user, state.list != nil,
+                  generation == nil || generation == selected else {
+                done(CocoaError(.userCancelled)); return
+            }
+            MobileHostPairedDevicesFile.enqueue { [self] in
+                guard let current = self.state.withLock({ state in
+                    state.generation == selected ? state.list : nil
+                }) else { done(CocoaError(.userCancelled)); return }
+                var next = current
+                edit(&next)
+                do {
+                    let completed = self.state.withLock { state -> [Removal: UUID] in
+                        guard state.generation == selected, state.userID == user else { return [:] }
+                        var completed: [Removal: UUID] = [:]
+                        for (removal, marker) in state.removals {
+                            // Only an edit that started after the removal may
+                            // explicitly approve the same endpoint again.
+                            guard startedRevision >= marker.revision else { continue }
+                            let before = current.devices.first { $0.id == removal.id && $0.transport == removal.transport }
+                            let after = next.devices.first { $0.id == removal.id && $0.transport == removal.transport }
+                            if before != after { completed[removal] = marker.id }
                         }
-                        var persisted = next
-                        let markers = self.state.withLock { state in
-                            state.generation == selected ? state.removals : [:]
-                        }
-                        for removal in markers.keys where !completed.keys.contains(removal) {
-                            persisted.remove(removal.id, transport: removal.transport)
-                        }
-                        try file.save(persisted)
-                        publish(persisted, generation: selected, completed: completed)
-                        guard self.generation == selected else { throw CocoaError(.userCancelled) }
-                        continuation.resume()
-                    } catch { continuation.resume(throwing: error) }
-                }
+                        return completed
+                    }
+                    var persisted = next
+                    let markers = self.state.withLock { state in
+                        state.generation == selected ? state.removals : [:]
+                    }
+                    for removal in markers.keys where !completed.keys.contains(removal) {
+                        persisted.remove(removal.id, transport: removal.transport)
+                    }
+                    try file.save(persisted)
+                    publish(persisted, generation: selected, completed: completed)
+                    guard self.generation == selected else { throw CocoaError(.userCancelled) }
+                    done(nil)
+                } catch { done(error) }
             }
         }
     }

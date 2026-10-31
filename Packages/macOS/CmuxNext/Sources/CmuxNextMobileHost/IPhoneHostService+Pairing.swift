@@ -241,10 +241,10 @@ extension IPhoneHostService {
     /// (``MobileHostPairedDevicesFile/save(_:)``).
     private func savePaired(_ edit: @escaping @Sendable (inout MobileHostPairedDevices) -> Void) {
         guard let user = account?.userID else { return }
-        let generation = pairedStore.generation
-        Task { [pairedStore] in
-            do { try await pairedStore.change(for: user, generation: generation, edit) }
-            catch { Self.logger.error("paired phones not saved: \(String(describing: error), privacy: .public)") }
+        let logger = Self.logger
+        // Queued in this turn, so a removal right after it (Settings > Mobile) still wins.
+        pairedStore.submit(for: user, generation: pairedStore.generation, edit) { error in
+            if let error { logger.error("paired phones not saved: \(String(describing: error), privacy: .public)") }
         }
     }
 

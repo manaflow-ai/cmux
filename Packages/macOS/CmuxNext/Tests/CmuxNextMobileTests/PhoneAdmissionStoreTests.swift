@@ -157,6 +157,24 @@ struct PhoneAdmissionStoreTests {
         #expect(!store.trusts(rekeyed))
     }
 
+    @Test func aRemovalRightAfterAnApprovalInTheSameTurnWins() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MobileHostPairedStore(seal: MobileHostMemoryPairingSeal())
+        store.select(userID: "one")
+        await store.attach(directory: directory)
+        let saved = AsyncStream<(any Error)?>.makeStream()
+        // The legacy Allow, then Settings > Mobile's Remove, with nothing run between them.
+        store.submit(for: "one", generation: store.generation, { $0.approve(Self.phone, at: Date()) }) {
+            saved.continuation.yield($0)
+        }
+        store.forget(id: Self.phone.phoneDeviceID, transport: .iroh)
+        var results = saved.stream.makeAsyncIterator()
+        _ = await results.next()
+        await store.reload()
+        #expect(!store.trusts(Self.phone))
+    }
+
     @Test func aValidUnsealedJsonFileIsNotTrustedAfterRelaunch() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
