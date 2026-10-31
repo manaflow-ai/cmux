@@ -432,7 +432,7 @@ final class LinkOpener {
             let moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
                 switch destination {
                 case .besideColumn:
-                    let after = AgentBesidePlacement.newColumn(beside: anchor, in: store)
+                    let after = store.scrollingColumn(holding: anchor)
                     TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: after, services: services, keepFocus: keepFocus) { done.resume(returning: $0) }
                 case .column(let after):
                     TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: after, services: services, keepFocus: keepFocus) { done.resume(returning: $0) }

@@ -842,6 +842,16 @@ button.acpmux-chat-inspector-port:hover,
 .acpmux-chat-inspector-pr__more {
   margin-top: 4px;
 }
+/* One ⋯ per pull request row, shown only on the row you point at or tab into, and kept lit while its
+   menu is open: a control repeated on every row is noise (Leo, 2026-10-26, on hover-revealed
+   controls: "you keep it on when you click the context menu"). */
+.acpmux-chat-inspector-pr .acpmux-chat-inspector-pr__more {
+  opacity: 0;
+}
+.acpmux-chat-inspector-pr:is(:hover, :focus-within) .acpmux-chat-inspector-pr__more,
+.acpmux-chat-inspector-pr__more:is([data-popup-open], [aria-expanded="true"]) {
+  opacity: 1;
+}
 .acpmux-chat-inspector-pr-fold {
   margin-top: 2px;
 }
