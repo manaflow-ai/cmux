@@ -151,7 +151,7 @@ extension TabStripView {
     public override func mouseDown(with event: NSEvent) {
         hoverCards.dismiss(.action)
         let point = convert(event.locationInWindow, from: nil)
-        // Read once, cleared on every press, so a press elsewhere never leaves it for a later one.
+        // Read once and clear; only a continued zoom click sequence retains it below.
         let zoomClicked = zoomClickedID
         zoomClickedID = nil
         // A press before the strip's model sync (right after a close) catches up first.
@@ -182,6 +182,12 @@ extension TabStripView {
             return
         }
         if let id = tabID(at: point) {
+            // Removing the zoom badge can move another control (the speaker) under this pointer.
+            // Suppress the rest of that gesture before testing any of the tab's buttons.
+            if event.clickCount >= 2, zoomClicked == id {
+                zoomClickedID = id
+                return
+            }
             if isInCloseButton(id, point) {
                 pressedCloseID = id
                 cells[id]?.isClosePressed = true
@@ -195,9 +201,6 @@ extension TabStripView {
                 return
             }
             // So is a zoomed pane's indicator: its release restores the layout (cmux classic).
-            // A double-click on it is one restore: its second press, on the indicator or on the tab
-            // the indicator left, toggles nothing again.
-            if event.clickCount >= 2, zoomClicked == id { return }
             // A triple-click's third press is the same gesture as the double-click that zoomed the
             // pane and put the indicator under the pointer: it restores nothing.
             if event.clickCount < 3, isInZoomButton(id, point) {
