@@ -46,7 +46,7 @@
     {"do": "smoke_type_now", "text": "echo d2-${nonce}-$((6*7))"},
     {"do": "expect", "title": "Cmd-D twice fast: two new panes, and the line typed into each at once ran there and nowhere else", "since": "split1", "timeout": 30,
      "all": [
-       {"app_layout": {"panes": 3}},
+       {"smoke_panes": {"line": "d2-${nonce}-42", "count": 3}},
        {"smoke_new_terminals": {"since": "before_splits", "lines": ["d1-${nonce}-42", "d2-${nonce}-42"], "focused": "d2-${nonce}-42", "placement": "new_panes"}},
        {"smoke_app_lines": {"lines": ["d1-${nonce}-42", "d2-${nonce}-42"]}},
        {"smoke_key_window": {}},
@@ -88,7 +88,7 @@
        {"app_rpc": {"method": "debug.crashes", "path": "launch.recovery", "equals": "clean"}},
        {"app_rpc": {"method": "debug.surfaces", "path": "blank_panes", "equals": 0}},
        {"smoke_workspaces": {"new": 3, "same_as": "before_splits"}},
-       {"app_layout": {"panes": 3}},
+       {"smoke_panes": {"line": "d2-${nonce}-42", "count": 3}},
        {"smoke_daemon_lines": {"lines": ["w1-${nonce}-42", "w2-${nonce}-42", "w3-${nonce}-42", "d1-${nonce}-42", "d2-${nonce}-42", "t1-${nonce}-42", "t2-${nonce}-42"]}},
        {"frame_text": "Example Domain"}
      ]},

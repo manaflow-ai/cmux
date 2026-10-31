@@ -137,6 +137,18 @@ def failing_step(out):
     return None
 
 
+def typed_steps(out):
+    """The results of the round's smoke_type_now steps (each says `at_once`)."""
+    path = out / JOURNEY / "result.json"
+    if not path.is_file():
+        return []
+    try:
+        steps = json.loads(path.read_text()).get("steps", [])
+    except ValueError:
+        return []
+    return [st.get("result") or {} for st in steps if st.get("do") == "smoke_type_now" and st.get("ok")]
+
+
 def step_results(out):
     """Each step of the round's journey: index, do, title, ok, error (short), for the per-step report."""
     path = out / JOURNEY / "result.json"
@@ -220,6 +232,10 @@ def main(argv=None):
         hog = pressure(round_out, opts.swap_gb)
         if row.get("status") == "pass" and not hog["ok"]:
             row = dict(row, status="not run", reason=f"no memory pressure shown by the hog log: {json.dumps(hog)}")
+        late = [st for st in typed_steps(round_out) if st.get("at_once") is not True]
+        if row.get("status") == "pass" and not opts.diagnostic and late:
+            row = dict(row, status="not run", reason=f"{len(late)} smoke_type_now steps were not typed at once "
+                                                      "(a diagnostic round is never a gate pass)")
         exclusive = exclusive_line(round_out)
         if row.get("status") == "pass" and not exclusive:
             row = dict(row, status="not run", reason="capture-host did not say the lease's mini was exclusive (acquire.log)")
@@ -246,10 +262,12 @@ def main(argv=None):
                "expects": expect_table(rounds), "known_gap_rounds": [r["round"] for r in rounds if r["known_gap"]],
                "rounds_detail": rounds, "out": str(out)}
     (out / "summary.json").write_text(json.dumps(summary, indent=1))
-    lines = [f"dogfood smoke gate for build {opts.build}: {verdict} ({passed} of {opts.rounds} rounds passed; "
+    ran = ("journeys completed" if opts.diagnostic else "rounds passed")
+    lines = [f"dogfood smoke gate for build {opts.build}: {verdict} ({passed} of {opts.rounds} {ran}; "
              f"{len(failed)} failed, {len(not_run)} not run; memory hog +{opts.swap_gb} GB swap; gate {gate_sha[:11]}"
              + (" with uncommitted changes" if dirty else "") + ")"
-             + ("" if gate_run else f"; a trial: the gate needs {GATE_ROUNDS} rounds at +{GATE_SWAP_GB:g} GB, so no .pass file")]
+             + ("; diagnostic rounds judge nothing, so no .pass file" if opts.diagnostic else
+                "" if gate_run else f"; a trial: the gate needs {GATE_ROUNDS} rounds at +{GATE_SWAP_GB:g} GB, so no .pass file")]
     if summary["known_gap_rounds"]:
         lines.append(f"KNOWN GAP in rounds {summary['known_gap_rounds']}: the capture slot could not make the window key, "
                      "so keys typed into a new terminal while it is made were not checked; not a pass")

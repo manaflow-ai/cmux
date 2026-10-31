@@ -42,6 +42,10 @@ if status == "gap":
 if status == "fail":
     json.dump({"steps": [{"do": "smoke_type_now", "ok": False, "error": "keys lost"}]},
               open(os.path.join(out, "smoke-dogfood", "result.json"), "w"))
+if status == "pass" and "--journey-option" not in args:
+    late = os.environ.get("SMOKE_LATE") == "yes"
+    json.dump({"steps": [{"index": 7, "do": "smoke_type_now", "ok": True, "result": {"at_once": not late}}]},
+              open(os.path.join(out, "smoke-dogfood", "result.json"), "w"))
 if "--journey-option" in args:
     open(os.path.join(out, "options.txt"), "w").write(args[args.index("--journey-option") + 1])
     json.dump({"steps": [{"index": 5, "do": "expect", "title": "Cmd-D twice fast", "ok": status == "pass",
@@ -129,6 +133,13 @@ class Verdicts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             code, summary = gate(["pass"] * 10, tmp, ("--diagnostic",))
             self.assertEqual((code, summary["verdict"]), (75, "DIAGNOSTIC (NOT JUDGED)"))
+            self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
+
+    def test_a_strict_pass_whose_lines_were_not_typed_at_once_does_not_count(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code, summary = gate(["pass"] * 10, tmp, env_extra={"SMOKE_LATE": "yes"})
+            self.assertEqual((code, summary["verdict"], summary["passed"]), (75, "NOT JUDGED", 0))
+            self.assertIn("not typed at once", summary["rounds_detail"][0]["reason"])
             self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
 
     def test_a_trial_never_writes_the_pass_file(self):
@@ -268,10 +279,12 @@ class NewTerminals(unittest.TestCase):
 
             @staticmethod
             def places(topo):
+                records = {w["id"]: w for w in topo.get("workspaces", [])}
                 for row in topo["layout"]:
                     ws, pane, tab, term, selected = row[:5]
                     key = row[5] if len(row) > 5 else term
-                    yield {"id": ws}, {"id": pane, "selected_tab": tab if selected else None}, {"id": tab, "terminal_key": key}, term
+                    yield (records.get(ws, {"id": ws}), {"id": pane, "selected_tab": tab if selected else None},
+                           {"id": tab, "terminal_key": key}, term)
 
             def topology_workspaces(self_):
                 return sorted({row[0] for row in layout})
@@ -363,6 +376,34 @@ class NewTerminals(unittest.TestCase):
             self.ext.step_smoke_type_now(j, {"text": "ab"})
         ok, detail = self.ext.cond_smoke_key_window(j, {}, {})
         self.assertFalse(ok, detail)
+
+    def test_strict_mode_on_a_slot_with_no_key_window_is_a_known_gap(self):
+        j = self.journey([("w", "p1", "a", "T0", True)], {}, "p1")
+        j.smoke_key_ok, j.smoke_key_reply, typed = False, {"key": None}, []
+        j.app.rpc = lambda method, params=None: {"windows": [{"id": 1, "kind": "main", "key": False}]}
+        j.key = lambda *a: typed.append(a)
+        with self.assertRaises(self.NotRun) as caught:
+            self.ext.step_smoke_type_now(j, {"text": "echo x"})
+        self.assertIn("debug.window.focus said", str(caught.exception))
+        self.assertEqual(typed, [])
+        # No main window at all: a fail in either mode (nothing to type in).
+        j.spec = {"options": {"smoke_mode": "diagnostic"}}
+        j.app.rpc = lambda method, params=None: {"windows": []}
+        with self.assertRaises(self.StepError):
+            self.ext.step_smoke_type_now(j, {"text": "echo x"})
+        ok, _detail = self.ext.cond_smoke_key_window(j, {}, {})
+        self.assertFalse(ok)
+
+    def test_the_pane_count_is_read_from_the_workspace_that_shows_the_line(self):
+        layout = [("w0", "p0", "a", "T0", True), ("w1", "p1", "b", "T1", True), ("w1", "p2", "c", "T2", True),
+                  ("w1", "p3", "d", "T3", True)]
+        j = self.journey(layout, {"T3": "d2"}, "p3")
+        j.topology = lambda: {"layout": layout, "workspaces": [
+            {"id": "w0", "screens": [{"panes": [{"id": "p0"}]}]},
+            {"id": "w1", "screens": [{"panes": [{"id": "p1"}, {"id": "p2"}, {"id": "p3"}]}]}]}
+        self.assertTrue(self.ext.cond_smoke_panes(j, {"line": "d2", "count": 3}, {})[0])
+        self.assertFalse(self.ext.cond_smoke_panes(j, {"line": "d2", "count": 2}, {})[0])
+        self.assertFalse(self.ext.cond_smoke_panes(j, {"line": "zz", "count": 3}, {})[0])
 
     def test_each_workspace_line_in_its_own_new_workspace(self):
         before = [("w0", "p0", "a", "T0", True)]

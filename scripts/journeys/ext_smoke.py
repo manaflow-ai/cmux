@@ -36,6 +36,7 @@ Conditions (inside `expect.all`; evidence kind app):
                                       (evidence frame) one fresh window frame, kept as check-NN.png, that is not blank
                                       (text recognition reads at least MIN_LINES, default 3, lines) and shows none of
                                       LACKS. The screenshot of a step whose state the app's reads prove
+  smoke_panes        {line, count}    the workspace whose terminal shows LINE has COUNT panes
   smoke_key_window   {}               a main window of the app is its key window (debug.window_list; a read only)
   smoke_new_terminals {since, lines, focused, placement}
                                       the keys went to the new terminals, not to an old one: exactly len(LINES) new
@@ -100,10 +101,13 @@ def step_smoke_type_now(j, step):
         raise D.StepError(f"the keys would go to a window that is not a main window: {json.dumps(other)[:300]}")
     waited = None
     if not (getattr(j, "smoke_key_ok", False) and key_now):
+        if not any(w["kind"] == "main" for w in windows):
+            raise D.StepError(f"the app has no main window to type in: {json.dumps(windows)[:200]}")
         if not _diagnostic(j):
             # The slot's limit, not the build's: report it as not run (the gate counts that as no pass).
-            raise D.NotRun(GAP + f" (debug.window.focus said {json.dumps(getattr(j, 'smoke_key_reply', None))[:200]}; "
-                                 f"windows now {json.dumps(windows)[:200]})")
+            how = ("the window lost key status after smoke_make_key made it key" if getattr(j, "smoke_key_ok", False)
+                   else f"debug.window.focus said {json.dumps(getattr(j, 'smoke_key_reply', None))[:200]}")
+            raise D.NotRun(GAP + f" ({how}; windows now {json.dumps(windows)[:200]})")
         # Diagnostic: no key window, so held keys could not be replayed; type after the creation hold instead.
         waited = j.outwait_creation_hold(getattr(j, "last_key_at", D.now()))
     text = j.sub(step["text"])
@@ -299,11 +303,29 @@ def _main_key(j):
     return any(w["key"] is True and w["kind"] == "main" for w in windows), windows
 
 
+def cond_smoke_panes(j, want, cache):
+    """The workspace whose terminal shows LINE (a daemon screen line) has COUNT panes: the journey's own pane count
+    (the driver's app_layout needs a terminal the driver adopted, which a key-made terminal here is not)."""
+    line = j.sub(want["line"])
+    topo = j.topology()
+    for ws, _pane, _tab, term in j.places(topo):
+        if not term:
+            continue
+        try:
+            shown = set(_lines(j.app.screen(term)["text"]))
+        except D.StepError:
+            continue
+        if line in shown:
+            panes = [p for sc in ws.get("screens", []) for p in sc.get("panes", [])]
+            return len(panes) == int(want["count"]), {"workspace": ws.get("id"), "panes": len(panes), "want": int(want["count"])}
+    return False, {"error": f"no terminal shows {line}"}
+
+
 def cond_smoke_key_window(j, want, cache):
     """A main window is the app's key window: a read (debug.window_list), so the check does not make it key."""
     key_now, windows = _main_key(j)
     if not key_now and _diagnostic(j) and not getattr(j, "smoke_key_ok", False) \
-            and not any(w["key"] is True for w in windows):
+            and not any(w["key"] is True for w in windows) and any(w["kind"] == "main" for w in windows):
         # Diagnostic on a slot: no window was ever key; the step's other checks still count.
         return True, {"windows": windows, "diagnostic": "no key window on this slot (not checked)"}
     return key_now, {"windows": windows}
@@ -314,4 +336,5 @@ STEPS = {"smoke_make_key": step_smoke_make_key, "smoke_type_now": step_smoke_typ
          "smoke_snapshot": step_smoke_snapshot}
 CONDITIONS = {"smoke_workspaces": ("app", cond_smoke_workspaces), "smoke_key_window": ("app", cond_smoke_key_window),
               "smoke_app_lines": ("app", cond_smoke_app_lines), "smoke_daemon_lines": ("daemon", cond_smoke_daemon_lines),
-              "smoke_new_terminals": ("daemon", cond_smoke_new_terminals), "smoke_frame": ("frame", cond_smoke_frame)}
+              "smoke_new_terminals": ("daemon", cond_smoke_new_terminals), "smoke_frame": ("frame", cond_smoke_frame),
+              "smoke_panes": ("app", cond_smoke_panes)}
