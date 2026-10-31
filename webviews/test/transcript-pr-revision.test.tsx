@@ -277,7 +277,7 @@ test("child streaming PR input retains producer revisions through visual transfo
   expect(transcriptPullRequests(source).map((pr) => pr.number)).toContain(41);
 });
 
-test("empty nested Markdown keeps fallback and finished replies use their action row", async () => {
+test("empty nested Markdown and a finished reply inside a turn keep the fallback (no reply draws its own action row)", async () => {
   const { assistant, activity, tool } = await import("../src/gallery/fixtures/acpmux");
   const opened = activity(
     [
@@ -308,7 +308,7 @@ test("empty nested Markdown keeps fallback and finished replies use their action
       );
       const links = dom.window.document.querySelectorAll(".acpmux-pr-dock__bar");
       expect(links).toHaveLength(1);
-      expect(links[0]?.closest(empty ? ".acpmux-pr-fallback" : ".cv-reply-actions")).not.toBeNull();
+      expect(links[0]?.closest(".acpmux-pr-fallback")).not.toBeNull();
       expect(dom.window.document.querySelector(".cv-md .acpmux-pr-dock")).toBeNull();
     } finally {
       act(() => root.unmount());

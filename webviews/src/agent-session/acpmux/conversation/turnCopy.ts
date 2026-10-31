@@ -7,6 +7,7 @@
 import type { Translate } from "../i18n";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { toolLabel } from "../toolPaths";
+import { isDraftCall } from "./toolGroups";
 import { toolRunSummary } from "./toolRunSummary";
 
 /// One piece of a finished turn, in order: a reply's text, or a run of tool calls between replies.
@@ -26,7 +27,8 @@ export function turnCopyParts(rows: readonly AcpmuxRow[]): TurnCopyPart[] | unde
       parts.push({ text });
       said = true;
     } else if (row.kind === "activity") {
-      const tools = (row.items ?? []).filter((item) => item.tool);
+      // A draft call the transcript hides (turns.ts withoutDrafts) is not copied either.
+      const tools = (row.items ?? []).filter((item) => item.tool && !isDraftCall(item.tool));
       if (!tools.length) continue;
       if (!run) parts.push({ tools: (run = []) });
       run.push(...tools);

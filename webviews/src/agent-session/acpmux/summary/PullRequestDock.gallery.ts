@@ -112,7 +112,7 @@ export default agentPaneEntry({
       snapshot: chat([activity(four, 3), assistant("> >", 1, { streaming: true })]),
     },
     "reply-actions": {
-      note: "A finished reply followed by a tool keeps PRs beside its existing action buttons.",
+      note: "A finished reply followed by a tool draws no action row of its own; its PRs keep the fallback.",
       snapshot: chat([
         activity(four, 4),
         assistant("The pull requests are ready.", 2),
