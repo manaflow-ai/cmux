@@ -29,10 +29,14 @@ extension SidebarTransientItem {
     }
 
     /// The subagent rows under the Chief item, in order; none draw while the item is not in the
-    /// sidebar. `showsIdle`: the list is unfolded, so idle subagents show too.
+    /// sidebar. `openedOnly` keeps a Chief-started session out until its chat is opened in a
+    /// workspace. `showsIdle`: the list is unfolded, so idle opened subagents show too.
     @MainActor
-    public static func chiefSubagents(lanes: some Collection<AgentActivityLane>, showsIdle: Bool) -> [SidebarTransientItem] {
-        let subagents = lanes.filter { ChiefSessionRole(name: $0.name) == .subagent }
+    public static func chiefSubagents(lanes: some Collection<AgentActivityLane>, showsIdle: Bool,
+                                      openedOnly: Bool = false) -> [SidebarTransientItem] {
+        let subagents = lanes.filter {
+            ChiefSessionRole(name: $0.name) == .subagent && (!openedOnly || $0.workspaceID != nil)
+        }
             .sorted { ($0.subagentNumber ?? .max, $0.name) < ($1.subagentNumber ?? .max, $1.name) }
         var items: [SidebarTransientItem] = []
         var previous = LayoutItemRef.builtIn(.chief)

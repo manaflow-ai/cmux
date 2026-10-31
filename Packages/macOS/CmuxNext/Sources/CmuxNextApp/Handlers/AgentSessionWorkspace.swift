@@ -7,13 +7,12 @@ import CmuxNextSidebar
 import Foundation
 
 /// `agent.openSessionWorkspace`: a new workspace whose selected tab is the
-/// agent chat of an EXISTING acpmux session. The Home Chief runs each
-/// subagent it spawns this way (optchat-chief `spawn`), so the user sees
-/// every subagent in the sidebar, watches its chat and tool calls, and can
-/// write to it. The agent tab on `session` is the workspace's first and only
-/// tab, selected in every window; no terminal is made (Leo, 2026-10-28: "we
-/// don't want to just be seeing these bare terminals"). Nothing takes focus or
-/// switches workspaces.
+/// agent chat of an EXISTING acpmux session. The Home Chief opens a subagent
+/// this way when the user follows its link, so the session gets a sidebar
+/// workspace only when the user asks to inspect it. The agent tab on `session`
+/// is the workspace's first and only tab, selected in every window; no terminal
+/// is made (Leo, 2026-10-28: "we don't want to just be seeing these bare
+/// terminals"). Nothing takes focus or switches workspaces.
 /// Closing the tab or the workspace only detaches from the session; the
 /// session ends only when someone ends it.
 ///

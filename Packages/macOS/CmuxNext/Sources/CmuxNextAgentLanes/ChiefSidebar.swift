@@ -57,8 +57,8 @@ public final class ChiefSidebar {
         }
     }
 
-    /// Unfolded: the idle subagents show too. Folded (the default) still shows every working,
-    /// waiting, failed or lost one. This view state stays on this Mac.
+    /// Unfolded: the idle opened subagents show too. Folded (the default) still shows every
+    /// opened working, waiting, failed or lost one. This view state stays on this Mac.
     public var showsIdleSubagents = UserDefaults.standard.bool(forKey: ChiefSidebar.showsIdleKey) {
         didSet { UserDefaults.standard.set(showsIdleSubagents, forKey: Self.showsIdleKey) }
     }
@@ -82,10 +82,11 @@ public final class ChiefSidebar {
         self.host = host
     }
 
-    /// The subagent rows now (they draw only under the Chief item). Read inside an observation
-    /// scope, so a lane or fold change re-yields.
+    /// The opened subagent rows now (they draw only under the Chief item). Read inside an
+    /// observation scope, so a lane or fold change re-yields.
     public func rows() -> [SidebarTransientItem] {
-        SidebarTransientItem.chiefSubagents(lanes: lanes.lanes.values, showsIdle: showsIdleSubagents)
+        SidebarTransientItem.chiefSubagents(lanes: lanes.lanes.values, showsIdle: showsIdleSubagents,
+                                            openedOnly: true)
     }
 
     /// Every subagent row, idle ones too, in number order (the Chief pane's Subagents menu).
