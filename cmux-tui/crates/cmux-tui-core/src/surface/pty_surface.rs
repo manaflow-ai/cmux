@@ -292,6 +292,10 @@ impl PtySurface {
         let mut term = self.term.lock().unwrap();
         let generation = self.drop_exited_modes(&mut term);
         let _ = self.build_producer_frame(term, generation);
+        // The last output's scroll position, before the surface goes.
+        if let Some(mux) = self.mux.upgrade() {
+            let _ = self.frame_requests.flush_scroll(&mux, self.event_surface_id);
+        }
     }
 
     /// Preserve the last hosted frame, then end every live attachment while
