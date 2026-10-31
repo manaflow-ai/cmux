@@ -378,8 +378,8 @@ extension PaneController {
 
     // MARK: Context menus
 
-    /// A tab's menu, the same wherever it is opened (its strip, its row in
-    /// the sidebar): a browser tab drops what does not apply to a page.
+    /// A tab's menu, the same wherever it is opened on its strip: a browser
+    /// tab drops what does not apply to a page.
     /// New <Kind> Tab reads as the kind `sameKind` names ("New Browser Tab").
     /// `selectionPins`: the menu is on one of several selected tabs, its rows act on all of them, and Pin pins them (true) or unpins.
     static func tabMenu(_ id: String, tab: TabModel?, keepsTab: Bool, sameKind: NewTabKind, registry: ActionRegistry, selectionPins: Bool? = nil, machineID: String? = nil) -> NSMenu {
