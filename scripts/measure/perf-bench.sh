@@ -55,6 +55,11 @@ out="artifacts/perf-bench"
 work=".build/perf-bench"
 rm -rf "$out" "$work" /private/tmp/xbench
 mkdir -p "$out" "$work"
+# The web bundles need the bun webviews/package.json pins; the account's ~/.bun may hold an older one
+# (M6 minis 2026-10-31: 1.3.6-1.4.2, webviews pins 1.4.4). The step gets its own checked copy, first on PATH.
+RUNNER_TEMP="$work" GITHUB_PATH="$work/bun-path" ./scripts/cmux-next/private-bun.sh
+PATH="$(tail -n 1 "$work/bun-path"):$PATH"
+export PATH
 chip="$(sysctl -n machdep.cpu.brand_string)"
 echo "PERF-BENCH-MACHINE host=$(scutil --get ComputerName 2>/dev/null || hostname) sha=$sha model=$(sysctl -n hw.model) chip=\"$chip\" cores=$(sysctl -n hw.ncpu) ram_gb=$(( $(sysctl -n hw.memsize) / 1073741824 )) macos=$(sw_vers -productVersion) load=\"$(uptime | sed 's/.*load averages*: //')\""
 
