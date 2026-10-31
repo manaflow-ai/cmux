@@ -492,6 +492,18 @@ impl Hub {
         let (child, adopted) = match attached {
             Attached::Ready(child, adopted, _) => (child, adopted),
             Attached::Incompatible { min, max, host_build } => {
+                // Its replay is never read, so what it kept while no daemon was attached is
+                // unknown: under MDM's off it counts as full access, now and at any later off
+                // (`unjudged_host`), and ends by its nonce. A host whose end fails stays held and
+                // is never reached (`FullAccessEnd::StillRunning`). With MDM unset it runs on,
+                // unadoptable, as before (#26337).
+                session.floor.unjudged_host.store(true, Ordering::SeqCst);
+                let ended = off.off()
+                    && self.end_managed_full_access(session).await == FullAccessEnd::Ended;
+                if ended {
+                    hold.take();
+                    return Ok(());
+                }
                 self.mark_unadoptable(
                     session,
                     json!({"hostProtocol": [min, max], "hostBuild": host_build}),
@@ -1798,6 +1810,10 @@ impl Hub {
         spec: &crate::agent_host::SpawnSpec,
         tap: crate::agent::Tap,
     ) -> Result<Arc<ChildAgent>, HostStartFailed> {
+        // A start runs only once the session's old host is gone (`ensure_child`), so a host this
+        // build could not speak to no longer counts: cleared before the new host's record is
+        // live, so no off push in between ends the new one for it (#26337).
+        session.floor.unjudged_host.store(false, Ordering::SeqCst);
         let record = crate::agent_host::program_wait::spawn(launcher, spec)
             .await
             .map_err(|error| HostStartFailed { error, started: None })?;
