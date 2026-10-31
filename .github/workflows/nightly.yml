@@ -5092,6 +5092,21 @@ jobs:
         if: env.TRACK == 'nightly-next'
         run: ./scripts/cmux-next/check-version-surfaces.sh "$CHANNEL_APP_PATH"
 
+      # Every CLI command that must work from the bundle alone runs from the
+      # signed app on this Mac (a subcommand once exec'd a cmux-vm binary no
+      # bundle shipped). A slice this Mac cannot run is checked by the
+      # variant that can.
+      - name: Verify bundled CLI commands run from the bundle alone
+        if: env.TRACK == 'nightly-next' && hashFiles('scripts/cmux-next/check-bundled-cli-commands.sh') != ''
+        run: |
+          set -euo pipefail
+          archs="$(lipo -archs "$CHANNEL_APP_PATH/Contents/Resources/bin/cmux")"
+          if [[ " $archs " == *" $(uname -m) "* ]]; then
+            ./scripts/cmux-next/check-bundled-cli-commands.sh "$CHANNEL_APP_PATH"
+          else
+            echo "bin/cmux is $archs; this runner is $(uname -m): the matching variant checks it"
+          fi
+
 
 
       # sign-cmux-bundle.sh ran the static sidecar checks while the keychain
