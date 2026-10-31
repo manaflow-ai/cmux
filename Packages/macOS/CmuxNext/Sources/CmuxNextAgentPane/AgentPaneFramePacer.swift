@@ -162,6 +162,14 @@ import CmuxNextWakeups
         frames.deactivate()
     }
 
+    /// The pacer's state for `debug.agent_pane pacer`: a pane whose page stopped hearing acpmux
+    /// shows here whether its frames are held, in flight or waiting.
+    public var debugState: [String: Bool] {
+        ["held": held, "inFlight": inFlight, "pending": pending, "urgent": urgent, "hidden": isHidden(),
+         "waitingForFrame": waitingForFrame, "waitingForInterval": waitingForInterval,
+         "waitingWhileHidden": waitingWhileHidden, "linkStalled": linkStalled, "nextTurnScheduled": nextTurnScheduled]
+    }
+
     /// Stops pacing (the pane closed).
     public func stop() {
         reset()

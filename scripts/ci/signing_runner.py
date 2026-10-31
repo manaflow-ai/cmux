@@ -23,9 +23,9 @@ so on an owned Mac it must have the mini to itself:
   and only one they all finish within DRAIN_HORIZON_SECONDS (DRAIN_BY_REMAINING_TIME, below). The slot listens
   however full its mini is, and the waiting signing job, a nightly job, stops every other admission and holds every
   other runner's gate there (glaeda FEED_FIRST): the running jobs finish, nothing new starts, and it takes the whole
-  mini within glaeda's SIGNING_DRAIN_WAIT_S (600 s), or is refused and the run's Blacksmith twin signs. The hold is
-  the waiting job's own marker, so it ends with the job and never strands the mini. With no such mini, nothing is
-  offered and the job signs on Blacksmith at once.
+  mini within glaeda's SIGNING_DRAIN_WAIT_S (3600 s since glaeda #1768), or is refused and the run's Blacksmith twin
+  signs. The hold is the waiting job's own marker, so it ends with the job and never strands the mini. With no such
+  mini, nothing is offered and the job signs on Blacksmith at once.
 - On the mini, glaeda's job-started hook gives every signing job the exclusive
   class (glaeda SIGNING_JOBS): every capacity unit and both fast tokens, so no
   other job starts beside it, and it waits at most 300 s for the mini to drain
@@ -81,15 +81,16 @@ SIGNING_JOBS = {
 # whole, so each one held is a mini's worth of PR and nightly work sent elsewhere.
 MAX_OWNED_SIGNING = 1
 # DRAIN_BY_REMAINING_TIME: the mini a nightly signing job drains is chosen by when its busy runners finish, not by how
-# many there are. On 2026-10-30 cmux12s's nightly slot took 18 legacy signing jobs; 11 waited glaeda's whole 600 s
-# drain and were refused, because a PR job admitted just before (swift-test on its gui runner, 15 to 45 min) held 4
-# of its 14 units: "fewest busy runners" counted that mini as nearly free. Each futile drain also held every PR job
-# off the mini for 10 minutes. A busy runner's remaining time comes from the queue janitor's pool snapshot (which job
-# each owned runner runs and since when, `running`) and warm_distance's job lengths (remaining_seconds), the same
-# estimate pr_runner_pool's warm routing uses; no other GitHub read. A busy runner with no estimate (no snapshot entry,
-# a job the model has no length for, one past its p90, or a snapshot older than DRAIN_SNAPSHOT_MAX_MINUTES) keeps
-# its mini busy, and a mini is offered only when every busy runner on it finishes within DRAIN_HORIZON_SECONDS. With
-# none, the job takes Blacksmith now instead of a drain that cannot end inside the bound.
+# many there are. On 2026-10-30 cmux12s's nightly slot took 18 legacy signing jobs; 11 waited glaeda's whole drain
+# (600 s then; 3600 s since glaeda #1768) and were refused, because a PR job admitted just before (swift-test on its gui
+# runner, 15 to 45 min) held 4 of its 14 units: "fewest busy runners" counted that mini as nearly free. Each futile
+# drain also held every PR job off the mini for its whole drain. A busy runner's remaining time comes from the queue
+# janitor's pool snapshot (which job each owned runner runs and since when, `running`) and warm_distance's job lengths
+# (remaining_seconds), the same estimate pr_runner_pool's warm routing uses; no other GitHub read. A busy runner with no
+# estimate (no snapshot entry, a job the model has no length for, one past its p90, or a snapshot older than
+# DRAIN_SNAPSHOT_MAX_MINUTES) keeps its mini busy, and a mini is offered only when every busy runner on it finishes
+# within DRAIN_HORIZON_SECONDS. With none, the job takes Blacksmith now instead of a drain that cannot end inside the
+# bound.
 DRAIN_HORIZON_SECONDS = 120.0
 # DRAIN_ANYWAY: a caller that sets DRAIN_ANYWAY=1 (nightly.yml's legacy-identity sign) still drains a mini when none
 # frees up within the horizon, instead of signing on Blacksmith. Leo, 2026-10-30, when every legacy sign since #28555
