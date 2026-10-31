@@ -50,7 +50,7 @@ final class FilePageOpener: FileOpening {
 
     /// The shared file-domain route; `userChose` decides writability, not rendering.
     nonisolated static func route(for url: URL, userChose: Bool, asText: Bool = false) -> Route {
-        FileOpenKind(fileName: url.lastPathComponent, isDirectory: false, isPackage: false).pageRoute(asText: asText)
+        Route(fileName: url.lastPathComponent, asText: asText)
     }
 
     /// `userChose` false for an agent's or a script's open (`cmux file open`): a markdown document

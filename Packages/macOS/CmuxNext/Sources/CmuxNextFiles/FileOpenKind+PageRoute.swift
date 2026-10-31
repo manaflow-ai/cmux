@@ -1,3 +1,5 @@
+import Foundation
+
 /// The file-page route shared by local and remote openers.
 extension FileOpenKind {
     /// The view that shows a file or its source text.
@@ -10,17 +12,18 @@ extension FileOpenKind {
         case editor
         /// The browser previews an image, PDF or media file.
         case preview
-    }
 
-    /// Chooses the view before any file access. Open as Text selects source for rendered pages;
-    /// remote callers may further restrict browser routes to avoid reading a local same-path file.
-    public func pageRoute(asText: Bool = false) -> PageRoute {
-        if opensAsText, asText { return .editor }
-        switch self {
-        case .web: return .renderedPage
-        case .markdown: return .markdown
-        case .preview: return .preview
-        default: return .editor
+        /// Chooses the view before file access. The Markdown page supports `.md` and `.markdown`;
+        /// other Markdown aliases keep the code editor. Remote callers may restrict browser routes.
+        public init(fileName: String, asText: Bool = false) {
+            let kind = FileOpenKind(fileName: fileName, isDirectory: false, isPackage: false)
+            if kind.opensAsText, asText { self = .editor; return }
+            switch kind {
+            case .web: self = .renderedPage
+            case .markdown: self = ["md", "markdown"].contains((fileName as NSString).pathExtension.lowercased()) ? .markdown : .editor
+            case .preview: self = .preview
+            default: self = .editor
+            }
         }
     }
 }
