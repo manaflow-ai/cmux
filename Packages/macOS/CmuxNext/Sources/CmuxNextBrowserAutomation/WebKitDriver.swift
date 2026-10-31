@@ -20,6 +20,7 @@ public final class WebKitDriver: DriverCallHandler {
     public var agentBundle: String?
     /// Where `cookies.clear` keeps what it deletes (undo); nil: no clear runs.
     public var cookieBackups: CookieBackups?
+    let frameCodePolicy: BrowserFrameCodePolicy?
     var sessions: [BrowserTabID: TabSession] = [:]
     lazy var dialogs = DialogBroker { [weak self] name, payload in self?.emit(name, payload) }
 
@@ -28,11 +29,13 @@ public final class WebKitDriver: DriverCallHandler {
     /// WebKit private calls, on this driver's clock.
     let privateCalls: WebKitPrivateCalls
 
-    public init(provider: any AutomationTabProvider, agentBundle: String? = nil, clock: any Clock<Duration> = ContinuousClock()) {
+    public init(provider: any AutomationTabProvider, agentBundle: String? = nil, clock: any Clock<Duration> = ContinuousClock(),
+                frameCodePolicy: BrowserFrameCodePolicy? = nil) {
         self.provider = provider
         self.clock = clock
         privateCalls = WebKitPrivateCalls(clock: clock)
         self.agentBundle = agentBundle
+        self.frameCodePolicy = frameCodePolicy
         (events, emitter) = AsyncStream.makeStream(of: DriverEvent.self, bufferingPolicy: .bufferingOldest(8192))
     }
 
