@@ -483,7 +483,7 @@ extension WindowManager {
             registered.owner(of: id) == nil && placements[id] == nil
                 && services.machines.workspace(id: id).map { $0.1 === services.daemon } == true
         })
-        for id in live where !held.contains(id) { pendingClaims[id] = nil }
+        for id in live where !held.contains(id) { pendingClaims[id] = nil; backgroundClaims.remove(id) }
         // A claimed workspace is selected in its window, unless it was
         // claimed quietly (`claim(select: false)`).
         let before = registry.value
