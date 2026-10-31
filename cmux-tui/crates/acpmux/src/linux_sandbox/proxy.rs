@@ -155,8 +155,11 @@ where
     .await
 }
 
-/// Stop condition: cancellation or accept failure. Shutdown aborts and joins all
-/// handlers; dropping this future also aborts them through the owned JoinSet.
+/// Stop condition: cancellation, or an accept failure that means the listener is
+/// gone. Any other accept failure (EMFILE, a connection reset in the queue) pauses
+/// and accepts again: the keeper ends the sandboxed session when this returns.
+/// Shutdown aborts and joins all handlers; dropping this future also aborts them
+/// through the owned JoinSet.
 async fn serve<F, Fut>(
     listener: std::net::TcpListener,
     handler: F,
@@ -177,7 +180,11 @@ where
             accepted = listener.accept(), if tasks.len() < MAX_TUNNELS => {
                 let (client, _) = match accepted {
                     Ok(pair) => pair,
-                    Err(e) => break Err(e),
+                    Err(e) if crate::server::accept_ends_listener(&e) => break Err(e),
+                    Err(e) => {
+                        tokio::time::sleep(crate::server::accept_retry_delay(&e)).await;
+                        continue;
+                    }
                 };
                 let connection = handler(client);
                 let stop = stop.clone();
