@@ -5,6 +5,7 @@ import CmuxNextDesign
 @testable import CmuxNextNowPlaying
 @testable import CmuxNextSettings
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Observation
 import Testing
@@ -14,7 +15,7 @@ import Testing
 /// offers Hide, Hide Until Relaunch, Never Show Media Card (`sidebar.nowPlaying.enabled` off) and
 /// Play/Pause. Every row and the x run one registered action, which the palette, the CLI and MCP
 /// reach too; Show Media Card brings the card back.
-@MainActor @Suite(.serialized) struct NowPlayingCardDismissTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct NowPlayingCardDismissTests {
     @Observable final class FakeSource: NowPlayingSource {
         var nowPlaying: SidebarNowPlaying?
         @ObservationIgnored var commands: [SidebarNowPlayingCommand] = []

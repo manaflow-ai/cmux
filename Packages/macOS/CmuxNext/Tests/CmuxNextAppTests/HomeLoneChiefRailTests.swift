@@ -2,6 +2,7 @@ import AppKit
 import CmuxHomeCore
 import CmuxNextDesign
 @testable import CmuxNextHome
+import CmuxNextTestSupport
 import Testing
 
 /// Visual QA of the nightly, 2026-10-21: a narrow Home column whose list holds only the Chief drew
@@ -11,6 +12,7 @@ import Testing
 /// enough for names keeps the list with names. Debug Settings > Home > "Avatar list for one
 /// conversation" keeps the column.
 @MainActor
+@Suite(.closesItsWindows)
 struct HomeLoneChiefRailTests {
     struct Page {
         let split: HomeSidebarSplitView

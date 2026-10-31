@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// Mouse buttons 4 and 5 are Back and Forward (plans/cmux-next/history.md 4.2): a browser tab's
 /// history over the tab, Go Back and Go Forward elsewhere, nothing over a remote desktop that
 /// sends every button to its host.
-@MainActor @Suite struct MouseSideButtonsTests {
+@MainActor @Suite(.closesItsWindows) struct MouseSideButtonsTests {
     @Test func appKitButtonsThreeAndFourAreBackAndForward() {
         #expect(MouseSideButtons.Button(buttonNumber: 3) == .back)
         #expect(MouseSideButtons.Button(buttonNumber: 4) == .forward)
@@ -26,6 +27,7 @@ import Testing
     @Test func aRemoteDesktopInControlModeKeepsTheButtons() {
         let window = NSWindow(contentRect: CGRect(x: 200, y: 200, width: 400, height: 300), styleMask: [.borderless],
                               backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         let content = NSView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
         window.contentView = content
         let remote = ForwardingView(frame: CGRect(x: 0, y: 0, width: 200, height: 300))
