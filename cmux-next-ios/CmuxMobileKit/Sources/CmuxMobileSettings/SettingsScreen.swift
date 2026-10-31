@@ -33,6 +33,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
     let screenSharing: ScreenSharingService?
     private let callKeys = OpenAIKeyModel.shared
     private let callPreferences = VoiceCallPreferences.shared
+    private let accentTheme = CmuxMobileAccentTheme.shared
     @State private var confirmsSignOut = false
     @State private var editingTeam: Team?
     /// One device list for the "Devices" count here and the Devices page.
@@ -103,6 +104,10 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                 Section {
                     AppearanceTiles(selection: $settings.appearance)
                         .listRowInsets(EdgeInsets(top: 14, leading: 16, bottom: 14, trailing: 16))
+                    NavigationLink(value: SettingsRoute.accentColor) {
+                        SettingsLabel("Accent color", symbol: "paintpalette", value: accentTheme.accent.title)
+                    }
+                    .accessibilityIdentifier("settings.accentColor")
                     Toggle(isOn: $settings.hapticsEnabled) {
                         SettingsLabel("Haptic feedback", symbol: "iphone.radiowaves.left.and.right")
                     }
@@ -238,6 +243,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
         case .terminalSizing: TerminalSizingMacsPage(store: store)
         case .terminalSizingMac(let macID): TerminalSizingMacPage(macID: macID, store: store, service: sizing)
         case .composer: ComposerPage(settings: settings)
+        case .accentColor: AccentColorPage(accents: accentTheme)
         case .notifications: NotificationsPage(settings: settings, macs: store.notificationMacs)
         case .acknowledgements: AcknowledgementsPage()
         case .chiefCalls: ChiefCallsPage(keys: callKeys, preferences: callPreferences, callChief: callChief)
@@ -257,6 +263,8 @@ public enum SettingsRoute: Hashable, Sendable {
     case terminalSizingMac(String)
     /// Screen Sharing: see and control the account's Macs.
     case screenSharing
+    /// Appearance → Accent color: the one accent every chrome tint reads.
+    case accentColor
 
     /// The route named by its case name (DEBUG launch arguments). The old
     /// name "pairedMacs" opens Devices.
@@ -266,7 +274,7 @@ public enum SettingsRoute: Hashable, Sendable {
             return
         }
         let all: [SettingsRoute] = [.account, .team, .transport, .devices, .terminal, .terminalSizing, .composer, .notifications,
-                                    .acknowledgements, .chiefCalls, .screenSharing]
+                                    .acknowledgements, .chiefCalls, .screenSharing, .accentColor]
         guard let route = all.first(where: { "\($0)" == name }) else { return nil }
         self = route
     }
