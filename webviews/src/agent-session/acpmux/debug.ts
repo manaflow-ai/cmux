@@ -16,6 +16,7 @@ import { acpWire, type AcpWireLog } from "./wire";
 import { followTrace } from "./followTrace";
 import { composerChips, layoutWatch, type LayoutWatchOptions } from "./layoutWatch";
 import { queuedRowsState } from "./queuedRowsState";
+import { cloudSignedInForDebug } from "./cloudMachines";
 
 // `window.cmuxAcpmuxDebug`, called by the DEBUG `debug.agent_pane` socket
 // method. The first measurement call turns on measurement (acpmuxPerf.enabled);
@@ -318,6 +319,9 @@ export function createAcpmuxDebug(
             subagentOf: document.querySelector(".cv-subagent-of__parent")?.textContent ?? null,
             // The composer's chips as drawn (model, effort, access), keyed by their menu label.
             composer: composerChips(),
+            // The Cloud auth state consumed by EnvironmentPicker; undefined is the fresh-home
+            // absent/unknown state that still offers the sign-in action.
+            cloudSignedIn: cloudSignedInForDebug(),
             focused: document.hasFocus(),
           }
         : NO_AUTOMATION;
