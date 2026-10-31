@@ -48,10 +48,19 @@ struct PaletteMemberPickerSnapshotTests {
         windows.append(window)
         view.layoutSubtreeIfNeeded()
         view.displayIfNeeded()
-        let rep = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
-        view.cacheDisplay(in: view.bounds, to: rep)
-        let image = NSImage(size: view.bounds.size)
-        image.addRepresentation(rep)
+        // The glass panel itself does not draw through cacheDisplay; its content (field, chips, rows) does,
+        // so the content is drawn over an opaque stand-in for the glass.
+        let content = view.glass.contentView
+        content.layoutSubtreeIfNeeded()
+        let bounds = content.bounds.width > 0 ? content.bounds : view.bounds
+        let rep = try #require(content.bitmapImageRepForCachingDisplay(in: bounds))
+        content.cacheDisplay(in: bounds, to: rep)
+        let image = NSImage(size: bounds.size)
+        image.lockFocus()
+        (dark ? NSColor(white: 0.16, alpha: 1) : NSColor(white: 0.96, alpha: 1)).setFill()
+        NSRect(origin: .zero, size: bounds.size).fill()
+        rep.draw(in: NSRect(origin: .zero, size: bounds.size))
+        image.unlockFocus()
         return image
     }
 
