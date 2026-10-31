@@ -21,6 +21,9 @@ export interface RegisterArgs {
 export type RegisterOutcome = { readonly ok: true; readonly id: string } | { readonly ok: false; readonly code: string }
 const registerKey = (r: RegisterArgs) => `${r.machine}:${r.epoch}:${r.jwk.x}`
 const RETRY_MS = [5_000, 30_000, 120_000, 600_000, 3_600_000]
+/** Completed receipts are useful for a short audit window, then must not grow forever. */
+export const REVOKE_RECEIPT_RETENTION_MS = 7 * 24 * 60 * 60_000
+const REVOKE_PRUNE_BATCH = 100
 export type Revoke = (a: { creator: string; install: string; why: string }) => Promise<boolean>
 
 export class VmInstallRevokes {
@@ -31,7 +34,14 @@ export class VmInstallRevokes {
     if (this.ready) return
     this.sql.exec(`CREATE TABLE IF NOT EXISTS cloud_vm_install (machine TEXT PRIMARY KEY, install TEXT NOT NULL, creator TEXT NOT NULL)`)
     this.sql.exec(`CREATE TABLE IF NOT EXISTS cloud_vm_register (key TEXT PRIMARY KEY, reg TEXT NOT NULL, at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, next_at INTEGER NOT NULL)`)
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS cloud_vm_revoke (install TEXT PRIMARY KEY, creator TEXT NOT NULL, why TEXT NOT NULL, attempts INTEGER NOT NULL, due_at INTEGER NOT NULL, done INTEGER NOT NULL DEFAULT 0)`)
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS cloud_vm_revoke (install TEXT PRIMARY KEY, creator TEXT NOT NULL, why TEXT NOT NULL, attempts INTEGER NOT NULL, due_at INTEGER NOT NULL, done INTEGER NOT NULL DEFAULT 0, done_at INTEGER)`)
+    // Older objects already have this table without the receipt timestamp. Add it
+    // lazily; old completed rows are eligible for the first bounded prune.
+    const hasDoneAt = this.sql.exec<{ name: string }>(`PRAGMA table_info(cloud_vm_revoke)`).some((column) => column.name === 'done_at')
+    if (!hasDoneAt) {
+      this.sql.exec(`ALTER TABLE cloud_vm_revoke ADD COLUMN done_at INTEGER`)
+    }
+    this.sql.exec(`CREATE INDEX IF NOT EXISTS cloud_vm_revoke_done_idx ON cloud_vm_revoke(done, done_at, install)`)
     this.ready = true
   }
   private exists() {
@@ -108,7 +118,10 @@ export class VmInstallRevokes {
   dueAt(): number | null {
     if (!this.exists()) return null
     this.tables()
-    const r = this.sql.exec<{ t: number | null }>(`SELECT min(due_at) AS t FROM cloud_vm_revoke WHERE done = 0`)[0]
+    const r = this.sql.exec<{ t: number | null }>(
+      `SELECT min(t) AS t FROM (SELECT due_at AS t FROM cloud_vm_revoke WHERE done = 0 UNION ALL SELECT CASE WHEN done_at IS NULL THEN 0 ELSE done_at + ? END AS t FROM cloud_vm_revoke WHERE done = 1)`,
+      REVOKE_RECEIPT_RETENTION_MS,
+    )[0]
     return r?.t === null || r?.t === undefined ? null : Number(r.t)
   }
 
@@ -120,9 +133,17 @@ export class VmInstallRevokes {
     for (const d of due) {
       const ok = await revoke({ creator: d.creator, install: d.install, why: d.why }).catch(() => false)
       // Kept as done (not deleted): a later commit naming the machine again must not queue it twice (review P3).
-      if (ok) this.sql.exec(`UPDATE cloud_vm_revoke SET done = 1 WHERE install = ?`, d.install)
+      if (ok) this.sql.exec(`UPDATE cloud_vm_revoke SET done = 1, done_at = ? WHERE install = ?`, now, d.install)
       else this.sql.exec(`UPDATE cloud_vm_revoke SET attempts = attempts + 1, due_at = ? WHERE install = ?`, now + RETRY_MS[Math.min(Number(d.attempts), RETRY_MS.length - 1)]!, d.install)
     }
+    // Keep a bounded audit receipt, while retaining every pending row. Select
+    // the bounded primary-key set first so DELETE never relies on SQLite's
+    // optional DELETE ... LIMIT compile option.
+    this.sql.exec(
+      `DELETE FROM cloud_vm_revoke WHERE install IN (SELECT install FROM cloud_vm_revoke WHERE done = 1 AND (done_at IS NULL OR done_at <= ?) ORDER BY done_at, install LIMIT ?)`,
+      now - REVOKE_RECEIPT_RETENTION_MS,
+      REVOKE_PRUNE_BATCH,
+    )
   }
 
   pending(): Array<{ install: string; why: string; attempts: number }> {

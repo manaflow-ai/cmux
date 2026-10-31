@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import { fireAlarm } from "./setup/alarm.ts"
 import { env } from "cloudflare:workers"
 import { registerVmInstall } from "../src/cloud-vm.ts"
+import { REVOKE_RECEIPT_RETENTION_MS } from "../src/cloud-vm-revoke.ts"
 import { bindFile, cloudStub, DAEMON, post, SIZE, signedInWithInstall, vmKey, WG_KEY } from "./cloud-bind-support.ts"
 
 /**
@@ -73,6 +74,48 @@ describe("VM install revocation on every terminal state", { timeout: 60_000 }, (
       return i.vmRevokes.pending()
     })
     expect(again).toEqual([])
+  })
+
+  it("prunes completed receipts after the retention window in bounded alarm work", async () => {
+    const s = await bound("cloud-bind-receipt-retention")
+    const completedAt = Date.now() + s.a.team.length
+    const requeued = await inDo(s.stub, async (i) => {
+      i.vmRevokes.queue("receipt-prune-test", s.a.user, "test", completedAt)
+      await i.vmRevokes.drain(completedAt, async () => true)
+      // The receipt remains during the audit window, so idempotent queueing is a no-op.
+      i.vmRevokes.queue("receipt-prune-test", s.a.user, "test", completedAt + 1)
+      expect(i.vmRevokes.pending()).toEqual([])
+      await i.vmRevokes.drain(completedAt + REVOKE_RECEIPT_RETENTION_MS + 1, async () => true)
+      // Once pruned, a later occurrence can be queued again without an
+      // unbounded completed-row table.
+      i.vmRevokes.queue("receipt-prune-test", s.a.user, "test-again", completedAt + REVOKE_RECEIPT_RETENTION_MS + 2)
+      return i.vmRevokes.pending()
+    })
+    expect(requeued).toEqual([{ install: "receipt-prune-test", why: "test-again", attempts: 0 }])
+  })
+
+  it("prunes expired rows in batches without touching pending retries", async () => {
+    const s = await bound("cloud-bind-receipt-batch")
+    const remaining = await inDo(s.stub, async (i) => {
+      const at = Date.now() + i.skewMs
+      for (let n = 0; n < 105; n++) i.vmRevokes.queue("receipt-batch-" + n, s.a.user, "test", at)
+      for (let n = 0; n < 6; n++) await i.vmRevokes.drain(at, async () => true)
+      const sql = Reflect.get(i, "sqlStore") as { exec: <T>(query: string, ...params: Array<unknown>) => Array<T> }
+      const count = () => sql.exec<{ total: number; done: number }>("SELECT count(*) AS total, sum(done) AS done FROM cloud_vm_revoke")[0]
+      expect(count()).toEqual({ total: 105, done: 105 })
+      expect(i.vmRevokes.dueAt()).toBe(at + REVOKE_RECEIPT_RETENTION_MS)
+      i.vmRevokes.queue("receipt-pending", s.a.user, "pending", at)
+      await i.vmRevokes.drain(at, async ({ install }) => install !== "receipt-pending")
+      expect(count()).toEqual({ total: 106, done: 105 })
+      expect(i.vmRevokes.pending()).toEqual([{ install: "receipt-pending", why: "pending", attempts: 1 }])
+      expect(i.vmRevokes.dueAt()).toBe(at + 5_000)
+      await i.vmRevokes.drain(at + REVOKE_RECEIPT_RETENTION_MS + 1, async ({ install }) => install !== "receipt-pending")
+      expect(count()).toEqual({ total: 6, done: 5 })
+      await i.vmRevokes.drain(at + REVOKE_RECEIPT_RETENTION_MS + 2, async ({ install }) => install !== "receipt-pending")
+      expect(count()).toEqual({ total: 1, done: 0 })
+      return i.vmRevokes.pending()
+    })
+    expect(remaining).toEqual([{ install: "receipt-pending", why: "pending", attempts: 2 }])
   })
 
   it("crash window: an install registered for a bind that never committed is revoked by the alarm after a grace; a bound one is kept", async () => {
