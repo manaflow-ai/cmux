@@ -20,6 +20,15 @@ struct BrowserProfileNewTabMenuTests {
         return all(menu.items)
     }
 
+    /// The harness retains its services after closing its shell windows. Retire cached browser
+    /// pages too, so their Page Info and Extensions panels close on success and on an early throw.
+    private static func close(_ services: AppServices, palettePanel: NSWindow?) {
+        let panel = palettePanel ?? services.palette.visiblePanel
+        services.palette.hide()
+        panel?.close()
+        for key in Array(services.cache.browsers.keys) { services.cache.release(key) }
+    }
+
     /// The browser tabs of `pane` in the daemon's records.
     private static func browserTabs(_ pane: PaneController, _ services: AppServices) -> [TabModel] {
         services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).filter { $0.id == pane.pane.id }.flatMap(\.tabs).filter { $0.kind == .browser }
@@ -27,6 +36,8 @@ struct BrowserProfileNewTabMenuTests {
 
     @Test func theStripMenusNewTabWithBrowserProfileOpensATabOfThePickedProfile() async throws {
         try await PinnedPageTests.withApp { services, _ in
+            var palettePanel: NSWindow?
+            defer { Self.close(services, palettePanel: palettePanel) }
             services.palette.bindRegistryActions()
             let pane = try #require(services.windows.active?.workspaceContent?.panes.values.first)
             let before = Set(Self.browserTabs(pane, services).map(\.id))
@@ -47,12 +58,12 @@ struct BrowserProfileNewTabMenuTests {
             #expect(ran, "the click did not run")
             #expect(clickRefusal == nil, "the click refused: \(clickRefusal ?? "")")
 
+            // Retain the panel before waiting: a timeout must close it too.
+            palettePanel = services.palette.visiblePanel
             // The palette asks which profile; the person picks the default one.
             try await PinnedPageTests.until({ services.palette.model.rows.contains { $0.item.id == "option:\(BrowserProfileRecord.defaultID)" } },
                                             report: { "palette visible \(services.palette.isVisible), rows \(services.palette.model.rows.map(\.item.id)), refusals \(refusals)" })
-            // The palette only orders its panel out when it hides: close it once the test is done.
-            let palettePanel = services.palette.visiblePanel
-            defer { palettePanel?.close() }
+            palettePanel = palettePanel ?? services.palette.visiblePanel
             services.palette.model.activate(rowID: "option:\(BrowserProfileRecord.defaultID)")
 
             try await PinnedPageTests.until({ Self.browserTabs(pane, services).contains { !before.contains($0.id) } }, within: .seconds(30), report: {
@@ -68,6 +79,8 @@ struct BrowserProfileNewTabMenuTests {
     /// dock and a normal pane on its right): each of its panes' strip menus opens the tab.
     @Test func onHomeEveryPanesStripMenuOpensATabOfThePickedProfile() async throws {
         try await PasswordManagerRouteTests.withApp { services, connection in
+            var palettePanel: NSWindow?
+            defer { Self.close(services, palettePanel: palettePanel) }
             services.palette.bindRegistryActions()
             let window = try #require(services.windows.active)
             services.home.ensureHomeWorkspace(connection)
@@ -82,9 +95,6 @@ struct BrowserProfileNewTabMenuTests {
             let previous = services.registry.refusalObserver
             services.registry.refusalObserver = { reason, quiet in refusals.append(reason); previous?(reason, quiet) }
             defer { services.registry.refusalObserver = previous }
-            // The palette only orders its panel out when it hides: close it once the test is done.
-            var palettePanel: NSWindow?
-            defer { palettePanel?.close() }
             let panes = try #require(window.workspaceContent?.panes.values.map { $0 }).sorted { $0.paneKey < $1.paneKey }
             for pane in panes {
                 refusals.removeAll()
@@ -101,6 +111,7 @@ struct BrowserProfileNewTabMenuTests {
                     ran = services.registry.perform(run.id, invocation: ActionInvocation(target: run.target, arguments: run.arguments))
                 }
                 #expect(ran && clickRefusal == nil, "pane \(pane.paneKey): the click refused: \(clickRefusal ?? "") ran \(ran)")
+                palettePanel = palettePanel ?? services.palette.visiblePanel
                 let option = "option:\(BrowserProfileRecord.defaultID)"
                 try await PinnedPageTests.until({ services.palette.model.rows.contains { $0.item.id == option } },
                                                 report: { "pane \(pane.paneKey): palette \(services.palette.isVisible), rows \(services.palette.model.rows.map(\.item.id)), refusals \(refusals)" })
@@ -119,6 +130,7 @@ struct BrowserProfileNewTabMenuTests {
     @Test func theProfileBadgeMenuOpensItsTabInTheRightClickedTabsPane() async throws {
         let action = "browserProfile.newTab"
         try await PasswordManagerRouteTests.withApp { services, connection in
+            defer { Self.close(services, palettePanel: nil) }
             let window = try #require(services.windows.active)
             services.home.ensureHomeWorkspace(connection)
             try await PasswordManagerRouteTests.until({ services.home.homeWorkspace != nil }, within: .seconds(60),

@@ -34,8 +34,10 @@ nonisolated extension SidebarLayout {
         // A nested group or a group holding subgroups (remote-groups-DESIGN.md slice 2): its block holds other groups'
         // rows, so the full layout places them.
         // A group holding workspaces marked Done draws them behind its "Done (N)" row (`foldingDone`): laid out again.
-        // So does one longer than the row limit (its "Show N more" row).
+        // So does one holding archived workspaces (its "Archived (N)" row), and one longer than the row limit (its
+        // "Show N more" row).
         guard group.parent == nil, !(o.foldsDone && group.workspaces.contains { $0.taskStatus == .done }),
+              !(o.foldsArchived && group.workspaces.contains(where: \.isArchived)),
               o.rowLimit == 0 || group.members.count <= o.rowLimit + 1,
               !section.nodes.contains(where: { if case let .group(child) = $0 { child.parent == group.id } else { false } }) else { return false }
         let m = base.resolved(for: o)
@@ -55,6 +57,9 @@ nonisolated extension SidebarLayout {
             }
         }
         guard members.count == header.childCount else { return false } // the members changed too: a structural change
+        // A group of one member named as the group draws that member's row in the header's place
+        // (`SidebarLayout+SoleMember`), not a header over member rows: laid out again.
+        guard Self.soleMember(group, members, hasSubgroups: false, options: o) == nil else { return false }
         let machineLabel = Self.machineLabel(section, options: o)
         let parent = header.siblingIndex
         var built: [SidebarRow] = []
