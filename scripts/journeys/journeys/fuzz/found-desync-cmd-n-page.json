@@ -52,7 +52,7 @@
   },
   {
    "do": "expect",
-   "title": "3 s after Cmd-N: every window checked (none unsettled), no G1 (every page window covers its pane), no W1 (first responder matches the model), no W4 (the applier's Chromium page is the model's); the daemon agrees with the app; the window is not blank",
+   "title": "3 s after Cmd-N: every window checked (none unsettled), so the W1-W4 checks below read a settled window",
    "timeout": 10,
    "all": [
     {
@@ -64,7 +64,14 @@
       "path": "check.unsettled",
       "len": 0
      }
-    },
+    }
+   ]
+  },
+  {
+   "do": "expect",
+   "title": "then: no G1 (every page window covers its pane), no W1 (first responder matches the model), no W4 (the applier's Chromium page is the model's); the daemon agrees with the app; the window is not blank",
+   "timeout": 10,
+   "all": [
     {
      "app_rpc": {
       "method": "debug.desync",
