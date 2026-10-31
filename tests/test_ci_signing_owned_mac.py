@@ -658,6 +658,42 @@ class SigningOwnedMacTests(unittest.TestCase):
                 self.assertEqual(labels, "", f"{300 - ran} s left is past the horizon: {why}")
                 self.assertIn("frees up within 120 s (0 of 1 with a busy runner whose remaining time is unknown)", why)
 
+    def test_drain_anyway_drains_the_soonest_mini_instead_of_blacksmith(self) -> None:
+        """DRAIN_ANYWAY (nightly.yml's legacy sign, Leo 2026-10-30): past the horizon, or with no estimate, the nightly
+        slot on the mini that frees up soonest is still offered; known waits come before unknown ones, then the fewest
+        busy runners. Without it the horizon still sends the job to Blacksmith."""
+        slot = "glaeda-nightly-std-xcode-26.6"
+        runners = [runner("cmux12-glaeda", [SIDE], busy=True),
+                   runner("cmux12-glaeda-2", [SIDE], busy=True),
+                   runner("cmux12-glaeda-nightly", [slot, "glaeda-runner-cmux12-glaeda-nightly"]),
+                   runner("cmux13-glaeda", [SIDE], busy=True),
+                   runner("cmux13-glaeda-nightly", [slot, "glaeda-runner-cmux13-glaeda-nightly"])]
+        self.assertEqual(signing_runner.drained_runner(runners, [slot], running=None, model=MODEL, now=NOW)[0], "")
+        labels, why = signing_runner.drained_runner(runners, [slot], running=None, model=MODEL, now=NOW,
+                                                    drain_anyway=True)
+        self.assertEqual(json.loads(labels), [slot, "glaeda-runner-cmux13-glaeda-nightly"],
+                         f"no estimate anywhere: the mini with the fewest busy runners: {why}")
+        self.assertIn("to drain anyway", why)
+        self.assertIn("remaining time unknown", why)
+        running = {"cmux12-glaeda": started("macOS / Shell regressions (1)", 0),  # 300 s left
+                   "cmux12-glaeda-2": started("macOS / Shell regressions (2)", 0)}  # 300 s left
+        labels, why = signing_runner.drained_runner(runners, [slot], running=running, model=MODEL, now=NOW,
+                                                    drain_anyway=True)
+        self.assertEqual(json.loads(labels), [slot, "glaeda-runner-cmux12-glaeda-nightly"],
+                         f"a known wait past the horizon beats an unknown one: {why}")
+        self.assertIn("about 300 s", why)
+        self.assertEqual(signing_runner.drained_runner(runners, [SIDE], running=None, model=MODEL, now=NOW,
+                                                       drain_anyway=True)[0], "",
+                         "a side label alone is still never drained for")
+        env = {"ENABLED": "1", "GITHUB_RUN_ATTEMPT": "1", "ROUTE_TOKEN": "t", "SNAPSHOT_TOKEN": "t",
+               "GITHUB_REPOSITORY": "o/r", "OWNED_LABELS": slot, "DRAIN_ANYWAY": "1"}
+        labels, why = signing_runner.owned_pick(env, lambda token, repo: runners, lambda url: {"jobs": []},
+                                                lambda token, repo: {}, now=NOW, sleep=lambda seconds: None)
+        self.assertEqual(json.loads(labels), [slot, "glaeda-runner-cmux13-glaeda-nightly"], why)
+        jobs = workflows()["nightly.yml"]["jobs"]
+        step = next(s for s in jobs["pick-nightly-sign-runner"]["steps"] if s.get("id") == "sign-owned")
+        self.assertEqual(step["env"].get("DRAIN_ANYWAY"), "1", "the legacy sign drains a mini before Blacksmith")
+
     def test_owned_pick_drains_only_from_a_fresh_pool_snapshot(self) -> None:
         """owned_pick reads `running` from the queue janitor's pool snapshot (no new GitHub polling) and passes it on
         only when it is at most DRAIN_SNAPSHOT_MAX_MINUTES old; an older or unreadable one leaves every busy runner
