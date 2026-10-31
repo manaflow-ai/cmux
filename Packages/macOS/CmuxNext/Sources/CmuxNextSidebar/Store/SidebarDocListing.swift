@@ -19,7 +19,7 @@ extension SidebarDocProjection {
     @MainActor public func arrange(_ sections: [SidebarSection], drag: SidebarDocDrag) -> [SidebarSection] {
         let projection = self
         let bandIDs = Set(projection.bandGroups.map(\.id))
-        let elsewhere = projection.bandGroupsListedElsewhere(drag: drag)
+        let elsewhere = projection.bandGroupsNotListedHere(drag: drag)
         var pulled: [String: SidebarGroup] = [:]
         var arranged = sections.map { section in
             var section = section
@@ -58,8 +58,8 @@ extension SidebarDocProjection {
             let id = layoutSection.id.rawValue
             let nodes = projection.bandGroups.filter { $0.section == id }.compactMap { group -> SidebarNode? in
                 if let shown = pulled[group.id] { return .group(shown) }
-                // Not listed here: another window lists an open workspace of it, or none does (its header alone, also while
-                // its last one closes or a new one waits for its window's row).
+                // Not listed here: another window lists an open workspace of it, or it is another space's; else none
+                // does (its header alone, also while its last one closes or a new one waits for its window's row).
                 return elsewhere.contains(group.id) ? nil : .group(Self.emptyGroup(group))
             }
             guard !passedMachines || !nodes.isEmpty else { continue }
@@ -208,6 +208,25 @@ extension SidebarDocProjection {
             while let current = id, open.insert(current).inserted { id = parents[current] ?? nil }
         }
         return open
+    }
+
+    /// The band groups whose header this window leaves out when it lists none of their workspaces: the ones another
+    /// window lists (`bandGroupsListedElsewhere`) and the ones of another space than `drag.room` (spaces.md), with the
+    /// groups nested under those.
+    @MainActor public func bandGroupsNotListedHere(drag: SidebarDocDrag) -> Set<String> {
+        var hidden = bandGroupsListedElsewhere(drag: drag)
+        guard drag.room != nil else { return hidden }
+        var otherSpace = Set(bandGroups.filter { !$0.lists(inRoom: drag.room) }.map(\.id))
+        // A group under another space's group leaves with it: a window never draws a child whose parent it leaves
+        // out. Repeat until no group changes, so a deeper descendant follows whatever order `bandGroups` has.
+        var changed = !otherSpace.isEmpty
+        while changed {
+            changed = false
+            for group in bandGroups where !otherSpace.contains(group.id) {
+                if let parent = group.parent, otherSpace.contains(parent) { changed = otherSpace.insert(group.id).inserted || changed }
+            }
+        }
+        return hidden.union(otherSpace)
     }
 
     /// A kept group with no open member (Pinned keeps it): its header alone.

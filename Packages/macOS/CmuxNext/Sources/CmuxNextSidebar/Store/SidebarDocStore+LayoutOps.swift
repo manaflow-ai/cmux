@@ -25,10 +25,25 @@ extension SidebarDocStore {
     /// bands as shown). Anchors follow the earlier ops of the same list,
     /// so several adds at consecutive indexes keep their order.
     public func docOps(for ops: [SidebarLayoutOp], layout: SidebarLayoutDocument) throws(LayoutOpGap) -> [[String: Any]] {
-        var planner = LayoutOpPlanner(records: drawnRecords, confirmed: settledRecords, shown: shown, layout: layout)
+        var planner = LayoutOpPlanner(records: drawnRecords, confirmed: settledRecords, shown: shown, layout: layout,
+                                      room: newItemRoom())
         var out: [[String: Any]] = []
         for op in ops { out += try planner.ops(for: op) }
         return out
+    }
+
+    /// The `item.update` ops that store the acting window's space `room` on `items` moving into `section`: a link,
+    /// tab or app in Pinned draws only in its space (`extra.room`), and one with none stored reads as the default
+    /// space's (spaces.md), so a move into Pinned from another band stores it in the same change, as `item.add` does.
+    /// Only a link, tab or app stores one (`SidebarDocBody.belongsToASpace`); nor does a move into another band,
+    /// one with no space, or an item `records` does not confirm yet (the daemon would refuse the whole change).
+    static func roomOps(moving items: [String], into section: String, room: String?, records: SidebarDocRecords) -> [[String: Any]] {
+        guard section == pinnedSection, let room else { return [] }
+        return items.compactMap { id -> [String: Any]? in
+            guard let record = records.items[id], record.body.belongsToASpace,
+                  (record.room ?? SidebarDocItem.defaultRoom) != room else { return nil }
+            return ["op": "item.update", "id": id, "patch": ["room": room]]
+        }
     }
 
     /// Sends `ops` as one document change titled `title`. Throws when an op
@@ -51,11 +66,15 @@ private struct LayoutOpPlanner {
     let confirmed: SidebarDocRecords
     let shown: SidebarDocProjection?
     let layout: SidebarLayoutDocument
+    /// The space a Pinned item is made in or moved into Pinned in (`SidebarDocStore.newItemRoom`).
+    let room: String?
     /// The top-level item ids of each band section in shown order, as the planned ops leave them.
     var siblings: [String: [String]]
     typealias Gap = SidebarDocStore.LayoutOpGap
 
-    init(records: SidebarDocRecords, confirmed: SidebarDocRecords, shown: SidebarDocProjection?, layout: SidebarLayoutDocument) {
+    init(records: SidebarDocRecords, confirmed: SidebarDocRecords, shown: SidebarDocProjection?, layout: SidebarLayoutDocument,
+         room: String? = nil) {
+        self.room = room
         self.records = records
         self.confirmed = confirmed
         self.shown = shown
@@ -115,7 +134,8 @@ private struct LayoutOpPlanner {
         case let .itemMove(id, section, index):
             guard let record = records.items[id.rawValue] else { throw .unknownItem }
             if section == Self.workspaces { return backToMachine(record) }
-            return [["op": "move", "items": [record.id], "to": target(section.rawValue, index: index, moving: record.id)]]
+            let move: [[String: Any]] = [["op": "move", "items": [record.id], "to": target(section.rawValue, index: index, moving: record.id)]]
+            return move + SidebarDocStore.roomOps(moving: [record.id], into: section.rawValue, room: room, records: confirmed)
         case let .itemRemove(id):
             guard let record = records.items[id.rawValue] else { throw .unknownItem }
             return remove(record)
@@ -186,6 +206,8 @@ private struct LayoutOpPlanner {
         guard section != Self.workspaces else { throw .unsupported }
         var wire: [String: Any] = ["id": item.id.rawValue, "body": Self.body(item), "shows_label": item.showsLabel]
         if let span = item.span { wire["span"] = span }
+        // A link, tab or app pinned in one space is that space's (spaces.md); other bands are not per space.
+        if section == SidebarLayoutDocument.pinnedSectionID, item.ref.belongsToASpace, let room = item.room ?? room { wire["extra"] = ["room": room] }
         return [["op": "item.add", "item": wire, "to": target(section.rawValue, index: index, moving: item.id.rawValue)]]
     }
 

@@ -1037,6 +1037,15 @@ fn update_item(tx: &mut Tx, id: &str, patch: &ItemPatch) -> Result<(), Refusal> 
                 item.extra.insert("label".into(), label.clone().into());
             }
         }
+        match &patch.room {
+            Patch::Keep => {}
+            Patch::Clear => {
+                item.extra.remove("room");
+            }
+            Patch::Set(room) => {
+                item.extra.insert("room".into(), room.clone().into());
+            }
+        }
         if !patch.title.is_keep() || !patch.icon_url.is_keep() {
             let Body::Url { title, icon_url, .. } = &mut item.body else {
                 return Err(Refusal::InvalidValue);

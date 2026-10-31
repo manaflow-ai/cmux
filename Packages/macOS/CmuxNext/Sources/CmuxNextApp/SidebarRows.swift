@@ -37,8 +37,8 @@ final class SidebarRows {
     /// The rows of creates the daemon has not reported yet, at their slots
     /// over the edits (`PendingWorkspaceRows`), and the home workspace.
     private var creating: (rows: [PendingWorkspaceRows.Row], home: String?) = ([], nil)
-    /// The band groups another window lists (`SidebarDocProjection.bandGroupsListedElsewhere`) as last shown:
-    /// a move of a workspace to another window changes them with no row of this one (#25776).
+    /// The band groups this window leaves out (`SidebarDocProjection.bandGroupsNotListedHere`) as last shown:
+    /// a move of a workspace to another window changes them with no row of this one (#25776), a space switch too.
     private var elsewhere: Set<String>?
     /// Preview-only App Store rows are kept in the stored document but are
     /// removed from every rendered placement, including machine and group
@@ -79,7 +79,8 @@ final class SidebarRows {
                               registry: WindowRegistry, showAppStore: Bool = true) -> SidebarLayoutDocument {
         guard SidebarDocWiring.isActive else { return visibleLayout(document, showAppStore: showAppStore) }
         return visibleLayout(document, showAppStore: showAppStore)
-            .scopedToWindow(ownedElsewhere: bandHides(window: windowID, profile: profile, machines: machines, registry: registry))
+            .scopedToWindow(ownedElsewhere: bandHides(window: windowID, profile: profile, machines: machines, registry: registry),
+                            room: profile?.rawValue)
     }
 
     /// Whether window `windowID`'s band leaves out the workspace item a layout ref value names: another
