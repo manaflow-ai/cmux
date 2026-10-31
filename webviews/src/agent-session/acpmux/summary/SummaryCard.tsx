@@ -36,8 +36,9 @@ const NO_SUBSESSIONS: readonly SubsessionRow[] = [];
 
 /// What the chat has produced so far. A wide pane reserves a quiet right column; a narrow pane
 /// uses a popover that dismisses on outside click or Escape. The popover starts with Environment,
-/// with live counts in Subagents and no title row. The summary is read from the transcript only while the card is
-/// open, so a live turn pays nothing for it otherwise.
+/// with live counts in Subagents and no title row; folded, its header line keeps those counts.
+/// The summary is read from the transcript only while the card is open, so a live turn pays
+/// nothing for it otherwise.
 /// A subagent row shows that subagent (`subagents.onOpen`). The Subagents section's title opens a
 /// Subagents tab beside the Summary (SubagentsTab.tsx), as the ChatGPT desktop app's right pane
 /// does; its close button goes back to the summary.
@@ -290,7 +291,9 @@ export function SummaryCard({
               <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={10} />
             </button>
           )}
-          {!tab && card.column && counts.length > 0 && (
+          {/* The popover has no title row, but folded it keeps the live counts in view (its body, where Subagents
+              carries them, is gone). */}
+          {!tab && (card.column || card.collapsed) && counts.length > 0 && (
             <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>
           )}
           {!card.column && (
