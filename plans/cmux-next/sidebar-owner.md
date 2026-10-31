@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-30: an open empty group shows a + (Lawrence msg 17912, "empty workspace needs plus button", a shot of an
+  empty "Sleep alarm" group reading only "No workspaces · drag one here"). The empty row (0105692a41d, kept) adds a +
+  centered on the trailing column, under the header's chevron, at rest in tertiary ink (secondary while the row is
+  hovered); its text ends left of it. The group header's hover + now shows for an empty group too (b2ced020cee hid it
+  so a click could not race the editor dropping a new empty group; `SidebarGroupFlow.performEditorItem` has since kept
+  a group New Workspace in Group is about to fill). Both run New Workspace in Group, the action the editor, the ⋮ menu,
+  the palette and the CLI share. Nothing else about groups changes. Regression: `SidebarEmptyGroupAddButtonTests`;
+  capture tour `sidebar-empty-group`.
 - 2026-10-30: the titlebar + and its workspace chooser are one split button. Lawrence (message 17682): "the
   dropdown on left of plus is ugly": a full-size chevron left of the + read "< > v +", a third arrow beside Back
   and Forward. The chevron is now the +'s narrow menu segment (`SidebarStyle.toolbarMenuSegmentWidth`, 0.55 of
@@ -8,6 +16,7 @@
   the chevron hides first and the + takes the trailing slot alone (the 2026-10-30 titlebar minimum is unchanged).
   Regression: `SidebarNewWorkspaceSplitButtonTests`.
 
+||||||| parent of 036f54893e44 (feat(sidebar): an empty group shows a + at rest and on its header's hover (green, user 17912))
 - 2026-10-30: a workspace row has no second line of its own. Leo, of a row titled "claude-sr2-coord"
   over "local · claude-sr2-coord": "and yes ofc remove the second line". The compact and comfortable
   row's second line used to lead with the computer (another machine in the one-list sidebar), its
