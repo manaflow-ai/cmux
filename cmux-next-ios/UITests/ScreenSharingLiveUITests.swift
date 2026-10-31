@@ -85,13 +85,13 @@ final class ScreenSharingLiveUITests: XCTestCase {
             let command = app.buttons["⌘ modifier"]
             if command.waitForExistence(timeout: 5) {
                 command.tap()
-                app.buttons["Hide keyboard"].firstMatch.tapIfExists()
+                keyboardButton.tap()
                 settle(app, 1)
                 center.tap()
                 settle(app, 1.5)
                 attach(app, "10-command-click")
             } else {
-                app.buttons["Hide keyboard"].firstMatch.tapIfExists()
+                keyboardButton.tap()
             }
         }
 
@@ -108,11 +108,21 @@ final class ScreenSharingLiveUITests: XCTestCase {
             center.tap()
             settle(app, 1.5)
             attach(app, "10b-trackpad-move-and-tap")
+            // The menu's on/off items: Stream stats off hides the stats line, on brings it back.
+            app.buttons["screen.options"].tap()
+            if app.buttons["Stream stats"].firstMatch.waitForExistence(timeout: 5) {
+                app.buttons["Stream stats"].firstMatch.tap()
+                settle(app, 1)
+                attach(app, "10c-stats-off")
+                XCTAssertFalse(app.staticTexts["screen.stats"].exists, "stats line still shown")
+                app.buttons["screen.options"].tap()
+                app.buttons["Stream stats"].firstMatch.tapIfExists()
+            }
             // Back to Direct Touch for the rest of the run.
             app.buttons["screen.options"].tap()
             if app.buttons["Input"].firstMatch.waitForExistence(timeout: 5) {
                 app.buttons["Input"].firstMatch.tap()
-                app.buttons["Direct Touch"].firstMatch.tap()
+                if app.buttons["Direct Touch"].firstMatch.waitForExistence(timeout: 5) { app.buttons["Direct Touch"].firstMatch.tap() }
             }
         } else {
             app.tap()
