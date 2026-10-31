@@ -1,13 +1,14 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
 /// A picture of Sleepy Mode's still scene (Motion off: the sky at time 0), written to
 /// `artifacts/sleepy-sky/sky.png` in the checkout, so the canvas sky and the Core Animation sky
 /// can be put side by side. Run on a GUI host: split-spring --suite=gui-tests --tests=SleepySkySnapshotTests.
-@MainActor @Suite(.serialized) struct SleepySkySnapshotTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SleepySkySnapshotTests {
     @Test(.enabled(if: NSScreen.main != nil, "the scene draws only on a screen: run on a GUI host"))
     func theStillSceneIsWrittenToThePicture() throws {
         _ = NSApplication.shared

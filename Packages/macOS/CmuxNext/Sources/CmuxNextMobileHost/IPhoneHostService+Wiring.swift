@@ -68,6 +68,7 @@ extension IPhoneHostService {
         }
         followAccount { Self.account(of: auth, signedIn: auth.isSignedIn) }
         servesPhones = executable != nil
+        wireRemoteControl(auth: auth, settings: settings)
         dependencies = Dependencies(
             executable: executable,
             baseURL: base,
