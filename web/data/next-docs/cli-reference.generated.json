@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 760,
-    "mcp": 678
+    "verbs": 765,
+    "mcp": 681
   },
   "nouns": [
     {
@@ -886,6 +886,13 @@
           "mcpTool": "app_browser_set_site_permission"
         },
         {
+          "command": "cmux browser show-cookie-banner",
+          "title": "Show Import Cookies Banner",
+          "id": "browser.showCookieImportBanner",
+          "mcp": true,
+          "mcpTool": "app_browser_show_cookie_banner"
+        },
+        {
           "command": "cmux browser split-down",
           "title": "Split Browser Down",
           "id": "splitBrowserDown",
@@ -1083,11 +1090,39 @@
       "noun": "chief",
       "verbs": [
         {
+          "command": "cmux chief look-at-screen",
+          "title": "Chief: Look at Screen Now",
+          "id": "chief.screenShare.look",
+          "mcp": true,
+          "mcpTool": "app_chief_look_at_screen"
+        },
+        {
           "command": "cmux chief memory",
           "title": "Chief: Open Memory Inspector",
           "id": "chief.openMemoryInspector",
           "mcp": true,
           "mcpTool": "app_chief_memory"
+        },
+        {
+          "command": "cmux chief share-screen",
+          "title": "Share Screen with Chief",
+          "id": "chief.screenShare.start",
+          "mcp": false,
+          "mcpTool": null
+        },
+        {
+          "command": "cmux chief stop-sharing-screen",
+          "title": "Stop Sharing Screen with Chief",
+          "id": "chief.screenShare.stop",
+          "mcp": true,
+          "mcpTool": "app_chief_stop_sharing_screen"
+        },
+        {
+          "command": "cmux chief toggle-screen-share",
+          "title": "Chief: Toggle Screen Sharing",
+          "id": "chief.screenShare.toggle",
+          "mcp": false,
+          "mcpTool": null
         }
       ]
     },
@@ -5549,6 +5584,6 @@
   "mcpExempt": {
     "credentials": 6,
     "endsApp": 4,
-    "systemChange": 72
+    "systemChange": 74
   }
 }

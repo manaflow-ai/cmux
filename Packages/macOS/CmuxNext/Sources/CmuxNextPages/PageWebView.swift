@@ -51,6 +51,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var nativeRects: [CGRect] = [] {
         didSet { if nativeRects != oldValue { applyNativeRects() } }
     }
+    /// Called after the page's effective visibility changes. Owners use this to revoke native
+    /// page proofs on hide/detach and rebind them after the Chromium document is visible again.
+    public var onVisibilityChanged: (@MainActor (Bool) -> Void)?
+    /// The Chromium execution context behind the isolated question-key channel was destroyed.
+    /// Owners clear their cached binding and refresh it against the new document context.
+    public var onQuestionKeyChannelInvalidated: (@MainActor () -> Void)?
     /// The file of the last drag from outside that entered the Chromium page and that ``fileDrop``
     /// takes, with when it entered; the page's drop opens it once.
     var chromiumDragFile: (url: URL, at: Date)?
@@ -118,6 +124,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// ``PageCrashReloads`` allows: the page is not reloaded, and the host shows its notice (with a
     /// button that calls ``reloadAfterCrashes()``).
     public var onCrash: ((PageWebView, _ reloading: Bool) -> Void)?
+    /// Why the last crash reported to ``onCrash`` ended the page's process (WebKit's reason and
+    /// pid); nil before any crash.
+    public internal(set) var lastTermination: PageTermination?
+    /// The last WebContent pid seen at a finished load: WebKit may report 0 for a process that ended.
+    var knownWebContentPid: Int32 = 0
     /// Whether a crashed page reloads by itself (up to ``PageCrashReloads/limit``). A host whose page
     /// holds the person's state (the agent chat: an open menu, the caret, an IME composition) sets it
     /// false: every crash shows its notice, and only its Reload button reloads.
@@ -511,7 +522,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     func receive(_ message: PageHostMessage) async -> Any? {
         guard PageHostTrust.isTrusted(message, page: descriptor) else {
-            logger.error("page \(self.descriptor.id, privacy: .public) message from an untrusted frame refused")
+            logger.error("page \(self.descriptor.id, privacy: .public) message from an untrusted frame refused: main=\(message.isMainFrame, privacy: .public) url=\(message.frameURL?.absoluteString ?? "-", privacy: .public)")
             return nil
         }
         // The message conversion stays here: `handle` must start in the order the page posted, and
@@ -559,6 +570,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // Its tab or window closed: the page's popup ends with it.
         if window == nil { popupHost?.dismiss() }
         setChromiumVisibility(true)
+        let visible = window != nil && !isHiddenOrHasHiddenAncestor
+        if !visible { chromiumSession?.questionKeys?.invalidate() }
+        onVisibilityChanged?(visible)
         applyTheme()
         windowDidChangeChrome()
         if shouldFocusOnAttach, window != nil {
@@ -570,13 +584,17 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Another tab took the pane: the page's popup ends.
     public override func viewDidHide() {
         super.viewDidHide()
+        chromiumSession?.questionKeys?.invalidate()
         popupHost?.dismiss()
         setChromiumVisibility(false)
+        onVisibilityChanged?(false)
     }
 
     public override func viewDidUnhide() {
         super.viewDidUnhide()
+        let visible = window != nil && !isHiddenOrHasHiddenAncestor
         setChromiumVisibility(true)
+        onVisibilityChanged?(visible)
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -587,6 +605,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         themeFollower.rebind()
+        let visible = superview != nil && window != nil && !isHiddenOrHasHiddenAncestor
+        if !visible { chromiumSession?.questionKeys?.invalidate() }
+        onVisibilityChanged?(visible)
     }
 
     func applyTheme(force: Bool = false) {
@@ -603,9 +624,14 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     /// The page theme from this view's scope and ``themeSurface``: the surface's override (from
     /// `backgrounds`, the app's) replaces the page background; nil keeps the scope's own.
+    /// Built in this view's scope (`performWithTheme`): whether the window is see-through here
+    /// comes from that scope's picture and tint, not the app's. Built outside it, a workspace's
+    /// picture over an opaque theme painted the page solid, a black chat over the wallpaper (#28867).
     func currentTheme(backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds) -> WebTheme {
-        WebTheme(themeTokens, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
-                 surface: themeSurface ?? .internalPage, backgrounds: backgrounds)
+        performWithTheme {
+            WebTheme(themeTokens, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
+                     surface: themeSurface ?? .internalPage, backgrounds: backgrounds)
+        }
     }
 
     // MARK: WKNavigationDelegate

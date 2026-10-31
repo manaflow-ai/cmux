@@ -220,6 +220,14 @@ public final class AgentPageProvider: PageProvider {
 
     public var hasSubscribers: Bool { !listeners.isEmpty }
 
+    /// The provider's buffers for `debug.agent_pane pacer`: whether host pushes reach the page or
+    /// wait here (no subscriber, a replay still draining, an overflow).
+    public var debugState: [String: Any] {
+        ["listeners": listeners.count, "buffered": bufferedEvents.count,
+         "pending": pendingEvents.values.reduce(0) { $0 + $1.events.count - $1.next },
+         "overflowed": deliveryOverflowed, "transportConnection": transportConnection ?? -1]
+    }
+
     public func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                           onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         guard stream == Self.hostEvents else { throw PageError.unknownOp(stream) }
