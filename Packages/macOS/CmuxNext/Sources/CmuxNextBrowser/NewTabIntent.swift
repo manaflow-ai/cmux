@@ -72,7 +72,7 @@ public nonisolated enum NewTabIntent: Equatable, Sendable {
 extension NewTabIntent: Codable {
     private enum CodingKeys: String, CodingKey { case kind, command, url, text, reason }
 
-    init(from decoder: any Decoder) throws {
+    public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         switch try container.decode(String.self, forKey: .kind) {
         case "none": self = .none
@@ -85,7 +85,7 @@ extension NewTabIntent: Codable {
         }
     }
 
-    func encode(to encoder: any Encoder) throws {
+    public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
         case .none: try container.encode("none", forKey: .kind)
