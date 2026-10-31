@@ -68,6 +68,8 @@ EXEMPT = {
         "as the nightly and release callers always have; pinning it would "
         "change published artifacts",
     ("relay-publish-npm.yml", "smoke"): "npm package smoke test; no Xcode",
+    ("stable-next.yml", "smoke-27"): "launches the signed cmux NEXT Stable DMG; builds nothing, no Xcode",
+    ("stable-next.yml", "smoke-26"): "launches the signed cmux NEXT Stable DMG; builds nothing, no Xcode",
     ("nightly.yml", "decide"):
         "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
         "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",

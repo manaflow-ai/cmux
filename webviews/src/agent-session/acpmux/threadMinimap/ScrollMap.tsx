@@ -175,8 +175,9 @@ export function ScrollMap({
         Math.max(0, THREAD_PADDING_TOP + (layout.tops[mark.row] ?? 0) - LANDING_OFFSET),
         Math.max(0, layout.totalHeight - node.clientHeight),
       );
-    // A click lands at once, as the compact rail's does (ThreadMinimap.tsx `jump`).
-    animateScroll(node, target, 0, JUMP_CURVE);
+    // A click lands at once, as the compact rail's does (ThreadMinimap.tsx `jump`). An explicit
+    // request: it runs inside the hold that follows the reader's last input (userScroll.ts).
+    animateScroll(node, target, 0, JUMP_CURVE, undefined, undefined, { explicit: true });
   };
   /// Centers the view on rail point `y`, at once: a click on the track as a scrub does.
   const seek = (y: number) => {
