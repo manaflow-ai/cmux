@@ -254,7 +254,7 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         let session = DaemonTerminalSession(surface: 7) {
             DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
         }
-        // A frozen clock: a slow host must not age these sends past `inputStallLimit`.
+        // A fixed clock keeps detached-input expiration out of this test.
         session.now = { 1000 }
         session.start { _ in }
         try await waitUntil { session.isAttached }
@@ -285,7 +285,7 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             return DaemonClient(channel: channel)
         }
         var events: [TerminalSessionEvent] = []
-        // A frozen clock: a slow host must not age these sends past `inputStallLimit`.
+        // A fixed clock keeps detached-input expiration out of this test.
         session.now = { 1000 }
         session.start { events.append($0) }
         try await waitUntil { session.isAttached }
@@ -341,7 +341,7 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             DaemonClient(channel: GatedChannel(try await link.openChannel(service: "daemon", args: [:]), gate: gate))
         }
         var events: [TerminalSessionEvent] = []
-        // A frozen clock: a slow host must not age these sends past `inputStallLimit`.
+        // A fixed clock keeps detached-input expiration out of this test.
         session.now = { 1000 }
         session.start { events.append($0) }
         try await waitUntil { session.isAttached }
@@ -373,7 +373,7 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
         }
         session.tailProbeDelay = .milliseconds(30)
-        // A frozen clock: a slow host must not age these sends past `inputStallLimit`.
+        // A fixed clock keeps detached-input expiration out of this test.
         session.now = { 1000 }
         session.start { _ in }
         try await waitUntil { session.isAttached }
@@ -411,7 +411,7 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
         }
         session.tailProbeDelay = .seconds(60)
-        session.now = { 1000 }  // a frozen clock: no send ages past the stall limit
+        session.now = { 1000 }  // detached-input expiration is not under test
         session.start { _ in }
         try await waitUntil { session.isAttached }
         let sends = { daemon.recorded.filter { $0["cmd"] as? String == "send" }.count }
@@ -427,10 +427,9 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         #expect(sends() == cap)
     }
 
-    /// Review: a stalled link (the oldest unanswered send older than
-    /// `inputStallLimit`) holds new keys instead of writing them to arrive
-    /// late; they go once the stall clears.
-    @Test func aStalledLinkHoldsNewKeys() async throws {
+    /// One lost reply must not block later keystrokes after 500 ms. Request
+    /// deadlines settle it; only the bounded in-flight window applies.
+    @Test func anOldUnansweredSendDoesNotBlockLaterKeys() async throws {
         let daemon = FakeTerminalDaemon()
         daemon.unansweredSends = true
         let link = MockMacLink { service, line in daemon.respond(service, line) }
@@ -445,10 +444,43 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         let sends = { daemon.recorded.filter { $0["cmd"] as? String == "send" }.count }
         session.send(Data("a".utf8))
         try await waitUntil { sends() == 1 }
-        clock += session.inputStallLimit + 0.1
+        clock += 0.6
         session.send(Data("b".utf8))
-        for _ in 0..<10 where sends() <= 1 { try await Task.sleep(for: .milliseconds(10)) }
-        #expect(sends() == 1)
+        try await waitUntil { sends() == 2 }
+        #expect(sends() == 2)
+        session.stop()
+    }
+
+    @Test func lostFallbackReplyTimesOutAndNewInputWorksAfterReattach() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.unansweredSends = true
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let session = DaemonTerminalSession(surface: 7) {
+            DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
+        }
+        session.inputRequestDeadline = .milliseconds(50)
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        session.send(Data("a".utf8))
+        try await waitUntil { events.contains(.inputNotSent(bytes: 1)) }
+        #expect(session.inputsInFlight == 0)
+        daemon.unansweredSends = false
+        session.reconnect()
+        try await waitUntil { session.isAttached }
+        session.send(Data("b".utf8))
+        try await waitUntil {
+            daemon.recorded.last { $0["cmd"] as? String == "send" }?["bytes"] as? String == Data("b".utf8).base64EncodedString()
+        }
+        let sent = daemon.recorded.filter { $0["cmd"] as? String == "send" }
+        #expect(sent.count == 2, "the uncertain first keystroke is never replayed")
+        session.stop()
+    }
+
+    @Test func timedOutOrCancelledWritesAreNeverClassifiedAsSafeToReplay() {
+        #expect(DaemonTerminalSession.inputDeliveryUncertain(LinkError(code: "write_timeout", message: "partial write")))
+        #expect(DaemonTerminalSession.inputDeliveryUncertain(CancellationError()))
+        #expect(!DaemonTerminalSession.inputDeliveryUncertain(LinkError(code: "not_written", message: "not submitted")))
     }
 
     /// TUI fast scroll: what one main-queue turn queues (a scroll frame's
