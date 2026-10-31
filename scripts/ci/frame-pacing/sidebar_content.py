@@ -8,7 +8,7 @@ area, and each pane resizes what it holds.
 Reported, not judged (no threshold fails a run):
 
 - `relayouts`: display frames on which a pane's content view changed width. With
-  `sidebar.slideHoldsContent` on (the default since the GPU audit of 2026-10-21) the content keeps
+  `sidebar.slideHoldsContent` on (an opt-in comparison) the content keeps
   one width through the slide and rides the moving edge, so this is about one per toggle; with it
   off it is one per frame of the slide.
 - `stalled`: frames on which the sidebar's own width moved and no pane's content width did.
