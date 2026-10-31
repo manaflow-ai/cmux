@@ -322,6 +322,9 @@ struct AgentPaneMediaNoAutoActionTests {
             return made
         }
         let open = try makePane(.open)
+        // `/tmp` is an image root: a TMPDIR under it puts nothing outside the image roots.
+        let temporary = open.project.resolvingSymlinksInPath().path
+        guard !temporary.hasPrefix("/private/tmp/"), !temporary.hasPrefix("/tmp/") else { return }
         let outsideFolder = open.project.deletingLastPathComponent().appendingPathComponent("elsewhere", isDirectory: true)
         try FileManager.default.createDirectory(at: outsideFolder, withIntermediateDirectories: true)
         let shot = outsideFolder.appendingPathComponent("shot.png"), gone = outsideFolder.appendingPathComponent("gone-320.png")
