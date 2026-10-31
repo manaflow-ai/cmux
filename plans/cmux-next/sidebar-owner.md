@@ -1,5 +1,13 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-30: the titlebar + and its workspace chooser are one split button. Lawrence (message 17682): "the
+  dropdown on left of plus is ugly": a full-size chevron left of the + read "< > v +", a third arrow beside Back
+  and Forward. The chevron is now the +'s narrow menu segment (`SidebarStyle.toolbarMenuSegmentWidth`, 0.55 of
+  the button), right after the + and touching it, with a smaller glyph at the +'s weight; each segment's hover and pressed
+  fill keeps only the pair's outer corners, and the chooser opens under the +'s leading edge. Too narrow for both,
+  the chevron hides first and the + takes the trailing slot alone (the 2026-10-30 titlebar minimum is unchanged).
+  Regression: `SidebarNewWorkspaceSplitButtonTests`.
+
 - 2026-10-30: a workspace row has no second line of its own. Leo, of a row titled "claude-sr2-coord"
   over "local · claude-sr2-coord": "and yes ofc remove the second line". The compact and comfortable
   row's second line used to lead with the computer (another machine in the one-list sidebar), its
@@ -11,6 +19,7 @@
   The comments that described the old line (`SidebarWorkspace.workspaceDescription`,
   `SidebarLayoutOptions.flattensMachines`) say where the description and the computer show now
   (653053e21f7, comments only, logged here: no visual change of its own).
+
 - 2026-10-30: the narrowest sidebar fits its titlebar row. Lawrence: "get rid of this intersect thing",
   then "not remove glyph but just make min width of sidebar bigger": at the 160 pt minimum the toolbar band's
   Forward chevron drew over the +. `SidebarModel.minimumWidth` is now the wider of the `sidebarMinWidth`
