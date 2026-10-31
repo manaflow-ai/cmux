@@ -50,10 +50,12 @@ fn fake_peer_with(
     })
 }
 
-/// A watch list too large to send with tools is asked for again without them: the link
-/// connects, with the rows of that list, instead of timing out.
+/// A link's watch list is asked for without tools from the start: an inventory is read per
+/// session (`_acpmux/info`, an attachment's notices), and with them one host's list was 23 MB,
+/// past the message limit (2026-10-31). The link connects on one watch, with every row, from a
+/// peer that would refuse the list with tools as too large.
 #[tokio::test]
-async fn a_watch_list_too_large_with_tools_is_read_without_them() {
+async fn a_watch_list_is_asked_for_without_tools_from_the_start() {
     let (tx, mut notices) = mpsc::channel(64);
     let peer = Peer::new("big", "ws://127.0.0.1:9", None, None, tx);
     let (ours, theirs) = tokio::io::duplex(1 << 16);
@@ -91,8 +93,8 @@ async fn a_watch_list_too_large_with_tools_is_read_without_them() {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0]["sessionId"], "m1");
     assert!(peer.link().is_ready());
-    assert_eq!(asked.recv().await, Some(true));
     assert_eq!(asked.recv().await, Some(false));
+    assert!(asked.try_recv().is_err(), "one watch, never one with tools");
     serving.abort();
     fake.abort();
 }

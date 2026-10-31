@@ -1,0 +1,82 @@
+//! `acpmux ls --with-tools`: the tool inventories of a peer's rows, read per session.
+//!
+//! A peer link's watch list carries no inventories (`peer.rs`): with them one host's list was
+//! 23 MB for 3,700 rows (2026-10-31), past the 15 MiB message limit, and without them 16.6 MB.
+//! The daemon's own rows come with their tools when a list asks (`withTools`); a peer's row
+//! carries them only while a client here is attached to it. For the rest each is read on
+//! demand with `_acpmux/info`, which the daemon forwards to the row's peer, a few at a time.
+
+use std::future::Future;
+
+use anyhow::Result;
+use serde_json::Value;
+
+/// Whether `row` is a peer's row with no inventory.
+fn lacks_tools(row: &Value) -> bool {
+    row.get("peer").and_then(Value::as_str).is_some_and(|p| !p.is_empty())
+        && row.get("tools").is_none()
+}
+
+/// Fills in `tools` and `toolsMutable` of every peer row of `rows` that has none, from
+/// `info(key)` of the row (its `qualifiedSessionId`). Returns how many could not be read: their
+/// rows stay as listed.
+pub(super) async fn fill<F, Fut>(rows: &mut [Value], info: F) -> usize
+where
+    F: Fn(String) -> Fut,
+    Fut: Future<Output = Result<Value>>,
+{
+    let _ = (rows, info, lacks_tools);
+    0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::cell::RefCell;
+
+    #[tokio::test]
+    async fn a_peer_row_without_tools_reads_them_from_its_info() {
+        let mut rows = vec![
+            json!({"sessionId": "own", "tools": [{"id": "mcp:own"}], "toolsMutable": true}),
+            json!({"sessionId": "a", "peer": "hb", "qualifiedSessionId": "hb/a"}),
+            json!({"sessionId": "b", "peer": "hb", "qualifiedSessionId": "hb/b",
+                "tools": [{"id": "mcp:kept"}], "toolsMutable": false}),
+            json!({"sessionId": "c", "peer": "gone", "qualifiedSessionId": "gone/c"}),
+        ];
+        let asked = RefCell::new(Vec::new());
+        let failed = fill(&mut rows, |key| {
+            asked.borrow_mut().push(key.clone());
+            async move {
+                match key.as_str() {
+                    "hb/a" => Ok(json!({"sessionId": "a", "tools": [{"id": "mcp:a"}],
+                        "toolsMutable": true, "title": "not copied"})),
+                    _ => Err(anyhow::anyhow!("peer gone is not connected")),
+                }
+            }
+        })
+        .await;
+        let mut asked = asked.into_inner();
+        asked.sort();
+        assert_eq!(asked, ["gone/c", "hb/a"], "only peer rows with no tools are read");
+        assert_eq!(failed, 1);
+        assert_eq!(rows[0]["tools"], json!([{"id": "mcp:own"}]));
+        assert_eq!(rows[1]["tools"], json!([{"id": "mcp:a"}]));
+        assert_eq!(rows[1]["toolsMutable"], true);
+        assert!(rows[1].get("title").is_none(), "only the inventory is copied: {}", rows[1]);
+        assert_eq!(rows[2]["tools"], json!([{"id": "mcp:kept"}]));
+        assert!(rows[3].get("tools").is_none(), "a row that could not be read stays as listed");
+    }
+
+    #[tokio::test]
+    async fn a_row_with_no_qualified_id_is_read_by_peer_and_id() {
+        let mut rows = vec![json!({"sessionId": "a", "peer": "hb"})];
+        let failed = fill(&mut rows, |key| async move {
+            assert_eq!(key, "hb/a");
+            Ok(json!({"tools": [], "toolsMutable": false}))
+        })
+        .await;
+        assert_eq!(failed, 0);
+        assert_eq!(rows[0]["tools"], json!([]));
+    }
+}
