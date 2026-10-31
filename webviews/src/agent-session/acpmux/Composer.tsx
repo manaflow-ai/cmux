@@ -1804,6 +1804,8 @@ export function Composer({
       data-shell={shell ? "" : undefined}
       // Codex's look (composerLook.ts, composerLocation.css); none is Claude's, the default.
       data-composer-look={look === "codex" ? "codex" : undefined}
+      // The box inside draws Claude's compact grid (ComposerBox.tsx, composerLocation.css).
+      data-composer-grid={look === "codex" ? undefined : ""}
       onSubmit={(event) => {
         if (!shell) return submit(event);
         event.preventDefault();

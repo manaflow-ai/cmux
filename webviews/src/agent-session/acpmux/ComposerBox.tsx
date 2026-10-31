@@ -175,7 +175,13 @@ export function ComposerBox({
   return (
     <>
       {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the prompt inside is the control and takes the keyboard itself. */}
-      <div ref={boxRef} className="ui-glass ui-glass-floats acpmux-composer-box" onMouseDown={focusFromCard}>
+      <div
+        ref={boxRef}
+        className="ui-glass ui-glass-floats acpmux-composer-box"
+        // Claude's compact grid (composerLocation.css): a state attribute, not a :has() on the box.
+        data-composer-grid={claudeGrid ? "" : undefined}
+        onMouseDown={focusFromCard}
+      >
         {top}
         <AttachmentStrip
           attachments={attachments}
