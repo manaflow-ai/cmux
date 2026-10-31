@@ -89,7 +89,9 @@ test("All chats gives every cut title its whole text, the live chats at the top 
     chats: [{ key: "old", harness: "claude", title: "Indexed " + LONG_TITLE, cwd: LONG_CWD, updatedAt: 1 }],
     ready: true,
   });
-  const active = [{ id: "s-run", title: "Live " + LONG_TITLE, harness: "claude", state: "running" as const, label: "Working" }];
+  const active = [
+    { id: "s-run", title: "Live " + LONG_TITLE, harness: "claude", state: "running" as const, label: "Working" },
+  ];
   await act(async () => root.render(<AllChatsList load={load} onOpen={() => {}} active={active} now={10} />));
   await settle();
   const live = document.querySelector(".nt-all-active .nt-all-title");
@@ -118,7 +120,9 @@ test("Home's rows give a cut title and project their whole value", async () => {
     }),
   ];
   await act(async () =>
-    root.render(<HomeLists sessions={sessions} currentId="home" onSelect={() => {}} onAnswer={async () => "answered"} />),
+    root.render(
+      <HomeLists sessions={sessions} currentId="home" onSelect={() => {}} onAnswer={async () => "answered"} />,
+    ),
   );
   const title = [...host.querySelectorAll(".acpmux-home-title")].find((node) => node.textContent === LONG_TITLE);
   expect(title).toBeDefined();
