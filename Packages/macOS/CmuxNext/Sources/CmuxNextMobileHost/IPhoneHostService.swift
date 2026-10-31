@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextAgentPane
+public import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextKeepAwake
 public import CmuxNextMobile
@@ -103,6 +103,11 @@ public final class IPhoneHostService {
 
     /// `mobile.allowIPhoneConnections`, as the settings file has it.
     private(set) var allowed = false
+    /// Session Info's Remote Control switch every chat page shows (the App gives it to each page's model).
+    public let remoteControl = AgentPaneRemoteControl()
+    /// The service is wired and this build bundles hostd, so this Mac can serve cmux on iPhone
+    /// (Session Info's Remote Control row shows only then). Observed: set once by `wire`.
+    public internal(set) var servesPhones = false
     private(set) var account: Account?
     private(set) var state = MobileHostState()
     /// The account's phones on the mobile service (Settings > Mobile's list with Remove).
