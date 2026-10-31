@@ -149,7 +149,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.density` | string | `"compact"` | `ultraCompact`, `compact`, `cozy`, `comfortable`, `spacious` | Density. Row height, padding, corners, icons and text size together. Compact is the default. |
 | `appearance.customDensity` | string |  |  | Custom Density |
 | `appearance.customDensities` | string | `[]` |  | Custom Densities |
-| `app.uiScale` | real | `1` | 0.85 to 1.5 | Interface Scale |
+| `app.uiScale` | real | `1.1` | 0.85 to 1.5 | Interface Scale |
 | `appearance.metrics.chromeFontSize` | real |  | 10 to 16 | Interface Size. Text size of tabs, the sidebar and other controls. Terminal text has its own size. |
 | `appearance.interfaceScale` | real |  | 0.9 to 1.25 | Interface Size. Text size of tabs, the sidebar and other controls. Terminal text has its own size. |
 | `appearance.metrics.sidebarWidth` | real |  | 160 to 420 | Sidebar Width |
@@ -333,6 +333,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.style` | string | `"standard"` | `standard`, `rail` | Sidebar Style. Rail shrinks the sidebar to a thin strip with a mark for each workspace. Point at the strip to open the full sidebar over your work. |
 | `sidebar.density` | string | `"compact"` | `compact`, `comfortable`, `expanded` | Sidebar Density. Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer. |
 | `sidebar.textSize` | string | `"default"` | `default`, `large`, `larger` | Sidebar Text Size. Makes the sidebar's names, headers, icons and rows larger together. Larger matches the ChatGPT app's sidebar. |
+| `sidebar.rowSpacing` | real |  | 0 to 12 | Row Spacing. The space between rows in the sidebar. |
 | `sidebar.detailedStatusIcons` | boolean | `false` |  | Detailed Status Icons. Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you. |
 | `sidebar.showTimestamps` | boolean | `false` |  | Show Timestamps. Workspace rows show when they last changed: a time today, else an age such as 3d. Off, rows show no times; the hover card still does. |
 | `sidebar.showColors` | boolean | `true` |  | Show Workspace Colors. Workspaces and groups draw their colors in the sidebar. Off, the sidebar draws no colors and keeps the colors you set. |

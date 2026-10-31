@@ -2433,7 +2433,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<integer>1</integer>
+			<real>1.1000000000000001</real>
 			<key>pfm_name</key>
 			<string>app.uiScale</string>
 			<key>pfm_range_max</key>
@@ -4817,6 +4817,20 @@
 			<string>Sidebar Text Size</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>The space between rows in the sidebar.</string>
+			<key>pfm_name</key>
+			<string>sidebar.rowSpacing</string>
+			<key>pfm_range_max</key>
+			<real>12</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Row Spacing</string>
+			<key>pfm_type</key>
+			<string>real</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>

@@ -546,132 +546,6 @@
             }
           },
           {
-            "key" : "settings.group.sidebar",
-            "rows" : [
-              "sidebar.showWorkspaceTabs",
-              "appearance.sidebarSurface",
-              "sidebar.border",
-              "sidebar.borderWidth",
-              "sidebar.sectionLook",
-              "sidebar.topBandMaxShare",
-              "sidebar.bottomBandMaxShare",
-              "sidebar.pinnedBandsScroll",
-              "sidebar.noFade",
-              "sidebar.controlsOnHover",
-              "sidebar.minimal",
-              "sidebar.style",
-              "sidebar.density",
-              "sidebar.textSize",
-              "sidebar.minimalMode",
-              "sidebar.side"
-            ],
-            "title" : {
-              "key" : "settings.group.sidebar",
-              "text" : "Sidebar"
-            }
-          },
-          {
-            "key" : "appearance.9",
-            "rows" : [
-              "workspaces.newPlacement",
-              "workspaces.autoName",
-              "sidebar.groupByComputer",
-              "sidebar.sessionTree",
-              "sidebar.showProjects",
-              "sidebar.groupBy",
-              "sidebar.detailedStatusIcons",
-              "sidebar.showTimestamps",
-              "sidebar.showColors",
-              "sidebar.showLocalMachine",
-              "sidebar.groupHeader.memberCount",
-              "sidebar.groupHeader.unreadCount",
-              "sidebar.priorityView.enabled",
-              "sidebar.priorityView.shown"
-            ],
-            "title" : {
-              "key" : "settings.pageGroup.sidebarWorkspaces",
-              "text" : "Sidebar Workspaces"
-            }
-          },
-          {
-            "key" : "appearance.10",
-            "rows" : [
-              "sidebar.showSpaces",
-              "sidebar.spacesPosition",
-              "sidebar.spacesVisibility",
-              "sidebar.showProfileControl",
-              "sidebar.showSearchButton",
-              "sidebar.cards.tips",
-              "sidebar.nowPlaying.enabled",
-              "sidebar.nowPlaying.otherApps",
-              "home.channelsEnabled"
-            ],
-            "title" : {
-              "key" : "settings.pageGroup.sidebarExtras",
-              "text" : "Sidebar Buttons and Spaces"
-            }
-          },
-          {
-            "key" : "appearance.11",
-            "rows" : [
-              "sidebar.hoverCards.enabled",
-              "sidebar.hoverCards.delay",
-              "sidebar.hoverCards.layout",
-              "sidebar.hoverCards.sections.timings",
-              "sidebar.hoverCards.sections.prompts",
-              "sidebar.hoverCards.sections.waiting",
-              "sidebar.hoverCards.sections.git",
-              "sidebar.hoverCards.sections.ports",
-              "sidebar.hoverCards.maxRows"
-            ],
-            "title" : {
-              "key" : "settings.pageGroup.workspaceCards",
-              "text" : "Workspace Hover Cards"
-            }
-          },
-          {
-            "key" : "appearance.12",
-            "rows" : [
-              "sidebar.hoverCards.groups.workspaceGroups",
-              "sidebar.hoverCards.groups.tabGroups",
-              "sidebar.hoverCards.groups.delay",
-              "sidebar.hoverCards.groups.order",
-              "sidebar.hoverCards.groups.maxMembers",
-              "sidebar.hoverCards.groups.sections.status",
-              "sidebar.hoverCards.groups.sections.members",
-              "sidebar.hoverCards.groups.sections.activity",
-              "sidebar.hoverCards.groups.sections.git",
-              "sidebar.hoverCards.groups.sections.ports"
-            ],
-            "title" : {
-              "key" : "settings.pageGroup.groupCards",
-              "text" : "Group Hover Cards"
-            }
-          },
-          {
-            "key" : "settings.group.workspaceRows",
-            "rows" : [
-              "sidebar.workspaceRow.icon",
-              "sidebar.workspaceRow.directory",
-              "sidebar.workspaceRow.branch",
-              "sidebar.workspaceRow.process",
-              "sidebar.workspaceRow.agentStatus",
-              "sidebar.workspaceRow.tabCount",
-              "sidebar.workspaceRow.ports",
-              "sidebar.workspaceRow.lastActivity",
-              "sidebar.workspaceRow.pullRequest",
-              "sidebar.workspaceRow.progress",
-              "sidebar.workspaceRow.working",
-              "sidebar.workspaceRow.log",
-              "sidebar.workspaceRow.notification",
-              "sidebar.workspaceRow.secondLineOrder"
-            ],
-            "title" : {
-              "key" : "settings.group.workspaceRows",
-              "text" : "Workspace Rows"
-            }
-          },
-          {
             "key" : "settings.group.statusIndicator",
             "rows" : [
               "appearance.statusIndicator.style",
@@ -712,7 +586,7 @@
             }
           },
           {
-            "key" : "appearance.16",
+            "key" : "appearance.10",
             "rows" : [
               "appearance.surfaces.sidebar.color",
               "appearance.surfaces.sidebar.opacity",
@@ -731,7 +605,7 @@
             }
           },
           {
-            "key" : "appearance.17",
+            "key" : "appearance.11",
             "rows" : [
               "appearance.surfaces.diff.color",
               "appearance.surfaces.diff.opacity",
@@ -755,6 +629,164 @@
         "title" : {
           "key" : "settings.section.appearance",
           "text" : "Appearance"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "sidebar.0",
+            "rows" : [
+              "sidebar.textSize",
+              "sidebar.density",
+              "sidebar.rowSpacing"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.sidebarSize",
+              "text" : "Size and Spacing"
+            }
+          },
+          {
+            "key" : "settings.group.sidebar",
+            "rows" : [
+              "sidebar.showWorkspaceTabs",
+              "appearance.sidebarSurface",
+              "sidebar.border",
+              "sidebar.borderWidth",
+              "sidebar.sectionLook",
+              "sidebar.topBandMaxShare",
+              "sidebar.bottomBandMaxShare",
+              "sidebar.pinnedBandsScroll",
+              "sidebar.noFade",
+              "sidebar.controlsOnHover",
+              "sidebar.minimal",
+              "sidebar.style",
+              "sidebar.minimalMode",
+              "sidebar.side"
+            ],
+            "title" : {
+              "key" : "settings.group.sidebar",
+              "text" : "Sidebar"
+            }
+          },
+          {
+            "key" : "sidebar.2",
+            "rows" : [
+              "workspaces.newPlacement",
+              "workspaces.autoName",
+              "sidebar.groupByComputer",
+              "sidebar.sessionTree",
+              "sidebar.showProjects",
+              "sidebar.groupBy",
+              "sidebar.detailedStatusIcons",
+              "sidebar.showTimestamps",
+              "sidebar.showColors",
+              "sidebar.showLocalMachine",
+              "sidebar.groupHeader.memberCount",
+              "sidebar.groupHeader.unreadCount",
+              "sidebar.priorityView.enabled",
+              "sidebar.priorityView.shown"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.sidebarWorkspaces",
+              "text" : "Sidebar Workspaces"
+            }
+          },
+          {
+            "key" : "sidebar.3",
+            "rows" : [
+              "sidebar.showSpaces",
+              "sidebar.spacesPosition",
+              "sidebar.spacesVisibility",
+              "sidebar.showProfileControl",
+              "sidebar.showSearchButton",
+              "sidebar.cards.tips",
+              "sidebar.nowPlaying.enabled",
+              "sidebar.nowPlaying.otherApps",
+              "home.channelsEnabled"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.sidebarExtras",
+              "text" : "Sidebar Buttons and Spaces"
+            }
+          },
+          {
+            "key" : "sidebar.4",
+            "rows" : [
+              "sidebar.hoverCards.enabled",
+              "sidebar.hoverCards.delay",
+              "sidebar.hoverCards.layout",
+              "sidebar.hoverCards.sections.timings",
+              "sidebar.hoverCards.sections.prompts",
+              "sidebar.hoverCards.sections.waiting",
+              "sidebar.hoverCards.sections.git",
+              "sidebar.hoverCards.sections.ports",
+              "sidebar.hoverCards.maxRows"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.workspaceCards",
+              "text" : "Workspace Hover Cards"
+            }
+          },
+          {
+            "key" : "sidebar.5",
+            "rows" : [
+              "sidebar.hoverCards.groups.workspaceGroups",
+              "sidebar.hoverCards.groups.tabGroups",
+              "sidebar.hoverCards.groups.delay",
+              "sidebar.hoverCards.groups.order",
+              "sidebar.hoverCards.groups.maxMembers",
+              "sidebar.hoverCards.groups.sections.status",
+              "sidebar.hoverCards.groups.sections.members",
+              "sidebar.hoverCards.groups.sections.activity",
+              "sidebar.hoverCards.groups.sections.git",
+              "sidebar.hoverCards.groups.sections.ports"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.groupCards",
+              "text" : "Group Hover Cards"
+            }
+          },
+          {
+            "key" : "settings.group.workspaceRows",
+            "rows" : [
+              "sidebar.workspaceRow.icon",
+              "sidebar.workspaceRow.directory",
+              "sidebar.workspaceRow.branch",
+              "sidebar.workspaceRow.process",
+              "sidebar.workspaceRow.agentStatus",
+              "sidebar.workspaceRow.tabCount",
+              "sidebar.workspaceRow.ports",
+              "sidebar.workspaceRow.lastActivity",
+              "sidebar.workspaceRow.pullRequest",
+              "sidebar.workspaceRow.progress",
+              "sidebar.workspaceRow.working",
+              "sidebar.workspaceRow.log",
+              "sidebar.workspaceRow.notification",
+              "sidebar.workspaceRow.secondLineOrder"
+            ],
+            "title" : {
+              "key" : "settings.group.workspaceRows",
+              "text" : "Workspace Rows"
+            }
+          }
+        ],
+        "id" : "sidebar",
+        "lead" : [
+
+        ],
+        "symbol" : "sidebar.left",
+        "title" : {
+          "key" : "settings.category.sidebar",
+          "text" : "Sidebar"
         },
         "trail" : [
 
@@ -1902,7 +1934,8 @@
       {
         "categories" : [
           "theme",
-          "appearance"
+          "appearance",
+          "sidebar"
         ],
         "id" : "look",
         "title" : {
@@ -24656,7 +24689,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 1,
+      "default" : 1.1,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.densityMotion",
@@ -24683,7 +24716,7 @@
       "range" : {
         "max" : 1.5,
         "min" : 0.85,
-        "placeholder" : 1,
+        "placeholder" : 1.1,
         "step" : 0.05,
         "unit" : "fraction"
       },
@@ -51031,6 +51064,154 @@
       "title" : {
         "key" : "settings.sidebar.textSize",
         "text" : "Sidebar Text Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        12,
+        6
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.rowSpacing.help",
+        "text" : "The space between rows in the sidebar."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.rowSpacing",
+      "keywords" : [
+        "sidebar",
+        "spacing",
+        "space",
+        "gap",
+        "padding",
+        "rows",
+        "between",
+        "tight",
+        "loose"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "rowSpacing"
+      ],
+      "range" : {
+        "max" : 12,
+        "min" : 0,
+        "placeholder" : 2,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -12,
+        24,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.rowSpacing"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sidebar.rowSpacing",
+        "text" : "Row Spacing"
       },
       "validation" : "portable"
     },

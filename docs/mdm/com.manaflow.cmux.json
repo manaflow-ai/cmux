@@ -380,7 +380,7 @@
       "type" : "boolean"
     },
     "app.uiScale" : {
-      "default" : 1,
+      "default" : 1.1,
       "description" : "app.uiScale",
       "maximum" : 1.5,
       "minimum" : 0.85,
@@ -3821,6 +3821,13 @@
       "description" : "The sidebar bell's state while the Priority view is on. Off, the sidebar is unchanged.",
       "title" : "Show Priority View",
       "type" : "boolean"
+    },
+    "sidebar.rowSpacing" : {
+      "description" : "The space between rows in the sidebar.",
+      "maximum" : 12,
+      "minimum" : 0,
+      "title" : "Row Spacing",
+      "type" : "number"
     },
     "sidebar.sectionLook" : {
       "default" : "quiet",
