@@ -501,6 +501,18 @@ class NewTerminals(unittest.TestCase):
         finally:
             self.ext._front_app = front
 
+    def test_diagnostic_mode_on_a_slot_where_the_key_was_lost_is_not_checked(self):
+        j = self.journey([("w", "p1", "a", "T0", True)], {}, "p1")
+        j.spec = {"options": {"smoke_mode": "diagnostic"}}
+        j.smoke_key_ok = True  # smoke_make_key got the key for a moment (cmux21, 2026-10-31 10:3xZ)
+        j.app.rpc = lambda method, params=None: {"windows": [{"id": 1, "kind": "main", "key": False}]}
+        ok, detail = self.ext.cond_smoke_key_window(j, {}, {})
+        self.assertTrue(ok, detail)
+        self.assertTrue(detail["was_key_at_make_key"])
+        j.app.rpc = lambda method, params=None: {"windows": [{"id": 1, "kind": "main", "key": False},
+                                                             {"id": 2, "kind": "panel", "key": True}]}
+        self.assertFalse(self.ext.cond_smoke_key_window(j, {}, {})[0])
+
     def test_strict_mode_on_a_slot_with_no_key_window_is_a_known_gap(self):
         j = self.journey([("w", "p1", "a", "T0", True)], {}, "p1")
         j.smoke_key_ok, j.smoke_key_reply, typed = False, {"key": None}, []

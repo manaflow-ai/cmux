@@ -420,10 +420,13 @@ def cond_smoke_key_window(j, want, cache):
     are still judged) and records the gap; smoke-gate.py then makes a passed round "not run", never a pass. A non-main
     app window key, the app front with no key window, or a foreign app that appeared during the journey fails."""
     key_now, windows = _main_key(j)
-    if not key_now and _diagnostic(j) and not getattr(j, "smoke_key_ok", False) \
+    if not key_now and _diagnostic(j) \
             and not any(w["key"] is True for w in windows) and any(w["kind"] == "main" for w in windows):
-        # Diagnostic on a slot: no window was ever key; the step's other checks still count.
-        return True, {"windows": windows, "diagnostic": "no key window on this slot (not checked)"}
+        # Diagnostic on a slot: the app is never the active app there, so its window may be key for a moment
+        # (smoke_make_key) and lose it again; no app window key is the slot's limit, not checked. The step's other
+        # checks still count. A non-main app window that is key still fails.
+        return True, {"windows": windows, "diagnostic": "no key window on this slot (not checked)",
+                      "was_key_at_make_key": bool(getattr(j, "smoke_key_ok", False))}
     if not key_now:
         gap = _key_lost_to_another_app(j, windows)
         if gap:
