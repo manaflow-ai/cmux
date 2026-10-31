@@ -65,7 +65,9 @@ public final class CreationInputBuffer {
             laneMachines[id] = nil
         }
         events.removeAll { $0.creation.map(ids.contains) ?? false }
-        if pending.isEmpty, awaited.isEmpty { events.removeAll() }
+        // Nothing waits any more: keys typed for no creation go with the close (never into whatever has the focus); a key
+        // held for another terminal (its lane) is that terminal's and stays, to go to it when the hold ends.
+        if pending.isEmpty, awaited.isEmpty { events.removeAll { $0.creation == nil } }
         return true
     }
 
