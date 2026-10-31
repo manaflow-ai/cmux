@@ -196,8 +196,9 @@
     var(--cv-inset-end, var(--cv-inset, max(18px, calc((100% - 760px) / 2))));
   bottom: 0;
   z-index: calc(var(--layer-raised, 1) + 1);
-  /* The row's own min-height (composerLocation.css .acpmux-composer-bar). */
-  height: 52px;
+  /* No height of its own: the host is the box's bottom edge, and the dots ride up to the middle of
+     the row above it (the row's 52px min-height, composerLocation.css .acpmux-composer-bar). */
+  height: 0;
   pointer-events: none;
   container: codex-look-row / inline-size;
 }
@@ -207,9 +208,9 @@
   pointer-events: none;
 }
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-under .acpmux-look-slot {
-  top: 50%;
-  bottom: auto;
-  transform: translateY(-50%);
+  top: auto;
+  bottom: 26px;
+  transform: translateY(50%);
   pointer-events: auto;
 }
 /* A row too narrow for a clear middle (the mode's label, the ring, the model, the mic and Send leave
