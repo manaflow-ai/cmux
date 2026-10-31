@@ -350,7 +350,7 @@ async fn oversized_native_pages_keep_rpc_bounds_and_continuations() {
     let hub = hub(&home);
     let file = home.join("projects/-work/s1.jsonl");
     let mut out = std::io::BufWriter::new(std::fs::File::create(&file).unwrap());
-    let content = "x".repeat(60_000);
+    let content = "x".repeat(75_000);
     // Three older turns each have roughly 6 MiB of raw Write input and roughly 12 MiB of ACP
     // call content (rawInput plus the display diff). Two turns exceed the 14 MiB result budget,
     // while each turn remains well below the individual-event frame limit.
