@@ -610,7 +610,10 @@ describe("codex responses proxy session routing", () => {
     const started = performance.now();
     const response = await boundedProxy(responsesRequest());
 
-    expect(response.status).toBe(429);
+    // A deadline is not an empty pool: it stays a retryable 503.
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("15");
+    expect(((await response.json()) as { retryable: boolean }).retryable).toBe(true);
     expect(selectionSignal).toBeDefined();
     expect(selectionSignal?.aborted).toBe(true);
     expect(performance.now() - started).toBeLessThan(1_000);
@@ -639,7 +642,10 @@ describe("codex responses proxy session routing", () => {
     const started = performance.now();
     const response = await boundedProxy(responsesRequest());
 
-    expect(response.status).toBe(429);
+    // A deadline is not an empty pool: it stays a retryable 503.
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("15");
+    expect(((await response.json()) as { retryable: boolean }).retryable).toBe(true);
     expect(credentialSignal).toBeDefined();
     expect(credentialSignal?.aborted).toBe(true);
     expect(performance.now() - started).toBeLessThan(1_000);

@@ -301,6 +301,12 @@ async function proxyCodexRequestWith(
     "account_selection";
   let upstream: Response | null = null;
   let noAccountConfigured = false;
+  /**
+   * Selection found no usable account and the hold will not wait for one: the
+   * only exit that is terminal for the client. Deadlines and transport
+   * failures stay a retryable 503.
+   */
+  let noUsableAccount = false;
   for (let attempt = 0; ; attempt++) {
     throwIfRequestAborted(request);
     if (attempted.length >= MAX_ACCOUNTS_PER_ROUND) {
@@ -365,6 +371,7 @@ async function proxyCodexRequestWith(
         break;
       }
       if (await holdForNextRound()) continue;
+      noUsableAccount = true;
       break;
     }
     attempted.push(account.id);
@@ -675,7 +682,7 @@ async function proxyCodexRequestWith(
       identity,
       request,
       startedAt,
-      status: 429,
+      status: noUsableAccount ? 429 : 503,
       attempted: attemptCount,
       hold: holdStats(hold),
       refreshRetries,
@@ -683,7 +690,14 @@ async function proxyCodexRequestWith(
       failureStage,
       responseStreamed: false,
     });
-    return noUsableCodexAccountResponse(soonestRecoveryMs, runtime.wallNow());
+    if (noUsableAccount) return noUsableCodexAccountResponse(soonestRecoveryMs, runtime.wallNow());
+    return jsonError(
+      "no_usable_account",
+      503,
+      { "retry-after": "15" },
+      "No healthy Codex subscription is currently available. Check `cr`, add an account with `cr add`, or retry shortly.",
+      true,
+    );
   }
   const responseHeaders = new Headers();
   for (const name of [
