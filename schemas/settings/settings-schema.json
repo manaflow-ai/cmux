@@ -563,7 +563,8 @@
               "sidebar.density",
               "sidebar.textSize",
               "sidebar.minimalMode",
-              "sidebar.side"
+              "sidebar.side",
+              "sidebar.hoverCards.richDetails"
             ],
             "title" : {
               "key" : "settings.group.sidebar",
@@ -617,7 +618,6 @@
               "sidebar.hoverCards.enabled",
               "sidebar.hoverCards.delay",
               "sidebar.hoverCards.layout",
-              "sidebar.hoverCards.richDetails",
               "sidebar.hoverCards.sections.timings",
               "sidebar.hoverCards.sections.prompts",
               "sidebar.hoverCards.sections.waiting",
