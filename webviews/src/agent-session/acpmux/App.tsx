@@ -4265,7 +4265,7 @@ export function VirtualTranscript({
     const holdClicked = (event: MouseEvent) => {
       const toggle = node ? foldToggleAt(event.target, node) : undefined;
       if (!toggle) return;
-      const line = foldHoldTarget(toggle);
+      const line = foldHoldTarget(toggle, node ?? undefined);
       settleFold(line);
       foldAnchor.current = clickFold(line, pressed);
       pressed = undefined;
@@ -4277,7 +4277,7 @@ export function VirtualTranscript({
     let pressed: FoldAnchor | undefined;
     const notePressed = (event: PointerEvent) => {
       const toggle = event.button === 0 && node ? foldToggleAt(event.target, node) : undefined;
-      pressed = toggle ? holdFold(foldHoldTarget(toggle)) : undefined;
+      pressed = toggle ? holdFold(foldHoldTarget(toggle, node ?? undefined)) : undefined;
     };
     // A collapsible's header that asks to be held (useAnchoredCollapse.ts): a toggle from the keyboard
     // or a header that is no disclosure button, as well as the click above.

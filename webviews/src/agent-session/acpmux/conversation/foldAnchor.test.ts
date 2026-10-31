@@ -45,6 +45,15 @@ describe("trimmedFoldRoom", () => {
   test("nothing kept stays nothing", () => {
     expect(trimmedFoldRoom(0, 1500, 1200, false)).toBe(0);
   });
+  // Show less under a long output, collapsed: the rows end above the view's top, so the kept room
+  // would be all the reader sees. Once the hold is over it goes, and the view comes back to the rows.
+  test("goes once the rows end above the view's top, so the view is never only room", () => {
+    expect(trimmedFoldRoom(3000, 3000, 2200, false, 640)).toBe(0);
+    // While the hold lasts the room stays (the held line is what keeps the view on the rows).
+    expect(trimmedFoldRoom(3000, 3000, 2200, true, 640)).toBe(3000);
+    // Rows still reaching into the view keep it: the clamp it prevents is what moved them.
+    expect(trimmedFoldRoom(3000, 3000, 2500, false, 640)).toBe(3000);
+  });
 });
 
 /// One transcript row holding `html`, inside a scroller.
@@ -117,6 +126,27 @@ describe("foldHoldTarget", () => {
     const { at } = row('<div>text</div><button class="cv-message__more" aria-expanded="false">Show more</button>');
     expect(foldHoldTarget(at("button")!).classList.contains("acpmux-row")).toBe(true);
   });
+  /// `scroller`'s view starting at viewport y 100, and the row's top at `rowTop`.
+  const placed = (rowTop: number) => {
+    const { at, scroller, document } = row(
+      '<pre>long output</pre><button class="cv-output-more" aria-expanded="true">Show less</button>',
+    );
+    const rect = (top: number) => () => ({ top }) as DOMRect;
+    scroller.getBoundingClientRect = rect(100);
+    document.querySelector<HTMLElement>(".acpmux-row")!.getBoundingClientRect = rect(rowTop);
+    return { toggle: at("button")!, scroller };
+  };
+  test("a row whose top is in view still holds by its top", () => {
+    const { toggle, scroller } = placed(140);
+    expect(foldHoldTarget(toggle, scroller).classList.contains("acpmux-row")).toBe(true);
+  });
+  // Show less under a long output, scrolled down to: the row's top is above the view. Held by it, the
+  // collapsed row would end above the view and leave it blank (review BLOCK at 5e59e449), so the
+  // control the reader clicked holds instead.
+  test("a row whose top is above the view holds the clicked control", () => {
+    const { toggle, scroller } = placed(-1800);
+    expect(foldHoldTarget(toggle, scroller)).toBe(toggle);
+  });
 });
 
 describe("foldHolding", () => {
@@ -126,7 +156,9 @@ describe("foldHolding", () => {
     expect(foldHolding({ toggle, top: 0, until: 100, cap: 100 }, 101)).toBe(false);
   });
   test("lets go of a line that left the transcript", () => {
-    expect(foldHolding({ toggle: { isConnected: false } as HTMLElement, top: 0, until: 100, cap: 100 }, 50)).toBe(false);
+    expect(foldHolding({ toggle: { isConnected: false } as HTMLElement, top: 0, until: 100, cap: 100 }, 50)).toBe(
+      false,
+    );
   });
   test("nothing held", () => {
     expect(foldHolding(undefined)).toBe(false);
@@ -134,7 +166,8 @@ describe("foldHolding", () => {
 });
 
 describe("hold timing", () => {
-  const line = (top: number) => ({ isConnected: true, getBoundingClientRect: () => ({ top }) }) as unknown as HTMLElement;
+  const line = (top: number) =>
+    ({ isConnected: true, getBoundingClientRect: () => ({ top }) }) as unknown as HTMLElement;
   test("a click keeps the place its press held, timed from the click", () => {
     const toggle = line(300);
     const pressed = { toggle, top: 200, until: 1_000, cap: 2_000 };

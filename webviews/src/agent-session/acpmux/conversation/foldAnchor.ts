@@ -68,10 +68,16 @@ const HEADER_TOGGLE =
 /// What a click on `toggle` holds in place. A line that opens a body under itself holds itself. Any
 /// other control (Show more, Show all lines, "+N more", Raw) may sit under or beside the body it
 /// opens or closes, so its row holds by its top: the body grows and shrinks downward and nothing
-/// above it moves, the control with it.
-export function foldHoldTarget(toggle: HTMLElement): HTMLElement {
+/// above it moves, the control with it. A row whose top is above `scroller`'s view (Show less under
+/// a long output, scrolled down to) holds the control instead: held by its top, the row would close
+/// up above the view and leave it blank, so the body shrinks up into the control, which stays where
+/// it was clicked.
+export function foldHoldTarget(toggle: HTMLElement, scroller?: HTMLElement): HTMLElement {
   if (toggle.matches(HEADER_TOGGLE)) return toggle;
-  return toggle.closest<HTMLElement>(".acpmux-row") ?? toggle;
+  const row = toggle.closest<HTMLElement>(".acpmux-row");
+  if (!row) return toggle;
+  if (scroller && row.getBoundingClientRect().top < scroller.getBoundingClientRect().top - 0.5) return toggle;
+  return row;
 }
 
 /// Holds `toggle` where it is drawn now, for its fold and a little after.
@@ -116,7 +122,9 @@ export function foldRoomFor(scrollTop: number, clientHeight: number, kept = 0): 
 /// The kept end after a scroll or a placement pass: as it is while a fold holds its line; else no
 /// further down than the view's end (`viewEnd`, the reader scrolled up), and 0 once the content
 /// would be that tall anyway: the rows' own end (`rowsEnd`) or the view's height (`viewHeight`, a
-/// scroller is never shorter than its view) reaches it, when nothing of it is room any more.
+/// scroller is never shorter than its view) reaches it, when nothing of it is room any more. Nor
+/// once the rows end above the view's top: the room would be all the reader sees, so it goes and
+/// the view comes back to the rows' end.
 export function trimmedFoldRoom(
   kept: number,
   viewEnd: number,
@@ -126,6 +134,7 @@ export function trimmedFoldRoom(
 ): number {
   if (kept <= 0) return 0;
   if (holding) return kept;
+  if (viewHeight > 0 && rowsEnd <= viewEnd - viewHeight + 0.5) return 0;
   const next = Math.min(kept, Math.ceil(viewEnd));
   return next <= Math.max(rowsEnd, viewHeight) + 0.5 ? 0 : next;
 }
