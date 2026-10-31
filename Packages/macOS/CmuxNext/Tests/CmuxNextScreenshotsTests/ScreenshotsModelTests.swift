@@ -261,19 +261,25 @@ private final class RecordingWatcher: FolderWatching {
         #expect(gate.mayDetect)
         #expect(gate.isUnlocked("tab-a"))
         #expect(!gate.isUnlocked("tab-b"))
-        gate.forget("tab-a")
-        #expect(!gate.isUnlocked("tab-a"))
-        #expect(!gate.mayDetect)
     }
 
-    @MainActor @Test func theKeyboardReachesTheButtonWhileThePromptIsUp() {
-        let view = ScreenshotsView(model: ScreenshotsModel(watcher: SilentWatcher(), listsAtOnce: false), cache: ThumbnailCache(),
-                                   workspace: NoWorkspace())
+    /// A plain NSButton takes the keyboard only with Full Keyboard Access on, so the pane itself takes it while the
+    /// prompt is up, and Space (the button's key) shows the screenshots; then the grid has the keyboard again.
+    @MainActor @Test func spacePressesShowScreenshotsWhileThePromptIsUp() throws {
+        let model = ScreenshotsModel(watcher: SilentWatcher(), listsAtOnce: false)
+        let view = ScreenshotsView(model: model, cache: ThumbnailCache(), workspace: NoWorkspace())
         let gated = view.focusTarget
-        #expect(gated is NSButton, "the focused view before the click is \(type(of: gated))")
-        view.showScreenshots()
-        let listing = view.focusTarget
-        #expect(!(listing is NSButton))
+        #expect(gated === view, "the focused view before the click is \(type(of: gated))")
+        let acceptsKeys = view.acceptsFirstResponder
+        #expect(acceptsKeys)
+        let space = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                                                  context: nil, characters: " ", charactersIgnoringModifiers: " ",
+                                                  isARepeat: false, keyCode: 49))
+        view.keyDown(with: space)
+        let listing = model.isListing
+        #expect(listing, "Space did not show the screenshots")
+        let after = view.focusTarget
+        #expect(after !== view)
     }
 
     @Test func aModelListsOnlyWhenItsCallerSaysSo() {

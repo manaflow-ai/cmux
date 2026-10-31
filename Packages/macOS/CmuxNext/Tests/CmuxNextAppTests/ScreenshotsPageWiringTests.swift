@@ -71,7 +71,8 @@ private nonisolated struct NoWatch: FolderWatching {
 /// then would raise the macOS folder prompt at launch: LAUNCH-NO-TCC-PROMPTS).
 @MainActor @Suite(.serialized) struct ScreenshotsPageListsOnlyAfterTheClickTests {
     private static func page(_ key: String, services: AppServices) -> ScreenshotsPageTab {
-        services.screenshotsPage.makePage(key: key, engine: .webkit, profile: .default)
+        // A fake detection environment: the click below never reads the test Mac's own Desktop or app data.
+        ScreenshotsPageService(services: services, environment: CountingEnvironment()).makePage(key: key, engine: .webkit, profile: .default)
     }
 
     private static func services() -> AppServices {
