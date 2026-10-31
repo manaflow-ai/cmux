@@ -8,11 +8,13 @@ import Testing
 /// above a docked column takes the presses where it is drawn over the dock, and an overlay column's glass keeps
 /// its presses while a docked column grows in on the other side and the strip's range springs.
 extension RenderMotionHitTestTests {
-    /// An overlay column on the left (pane `o`) over the strip's p1 and p2.
+    /// An overlay column on the left (pane `o`) over a strip of three 0.3-wide columns p1, p2, p3: wider than
+    /// the strip, so it scrolls, and p1 can sit under the overlay with the camera at rest.
     static let overlaid = ScreenLayout.columns([
         LayoutColumn(id: "ov", width: 0.3, root: .leaf("o"), dock: DockColumn(edge: .left, mode: .overlay)),
-        LayoutColumn(id: "c1", width: 0.5, root: .leaf("p1")),
-        LayoutColumn(id: "c2", width: 0.5, root: .leaf("p2")),
+        LayoutColumn(id: "c1", width: 0.3, root: .leaf("p1")),
+        LayoutColumn(id: "c2", width: 0.3, root: .leaf("p2")),
+        LayoutColumn(id: "c3", width: 0.3, root: .leaf("p3")),
     ])
     /// The same, with a new docked column on the right holding `chat`.
     static let overlaidAndDocked = ScreenLayout.columns(overlaid.columns + [
@@ -53,22 +55,25 @@ extension RenderMotionHitTestTests {
     }
 
     /// A docked column grows in on the right while the strip's range springs (``ScreenContentView/RenderTracks/strip``):
-    /// a press on the left overlay column's glass, off its pane, reaches no strip pane under the glass.
+    /// a press on the left overlay column's glass, off its pane, over a strip pane drawn under the glass, reaches no
+    /// strip pane (``ScreenContentView`` `stripPoint`'s overlay-cover rule).
     ///
-    /// Disabled on the dogfood line, with this reason (perf lead 2026-10-31): the case cannot occur there. An overlay side
-    /// dock gives the strip a leading inset of its width plus a gap (`DockStripGeometry.place`, `leadingInset`), so with
-    /// the strip camera at rest at 0 no strip pane is drawn under the overlay's glass; one is only after a scroll. And a
-    /// dock arrival goes to the render server only with no camera moving (`springSplitOnRenderServer`, `isCameraMoving`):
-    /// with the strip scrolled, the dock's turn moves the camera, so the arrival steps on the CPU. So the
-    /// press-over-a-springing-strip case under an overlay's glass never happens, and the test stopped at its set-up
-    /// (fleet: screen minis, steps 8364c374, 09530d96, aa327590 and 278f514e). The open product question (should a
-    /// dock arrival with a moving camera still spring on the render server?) is a perf item in followups.md.
-    @Test(.disabled("the dogfood line routes a dock arrival with a moving camera to the CPU; the overlay-press-over-a-springing-strip case cannot occur there"))
-    func anOverlayGlassKeepsItsPressWhileADockGrowsIn() async throws {
+    /// Set-up (review of fc2cf77cfb5): an overlay gives the strip a leading inset of its width plus a gap, so a strip
+    /// pane is under its glass only with the strip scrolled; and a dock arrival springs on the render server only with
+    /// no camera moving. Focusing p3 scrolls the strip to its end; focusing p2 then keeps the camera (p2 is fully
+    /// shown) and leaves p1 under the glass. The docked column narrows every strip column and the reducer keeps p2's
+    /// left edge with value and target moved together, so the camera stays at rest and the arrival goes to the render
+    /// server. The column gap is pinned: the default look has no strip gap, so its glass would be its pane.
+    @Test func anOverlayGlassKeepsItsPressWhileADockGrowsIn() async throws {
         try await Render.withMotion {
-            let fixture = Screen(Self.overlaid, focused: "p1")
+            let fixture = Screen(Self.overlaid, focused: "p3", columnGap: 12)
             defer { fixture.close() }
             try #require(fixture.window.screen != nil, "the window is on no screen: nothing animates")
+            fixture.focus("p2")
+            _ = fixture.stepToRest()
+            try #require(await fixture.renderSpringsDrained(), "the strip's motion before the dock did not land")
+            try #require(fixture.screen.scroll.value > 1, "the strip is not scrolled, so no strip pane is under the overlay")
+            try #require(abs(fixture.screen.scroll.value - fixture.screen.scroll.target) < 0.5, "the strip camera still moves before the dock arrives")
             let clock = try #require(fixture.root.layer)
             Render.freeze(clock)
             fixture.apply(Self.overlaidAndDocked)
@@ -78,18 +83,23 @@ extension RenderMotionHitTestTests {
             Render.seek(clock, to: half)
             let overlay = try #require(screen.geometry.dock.first { $0.dock.mode == .overlay }, "no overlay column")
             let pane = try fixture.host("o").frame
-            // On the glass, off its pane: right of the pane, else above it.
-            let candidates = [CGPoint(x: (pane.maxX + overlay.cover.maxX) / 2, y: pane.midY),
-                              CGPoint(x: pane.midX, y: (overlay.cover.minY + pane.minY) / 2)]
-            let local = try #require(candidates.first { overlay.cover.contains($0) && !pane.insetBy(dx: -1, dy: -1).contains($0) },
-                                     "the overlay's cover \(overlay.cover) has no glass off its pane \(pane)")
+            let strip = try ["p1", "p2", "p3"].map { try fixture.host($0) }
+            let drawn = try strip.map { try Self.drawn($0, at: half, clock: clock) }
+            // On the glass, off its pane (right of the pane, else above it), with a strip pane drawn under it.
+            var glass: [CGPoint] = []
+            for x in stride(from: pane.maxX + 1, to: overlay.cover.maxX, by: 1) { glass.append(CGPoint(x: x, y: pane.midY)) }
+            for y in stride(from: overlay.cover.minY + 1, to: pane.minY, by: 1) { glass.append(CGPoint(x: pane.midX, y: y)) }
+            let local = try #require(glass.first { point in
+                guard overlay.cover.contains(point), !pane.insetBy(dx: -1, dy: -1).contains(point) else { return false }
+                let inWindow = screen.convert(point, to: nil)
+                return drawn.contains { $0.contains(inWindow) }
+            }, "no point of the overlay's glass (cover \(overlay.cover), pane \(pane)) has a strip pane drawn under it: \(drawn)")
             let container = try #require(screen.stripContainer.layer?.presentation(), "the strip container has no presentation")
             try #require(screen.convertFromLayer(container.frame).contains(local), "the strip is not drawn under the glass at \(local)")
             let hit = Self.hit(fixture, at: screen.convert(local, to: nil))
-            let p1 = try fixture.host("p1"), p2 = try fixture.host("p2")
-            #expect(!Self.reaches(hit, p1) && !Self.reaches(hit, p2), "a press on the overlay's glass reached the strip: \(String(describing: hit))")
+            #expect(!strip.contains { Self.reaches(hit, $0) }, "a press on the overlay's glass reached the strip: \(String(describing: hit))")
             let pressed = screen.pressedPane(at: local)
-            #expect(pressed != "p1" && pressed != "p2", "a press on the overlay's glass focuses the strip pane \(String(describing: pressed))")
+            #expect(!["p1", "p2", "p3"].contains(pressed), "a press on the overlay's glass focuses the strip pane \(String(describing: pressed))")
         }
     }
 }
