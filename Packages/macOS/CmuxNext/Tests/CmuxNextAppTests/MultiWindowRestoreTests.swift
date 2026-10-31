@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextAppCore
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -15,7 +16,7 @@ import Testing
 /// the front window still in front, and no shown pane stays "Restoring…" or blank. The boundary:
 /// the app's services on a real same-tree daemon, the window records in its `personal`
 /// projection, and a second set of services that connects to that daemon as a relaunch does.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(6)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(6)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct MultiWindowRestoreTests {
     /// What one window showed before the quit.
     private struct Saved {
@@ -195,7 +196,7 @@ struct MultiWindowRestoreTests {
     /// Ends this launch: its windows and connection, and when `endingDaemon` the daemon with its
     /// terminals (else the next launch reconnects to it, as after Quit and Keep Sessions).
     private static func quit(_ services: AppServices, endingDaemon: Bool) async {
-        for controller in services.windows.controllers { controller.window?.close() }
+        services.closeWindowsForTest()
         guard let connection = services.daemon.connection else { return }
         services.daemon.shutdownConnection()
         await connection.close()
