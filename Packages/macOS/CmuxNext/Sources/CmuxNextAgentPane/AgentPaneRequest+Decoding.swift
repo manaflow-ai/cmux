@@ -144,6 +144,13 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.setRemoteControl":
+            // Session Info's Remote Control switch: one Bool, nothing else.
+            if let on = params?["on"] as? Bool, Set((params ?? [:]).keys) == ["on"] {
+                self = .remoteControl(on: on)
+            } else {
+                self = .unsupported(method)
+            }
         case "tips.state":
             // `{}` reads the records, `{id, state}` keeps one, `{claim, feature?}` asks to show a tip.
             if let tips = AgentPaneFeatureTipRequest(params) {
@@ -284,6 +291,7 @@ extension AgentPaneRequest {
             }
         case "project.browse": self = .browseProject
         case "sandbox.state": self = .sandboxState(wait: params?["wait"] as? Bool == true)
+        case "cloud.startChat": self = AgentPaneCloudStart(params: params).map(Self.cloudStartChat) ?? .unsupported(method)
         case "sandbox.run":
             // The task is the person's prompt (never logged); the server checks the agent by name.
             let agent = params?["agent"] as? String
@@ -389,8 +397,14 @@ extension AgentPaneRequest {
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .sideChat(id) } else { self = .unsupported(method) }
         case "chat.subagentPane":
             if let id = params?["subagent"] as? String, !id.isEmpty, id.count <= 256 {
-                self = .subagentPane(id, focus: params?["focus"] as? Bool == true)
+                // `title`: the subagent's own name, which its pane's tab shows (SubagentTabTitles).
+                self = .subagentPane(id, focus: params?["focus"] as? Bool == true, title: params?["title"] as? String)
             } else { self = .unsupported(method) }
+        case "chat.subagentShown":
+            let id = params?["subagent"] as? String
+            if let id, id.isEmpty || id.count > 256 { self = .unsupported(method) } else {
+                self = .subagentShown(id, title: id == nil ? nil : params?["title"] as? String)
+            }
         case "chat.processTerminal":
             if let id = params?["toolCallId"] as? String, AgentPaneProcessViewer.isToken(id) { self = .processTerminal(toolCall: id) } else { self = .unsupported(method) }
         case "chat.newHere":
