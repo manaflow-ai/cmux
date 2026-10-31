@@ -63,12 +63,14 @@ mod locate;
 pub mod media_handles;
 pub mod media_read;
 mod mesh_rows;
+pub(crate) mod native_history;
 pub(crate) mod subagent_transcript;
 mod team_information;
 mod team_sent;
 pub(crate) mod workflow_index;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 pub use media_read::FEATURE as MEDIA_READ_FEATURE;
+pub use native_history::FEATURE as NATIVE_HISTORY_FEATURE;
 pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
 mod hosts;
 mod lifecycle;
@@ -1672,6 +1674,7 @@ impl Hub {
                 | "dequeued"
                 | "queue_removed"
                 | "queue_order"
+                | "queue_restored"
                 | "queue_paused"
                 | "queue_resumed"
                 | "created"

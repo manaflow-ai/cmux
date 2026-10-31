@@ -112,24 +112,24 @@ describe("vm_requires_pro response copy", () => {
     const payload = await response.json() as Record<string, unknown>;
     expect(payload).toMatchObject({
       error: "vm_requires_pro",
-      message: "Cloud VMs require a cmux Go plan.",
-      action: "Upgrade to cmux Go at https://cmux.com/pricing to create Cloud VMs.",
+      message: "Cloud VMs require a cmux Plus plan.",
+      action: "Upgrade to cmux Plus at https://cmux.com/pricing to create Cloud VMs.",
       upgradeRequired: true,
       upgradeUrl: "https://cmux.com/pricing",
-      ui: { title: "cmux Go required" },
+      ui: { title: "cmux Plus required" },
     });
   });
 
   test("resolves the upgrade instruction from the requested locale", async () => {
     const payload = await (await vmRequiresProResponse("ja")).json() as Record<string, unknown>;
-    expect(payload.message).toBe("Cloud VM を利用するには cmux Go プランが必要です。");
+    expect(payload.message).toBe("Cloud VM を利用するには cmux Plus プランが必要です。");
     expect(String(payload.action)).toContain("https://cmux.com/pricing");
-    expect(String(payload.action)).toContain("cmux Go にアップグレード");
+    expect(String(payload.action)).toContain("cmux Plus にアップグレード");
     // Clients key off these, never the prose.
     expect(payload).toMatchObject({
       error: "vm_requires_pro",
       upgradeRequired: true,
-      ui: { title: "cmux Go が必要です" },
+      ui: { title: "cmux Plus が必要です" },
     });
   });
 
@@ -148,7 +148,7 @@ describe("vm_requires_pro response copy", () => {
         locale,
         hasMessage: Boolean(copy?.message),
         // ui.title must come from the catalog, never the English status fallback.
-        uiTitleIsLocalized: Boolean(copy?.title) && payload.ui.title === copy?.title?.replace("{plan}", "Go"),
+        uiTitleIsLocalized: Boolean(copy?.title) && payload.ui.title === copy?.title?.replace("{plan}", "Plus"),
         actionHasPlaceholder: copy?.action?.includes("{upgradeUrl}") ?? false,
         renderedHasUrl: payload.action.includes("https://cmux.com/pricing"),
         renderedHasRawPlaceholder: payload.action.includes("{upgradeUrl}"),
