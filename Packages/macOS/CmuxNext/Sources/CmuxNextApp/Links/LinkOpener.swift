@@ -87,7 +87,7 @@ final class LinkOpener {
     func target(from source: PaneController, mainPane: Bool = true, kind: RightColumnPlacement.Kind? = nil) -> LinkOpenPlacement<LayoutPaneID>.Target {
         let content = source.workspace
         let width: (LayoutPaneID) -> CGFloat? = { content?.panes[$0].flatMap(Self.width(of:)) }
-        let holds: (LayoutPaneID, RightColumnPlacement.Kind) -> Bool = { content?.panes[$0].map { Self.holds($0, $1) } ?? false }
+        let holds: (LayoutPaneID, RightColumnPlacement.Kind) -> Bool = { id, kind in content?.panes[id].map { Self.holds($0, kind) } ?? false }
         if mainPane, let services, let side = MainPaneLayout.side(from: source, services: services) {
             switch side {
             case .tab(let pane):
