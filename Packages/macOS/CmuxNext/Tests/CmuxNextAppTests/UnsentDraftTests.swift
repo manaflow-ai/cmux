@@ -124,6 +124,10 @@ struct UnsentDraftTests {
         // Typed before the page was handed it: the merge is past the limit, so nothing changes.
         drafts.typed("x", for: "tab-1")
         #expect(drafts.draft(for: "tab-1") == saved)
+        // The refused merge left the draft undelivered: the page's empty text (it has not been
+        // handed the draft yet) does not clear it.
+        drafts.typed("", for: "tab-1")
+        #expect(drafts.draft(for: "tab-1") == saved)
         drafts.set(saved + "\n\nx", for: "tab-1")
         #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == saved)
         // At the limit it is kept.

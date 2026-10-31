@@ -81,26 +81,34 @@ public final class AgentUnsentDrafts {
     /// The page of tab `key` sent its text (`chat.unsentDraft`). Before the page was handed the
     /// kept draft, an empty text is ignored and a different one is merged with it.
     public func typed(_ text: String, for key: String) {
-        guard undelivered.contains(key), let kept = drafts[key] else { return set(text, for: key) }
+        guard undelivered.contains(key), let kept = drafts[key] else {
+            set(text, for: key)
+            return
+        }
         guard !Self.isBlank(text) else { return }
-        undelivered.remove(key)
-        set(Self.merged(typed: text, kept: kept), for: key)
+        // Delivered only once the merge is kept: a merge past the limit is refused, and the tab
+        // still waits for its page, so a later empty text does not clear the kept draft (cmux#28204
+        // review at 80c05be5).
+        if set(Self.merged(typed: text, kept: kept), for: key) { undelivered.remove(key) }
     }
 
     /// Keeps `text` as tab `key`'s draft; blank text forgets it (the tab's chat started or closed,
     /// or its page cleared a draft it had). A text past ``maximumCharacters`` is refused, as acpmux
     /// refuses one: the tab keeps the draft it had. Before (cmux#28204 review at b7cddbbf), it was
     /// taken as no draft, so a merge past the limit removed the saved draft.
-    public func set(_ text: String, for key: String) {
+    /// Returns false when the text was refused.
+    @discardableResult
+    public func set(_ text: String, for key: String) -> Bool {
         guard text.unicodeScalars.count <= Self.maximumCharacters else {
             Self.logger.error("unsent draft past the limit not kept; the previous one stays")
-            return
+            return false
         }
         let value = Self.isBlank(text) ? nil : text
-        guard drafts[key] != value else { return }
+        guard drafts[key] != value else { return true }
         drafts[key] = value
         if value == nil { undelivered.remove(key) }
         save()
+        return true
     }
 
     /// The store gave provisional tab `key` its id `real`.
