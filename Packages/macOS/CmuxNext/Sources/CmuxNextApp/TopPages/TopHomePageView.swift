@@ -122,7 +122,7 @@ final class TopHomePageView: NSView {
         list.onMarkUnread = { id in if id != HomeSidebarView.draftRowID { sidebar.setMarkedUnread(true, id) } }
         // Conversation Info (sharing a Cloud Chief), Usage…, Archive Chief and Delete Chief… on a Chief's row; Hide or Show Alerts on a DM or group's row, and for a group
         // Group Info, Rename, Add People and Leave (the same actions as the palette and the CLI).
-        list.menuItems = { id in
+        let chatMenu: @MainActor (ConversationID) -> [NSMenuItem] = { id in
             guard let row = home.homeStore.rows.first(where: { $0.id == id }) else { return [] }
             @MainActor func item(_ action: ActionID, _ title: String? = nil, _ arguments: [String: ActionValue] = [:]) -> [NSMenuItem] {
                 guard let title = title ?? registry.title(for: action) else { return [] }
@@ -164,6 +164,15 @@ final class TopHomePageView: NSView {
             }
             return items
         }
+        // Chat Colors… on every chat (Chiefs, DMs and groups): its own bubble and text colours.
+        list.menuItems = { id in
+            let items = chatMenu(id)
+            guard home.homeStore.rows.contains(where: { $0.id == id }), let title = registry.title(for: "home.chatColors") else { return items }
+            let colors = HomeSidebarView.menuItem(title) {
+                _ = registry.perform("home.chatColors", invocation: ActionInvocation(arguments: ["conversation": .string(id.rawValue)], origin: .user))
+            }
+            return items + [colors]
+        }
         // Search: teammates with no DM yet, under the conversations; choosing one starts the DM.
         list.teammates = { [weak sidebar] query in
             guard let sidebar else { return [] }
@@ -178,6 +187,7 @@ final class TopHomePageView: NSView {
             }
         }
         list.onNewMessage = { [weak self] in self?.presentNewMessage() }
+        list.onCloseDraft = { [weak self] in self?.performCloseNewMessage() }
         list.onOpenRequests = { [weak self] in self?.presentRequests() }
         list.composeMenu = { [weak services] in services.map { HomePageMenus.backgroundMenu(registry: $0.registry) } }
     }
@@ -489,13 +499,8 @@ final class TopHomePageView: NSView {
                 openWhenListed(id)
             }
         }
-        // Escape on an empty draft: back to the conversation shown before.
-        page.onEscape = { [weak self] in
-            guard let self else { return }
-            endNewMessage()
-            if let shown { list.select(shown) }
-            focusPrimaryInput()
-        }
+        // Escape in an empty To: field: the same close as the row's x (`home.closeNewMessage`).
+        page.onEscape = { [weak self] in self?.performCloseNewMessage() }
         newMessage = page
         return page
     }
@@ -515,6 +520,19 @@ final class TopHomePageView: NSView {
         }
         return true
     }
+
+    /// `home.closeNewMessage`: the draft, its page and its row go, whatever was typed (Messages' x);
+    /// the conversation shown before comes back, with the keyboard only when the page had it.
+    func closeNewMessage() {
+        guard let page = newMessage else { return }
+        let (wasShowing, hadKeyboard) = (!page.isHidden, (window?.firstResponder as? NSView)?.isDescendant(of: page) == true)
+        endNewMessage()
+        if wasShowing, let shown { list.select(shown) }
+        if wasShowing, hadKeyboard { focusPrimaryInput() }
+    }
+
+    /// Runs `home.closeNewMessage` through the registry (one path for every entrypoint).
+    private func performCloseNewMessage() { _ = services?.registry.perform("home.closeNewMessage", invocation: ActionInvocation(origin: .user)) }
 
     /// Drops the New Message draft, its page and its row.
     private func endNewMessage() {
@@ -608,10 +626,6 @@ final class TopHomePageView: NSView {
             openWhenListed(id)
         }
         guard let window else { return }
-        let panel = NSWindow(contentViewController: sheet)
-        // The sheet draws in this page's scope (a room's own theme), not the app's: its labels
-        // resolved before the sheet had a parent.
-        panel.adoptThemeScope(of: self)
-        window.beginSheet(panel)
+        HomeSheetPresenter().present(sheet, over: window, themeSource: self)
     }
 }

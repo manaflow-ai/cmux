@@ -12,3 +12,22 @@ struct DisclosureChoice: Equatable {
         chosen = !isOpen(automatic: automatic)
     }
 }
+
+extension DisclosureChoice {
+    /// The end of `text` that fits three lines: its last three lines, and of a long last
+    /// line only its end, cut at a word ("…" says text comes before it).
+    static func liveTail(of text: String, lines: Int = 3, characters: Int = 240) -> String {
+        // Only the end is read: a long live thought is split again on every chunk.
+        let window = text.suffix(characters * 2)
+        let parts = window.split(separator: "\n", omittingEmptySubsequences: true)
+        let kept = parts.suffix(lines)
+        var tail = kept.joined(separator: "\n")
+        var cut = parts.count > kept.count || window.startIndex != text.startIndex
+        if tail.count > characters {
+            let end = tail.suffix(characters)
+            tail = String(end.firstIndex(where: \.isWhitespace).map { end[$0...].drop(while: \.isWhitespace) } ?? end)
+            cut = true
+        }
+        return cut ? "…" + tail : tail
+    }
+}

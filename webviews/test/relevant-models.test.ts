@@ -48,9 +48,9 @@ test("without a harness menu, newest provider families are inferred without mode
   ];
   expect(ids(relevantModelSections(catalog, undefined).shown)).toEqual([
     "gpt-6.1-sol",
-    "gpt-6-astra",
     "gpt-6.1-terra",
     "gpt-6.1-luna",
+    "gpt-6-astra",
   ]);
 });
 

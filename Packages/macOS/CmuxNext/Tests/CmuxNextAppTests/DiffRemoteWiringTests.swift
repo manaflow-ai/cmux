@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextAgentPane
 import Foundation
 import Testing
@@ -10,6 +11,10 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct DiffRemoteWiringTests {
+    /// AppServices reads `NSApp` (an implicitly unwrapped Optional) from its observers and services;
+    /// a suite run in its own process has no shared application until something makes it.
+    init() { _ = NSApplication.shared }
+
     @Test func localRuntimeRetainsBundledSidecarAndRemoteDisablesIt() {
         #expect(DiffPageRuntime.sidecarArgument(isLocal: true) == nil)
         #expect(DiffPageRuntime.sidecarArgument(isLocal: false) != nil)

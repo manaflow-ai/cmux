@@ -30,8 +30,10 @@ pub(super) fn drop_unsupported(
         {
             continue;
         }
-        changed |=
-            request["params"].as_object_mut().is_some_and(|params| params.remove(field).is_some());
+        changed |= request
+            .get_mut("params")
+            .and_then(Value::as_object_mut)
+            .is_some_and(|params| params.remove(field).is_some());
     }
     changed
 }

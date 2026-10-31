@@ -79,7 +79,14 @@ test("sending keeps existing transcript rows mounted and does not redraw them", 
   const registry = { user: TrackingRow, assistant: TrackingRow } as never;
   const root = createRoot(dom.window.document.getElementById("root")!);
   const onToggleActivity = () => {};
-  const existing = [row("prompt-1", "user", "Earlier prompt"), row("reply-1", "assistant", "Earlier reply")];
+  // A finished turn ends with its footer, which holds the reply's actions. Without one, the reply
+  // is the chat's open end, and a prompt sent under it rightly gives it its own action row
+  // (model.ts hasReplyActions, #27313): a redraw this test does not forbid.
+  const existing = [
+    row("prompt-1", "user", "Earlier prompt"),
+    row("reply-1", "assistant", "Earlier reply"),
+    { ...row("summary-1", "turnSummary", ""), text: undefined, status: "completed", durationMs: 4_000 } as AcpmuxRow,
+  ];
   const render = (rows: AcpmuxRow[], sends: number) =>
     act(async () => {
       root.render(

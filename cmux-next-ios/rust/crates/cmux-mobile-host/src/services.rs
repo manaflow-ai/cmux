@@ -77,11 +77,13 @@ pub async fn serve(
         "daemon" => daemon(&config, &peer, &args, &sender, receiver).await,
         "chief" => chief(&config, &peer, &sender, receiver).await,
         "acpmux" => acpmux(&config, &peer.device_id, &sender, receiver).await,
-        "file" => file(&config, &args, &sender).await,
+        "file" => file(&config, &args, &sender, false).await,
+        "file-preview" => file(&config, &args, &sender, true).await,
         "upload" => upload(&config, &peer, &args, &sender, receiver).await,
         "version" => version(&config, &sender).await,
         "browser" => crate::browser::serve(&config.browser, &*config, &peer, &args, &sender, receiver).await,
         "surface" => crate::surface::serve(&config.surface, &*config, &peer, &args, &sender, receiver).await,
+        "localhost" => crate::localhost::serve(&args, &sender, receiver).await,
         _ => Err(Refusal::new("unknown_service", format!("no service {service}"))),
     };
     match result {
@@ -122,7 +124,9 @@ impl Refusal {
 pub const LINK_PROTOCOL: u32 = 2;
 
 /// The `version` service's `capabilities` (PROTOCOL.md "Services").
-pub const CAPABILITIES: [&str; 1] = ["removal-v1"];
+/// `localhost-forward-v1`: the `localhost` service (a phone's native browser tab
+/// reaches a port on this Mac's loopback).
+pub const CAPABILITIES: [&str; 3] = ["removal-v1", "file-preview-v1", "localhost-forward-v1"];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
 pub const BROWSER_STREAM: &str = "browser-stream-v1";
 /// With [`BROWSER_STREAM`]: `browser {"video": "track"}` carries the page's
@@ -285,6 +289,10 @@ async fn chief(
     splice(&path, "chief", LinePolicy::Chief(policy), None, sender, receiver).await
 }
 
+/// Bound an unanswered ordered command; its splice closes on expiry. Terminal
+/// sends, long-running `wait-for` reads and close handling never wait on this timer.
+const SIDE_COMPLETION_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// Splices one phone channel to a daemon socket. Responses and refusals
 /// reach the phone as whole lines, never interleaved.
 async fn splice(
@@ -312,6 +320,12 @@ async fn splice(
     let _active = claims.then(crate::size_release::ActiveSplice::begin);
     let pending = Arc::new(crate::size_release::PendingReleases::default());
 
+    let side_completion = Arc::new(crate::side_completion::SideCompletion::default());
+    // Clear pending mutation authority before the service closes, even if its
+    // child tasks have only been scheduled for cancellation.
+    let _completion_scope = side_completion.scope();
+    let completed = Arc::clone(&side_completion);
+
     // Daemon → phone, whole lines.
     let daemon_lines = lines_tx.clone();
     let reply_policy = policy.clone();
@@ -327,8 +341,61 @@ async fn splice(
                     if answers.answer(&line) {
                         continue;
                     }
+                    let line = completed.answer(line);
                     let Some(line) = reply_policy.reply(line) else { continue };
                     if daemon_lines.send(line).await.is_err() {
+                        return;
+                    }
+                }
+            }
+        }
+    });
+
+    // Cold/invalidated side queries wait only in this bounded worker. `send`
+    // continues on the input task while the cache refreshes on its own socket.
+    let cache = terminal_folders.clone().map(crate::workspace_cache::WorkspaceCache::start);
+    let (side_tx, mut side_rx) = mpsc::channel::<(Vec<u8>, Verdict)>(256);
+    let (ready_tx, mut side_ready) = mpsc::channel::<Verdict>(256);
+    let side_cache = cache.clone();
+    // JoinSet also aborts this worker if the service future is cancelled.
+    let mut side_workers = tokio::task::JoinSet::new();
+    side_workers.spawn(async move {
+        while let Some((line, verdict)) = side_rx.recv().await {
+            let Some(cache) = &side_cache else { return };
+            if let Some((tree, personal, layout)) = side_requirements(&line) {
+                cache.wait_for(tree, personal, layout).await;
+            }
+            let verdict = owned_check(cache, &line, verdict);
+            match verdict {
+                Verdict::Refuse(answer) => {
+                    if ready_tx.send(Verdict::Refuse(answer)).await.is_err() {
+                        return;
+                    }
+                }
+                _ => {
+                    // A terminal-output wait is a read, not a mutation barrier.
+                    // Forward it in order after earlier mutations, then let the
+                    // daemon own its requested timeout while later commands run.
+                    // Its response keeps the original ID and needs no cache invalidation.
+                    if is_terminal_wait(&line) {
+                        if ready_tx.send(Verdict::Rewrite(line)).await.is_err() {
+                            return;
+                        }
+                        continue;
+                    }
+                    let changes_state = changes_cached_state(&line);
+                    let line = with_pane_folder(cache.tree().as_deref(), line);
+                    let Some((line, completion)) =
+                        side_completion.prepare(line, changes_state.then(|| cache.clone()))
+                    else {
+                        return;
+                    };
+                    if ready_tx.send(Verdict::Rewrite(line)).await.is_err() {
+                        return;
+                    }
+                    // Only this worker waits. Terminal sends, daemon replies,
+                    // close handling and size release remain live on their tasks.
+                    if !matches!(tokio::time::timeout(SIDE_COMPLETION_WAIT, completion).await, Ok(Ok(()))) {
                         return;
                     }
                 }
@@ -345,6 +412,23 @@ async fn splice(
         let mut sized = crate::size_release::SizeClaims::default();
         loop {
             let event = tokio::select! {
+                ready = side_ready.recv(), if claims => {
+                    let Some(ready) = ready else { return };
+                    match ready {
+                        Verdict::Rewrite(mut line) => {
+                            sized.observe(&line);
+                            line.push(b'\n');
+                            if daemon_write.write_all(&line).await.is_err() { return; }
+                        }
+                        Verdict::Refuse(answer) => {
+                            let mut answer = answer.into_bytes();
+                            answer.push(b'\n');
+                            if refusals.send(answer).await.is_err() { return; }
+                        }
+                        Verdict::Forward => unreachable!("side worker returns the checked line"),
+                    }
+                    continue;
+                }
                 event = receiver.recv() => event,
                 // hostd is stopping (iPhone connections off, the app quitting).
                 () = async { drop(stopping.wait_for(|stopping| *stopping).await) }, if claims => {
@@ -376,16 +460,8 @@ async fn splice(
                 if let Some(canonical) = canonical {
                     line = canonical;
                 }
-                // The daemon lane: the phone's objects confirmed by the Mac's own state.
-                let verdict = match (&terminal_folders, verdict) {
-                    (Some(path), Verdict::Forward) => owned_check(path, line.clone(), Verdict::Forward).await,
-                    (Some(path), Verdict::Rewrite(checked)) => {
-                        owned_check(path, checked.clone(), Verdict::Rewrite(checked)).await
-                    }
-                    (_, verdict) => verdict,
-                };
-                // A reply to a terminal notification: hostd answers it itself
-                // (the daemon has no such command), into that terminal only.
+                // A reply to a terminal notification is answered locally. Keep it
+                // in the input task so it cannot be confused with an ordinary rewrite.
                 if matches!(verdict, Verdict::Forward)
                     && let (Some(path), Some(phone)) = (&terminal_folders, &reply_phone)
                     && is_notification_reply(&line)
@@ -404,11 +480,28 @@ async fn splice(
                     }
                     continue;
                 }
+                // Preserve ordering for commands/mutations. Only explicit terminal
+                // input bypasses a side query waiting for its cached snapshots.
+                let checked = match &verdict {
+                    Verdict::Forward => Some(&line),
+                    Verdict::Rewrite(checked) => Some(checked),
+                    Verdict::Refuse(_) => None,
+                };
+                if claims
+                    && checked.is_some_and(|line| !is_terminal_input(line) && !is_notification_reply(line))
+                {
+                    let request = checked.unwrap().clone();
+                    if side_tx.try_send((request, verdict)).is_err() {
+                        let mut answer = side_busy(&line).into_bytes();
+                        answer.push(b'\n');
+                        if refusals.send(answer).await.is_err() {
+                            return;
+                        }
+                    }
+                    continue;
+                }
                 match verdict {
                     Verdict::Forward => {
-                        if let Some(path) = &terminal_folders {
-                            line = with_pane_folder(path, line).await;
-                        }
                         if claims {
                             sized.observe(&line);
                         }
@@ -418,9 +511,6 @@ async fn splice(
                         }
                     }
                     Verdict::Rewrite(mut line) => {
-                        if let Some(path) = &terminal_folders {
-                            line = with_pane_folder(path, line).await;
-                        }
                         if claims {
                             sized.observe(&line);
                         }
@@ -492,9 +582,46 @@ async fn splice(
             }
         }
     }
+    side_workers.abort_all();
     to_daemon.abort();
     from_daemon.abort();
     Ok(())
+}
+
+fn is_terminal_wait(line: &[u8]) -> bool {
+    serde_json::from_slice::<Value>(line)
+        .ok()
+        .is_some_and(|request| request.get("cmd").and_then(Value::as_str) == Some("wait-for"))
+}
+
+/// Reads do not dirty the cached state. Unknown operations conservatively do.
+fn changes_cached_state(line: &[u8]) -> bool {
+    let Ok(request) = serde_json::from_slice::<Value>(line) else { return true };
+    !request.get("cmd").and_then(Value::as_str).is_some_and(|cmd| {
+        cmd.starts_with("list-") || matches!(cmd, "identify" | "set-client-info" | "subscribe")
+    })
+}
+
+fn side_busy(line: &[u8]) -> String {
+    let request = serde_json::from_slice::<Value>(line).unwrap_or(Value::Null);
+    let id = request.get("id");
+    if request.get("protocol").and_then(Value::as_str) == Some("cmux.protocol/2") {
+        serde_json::json!({"id":id, "protocol":"cmux.protocol/2", "type":"response", "ok":false,
+            "error":{"code":"busy", "message":"too many pending side requests", "retryable":true}})
+        .to_string()
+    } else {
+        crate::policy::error_line(id, "busy", "too many pending side requests")
+    }
+}
+
+/// Text, named keys, and clear-history (which can write a fallback key) share
+/// the input path, preserving wire order while bypassing workspace queries.
+fn is_terminal_input(line: &[u8]) -> bool {
+    serde_json::from_slice::<Value>(line).ok().is_some_and(|v| {
+        matches!(v.get("cmd").and_then(Value::as_str), Some("send" | "send-key" | "clear-history"))
+            && (v.get("surface").and_then(Value::as_u64).is_some()
+                || v.get("terminal_id").and_then(Value::as_str).is_some())
+    })
 }
 
 /// Whether `line` is a `notification-reply` request.
@@ -785,9 +912,6 @@ pub fn confine(roots: &[PathBuf], requested: &Path) -> Result<PathBuf, Refusal> 
     Ok(resolved)
 }
 
-/// Largest file the `file` service streams (artifact previews, not transfers).
-pub const MAXIMUM_FILE_BYTES: u64 = 64 << 20;
-
 /// The open file's real path (`F_GETPATH`) must still be inside a root.
 #[cfg(target_vendor = "apple")]
 fn confine_open(roots: &[PathBuf], file: &tokio::fs::File) -> Result<(), Refusal> {
@@ -872,10 +996,16 @@ pub fn shared_file_roots(file_roots: &[PathBuf], folders: Vec<PathBuf>, home: &P
     roots
 }
 
-/// `file`: stream one regular file inside a workspace root, then close
-/// with `eof`. The roots are the Chat Folders, then (only when the file is
-/// outside them) the Mac's workspace folders as they are now.
-async fn file(config: &ServiceConfig, args: &Value, sender: &ChannelSender) -> Result<(), Refusal> {
+/// `file`: stream one regular file of any size inside a workspace root, then
+/// close with `eof`. The roots are the Chat Folders, then (only when the file is
+/// outside them) the Mac's workspace folders as they are now. `file-preview`
+/// prepends metadata from the same open descriptor before streaming those bytes.
+async fn file(
+    config: &ServiceConfig,
+    args: &Value,
+    sender: &ChannelSender,
+    preview_metadata: bool,
+) -> Result<(), Refusal> {
     let requested = args
         .get("path")
         .and_then(Value::as_str)
@@ -895,7 +1025,7 @@ async fn file(config: &ServiceConfig, args: &Value, sender: &ChannelSender) -> R
     };
     // Non-blocking, so a FIFO inside a root cannot hold the open; the checks below
     // refuse anything that is not a regular file.
-    let mut file = tokio::fs::OpenOptions::new()
+    let file = tokio::fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NONBLOCK)
         .open(&resolved)
@@ -908,9 +1038,19 @@ async fn file(config: &ServiceConfig, args: &Value, sender: &ChannelSender) -> R
     if !metadata.is_file() {
         return Err(Refusal::new("bad_request", "not a regular file"));
     }
-    if metadata.len() > MAXIMUM_FILE_BYTES {
-        return Err(Refusal::new("too_large", "file is larger than 64 MiB"));
+    // A distinct service keeps old hosts' raw file bytes from being mistaken for
+    // metadata. Read the size from this descriptor, after all confinement checks,
+    // so the phone can check free storage before accepting the file's contents.
+    if preview_metadata
+        && sender.send(Bytes::from(serde_json::json!({"size": metadata.len()}).to_string())).await.is_err()
+    {
+        return Ok(());
     }
+    // Any size streams (Leo: "arbitrarily large files of any type"): one buffer at a time,
+    // each send waiting for room in the channel's bounded queue, so memory stays bounded
+    // whatever the file's size. The read stops at the size the file had when it was
+    // opened, so a file that keeps growing (a log) still ends.
+    let mut file = file.take(metadata.len());
     let mut buffer = vec![0u8; 64 * 1024];
     loop {
         let read = file.read(&mut buffer).await.map_err(|e| Refusal::new("io", e.to_string()))?;
@@ -1039,56 +1179,59 @@ async fn list_workspaces(path: &Path) -> Result<Value, Refusal> {
         .await
 }
 
-/// The daemon at `path`'s `list-personal` reply: the person's sidebar order and groups (at most 5 s).
-async fn list_personal(path: &Path) -> Result<Value, Refusal> {
-    daemon_query(
-        path,
-        b"{\"cmd\":\"list-personal\",\"id\":\"cmux-mobile-personal\"}\n",
-        "cmux-mobile-personal",
-    )
-    .await
+/// Which cached views a side request needs. Ordinary keystrokes bypass this
+/// worker; a cold workspace/group lookup cannot hold terminal input.
+fn side_requirements(line: &[u8]) -> Option<(bool, bool, bool)> {
+    use crate::policy::Ownership;
+    match crate::policy::ownership(line) {
+        Some(Ownership::PersonalWorkspace { .. }) => Some((true, false, false)),
+        Some(Ownership::PinnedWorkspaceTile { .. }) => Some((false, false, true)),
+        Some(Ownership::OwnGroup { .. }) => Some((true, true, false)),
+        Some(Ownership::PlaceWorkspace { group, .. }) => Some((true, group.is_some(), false)),
+        None => serde_json::from_slice::<Value>(line)
+            .ok()
+            .filter(|v| {
+                v.get("cmd").and_then(Value::as_str) == Some("new-tab")
+                    && v.get("pane").and_then(Value::as_u64).is_some()
+            })
+            .map(|_| (true, false, false)),
+    }
 }
 
-/// The verdict for a line the policy let through, once the Mac's own state
-/// (read on a separate connection) confirms the phone's object
-/// (`policy::ownership`); a refusal otherwise, or when the Mac cannot answer.
-async fn owned_check(path: &Path, line: Vec<u8>, verdict: Verdict) -> Verdict {
+/// Confirm ownership against the live cache; a missing/invalid snapshot never
+/// grants access. Snapshot refresh runs separately from keystroke forwarding.
+fn owned_check(cache: &crate::workspace_cache::WorkspaceCache, line: &[u8], verdict: Verdict) -> Verdict {
     use crate::policy::{
         Ownership, is_pinned_workspace_tile, lists_workspace, not_owned, ownership, owns_group,
         owns_personal_workspace, registry_id,
     };
-    let Some(what) = ownership(&line) else { return verdict };
+    let Some(what) = ownership(line) else { return verdict };
+    let tree = cache.tree();
     let owned = match &what {
         Ownership::PersonalWorkspace { session, key } => {
-            list_workspaces(path).await.is_ok_and(|reply| owns_personal_workspace(&reply, session, key))
+            tree.as_ref().is_some_and(|reply| owns_personal_workspace(reply, session, key))
         }
         Ownership::PinnedWorkspaceTile { item } => {
-            let request = b"{\"protocol\":\"cmux.protocol/2\",\"type\":\"request\",\"id\":\"cmux-mobile-layout\",\"operation\":\"sidebar_layout.get\",\"params\":{\"machine\":\"current\",\"session\":\"current\"}}\n";
-            daemon_query(path, request, "cmux-mobile-layout")
-                .await
-                .is_ok_and(|reply| is_pinned_workspace_tile(&reply, item))
+            cache.layout().as_ref().is_some_and(|reply| is_pinned_workspace_tile(reply, item))
         }
-        Ownership::OwnGroup { group } => match list_workspaces(path).await {
-            Ok(tree) => match registry_id(&tree) {
-                Some(registry) => {
-                    list_personal(path).await.is_ok_and(|personal| owns_group(&personal, registry, group))
+        Ownership::OwnGroup { group } => tree.as_ref().is_some_and(|tree| {
+            registry_id(tree).is_some_and(|registry| {
+                cache.personal().as_ref().is_some_and(|personal| owns_group(personal, registry, group))
+            })
+        }),
+        Ownership::PlaceWorkspace { workspace, group } => tree.as_ref().is_some_and(|tree| {
+            lists_workspace(tree, workspace)
+                && match (group, registry_id(tree)) {
+                    (None, _) => true,
+                    (Some(group), Some(registry)) => cache
+                        .personal()
+                        .as_ref()
+                        .is_some_and(|personal| owns_group(personal, registry, group)),
+                    (Some(_), None) => false,
                 }
-                None => false,
-            },
-            Err(_) => false,
-        },
-        Ownership::PlaceWorkspace { workspace, group } => match list_workspaces(path).await {
-            Ok(tree) if lists_workspace(&tree, workspace) => match (group, registry_id(&tree)) {
-                (None, _) => true,
-                (Some(group), Some(registry)) => {
-                    list_personal(path).await.is_ok_and(|personal| owns_group(&personal, registry, group))
-                }
-                (Some(_), None) => false,
-            },
-            _ => false,
-        },
+        }),
     };
-    if owned { verdict } else { Verdict::Refuse(not_owned(&line, &what)) }
+    if owned { verdict } else { Verdict::Refuse(not_owned(line, &what)) }
 }
 
 /// One request on a fresh connection to the daemon socket, its reply (`id` matched).
@@ -1149,15 +1292,15 @@ pub fn pane_folder(reply: &Value, pane: u64, home: Option<&Path>) -> Option<Stri
 
 /// A phone's `new-tab` (no `cwd`: the policy refuses one) gets the Mac's choice of
 /// folder for `pane` ([`pane_folder`]); any other line passes as is.
-async fn with_pane_folder(path: &Path, line: Vec<u8>) -> Vec<u8> {
+fn with_pane_folder(reply: Option<&Value>, line: Vec<u8>) -> Vec<u8> {
     let Ok(Value::Object(mut object)) = serde_json::from_slice::<Value>(&line) else { return line };
     if object.get("cmd").and_then(Value::as_str) != Some("new-tab") || object.contains_key("cwd") {
         return line;
     }
     let Some(pane) = object.get("pane").and_then(Value::as_u64) else { return line };
-    let Ok(reply) = list_workspaces(path).await else { return line };
+    let Some(reply) = reply else { return line };
     let home = std::env::var_os("HOME").and_then(|h| std::fs::canonicalize(h).ok());
-    let Some(folder) = pane_folder(&reply, pane, home.as_deref()) else { return line };
+    let Some(folder) = pane_folder(reply, pane, home.as_deref()) else { return line };
     object.insert("cwd".into(), Value::String(folder));
     serde_json::to_vec(&Value::Object(object)).unwrap_or(line)
 }
@@ -1239,9 +1382,10 @@ fn publish_upload(folder: &Path, name: &str, part: &Path) -> Result<PathBuf, Ref
 /// ([`upload_folder`]) and answers one data frame `{"path","size"}`, then
 /// closes with `eof`. A refusal is answered `{"error","message"}` before the
 /// channel closes with that code. Nothing is overwritten, nothing is
-/// executed, and a short, long or oversized upload leaves no file. `size`
-/// may be a JSON number or a decimal string (the app's channel arguments
-/// are strings).
+/// executed, and a short or long upload leaves no file. Any `size` is
+/// accepted: the bytes stream to disk as they arrive (attachments have no
+/// size cap). `size` may be a JSON number or a decimal string (the app's
+/// channel arguments are strings).
 async fn upload(
     config: &ServiceConfig,
     peer: &Peer,
@@ -1280,12 +1424,6 @@ async fn receive_upload(
         _ => None,
     }
     .ok_or_else(|| Refusal::new("bad_request", "missing size"))?;
-    if size > config.upload_max_bytes {
-        return Err(Refusal::new(
-            "too_large",
-            format!("the file is larger than {} MB", config.upload_max_bytes / (1024 * 1024)),
-        ));
-    }
     let name = safe_file_name(name);
     let cwd = args.get("cwd").and_then(Value::as_str).filter(|cwd| !cwd.is_empty());
     let folder = upload_folder(config, peer, cwd).await?;
@@ -1346,7 +1484,6 @@ mod tests {
             pairing: None,
             agent_tab_host: None,
             uploads_dir: base.path().join("uploads"),
-            upload_max_bytes: 1,
             chief_socket: None,
             browser: crate::browser::BrowserConfig::default(),
             surface: Default::default(),
@@ -1371,37 +1508,24 @@ mod tests {
         assert!(browser_urls_in(&serde_json::json!({"ok": false})).is_empty());
     }
 
-    /// End to end through a fake daemon: the phone's `new-tab` leaves with the pane's
-    /// folder; a line that names one, or another command, is untouched.
-    #[tokio::test]
-    async fn a_phones_new_tab_line_gets_the_macs_folder() {
+    /// The forwarding loop uses the cached tree and does no socket I/O.
+    #[test]
+    fn a_phones_new_tab_line_gets_the_macs_folder() {
         let base = tempfile::tempdir().unwrap();
         let project = std::fs::canonicalize(base.path()).unwrap().join("project");
         std::fs::create_dir_all(&project).unwrap();
-        let socket = base.path().join("d.sock");
-        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
-        let folder = project.to_str().unwrap().to_owned();
-        std::thread::spawn(move || {
-            for conn in listener.incoming().flatten() {
-                use std::io::{BufRead, Write};
-                let mut out = conn.try_clone().unwrap();
-                let mut line = String::new();
-                if std::io::BufReader::new(conn).read_line(&mut line).is_ok() {
-                    let reply = serde_json::json!({"id": "cmux-mobile-upload", "data": {"workspaces": [{"screens": [{"panes": [
-                        {"id": 3, "active_tab": 0, "tabs": [{"cwd": folder}]}]}]}]}});
-                    let _ = writeln!(out, "{reply}");
-                }
-            }
-        });
-        let line =
-            with_pane_folder(&socket, br#"{"id":1,"cmd":"new-tab","pane":3,"cols":80,"rows":24}"#.to_vec())
-                .await;
+        let reply = serde_json::json!({"data": {"workspaces": [{"screens": [{"panes": [
+            {"id": 3, "active_tab": 0, "tabs": [{"cwd": project}]}]}]}]}});
+        let line = with_pane_folder(
+            Some(&reply),
+            br#"{"id":1,"cmd":"new-tab","pane":3,"cols":80,"rows":24}"#.to_vec(),
+        );
         let sent: Value = serde_json::from_slice(&line).unwrap();
         assert_eq!(sent["cwd"].as_str(), project.to_str());
         let own = br#"{"id":2,"cmd":"new-tab","pane":3,"cwd":"/x"}"#.to_vec();
-        assert_eq!(with_pane_folder(&socket, own.clone()).await, own);
+        assert_eq!(with_pane_folder(Some(&reply), own.clone()), own);
         let other = br#"{"id":3,"cmd":"select-tab","surface":1}"#.to_vec();
-        assert_eq!(with_pane_folder(&socket, other.clone()).await, other);
+        assert_eq!(with_pane_folder(Some(&reply), other.clone()), other);
     }
 
     #[test]
@@ -1438,17 +1562,19 @@ mod tests {
             pairing: None,
             agent_tab_host: None,
             uploads_dir: std::path::PathBuf::from("/tmp"),
-            upload_max_bytes: 1,
             chief_socket: None,
             browser: crate::browser::BrowserConfig::default(),
             surface: Default::default(),
         };
-        assert_eq!(capabilities(&config), ["removal-v1"]);
+        assert_eq!(capabilities(&config), ["removal-v1", "file-preview-v1"]);
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
             Box::pin(async { Err::<crate::browser::RunningHost, _>("none".to_owned()) })
         });
         config.browser = crate::browser::BrowserConfig::new(Some(launcher), 1);
-        assert_eq!(capabilities(&config), ["removal-v1", BROWSER_STREAM, BROWSER_VIDEO_TRACK]);
+        assert_eq!(
+            capabilities(&config),
+            ["removal-v1", "file-preview-v1", BROWSER_STREAM, BROWSER_VIDEO_TRACK]
+        );
     }
 
     #[test]

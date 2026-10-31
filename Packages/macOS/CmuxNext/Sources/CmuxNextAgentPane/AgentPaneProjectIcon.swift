@@ -255,15 +255,40 @@ nonisolated struct AgentPaneProjectIcon: Sendable {
 actor AgentPaneProjectIcons {
     static let shared = AgentPaneProjectIcons(reader: AgentPaneProjectIcon())
 
+    /// How long a folder that is not on this Mac answers empty without a look. The page asks again for
+    /// every empty answer each time a badge shows, so a chat whose folder is on another machine (a lane
+    /// VM's `/home/cmux/...`) was looked up over and over: about 70 candidate paths each time through
+    /// `lstat`, `readlink` and `realpath`, and on macOS every `/home/...` lookup goes through the
+    /// automounter (2026-10-30: one app thread busy in those calls, opendirectoryd at 230-330 directory
+    /// queries a second). A folder that is here is read on every ask as before, so an icon added to it
+    /// still shows on the next ask.
+    static let missingLifetime: Duration = .seconds(30)
+    /// At most this many missing folders are kept; past it the oldest half is dropped.
+    static let maximumMissing = 512
+
     private let reader: AgentPaneProjectIcon
     private let repos: AgentPaneProjectRepoReader
     private let avatars: AgentPaneOwnerAvatars
+    private let isFolder: @Sendable (String) -> Bool
+    private let now: @Sendable () -> ContinuousClock.Instant
     private var cache: [String: (file: AgentPaneProjectIcon.File, url: String?)] = [:]
+    /// Folders found missing here, with when.
+    private var missing: [String: ContinuousClock.Instant] = [:]
 
-    init(reader: AgentPaneProjectIcon, repos: AgentPaneProjectRepoReader = .shared, avatars: AgentPaneOwnerAvatars = .shared) {
+    init(reader: AgentPaneProjectIcon, repos: AgentPaneProjectRepoReader = .shared, avatars: AgentPaneOwnerAvatars = .shared,
+         isFolder: @escaping @Sendable (String) -> Bool = AgentPaneProjectIcons.folderExists,
+         now: @escaping @Sendable () -> ContinuousClock.Instant = { ContinuousClock.now }) {
         self.reader = reader
         self.repos = repos
         self.avatars = avatars
+        self.isFolder = isFolder
+        self.now = now
+    }
+
+    /// Whether `path` is a folder on this Mac (one `stat` of the folder itself, never of its contents).
+    static let folderExists: @Sendable (String) -> Bool = { path in
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 
     /// The `project.icon` answer: the GitHub owner's avatar (a user's or an organization's), else an
@@ -273,7 +298,20 @@ actor AgentPaneProjectIcons {
     /// comes first so every clone and worktree of one GitHub repository wears the same picture (Leo
     /// 2026-10-21: "why are the project icons not showing up for SOME of the cmux...? only one has
     /// my github icon?").
+    /// A folder that is not on this Mac answers empty, and is not looked at again for ``missingLifetime``.
     func answer(for folder: String) async -> (src: String?, glyph: String?) {
+        if let since = missing[folder], now() - since < Self.missingLifetime { return (nil, nil) }
+        missing[folder] = nil
+        // The spelling and identity checks first, as for every path here; a folder they refuse is never stat'ed.
+        if reader.allows(folder), !isFolder(folder) {
+            if missing.count >= Self.maximumMissing {
+                for key in missing.sorted(by: { $0.value < $1.value }).prefix(Self.maximumMissing / 2).map(\.key) {
+                    missing[key] = nil
+                }
+            }
+            missing[folder] = now()
+            return (nil, nil)
+        }
         let reader = self.reader.batched()
         let repos = self.repos.batched(sharing: reader)
         let repo = reader.allows(folder) ? repos.repo(for: folder) : nil

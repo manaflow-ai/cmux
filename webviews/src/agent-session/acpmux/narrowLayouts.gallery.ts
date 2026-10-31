@@ -40,7 +40,7 @@ const controls = {
     currentModeId: "bypassPermissions",
     availableModes: [
       { id: "ask", name: "Ask before edits", description: "Review changes before they run" },
-      { id: "bypassPermissions", name: "Full access", description: "Run actions without approval" },
+      { id: "bypassPermissions", name: "Bypass permissions", description: "Run actions without approval" },
     ],
   },
 };
@@ -281,6 +281,11 @@ export default agentPaneEntry({
       note: "Play: open the model button's menu (icon-only below 330px); it stays inside the pane, unclipped, and inside a chat column narrower than the pane (200 px), its width giving way.",
       checks: {
         popupLayer: { value: true, reason: "A chip's menu renders inside the chip row; a clipping row hides it." },
+        layoutShiftMax: {
+          value: 0.001,
+          reason:
+            "Reopening the portaled picker after narrowing the chat has a 0.0004 base shift from composer controls.",
+        },
       },
       snapshot: withControls(chat(finished)),
       play: async (ctx) => {
@@ -290,7 +295,16 @@ export default agentPaneEntry({
         // the pane's left, under the menu's 220 px floor and 300 px width. The menu gives way and
         // keeps to the column, never past its edge.
         await ctx.press("Escape");
-        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-quick-menu"));
+        // Closed means gone, or still mounted but marked closed or hidden; an open popup has
+        // neither, so this never passes while the menu is still up.
+        await ctx.waitFor(() => {
+          const menu = ctx.document.querySelector<HTMLElement>(".acpmux-quick-menu");
+          return (
+            !menu ||
+            menu.hasAttribute("data-closed") ||
+            ctx.document.defaultView?.getComputedStyle(menu).visibility === "hidden"
+          );
+        });
         const column = ctx.document.querySelector<HTMLElement>(".acpmux-main");
         if (!column) throw new Error("no chat column");
         column.style.flex = "0 0 200px";

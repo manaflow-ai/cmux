@@ -78,4 +78,13 @@ extension SidebarDocStore {
         }
         return true
     }
+
+    /// Reprojects the accepted create placement before the next display pass. Only `shown` and its adopts: the live
+    /// set and the connected remotes stay `show`'s, so a remote that dropped since cannot read as closed workspaces.
+    public func reshow(live: [SidebarDocWorkspaceRef]) {
+        let next = projection(live: live)
+        shownVersion = version
+        if next != shown { shown = next }
+        if let next, !next.unplaced.isEmpty { adopt(next.unplaced) }
+    }
 }

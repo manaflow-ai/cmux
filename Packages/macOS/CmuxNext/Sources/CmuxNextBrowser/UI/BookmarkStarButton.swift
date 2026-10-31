@@ -74,6 +74,18 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
         onPress?(self)
     }
 
+    /// The star registers no cursor rect of its own: the bar's arrow shows over it
+    /// (`OmnibarPointer`), as over every clickable control.
+    override func resetCursorRects() {}
+
+    /// The rects `resetCursorRects` registered, while non-nil (tests).
+    var recordedCursorRects: [(rect: NSRect, cursor: NSCursor)]?
+
+    override func addCursorRect(_ rect: NSRect, cursor object: NSCursor) {
+        recordedCursorRects?.append((rect, object))
+        super.addCursorRect(rect, cursor: object)
+    }
+
     override func viewDidHide() {
         super.viewDidHide()
         hover?.refresh()

@@ -67,7 +67,9 @@ nonisolated struct OmnibarStep {
     /// the steady-state text until the selection changes.
     mutating func beginFocus(_ source: OmnibarInput.FocusSource) {
         let retained = state.retainedText ?? ""
+        let saved = state.savedSelection
         state.retainedText = nil
+        state.savedSelection = nil
         state.popup = .init()
         state.undo = []
         state.redo = []
@@ -81,7 +83,10 @@ nonisolated struct OmnibarStep {
         } else {
             state.phase = .editing
             state.elided = false
-            state.edit = .init(userText: retained, selection: Self.all(retained), suppressCompletion: true)
+            // Chromium `OmniboxViewViews::OnFocus` restores the saved selection; a click
+            // (`select_all_on_mouse_release_`) and Cmd-L (`SetFocus(true)`) select all.
+            let selection = source == .programmatic ? saved.map { OmnibarRules.clamped($0, length: OmnibarRules.length(retained)) } : nil
+            state.edit = .init(userText: retained, selection: selection ?? Self.all(retained), suppressCompletion: true)
         }
         // AppKit makes the field first responder before it forwards the
         // press: remember that this focus belongs to a click.
@@ -103,6 +108,10 @@ nonisolated struct OmnibarStep {
             // permanent display text reverts to it.
             let text = state.visibleUserText
             state.retainedText = text.isEmpty || text == state.displayText ? nil : text
+            // The selection as the user sees it: an inline completion or an arrowed row's text
+            // becomes typed text, so the caret stays where the user left it inside the typed part.
+            state.savedSelection = state.retainedText == nil ? nil
+                : OmnibarRules.clamped(state.edit.selection, length: OmnibarRules.length(text))
         }
         state.phase = .idle
         endSession()
@@ -130,6 +139,7 @@ nonisolated struct OmnibarStep {
         case .idle:
             // A navigation supersedes text left behind by an earlier blur.
             state.retainedText = nil
+            state.savedSelection = nil
         case .focused:
             // Chromium `OmniboxViewViews::Update`: new permanent text while the
             // user has not typed reverts to the display text, all selected.
@@ -176,6 +186,7 @@ nonisolated struct OmnibarStep {
         if here { state.pageURL = url }
         state.phase = .committing(display: state.pageURL)
         state.retainedText = nil
+        state.savedSelection = nil
         state.editHasPaste = false
         endSession()
         effects.append(.cancelQuery)

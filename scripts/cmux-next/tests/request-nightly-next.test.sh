@@ -589,6 +589,39 @@ rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/tree-commit-mar
 rm -f "$cdn/NOAUTO" "$src/scripts/ci/upload-r2-object.py"
 git_q -C "$src" checkout -q --detach "$head"
 
+# NIGHTLY_NEXT_TREE_AT_INSTALL: the feat-cmux-next tip whose tree is still building
+# is requested at once when its own nightly.yml waits for the tree at install
+# and an artifacts run builds that tree; main's promote guard (G5) accepts it on
+# the same line. Without the line, or with no active run, it waits as before.
+git_q -C "$src" checkout -q -b pending "$app"
+echo four > "$src/cmux-tui/a"; git_q -C "$src" add -A; git_q -C "$src" commit -m "tui four, no line"
+noline=$(git -C "$src" rev-parse HEAD)
+branch "$noline"
+echo 1 > "$TMP/gh-runs"
+request --tree-ready "$noline"
+[[ "$status" == 0 ]] && ! dispatched "$noline" || fail "a building tree without the nightly.yml line must not be requested:" "$out"
+{ echo "env:"; echo "  NIGHTLY_NEXT_TREE_AT_INSTALL: v1"; cat "$src/.github/workflows/nightly.yml"; } > "$TMP/nightly.yml"
+mv "$TMP/nightly.yml" "$src/.github/workflows/nightly.yml"
+echo five > "$src/cmux-tui/a"; git_q -C "$src" add -A; git_q -C "$src" commit -m "tui five, with the line"
+pending=$(git -C "$src" rev-parse HEAD)
+branch "$pending"
+echo 0 > "$TMP/gh-runs"
+request --tree-ready "$pending"
+[[ "$status" == 0 ]] && ! dispatched "$pending" || fail "with no active artifacts run the building tip must wait:" "$out"
+grep -q "no active cmux-tui-artifacts run builds tree" <<<"$out" || fail "the wait must say why:" "$out"
+echo 1 > "$TMP/gh-runs"
+request --tree-ready "$pending"
+[[ "$status" == 0 ]] && dispatched "$pending" || fail "the building tip with the line and an active run must be requested:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "its cmux-tui tree is building" <<<"$out" || fail "the request must say the tree is building:" "$out"
+# A commit behind the tip is never requested this way.
+git_q -C "$src" commit --allow-empty -m "app on top"
+branch "$(git -C "$src" rev-parse HEAD)"
+git_q -C "$src" checkout -q --detach "$pending"
+request --tree-ready "$pending"
+! dispatched "$pending" || fail "only the feat-cmux-next tip is requested before its tree:" "$out"
+rm -f "$TMP/gh-runs"
+git_q -C "$src" checkout -q --detach "$head"
+
 # The checkout must be the commit it asks for; bad input is a usage error.
 request --sha "$app" --release-compile-green
 [[ "$status" == 2 ]] || fail "a --sha other than HEAD must exit 2, got $status:" "$out"

@@ -1,5 +1,6 @@
 #if os(iOS)
 import AVFoundation
+import CmuxMobileDesign
 import CmuxMobileSupport
 import CmuxMobileTransport
 import PhotosUI
@@ -176,7 +177,8 @@ struct TerminalComposer: View {
                     model.controller?.inputFocusChanged()
                 },
                 onReturn: { send() },
-                shouldInsert: { model.composerShouldInsert($0) }
+                shouldInsert: { model.composerShouldInsert($0) },
+                onPasteAttachments: model.attachmentsAvailable ? { pasteFromClipboard() } : nil
             )
             sendButton
         }
@@ -237,6 +239,12 @@ struct TerminalComposer: View {
     /// pasteboard here is the person's own tap on Paste.
     private func pasteFromClipboard() {
         let board = UIPasteboard.general
+        // A file copied in Files is its bytes on the pasteboard, not a path.
+        if board.composerHoldsFileData {
+            let providers = board.itemProviders
+            Task { await loadPastedFiles(providers) }
+            return
+        }
         let route = ComposerPasteRoute.route(hasImage: board.hasImages, fileURL: board.hasURLs ? board.url : nil,
                                              string: board.hasStrings ? board.string : nil)
         switch route {
@@ -277,25 +285,35 @@ struct TerminalComposer: View {
         }
     }
 
-    /// Files are read now, while the picker's security scope is open.
+    /// Copied files, as Files would attach them (uploaded on send).
+    private func loadPastedFiles(_ providers: [NSItemProvider]) async {
+        let pasted = await ComposerPastedFiles.load(providers)
+        if let name = pasted.unreadable.first { model.attachmentError = "Couldn't read \(name)." }
+        for file in pasted.files {
+            let image = file.type.conforms(to: .image) ? file.data.flatMap { UIImage(data: $0) } : nil
+            let kind: ComposerAttachment.Kind = image != nil ? .image : file.type.conforms(to: .movie) ? .video : .file
+            model.addAttachment(ComposerAttachment(kind: kind, name: file.name,
+                                                   thumbnail: image?.preparingThumbnail(of: CGSize(width: 168, height: 168)), byteCount: file.byteCount, data: file.data, fileURL: file.fileURL))
+        }
+    }
+
+    /// Files of any size keep their URL, and each later reader reopens the
+    /// picker's security scope (`ScopedFile`): the preview while it is open,
+    /// the upload while it streams. The thumbnail and size are read now, in scope.
     private func loadFiles(_ urls: [URL]) async {
         for url in urls {
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            let access = ScopedFile(url).open()
+            defer { access.close() }
             let type = UTType(filenameExtension: url.pathExtension) ?? .data
             let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: 56, height: 56), scale: 3, representationTypes: .thumbnail)
             let thumbnail = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request).uiImage
             let kind: ComposerAttachment.Kind = type.conforms(to: .image) ? .image : type.conforms(to: .movie) ? .video : .file
-            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
-            guard size <= LinkUpload.maxBytes else {
-                model.attachmentError = "\(url.lastPathComponent) is larger than \(LinkUpload.maxBytes >> 20) MB."
-                continue
-            }
-            guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
+            guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize else {
                 model.attachmentError = "Couldn't read \(url.lastPathComponent)."
                 continue
             }
-            model.addAttachment(ComposerAttachment(kind: kind, name: url.lastPathComponent, thumbnail: thumbnail, data: data))
+            model.addAttachment(ComposerAttachment(kind: kind, name: url.lastPathComponent, thumbnail: thumbnail,
+                                                   byteCount: size, fileURL: url))
         }
     }
 

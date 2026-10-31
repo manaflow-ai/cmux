@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1214,
+    "entries": 1232,
     "shortcuts": 189
   },
   "sections": [
@@ -26,6 +26,12 @@
           "title": "Attach Files…",
           "shortcut": null,
           "command": "cmux home attach"
+        },
+        {
+          "id": "home.chatColors",
+          "title": "Chat Colors…",
+          "shortcut": null,
+          "command": "cmux chat colors"
         },
         {
           "id": "home.zoomReset",
@@ -62,6 +68,12 @@
           "title": "Close All Windows",
           "shortcut": null,
           "command": "cmux app close-all-windows"
+        },
+        {
+          "id": "home.closeNewMessage",
+          "title": "Close New Message",
+          "shortcut": null,
+          "command": "cmux home close-new-message"
         },
         {
           "id": "window.closeOthers",
@@ -164,6 +176,12 @@
           "title": "Invite to cmux-next…",
           "shortcut": null,
           "command": "cmux home invite"
+        },
+        {
+          "id": "home.inviteToTeam",
+          "title": "Invite to Team…",
+          "shortcut": null,
+          "command": "cmux home invite-to-team"
         },
         {
           "id": "keepMacAwake",
@@ -1918,8 +1936,14 @@
           "command": "cmux pane move-to-new-workspace"
         },
         {
+          "id": "newColumnLeft",
+          "title": "New Column Left",
+          "shortcut": null,
+          "command": "cmux pane new-column-left"
+        },
+        {
           "id": "newColumn",
-          "title": "New Column",
+          "title": "New Column Right",
           "shortcut": "⌃⌘D",
           "command": "cmux pane new-column"
         },
@@ -1970,6 +1994,12 @@
           "title": "Open Find as Pane",
           "shortcut": null,
           "command": "cmux pane open-find-as"
+        },
+        {
+          "id": "file.openRecoveredDraft",
+          "title": "Open Recovered Draft…",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "palette.openVaultPane",
@@ -2627,7 +2657,7 @@
         },
         {
           "id": "palette.copyIdentifiers",
-          "title": "Copy Identifiers",
+          "title": "Copy IDs",
           "shortcut": null,
           "command": null
         },
@@ -2854,12 +2884,6 @@
           "command": null
         },
         {
-          "id": "macScreen.open",
-          "title": "New Mac Screen Tab",
-          "shortcut": null,
-          "command": "cmux tab new-mac-screen"
-        },
-        {
           "id": "newTab.default",
           "title": "New Tab",
           "shortcut": "⌘T",
@@ -3050,6 +3074,12 @@
           "title": "Save and Close Tabs to the Right",
           "shortcut": null,
           "command": "cmux tab stash-to-right"
+        },
+        {
+          "id": "macScreen.open",
+          "title": "Screen Sharing",
+          "shortcut": null,
+          "command": "cmux tab new-mac-screen"
         },
         {
           "id": "tab.screenshot",
@@ -3842,6 +3872,12 @@
           "title": "Edit Bookmark…",
           "shortcut": null,
           "command": "cmux bookmark edit"
+        },
+        {
+          "id": "browser.editSource",
+          "title": "Edit Source",
+          "shortcut": null,
+          "command": "cmux browser edit-source"
         },
         {
           "id": "fileEditorZoomReset",
@@ -5578,6 +5614,12 @@
           "command": "cmux agent archive-chat"
         },
         {
+          "id": "agentPane.sideQuestion",
+          "title": "Ask a Side Question…",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "agentChat.subagentLimit",
           "title": "Chat Subagent Limit…",
           "shortcut": null,
@@ -5630,6 +5672,12 @@
           "title": "Computer Use Setup",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "agentPane.continueAfterError",
+          "title": "Continue After Error",
+          "shortcut": null,
+          "command": "cmux agent continue-after-error"
         },
         {
           "id": "agentPane.continueIn",
@@ -5722,6 +5770,12 @@
           "command": null
         },
         {
+          "id": "palette.forkAgentConversation",
+          "title": "Fork Conversation",
+          "shortcut": "⌥⌘Y",
+          "command": "cmux agent fork-conversation"
+        },
+        {
           "id": "palette.forkAgentConversationTop",
           "title": "Fork Conversation Above",
           "shortcut": null,
@@ -5760,8 +5814,14 @@
         {
           "id": "palette.forkAgentConversationRight",
           "title": "Fork Conversation to the Right",
-          "shortcut": "⌥⌘Y",
+          "shortcut": null,
           "command": "cmux agent fork-conversation-to-right"
+        },
+        {
+          "id": "palette.forkAgentConversationTo",
+          "title": "Fork to…",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "palette.computerUse.accessibility",
@@ -5840,6 +5900,12 @@
           "title": "New Agent Chat",
           "shortcut": "⌘I",
           "command": "cmux agent new-chat"
+        },
+        {
+          "id": "palette.newAgentChatOn",
+          "title": "New Agent Chat on…",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "tasks.new",
@@ -6010,6 +6076,12 @@
           "command": "cmux agent stop-computer-use"
         },
         {
+          "id": "agentPane.stopReadingAloud",
+          "title": "Stop Reading Aloud",
+          "shortcut": null,
+          "command": "cmux agent stop-reading-aloud"
+        },
+        {
           "id": "home.stopChief",
           "title": "Stop the Chief",
           "shortcut": null,
@@ -6046,10 +6118,28 @@
           "command": "cmux agent toggle-acp-inspector"
         },
         {
+          "id": "agentPane.toggleFiles",
+          "title": "Toggle Files Beside Chat",
+          "shortcut": null,
+          "command": "cmux agent toggle-files"
+        },
+        {
+          "id": "agentPane.togglePreview",
+          "title": "Toggle Preview Beside Chat",
+          "shortcut": null,
+          "command": "cmux agent toggle-preview"
+        },
+        {
           "id": "agentPane.toggleSessionInfo",
           "title": "Toggle Session Info",
           "shortcut": null,
           "command": "cmux agent toggle-session-info"
+        },
+        {
+          "id": "agentPane.toggleSideTabs",
+          "title": "Toggle Tabs Beside Chat",
+          "shortcut": null,
+          "command": "cmux agent toggle-side-tabs"
         },
         {
           "id": "agentPane.toggleDisplaySettings",
@@ -6676,6 +6766,12 @@
           "command": null
         },
         {
+          "id": "settings.customizeMenus",
+          "title": "Customize Right-Click Menus…",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "appearance.uiScale.decrease",
           "title": "Decrease Interface Scale",
           "shortcut": "⌃⇧⌘-",
@@ -6776,6 +6872,12 @@
           "title": "Increase Interface Size",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "app.install",
+          "title": "Install App…",
+          "shortcut": null,
+          "command": "cmux apps install"
         },
         {
           "id": "palette.applyUpdateIfAvailable",
@@ -6896,6 +6998,12 @@
           "title": "Reload Configuration",
           "shortcut": "⇧⌘,",
           "command": "cmux settings reload-configuration"
+        },
+        {
+          "id": "app.remove",
+          "title": "Remove App…",
+          "shortcut": null,
+          "command": "cmux apps remove"
         },
         {
           "id": "appearance.reset",

@@ -25,6 +25,8 @@ export type PeerStatus = {
 
 /// What the pane shows in place of a chat the daemon does not list.
 export type ChatUnavailable =
+  | { reason: "paused"; machine?: string }
+  | { reason: "machineDeleted"; machine?: string }
   /// Gone from the machine that listed it; `machine` when the pane knows which one.
   | { reason: "deleted"; machine?: string }
   /// Not listed here and never seen here, with every machine connected.

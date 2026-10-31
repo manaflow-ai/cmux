@@ -9,6 +9,7 @@
 //! get, draft and a start retry work across a restart.
 
 use super::*;
+use cmux_json::JsonSet as _;
 use serde::{Deserialize, Serialize};
 
 mod capsule;
@@ -333,7 +334,7 @@ fn refuse(
 ) -> RpcError {
     let mut data = json!({"reason": reason});
     if let Some(h) = handoff {
-        data["handoff"] = h;
+        data.set("handoff", h);
     }
     RpcError::new(code, format!("{reason}: {message}")).with_data(data)
 }
@@ -364,7 +365,7 @@ impl Hub {
             json!({"sessionId": s.session_id, "harness": s.harness, "cwd": s.cwd, "coverage": coverage, "enforcement": enforcement})
         };
         let mut source = side(&r.source);
-        source["seq"] = json!(r.source_seq);
+        source.set("seq", json!(r.source_seq));
         json!({
             "handoffId": r.handoff_id,
             "handoffKey": r.handoff_key,
