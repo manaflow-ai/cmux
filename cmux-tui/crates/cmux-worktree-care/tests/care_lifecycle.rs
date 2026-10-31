@@ -13,12 +13,12 @@ use cmux_worktree_care::restore::restore;
 use cmux_worktree_care::{Store, archive};
 
 /// Nothing registered as working anywhere.
-fn nothing() -> std::sync::Arc<Uses> {
-    std::sync::Arc::new(|| Ok(Vec::new()))
+fn nothing() -> Arc<Uses> {
+    Arc::new(|| Ok(Vec::new()))
 }
 
-fn closed() -> std::sync::Arc<Open> {
-    std::sync::Arc::new(|_| Ok(None))
+fn closed() -> Arc<Open> {
+    Arc::new(|_| Ok(None))
 }
 
 fn scratch(name: &str) -> PathBuf {
@@ -216,7 +216,7 @@ fn care_a_worktree_a_program_has_open_stays() {
     let repo = scan(&main);
     let (worktree, facts) = facts_of(&repo, &wt);
     let store = Store::open(base.join("store")).unwrap();
-    let held: std::sync::Arc<Open> = std::sync::Arc::new(|_| Ok(Some(4242)));
+    let held: Arc<Open> = Arc::new(|_| Ok(Some(4242)));
     let error = archive::reclaim(
         &repo,
         worktree,
@@ -229,7 +229,7 @@ fn care_a_worktree_a_program_has_open_stays() {
     )
     .unwrap_err();
     assert!(error.contains("4242"), "{error}");
-    let failing: std::sync::Arc<Open> = std::sync::Arc::new(|_| Err("lsof: timed out".into()));
+    let failing: Arc<Open> = Arc::new(|_| Err("lsof: timed out".into()));
     let error = archive::reclaim(
         &repo,
         worktree,
@@ -570,7 +570,7 @@ fn care_a_claude_session_registered_in_a_worktree_keeps_it() {
     let options = Options {
         roots: vec![base.clone()],
         sessions: Vec::new(),
-        uses: std::sync::Arc::new(move || {
+        uses: Arc::new(move || {
             // This test process stands in for the session's: `inside` skips
             // its own pid, so the record names its parent.
             cmux_worktree_care::procs::claude_sessions(std::slice::from_ref(&registry)).map(
