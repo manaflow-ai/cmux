@@ -4,6 +4,7 @@ import type { AllChatsPage } from "./AllChatsList";
 import type { NewTabScreenActions } from "./NewTabScreen";
 import { savedEnvironmentHost } from "../environments";
 import { rememberStartedProject } from "./startedProject";
+import { rememberPick } from "../lastPick";
 import { translate } from "../i18n";
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -32,14 +33,17 @@ export function newTabScreenActions(deps: {
 }): NewTabScreenActions {
   const { callNative, cwd } = deps;
   const ignore = (result: Promise<unknown>) => void result.catch(() => undefined);
-  const remember = (agent: string) => ignore(callNative("newTab.remember", { agent }));
+  // The agent a chat starts on is the pick the next New Tab starts on (lastPick.ts): the app's copy
+  // and this page's, so an older harness and model picked elsewhere no longer win over it.
+  const remember = (agent: string, model?: string) =>
+    rememberPick({ harness: agent, ...(model ? { model } : {}) }, deps.chatCwd, callNative);
   return {
     onAsk(harness, text, picked, model, noProject, attachments, saved) {
       const peer = saved?.peer;
       const queuedStart = !!harness && !peer && !noProject;
       const current = deps.startScope?.(queuedStart) ?? (() => true);
       const cancelled = () => new Error(translate("switch.cancelled"));
-      remember(harness);
+      remember(harness, model);
       // The prompt goes in the same turn as the switch: the switch queues it, and a folder trust
       // refusal then holds it with the send's gesture (holdPrompt), so Trust sends it. Sending
       // after `chat.new` settled lost it: the switch had stopped on the refusal with nothing
