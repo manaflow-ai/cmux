@@ -100,7 +100,8 @@ pub(crate) fn sort_workspaces(
         .take_while(|workspace| rank_of(workspace).is_some_and(|rank| rank < order.machine_start))
         .count();
     let is_home = |workspace: &Value| {
-        workspace["extra"]["kind"].as_str() == Some(super::home_store::HOME_KIND)
+        workspace.pointer("/extra/kind").and_then(Value::as_str)
+            == Some(super::home_store::HOME_KIND)
     };
     // The current workspace anchors only from this machine's section (not a
     // pinned row before it) and never as Home; without one, a new row goes

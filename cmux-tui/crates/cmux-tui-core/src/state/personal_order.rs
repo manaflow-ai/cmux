@@ -410,13 +410,15 @@ fn beside_current_slot(
         .into_iter()
         .filter(|row| !(row.session_id == local && placed.contains(&row.workspace_key)))
         .collect::<Vec<_>>();
-    let Some(index) =
-        rows.iter().position(|row| row.session_id == local && row.workspace_key == current)
+    let Some((index, row)) = rows
+        .iter()
+        .enumerate()
+        .find(|(_, row)| row.session_id == local && row.workspace_key == current)
     else {
         return Ok(None);
     };
     let slot = if after { index + 1 } else { index };
-    let Some(group) = rows[index].group.clone() else { return Ok(Some((slot, None))) };
+    let Some(group) = row.group.clone() else { return Ok(Some((slot, None))) };
     // Into the group only when the new workspace shows in the group's room:
     // a workspace pinned to another room (the app pins before it creates)
     // goes to the top instead.

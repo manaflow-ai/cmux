@@ -299,6 +299,39 @@ fn a_new_workspace_follows_the_before_current_setting() {
     mux.shutdown();
 }
 
+/// `beforeCurrent` with a group slotted right above the loose current row:
+/// the new row goes between that group and the current row, where the app
+/// draws it on its first frame, not above the group.
+#[test]
+fn before_current_goes_below_a_group_right_above_the_current_row() {
+    use crate::user_settings::NewWorkspacePlacement;
+    let session = Session::new("new-before-current-group");
+    let mux = session.open();
+    let bottom = NewWorkspacePlacement::Bottom.set_for_test();
+    let a = empty_workspace(&mux, "a");
+    let b = empty_workspace(&mux, "b");
+    let w = empty_workspace(&mux, "w");
+    let work = group(&mux, "Work");
+    mutate(&mux, "workspace.place", json!({"workspace": w, "group": work}), "w-in-work");
+    mutate(
+        &mux,
+        "workspace_group.update",
+        json!({"workspace_group": work, "top_index": 1}),
+        "work-before-b",
+    );
+    drop(bottom);
+    let before = NewWorkspacePlacement::BeforeCurrent.set_for_test();
+    mutate(&mux, "workspace.focus", json!({"workspace": b}), "focus-b");
+    let n = empty_workspace(&mux, "n");
+    drop(before);
+    let ids = [&a, &b, &w, &n].map(String::as_str);
+    let [a, b, w, n] = ids;
+    assert_eq!(listed(&mux, Some("personal"), &ids), [a, w, n, b]);
+    let groups = read(&mux, "workspace_group.list", json!({}));
+    assert_eq!(groups[0]["top_index"], 1, "Work still shows right after a");
+    mux.shutdown();
+}
+
 /// `create-workspace {current}`: the workspace the creating client shows
 /// places the new one, not the session's active workspace (a legacy default
 /// the app's windows never move). `afterCurrent` goes right after it; `top`
