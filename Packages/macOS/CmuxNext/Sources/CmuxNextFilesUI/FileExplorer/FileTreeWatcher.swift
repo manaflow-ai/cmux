@@ -1,24 +1,23 @@
 import CoreServices
-import Foundation
-import CmuxNextFilesUI
+package import Foundation
 
 /// FSEvents under a few folders, delivered as an `AsyncStream` (no polling):
 /// the Files tree's folder and its repository's `.git` folder. FSEvents
 /// coalesces a burst (``latency``) into one value. Inside a `.git` folder only
 /// the index, HEAD and refs count (a `git add`, a commit, a checkout), never
 /// objects or logs, so `git status` reading the repository never wakes it.
-nonisolated struct FileTreeWatcher: FileTreeWatching {
+package nonisolated struct FileTreeWatcher: FileTreeWatching {
     /// The coalescing latency in seconds.
-    var latency: CFTimeInterval
+    package var latency: CFTimeInterval
     /// Called once the FSEvents stream runs (tests wait for it before changing a file).
-    var started: (@Sendable () -> Void)?
+    package var started: (@Sendable () -> Void)?
 
-    init(latency: CFTimeInterval = 0.2, started: (@Sendable () -> Void)? = nil) {
+    package init(latency: CFTimeInterval = 0.2, started: (@Sendable () -> Void)? = nil) {
         self.latency = latency
         self.started = started
     }
 
-    func changes(under folders: [URL]) -> AsyncStream<Void> {
+    package func changes(under folders: [URL]) -> AsyncStream<Void> {
         AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let paths = folders.map { FolderWatcherPath.real($0) }
             let box = FileTreeWatchStream(paths: paths, latency: latency, started: started, continuation: continuation)

@@ -216,6 +216,9 @@ pub struct Conn {
     chat_windows: chat_windows::ConnWindows,
     /// Its refused Stops that wait for room (`requests/cancel_refused.rs`).
     cancel_refusals: Arc<requests::cancel_refused::Waiting>,
+    /// A WebSocket's compression, which its `initialize` turns on (`frame_compress.rs`); None
+    /// on a transport whose writer does not compress.
+    wire: Option<Arc<crate::frame_compress::Wire>>,
 }
 
 // Bound only request handlers that do finite work on behalf of the connection.
@@ -399,6 +402,12 @@ impl Conn {
     }
 
     fn send(&self, msg: &Message) {
+        self.send_replying(msg, None);
+    }
+
+    /// [`Self::send`] of the reply to a request whose method is `reply_to`: the size watch names
+    /// it (`wire_size.rs`).
+    fn send_replying(&self, msg: &Message, reply_to: Option<&str>) {
         // A request to the client waits on its answer, so it is never dropped as lossy.
         let control = matches!(msg, Message::Response { .. } | Message::Request { .. });
         if msg.method() == Some(method::MUX_SESSION_CHANGED) {
@@ -424,7 +433,7 @@ impl Conn {
         let msg = masked.as_ref().unwrap_or(base);
         // No message larger than one frame (`rpc::MAX_MESSAGE_BYTES`): a reply goes as its error,
         // a notification is left out and the client reads again from its last record.
-        match msg.bounded_line() {
+        match msg.bounded_line_replying(reply_to) {
             Ok(line) => {
                 enqueue_outbound(
                     &self.out,
@@ -436,23 +445,28 @@ impl Conn {
                     &self.outbound_pending_controls,
                 );
             }
-            Err(bytes) => {
-                tracing::warn!(conn = %self.id, method = ?msg.method(), bytes, "left out a notification too large to send");
-                enqueue_outbound(
-                    &self.out,
-                    Message::notification(
-                        "_acpmux/lagged",
-                        json!({"dropped": 1, "reason": "message_too_large"}),
-                    )
-                    .to_line(),
-                    false,
-                    &self.outbound_dropped,
-                    &self.outbound_gap_pending,
-                    &self.outbound_lock,
-                    &self.outbound_pending_controls,
-                );
-            }
+            Err(bytes) => self.left_out_too_large(msg.method(), bytes),
         }
+    }
+
+    /// A notification of `bytes`, larger than a frame, was left out (`bounded_line` counted it
+    /// and warned of it, at most once a minute per method): the client is told it lagged and
+    /// reads again from its last record.
+    fn left_out_too_large(&self, method: Option<&str>, bytes: usize) {
+        tracing::debug!(conn = %self.id, method = ?method, bytes, "left out a notification too large to send");
+        enqueue_outbound(
+            &self.out,
+            Message::notification(
+                "_acpmux/lagged",
+                json!({"dropped": 1, "reason": "message_too_large"}),
+            )
+            .to_line(),
+            false,
+            &self.outbound_dropped,
+            &self.outbound_gap_pending,
+            &self.outbound_lock,
+            &self.outbound_pending_controls,
+        );
     }
     /// The reply for `id` whose result is already serialized (`list_reply.rs`), masked
     /// already for a peer, read when [`Conn::notices`] was `seen`. Under the outbound lock:
@@ -462,9 +476,19 @@ impl Conn {
     /// One larger than a frame goes as its error, as in [`Self::send`].
     /// None if it was not sent; else whether it went whole into an open queue (not as its
     /// too-large error, nor into a queue whose reader is gone).
-    fn send_serialized(&self, id: &Value, result: &str, seen: u64, anyway: bool) -> Option<bool> {
+    /// `method` is the request's, if known, for the size watch (`wire_size.rs`), which counts
+    /// the reply once it goes, never a list left for a newer one.
+    fn send_serialized(
+        &self,
+        id: &Value,
+        method: Option<&str>,
+        result: &str,
+        seen: u64,
+        anyway: bool,
+    ) -> Option<bool> {
         let mut line = list_reply::reply_line(id, result);
-        let whole = line.len() <= crate::rpc::MAX_MESSAGE_BYTES;
+        let bytes = line.len();
+        let whole = bytes <= crate::rpc::MAX_MESSAGE_BYTES;
         if !whole {
             line = Message::err(id.clone(), RpcError::too_large(line.len())).to_line();
         }
@@ -477,6 +501,8 @@ impl Conn {
         if stale && !anyway {
             return None;
         }
+        let what = method.map_or(crate::wire_size::What::Reply, crate::wire_size::What::ReplyTo);
+        crate::wire_size::observe(what, bytes);
         match self.out.try_send(line) {
             Ok(()) if stale => self.enqueue_control_locked(lag()),
             Ok(()) => {}
@@ -1084,7 +1110,14 @@ pub async fn serve_ws_until(
             let (out_tx, out_rx) = mpsc::channel::<String>(4096);
             let mut children = ws_shutdown::Children::new();
             let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
-            let writer = tokio::spawn(ws_shutdown::write(sink, out_rx, stopped, shutdown.clone()));
+            let wire = Arc::new(crate::frame_compress::Wire::default());
+            let writer = tokio::spawn(ws_shutdown::write(
+                sink,
+                out_rx,
+                stopped,
+                shutdown.clone(),
+                wire.clone(),
+            ));
             children.track(&writer);
             // The handshake above checked the listener token: every
             // connection past it is authenticated (`conn_auth.rs`).
@@ -1190,10 +1223,15 @@ pub async fn serve_ws_until(
             if let Some(watcher) = &watcher {
                 children.track(watcher);
             }
-            match device {
-                Some(device) => serve_connection_device(hub, in_rx, out_tx, device).await,
-                None => serve_connection_authed(hub, in_rx, out_tx, origin, proof).await,
-            }
+            let (origin, proof, device) = match device {
+                Some(device) => {
+                    let (origin, proof) = pairing::origin_of(&device);
+                    (origin, proof, Some(device.id))
+                }
+                None => (origin, proof, None),
+            };
+            serve_connection_from(hub, in_rx, out_tx, origin, proof, None, device, Some(wire))
+                .await;
             if let Some(watcher) = watcher {
                 watcher.abort();
             }
@@ -1398,7 +1436,7 @@ pub async fn serve_connection_authed(
     origin: Origin,
     auth: ConnAuth,
 ) {
-    serve_connection_from(hub, inbound, out, origin, auth, None, None).await
+    serve_connection_from(hub, inbound, out, origin, auth, None, None, None).await
 }
 
 /// A paired machine's connection, served as its role says
@@ -1411,7 +1449,7 @@ pub async fn serve_connection_device(
     device: crate::pairing::DeviceAuth,
 ) {
     let (origin, auth) = pairing::origin_of(&device);
-    serve_connection_from(hub, inbound, out, origin, auth, None, Some(device.id)).await
+    serve_connection_from(hub, inbound, out, origin, auth, None, Some(device.id), None).await
 }
 
 /// `serve_connection_authed` for a unix socket peer named by its audit token.
@@ -1423,6 +1461,7 @@ async fn serve_connection_from(
     auth: ConnAuth,
     peer: Option<cmux_link::app_caller::PeerToken>,
     device: Option<String>,
+    wire: Option<Arc<crate::frame_compress::Wire>>,
 ) {
     if !auth.authenticated() {
         refuse_unauthenticated(&mut inbound, &out, origin).await;
@@ -1473,6 +1512,7 @@ async fn serve_connection_from(
         client_requests: Default::default(),
         chat_windows: Default::default(),
         cancel_refusals: Default::default(),
+        wire,
     });
     tracing::debug!(conn = %conn.id, "client connected");
 
@@ -1536,25 +1576,33 @@ async fn serve_connection_from(
                     hub.session_meta(id).await;
                 }
                 conn.bind_person(&hub, &m, &mut params);
+                // Before its reply is built: the reply says whether large messages go compressed.
+                if m == method::INITIALIZE
+                    && let Some(wire) = &conn.wire
+                    && crate::frame_compress::offered(params.as_ref())
+                {
+                    wire.enable();
+                }
                 let hub = hub.clone();
                 let conn = conn.clone();
                 tokio::spawn(async move {
                     let _slot = slot;
                     let route = chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null));
-                    let (result, sent) = list_reply::scope(id.clone(), route).await;
+                    let (result, sent) = list_reply::scope(id.clone(), &m, route).await;
                     // Its answer went whole into an open queue: one sent as its too-large error, or
                     // to a reader that is gone, opened nothing.
                     let watched = m == method::MUX_WATCH && result.is_ok() && sent == Some(true);
                     // A shared session list, sent already as the bytes it was serialized to.
                     if !(sent.is_some() && result.is_ok()) {
-                        conn.send(&match result {
+                        let reply = match result {
                             Ok(v) => Message::ok(id, v),
                             Err(mut e) => {
                                 // What kind of failure, and what to do (`recovery.rs`).
                                 crate::recovery::annotate(&mut e, None);
                                 Message::err(id, e)
                             }
-                        });
+                        };
+                        conn.send_replying(&reply, Some(&m));
                     }
                     // A Mac that lends GitHub counts from here: its watch answer is queued, so
                     // no action reaches it before the answer that opens its side.
@@ -2071,6 +2119,10 @@ mod acp_list_tests;
 #[cfg(test)]
 #[path = "session_list_pages_tests.rs"]
 mod session_list_pages_tests;
+
+#[cfg(test)]
+#[path = "compressed_link_tests.rs"]
+mod compressed_link_tests;
 
 #[cfg(test)]
 mod key_route_tests;
