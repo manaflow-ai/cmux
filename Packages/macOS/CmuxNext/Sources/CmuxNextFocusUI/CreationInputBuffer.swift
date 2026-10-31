@@ -6,9 +6,15 @@ public final class CreationInputBuffer {
     /// A ticket names its buffer too: a buffer flushed early never takes a later buffer's ticket of the same number.
     public struct Ticket: Hashable { fileprivate let id: Int; fileprivate let owner: ObjectIdentifier }
 
-    /// The held keys in typing order, each with the creation it was typed for: the newest one
-    /// pending when it was typed (the pane the person saw get the focus), nil for none.
+    /// The held keys in typing order, each with the creation it was typed for (its lane): the creation whose tab the
+    /// focus named when the key was typed (the pane the person saw get the focus), nil for none. A key goes only to
+    /// its own creation's terminal, never to another creation's (P0 1193: after Cmd-D, keys, Cmd-D, keys, the first
+    /// new terminal ran the second one's keys while the second's focus was on its way).
     private var events: [(event: NSEvent, creation: Int?)] = []
+    /// Each creation's provisional tab, kept after its reply: the terminal its lane goes to.
+    private var laneTabs: [Int: String] = [:]
+    /// The machine each creation's terminal is on (its daemon), when it was known at its start.
+    private var laneMachines: [Int: String] = [:]
     private var pending: [Int: UInt64] = [:]
     private var awaited: Set<UInt64> = []
     /// Pending creations whose new terminal's view takes keys before the reply, by its tab id.
@@ -35,11 +41,12 @@ public final class CreationInputBuffer {
     /// `earlyTab`: the tab of the new terminal's view when that view takes keys before the reply
     /// (its keys reach the daemon by terminal id, which queues them, cx-wb5.78).
     /// `tab`: the provisional tab the creation shows, so a close of it can cancel the hold (`cancel(tab:)`).
-    public func open(generation: UInt64, earlyTab: String? = nil, tab: String? = nil) -> Ticket {
+    /// `machine`: the machine the creation's terminal is on (its keys reach it there when its view is gone).
+    public func open(generation: UInt64, earlyTab: String? = nil, tab: String? = nil, machine: String? = nil) -> Ticket {
         nextID += 1
         pending[nextID] = generation
         if let earlyTab { earlyTabs[nextID] = earlyTab }
-        if let tab { tabs[nextID] = tab }
+        if let tab { tabs[nextID] = tab; laneTabs[nextID] = tab; laneMachines[nextID] = machine }
         return Ticket(id: nextID, owner: ObjectIdentifier(self))
     }
 
@@ -54,6 +61,8 @@ public final class CreationInputBuffer {
             tabs[id] = nil
             earlyTabs[id] = nil
             pending[id] = nil
+            laneTabs[id] = nil
+            laneMachines[id] = nil
         }
         events.removeAll { $0.creation.map(ids.contains) ?? false }
         if pending.isEmpty, awaited.isEmpty { events.removeAll() }
@@ -63,8 +72,15 @@ public final class CreationInputBuffer {
     /// Whether a creation of this hold still waits for its reply and shows `tab`.
     public func isCreating(tab: String) -> Bool { tabs.contains { $0.value == tab && pending[$0.key] != nil } }
 
-    /// Whether a pending creation's new terminal view, tab `tab`, takes keys now.
-    public func takesKeysEarly(tab: String) -> Bool { earlyTabs.values.contains(tab) }
+    /// The pending creation whose new terminal view, tab `tab`, takes its own keys before the reply (its early view).
+    public func earlyLane(tab: String) -> Int? { earlyTabs.filter { $0.value == tab }.map(\.key).max() }
+
+    /// The lane of a key typed while the focus names (or is on its way to) tab `focusedTab`: the newest creation of
+    /// this hold that shows that tab, nil when the focus names none of them (a key typed after the person moved on).
+    public func lane(focusedTab: String?) -> Int? {
+        guard let focusedTab else { return nil }
+        return laneTabs.filter { $0.value == focusedTab }.map(\.key).max()
+    }
 
     /// `awaitsFocus`: the creation asked for focus under its generation; the keys wait until that
     /// expectation landed or was replaced. A failed creation asked for nothing.
@@ -79,19 +95,72 @@ public final class CreationInputBuffer {
 
     public func awaits(_ generation: UInt64) -> Bool { awaited.contains(generation) }
 
-    /// Holds `event`, typed for the newest pending creation.
-    public func capture(_ event: NSEvent) { events.append((event, pending.keys.max())) }
+    /// Holds `event`, typed while the focus named `focusedTab` (``lane(focusedTab:)``).
+    public func capture(_ event: NSEvent, focusedTab: String?) { events.append((event, lane(focusedTab: focusedTab))) }
 
     /// Holds `earlier` (keys taken and not run yet, typed after the key that started the newest
-    /// pending creation) before the keys held now, typed for that creation.
-    public func prepend(_ earlier: ArraySlice<NSEvent>) {
-        let creation = pending.keys.max()
+    /// creation) before the keys held now, typed for that creation.
+    public func prepend(_ earlier: [NSEvent]) {
+        let creation = nextID > 0 ? nextID : nil
         events.insert(contentsOf: earlier.map { ($0, creation) }, at: 0)
     }
 
     public func take() -> [NSEvent] {
         defer { events.removeAll() }
         return events.map(\.event)
+    }
+
+    /// The terminal a lane's keys are for: its tab, and the machine it is on when that was known.
+    public struct HeldLane: Hashable, Sendable {
+        public let tab: String
+        public let machine: String?
+    }
+
+    /// Held keys at the hold's end, in typing order (``take(focused:)``).
+    public enum HeldKey {
+        /// Keys of a lane whose terminal is not the focused one, typed one after another: that terminal types them
+        /// with its own key encoding, never the focused terminal (a held Ctrl-C must not stop another process).
+        case type([NSEvent], lane: HeldLane)
+        /// A Command chord typed for a lane whose terminal is not the focused one: an app shortcut runs with that
+        /// terminal's tab as its target (as a key press there), any other Command chord is that terminal's key.
+        case command(NSEvent, lane: HeldLane)
+        /// A key that runs again as typed: the focused lane's, or a key typed for no creation.
+        case run(NSEvent)
+
+        public var events: [NSEvent] {
+            switch self {
+            case .type(let events, _): events
+            case .command(let event, _), .run(let event): [event]
+            }
+        }
+    }
+
+    /// Takes the keys of lane `lane` only, in typing order, to run again as typed (its early view has the keyboard);
+    /// the others keep waiting.
+    public func take(lane: Int) -> [HeldKey] {
+        defer { events.removeAll { $0.creation == lane } }
+        return events.filter { $0.creation == lane }.map { .run($0.event) }
+    }
+
+    /// Ends the hold: every held key in typing order, each for its own terminal while the focus is on tab `focused`.
+    public func take(focused: String?) -> [HeldKey] {
+        var keys: [HeldKey] = []
+        for (event, id) in events {
+            guard let id, let tab = laneTabs[id], tab != focused else {
+                keys.append(.run(event))
+                continue
+            }
+            let lane = HeldLane(tab: tab, machine: laneMachines[id])
+            if event.modifierFlags.contains(.command) {
+                keys.append(.command(event, lane: lane))
+            } else if case .type(let earlier, let last)? = keys.last, last == lane {
+                keys[keys.count - 1] = .type(earlier + [event], lane: lane)
+            } else {
+                keys.append(.type([event], lane: lane))
+            }
+        }
+        events.removeAll()
+        return keys
     }
 
     /// Calls `expired` after `limit` unless a creation of this hold still waits for its reply then

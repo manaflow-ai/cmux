@@ -30,6 +30,10 @@ public final class DaemonService {
     /// sidebar document; ``DaemonConnectionConfiguration/echoesPlacementShift``).
     let echoesPlacementShift: Bool
     public let store = DaemonStore()
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// `debug.creation.hold` / `debug.creation.release`: this daemon's creations whose reply a test holds.
+    public let creationHold = DebugCreationHold()
+    #endif
     /// Set while an administrator turned this machine's feature off: no endpoint, no re-attach.
     public let policyBlock = PolicyBlock()
     /// Retry Now and Restart cmux-tui while the local daemon cannot be reached (cx-jniyz.1).
