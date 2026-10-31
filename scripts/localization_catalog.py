@@ -8,6 +8,7 @@ import copy
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -39,8 +40,8 @@ DEBT_KINDS = ("needs_review", "identical", "other")
 # scripts/cmux-next/check-l10n.sh counts as present): 269 more in one hour on 2026-10-21. Growth
 # of that kind is reported, not failed; copied English and malformed entries never grow.
 DEBT_ENFORCED = ("identical", "other")
-# What decides a catalog's debt besides the catalog: base debt is only counted with the
-# base's own rules when the pull request leaves these unchanged.
+# What decides a catalog's debt besides the catalog. The base tree's own copies count the
+# base's debt, so a change to any of them can't move debt between the base and the change.
 RULE_FILES = ("localization_catalog.py", "localization-allowed-omissions.json", "localization-plurals.json")
 
 
@@ -113,8 +114,8 @@ def discover(root: Path) -> list[Path]:
     return sorted(paths)
 
 
-def load_metadata(name: str, root: Path | None = None) -> dict:
-    with ((root or ROOT) / "scripts" / name).open(encoding="utf-8") as handle:
+def load_metadata(name: str) -> dict:
+    with (ROOT / "scripts" / name).open(encoding="utf-8") as handle:
         try:
             return json.load(handle, object_pairs_hook=unique_object)
         except ValueError as error:
@@ -484,15 +485,20 @@ def follow_moves(current: dict[str, dict[str, int]], previous: dict[str, dict[st
     return followed, moves
 
 
-def debt_findings(root: Path, locales, omissions: dict, counts: dict) -> list[tuple[str, str]]:
-    """(catalog, error) for every parity error in the catalogs under root."""
-    findings = []
-    for path in discover(root):
-        catalog = catalog_name(path, root)
-        for entry in catalog_entries(path.read_text(encoding="utf-8")):
-            for locale in locales:
-                findings.extend((catalog, error) for error in check_entry(entry, locale, omissions, counts))
-    return findings
+def base_debt_by_its_own_checker(base_root: Path) -> dict[str, dict[str, int]] | None:
+    """The base tree's debt as the base's own checker and rules count it; None if they can't."""
+    checker = base_root / "scripts" / "localization_catalog.py"
+    if not checker.is_file():
+        return None
+    with tempfile.TemporaryDirectory() as scratch:
+        counts = Path(scratch) / "debt.json"
+        try:
+            result = subprocess.run([sys.executable, "-I", str(checker), "check", "--root", str(base_root),
+                                     "--baseline", str(counts), "--write-baseline"],
+                                    capture_output=True, text=True)
+            return load_debt_baseline(counts) if result.returncode == 0 else None
+        except (OSError, ValueError):
+            return None
 
 
 def debt_json(catalogs: dict[str, dict[str, int]]) -> str:
@@ -681,27 +687,13 @@ def main() -> int:
         # A pull request runs on its merge with the base, so debt the base added past its own
         # baseline is in every pull request's count; only the push that added it fails.
         base_baseline = load_debt_baseline(args.base_baseline) or {}
-        changed = [name for name in RULE_FILES if not (args.base_root / "scripts" / name).is_file()
-                   or (args.base_root / "scripts" / name).read_bytes() != (ROOT / "scripts" / name).read_bytes()]
-        # Changed metadata is read from the base tree, so the base's debt is what its own push
-        # counted: an omission the change adds can't shrink it, and one the change removes
-        # leaves the strings it newly flags to the change. A changed checker gets no excuse.
-        base_debt = {}
-        if "localization_catalog.py" in changed:
-            print("note: this change changes localization_catalog.py, so debt the base has is not excused")
-        elif not changed:
-            base_debt = debt_counts(debt_findings(args.base_root, locales, omissions, counts))
-        else:
-            try:
-                base_omissions, base_counts = (
-                    load_metadata(name, args.base_root) if name in changed else current
-                    for name, current in (("localization-allowed-omissions.json", omissions),
-                                          ("localization-plurals.json", counts)))
-                base_debt = debt_counts(debt_findings(args.base_root, locales, base_omissions, base_counts))
-            except (OSError, ValueError, TypeError, AttributeError, KeyError) as error:
-                # A change that adds or repairs the base's metadata is checked on its own rules alone.
-                print(f"note: the base's {', '.join(changed)} could not be used ({error!r}), "
-                      "so debt the base has is not excused")
+        # Counted by the base's own checker and rules: an omission the change adds can't shrink
+        # it, strings a rule the change tightens newly flags stay the change's, and a changed
+        # checker can't count it its own way.
+        base_debt = base_debt_by_its_own_checker(args.base_root)
+        if base_debt is None:
+            print("note: the base's own checker could not count its debt, so debt the base has is not excused")
+            base_debt = {}
         for line in debt_raises(base_debt, base_baseline, DEBT_ENFORCED):
             print(f"warning: the base is already over its baseline, not this change: {line}")
         allowed = {catalog: {kind: baseline.get(catalog, {}).get(kind, 0)
