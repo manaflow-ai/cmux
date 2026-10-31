@@ -1210,14 +1210,14 @@ test("Labs: with Sandboxed picked the control names it, no machine is checked, a
   await act(async () => machineRows()[1]!.click());
   expect(calls).toEqual([["mode", "persistent"]]);
   expect(picks.at(-1)?.[0]).toBe("project");
-  // ⌥ shows Cloud again while Sandboxed is the pick; picking it is Persistent too.
+  // ⌥ shows Cloud again while Sandboxed is the pick; picking it makes Cloud where the chat runs.
   calls.length = 0;
   await openPicker();
   await press(doc().body, { key: "Alt", altKey: true });
   expect(doc().querySelector('.acpmux-env-popover [data-mode="sandboxed"]')).toBeNull();
-  const cloud = rows().find((row) => row.querySelector('[data-kind="cloud"]'))!;
+  const cloud = rows().find((row) => row.querySelector('.acpmux-env-row[data-mode="cloud"]'))!;
   await act(async () => cloud.click());
-  expect(calls).toEqual([["mode", "persistent"]]);
+  expect(calls).toEqual([["mode", "cloud"]]);
 });
 
 // Leo, 2026-10-31, on the picker's menu (Search environments, an Auto row, This Mac, Cloud and VMs

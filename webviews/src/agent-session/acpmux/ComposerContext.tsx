@@ -365,6 +365,7 @@ export function ComposerContext({
   if (!currentComputer && !currentFolder && !projectChoices) return <div className="acpmux-composer-strip" />;
   const readOnly = started || onProject === undefined;
   const sandboxPicked = runMode?.mode === "sandboxed" && !started && !readOnly;
+  const cloudPicked = runMode?.mode === "cloud" && !started && !readOnly;
   const newChats = started && onNewChat !== undefined;
   const branch = summary?.branch;
   // The folder control names the repository (projectRepos.ts), and a worktree's branch while no
@@ -555,11 +556,15 @@ export function ComposerContext({
             <EnvironmentPicker
               label={t(CONTEXT_LABELS.environment)}
               menu="Computer"
-              value={sandboxPicked ? t("composer.sandboxed") : placeName}
+              value={sandboxPicked ? t("composer.sandboxed") : cloudPicked ? t("composer.cloud") : placeName}
               face={
-                // Sandboxed picked (hq#3367): the control names it where the machine was.
-                sandboxPicked ? (
-                  <LocationFace icon={<EnvironmentIcon kind="cloud" />} value={t("composer.sandboxed")} chevron />
+                // Sandboxed (hq#3367) or Cloud picked: the control names it where the machine was.
+                sandboxPicked || cloudPicked ? (
+                  <LocationFace
+                    icon={<EnvironmentIcon kind="cloud" />}
+                    value={t(sandboxPicked ? "composer.sandboxed" : "composer.cloud")}
+                    chevron
+                  />
                 ) : waiting && waitingName ? (
                   <LocationFace
                     icon={<EnvironmentIcon kind="cloud" name={waiting.name} />}

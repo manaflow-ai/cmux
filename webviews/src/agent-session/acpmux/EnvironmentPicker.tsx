@@ -23,6 +23,9 @@ import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { machineColor } from "./machineColor";
 import type { RunModeRows } from "./sandboxRun";
 
+/// The Cloud row's value (cloudRun.ts): not a machine id, and not an action of the list.
+const CLOUD_RUN = "\u0000cloud-run";
+
 /// The sections (environments.ts `environmentSections`): This Mac, My machines, Cloud and VMs.
 export const SECTION_LABELS: Record<EnvironmentSection, StringKey> = {
   local: "composer.thisMac",
@@ -181,13 +184,14 @@ export function EnvironmentPicker({
     setPopoverOpen(false);
     setQuery("");
   }, [closeOnTrustAsk, open, setPopoverOpen]);
-  // Sandboxed is the pick: no machine row is checked, and a machine pick goes back to Persistent.
+  // Sandboxed or Cloud is the pick: no machine row is checked, and a machine pick goes back to Persistent.
   const sandboxed = runMode?.mode === "sandboxed";
-  const checkedRow = sandboxed ? undefined : currentRow;
+  const clouded = runMode?.mode === "cloud";
+  const checkedRow = sandboxed || clouded ? undefined : currentRow;
   const persistent = () => {
-    if (sandboxed) runMode?.onMode("persistent");
+    if (runMode && runMode.mode !== "persistent") runMode.onMode("persistent");
   };
-  // ⌥ held while the list is open shows New Cloud Machine's other face (as a Mac menu's alternate).
+  // ⌥ held while the list is open shows Cloud's other face (as a Mac menu's alternate).
   // ⌥ already held as the trigger is pressed counts too: the press's own modifier state.
   const [alternate, setAlternate] = useState(false);
   const altAtPress = useRef(false);
@@ -262,10 +266,14 @@ export function EnvironmentPicker({
           run: () => onOffload(offload),
         }
       : undefined;
-  // Cloud: where a chat runs off this Mac. Today a pick opens the host's New Cloud Machine flow.
-  const cloud: Action | undefined = onConnect
-    ? { value: ACTION + "cloud", text: t("composer.cloud"), kind: "cloud", run: () => onConnect("cloud") }
-    : undefined;
+  // Cloud: where a chat runs off this Mac. A new chat with `runMode` picks it as where the chat runs
+  // (cloudRun.ts: the app picks and sizes a machine, CLOUD_RUN); elsewhere a pick opens the host's
+  // New Cloud Machine flow, which stays in the right-click menu either way.
+  const cloud: Action | undefined =
+    onConnect && runMode === undefined
+      ? { value: ACTION + "cloud", text: t("composer.cloud"), kind: "cloud", run: () => onConnect("cloud") }
+      : undefined;
+  const cloudRow = runMode !== undefined ? CLOUD_RUN : cloud?.value;
   // Signed out (or before the app's Cloud reply), Sign in for Cloud follows Cloud: it signs in only,
   // where Cloud's New Cloud Machine flow would sign in and then make a machine (#27973).
   const signIn: Action | undefined =
@@ -303,12 +311,20 @@ export function EnvironmentPicker({
   const isLocal = (environment: Environment) => sectionOf(environment) === "local";
   const sandboxSearched = offersSandbox && words.length > 0 && matches(words, `${t("composer.sandboxed")} sandbox`);
   const cloudShown =
-    cloud !== undefined && (words.length === 0 || matches(words, `${cloud.text} cloud`) || sandboxSearched);
+    cloudRow !== undefined &&
+    (words.length === 0 ||
+      matches(
+        words,
+        runMode !== undefined
+          ? `${t("composer.cloud")} ${t("composer.cloudRunDetail")} cloud`
+          : `${t("composer.cloud")} cloud`,
+      ) ||
+      sandboxSearched);
   // This Mac and Cloud (or a started chat's move) first; the other machines after a hairline.
   const top = [
     ...shown.filter(isLocal).map((environment) => environment.id),
     ...(move ? [move.value] : []),
-    ...(cloudShown ? [cloud.value] : []),
+    ...(cloudShown && cloudRow ? [cloudRow] : []),
     ...(signIn && (words.length === 0 || matches(words, `${signIn.text} cloud`)) ? [signIn.value] : []),
   ];
   const others = [
@@ -319,7 +335,7 @@ export function EnvironmentPicker({
   const firstOther = others[0];
   // Cloud's row shows Sandboxed instead while ⌥ is held (or, once picked, until it is), or while
   // the search names Sandboxed.
-  const sandboxFace = offersSandbox && cloud !== undefined && (sandboxSearched || sandboxed !== alternate);
+  const sandboxFace = offersSandbox && (sandboxSearched || sandboxed !== alternate);
 
   const latest = useRef({ ordered, current: checkedRow, onPick, persistent });
   latest.current = { ordered, current: checkedRow, onPick, persistent };
@@ -374,12 +390,18 @@ export function EnvironmentPicker({
     const machine = positions.get(value)?.environment;
     if (machine && !environmentReady(machine) && !isCloudMachineRow(machine)) return;
     close();
-    if (value === ACTION + "cloud" && sandboxFace) {
-      if (sandboxed) focusPrompt();
-      else runMode?.onMode("sandboxed");
+    if (value === CLOUD_RUN) {
+      // The picked mode changes no folder or machine, so no caller moves focus: the prompt takes it.
+      if (sandboxFace) {
+        if (sandboxed) focusPrompt();
+        else runMode?.onMode("sandboxed");
+        return;
+      }
+      if (!clouded) runMode?.onMode("cloud");
+      focusPrompt();
       return;
     }
-    // A machine, or New Cloud Machine (⌥ shows it while Sandboxed is the pick): Persistent again.
+    // A machine, or Cloud's New Cloud Machine flow: Persistent again.
     if (!action || value === ACTION + "cloud") persistent();
     if (action) action.run();
     else if (value === currentRow) focusPrompt();
@@ -388,7 +410,7 @@ export function EnvironmentPicker({
   };
   const row = (value: string) => {
     const divider = value === firstOther && top.length > 0 ? "" : undefined;
-    if (value === ACTION + "cloud" && sandboxFace) {
+    if (value === CLOUD_RUN && sandboxFace) {
       return (
         <span
           className="acpmux-location-row acpmux-env-row acpmux-env-new"
@@ -402,6 +424,26 @@ export function EnvironmentPicker({
           </span>
           <span className="acpmux-location-check" aria-hidden="true">
             {sandboxed && <CheckIcon />}
+          </span>
+        </span>
+      );
+    }
+    // Cloud as where the new chat runs: one line, as This Mac; what it does is its tooltip.
+    if (value === CLOUD_RUN) {
+      return (
+        <span
+          className="acpmux-location-row acpmux-env-row acpmux-env-new"
+          data-kind="cloud"
+          data-mode="cloud"
+          data-current={clouded ? "" : undefined}
+          title={t("composer.cloudRunDetail")}
+        >
+          <EnvironmentIcon kind="cloud" />
+          <span className="acpmux-menu-text acpmux-location-name">
+            <span className="acpmux-menu-label">{t("composer.cloud")}</span>
+          </span>
+          <span className="acpmux-location-check" aria-hidden="true">
+            {clouded && <CheckIcon />}
           </span>
         </span>
       );
