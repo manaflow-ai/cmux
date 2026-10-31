@@ -45,6 +45,7 @@ import Testing
         let type = try #require(NSClassFromString("NSToolbarFullScreenWindow") as? NSWindow.Type)
         let titlebar = type.init(contentRect: CGRect(x: 0, y: 0, width: 800, height: 28), styleMask: [.borderless],
                                  backing: .buffered, defer: true)
+        defer { titlebar.closeAfterTest() }
         // Bools only: a failing #expect describes its operands, and this class's description
         // asks for its full screen owner, which a standalone one does not have.
         let isPage = WindowOverlayHost.isPageWindow(titlebar)

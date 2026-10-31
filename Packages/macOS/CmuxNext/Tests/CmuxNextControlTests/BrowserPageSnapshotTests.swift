@@ -114,6 +114,7 @@ import CmuxNextTestSupport
 
     @Test func namesComeFromImagesSvgTitlesChildLabelsAndLabels() async throws {
         let page = await loaded()
+        defer { page.window.closeAfterTest() }
         let outline = try await snapshot(page)
         #expect(try await line(page, outline, Self.top("up")).contains("- link \"upvote\""))
         #expect(try await line(page, outline, Self.top("imgbtn")).contains("- button \"Search icon\""))
@@ -128,6 +129,7 @@ import CmuxNextTestSupport
 
     @Test func aPasswordValueNeverAppears() async throws {
         let page = await loaded()
+        defer { page.window.closeAfterTest() }
         let outline = try await snapshot(page)
         #expect(try await line(page, outline, Self.top("pw")).contains("- textbox"))
         #expect(!outline.contains("hunter2secret"))
@@ -135,6 +137,7 @@ import CmuxNextTestSupport
 
     @Test func shadowRootAndFrameButtonsAppearAndTheirRefsClick() async throws {
         let page = await loaded()
+        defer { page.window.closeAfterTest() }
         let outline = try await snapshot(page, interactive: true)
         #expect(try await line(page, outline, Self.inShadow).contains("- button \"Shadow button\""))
         #expect(try await line(page, outline, Self.inFrame).contains("- button \"Frame button\""))
@@ -150,6 +153,7 @@ import CmuxNextTestSupport
 
     @Test func aPointerCursorMakesAClickableOnce() async throws {
         let page = await loaded()
+        defer { page.window.closeAfterTest() }
         let outline = try await snapshot(page, interactive: true)
         let card = try await line(page, outline, Self.top("pointer"))
         #expect(card.contains("\"Pointer card inner\""))
@@ -163,6 +167,7 @@ import CmuxNextTestSupport
 
     @Test func controlsShowTheirState() async throws {
         let page = await loaded()
+        defer { page.window.closeAfterTest() }
         let outline = try await snapshot(page)
         #expect(try await line(page, outline, Self.top("remember")).contains("[checked]"))
         #expect(try await line(page, outline, Self.top("news")).contains("[checked=false]"))
@@ -175,6 +180,7 @@ import CmuxNextTestSupport
 
     @Test func aSelectShowsItsValueAndListsItsOptions() async throws {
         let page = await loaded()
+        defer { page.window.closeAfterTest() }
         let outline = try await snapshot(page, interactive: true)
         let lines = outline.split(separator: "\n").map(String.init)
         let size = try await line(page, outline, Self.top("size"))
@@ -196,6 +202,7 @@ import CmuxNextTestSupport
 
     @Test func refsOutsideTheViewportAreMarked() async throws {
         let page = await loaded()
+        defer { page.window.closeAfterTest() }
         let outline = try await snapshot(page)
         #expect(try await line(page, outline, Self.top("far")).contains("[offscreen]"))
         let up = try await line(page, outline, Self.top("up"))
@@ -204,6 +211,7 @@ import CmuxNextTestSupport
 
     @Test func aNewSnapshotRetiresOldRefsEverywhere() async throws {
         let page = await loaded()
+        defer { page.window.closeAfterTest() }
         _ = try await snapshot(page)
         let first = try await ref(page, Self.inFrame)
         _ = try await snapshot(page, interactive: true)

@@ -46,6 +46,7 @@ struct OmnibarTextClippingTests {
     func chipLabelIsNeverClipped(_ indicator: PageInfoIndicator) throws {
         let chip = PageInfoChipButton()
         let window = window(NSSize(width: 400, height: 60))
+        defer { window.closeAfterTest() }
         window.contentView!.addSubview(chip)
         chip.indicator = indicator
         chip.frame = NSRect(origin: NSPoint(x: 10, y: 10), size: chip.intrinsicContentSize)
@@ -118,7 +119,8 @@ struct OmnibarTextClippingTests {
     @Test(arguments: addresses)
     func addressIsNeverClipped(_ address: String) throws {
         let url = try #require(URL(string: address))
-        let (bar, _) = bar(url, security: .secure)
+        let (bar, window) = bar(url, security: .secure)
+        defer { window.closeAfterTest() }
         let field = bar.field
         let probe = try #require(field.bitmapImageRepForCachingDisplay(in: field.bounds))
         let scale = CGFloat(probe.pixelsHigh) / field.bounds.height

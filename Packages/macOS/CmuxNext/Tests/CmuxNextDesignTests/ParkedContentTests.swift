@@ -30,6 +30,7 @@ import Testing
         let container = Container(), leaf = NSView()
         container.addSubview(leaf)
         let host = window(with: container)
+        defer { host.closeAfterTest() }
         #expect(WindowDrawPolicy.inputs(for: leaf, suspended: false).draws)
         container.isParkedOffScreen = true
         #expect(leaf.isParkedOrHasParkedAncestor)

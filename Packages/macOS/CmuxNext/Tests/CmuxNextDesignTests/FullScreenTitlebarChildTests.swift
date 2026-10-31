@@ -23,6 +23,7 @@ import Testing
         let type = try #require(cls as? NSWindow.Type)
         let titlebar = type.init(contentRect: NSRect(x: 0, y: 0, width: 100, height: 28), styleMask: [.borderless],
                                  backing: .buffered, defer: true)
+        defer { titlebar.closeAfterTest() }
         let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
                               backing: .buffered, defer: true)
         defer { parent.closeAfterTest() }

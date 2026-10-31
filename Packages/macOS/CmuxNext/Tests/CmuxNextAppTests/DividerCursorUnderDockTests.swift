@@ -52,6 +52,7 @@ struct DividerCursorUnderDockTests {
     @Test(arguments: [DockMode.docked, DockMode.overlay])
     func aStripDividerUnderADockKeepsItsCursorOutOfTheDock(_ mode: DockMode) throws {
         let fixture = Fixture(mode: mode)
+        defer { fixture.window.closeAfterTest() }
         let screen = fixture.screen
         let cover = try #require(screen.geometry.dock.first { $0.column == "dock" }).cover
         let handle = try #require(screen.dividerViews[.split("x")])
@@ -75,6 +76,7 @@ struct DividerCursorUnderDockTests {
     @Test(arguments: [DockMode.docked, DockMode.overlay])
     func aStripDividerUnderADockIsNotHoveredOrDrawnThere(_ mode: DockMode) throws {
         let fixture = Fixture(mode: mode)
+        defer { fixture.window.closeAfterTest() }
         let screen = fixture.screen
         let cover = try #require(screen.geometry.dock.first { $0.column == "dock" }).cover
         let handle = try #require(screen.dividerViews[.split("x")])

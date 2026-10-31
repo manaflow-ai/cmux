@@ -146,6 +146,7 @@ import Testing
         let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
         host.add(tab)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         let content = try #require(window.contentView)
         let parked = NSView(frame: content.bounds)
         parked.isHidden = true

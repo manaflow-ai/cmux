@@ -73,6 +73,7 @@ import CmuxNextDesignTokens
         try with(enabled: false) {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200), styleMask: [.borderless],
                                   backing: .buffered, defer: false)
+            defer { window.closeAfterTest() }
             let content = try #require(window.contentView)
             content.wantsLayer = true
             let layer = try #require(content.layer)

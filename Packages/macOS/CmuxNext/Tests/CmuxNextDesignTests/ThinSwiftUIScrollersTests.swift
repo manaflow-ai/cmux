@@ -29,6 +29,7 @@ struct ThinSwiftUIScrollersTests {
         let host = NSHostingView(rootView: content.frame(width: 240, height: 120))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 120), styleMask: [.borderless],
                               backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         window.contentView = host
         host.layoutSubtreeIfNeeded()
         let scrollView = try #require(Self.scrollView(in: host))

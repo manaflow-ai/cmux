@@ -102,6 +102,7 @@ struct DividerModifierDragTests {
 
     @Test func optionDraggingASplitDividerGrowsItsColumnAndPushesTheColumnsAfterIt() throws {
         let screen = Screen(Self.threeColumns())
+        defer { screen.window.closeAfterTest() }
         let divider = try #require(screen.screen.geometry.dividers.first { $0.id == "x" })
         let t = screen.screen.context.style.dividerThickness
         let rightPane = (divider.container.width - t) * 0.5
@@ -121,6 +122,7 @@ struct DividerModifierDragTests {
 
     @Test func optionDraggingAColumnEdgeTradesWidthWithTheNextColumn() throws {
         let screen = Screen(Self.threeColumns())
+        defer { screen.window.closeAfterTest() }
         let start = screen.points(0.4)
 
         try screen.drag(.columnEdge("c0"), by: 50, flags: .option)
@@ -133,6 +135,7 @@ struct DividerModifierDragTests {
 
     @Test func withoutAModifierAColumnEdgeResizesOnlyItsColumn() throws {
         let screen = Screen(Self.threeColumns())
+        defer { screen.window.closeAfterTest() }
         try screen.drag(.columnEdge("c0"), by: 50)
         #expect(screen.width("c1") == 0.4)
         #expect(screen.width("c2") == 0.4)
@@ -142,6 +145,7 @@ struct DividerModifierDragTests {
 
     @Test func commandDraggingAColumnEdgeGivesEveryColumnThatWidth() throws {
         let screen = Screen(Self.threeColumns([0.4, 0.3, 0.6]))
+        defer { screen.window.closeAfterTest() }
         try screen.drag(.columnEdge("c0"), by: 40, flags: .command)
         let first = try #require(screen.width("c0"))
         #expect(abs(screen.points(first) - (screen.points(0.4) + 40)) < 1)
@@ -154,6 +158,7 @@ struct DividerModifierDragTests {
         let tree: SplitNode = .split("x", axis: .horizontal, ratio: 0.4, a: .leaf("p1"),
                                      b: .split("y", axis: .horizontal, ratio: 0.2, a: .leaf("p2"), b: .leaf("p3")))
         let screen = Screen(.splits(tree))
+        defer { screen.window.closeAfterTest() }
         let divider = try #require(screen.screen.geometry.dividers.first { $0.id == "x" })
         let available = divider.container.width - screen.screen.context.style.dividerThickness
         try screen.drag(.split("x"), by: 30, flags: .command)
@@ -166,6 +171,7 @@ struct DividerModifierDragTests {
 
     @Test func shiftLandsADividerOnTheNearestSnapEvenFarFromIt() throws {
         let screen = Screen(.splits(.split("x", axis: .horizontal, ratio: 0.3, a: .leaf("p1"), b: .leaf("p2"))))
+        defer { screen.window.closeAfterTest() }
         // 0.3 + 230 pt of 1600 is about 0.44: free without Shift (8 pt snap reach), a half with it.
         try screen.drag(.split("x"), by: 230, flags: .shift)
         #expect(screen.ratio("x") == 0.5)
@@ -173,12 +179,14 @@ struct DividerModifierDragTests {
 
     @Test func shiftLandsAColumnEdgeOnAPresetWidth() throws {
         let screen = Screen(Self.threeColumns())
+        defer { screen.window.closeAfterTest() }
         try screen.drag(.columnEdge("c0"), by: 60, flags: .shift)
         #expect(screen.width("c0") == 0.5)
     }
 
     @Test func controlMovesADividerAtAQuarterOfThePointersSpeed() throws {
         let screen = Screen(.splits(.split("x", axis: .horizontal, ratio: 0.3, a: .leaf("p1"), b: .leaf("p2"))))
+        defer { screen.window.closeAfterTest() }
         let divider = try #require(screen.screen.geometry.dividers.first { $0.id == "x" })
         let available = divider.container.width - screen.screen.context.style.dividerThickness
         try screen.drag(.split("x"), by: 80, flags: .control)
@@ -190,6 +198,7 @@ struct DividerModifierDragTests {
 
     @Test func lettingGoOfCommandMidDragPutsTheOtherColumnsBack() throws {
         let screen = Screen(Self.threeColumns([0.4, 0.3, 0.6]))
+        defer { screen.window.closeAfterTest() }
         let (view, from) = try screen.press(.columnEdge("c0"), flags: .command)
         screen.move(view, from: from, by: 40, flags: .command)
         #expect(screen.width("c1") == screen.width("c0"))
@@ -204,6 +213,7 @@ struct DividerModifierDragTests {
 
     @Test func pressingOptionMidDragSwitchesToPushWithoutMovingTheDivider() throws {
         let screen = Screen(Self.threeColumns())
+        defer { screen.window.closeAfterTest() }
         let divider = try #require(screen.screen.geometry.dividers.first { $0.id == "x" })
         let t = screen.screen.context.style.dividerThickness
         let column = screen.points(0.4)
@@ -224,6 +234,7 @@ struct DividerModifierDragTests {
 
     @Test func escapeCancelsADragAndRestoresTheStart() throws {
         let screen = Screen(Self.threeColumns())
+        defer { screen.window.closeAfterTest() }
         let (view, from) = try screen.press(.split("x"), flags: .option)
         screen.move(view, from: from, by: 80, flags: .option)
         #expect(screen.width("c0") != 0.4)

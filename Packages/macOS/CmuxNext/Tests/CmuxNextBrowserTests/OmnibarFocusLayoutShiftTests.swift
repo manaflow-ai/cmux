@@ -56,7 +56,8 @@ struct OmnibarFocusLayoutShiftTests {
     /// The text at rest and while editing sits on the same pixels: the
     /// resting cell and the field editor lay the line out the same way.
     @Test func focusingKeepsTheAddressOnTheSamePixels() throws {
-        let (bar, _) = bar()
+        let (bar, window) = bar()
+        defer { window.closeAfterTest() }
         // At rest the compact URL drops the scheme; editing shows the full
         // address. Write the same text both ways so only the drawing differs.
         bar.field.write("github.com/manaflow-ai/cmuxterm-hq", style: .plain)
@@ -82,6 +83,7 @@ struct OmnibarFocusLayoutShiftTests {
     /// The bar's own subviews keep their frames through focus and blur.
     @Test func focusAndBlurKeepEveryFrame() {
         let (bar, window) = bar()
+        defer { window.closeAfterTest() }
         let rest = frames(bar)
         bar.focus()
         #expect(frames(bar) == rest)
@@ -118,6 +120,7 @@ struct OmnibarFocusLayoutShiftTests {
                       ("file:///Users/me/notes/plan.md", BrowserSecurityState.none)])
     func aFocusingClickMovesNothingOnALabeledChip(_ address: String, _ security: BrowserSecurityState) throws {
         let (bar, window) = labeledBar(address, security)
+        defer { window.closeAfterTest() }
         let rest = frames(bar)
         #expect(rest.chip.width > 40, "the chip shows its text label at rest (\(rest.chip.width) pt wide)")
         try click(bar, in: window)
@@ -126,7 +129,8 @@ struct OmnibarFocusLayoutShiftTests {
     }
 
     @Test func cmdLMovesNothingOnALabeledChip() {
-        let (bar, _) = labeledBar("http://neverssl.com/online", .insecure)
+        let (bar, window) = labeledBar("http://neverssl.com/online", .insecure)
+        defer { window.closeAfterTest() }
         let rest = frames(bar)
         bar.focus()
         #expect(bar.isEditing)
@@ -136,7 +140,8 @@ struct OmnibarFocusLayoutShiftTests {
     /// Typing is user input in progress: the chip then describes the input (Chromium drops the
     /// label there too), so the field may grow.
     @Test func typingDropsTheLabel() {
-        let (bar, _) = labeledBar("http://neverssl.com/online", .insecure)
+        let (bar, window) = labeledBar("http://neverssl.com/online", .insecure)
+        defer { window.closeAfterTest() }
         let rest = frames(bar)
         bar.debugType("swift")
         bar.layoutSubtreeIfNeeded()

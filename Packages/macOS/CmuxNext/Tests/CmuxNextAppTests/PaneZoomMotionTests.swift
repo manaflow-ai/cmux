@@ -88,6 +88,7 @@ struct PaneZoomMotionTests {
     @Test(arguments: [("p1", "p4"), ("p4", "p1"), ("p2", "p3")])
     func inA2x2ZoomTheZoomedPaneLaysOutLiveAndCoversTheOthersWhichNeverFadeOrMove(zoomed: String, opposite: String) throws {
         let screen = Screen(Self.grid2)
+        defer { screen.window.closeAfterTest() }
         let pane = PaneID(zoomed), corner = PaneID(opposite)
         let others = (Set(Self.grid2.panes) as Set<PaneID>).subtracting([pane])
         let still = Dictionary(uniqueKeysWithValues: others.map { ($0, screen.hostFrame($0)) })
@@ -122,6 +123,7 @@ struct PaneZoomMotionTests {
 
     @Test func aCenterZoomIn3x3LaysOutLiveAndLetsGoOfTheCoveredPanesWhenItLands() throws {
         let screen = Screen(Self.grid3)
+        defer { screen.window.closeAfterTest() }
         screen.zoom("p5")
         for frame in 1...120 {
             screen.step()
@@ -132,6 +134,7 @@ struct PaneZoomMotionTests {
 
     @Test func anUnzoomMidZoomKeepsTheMotionsVelocityAndTheLeavingPanesComeBackFromWhereTheyAre() throws {
         let screen = Screen(Self.grid2)
+        defer { screen.window.closeAfterTest() }
         screen.zoom("p1")
         var widths: [CGFloat] = []
         for _ in 1...6 {
@@ -159,6 +162,7 @@ struct PaneZoomMotionTests {
 
     @Test func anUnzoomLaysOutLiveAsItShrinksAndUncoversTheOthers() throws {
         let screen = Screen(Self.grid2)
+        defer { screen.window.closeAfterTest() }
         screen.zoom("p4")
         for _ in 1...120 { screen.step() }
         screen.unzoom()
@@ -182,6 +186,7 @@ struct PaneZoomMotionTests {
 
     @Test func reduceMotionZoomsAndUnzoomsInOneFrame() throws {
         let screen = Screen(Self.grid2, reduceMotion: true)
+        defer { screen.window.closeAfterTest() }
         screen.zoom("p1")
         #expect(screen.shown("p1") == screen.screen?.geometry.panes["p1"])
         #expect(["p2", "p3", "p4"].allSatisfy { screen.opacity($0) == 0 })
@@ -195,6 +200,7 @@ struct PaneZoomMotionTests {
         DesignSettings.shared.paneAnimations = true
         defer { DesignSettings.shared.paneAnimations = paneAnimations }
         let screen = Screen(.leaf("p1"))
+        defer { screen.window.closeAfterTest() }
         let split = SplitNode.split("v", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2"))
         screen.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(split))])
         screen.root.syncWithModel()

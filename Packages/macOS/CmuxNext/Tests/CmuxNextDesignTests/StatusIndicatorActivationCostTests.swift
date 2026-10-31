@@ -49,12 +49,14 @@ import Testing
 
     @Test func anActivationChecksOnlyTheIndicatorsOnScreen() {
         let fixture = Fixture(shown: 4, hidden: 300)
+        defer { fixture.window.closeAfterTest() }
         #expect(fixture.activate() == 4, "an activation re-checked indicators no one can see")
         #expect(fixture.activate() == 4)
     }
 
     @Test func aHiddenIndicatorCatchesUpWhenItShows() {
         let fixture = Fixture(shown: 2, hidden: 50)
+        defer { fixture.window.closeAfterTest() }
         _ = fixture.activate()
         _ = fixture.activate()
         let before = StatusIndicatorAppearance.resyncs
@@ -65,6 +67,7 @@ import Testing
 
     @Test func showingAViewThatOwesNothingCostsNothing() {
         let fixture = Fixture(shown: 1, hidden: 20)
+        defer { fixture.window.closeAfterTest() }
         let before = StatusIndicatorAppearance.resyncs
         fixture.parked.isHidden = false
         fixture.parked.isHidden = true

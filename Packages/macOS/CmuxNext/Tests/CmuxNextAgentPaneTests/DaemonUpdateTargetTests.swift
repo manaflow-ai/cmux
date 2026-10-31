@@ -288,6 +288,7 @@ import Testing
         let windows = (0..<2).map { _ in
             NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 120), styleMask: [.titled], backing: .buffered, defer: true)
         }
+        defer { windows.forEach { $0.closeAfterTest() } }
         var notices: [DaemonUpdateBoard.Notice] = []
         var handles: [CmuxToastHandle] = []
         let board = DaemonUpdateBoard()
@@ -322,6 +323,7 @@ import Testing
             NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 120), styleMask: [.titled], backing: .buffered, defer: true)
         }
         let behind = window(), front = window()
+        defer { behind.closeAfterTest(); front.closeAfterTest() }
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 80, height: 40), styleMask: [.nonactivatingPanel], backing: .buffered, defer: true)
         defer { panel.closeAfterTest() }
         func rules(visible: Set<ObjectIdentifier>) -> DaemonUpdateBoard.NoticeWindowRules {
@@ -350,6 +352,7 @@ import Testing
             NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 120), styleMask: [.titled], backing: .buffered, defer: true)
         }
         let workspace = window(), otherSpace = window(), settings = window(), sheet = window()
+        defer { [workspace, otherSpace, settings, sheet].forEach { $0.closeAfterTest() } }
         var rules = DaemonUpdateBoard.NoticeWindowRules()
         rules.root = { $0 === sheet ? workspace : $0 }
         rules.isWorkspace = { $0 === workspace || $0 === otherSpace }

@@ -90,6 +90,7 @@ struct PageSidewaysScrollerTests {
     @Test(arguments: ["wide", "long"])
     func aTableWiderThanTheColumnScrollsSideways(_ id: String) async throws {
         let page = Page()
+        defer { page.window.closeAfterTest() }
         await page.load()
         #expect(try await page.pointer(over: id))
     }
@@ -98,6 +99,7 @@ struct PageSidewaysScrollerTests {
     /// words still do not fit, and the report follows the wrapper.
     @Test func codeInCellsIsReportedExactlyWhenItsTableOverflows() async throws {
         let page = Page()
+        defer { page.window.closeAfterTest() }
         await page.load()
         let overflows = try await page.webView.callAsyncJavaScript(
             "const w = document.getElementById('code').parentElement; return w.scrollWidth > w.clientWidth + 1;",
@@ -108,12 +110,14 @@ struct PageSidewaysScrollerTests {
     @Test(arguments: ["tall", "small", "text"])
     func aTableThatFitsAndPlainTextDoNot(_ id: String) async throws {
         let page = Page()
+        defer { page.window.closeAfterTest() }
         await page.load()
         #expect(try await page.pointer(over: id) == false)
     }
 
     @Test func movingOffTheTableOrThePageClearsTheReport() async throws {
         let page = Page()
+        defer { page.window.closeAfterTest() }
         await page.load()
         #expect(try await page.pointer(over: "wide"))
         #expect(try await page.pointer(over: "small") == false)
@@ -125,6 +129,7 @@ struct PageSidewaysScrollerTests {
     /// scrolls sideways is inside it, where `document.elementFromPoint` does not reach.
     @Test func aScrollerInsideAShadowRootScrollsSideways() async throws {
         let page = Page()
+        defer { page.window.closeAfterTest() }
         await page.load()
         #expect(try await page.pointer(over: "shadowWide"))
         #expect(try await page.pointer(over: "shadowFits") == false)

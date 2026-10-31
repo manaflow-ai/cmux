@@ -59,6 +59,7 @@ struct HiddenScreenMotionTests {
 
     @Test func aHiddenScreensLayoutChangeLandsAtOnce() throws {
         let layout = Layout()
+        defer { layout.window.closeAfterTest() }
         try #require(layout.root.screenViews["b"]?.isHidden == true, "screen b is shown")
         // Precondition: the same change on the shown screen springs.
         layout.show(a: Self.pairSplit, b: Self.other)
@@ -72,6 +73,7 @@ struct HiddenScreenMotionTests {
 
     @Test func hidingAScreenMidSpringSettlesIt() throws {
         let layout = Layout()
+        defer { layout.window.closeAfterTest() }
         layout.show(a: Self.pairSplit, b: Self.other)
         layout.root.advanceFrame(1.0 / 120)
         try #require(layout.isMoving("a"), "the split on the shown screen did not spring")

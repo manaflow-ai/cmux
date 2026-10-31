@@ -52,6 +52,7 @@ import Testing
         view.configure(SidebarRow(key: .status(section), y: 0, height: 28, section: .pinned, siblingIndex: 0,
                                   isLastInGroup: true, isCollapsed: false, childCount: 128))
         let window = Self.host(view, size: NSSize(width: 280, height: 28))
+        defer { window.closeAfterTest() }
         #expect(Self.clipped(in: view) == [])
         _ = window
     }
@@ -60,6 +61,7 @@ import Testing
         let view = PresenceDotsView()
         view.configure((0..<9).map { SidebarPresence(id: "a\($0)", name: "Agent \($0)", activity: .running) })
         let window = Self.host(view, size: NSSize(width: view.preferredWidth, height: 16))
+        defer { window.closeAfterTest() }
         #expect(Self.clipped(in: view) == [])
         _ = window
     }
@@ -68,6 +70,7 @@ import Testing
         let view = SidebarTreeRollUpView()
         view.configure(SidebarTreeRollUp(blocked: 3, failed: 12, running: 108, unread: 7))
         let window = Self.host(view, size: view.intrinsicContentSize)
+        defer { window.closeAfterTest() }
         #expect(Self.clipped(in: view) == [])
         _ = window
     }
@@ -76,6 +79,7 @@ import Testing
         let view = SidebarPullRequestBadgeView()
         view.configure(SidebarPullRequestBadge(count: 12, status: .passing))
         let window = Self.host(view, size: view.intrinsicContentSize)
+        defer { window.closeAfterTest() }
         #expect(Self.clipped(in: view) == [])
         _ = window
     }
@@ -84,6 +88,7 @@ import Testing
         let view = SidebarChatHistoryRow()
         view.configure(title: "Fix the omnibar", meta: "12m", quiet: false)
         let window = Self.host(view, size: NSSize(width: 280, height: 28))
+        defer { window.closeAfterTest() }
         #expect(Self.clipped(in: view) == [])
         _ = window
     }
@@ -91,15 +96,18 @@ import Testing
     @Test func recipientChipAndToLabelAreWhole() {
         let chip = HomeRecipientChip(token: HomeRecipientToken(text: "Lawrence Chen", recipient: nil))
         let window = Self.host(chip, size: NSSize(width: chip.preferredWidth, height: HomeRecipientChip.height))
+        defer { window.closeAfterTest() }
         #expect(Self.clipped(in: chip) == [])
         let field = HomeRecipientField(frame: NSRect(x: 0, y: 0, width: 480, height: 44))
         let fieldWindow = Self.host(field, size: NSSize(width: 480, height: 44))
+        defer { fieldWindow.closeAfterTest() }
         #expect(Self.clipped(in: field) == [])
         _ = (window, fieldWindow)
     }
 
     @Test func linkDragGhostTitleIsWhole() throws {
         let ghost = LinkDragGhost(title: "Pull request: fix the omnibar")
+        defer { ghost.close() }
         let root = try #require(ghost.panel.contentView)
         #expect(Self.clipped(in: root) == [])
     }

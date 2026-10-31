@@ -370,6 +370,7 @@ struct PaneCloseMotionTests {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled, .closable],
                               backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
         var closes = 0
         let motion = WindowCloseMotion(window: window) { closes += 1 }
         motion.start(handingKeysTo: nil, driven: false)
@@ -406,6 +407,7 @@ struct PaneCloseMotionTests {
         let page = make()
         let panel = make(0.5)
         let nested = make()
+        defer { [window, page, panel, nested].forEach { $0.closeAfterTest() } }
         window.addChildWindow(page, ordered: .above)
         window.addChildWindow(panel, ordered: .above)
         page.addChildWindow(nested, ordered: .above)
@@ -440,6 +442,7 @@ struct PaneCloseMotionTests {
         let other = make()
         let panel = make()
         let palette = make()
+        defer { [window, other, panel, palette].forEach { $0.closeAfterTest() } }
         window.addChildWindow(panel, ordered: .above)
         window.addChildWindow(palette, ordered: .above)
         defer { [panel, palette].forEach { $0.parent?.removeChildWindow($0) } }
@@ -463,6 +466,7 @@ struct PaneCloseMotionTests {
     @Test func aWindowCloseUnderReduceMotionDoesNotFade() {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled, .closable],
                               backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         #expect(!WindowCloseMotion.fades(window, animates: false))
     }
 }

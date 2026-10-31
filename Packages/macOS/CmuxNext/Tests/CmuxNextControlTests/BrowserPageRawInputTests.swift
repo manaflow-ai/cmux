@@ -139,6 +139,7 @@ import CmuxNextTestSupport
 
     @Test func aMouseDownAndUpOnAButtonClicksIt() async throws {
         let (router, page) = await install()
+        defer { page.window.closeAfterTest() }
         let at = try await page.center("btn")
         _ = try await call(router, "mouse", ["kind": "down", "x": .number(at.x), "y": .number(at.y)]).get()
         _ = try await call(router, "mouse", ["kind": "up", "x": .number(at.x), "y": .number(at.y)]).get()
@@ -151,6 +152,7 @@ import CmuxNextTestSupport
 
     @Test func aDoubleClickCountsTwoAndFiresDblclick() async throws {
         let (router, page) = await install()
+        defer { page.window.closeAfterTest() }
         let at = try await page.center("target")
         _ = try await call(router, "mouse", ["kind": "down", "x": .number(at.x), "y": .number(at.y), "click_count": 2]).get()
         _ = try await call(router, "mouse", ["kind": "up", "x": .number(at.x), "y": .number(at.y), "click_count": 2]).get()
@@ -160,6 +162,7 @@ import CmuxNextTestSupport
 
     @Test func theRightButtonOpensAContextMenuEventAndClicksNothing() async throws {
         let (router, page) = await install()
+        defer { page.window.closeAfterTest() }
         let at = try await page.center("btn")
         _ = try await call(router, "mouse", ["kind": "down", "x": .number(at.x), "y": .number(at.y), "button": "right"]).get()
         _ = try await call(router, "mouse", ["kind": "up", "x": .number(at.x), "y": .number(at.y), "button": "right"]).get()
@@ -171,6 +174,7 @@ import CmuxNextTestSupport
 
     @Test func aMoveHoversTheElementUnderThePoint() async throws {
         let (router, page) = await install()
+        defer { page.window.closeAfterTest() }
         let at = try await page.center("target")
         _ = try await call(router, "mouse", ["kind": "move", "x": .number(at.x), "y": .number(at.y)]).get()
         #expect(try await page.events("mouseover").first?["id"] == "target")
@@ -182,6 +186,7 @@ import CmuxNextTestSupport
 
     @Test func mouseEventsCarryTheirModifiers() async throws {
         let (router, page) = await install()
+        defer { page.window.closeAfterTest() }
         let at = try await page.center("target")
         _ = try await call(router, "mouse", ["kind": "down", "x": .number(at.x), "y": .number(at.y),
                                              "modifiers": ["shift", "meta"]]).get()
@@ -193,6 +198,7 @@ import CmuxNextTestSupport
 
     @Test func aWheelAtAPointScrollsTheBoxUnderIt() async throws {
         let (router, page) = await install()
+        defer { page.window.closeAfterTest() }
         let list = try await page.center("list")
         _ = try await call(router, "wheel", ["x": .number(list.x), "y": .number(list.y), "dx": 0, "dy": 120]).get()
         #expect(try await page.events("wheel").first?["deltaY"] == 120)
@@ -204,6 +210,7 @@ import CmuxNextTestSupport
 
     @Test func insertTextGoesIntoTheFocusedField() async throws {
         let (router, page) = await install()
+        defer { page.window.closeAfterTest() }
         _ = try await call(router, "focus", ["selector": "#name"]).get()
         _ = try await call(router, "insert_text", ["text": "hello"]).get()
         _ = try await call(router, "insert_text", ["text": " world"]).get()
@@ -218,12 +225,14 @@ import CmuxNextTestSupport
 
     @Test func insertTextWithNoFocusedFieldIsRefused() async throws {
         let (router, page) = await install()
+        defer { page.window.closeAfterTest() }
         _ = try await page.json("(document.activeElement && document.activeElement.blur(), 0)")
         #expect(await call(router, "insert_text", ["text": "x"]).failure?.code == "not_editable")
     }
 
     @Test func keyDownAndUpAreSeparateAndCarryModifiers() async throws {
         let (router, page) = await install()
+        defer { page.window.closeAfterTest() }
         _ = try await call(router, "focus", ["selector": "#name"]).get()
         _ = try await call(router, "key", ["key": "k", "kind": "down", "modifiers": ["meta"]]).get()
         let down = try #require(try await page.events("keydown").first)
@@ -237,6 +246,7 @@ import CmuxNextTestSupport
 
     @Test func aShiftedKeyPressTypesItsCharacter() async throws {
         let (router, page) = await install()
+        defer { page.window.closeAfterTest() }
         _ = try await call(router, "focus", ["selector": "#name"]).get()
         _ = try await call(router, "key", ["key": "A", "kind": "press", "modifiers": ["shift"]]).get()
         #expect(try await page.read("document.getElementById('name').value") == "A")
@@ -244,7 +254,8 @@ import CmuxNextTestSupport
     }
 
     @Test func badParamsAreRefused() async throws {
-        let (router, _) = await install()
+        let (router, page) = await install()
+        defer { page.window.closeAfterTest() }
         #expect(await call(router, "mouse", ["kind": "down", "y": 1]).failure?.code == "invalid_params")
         #expect(await call(router, "mouse", ["kind": "drag", "x": 1, "y": 1]).failure?.code == "invalid_params")
         #expect(await call(router, "mouse", ["kind": "down", "x": 1, "y": 1, "button": "thumb"]).failure?.code == "invalid_params")

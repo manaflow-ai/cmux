@@ -63,6 +63,7 @@ import Testing
     @Test func theDragGhostStandsOnGlassFromItsFirstFrame() throws {
         let ghost = TabDragGhostPanel(tabImage: nil, tabSize: CGSize(width: 160, height: 28),
                                       grabOffset: CGPoint(x: 20, y: 14), aspect: 1.6, scale: 2, onGlass: true)
+        defer { ghost.panel.closeAfterTest() }
         ghost.render(TabDragGhostMotion(rect: CGRect(x: 100, y: 100, width: 160, height: 28), cardness: 0))
         let root = try #require(ghost.panel.contentView)
         let glass = try #require(root.subviews.first { $0 is GlassPanelView })
@@ -71,6 +72,7 @@ import Testing
 
         let solid = TabDragGhostPanel(tabImage: nil, tabSize: CGSize(width: 160, height: 28),
                                       grabOffset: CGPoint(x: 20, y: 14), aspect: 1.6, scale: 2, onGlass: false)
+        defer { solid.panel.closeAfterTest() }
         solid.render(TabDragGhostMotion(rect: CGRect(x: 100, y: 100, width: 160, height: 28), cardness: 0))
         let solidGlass = try #require(solid.panel.contentView?.subviews.first { $0 is GlassPanelView })
         #expect(solidGlass.alphaValue == 0, "an opaque window's tab image carries its own card")
@@ -151,6 +153,7 @@ import Testing
                                                  image: nil, imageOnGlass: onGlass)
                 #expect(session.beginWorkspaces(handoff, from: controller))
                 let ghost = try #require(session.drag?.ghost)
+                defer { ghost.panel.closeAfterTest() }
                 #expect(ghost.onGlass == onGlass, "the ghost stands on the glass its image was drawn for")
                 session.finish(commit: false)
                 session.finishLanding()

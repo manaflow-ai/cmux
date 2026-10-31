@@ -127,6 +127,7 @@ import Testing
 
     @Test func aWindowThatClosedBeforeTheQuestionAnswersCancel() async {
         let closed = NSWindow(contentRect: .zero, styleMask: [], backing: .buffered, defer: true)
+        defer { closed.closeAfterTest() }
         #expect(!closed.isVisible)
         #expect(await ExternalLinkGate.ask(SSHLinkTarget(user: nil, host: "build.example.com", port: nil), in: closed) == .cancel)
     }

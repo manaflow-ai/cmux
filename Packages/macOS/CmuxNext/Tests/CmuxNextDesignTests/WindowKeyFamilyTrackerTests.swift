@@ -59,6 +59,10 @@ import Testing
     @Test func aKeyChangeChecksOncePerWindowAndUpdatesOnlyTheFlippedWindowsViews() {
         let keyboard = Keyboard()
         let measured = Self.window(), other = Self.window()
+        defer {
+            measured.closeAfterTest()
+            other.closeAfterTest()
+        }
         let measuredFamily = WindowKeyFamily.of(measured, environment: keyboard.environment)
         let otherFamily = WindowKeyFamily.of(other, environment: keyboard.environment)
         let views = Self.addViews(12, to: measured)
@@ -100,6 +104,7 @@ import Testing
     @Test func aViewLeavingItsWindowLeavesTheTracker() {
         let keyboard = Keyboard()
         let window = Self.window()
+        defer { window.closeAfterTest() }
         let family = WindowKeyFamily.of(window, environment: keyboard.environment)
         let views = Self.addViews(2, to: window)
         views[0].removeFromSuperview()
@@ -109,6 +114,7 @@ import Testing
     @Test func aWindowWithNoMaterialViewChecksNothing() {
         let keyboard = Keyboard()
         let window = Self.window()
+        defer { window.closeAfterTest() }
         let family = WindowKeyFamily.of(window, environment: keyboard.environment)
         // No view yet: a key change schedules no check.
         #expect(!family.isObserving)
@@ -171,6 +177,7 @@ import Testing
         let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.titled],
                              backing: .buffered, defer: true)
         other.isReleasedWhenClosed = false
+        defer { other.closeAfterTest() }
         keyboard.key = other
         keyboard.post([NSWindow.didResignKeyNotification, NSWindow.didBecomeKeyNotification])
         #expect(family.isInactive)
@@ -197,6 +204,7 @@ import Testing
         let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.titled],
                              backing: .buffered, defer: true)
         other.isReleasedWhenClosed = false
+        defer { other.closeAfterTest() }
         keyboard.key = other
         keyboard.post(NSWindow.didBecomeKeyNotification)
         #expect(family.isInactive)

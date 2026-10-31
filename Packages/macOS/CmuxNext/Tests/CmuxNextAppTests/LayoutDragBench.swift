@@ -131,6 +131,7 @@ struct LayoutDragBench {
             var intents = 0, ended = 0
             for _ in 0..<Self.rounds {
                 let harness = Harness()
+                defer { harness.window.closeAfterTest() }
                 let screen = harness.screen
                 let center: CGPoint
                 switch kind {

@@ -72,6 +72,7 @@ struct FocusFollowsMouseTests {
 
     @Test func aMouseWheelOverAnotherPaneFocusesIt() throws {
         let w = Window()
+        defer { w.window.closeAfterTest() }
         #expect(w.scroll(at: try w.center("p2"), dy: -1, units: .line) == false, "the pane still gets the scroll")
         #expect(w.model.focusedPane == "p2")
         #expect(w.model.lastFocusSource == .scroll)
@@ -79,6 +80,7 @@ struct FocusFollowsMouseTests {
 
     @Test func aTrackpadScrollOverAnotherPaneFocusesItAtItsStart() throws {
         let w = Window()
+        defer { w.window.closeAfterTest() }
         let p2 = try w.center("p2")
         #expect(w.scroll(at: p2, phase: .began) == false, "the pane still gets the scroll")
         #expect(w.model.focusedPane == "p2")
@@ -86,6 +88,7 @@ struct FocusFollowsMouseTests {
 
     @Test func momentumFromAnEarlierGestureDoesNotStealFocus() throws {
         let w = Window()
+        defer { w.window.closeAfterTest() }
         // A flick in p1 ends; its coast passes over p2.
         w.gesture(at: try w.center("p1"))
         let p2 = try w.center("p2")
@@ -97,6 +100,7 @@ struct FocusFollowsMouseTests {
 
     @Test func recentTypingKeepsFocus() throws {
         let w = Window()
+        defer { w.window.closeAfterTest() }
         w.secondsSinceKeyDown = 0.3
         w.gesture(at: try w.center("p2"))
         w.scroll(at: try w.center("p2"), dy: -1, units: .line)
@@ -109,6 +113,7 @@ struct FocusFollowsMouseTests {
 
     @Test func aBackgroundWindowKeepsItsFocus() throws {
         let w = Window()
+        defer { w.window.closeAfterTest() }
         w.windowIsKey = false
         w.gesture(at: try w.center("p2"))
         #expect(w.model.focusedPane == "p1")
@@ -118,6 +123,7 @@ struct FocusFollowsMouseTests {
     /// person is typing (the user, Oct 20).
     @Test func byDefaultAScrollOverAnotherPaneKeepsFocus() throws {
         let w = Window(focusOnScroll: nil)
+        defer { w.window.closeAfterTest() }
         w.gesture(at: try w.center("p2"))
         w.scroll(at: try w.center("p2"), dy: -1, units: .line)
         #expect(w.model.focusedPane == "p1")
@@ -125,12 +131,14 @@ struct FocusFollowsMouseTests {
 
     @Test func byDefaultHoveringAnotherPaneKeepsFocus() throws {
         let w = Window(focusOnScroll: nil)
+        defer { w.window.closeAfterTest() }
         w.hover(at: try w.center("p2"))
         #expect(w.model.focusedPane == "p1")
     }
 
     @Test func turnedOnTheSettingFocusesAPaneThePointerEnters() throws {
         let w = Window()
+        defer { w.window.closeAfterTest() }
         w.hover(at: try w.center("p1"))
         #expect(w.hover(at: try w.center("p2")) == "p2")
         #expect(w.model.focusedPane == "p2")
@@ -139,6 +147,7 @@ struct FocusFollowsMouseTests {
 
     @Test func hoverDoesNotUndoAKeyboardMoveInsideTheSamePane() throws {
         let w = Window()
+        defer { w.window.closeAfterTest() }
         let p2 = try w.center("p2")
         w.hover(at: p2)
         #expect(w.model.focusedPane == "p2")
@@ -150,6 +159,7 @@ struct FocusFollowsMouseTests {
 
     @Test func hoverWhileTypingOrDraggingOrInABackgroundWindowKeepsFocus() throws {
         let w = Window()
+        defer { w.window.closeAfterTest() }
         let p1 = try w.center("p1"), p2 = try w.center("p2")
         w.secondsSinceKeyDown = 0.3
         w.hover(at: p2)
@@ -168,6 +178,7 @@ struct FocusFollowsMouseTests {
 
     @Test func theSettingTurnedOffKeepsFocus() throws {
         let w = Window(focusOnScroll: false)
+        defer { w.window.closeAfterTest() }
         w.gesture(at: try w.center("p2"))
         w.scroll(at: try w.center("p2"), dy: -1, units: .line)
         w.hover(at: try w.center("p2"))
@@ -176,6 +187,7 @@ struct FocusFollowsMouseTests {
 
     @Test func scrollingTheFocusedPaneChangesNothing() throws {
         let w = Window()
+        defer { w.window.closeAfterTest() }
         let before = w.model.lastFocusSource
         w.gesture(at: try w.center("p1"))
         #expect(w.model.focusedPane == "p1")

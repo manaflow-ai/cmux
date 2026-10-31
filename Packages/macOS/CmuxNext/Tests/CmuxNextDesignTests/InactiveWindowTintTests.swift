@@ -76,6 +76,8 @@ import CmuxNextDesignTokens
             return window
         }
         let shell = window(), popup = window(), scope = ActiveLookScope()
+        defer { shell.closeAfterTest() }
+        defer { popup.closeAfterTest() }
         shell.contentView?.addSubview(ActiveLookGlassEffectView(scope: scope))
         popup.contentView?.addSubview(NSGlassEffectView())
         #expect(scope.keepsActiveLook(shell))
@@ -94,6 +96,8 @@ import CmuxNextDesignTokens
             return window
         }
         let first = window(), second = window(), scope = ActiveLookScope()
+        defer { first.closeAfterTest() }
+        defer { second.closeAfterTest() }
         let glass = ActiveLookGlassEffectView(scope: scope), other = ActiveLookGlassEffectView(scope: scope)
         first.contentView?.addSubview(glass)
         first.contentView?.addSubview(other)

@@ -110,6 +110,8 @@ import Testing
         _ = NSApplication.shared
         let screen = try #require(NSScreen.screens.first)
         let frame = CGRect(x: screen.frame.minX + 100, y: screen.visibleFrame.maxY - 200, width: 400, height: 300)
-        #expect(HoverCardPanel().constrainFrameRect(frame, to: screen) == frame)
+        let panel = HoverCardPanel()
+        defer { panel.closeAfterTest() }
+        #expect(panel.constrainFrameRect(frame, to: screen) == frame)
     }
 }

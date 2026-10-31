@@ -72,6 +72,7 @@ struct ChildPageFocusKeyChangeTests {
 
     @Test func focusingAnotherPageMakesOneKeyChange() {
         let world = World()
+        defer { [world.cmux, world.pageA, world.pageB].forEach { $0.closeAfterTest() } }
         world.focus.focus(world.a)
         #expect(world.keys.changes == ["pageA"])
         world.focus.focus(world.b)
@@ -82,6 +83,7 @@ struct ChildPageFocusKeyChangeTests {
 
     @Test func focusingThePageThatHasFocusMakesNoKeyChange() {
         let world = World()
+        defer { [world.cmux, world.pageA, world.pageB].forEach { $0.closeAfterTest() } }
         world.focus.focus(world.a)
         world.focus.focus(world.a)
         #expect(world.keys.changes == ["pageA"])
@@ -91,6 +93,7 @@ struct ChildPageFocusKeyChangeTests {
     /// AppKit's didBecomeKey runs inside the grant; a re-apply there must not grant again (ping-pong).
     @Test func aReapplyInsideTheGrantDoesNotGrantAgain() {
         let world = World()
+        defer { [world.cmux, world.pageA, world.pageB].forEach { $0.closeAfterTest() } }
         world.duringGrant = { [weak world] in
             guard let world else { return }
             world.focus.focus(world.b)
@@ -105,6 +108,7 @@ struct ChildPageFocusKeyChangeTests {
     /// the cmux window takes the keys back, grant or not.
     @Test func reclaimInsideTheGrantAfterThePageBlurredTakesTheKeysBack() {
         let world = World()
+        defer { [world.cmux, world.pageA, world.pageB].forEach { $0.closeAfterTest() } }
         world.duringGrant = { [weak world] in
             guard let world else { return }
             world.focus.blurPage()
@@ -117,6 +121,7 @@ struct ChildPageFocusKeyChangeTests {
 
     @Test func reclaimMakesNoKeyChangeWhenTheCmuxWindowIsKey() {
         let world = World()
+        defer { [world.cmux, world.pageA, world.pageB].forEach { $0.closeAfterTest() } }
         world.keys.makeKey(world.cmux)
         world.reclaim()
         world.reclaim()
@@ -125,6 +130,7 @@ struct ChildPageFocusKeyChangeTests {
 
     @Test func reclaimMakesNoKeyChangeWhileNoWindowIsKey() {
         let world = World()
+        defer { [world.cmux, world.pageA, world.pageB].forEach { $0.closeAfterTest() } }
         world.reclaim()
         #expect(world.keys.changes.isEmpty, "an inactive app's window took the keys")
     }
@@ -134,6 +140,7 @@ struct ChildPageFocusKeyChangeTests {
     /// the page focused and granted nothing: no caret, typing went to the cmux window.
     @Test func aPageThatLostTheKeysToTheCmuxWindowIsGrantedAgain() {
         let world = World()
+        defer { [world.cmux, world.pageA, world.pageB].forEach { $0.closeAfterTest() } }
         world.focus.focus(world.a)
         world.keys.makeKey(world.cmux) // the page window was presented again
         #expect(world.focus.keysReturned(to: world.cmux))
@@ -145,6 +152,7 @@ struct ChildPageFocusKeyChangeTests {
 
     @Test func keysReturnedChangesNothingWhileThePageWindowIsKey() {
         let world = World()
+        defer { [world.cmux, world.pageA, world.pageB].forEach { $0.closeAfterTest() } }
         world.focus.focus(world.a)
         #expect(!world.focus.keysReturned(to: world.cmux))
         #expect(world.focus.page === world.a)
@@ -153,6 +161,7 @@ struct ChildPageFocusKeyChangeTests {
 
     @Test func keysReturnedChangesNothingWithNoFocusedPage() {
         let world = World()
+        defer { [world.cmux, world.pageA, world.pageB].forEach { $0.closeAfterTest() } }
         world.keys.makeKey(world.cmux)
         #expect(!world.focus.keysReturned(to: world.cmux))
         #expect(world.focusCalls.isEmpty)
@@ -161,6 +170,7 @@ struct ChildPageFocusKeyChangeTests {
     /// A key change inside the grant is the grant's own: no blur and no second grant (ping-pong).
     @Test func keysReturnedInsideTheGrantChangesNothing() {
         let world = World()
+        defer { [world.cmux, world.pageA, world.pageB].forEach { $0.closeAfterTest() } }
         var returned: Bool?
         world.duringGrant = { [weak world] in
             guard let world else { return }
@@ -176,6 +186,7 @@ struct ChildPageFocusKeyChangeTests {
     /// Focus leaves the page for a target in the cmux window (a terminal): one change, back to cmux.
     @Test func leavingThePageMakesOneKeyChange() {
         let world = World()
+        defer { [world.cmux, world.pageA, world.pageB].forEach { $0.closeAfterTest() } }
         world.focus.focus(world.a)
         world.focus.blurPage()
         world.reclaim()

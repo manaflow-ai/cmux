@@ -45,6 +45,7 @@ struct ColumnCloseMotionTests {
     @Test(arguments: [false, true], [false, true])
     func closingTheRevealedColumnBringsTheChatBack(collapseToLeaf: Bool, reduceMotion: Bool) throws {
         let fixture = Screen(reduceMotion: reduceMotion)
+        defer { fixture.window.closeAfterTest() }
         let screen = try #require(fixture.root.screenViews["s"])
         fixture.model.revealColumn(containing: "files")
         fixture.root.syncWithModel()

@@ -143,6 +143,7 @@ struct PaneMotionBench {
         for _ in 0..<3 {
             // Column close starts focused on the column it closes, so the camera springs back.
             let harness = Harness(before, focused: bench.name == "columnClose" ? PaneID("p\(c)-0") : PaneID("p0-0"))
+            defer { harness.window.closeAfterTest() }
             _ = await harness.frame()
             times += await harness.run(after, focus: bench.name == "column" ? PaneID("p\(c)-0") : nil)
         }

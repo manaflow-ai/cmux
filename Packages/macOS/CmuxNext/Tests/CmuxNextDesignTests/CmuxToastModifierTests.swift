@@ -38,6 +38,7 @@ struct CmuxToastModifierTests {
     @Test func aRejectPushedOutOfTheStackClearsTheModel() async throws {
         let center = CmuxToastCenter(host: HeadlessHost())
         let window = Self.window()
+        defer { window.closeAfterTest() }
         let model = Model()
         _ = Self.anchor(model, center: center, in: window)
         #expect(center.toasts(in: window).map(\.id) == ["feed.reject"])
@@ -52,6 +53,7 @@ struct CmuxToastModifierTests {
     @Test func aClosedPanelClearsItsReject() async throws {
         let center = CmuxToastCenter(host: HeadlessHost())
         let window = Self.window()
+        defer { window.closeAfterTest() }
         let model = Model()
         let view = Self.anchor(model, center: center, in: window)
         view.removeFromSuperview()

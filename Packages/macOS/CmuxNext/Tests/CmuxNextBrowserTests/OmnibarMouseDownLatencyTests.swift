@@ -41,6 +41,7 @@ struct OmnibarMouseDownLatencyTests {
 
     @Test func theFocusingPressShowsTheEditingLookAtOnce() throws {
         let (bar, window) = bar()
+        defer { window.closeAfterTest() }
         try press(bar, in: window)
         #expect(bar.isEditing)
         #expect(bar.pill.state == .editing)
@@ -51,6 +52,7 @@ struct OmnibarMouseDownLatencyTests {
 
     @Test func blurShowsTheRestingLookAtOnce() throws {
         let (bar, window) = bar()
+        defer { window.closeAfterTest() }
         try press(bar, in: window)
         blur(bar, in: window)
         #expect(bar.pill.state == .idle)
@@ -60,12 +62,14 @@ struct OmnibarMouseDownLatencyTests {
 
     @Test func theFocusingPressSelectsTheWholeAddress() throws {
         let (bar, window) = bar()
+        defer { window.closeAfterTest() }
         try press(bar, in: window)
         #expect(bar.debugAllSelected)
     }
 
     @Test func theFocusingPressKeepsTheStarAndTheFieldWidth() throws {
         let (bar, window) = bar(star: .off)
+        defer { window.closeAfterTest() }
         #expect(!bar.starButton.isHidden)
         let width = bar.field.frame.width
         try press(bar, in: window)
@@ -77,6 +81,7 @@ struct OmnibarMouseDownLatencyTests {
 
     @Test func typingHidesTheStarAndBlurShowsItAgain() throws {
         let (bar, window) = bar(star: .on)
+        defer { window.closeAfterTest() }
         bar.debugType("swift")
         bar.layoutSubtreeIfNeeded()
         #expect(bar.starButton.isHidden)
@@ -90,6 +95,7 @@ struct OmnibarMouseDownLatencyTests {
     /// far inside one frame. Median of 25 presses from rest, so one slow host tick does not fail it.
     @Test func thePressPathStaysInsideAFrame() throws {
         let (bar, window) = bar()
+        defer { window.closeAfterTest() }
         var samples: [Double] = []
         for _ in 0..<25 {
             blur(bar, in: window)

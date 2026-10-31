@@ -16,6 +16,7 @@ struct ToastUndoStepWithoutToastTests {
 
     @Test func aStepWithoutAToastUndoesFromTheUndoStack() throws {
         let window = Self.window()
+        defer { window.closeAfterTest() }
         let manager = try #require(window.undoManager)
         var undone = 0
         ToastUndoStep.attach(title: "Move", filling: nil, undoManager: manager, handle: nil) { undone += 1 }
@@ -30,6 +31,7 @@ struct ToastUndoStepWithoutToastTests {
 
     @Test func theInverseRegisteredDuringUndoIsTheRedo() throws {
         let window = Self.window()
+        defer { window.closeAfterTest() }
         let manager = try #require(window.undoManager)
         var moves: [String] = []
         func move(_ to: String, back: String) {
@@ -49,6 +51,7 @@ struct ToastUndoStepWithoutToastTests {
     /// reply fills it.
     @Test func aPendingStepWithoutAToastIsFilledByTheReply() throws {
         let window = Self.window()
+        defer { window.closeAfterTest() }
         let manager = try #require(window.undoManager)
         var undone = false
         let step = ToastUndoStep.pending(title: "Move", undoManager: manager, handle: nil)

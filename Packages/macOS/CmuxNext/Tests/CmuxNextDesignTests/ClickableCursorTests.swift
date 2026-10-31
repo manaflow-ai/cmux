@@ -36,6 +36,7 @@ struct ClickableCursorTests {
     @Test func anEnabledButtonRegistersNoCursorSoTheArrowShows() {
         let button = RecordingButton(frame: .zero)
         let window = host(button, at: NSRect(x: 0, y: 0, width: 40, height: 20))
+        defer { window.closeAfterTest() }
         #expect(button.recordedRects().isEmpty)
         withExtendedLifetime(window) {}
     }
@@ -43,6 +44,7 @@ struct ClickableCursorTests {
     @Test func aDisabledOrReEnabledButtonRegistersNoCursor() {
         let button = RecordingButton(frame: .zero)
         let window = host(button, at: NSRect(x: 0, y: 0, width: 40, height: 20))
+        defer { window.closeAfterTest() }
         button.isEnabled = false
         #expect(button.recordedRects().isEmpty)
         button.isEnabled = true

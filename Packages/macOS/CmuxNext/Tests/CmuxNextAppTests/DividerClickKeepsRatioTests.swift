@@ -55,6 +55,7 @@ struct DividerClickKeepsRatioTests {
 
     @Test func aClickWithNoDragSavesNoRatio() throws {
         let harness = Harness()
+        defer { harness.window.closeAfterTest() }
         let handle = try harness.handle
         let point = try harness.center()
         handle.mouseDown(with: harness.event(.leftMouseDown, point))
@@ -64,6 +65,7 @@ struct DividerClickKeepsRatioTests {
 
     @Test func aDragStillSavesItsRatioOnRelease() throws {
         let harness = Harness()
+        defer { harness.window.closeAfterTest() }
         let handle = try harness.handle
         let start = try harness.center()
         let end = CGPoint(x: start.x - 200, y: start.y)

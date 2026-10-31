@@ -79,6 +79,7 @@ import Testing
     @Test func theQuestionShowsInTheLinksWindow() async {
         let probe = Probe()
         let window = NSWindow(contentRect: .zero, styleMask: [], backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         _ = await gate(probe, answer: false).open("ses-1", in: window, reveal: { false }, openNew: { true }).value
         #expect(probe.askedIn === window)
     }
@@ -108,6 +109,7 @@ import Testing
 
     @Test func aWindowThatClosedBeforeTheQuestionOpensNothing() async {
         let closed = NSWindow(contentRect: .zero, styleMask: [], backing: .buffered, defer: true)
+        defer { closed.closeAfterTest() }
         #expect(await SessionLinkGate.ask(known, in: closed) == false)
     }
 }

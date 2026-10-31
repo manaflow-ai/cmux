@@ -21,6 +21,7 @@ import Testing
 
     @Test func theCardFloatsOnEverySpaceAndOverFullScreenWithoutActivating() {
         let card = AddServerCardPanel(model: model().1)
+        defer { card.closeAfterTest() }
         #expect(card.styleMask.contains(.nonactivatingPanel))
         #expect(card.styleMask.contains(.borderless))
         #expect(card.collectionBehavior.contains(.canJoinAllSpaces))

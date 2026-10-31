@@ -294,6 +294,7 @@ import Testing
         // The view leaves the resizing window (CEFHostView.viewDidMoveToWindow) and shows later in one that is not resizing.
         hosting.windowDidChange()
         let still = LiveResizeWindow.make(live: false)
+        defer { still.closeAfterTest() }
         still.contentView?.addSubview(view)
         hosting.windowDidChange()
         #expect(fake.syncs.map(\.timeoutMs) == [50, 0])
@@ -301,6 +302,7 @@ import Testing
         view.removeFromSuperview()
         hosting.windowDidChange()
         let resizing = LiveResizeWindow.make(live: true)
+        defer { resizing.closeAfterTest() }
         resizing.contentView?.addSubview(view)
         hosting.windowDidChange()
         #expect(fake.syncs.map(\.timeoutMs) == [50, 0, 50])
