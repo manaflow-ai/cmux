@@ -118,6 +118,7 @@ import {
   devboxGhosttyDebSha256,
   devboxGhosttyDebUrl,
   devboxGhosttyVersion,
+  devboxTeamKindDefaultCommand,
   devboxIdentityCheckCommand,
   devboxIdentityInstallCommand,
   devboxJournalResetCommand,
@@ -542,6 +543,10 @@ try {
       "echo agent-hooks-ok",
     ].join(" && "),
   );
+  // The record every machine boots with (cmux-vm-kind-sync and the create
+  // replace it). A Stack team of one is `owner` by the reflection answer
+  // (services/vms/vmKind.ts resolveVmGuestKind), which only the sync can see.
+  await step("vm-kind-default", devboxTeamKindDefaultCommand());
 
   // The Ghostty generation panes announce as TERM_PROGRAM_VERSION (the
   // supervisor exports it next to TERM_PROGRAM=ghostty; see cmux-devbox-boot).
@@ -576,6 +581,7 @@ try {
     "WantedBy=multi-user.target",
   ].join("\n");
   await put("cmux-devbox-boot", "/usr/local/bin/cmux-devbox-boot", 0o755);
+  await put("cmux-vm-kind-sync", "/usr/local/bin/cmux-vm-kind-sync", 0o755);
   await put("cmux-tui-state-mount", "/usr/local/bin/cmux-tui-state-mount", 0o755);
   await put("cmux-prompt-sync", "/usr/local/bin/cmux-prompt-sync", 0o755);
   await vm.fs.writeFile("/etc/systemd/system/cmux-tui-daemon.service", `${service}\n`, { mode: 0o644 });

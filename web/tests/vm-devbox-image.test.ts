@@ -5,7 +5,7 @@ declare const Bun: {
 };
 import { spawn } from "node:child_process";
 import { runChild } from "./helpers/run-child";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -33,6 +33,7 @@ import {
   devboxBubblewrapVersion,
   devboxCuaDriverVersion,
   devboxGhosttyVersion,
+  devboxTeamKindDefaultCommand,
   devboxWaitForDaemonCommand,
   devboxParkDaemonCommand,
   devboxSourceDigest,
@@ -133,6 +134,7 @@ describe("devbox image template", () => {
       "cmux-terminfo.sh",
       "cmux-terminfo.src",
       "cmux-tui-state-mount",
+      "cmux-vm-kind-sync",
       "codex-managed.toml",
       // The desktop layer (Freestyle only); pinned by vm-devbox-desktop.test.ts.
       "desktop",
@@ -155,9 +157,43 @@ describe("devbox image template", () => {
       "cmux-terminfo.sh",
       "cmux-terminfo.src",
       "cmux-tui-state-mount",
+      "cmux-vm-kind-sync",
       "codex-managed.toml",
       "seed-history",
     ]);
+  });
+
+  test("both recipes install cmux-vm-kind-sync and boot with a team record the sync corrects", () => {
+    const bake = readScript("build-devbox-freestyle.ts");
+    const dockerfile = read("Dockerfile");
+    expect(bake).toContain('await put("cmux-vm-kind-sync", "/usr/local/bin/cmux-vm-kind-sync", 0o755);');
+    expect(dockerfile).toContain("COPY cmux-vm-kind-sync /usr/local/bin/cmux-vm-kind-sync");
+    expect(dockerfile).toContain("chmod 0755 /usr/local/bin/cmux-vm-kind-sync");
+    expect(dockerfile).toContain("echo team > /etc/cmux/vm-kind && chmod 0644 /etc/cmux/vm-kind");
+    const steps = [...bake.matchAll(/await step\(\s*"([^"]+)"/g)].map((match) => match[1]);
+    expect(steps.filter((step) => step === "vm-kind-default")).toHaveLength(1);
+    expect(steps.indexOf("vm-kind-default")).toBeLessThan(steps.indexOf("model-plane-env"));
+    // The boot supervisor runs the sync every minute and resets a clone to team first.
+    expect(devboxBoot).toContain("VM_KIND_SYNC_INTERVAL=60");
+    expect(devboxBoot).toMatch(/mark_vm_kind_shared\n\s+sync_vm_kind_if_due\n/);
+  });
+
+  test("the bake team-default command writes a 0644 team record over any earlier one", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "cmux-bake-team-default-"));
+    const kind = path.join(root, "etc/cmux/vm-kind");
+    try {
+      const command = devboxTeamKindDefaultCommand(kind);
+      const first = await runChild("/bin/bash", ["-c", command], { env: { PATH: process.env.PATH ?? "/usr/bin:/bin" } });
+      expect(first.status).toBe(0);
+      expect(first.stdout).toContain("vm-kind-team-default");
+      writeFileSync(kind, "owner\n");
+      const again = await runChild("/bin/bash", ["-c", command], { env: { PATH: process.env.PATH ?? "/usr/bin:/bin" } });
+      expect(again.status).toBe(0);
+      expect(readFileSync(kind, "utf8")).toBe("team\n");
+      expect(statSync(kind).mode & 0o777).toBe(0o644);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("the Ghostty version panes announce comes from the .deb pin and is a release version", () => {
@@ -202,7 +238,7 @@ describe("devbox image template", () => {
       const result = await runChild("/bin/bash", ["-n", path.join(templateDir, name)]);
       expect({ name, status: result.status }).toEqual({ name, status: 0 });
     }
-    for (const name of ["cmux-devbox-boot", "cmux-tui-state-mount", "cmux-motd"]) {
+    for (const name of ["cmux-devbox-boot", "cmux-tui-state-mount", "cmux-motd", "cmux-vm-kind-sync"]) {
       const result = await runChild("sh", ["-n", path.join(templateDir, name)]);
       expect({ name, status: result.status }).toEqual({ name, status: 0 });
     }
