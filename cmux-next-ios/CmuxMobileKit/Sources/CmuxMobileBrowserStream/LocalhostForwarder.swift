@@ -41,11 +41,10 @@ public final class LocalhostForwarder {
 
         var isUp: Bool { v4?.state == .ready }
 
-        func cancel() {
-            v4?.cancel()
-            v6?.cancel()
-            v4 = nil
-            v6 = nil
+        /// Hands over the listeners to close (the forward has none after).
+        func take() -> [NWListener] {
+            defer { v4 = nil; v6 = nil }
+            return [v4, v6].compactMap { $0 }
         }
     }
 
@@ -56,6 +55,9 @@ public final class LocalhostForwarder {
     /// Ports this app listened on lately: their closed connections' TIME_WAIT would
     /// refuse a plain rebind, so these rebind with address reuse. Kept past `stop()`.
     private var held: [UInt16: ContinuousClock.Instant] = [:]
+    /// Listeners of a port still closing: a cancelled listener holds its address until
+    /// it reports `cancelled`, so the next bind of the port waits for it.
+    private var closing: [UInt16: Task<Void, Never>] = [:]
     /// Longer than TIME_WAIT on the loopback (2 × MSL).
     static let heldFor: Duration = .seconds(60)
     /// Why the Mac last refused a connection to a port ("Nothing is listening on
@@ -108,8 +110,38 @@ public final class LocalhostForwarder {
         // Bound once (up, or ended by iOS): its closed connections may still hold the port.
         if forward.isUp || held[port] != nil { held[port] = .now }
         forward.binding?.cancel()
-        forward.cancel()
+        close(forward.take(), port: port)
         refusals[port] = nil
+    }
+
+    /// Cancels `listeners` and records their closing, which the port's next bind awaits.
+    private func close(_ listeners: [NWListener], port: UInt16) {
+        guard !listeners.isEmpty else { return }
+        let before = closing[port]
+        closing[port] = Task {
+            await before?.value
+            for listener in listeners { await Self.closed(listener) }
+        }
+    }
+
+    /// Waits until the port's earlier listeners closed.
+    private func closedEarlier(_ port: UInt16) async {
+        while let task = closing[port] {
+            await task.value
+            if closing[port] == task { closing[port] = nil }
+        }
+    }
+
+    /// Cancels a listener and returns once it gave up its address.
+    nonisolated static func closed(_ listener: NWListener) async {
+        if case .cancelled = listener.state { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let once = OnceFlag()
+            listener.stateUpdateHandler = { state in
+                if case .cancelled = state, once.take() { continuation.resume() }
+            }
+            listener.cancel()
+        }
     }
 
     /// Whether this app listened on the port within `heldFor`.
@@ -123,7 +155,7 @@ public final class LocalhostForwarder {
     public func suspend() {
         suspended = true
         for (port, forward) in forwards where forward.isUp { held[port] = .now }
-        for forward in forwards.values { forward.cancel() }
+        for (port, forward) in forwards { close(forward.take(), port: port) }
     }
 
     /// The app is active and linked again: the same ports listen again.
@@ -139,7 +171,8 @@ public final class LocalhostForwarder {
     private func bind(_ forward: Forward, port: UInt16) async -> Result<Void, Failure> {
         if let binding = forward.binding { return await binding.value }
         let task = Task { () -> Result<Void, Failure> in
-            forward.cancel()
+            close(forward.take(), port: port)
+            await closedEarlier(port)
             let v4: NWListener
             do throws(Failure) {
                 v4 = try await listen(host: .ipv4(.loopback), port: port, reuse: heldLately(port))
@@ -149,8 +182,7 @@ public final class LocalhostForwarder {
             let v6 = try? await listen(host: .ipv6(.loopback), port: port, reuse: heldLately(port))
             // Stopped, moved or suspended while these bound.
             guard forwards[port] === forward, !suspended, !Task.isCancelled else {
-                v4.cancel()
-                v6?.cancel()
+                close([v4] + [v6].compactMap { $0 }, port: port)
                 return .failure(.superseded)
             }
             forward.v4 = v4

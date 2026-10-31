@@ -225,7 +225,8 @@ final class OpenLog: @unchecked Sendable {
         let other = try NWListener(using: parameters)
         other.newConnectionHandler = { $0.cancel() }
         other.start(queue: .main)
-        for _ in 0..<200 where other.state != .ready { try await Task.sleep(for: .milliseconds(5)) }
+        for _ in 0..<400 where other.state != .ready { try await Task.sleep(for: .milliseconds(5)) }
+        try #require(other.state == .ready, "the other app's server is on the port: \(other.state)")
         await #expect(throws: LocalhostForwarder.Failure.portInUse) {
             try await forwarder.forward(port: port, macID: "mac-b")
         }
