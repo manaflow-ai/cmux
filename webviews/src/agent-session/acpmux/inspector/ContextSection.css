@@ -22,7 +22,11 @@
 .acpmux-chat-inspector-context__actions {
   display: flex;
   justify-content: flex-end;
-  padding: calc(var(--ds-space-1) / 2) calc(var(--ds-space-3) / 2) 0;
+  padding: 4px 8px 0;
+}
+/* The link's own 2px side padding: its text ends on the rows' 8px trailing edge. */
+.acpmux-chat-inspector-context__actions > .acpmux-chat-inspector-link {
+  margin-right: -2px;
 }
 .acpmux-chat-inspector-context__bar {
   display: flex;
