@@ -40,7 +40,7 @@ struct CloudNewWorkspaceLateStartTests {
         elif command == 'create-workspace':
             mutation = frame.get('mutation_id') or frame.get('key')
             workspaces.setdefault(mutation, frame.get('key'))
-            reply(frame, {'workspace': 5, 'key': frame.get('key'), 'workspace_revision': 1})
+            reply(frame, {'workspace': 5, 'key': frame.get('key'), 'workspace_revision': 1, 'replayed': False})
         elif command == 'create-terminal':
             creates.append(frame)
             data = terminal(frame)
@@ -56,6 +56,10 @@ struct CloudNewWorkspaceLateStartTests {
                           'creates': creates, 'terminals': len(terminals)})
         elif command == 'list-workspaces':
             reply(frame, {'workspaces': []})
+        elif command == 'close-workspace':
+            reply(frame, {'workspace': 5, 'key': frame.get('key'), 'workspace_revision': 1, 'replayed': False})
+        elif command == 'list-agents':
+            reply(frame, {'agents': []})
         else:
             reply(frame, {})
     """#

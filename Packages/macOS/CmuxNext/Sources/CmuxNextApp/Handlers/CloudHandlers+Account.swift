@@ -578,7 +578,7 @@ extension CloudHandlers {
                 }
             }
             try checkScope(session)
-            try await WorkspaceCreation.create(key, name: folder.map { URL(fileURLWithPath: $0.root).lastPathComponent }, on: connection, repair: session.emptyWorkspaces) { _ = try await WorkspaceCreation.firstTerminal(in: $0, cwd: cwd, on: connection) }
+            try await WorkspaceCreation.createWithFirstTab(key, name: folder.map { URL(fileURLWithPath: $0.root).lastPathComponent }, on: connection, repair: session.emptyWorkspaces) { _ = try await connection.createTerminal(in: $0.key, cwd: cwd) }
             return key.rawValue
         }
         return .started
