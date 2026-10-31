@@ -62,7 +62,9 @@ test("a sending message row has no spinner", () => {
 });
 
 test("a Claude SendMessage row has no spinner while sending", () => {
-  const view = markup(<MessageCard item={activity(2)} message={{ channel: "agent", to: "reviewer", text: "Please review." }} />);
+  const view = markup(
+    <MessageCard item={activity(2)} message={{ channel: "agent", to: "reviewer", text: "Please review." }} />,
+  );
   expect(view.querySelector('[data-delivery="sending"]')).not.toBeNull();
   expect(view.querySelectorAll(".cv-spinner")).toHaveLength(0);
 });

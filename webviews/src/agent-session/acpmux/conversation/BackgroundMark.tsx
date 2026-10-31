@@ -7,7 +7,13 @@ import { useT } from "../i18n";
 import type { AcpmuxBackgroundState } from "../model";
 import { Check, Spinner } from "./icons";
 
-export function BackgroundMark({ background, showActivity = true }: { background: AcpmuxBackgroundState; showActivity?: boolean }) {
+export function BackgroundMark({
+  background,
+  showActivity = true,
+}: {
+  background: AcpmuxBackgroundState;
+  showActivity?: boolean;
+}) {
   const t = useT();
   switch (background.state) {
     case "running": {
