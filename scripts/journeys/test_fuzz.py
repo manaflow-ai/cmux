@@ -348,6 +348,15 @@ class Verdicts(unittest.TestCase):
         self.assertGreater(len(calls), 1)  # asked for: the replay is shrunk
         self.assertEqual(len(summary["failures"][0]["shrunk"]), 1)
 
+    def test_unpinned_round_is_not_judged_not_broken(self):
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / "action-fuzz").mkdir()
+        (tmp / "action-fuzz" / "result.json").write_text(json.dumps({
+            "status": "not run", "reason": "harness: unpinned (1 uncommitted harness files)",
+            "harness": {"pinned": False}, "steps": [{"index": 4, "do": "fuzz_run", "ok": False, "error": "FUZZ r3b ..."}],
+            "evidence": [{"check": "fuzz_daemon_agrees", "pass": False, "detail": {}}]}))
+        self.assertEqual(fuzz.journey_problems(tmp, None), [])
+
     def test_cmux17_refused(self):
         tmp = Path(tempfile.mkdtemp())
         done = subprocess.run([sys.executable, str(HERE / "fuzz.py"), "--build", "j", "--host", "cmux17", "--out", str(tmp / "o")],

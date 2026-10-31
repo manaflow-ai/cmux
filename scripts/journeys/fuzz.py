@@ -123,6 +123,10 @@ def journey_problems(out, report):
         result = json.loads(path.read_text())
     except ValueError:
         return ["result.json does not parse"]
+    if result.get("status") == "not run" or (result.get("harness") or {}).get("pinned") is False:
+        # run.py judged the round not run (an unpinned harness, the lease deadline, a known gap): its steps are no
+        # evidence either way, so none of them makes the round broken (RED); it counts as not run.
+        return []
     problems = []
     for st in result.get("steps") or []:
         if st.get("ok") is not False or st.get("finally"):
