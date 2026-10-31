@@ -298,4 +298,31 @@ struct NewWorkspacePositionTests {
         #expect(wrong.isEmpty, "frames with the new row not first: \(wrong.count) of \(frames.count), first \(wrong.first ?? [])")
         #expect(firstLoose(frames.last ?? []) == made, "final: \(frames.last ?? [])")
     }
+    @Test(arguments: [false, true])
+    func aFailedFirstTabReleasesItsPlacementLedger(firstTab: Bool) async throws {
+        enum FirstTabFailure: Error { case expected }
+        let launched = try await Self.launch("top")
+        let connection = try #require(launched.services.daemon.connection)
+        let key = WorkspaceKey.generate()
+        let ledger = NewWorkspacePlacements.Ledger()
+        ledger.anchors[key.rawValue] = .after("old")
+        ledger.groupAnchors[key.rawValue] = .firstInGroupOf("old")
+        let rule = NewWorkspaceDefaultSlot(placement: .top, current: nil)
+        var failed = false
+        do {
+            if firstTab {
+                let _: String = try await WorkspaceCreation.createWithFirstTab(key, name: "failed", placedBy: rule, ledger: ledger,
+                    on: connection, repair: launched.services.emptyWorkspaces) { _ in throw FirstTabFailure.expected }
+            } else {
+                let _: String = try await WorkspaceCreation.create(key, name: "failed", placedBy: rule, ledger: ledger,
+                    on: connection, repair: launched.services.emptyWorkspaces) { _ in throw FirstTabFailure.expected }
+            }
+        } catch FirstTabFailure.expected { failed = true }
+        await launched.stop()
+        #expect(failed)
+        #expect(!ledger.placedByDaemon.contains(key.rawValue))
+        #expect(ledger.anchors[key.rawValue] == nil)
+        #expect(ledger.groupAnchors[key.rawValue] == nil)
+    }
+
 }

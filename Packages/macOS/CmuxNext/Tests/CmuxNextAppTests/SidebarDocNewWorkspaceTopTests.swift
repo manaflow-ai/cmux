@@ -1,4 +1,6 @@
+@testable import CmuxNextApp
 import CmuxNextBridge
+import CmuxNextSettings
 @testable import CmuxNextDaemon
 @testable import CmuxNextSidebar
 import Testing
@@ -98,6 +100,16 @@ import Testing
         doc.unplacedAnchor = { $0.resourceID?.rawValue == "ws-a" ? .first : nil }
         #expect(Self.order(doc.sections(empty, session: Self.session, workspaces: Self.store(fresh: ["ws-a"]).workspaces))
             == ["ws-home", "ws-a", "ws-1", "ws-2", "ws-3"])
+    }
+
+    @Test(arguments: [NewWorkspacePlacement.beforeCurrent, .afterCurrent])
+    func aMissingCurrentWorkspaceFallsBackToTopFromItsFirstFrame(placement: NewWorkspacePlacement) {
+        let doc = SidebarDocSections()
+        doc.placesNewRowsFirst = { false }
+        let anchor = NewWorkspacePlacements.anchor(slot: nil, byDefault: .init(placement: placement, current: "not-in-this-machine"), home: nil)
+        doc.unplacedAnchor = { $0.resourceID?.rawValue == "ws-new" ? anchor : nil }
+        #expect(Self.order(doc.sections(Self.projection(), session: Self.session, workspaces: Self.store(fresh: ["ws-new"]).workspaces))
+            == ["ws-home", "ws-new", "ws-1", "ws-2", "ws-3"])
     }
 
     @Test func aLiveWorkspaceTheDocumentDoesNotPlaceYetListsFirstBelowHome() {
