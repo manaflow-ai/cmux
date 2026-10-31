@@ -494,6 +494,9 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/cmux-next-terminal.yml",  # feat-cmux-next only
     # feat-cmux-next only; uploads the owned-pool-watch marker on attempt 1.
     ".github/workflows/cmux-next.yml",
+    # feat-cmux-next only; its portable placement (portable_job_placement.py) puts the guard group,
+    # tooling tests and release-notary guards on the side label only while a side runner is idle.
+    ".github/workflows/cmux-next-guards.yml",
     ".github/workflows/cmux-tui-artifacts.yml",
     ".github/workflows/cmux-tui.yml",
     ".github/workflows/iroh-v2.yml",
@@ -2172,6 +2175,13 @@ class GitHub:
                 lines = scan(response)
         return lines
 
+    def next_feed_newest_build(self) -> int | None:
+        """The newest build in cmux NEXT's nightly appcast (NEXT_FEED_URL), or None when the feed has none. A failed
+        read raises (one of READ_ERRORS), so nightly_next_moot() can tell an outage from an empty feed (#29448)."""
+        request = urllib.request.Request(NEXT_FEED_URL, headers={"User-Agent": "cmux-owned-pool-rescue"})
+        with urllib.request.urlopen(request, timeout=20) as response:
+            return newest_feed_build(response.read().decode("utf-8", "replace"))
+
     def annotations(self, job_id: int, *, final: bool = False) -> list[Mapping[str, Any]]:
         """The annotations of a job's check run (GitHub's "The run was canceled by @actor." among them). `final`: the
         job has finished, so its annotations no longer change and are read once per job (canceller())."""
@@ -3124,6 +3134,118 @@ def e2e_build_unfinished(api: GitHub, target: Target, sleep: Callable[[float], N
     return build is None or build.get("conclusion") != "success"
 
 
+# cmux NEXT's nightly appcast (nightly.yml's NIGHTLY_NEXT_FEED_BASE). A nightly build number is its run id and a
+# two-digit attempt (4119158082902 is run 41191580829, attempt 2), and publish-nightly refuses a build no newer
+# than the feed's, so a nightly-next run older than the feed's newest build's run can never publish there.
+NEXT_FEED_URL = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"
+_FEED_VERSION = re.compile(r"<sparkle:version>\s*(\d+)\s*</sparkle:version>")
+# glaeda's job-started hook refuses an owned-Mac signing job when scripts/ci/glaeda-signing-hooks.txt at the run's
+# own commit does not list the mini's hook. A re-run runs that same commit, so it is refused the same way every
+# time: on 2026-10-31 the rescue re-ran old nightly-next runs' sign-nightly-identity-legacy up to attempt 15, each
+# refused within seconds, while adding the hook to the list (at the tip) could never reach those commits.
+HOOK_UNLISTED = "glaeda-signing-hooks.txt at this run's commit does not list this hook"
+
+
+def newest_feed_build(xml: str) -> int | None:
+    """The highest cmux NEXT Nightly <sparkle:version> in an appcast, or None when it has none. The appcast also
+    carries cmux NEXT Dev items (channel cmux-next-dev), whose numbers are no nightly run's; only items on the
+    cmux-next channel count, as in nightly_next_feed_watch.nightly_builds()."""
+    builds = []
+    for item in re.findall(r"<item\b.*?</item>", xml, re.S):
+        channel = re.search(r"<sparkle:channel>\s*([^<]*?)\s*</sparkle:channel>", item)
+        version = _FEED_VERSION.search(item)
+        if channel and channel.group(1) == "cmux-next" and version:
+            builds.append(int(version.group(1)))
+    return max(builds) if builds else None
+
+
+# A runs-on that can send a re-run elsewhere than the attempt that was refused: an attempt-2 alternate
+# (`github.run_attempt > 1 && ...sign_alternate`) or a Blacksmith pick.
+_RERUN_ELSEWHERE = re.compile(r"run_attempt\s*(?:>|>=|!=)|blacksmith", re.I)
+
+
+# A runs-on that reads the attempt at all: its value can differ between attempts.
+_READS_ATTEMPT = re.compile(r"run_attempt", re.I)
+
+
+def rerun_stays_owned(workflow_text: str | None, name: str, *, failed_only: bool = False) -> bool:
+    """Whether the workflow job the jobs API calls `name` runs on owned Macs at every attempt, so a re-run meets the
+    same hook. Fails open (False): an unreadable file or an unmatched job keeps the re-run.
+
+    `failed_only`: the re-run is of failed jobs only (rerun_failed_or_repick() from attempt 2 on, or attempt 1 of a
+    run that is not nightly-next's), so the pickers the job needs keep their outputs. A runs-on that does not read the
+    attempt then resolves to the same owned label the refused job was on, whatever fallback literal it ends in: the
+    legacy signer's `needs.legacy-identity-target.outputs.sign_runner || 'blacksmith-6vcpu-macos-26'` takes the
+    Blacksmith literal only when the picker's output is empty, which it was not for a job the minis' hook refused
+    (#29447)."""
+    if not workflow_text:
+        return False
+    try:
+        spec = owned_pool_sources._load(workflow_text).get("jobs") or {}
+    except Exception:  # noqa: BLE001 - an unparseable file, or no PyYAML, keeps the re-run
+        return False
+    matches = [job for key, job in spec.items() if isinstance(job, Mapping)
+               and _job_name_pattern(str(key), job).fullmatch(name)]
+    if len(matches) != 1:
+        return False
+    runs_on = matches[0].get("runs-on")
+    if not runs_on:
+        return False
+    text = json.dumps(runs_on)
+    if failed_only and not _READS_ATTEMPT.search(text):
+        return True
+    return not _RERUN_ELSEWHERE.search(text)
+
+
+def nightly_next_moot(api: GitHub, target: Target, sleep: Callable[[float], None],
+                      log: Callable[[str], None]) -> str:
+    """Why re-running this finished nightly-next run can never publish, or "".
+
+    Only a finished run is ever moot here: a newer tip or a refusal never cancels a started nightly (Nightly
+    freshness), so a run that is still going keeps "" and its own path. A finished one is moot when cmux NEXT's
+    feed already has a Nightly build of a newer run (publish-nightly would refuse this one), or when a job of this
+    attempt was refused because its commit's signing-hook list lacks the mini's hook and the job's runs-on keeps
+    every re-run on owned Macs (a re-run is refused the same way). Any read that fails answers "", as before: a feed
+    that cannot be read keeps the run wanted, and no refusal is judged moot while it is unread (#29448)."""
+    try:
+        jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+        if not jobs or not run_finished(jobs):
+            return ""
+        reason = ""
+        newest = getattr(api, "next_feed_newest_build", None)
+        build = newest() if newest is not None else None
+        if build and target.run_id < build // 100:
+            reason = (f"cmux NEXT's feed already has Nightly build {build} of a newer run ({build // 100}), and "
+                      "publish-nightly refuses an older build")
+        text: list[str | None] = []
+        for found in jobs if not reason else ():
+            if not refused(found) or not found.get("id"):
+                continue
+            notes = read(lambda: api.annotations(int(found["id"]), final=True), sleep, log)
+            if not any(HOOK_UNLISTED in str(note.get("message") or "") for note in notes if isinstance(note, Mapping)):
+                continue
+            if not text:
+                text.append(read(lambda: api.workflow_file(target.path, target.head_sha), sleep, log))
+            name = str(found.get("name") or found["id"])
+            # From attempt 2 on, a refusal re-runs only the failed jobs (rerun_failed_or_repick()); attempt 1 of a
+            # nightly-next run may re-run its build picker and the jobs that need it, which may pick afresh.
+            if rerun_stays_owned(text[0], name, failed_only=target.attempt > 1):
+                reason = (f"{name} was refused because scripts/ci/glaeda-signing-hooks.txt at "
+                          f"{target.head_sha[:12]} does not list the minis' runner hook, and its runs-on keeps "
+                          "every re-run on owned Macs, so a re-run is refused the same way")
+                break
+        if not reason:
+            return ""
+        # The listed jobs can all be done while the run still adds more: only a finished run is moot.
+        run = read(lambda: api.run(target.run_id), sleep, log)
+        if not run or run.get("status") != "completed":
+            return ""
+        return reason
+    except (*READ_ERRORS, AnnotationsCapped) as error:
+        log(f"could not tell whether nightly-next run {target.run_id} is moot ({error}); treating it as wanted")
+    return ""
+
+
 def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
                log: Callable[[str], None]) -> str:
     """Why the pull request (or main) no longer wants this run, or "" when it still does.
@@ -3136,8 +3258,10 @@ def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
         # scopes them to github.run_id), so a newer tip builds alongside this one
         # and never makes it moot: a newer tip is never a reason to cancel a
         # nightly (Nightly freshness). publish-nightly's order check refuses a
-        # build no newer than the feed, so re-running an older one never downgrades.
-        return ""
+        # build no newer than the feed, so re-running an older one never downgrades,
+        # but it never publishes either: a finished run that can no longer publish
+        # is not re-run (nightly_next_moot()).
+        return nightly_next_moot(api, target, sleep, log)
     if target.nightly:
         # nightly.yml's concurrency group never cancels in progress: a newer
         # run waits behind this one, and a re-run of this one would join the
@@ -3278,6 +3402,93 @@ def nightly_build_unfinished(jobs: Sequence[Mapping[str, Any]]) -> bool:
     builds = [job for job in jobs if str(job.get("name") or "") == NIGHTLY_APP_BUILD
               or str(job.get("name") or "").startswith(NIGHTLY_APP_BUILD + " (")]
     return bool(builds) and any(job.get("conclusion") != "success" for job in builds)
+
+
+# A nightly build's deterministic compile error (compile_error()). The Release compile step of build-nightly-app, the
+# shell's exit status GitHub records when xcodebuild exits 65 (EX_DATAERR: the build failed, as opposed to a signal,
+# a lost runner or a timeout), and the swiftc diagnostic xcodebuild's output leaves as a failure annotation on a
+# Swift source line.
+NIGHTLY_COMPILE_STEP = "Build nightly app (Release)"
+XCODEBUILD_FAILED = "Process completed with exit code 65."
+COMPILE_SOURCE = re.compile(r"[^\s]+\.swift")
+
+
+def nightly_build_jobs(jobs: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """The attempt's build-nightly-app jobs (one, or a matrix's legs)."""
+    return [job for job in jobs if str(job.get("name") or "") == NIGHTLY_APP_BUILD
+            or str(job.get("name") or "").startswith(NIGHTLY_APP_BUILD + " (")]
+
+
+def compile_error(job: Mapping[str, Any], annotations: Sequence[Mapping[str, Any]]) -> str:
+    """Why a finished build-nightly-app job failed on a compile error its source will repeat, or "".
+
+    Conservative: only a job that failed (not cancelled or timed out), whose first failed step is the Release compile
+    (NIGHTLY_COMPILE_STEP), with GitHub's "exit code 65" annotation and a failure annotation on a .swift line (the
+    swiftc `error:` xcodebuild printed). A lost runner (no steps), a refusal at setup, a signal (exit 128 and up), a
+    timeout, an unreadable job or any other failure is "": it may pass on another runner, so it stays retryable."""
+    if job.get("status") != "completed" or job.get("conclusion") != "failure":
+        return ""
+    steps = [step for step in job.get("steps") or [] if isinstance(step, Mapping)]
+    failed = [step for step in steps if step.get("conclusion") == "failure"]
+    if not failed or failed[0].get("name") != NIGHTLY_COMPILE_STEP:
+        return ""
+    failures = [note for note in annotations if isinstance(note, Mapping) and note.get("annotation_level") == "failure"]
+    if not any(str(note.get("message") or "").strip() == XCODEBUILD_FAILED for note in failures):
+        return ""
+    for note in failures:
+        path = str(note.get("path") or "")
+        line = note.get("start_line")
+        if COMPILE_SOURCE.fullmatch(path) and isinstance(line, int) and not isinstance(line, bool) and line >= 1:
+            message = " ".join(str(note.get("message") or "").split())[:200]
+            return f"{job.get('name') or NIGHTLY_APP_BUILD} failed to compile: {path}:{line}: {message}"
+    return ""
+
+
+def nightly_compile_red(api: Any, target: "Target", sleep: Callable[[float], None],
+                        log: Callable[[str], None]) -> str:
+    """For a nightly, why its head cannot compile (compile_error() on the newest attempt that ran build-nightly-app),
+    else "".
+
+    A re-run of the same commit compiles the same source, so it fails the same way and only burns a Mac: on
+    2026-10-30 run 40989498281 (00c873b5, with #27223's `'async' call in a function that does not support
+    concurrency`) was re-run to attempt 4 by this rescue, each attempt rebuilding the broken commit. The fix is a
+    newer commit, which the nightly-next tick promotes (its rolling rule) once it lands.
+
+    Attempts are read from the newest down: one whose build was skipped, not finished, cancelled before a runner took
+    it or not yet created says nothing, so the next older one is read; the first build that ran decides, and only a
+    failure that compile_error() classifies makes the head compile-red (a timeout or a started cancel stays
+    retryable). Any read error is "": a failed
+    read never stops a re-run (the classification is conservative)."""
+    if not target.nightly:
+        return ""
+    try:
+        for attempt in range(target.attempt, 0, -1):
+            builds = nightly_build_jobs(read(lambda: api.jobs(target.run_id, attempt), sleep, log))
+            # A build that ran in any way decides (a timeout, or a cancel after a runner took it, is retryable); only
+            # one that never ran (skipped, not yet finished, cancelled before any runner) falls through.
+            ran = [job for job in builds if job.get("conclusion") in ("success", "failure", "timed_out")
+                   or job.get("conclusion") == "cancelled" and job.get("runner_name")]
+            if not ran:
+                continue
+            for job in ran:
+                if job.get("conclusion") != "failure" or not job.get("id"):
+                    continue
+                why = compile_error(job, read(lambda: api.annotations(int(job["id"])), sleep, log))
+                if why:
+                    return f"attempt {attempt}'s {why}"
+            return ""
+    except (*READ_ERRORS, AnnotationsCapped) as error:
+        log(f"could not read whether run {target.run_id}'s build failed to compile ({error}); treated as retryable")
+    return ""
+
+
+# rescue()'s and resume_rerun()'s answer for a nightly whose head does not compile (nightly_compile_red()).
+COMPILE_RED = "not rescued: the run's head does not compile, so a re-run would fail the same way"
+
+
+def compile_red_answer(why: str) -> str:
+    return (f"{COMPILE_RED} ({why}); the nightly-next tick builds the next landing that fixes it, "
+            "and nothing of this run is cancelled")
 
 
 def rerun_failed_or_repick(api: GitHub, target: Target, sleep: Callable[[float], None],
@@ -3856,6 +4067,11 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     # refusal is the fleet's, and a red run would open main's red-CI issue.
     # A stuck later attempt re-runs its failed jobs too, but is no refusal.
     keep_main = target.main and refusal
+    # Before anything that cancels or re-runs (the moved-head cancel below included): a nightly whose build failed
+    # to compile is left as GitHub has it (nightly_compile_red()).
+    red = nightly_compile_red(api, target, sleep, log)
+    if red:
+        return compile_red_answer(red)
     moved = "" if keep_main else pull_moved(api, target, sleep, log)
     if moved and target.push_branch and target.path == CMUX_NEXT_WORKFLOW_PATH:
         # cmux-next.yml queues each push Mac job in a group per branch (one
@@ -3996,7 +4212,12 @@ def settled_here(api: Any, target: Target, log: Callable[[str], None]) -> None:
 def resume_rerun(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
                  log: Callable[[str], None], every_job: bool, only_job: int | None = None) -> str:
     """The re-run a stopped rescue meant after its cancel (rerun_intended()), with its own CANCEL_SETTLED mark.
-    `only_job` (a settled-sibling failover's mark) re-runs that job and its dependents, never the failed jobs."""
+    `only_job` (a settled-sibling failover's mark) re-runs that job and its dependents, never the failed jobs.
+    A nightly whose head does not compile (nightly_compile_red()) is settled without it."""
+    red = nightly_compile_red(api, target, sleep, log)
+    if red:
+        settled_here(api, target, log)
+        return compile_red_answer(red)
     try:
         result = settle_and_rerun(api, target, now=now, sleep=sleep, log=log, failed_only=not every_job,
                                   keep_main=False, only_job=only_job)

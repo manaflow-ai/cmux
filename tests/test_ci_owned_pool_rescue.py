@@ -3435,6 +3435,163 @@ class Nightly(unittest.TestCase):
         self.assertNotIn("newer:nightly-next", api.calls)
         self.assertEqual(api.calls[-1], "rerun-failed")
 
+    # nightly-next's build-nightly-app as an owned-only job (as sign-nightly-identity-legacy is there).
+    OWNED_ONLY = ("jobs:\n  build-nightly-app:\n    runs-on: ${{ needs.pick.outputs.attempt == github.run_attempt && "
+                  "needs.pick.outputs.owned || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-std-xcode-26.6' }}\n"
+                  "    steps: []\n")
+
+    @staticmethod
+    def with_ids(jobs):
+        """nightly_run()'s jobs with ids, so their annotations can be read."""
+        return lambda seconds: [dict(found, id=900 + index) for index, found in enumerate(jobs(seconds))]
+
+    def test_a_next_run_older_than_the_feeds_newest_build_is_not_re_run(self):
+        # 2026-10-31: cmux-bot kept re-running old nightly-next runs while the feed already had a newer run's
+        # build; publish-nightly refuses an older build, so such a re-run only holds a slot.
+        clock = Clock()
+        api = NightlyAPI(clock, nightly_run(refused_at=60, helper_done_at=200), finished=lambda s: s >= 200)
+        api.next_feed_newest_build = lambda: (RUN_ID + 3) * 100 + 2
+        code, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertEqual(code, 0)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertNotIn("rerun", api.calls)
+        self.assertNotIn("cancel", api.calls)
+        self.assertIn("publish-nightly refuses an older build", summary)
+
+    def test_the_run_the_feeds_newest_build_came_from_is_still_re_run(self):
+        # Its legacy jobs may still have the old feed to publish.
+        clock = Clock()
+        api = NightlyAPI(clock, nightly_run(refused_at=60, helper_done_at=200), finished=lambda s: s >= 200)
+        api.next_feed_newest_build = lambda: RUN_ID * 100 + 1
+        run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertEqual(api.calls[-1], "rerun-failed")
+
+    def test_a_refusal_for_a_hook_the_commit_never_lists_is_not_re_run(self):
+        # glaeda's hook reads scripts/ci/glaeda-signing-hooks.txt at the run's own commit, so a re-run of that
+        # commit is refused the same way (sign-nightly-identity-legacy reached attempt 15 on 2026-10-31).
+        clock = Clock()
+        api = NightlyAPI(clock, self.with_ids(nightly_run(refused_at=60, helper_done_at=200)),
+                         finished=lambda s: s >= 200, workflow=self.OWNED_ONLY)
+        refused_ids = set()
+
+        def annotations(job_id, *, final=False):
+            api.calls.append(f"annotations:{job_id}")
+            if job_id in refused_ids:
+                return [{"message": "glaeda-cmux-runner-hook: refused: scripts/ci/glaeda-signing-hooks.txt at this "
+                                    "run's commit does not list this hook (df0e90b42c73), so the job's claim gate "
+                                    "would refuse the whole mini"}]
+            return []
+        jobs_at = api.jobs_at
+        refused_ids.update(found["id"] for found in jobs_at(300) if found["name"] == "build-nightly-app")
+        api.annotations = annotations
+        code, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertEqual(code, 0)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertNotIn("cancel", api.calls)
+        self.assertIn("does not list the minis' runner hook", summary)
+
+    def test_an_unlisted_hook_refusal_whose_re_run_can_leave_the_minis_is_still_re_run(self):
+        # A runs-on with an attempt-2 alternate (or a Blacksmith pick) sends the re-run past the hook.
+        for workflow in (self.OWNED_ONLY.replace("vars.CI_NIGHTLY_NEXT_BUILD_RUNNER",
+                                                 "github.run_attempt > 1 && needs.pick.outputs.sign_alternate"),
+                         self.OWNED_ONLY.replace("vars.CI_NIGHTLY_NEXT_BUILD_RUNNER",
+                                                 "needs.pick.outputs.blacksmith"),
+                         None):
+            with self.subTest(workflow=workflow):
+                clock = Clock()
+                api = NightlyAPI(clock, self.with_ids(nightly_run(refused_at=60, helper_done_at=200)),
+                                 finished=lambda s: s >= 200, workflow=workflow)
+                api.annotations = lambda job_id, *, final=False: [{"message": rescue.HOOK_UNLISTED}]
+                run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+                self.assertEqual(api.calls[-1], "rerun-failed")
+
+    def test_an_unlisted_hook_refusal_during_a_feed_outage_is_still_re_run(self):
+        # #29448: a feed that cannot be read keeps the run wanted; the refusal is not judged moot meanwhile.
+        clock = Clock()
+        api = NightlyAPI(clock, self.with_ids(nightly_run(refused_at=60, helper_done_at=200)),
+                         finished=lambda s: s >= 200, workflow=self.OWNED_ONLY)
+        api.annotations = lambda job_id, *, final=False: [{"message": rescue.HOOK_UNLISTED}]
+
+        def outage():
+            raise urllib.error.URLError("files-next.cmux.com unreachable")
+        api.next_feed_newest_build = outage
+        run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertEqual(api.calls[-1], "rerun-failed")
+
+    def test_the_feed_read_raises_on_an_outage_instead_of_reading_as_no_build(self):
+        api = rescue.GitHub("t", "manaflow-ai/cmux")
+        with unittest.mock.patch.object(rescue.urllib.request, "urlopen",
+                                        side_effect=urllib.error.URLError("unreachable")):
+            with self.assertRaises(rescue.READ_ERRORS):
+                api.next_feed_newest_build()
+
+        class Response(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+        with unittest.mock.patch.object(rescue.urllib.request, "urlopen", return_value=Response(b"<rss></rss>")):
+            self.assertIsNone(api.next_feed_newest_build())
+
+    # nightly.yml's sign-nightly-identity-legacy: its picker's output, else a Blacksmith literal.
+    LEGACY = ("jobs:\n  sign-nightly-identity-legacy:\n    runs-on: ${{ needs.legacy-identity-target.outputs.sign_runner"
+              " || 'blacksmith-6vcpu-macos-26' }}\n    steps: []\n")
+
+    def test_a_failed_jobs_re_run_keeps_a_picked_owned_label_whatever_its_fallback_literal(self):
+        # #29447: a re-run of failed jobs keeps the picker's output, so the Blacksmith literal is never reached for a
+        # job the minis' hook refused; only a runs-on that reads the attempt can move.
+        name = "sign-nightly-identity-legacy"
+        self.assertTrue(rescue.rerun_stays_owned(self.LEGACY, name, failed_only=True))
+        # Attempt 1 of nightly-next may re-run pickers: the fallback literal still counts as a way off the minis.
+        self.assertFalse(rescue.rerun_stays_owned(self.LEGACY, name))
+        attempt_alt = self.LEGACY.replace("needs.legacy-identity-target.outputs.sign_runner ||",
+                                          "github.run_attempt > 1 && needs.legacy-identity-target.outputs.alt ||"
+                                          " needs.legacy-identity-target.outputs.sign_runner ||")
+        self.assertFalse(rescue.rerun_stays_owned(attempt_alt, name, failed_only=True))
+        pinned = self.OWNED_ONLY.replace("vars.CI_NIGHTLY_NEXT_BUILD_RUNNER", "needs.pick.outputs.blacksmith")
+        self.assertFalse(rescue.rerun_stays_owned(pinned, "build-nightly-app", failed_only=True))
+        self.assertTrue(rescue.rerun_stays_owned(self.OWNED_ONLY, "build-nightly-app", failed_only=True))
+        for text in (None, "", "jobs: [", self.LEGACY.replace("runs-on", "runs_on")):
+            self.assertFalse(rescue.rerun_stays_owned(text, name, failed_only=True), text)
+
+    def test_jobs_all_done_in_a_run_still_going_is_not_moot(self):
+        # The jobs list can be all done while the run is still in progress (its later jobs not created yet).
+        clock = Clock()
+        api = NightlyAPI(clock, nightly_run(refused_at=60, helper_done_at=200), finished=lambda s: False)
+        api.next_feed_newest_build = lambda: (RUN_ID + 3) * 100 + 2
+        target = rescue.target_from_event(nightly_event(head_branch="nightly-next"), "manaflow-ai/cmux")
+        clock.seconds = 300
+        self.assertEqual(rescue.pull_moved(api, target, clock.sleep, lambda text: None), "")
+        api.finished = lambda s: True
+        self.assertIn("publish-nightly refuses", rescue.pull_moved(api, target, clock.sleep, lambda text: None))
+
+    def test_an_other_refusal_is_still_re_run(self):
+        clock = Clock()
+        api = NightlyAPI(clock, self.with_ids(nightly_run(refused_at=60, helper_done_at=200)),
+                         finished=lambda s: s >= 200)
+        api.next_feed_newest_build = lambda: None  # the feed has no Nightly build
+        run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertEqual(api.calls[-1], "rerun-failed")
+
+    def test_an_unfinished_next_run_is_never_moot(self):
+        # A newer build in the feed never cancels a started nightly (Nightly freshness).
+        clock = Clock()
+        api = NightlyAPI(clock, nightly_run(refused_at=60), finished=lambda s: False)
+        api.next_feed_newest_build = lambda: (RUN_ID + 3) * 100 + 2
+        target = rescue.target_from_event(nightly_event(head_branch="nightly-next"), "manaflow-ai/cmux")
+        clock.seconds = 100
+        self.assertEqual(rescue.pull_moved(api, target, clock.sleep, lambda text: None), "")
+
+    def test_the_feeds_newest_build_is_its_highest_version(self):
+        xml = ("<item><sparkle:channel>cmux-next</sparkle:channel><sparkle:version>4119158082902</sparkle:version></item>"
+               "<item><sparkle:channel>cmux-next</sparkle:channel><sparkle:version> 4118935876003 </sparkle:version></item>"
+               "<item><sparkle:channel>cmux-next-dev</sparkle:channel><sparkle:version>9919158082902</sparkle:version></item>"
+               "<item><sparkle:version>9999999999999</sparkle:version></item>")
+        # A Dev item, or one with no channel, is no nightly run's build.
+        self.assertEqual(rescue.newest_feed_build(xml), 4119158082902)
+        self.assertIsNone(rescue.newest_feed_build("<rss></rss>"))
+
     def test_next_refusal_moves_failed_jobs_to_blacksmith(self):
         clock = Clock()
         api = NightlyAPI(clock, nightly_run(refused_at=60, helper_done_at=200), finished=lambda s: s >= 200)
@@ -5692,6 +5849,196 @@ class NightlySigningStall(unittest.TestCase):
         self.assertEqual(rescue.sign_stall_gate(SIGN_WORKFLOW, ["verify-signed-nightly"]), ["verify-signed-nightly"])
         self.assertEqual(rescue.sign_stall_gate("jobs: [", ["build-sign-notarize-nightly"]),
                          ["build-sign-notarize-nightly"])
+
+
+# Run 40989498281 (00c873b5, 2026-10-30): build-nightly-app's Release compile failed on #27223's swiftc error.
+COMPILE_STEPS = [{"name": "Set up job", "conclusion": "success"}, {"name": "Select Xcode", "conclusion": "success"},
+                 {"name": "Build nightly app (Release)", "conclusion": "failure"},
+                 {"name": "Upload unsigned nightly app", "conclusion": "skipped"}]
+COMPILE_ANNOTATIONS = [
+    {"path": ".github", "start_line": 39700, "annotation_level": "failure",
+     "message": "Process completed with exit code 65."},
+    {"path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote/JoinConsent+App.swift", "start_line": 222,
+     "annotation_level": "failure", "message": "'async' call in a function that does not support concurrency"},
+    {"path": ".github", "start_line": 39502, "annotation_level": "failure",
+     "message": "xcodebuild failed with status=65; build errors and resource diagnostics follow"},
+]
+
+
+def failed_build(steps=COMPILE_STEPS, conclusion="failure", job_id=2):
+    return dict(job("build-nightly-app", status="completed", labels=[MINI], runner="cmux13s-mac-mini-glaeda-2"),
+                id=job_id, conclusion=conclusion, steps=[dict(step) for step in steps])
+
+
+def broken_signing_run(build):
+    """signing_run()'s stalled legacy signer, behind an app build that failed (attempt 1 of run 40989498281)."""
+    stalled = signing_run()
+
+    def jobs(seconds):
+        return [build if found.get("name") == "build-nightly-app" else found for found in stalled(seconds)
+                if found.get("name") != "build-sign-notarize-nightly (arm64)"]
+    return jobs
+
+
+class CompileRedAPI(NightlyAPI):
+    """NightlyAPI whose jobs carry annotations (job id -> list), and whose earlier attempts can be listed."""
+
+    def __init__(self, *args, notes=None, attempts=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.notes, self.attempts = notes or {}, attempts or {}
+
+    def jobs(self, run_id, attempt):
+        if attempt in self.attempts:
+            self.calls.append(f"jobs:{attempt}")
+            return self.attempts[attempt]
+        return super().jobs(run_id, attempt)
+
+    def annotations(self, job_id):
+        self.calls.append(f"annotations:{job_id}")
+        return self.notes.get(job_id, [])
+
+
+class NightlyCompileRed(unittest.TestCase):
+    """A nightly whose build failed on a swiftc error is never cancelled or re-run: the same commit fails the same
+    way. On 2026-10-30 the signing-stall rescue re-ran run 40989498281 (00c873b5) to attempt 4, rebuilding the
+    commit #27223 broke each time, while the feed fell 85 minutes behind."""
+
+    def test_the_incident_s_build_is_a_compile_error(self):
+        why = rescue.compile_error(failed_build(), COMPILE_ANNOTATIONS)
+        self.assertIn("build-nightly-app failed to compile: Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote/"
+                      "JoinConsent+App.swift:222: 'async' call in a function that does not support concurrency", why)
+
+    def test_only_a_swiftc_error_with_exit_65_counts(self):
+        signal = [dict(COMPILE_ANNOTATIONS[0], message="Process completed with exit code 137."), COMPILE_ANNOTATIONS[1]]
+        warning = [COMPILE_ANNOTATIONS[0], dict(COMPILE_ANNOTATIONS[1], annotation_level="warning")]
+        no_line = [COMPILE_ANNOTATIONS[0], dict(COMPILE_ANNOTATIONS[1], start_line=0)]
+        not_swift = [COMPILE_ANNOTATIONS[0], dict(COMPILE_ANNOTATIONS[1], path="scripts/ci/build.sh")]
+        setup = [{"name": "Set up runner", "conclusion": "failure"}, *COMPILE_STEPS[2:]]
+        cases = {
+            "a signal (exit 137)": (failed_build(), signal),
+            "no swiftc diagnostic": (failed_build(), [COMPILE_ANNOTATIONS[0], COMPILE_ANNOTATIONS[2]]),
+            "a Swift warning only": (failed_build(), warning),
+            "no source line": (failed_build(), no_line),
+            "not a Swift source": (failed_build(), not_swift),
+            "no annotations read": (failed_build(), []),
+            "a refusal at setup": (failed_build(steps=setup), COMPILE_ANNOTATIONS),
+            "a later step failed first": (failed_build(steps=[{"name": "Fetch the Chromium engine",
+                                                               "conclusion": "failure"}, *COMPILE_STEPS[2:]]),
+                                          COMPILE_ANNOTATIONS),
+            "a lost runner (no steps)": (failed_build(steps=[]), COMPILE_ANNOTATIONS),
+            "a timeout": (failed_build(conclusion="timed_out"), COMPILE_ANNOTATIONS),
+            "cancelled": (failed_build(conclusion="cancelled"), COMPILE_ANNOTATIONS),
+            "still running": (dict(failed_build(), status="in_progress", conclusion=None), COMPILE_ANNOTATIONS),
+        }
+        for case, (build, notes) in cases.items():
+            with self.subTest(case):
+                self.assertEqual(rescue.compile_error(build, notes), "")
+
+    def test_the_signing_stall_behind_a_compile_error_is_left_alone(self):
+        clock = Clock()
+        api = CompileRedAPI(clock, broken_signing_run(failed_build()), workflow=SIGN_WORKFLOW,
+                            notes={2: COMPILE_ANNOTATIONS})
+        code, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertEqual(code, 0)
+        self.assertEqual(mutations(api), [], summary)
+        self.assertFalse(any(call.startswith("rerun-job") for call in api.calls), api.calls)
+        self.assertIn(rescue.COMPILE_RED, summary)
+        self.assertIn("JoinConsent+App.swift:222", summary)
+
+    def test_the_same_stall_behind_a_build_that_failed_otherwise_is_still_rescued(self):
+        # Exit 137 (a signal), or no swiftc diagnostic: it may pass on another runner, so it is re-run as before.
+        for notes in ([dict(COMPILE_ANNOTATIONS[0], message="Process completed with exit code 137.")],
+                      [COMPILE_ANNOTATIONS[0], COMPILE_ANNOTATIONS[2]]):
+            with self.subTest(notes=notes):
+                clock = Clock()
+                api = CompileRedAPI(clock, broken_signing_run(failed_build()), workflow=SIGN_WORKFLOW,
+                                    notes={2: notes})
+                _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+                self.assertIn("annotations:2", api.calls)
+                self.assertEqual(mutations(api)[0], "cancel", summary)
+                self.assertNotIn(rescue.COMPILE_RED, summary)
+
+    def test_a_compile_red_nightly_whose_head_moved_is_not_cancelled_either(self):
+        # rescue() cancels an unfinished nightly whose branch moved on (or that a newer run replaces); a compile-red
+        # one is left alone before that branch.
+        for overrides in ({"head": "b" * 40}, {"newer": [RUN_ID + 1]}):
+            with self.subTest(overrides=list(overrides)):
+                clock = Clock()
+                api = CompileRedAPI(clock, broken_signing_run(failed_build()), notes={2: COMPILE_ANNOTATIONS},
+                                    **overrides)
+                result = rescue.rescue(api, self.target(), now=clock.now, sleep=clock.sleep, log=lambda text: None,
+                                       failed_only=True)
+                self.assertTrue(result.startswith(rescue.COMPILE_RED), result)
+                self.assertEqual(mutations(api), [])
+                self.assertFalse(any(call.startswith(("newer:", "branch:")) for call in api.calls), api.calls)
+
+    def target(self, attempt=1, **overrides):
+        return rescue.Target(RUN_ID, attempt, HEAD, 0, side=True, path=rescue.NIGHTLY_WORKFLOW_PATH, nightly=True,
+                             push_branch="nightly-next", **overrides)
+
+    def test_an_attempt_that_never_ran_the_build_reads_the_one_before(self):
+        # Attempts 3 and 4 of run 40989498281 skipped build-nightly-app; attempt 2's had failed to compile.
+        skipped = dict(job("build-nightly-app", status="completed"), id=9, conclusion="skipped")
+        clock = Clock()
+        api = CompileRedAPI(clock, lambda seconds: [], attempts={4: [skipped], 3: [], 2: [failed_build(job_id=7)]},
+                            notes={7: COMPILE_ANNOTATIONS})
+        why = rescue.nightly_compile_red(api, self.target(4), clock.sleep, lambda text: None)
+        self.assertTrue(why.startswith("attempt 2's build-nightly-app failed to compile"), why)
+        self.assertEqual([call for call in api.calls if call.startswith("jobs")], ["jobs:4", "jobs:3", "jobs:2"])
+
+    def test_a_newer_build_that_compiled_decides(self):
+        passed = dict(job("build-nightly-app", status="completed"), id=8, conclusion="success")
+        clock = Clock()
+        api = CompileRedAPI(clock, lambda seconds: [], attempts={2: [passed], 1: [failed_build()]},
+                            notes={2: COMPILE_ANNOTATIONS})
+        self.assertEqual(rescue.nightly_compile_red(api, self.target(2), clock.sleep, lambda text: None), "")
+        self.assertNotIn("jobs:1", api.calls)
+
+    def test_a_newer_build_that_timed_out_or_was_cancelled_running_decides(self):
+        # Retryable outcomes on the newest attempt are never hidden by an older attempt's compile error.
+        timed_out = dict(failed_build(job_id=8), conclusion="timed_out")
+        cancelled_running = dict(failed_build(job_id=8), conclusion="cancelled")
+        for newest in (timed_out, cancelled_running):
+            with self.subTest(conclusion=newest["conclusion"]):
+                clock = Clock()
+                api = CompileRedAPI(clock, lambda seconds: [], attempts={2: [newest], 1: [failed_build()]},
+                                    notes={2: COMPILE_ANNOTATIONS, 8: COMPILE_ANNOTATIONS})
+                self.assertEqual(rescue.nightly_compile_red(api, self.target(2), clock.sleep, lambda text: None), "")
+                self.assertNotIn("jobs:1", api.calls)
+        # Cancelled before any runner took it: says nothing, so attempt 1 decides.
+        unstarted = dict(failed_build(job_id=8), conclusion="cancelled", runner_name="")
+        clock = Clock()
+        api = CompileRedAPI(clock, lambda seconds: [], attempts={2: [unstarted], 1: [failed_build()]},
+                            notes={2: COMPILE_ANNOTATIONS})
+        self.assertIn("failed to compile", rescue.nightly_compile_red(api, self.target(2), clock.sleep,
+                                                                       lambda text: None))
+
+    def test_a_read_error_is_retryable(self):
+        clock = Clock()
+        lines = []
+
+        class Unreadable(CompileRedAPI):
+            def annotations(self, job_id):
+                raise urllib.error.URLError("boom")
+        api = Unreadable(clock, lambda seconds: [failed_build()])
+        self.assertEqual(rescue.nightly_compile_red(api, self.target(), clock.sleep, lines.append), "")
+        self.assertTrue(any("treated as retryable" in line for line in lines), lines)
+
+    def test_only_a_nightly_is_read(self):
+        clock = Clock()
+        api = CompileRedAPI(clock, lambda seconds: [failed_build()], notes={2: COMPILE_ANNOTATIONS})
+        target = rescue.Target(RUN_ID, 1, HEAD, 42)
+        self.assertEqual(rescue.nightly_compile_red(api, target, clock.sleep, lambda text: None), "")
+        self.assertEqual(api.calls, [])
+
+    def test_a_resumed_re_run_of_a_compile_red_nightly_settles_without_re_running(self):
+        clock = Clock()
+        api = CompileRedAPI(clock, lambda seconds: [failed_build()], notes={2: COMPILE_ANNOTATIONS})
+        result = rescue.resume_rerun(api, self.target(), now=clock.now, sleep=clock.sleep, log=lambda text: None,
+                                     every_job=True)
+        self.assertTrue(result.startswith(rescue.COMPILE_RED), result)
+        self.assertEqual(mutations(api), [])
+        self.assertIn((RUN_ID, 1), rescue.SETTLED_HERE)
 
 
 class FeedTimeouts(unittest.TestCase):
