@@ -725,6 +725,41 @@ export function Composer({
     sendButton.current?.focus();
     if (snapshot.isWorking) refocusSend.current = false;
   });
+  /// The one step every answered read of `sessionId`'s acpmux draft goes through (the load's read and
+  /// a quit's, whichever answers first): it decides the prompt (hydratedDraft), puts it in the editor,
+  /// records it as hydrated, writes it to acpmux if needed, and only then marks the draft read. A read
+  /// that answers after another one did runs the same rule on what the editor now holds, so it never
+  /// writes a pre-merge prompt over the merge. Before (cmux#28204 review at ffdbd9d1), a quit's read
+  /// saved "saved\n\ntyped" and marked the draft read while the editor still held "typed"; the load's
+  /// read then kept "typed" and wrote it over the merged draft.
+  const applyDraftRead = (session: string | undefined, saved: string | undefined): string => {
+    const currentText = field.current?.value() ?? textRef.current;
+    const history = draftHistory(session);
+    const edited = editedBeforeHydration.current || history.edited;
+    editedBeforeHydration.current = false;
+    const next = hydratedDraft({ current: currentText, restored: saved, ...history, edited });
+    if (next.shown) {
+      // Its own write (below) or none: the text effect does not write it again.
+      restoringSession.current = next.text !== textRef.current;
+      notTyped();
+      // The editor at once, not on the next render: a quit about to unmount reads it, and a read
+      // that answers before the render must see the merged prompt.
+      if (field.current && field.current.value() !== next.text) field.current.reset(next.text);
+      textRef.current = next.text;
+      setText(next.text);
+      setCaret(next.text.length);
+      pendingCaret.current = next.text.length;
+    }
+    hydratedText.current = next.text;
+    // A local remount cache or keystroke arrived before the daemon read: preserve it durably.
+    if (next.write) writePersistedDraft(session, next.text);
+    // After the write: a chat with nothing on its way to acpmux is settled (edits and sends
+    // forgotten); one with a write out stays the page's until a later read finds it answered.
+    markDraftRead(session);
+    hydratedSession.current = session;
+    flushPendingDraftWrites();
+    return next.text;
+  };
   useImperativeHandle(
     handle,
     () => ({
@@ -822,17 +857,17 @@ export function Composer({
             await Promise.all([unsent?.settle(), settlePendingDraftWrites()]);
             return;
           }
+          // The composer moved to another chat while acpmux answered: the typed text stays in the
+          // remount cache (above, the text effect), and that chat's own read merges it.
+          if (persistedSession.current !== session) {
+            await Promise.all([unsentDraft.current?.settle(), settlePendingDraftWrites()]);
+            return;
+          }
           readAnswered = true;
-          // Re-read after the async call: the person may have typed while acpmux was answering.
-          // The same rule as the read on open (hydratedDraft): typed before any read, both kept;
-          // after a send, or with a write on its way, the prompt as it is.
-          typed = hydratedDraft({
-            current: field.current?.value() ?? textRef.current,
-            restored: saved.draft,
-            ...draftHistory(session),
-            edited: true,
-          }).text;
-          markDraftRead(session);
+          // Re-read after the async call: the person may have typed while acpmux was answering. The
+          // read on open's own step (applyDraftRead): the merge goes into the editor and is written
+          // before the draft counts as read, so the load's read, answering later, keeps it.
+          typed = applyDraftRead(session, saved.draft);
         }
         // A restore not yet committed (`restoringSession`) is acpmux's own draft: the editor still
         // shows what it had before, so writing it would clear the draft being restored.
@@ -965,27 +1000,7 @@ export function Composer({
       // merged it (the action map's next version runs this again). Before, an unanswered read
       // counted as "no draft", and the typed text then replaced the draft acpmux kept.
       if (sessionId && !state) return;
-      const currentText = field.current?.value() ?? textRef.current;
-      const history = draftHistory(sessionId);
-      const edited = editedBeforeHydration.current || history.edited;
-      editedBeforeHydration.current = false;
-      const next = hydratedDraft({ current: currentText, restored: state?.draft, ...history, edited });
-      if (next.shown) {
-        // Its own write (below) or none: the text effect does not write it again.
-        restoringSession.current = next.text !== textRef.current;
-        notTyped();
-        setText(next.text);
-        setCaret(next.text.length);
-        pendingCaret.current = next.text.length;
-      }
-      hydratedText.current = next.text;
-      // A local remount cache or keystroke arrived before the daemon read: preserve it durably.
-      if (next.write) writePersistedDraft(sessionId, next.text);
-      // After the write: a chat with nothing on its way to acpmux is settled (edits and sends
-      // forgotten); one with a write out stays the page's until a later read finds it answered.
-      markDraftRead(sessionId);
-      hydratedSession.current = sessionId;
-      flushPendingDraftWrites();
+      applyDraftRead(sessionId, state?.draft);
       // A web update reloaded the page while the prompt had the keyboard: it takes it back, the
       // caret after the text as it was (pages/shared/webSwap.ts).
       if (takeWebSwapFocus("composer"))
