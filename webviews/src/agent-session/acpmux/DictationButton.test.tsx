@@ -87,6 +87,8 @@ test("starting and finalizing expose the in-progress state to assistive technolo
   expect(starting.getAttribute("aria-label")).toBe("Stop dictation");
   expect(starting.getAttribute("aria-pressed")).toBe("true");
   expect(starting.getAttribute("aria-busy")).toBe("true");
+  expect(starting.getAttribute("aria-live")).toBe("polite");
+  expect(starting.getAttribute("aria-atomic")).toBe("true");
 
   await resetDom();
 
@@ -100,6 +102,7 @@ test("idle and listening remain settled controls", async () => {
   expect(idle.getAttribute("aria-label")).toBe("Dictate");
   expect(idle.getAttribute("aria-pressed")).toBe("false");
   expect(idle.getAttribute("aria-busy")).toBeNull();
+  expect(idle.getAttribute("aria-live")).toBe("polite");
 
   await resetDom();
 
