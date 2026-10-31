@@ -840,6 +840,16 @@
       "owner": "a2c6445561ebeab90",
       "receipt": "Review (independent review subagent, Claude Opus 5.5, app-lines exception): SHIP at b52e9f706052f4a5b99a79b827cfb9614369ca47",
       "expiry": "2026-11-06"
+    },
+    {
+      "date": "2026-10-31",
+      "row": "app_lines",
+      "allow": 8,
+      "why": "P0 resize fix (cmux-ad 2026-10-31, STATUS 981): a Ctrl-` stand-in's terminal stayed under a hidden visibility node, so it never resized. The adoption has to run where the pane selects the tab's node (TabContentCache.selectedNode, PaneController.selectTabNode), both App code that owns the tab-content cache and the pane's selection; moving the cache out of the App is the architecture plan's work, not this fix.",
+      "author": "abe4e792b0edd3ffa",
+      "owner": "abe4e792b0edd3ffa",
+      "receipt": "Review (claude-opus-5-5 reviewer subagent): SHIP at f79664d7e8a667d1d56eef4633a3cc618a6a9d17",
+      "expiry": "2026-11-14"
     }
   ],
   "escape_reviews": [
