@@ -53,7 +53,7 @@
   },
   {
    "do": "type",
-   "text": "seq -f 'row-%03g-${nonce}' 1 60",
+   "text": "seq -f 'row-%03g-${nonce}' 1 60; echo mark-${nonce}",
    "enter": true
   },
   {
@@ -114,7 +114,7 @@
   },
   {
    "do": "smoke_adopt_line",
-   "line": "base-${nonce}",
+   "line": "mark-${nonce}",
    "as": "again"
   },
   {
