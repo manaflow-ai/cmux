@@ -10,6 +10,9 @@ public import Foundation
 /// User 2026-10-30: "i want to be able to monitor the messages you send to other agents better",
 /// and agent reports should reach the user by themselves, folded, with the full text a click away.
 public struct HomeAgentMessageRow: Hashable, Sendable {
+    /// Maximum peers named in a compact fold preview. The count still covers every message.
+    public static let peerPreviewLimit = 3
+
     /// The row's role in its fold.
     public enum Kind: Hashable, Sendable {
         /// The fold: `count` messages with `peers` (agent ids, first-seen order), shown in full when `expanded`.
