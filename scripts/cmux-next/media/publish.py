@@ -179,7 +179,7 @@ def make_video(directory: Path, manifest: dict[str, Any], into: Path, pr_media: 
         source = ["-framerate", input_framerate(manifest), "-i",
                   str(directory / "frames/frame-%05d.jpg")]
         rate = []
-    done = run(["ffmpeg", "-nostdin", "-loglevel", "error", "-y", *source,
+    done = run(["ffmpeg", "-nostdin", "-loglevel", "error", "-y", *source, "-t", "300",
                 # A fixed output size: a frame of another size cannot break the stream.
                 "-vf", f"scale={VIDEO_SIZE[0]}:{VIDEO_SIZE[1]}:force_original_aspect_ratio=decrease,"
                        f"pad={VIDEO_SIZE[0]}:{VIDEO_SIZE[1]}:(ow-iw)/2:(oh-ih)/2:color=white",

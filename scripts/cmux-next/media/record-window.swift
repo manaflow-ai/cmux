@@ -44,6 +44,7 @@ struct WindowMovie {
             config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
             config.width = Int(filter.contentRect.width * CGFloat(filter.pointPixelScale)) / 2 * 2
             config.height = Int(filter.contentRect.height * CGFloat(filter.pointPixelScale)) / 2 * 2
+            config.includeChildWindows = true
             config.showsCursor = false
             config.capturesAudio = false
             config.ignoreShadowsSingleWindow = true

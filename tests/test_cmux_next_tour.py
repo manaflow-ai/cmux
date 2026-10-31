@@ -755,7 +755,7 @@ class WindowVideoTests(unittest.TestCase):
                     mock.patch.object(tour, "run_step", return_value={"status": "ok"}), \
                     mock.patch.object(tour.signal, "signal"), \
                     mock.patch.object(tour.Recorder, "start") as stills:
-                manifest = tour.run_tour(Path(root), {"name": "demo", "title": "Demo", "steps": [{}]},
+                manifest = tour.run_tour(Path(root), {"name": "demo", "title": "Demo", "steps": [{"title": "Animate"}]},
                                          Path(root), session)
             self.assertEqual(manifest["video"], "capture.mov")
             self.assertEqual(events, ["video-stop", "app-stop"])
