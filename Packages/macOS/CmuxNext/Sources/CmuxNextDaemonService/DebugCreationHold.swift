@@ -13,7 +13,8 @@ public import CmuxNextControl
 ///   release. A creation that waits for an earlier one in its workspace (a second Cmd-D) waits for it as before.
 ///   Answers the armed numbers.
 /// - `debug.creation.release {"n": 1}` lets creation n go on now (no `n`: every held one, and the hold is disarmed).
-///   Answers which creations started, which are held now and which were released.
+///   Answers which creations started, which are held now, which were released, and `resumed`: the creations whose
+///   waiting reply this call let go (a creation in `released` but not in `resumed` never waited).
 @MainActor
 public final class DebugCreationHold {
     /// The creations a hold numbers (``DaemonService/intendNowReporting(_:_:transaction:_:)`` labels).
@@ -46,19 +47,27 @@ public final class DebugCreationHold {
         await withCheckedContinuation { waiting[number, default: []].append($0) }
     }
 
-    func release(_ number: Int?) {
+    /// Lets creation `number` go on (nil: every armed one, and the hold is disarmed). Returns the numbers whose waiting
+    /// creation this call resumed: proof that the creation really waited for this release.
+    @discardableResult
+    func release(_ number: Int?) -> [Int] {
         let numbers = number.map { [$0] } ?? Array(armed)
+        var resumed: [Int] = []
         for number in numbers {
             released.insert(number)
-            waiting.removeValue(forKey: number)?.forEach { $0.resume() }
+            guard let continuations = waiting.removeValue(forKey: number) else { continue }
+            continuations.forEach { $0.resume() }
+            resumed.append(number)
         }
         if number == nil { armed = [] }
+        return resumed.sorted()
     }
 
     /// The hold's state, in the control socket's own JSON type, taken from `call`'s params (CmuxNextDaemon has a
     /// `JSONValue` too), one key per line, as `debug.daemon` builds its reply.
-    private func reply(_ call: ControlCall) -> ControlReply {
+    private func reply(_ call: ControlCall, resumed: [Int] = []) -> ControlReply {
         var report = call.params.filter { _ in false }
+        report["resumed"] = .array(resumed.map { .number(Double($0)) })
         report["armed"] = .array(armed.sorted().map { .number(Double($0)) })
         report["started"] = .number(Double(started))
         report["held"] = .array(waiting.keys.sorted().map { .number(Double($0)) })
@@ -84,8 +93,8 @@ public final class DebugCreationHold {
                 return reply(call)
             },
             .mainActor("debug.creation.release") { [self] call in
-                release(call.params["n"]?.intValue)
-                return reply(call)
+                let resumed = release(call.params["n"]?.intValue)
+                return reply(call, resumed: resumed)
             },
         ]
     }
