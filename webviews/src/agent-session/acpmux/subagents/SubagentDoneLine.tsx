@@ -173,13 +173,9 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
         <span className="cv-tool__trail cv-subagent-done__trail">
           {!waiting && <span className="cv-command__meta cv-subagent-done__time">{time}</span>}
         </span>
-        {/* The chevron's column holds on a line that opens nothing, so the columns still line up. */}
-        <span
-          className={`cv-tool__chevron cv-subagent-done__chevron${open ? "" : " is-idle"}`}
-          data-interactive=""
-          aria-hidden
-          onClick={open ? () => open(agent.id) : undefined}
-        >
+        {/* The chevron only marks that the line opens; the line's button is the one control. Its
+            column holds on a line that opens nothing, so the columns still line up. */}
+        <span className={`cv-tool__chevron cv-subagent-done__chevron${open ? "" : " is-idle"}`} aria-hidden>
           <ChevronRight size={14} strokeWidth={1.2} />
         </span>
       </div>

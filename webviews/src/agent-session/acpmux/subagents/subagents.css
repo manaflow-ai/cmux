@@ -721,7 +721,7 @@ button.cv-subagent > :last-child {
 }
 .cv-subagent-done-row > .cv-tool__chevron {
   flex: none;
-  cursor: pointer;
+  pointer-events: none;
 }
 .cv-subagent-done-row > .cv-tool__chevron.is-idle {
   visibility: hidden;
