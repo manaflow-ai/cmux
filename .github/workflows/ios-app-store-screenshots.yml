@@ -1,0 +1,129 @@
+name: iOS App Store screenshots
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: App Store version to target (defaults to CMUX_IOS_APPSTORE_MARKETING_VERSION)
+        required: false
+        default: ""
+      dry_run:
+        description: Show what would be uploaded without mutating App Store Connect
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: ios-app-store-screenshots
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  upload-screenshots:
+    name: Validate and upload App Store screenshots
+    if: github.ref == 'refs/heads/main'
+    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 30
+    env:
+      ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+      ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+      ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+      ASC_APP_ID: ${{ vars.IOS_APPSTORE_APP_ID }}
+      ASC_TIMEOUT_SECONDS: "120"
+      INPUT_VERSION: ${{ github.event.inputs.version }}
+      INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install asc CLI
+        run: |
+          set -euo pipefail
+          BREW_BIN="$(command -v brew || true)"
+          if [ -z "$BREW_BIN" ] && [ -x /opt/homebrew/bin/brew ]; then
+            BREW_BIN=/opt/homebrew/bin/brew
+          fi
+          if [ -z "$BREW_BIN" ] && [ -x /usr/local/bin/brew ]; then
+            BREW_BIN=/usr/local/bin/brew
+          fi
+          if [ -z "$BREW_BIN" ]; then
+            echo "Homebrew is required to install asc CLI" >&2
+            exit 1
+          fi
+          "$BREW_BIN" list asc >/dev/null 2>&1 || "$BREW_BIN" install asc
+          echo "$(dirname "$BREW_BIN")" >> "$GITHUB_PATH"
+
+      - name: Materialize App Store Connect API key
+        run: |
+          set -euo pipefail
+          if [ -z "${ASC_API_KEY_ID:-}" ] || [ -z "${ASC_API_ISSUER_ID:-}" ] || [ -z "${ASC_API_KEY_P8_BASE64:-}" ]; then
+            echo "Missing upload credential secrets" >&2
+            exit 1
+          fi
+          if [ -z "${ASC_APP_ID:-}" ]; then
+            echo "Missing configured app id repository variable" >&2
+            exit 1
+          fi
+          KEY_DIR="$RUNNER_TEMP/appstoreconnect/private_keys"
+          KEY_PATH="$KEY_DIR/AuthKey_${ASC_API_KEY_ID}.p8"
+          mkdir -p "$KEY_DIR"
+          printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          echo "ASC_KEY_ID=$ASC_API_KEY_ID" >> "$GITHUB_ENV"
+          echo "ASC_ISSUER_ID=$ASC_API_ISSUER_ID" >> "$GITHUB_ENV"
+          echo "ASC_PRIVATE_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+
+      - name: Validate and upload screenshots
+        run: |
+          set -euo pipefail
+          VERSION="${INPUT_VERSION:-}"
+          if [ -z "$VERSION" ]; then
+            VERSION="$(sed -nE 's/^[[:space:]]*CMUX_IOS_APPSTORE_MARKETING_VERSION[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\1/p' ios/Config/Shared.xcconfig | tail -n 1)"
+          fi
+          if [ -z "$VERSION" ]; then
+            echo "Could not resolve target App Store version" >&2
+            exit 1
+          fi
+          STATE="$(
+            asc versions list --app "$ASC_APP_ID" --version "$VERSION" --platform IOS --output json |
+              python3 -c 'import json,sys; body=json.load(sys.stdin); data=body.get("data") if isinstance(body,dict) else body; data=data if isinstance(data,list) else ([data] if isinstance(data,dict) else []); attrs=(data[0].get("attributes", {}) if data else {}); print(attrs.get("appStoreState") or attrs.get("state") or "MISSING")'
+          )"
+          echo "Target version $VERSION state: $STATE"
+          if [ "$STATE" = "MISSING" ]; then
+            echo "App Store version $VERSION does not exist; create it first (ios-app-store workflow)" >&2
+            exit 1
+          fi
+          UPLOAD_ARGS=()
+          if [ "${INPUT_DRY_RUN:-false}" = "true" ]; then
+            UPLOAD_ARGS+=(--dry-run)
+          fi
+          asc screenshots validate \
+            --path ios/AppStoreReview/screenshots/en-US/iphone \
+            --device-type IPHONE_69
+          asc screenshots upload \
+            --app "$ASC_APP_ID" \
+            --version "$VERSION" \
+            --platform IOS \
+            --path ios/AppStoreReview/screenshots \
+            --device-type IPHONE_69 \
+            --replace \
+            "${UPLOAD_ARGS[@]+"${UPLOAD_ARGS[@]}"}"
+          asc screenshots validate \
+            --path ios/AppStoreReview/screenshots/en-US/ipad \
+            --device-type IPAD_PRO_3GEN_129
+          asc screenshots upload \
+            --app "$ASC_APP_ID" \
+            --version "$VERSION" \
+            --platform IOS \
+            --path ios/AppStoreReview/screenshots \
+            --device-type IPAD_PRO_3GEN_129 \
+            --replace \
+            "${UPLOAD_ARGS[@]+"${UPLOAD_ARGS[@]}"}"
+
+      - name: Cleanup signing material
+        if: always()
+        run: rm -f "${ASC_PRIVATE_KEY_PATH:-}"
