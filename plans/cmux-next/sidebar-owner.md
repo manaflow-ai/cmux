@@ -1,5 +1,44 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-31: archived workspaces fold into one "Archived (N)" row per list, and the Tidy Up card's Always is a
+  switch. Lawrence 18470: "we need better ui for archived stuff instead of just greying them out ... it takes up too
+  much vertical space rn"; from the archived-variations gallery Chief picked V2 (one fold row per group, chevron) and
+  T3 (Archive plus an inline Always switch). Archived rows leave their place for an "Archived (N)" row at the end of
+  their group or loose list, after "Done (N)", drawn by the Done fold's row view with the same chevron, click and
+  VoiceOver press (`SidebarDoneFoldID.kind` `.archived`, `SidebarLayoutOptions.foldsArchived`, on); open, they list
+  below it, still dimmed. The active workspace keeps its place; a filter and the session tree list rows in place; a
+  drag of an archived row unfolds both folds as a Done drag did. The card's second action is
+  `SidebarNoticeCard.Action.isSwitch`: a mini switch with its title on the button row's trailing edge
+  (`SidebarCardSwitch`). Regression: `SidebarArchivedFoldTests`, `SidebarNoticeCardSwitchTests`.
+- 2026-10-30: the sidebar is a linear list by default: no titlebar dropdown. Lawrence (message 18548): "by default
+  i dont want to have workspace titlebar dropdowns at all, i just want to have linear list of workspaces (with
+  groups ofc)". The chevron beside the titlebar's + (a879's split-button segment, 631d310) now shows only with
+  `sidebar.showNewWorkspaceChooser` (Settings > Appearance > Sidebar, "Show New Workspace Menu Button"), off by
+  default; the +'s right-click menu keeps the same chooser. Workspace rows list no tabs and draw no tab
+  disclosure (tabs in the sidebar were removed in 74d73a32d071). Regression:
+  `SidebarLinearListDefaultTests`, `SidebarShowNewWorkspaceChooserSettingTests`; stills: `AALinearSidebarGalleryTests`
+  (artifact `linear-sidebar-gallery.tar`, before and after, dark and light).
+
+- 2026-10-30: a group's rail keeps its gap and spans its members; a lone warning triangle sits on the status column.
+  Lawrence (NIGHTLY "Sleep alarm" group): "alignment here is bad": the rail sat flush against "New Workspace"'s fill
+  and began part way down it. `SidebarStyle.groupEdgePadding` was `horizontalInset - groupBarWidth`, which ate the
+  rail's `Metrics.space1` gap; it is now `horizontalInset - groupRailReach` (2 pt compact, 4 pt comfortable), so the
+  header bar and the rail share one left edge and the members keep their x. The rail's 6 pt cut under the header is
+  capped at the gap to the row under it (about 2.5 pt), so the rail starts at the first member's top. Lawrence msg
+  18582: "triangle not aligned, not sure if triangle is even centered": a usage-warning triangle on a row with no
+  spinner ended at the row's inset in an `indicatorSize` box; it is now that row's column mark, in the spinner's
+  `statusGlyphSize` box and center (beside a spinner it keeps its place left of it, in the same box). Headers, member
+  x, the name's column, widths and every other row are unchanged. Regression: `SidebarGroupRowAlignmentTests`;
+  shots: `AASidebarRowAlignmentGalleryTests`.
+
+- 2026-10-31: the Tidy Up card no longer pops up on its own. Lawrence (msgs 18515, 18517, a shot of "1 workspaces
+  look idle"): "should have option to turn on auto-archive, think of how to make ui as minimal as possible" and "this
+  thing annoying pls fix faster". `workspaces.autoArchive.style` now defaults to `manual` (nothing in the background;
+  Archive Idle Workspaces in the sidebar menu and palette still archives). With `suggest` the card is one line,
+  "Archive 2 idle workspaces?" (singular for one), the names, **Archive** and **Always Archive** (writes `quiet`);
+  no "Tidy Up" heading, no paragraph; the x is Not Now. Settings > General > Auto-Archive is the one setting.
+  Regression: `AutoArchiveCoordinatorTests.theDefaultStyleNeverPopsACardOrArchivesOnItsOwn`,
+  `theCardIsOneQuestionWithArchiveAndAlwaysArchive`.
 - 2026-10-31: record the terminal cwd-title change in b648fd2d603 (#28059).
   The reported defect was: "Two terminal tabs in one workspace are both titled
   \"Terminal\" / \"~\"." Non-home cwd-derived titles remain visible in sidebar
@@ -168,6 +207,7 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 | Row name | The workspace's name, as before (default). Debug `sidebar.rowTitle` tries the others: `breadcrumb` ("Workspace › Tab", the focused tab: the most recently focused pane's selected tab), `focusedTab` (the tab alone; the hover card, VoiceOver and calm mode's tooltip name the workspace), `allTabs` ("Workspace › Focused · Other · …", cut off at the row's end). A tab named like its workspace is not repeated. Debug `sidebar.rowTitleSingleChat` (off): a workspace whose only tab is an agent chat shows the chat's name. Same font, ink, height and insets in every mode. | Leo 2026-10-26 ("the name of the workspace can kind of be considered the root ... you have a workspace name and then you have the tab name, and they can be shown together on the sidebar, potentially"; "at least we can make up the toggles to do stuff") |
 | Needs-you tray | Session Tree on only (`sidebar.sessionTree`, off by default): a tray floats over the list's bottom with only what waits on you (question, permission, sign-in, failure), at most three with the path of sessions above each, then "+N more · N finished, unread". Orange for waiting and red for failed (the status colors above). Rows never move: the list's bottom inset grows by its height. It steps aside while edit mode's bar shows. | Leo 2026-10-18 (the sidebar "still doesn't surface what actually needs him"), https://github.com/manaflow-ai/cmux/pull/25427 (re-cut of #21945) |
 | Resize edge | At rest unchanged: no line, or the border hairline when the sidebar border is on, same thickness. While the pointer is over the edge (not beside the curved main pane, where the card's edge is the seam) a dim band in the theme accent (`Palette.accent`) lights along it, and while it is dragged the full band: a 2 pt core with a 3 pt soft halo (`DividerGlowBand`, shared with pane dividers, the right sidebar, Home's divider and DevTools'). It fades once on `Motion.feedback` (instant under Reduce Motion) and never pulses. The grab band and cursor do not change, except over a shown scroller knob in the band's inner 4 pt: there the press scrolls, the cursor is the arrow and the band does not light (Lawrence msg 18056). | Leo 2026-10-29 ("when we're dragging them, you know, Claude Code has it so that, you know, it has this glowy bar thing, and I think, like, having that themed color band would be quite nice for our app as well") |
+| Home: never draggable | Home stays on top of the sidebar. A press-and-drag on Home is a plain press: no lift, no drag, no gap, no move, no fill left behind; a click opens it (on the press). Nothing drops above it. Any drag or press that ends without its release (key loss, app deactivation, Escape, a release elsewhere, its view leaving, a refused drop) leaves every row at rest: no card, no hidden row, no pressed, hover or drop fill. | Lawrence 2026-10-30 ("i tried to drag home around and now it's stuck in this state") |
 
 Default picked (title x): the 10-21 commit c779988d57d reserved an empty icon slot on every row so that
 rows with and without a favicon line up ("weird spacing"). On 11405 Lawrence asked for the text to sit
@@ -340,6 +380,7 @@ the gap, no row left out of place after drop or cancel).
 | [4367c16e12c](https://github.com/manaflow-ai/cmux/commit/4367c16e12c2) | #24073 traffic-lights clip: the squash commit of the change logged under "Scrolled rows hide under the traffic lights" as f19e4c28604. It reached the branch without a `Sidebar-Look:` trailer. |
 | [eb8105b0747](https://github.com/manaflow-ai/cmux/commit/eb8105b07475) | #27561 every trailing mark and control on one column and one slot pitch: a reviewed, merged sidebar alignment change that reached the branch without a `Sidebar-Look:` trailer. |
 | Chief drag out (from #23933) | The Chief dragged past the sidebar's side dims its card (the refused look) and its release out there takes it off (`removesOnDragOut`), from the list, a tile or the older band; a just-added Chief draws, moves and comes off before the daemon's echo. No row, rail or indent change. |
+| sb-home-drag: the "(red)" test commit (fleet step 5afe4078388bf943720b31b7, failed as expected), the gallery commit, then this fix (green step GREEN_STEP) | Home: never draggable, and an interrupted drag leaves no look behind (Lawrence 2026-10-30, "i tried to drag home around and now it's stuck in this state"). Root cause: Home was movable like any band item (`SidebarRegionView.makeItem` wired every non-transient item's drag, `dragTile` lifted any item), and Home alone in its section dropped back there was a real move to the reducer (`place_run` gives it a new order key, so its reply carries an undo step) that changes nothing the list shows. The list's settle ends only on a refusal, a no-op reply, or a change to `sectionsRevision` or the blocks, so none came: the card stayed at rest over Home's slot with Home's tile hidden under it. Also, a block item's pressed fill was its own (`SidebarItemRowView.isPressed`), cleared only by its own release, so a press or drag ended by key loss, app deactivation, Escape or a lost release left it lit. Now `LayoutItem.isMovable` (false for Home) refuses the drag at press time (`SidebarItemRowView.isMovable`, `SidebarRegionView.isMovable`, `dragTile`), the drop table keeps a gap off the place before Home (`keepingFixed`), a drop that keeps the items where they are sends nothing and goes back as a cancel (`dropKeepsPlace`), and `SidebarListView.endPointerGesture` is the one end of every press and drag the list owns, block items included (`endItemPresses`, `holdsPointerGesture`); Escape (a local key monitor) and a release that did not reach the drag (any window, after its dispatch) run it. Tests: `SidebarHomeDragTests`, `SidebarInterruptedDragLookTests`; `SidebarListTilePressTests` and `MouseDownSelectsTests` drag the App Store now. Gallery `AAHomeDragGalleryTests` (`home-drag-gallery.tar`). |
 
 ## Every sidebar package commit, Oct 19-23
 
@@ -716,3 +757,7 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 ## Runaway session warning badge (2026-10-30)
 
 - PR [#27899](https://github.com/manaflow-ai/cmux/pull/27899). Leo, verbatim: "that visibility into [one agent host's] guys was (and is?) pretty bad i feel like we can make more improvements to acpmux/cmux-next". A workspace row whose agent chats acpmux finds breaking a usage rule (no autocompact cap, context over 400k, more than 40 subagents an hour; acpmux `usageWarnings`) draws a small `exclamationmark.triangle.fill` in the theme's attention color in the trailing cluster, left of the muted bell's slot, the same size as that bell. Its tooltip is each warning's line, and the row's accessibility label says them. It is its own view (`usageWarningMark`), never the working spinner. It never gives way to the hover controls: while the row is hovered it sits just left of the ⋯ and ×, the title fading before it, so a person can still point at it and read its tooltip (the first fleet capture showed the controls in its place). Rows with no warnings are unchanged. Tests: `SidebarUsageWarningTests`; gallery `AAUsageWarningGalleryTests` (before/after, light and dark).
+
+## No tabs inside the sidebar; cmux Classic Mode removed (2026-10-30)
+
+- Lawrence 2026-10-30 (Chief messages 17538 and 17541), verbatim: "wtf is cmux classic mode get rid of it; i think new people get wieird sidebar that has like expandable stuff, get rid of it" and "like i dont want to see tabs expanded inside of sidebar". Before: a fresh profile listed every workspace's tabs under it with a disclosure chevron (`sidebar.showWorkspaceTabs` defaulted on since f32ee25f, Oct 27), while Lawrence's own sidebar hid them through Minimal Mode. Now no setting lists tabs in the sidebar: `sidebar.showWorkspaceTabs` and `tabs.terminalFirst` (cmux Classic Mode) are retired keys, their Settings rows, the Show Tabs Under Workspaces action and both App Store features are gone, and `SidebarModel.showWorkspaceTabs` is never set by settings (tests still set it to cover the tab-row code). This takes back f32ee25f's default ("show everything by default", Oct 27) and leaves the Oct 29 "Disclosed workspace tab hierarchy" entry above test-only. Test: `ClassicModeRemovedTests`.

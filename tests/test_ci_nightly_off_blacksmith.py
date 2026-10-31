@@ -122,7 +122,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         text = (WORKFLOWS / "nightly.yml").read_text(encoding="utf-8")
         legacy = re.search(r"^    runs-on: (.+)$", text[text.index("\n  sign-nightly-identity-legacy:"):], re.MULTILINE).group(1)
         self.assertNotIn("blacksmith", legacy)
-        self.assertTrue(legacy.endswith("|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER }}"), legacy)
+        self.assertTrue(legacy.endswith("|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}"), legacy)
         for name in ("build-sign-notarize-nightly",):
             job = text[text.index(f"\n  {name}:"):]
             match = re.search(r"^    runs-on: (.+)$", job, re.MULTILINE)
