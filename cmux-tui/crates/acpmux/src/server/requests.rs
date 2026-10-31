@@ -3,6 +3,7 @@
 use super::*;
 use crate::no_panic::JsonExt;
 use crate::no_panic::LockExt;
+use cmux_json::JsonSet as _;
 
 mod briefs;
 pub(super) mod cancel_refused;
@@ -63,7 +64,7 @@ pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::
 /// without one.
 fn with_wait(mut reply: Value, waited: Value) -> Value {
     if !waited.is_null() {
-        reply["wait"] = waited;
+        reply.set("wait", waited);
     }
     reply
 }
