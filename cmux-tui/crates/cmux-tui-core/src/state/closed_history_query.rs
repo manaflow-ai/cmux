@@ -418,11 +418,7 @@ pub(crate) fn group_member_holding_workspace(
     for row in rows {
         let (closed_id, record) = row?;
         let record: Value = serde_json::from_str(&record)?;
-        let members = record
-            .get("members")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
+        let members = record.get("members").and_then(Value::as_array).cloned().unwrap_or_default();
         let holds = |member: &Value| {
             member["kind"] == "workspace"
                 && member["closed_workspace_id"].as_str() == Some(workspace)

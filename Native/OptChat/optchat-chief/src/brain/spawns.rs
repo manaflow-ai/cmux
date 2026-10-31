@@ -2660,8 +2660,7 @@ impl Brain {
                 .values()
                 .flat_map(|r| &r.subs)
                 .find_map(|s| {
-                    (s.ws_id.as_deref() == Some(ws) && !s.title.is_empty())
-                        .then(|| s.title.clone())
+                    (s.ws_id.as_deref() == Some(ws) && !s.title.is_empty()).then(|| s.title.clone())
                 })
         };
         crate::reply_links::link_refs_named(&linked, &home, &|p| mac && p.exists(), &name_of)
