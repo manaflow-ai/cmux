@@ -262,18 +262,29 @@ import Testing
         #expect(engine.evaluated.isEmpty, "no fill script ran")
     }
 
-    @Test func anUnreadableOriginRefusesScriptsOnceASiteIsFilled() async throws {
+    @Test func anUnreadableOriginReservesTheProfileAgainstFutureFills() async throws {
         let engine = LoginEngine(url: "https://www.example.com/login", fill: Self.filledBoth)
         let router = install(engine, Lookups(Self.saved))
         engine.probeFails.withLock { $0 = true }
-        // Nothing filled yet: an unreadable page may run the agent's script.
+        // Nothing filled yet: unpinnable code may run, but it reserves the whole profile.
         _ = try await eval(router).get()
         engine.probeFails.withLock { $0 = false }
         engine.navigate(to: "https://login.example.net/")
-        _ = try await call(router).get()
+        let answer = try await call(router).get()
+        #expect(answer["filled"] == false)
+        #expect(answer["reason"] == "scripted_origin")
+        #expect(engine.evaluated.isEmpty, "the reserved profile never receives credentials")
+    }
+
+    @Test func anUnreadableOriginRefusesScriptsOnceASiteIsFilled() async throws {
+        let engine = LoginEngine(url: "https://www.example.com/login", fill: Self.filledBoth)
+        let router = install(engine, Lookups(Self.saved))
+        let answer = try await call(router).get()
+        try #require(answer["filled"] == true, "the profile must hold a filled login before probing fails")
         engine.probeFails.withLock { $0 = true }
         guard case .failure(let error) = await eval(router) else { Issue.record("an unreadable page ran a script"); return }
         #expect(error.code == "login_filled")
+        #expect(engine.agentEvaluated.isEmpty, "no agent script reached the filled profile")
     }
 
     @Test func theMarksOutliveTheApp() async throws {

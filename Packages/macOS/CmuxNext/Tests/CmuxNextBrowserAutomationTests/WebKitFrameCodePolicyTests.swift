@@ -181,6 +181,19 @@ import WebKit
             parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
             let listener = try NWListener(using: parameters)
             let queue = DispatchQueue(label: "pr25858-frame-policy-test")
+            listener.newConnectionHandler = { connection in
+                connection.start(queue: queue)
+                connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) { data, _, _, _ in
+                    let request = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                    let path = request.split(separator: " ").dropFirst().first ?? "/"
+                    let childOrigin = "http://localhost:\(listener.port?.rawValue ?? 0)"
+                    let body = path == "/" ? "<iframe src='\(childOrigin)/child'></iframe>" : "<p id='handle'>frame</p>"
+                    let html = "<!doctype html><html><body>\(body)</body></html>"
+                    let csp = path == "/strict" ? "Content-Security-Policy: script-src 'none'\r\n" : ""
+                    let head = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\(csp)Content-Length: \(html.utf8.count)\r\nConnection: close\r\n\r\n"
+                    connection.send(content: Data((head + html).utf8), completion: .contentProcessed { _ in connection.cancel() })
+                }
+            }
             let port: UInt16 = try await withCheckedThrowingContinuation { continuation in
                 listener.stateUpdateHandler = { state in
                     switch state {
@@ -195,20 +208,7 @@ import WebKit
                 }
                 listener.start(queue: queue)
             }
-            let server = Server(listener: listener, port: port)
-            listener.newConnectionHandler = { connection in
-                connection.start(queue: queue)
-                connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) { data, _, _, _ in
-                    let request = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-                    let path = request.split(separator: " ").dropFirst().first ?? "/"
-                    let body = path == "/" ? "<iframe src='\(server.childOrigin)/child'></iframe>" : "<p id='handle'>frame</p>"
-                    let html = "<!doctype html><html><body>\(body)</body></html>"
-                    let csp = path == "/strict" ? "Content-Security-Policy: script-src 'none'\r\n" : ""
-                    let head = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\(csp)Content-Length: \(html.utf8.count)\r\nConnection: close\r\n\r\n"
-                    connection.send(content: Data((head + html).utf8), completion: .contentProcessed { _ in connection.cancel() })
-                }
-            }
-            return server
+            return Server(listener: listener, port: port)
         }
 
         func url(_ path: String, child: Bool = false) throws -> URL {
