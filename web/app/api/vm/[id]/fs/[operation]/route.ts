@@ -44,7 +44,7 @@ export async function GET(request: Request, { params }: { params: Promise<Params
     if (typeof path !== "string") return path;
     const account = resolveVmRouteAccountScope(user, request);
     if (!account.ok) return account.response;
-    const base = { userId: user.id, billingTeamId: account.entitlements.billingTeamId, callerPlanId: account.entitlements.planId, maxActiveVms: account.entitlements.maxActiveVms, teamIds: user.teamIds, providerVmId: id };
+    const base = { userId: user.id, billingTeamId: account.entitlements.billingTeamId, callerPlanId: account.entitlements.planId, maxActiveVms: account.entitlements.maxActiveVms, entitlementOverride: account.entitlements.override, teamIds: user.teamIds, providerVmId: id };
     const run = operation === "dir"
       ? await runVmRoute(listVmFiles(base, path), { request, readDeadline: { operation: "filesRead" } })
       : operation === "read"
@@ -73,7 +73,7 @@ export async function POST(request: Request, { params }: { params: Promise<Param
     if (typeof path !== "string") return path;
     const account = resolveVmRouteAccountScope(user, request);
     if (!account.ok) return account.response;
-    const base = { userId: user.id, billingTeamId: account.entitlements.billingTeamId, callerPlanId: account.entitlements.planId, maxActiveVms: account.entitlements.maxActiveVms, teamIds: user.teamIds, providerVmId: id };
+    const base = { userId: user.id, billingTeamId: account.entitlements.billingTeamId, callerPlanId: account.entitlements.planId, maxActiveVms: account.entitlements.maxActiveVms, entitlementOverride: account.entitlements.override, teamIds: user.teamIds, providerVmId: id };
     const run = operation === "mkdir"
       ? await runVmRoute(mkdirVmFile(base, path), { request, deadline: { operation: "filesWrite" } })
       : await writeFromBody(request, base, path, raw.dataBase64, raw.mode);
@@ -91,7 +91,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<Par
     if (typeof path !== "string") return path;
     const account = resolveVmRouteAccountScope(user, request);
     if (!account.ok) return account.response;
-    const run = await runVmRoute(removeVmFile({ userId: user.id, billingTeamId: account.entitlements.billingTeamId, callerPlanId: account.entitlements.planId, maxActiveVms: account.entitlements.maxActiveVms, teamIds: user.teamIds, providerVmId: id }, path), { request, deadline: { operation: "filesWrite" } });
+    const run = await runVmRoute(removeVmFile({ userId: user.id, billingTeamId: account.entitlements.billingTeamId, callerPlanId: account.entitlements.planId, maxActiveVms: account.entitlements.maxActiveVms, entitlementOverride: account.entitlements.override, teamIds: user.teamIds, providerVmId: id }, path), { request, deadline: { operation: "filesWrite" } });
     if (!run.ok) return run.response;
     setSpanPath(span, id, path);
     return jsonResponse({ ok: true, path });

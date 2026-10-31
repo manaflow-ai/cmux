@@ -24,6 +24,7 @@ import {
   searchAdminUsers,
   setManualPlanGrant,
   setTeamManualPlanGrant,
+  setTeamVmEntitlementOverride,
   type AdminGrantsDb,
   type SetManualPlanGrantInput,
   type AdminStackApp,
@@ -429,6 +430,53 @@ describe("teams", () => {
     });
     expect(granted.isTeam).toBe(true);
     expect(granted.manualPlanId).toBe("team");
+  });
+
+  test("setTeamVmEntitlementOverride writes the custom deal beside the plan grant and clears it", async () => {
+    const team = fakeTeam({ id: "t1", members: 8, clientReadOnlyMetadata: { cmuxVmPlan: "team", cmuxSeats: 8 } });
+    const app = fakeApp([], [team]);
+    const deal = {
+      maxActiveVms: 40,
+      poolVcpus: 320,
+      poolMemoryMb: 640 * 1024,
+      maxMemoryMb: 64 * 1024,
+      planLabel: "Acme Team",
+      monthlyPriceCents: 80_000,
+    };
+    const set = await setTeamVmEntitlementOverride({
+      teamId: "t1",
+      override: deal,
+      admin,
+      app,
+      now: () => new Date("2026-10-30T10:00:00.000Z"),
+      withFreshTeam: directTeamMutation(app),
+      stripeBillingStatus: async () => activeStripe,
+    });
+    expect(team.updates[0]).toEqual({
+      clientReadOnlyMetadata: { cmuxVmPlan: "team", cmuxSeats: 8, cmuxVmEntitlementOverride: deal },
+      serverMetadata: {
+        cmuxAdminEntitlementOverride: {
+          byUserId: "admin-1",
+          byEmail: "admin@manaflow.ai",
+          at: "2026-10-30T10:00:00.000Z",
+          cleared: false,
+        },
+      },
+    });
+    expect(set.vmEntitlementOverride).toEqual(deal);
+    expect(set.manualPlanId).toBe("team");
+
+    const cleared = await setTeamVmEntitlementOverride({
+      teamId: "t1",
+      override: null,
+      admin,
+      app,
+      withFreshTeam: directTeamMutation(app),
+      stripeBillingStatus: async () => activeStripe,
+    });
+    expect(team.updates[1]?.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: "team", cmuxSeats: 8 });
+    expect(cleared.vmEntitlementOverride).toBeNull();
+    expect(cleared.lastEntitlementOverrideChange?.cleared).toBe(true);
   });
 
   test("removing a team grant also drops a stale cmuxPlan mirror when Stripe lapsed", async () => {

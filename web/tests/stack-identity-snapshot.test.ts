@@ -124,6 +124,15 @@ describe("identity snapshot store", () => {
     expect(read?.user).toEqual(user);
   });
 
+  test("a team's custom Cloud VM deal survives the snapshot round trip", async () => {
+    const { db } = fakeDb();
+    const deal = { maxActiveVms: 40, poolVcpus: 320, poolMemoryMb: 640 * 1024, maxMemoryMb: 65536 };
+    const withDeal = { ...user, teams: user.teams.map((team, index) => index === 0 ? { ...team, vmEntitlementOverride: deal } : team) };
+    await writeIdentitySnapshot(withDeal, { completeTeamList: true }, db);
+    const read = await readIdentitySnapshot(user.id, 60_000, db);
+    expect(read?.user).toEqual(withDeal);
+  });
+
   test("deleting removes the row", async () => {
     const { db, state } = fakeDb([storedRow(new Date())]);
     await deleteIdentitySnapshot(user.id, db);
