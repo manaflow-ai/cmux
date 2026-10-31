@@ -13,7 +13,7 @@
   max-width: 1080px;
   margin: 0 auto;
   padding: var(--ds-space-6, 32px) var(--ds-space-6, 32px)
-    calc(var(--ds-control-row, 28px) + 2 * var(--ds-space-6, 32px));
+    calc(var(--ds-control-row) + 2 * var(--ds-space-6, 32px));
 }
 .tc-eyebrow {
   margin: 0 0 4px;
@@ -194,7 +194,7 @@
 @media (max-width: 620px) {
   .tc-shell {
     padding: var(--ds-space-4, 16px) var(--ds-space-4, 16px)
-      calc(var(--ds-control-row, 28px) + 2 * var(--ds-space-6, 32px));
+      calc(var(--ds-control-row) + 2 * var(--ds-space-6, 32px));
   }
   .tc-split {
     display: block;
