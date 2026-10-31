@@ -108,9 +108,10 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # the peer's uid, executable or code signature: the Chief's acpmux peer check and its
     # kernel-signature rule for a moved acpmux (code_signature.rs), the app's acpmux server peer
     # check, cmux-link's caller and containing-app checks, the Computer Use helper's admission rule,
-    # state and control pipe (where the app's admission values arrive) and host check, the app's
-    # check of the helper on that socket, the requirement or cdhash and the acpmux daemon the app
-    # gives the helper for acpmux bridges, the requirement of the helper the app or acpmux may
+    # state and control pipe (where the app's admission values arrive), host check and the two
+    # socket servers that call them, the app's check of the helper on that socket, the requirement
+    # or cdhash, the acpmux daemon and executable and the per-launch secret the app gives the helper
+    # for acpmux bridges, the requirement of the helper the app or acpmux may
     # launch (Swift, Rust and shell copies) and the check of its staged copy, the root server
     # helper's XPC requirements (its clients', and the app's of it), and the signature checks of a
     # downloaded browser runtime. A wrong time or anchor here lets another process take the socket
@@ -121,6 +122,8 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         "cmux-tui/crates/cmux-link/src/app_caller.rs", "*/CmuxCuaHelperCore/HostVerifier.swift",
         NEXT + "CmuxNextAgentActivity/CuaHelperIdentity.swift", "*/CmuxCuaHelperCore/Admission.swift",
         "*/CmuxCuaHelperCore/AdmissionState.swift", "*/CmuxCuaHelperCore/HelperController.swift",
+        "*/CmuxCuaHelperCore/HelperSocketServer.swift", "*/CmuxCuaHelperCore/HostConsentServer.swift",
+        NEXT + "CmuxNextComputerUse/ComputerUseHelperV2+Secret.swift", NEXT + "CmuxNextApp/AgentTabs+PaneSource.swift",
         "cmux-tui/crates/acpmux/src/agent_tools/cua_helper.rs", "scripts/cmux-cua-helper-trust.sh",
         NEXT + "CmuxNextComputerUse/ComputerUseHelperStaging.swift",
         NEXT + "CmuxNextComputerUse/ComputerUseHelperV2HostLink.swift",
