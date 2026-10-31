@@ -83,13 +83,6 @@ export function phaseAgents(workflow: WorkflowSummary, phase: WorkflowPhase): Wo
   return workflow.agents.filter((agent) => ids.has(agent.id));
 }
 
-/// The phases after the last one any agent started in, none of whose agents started: what runs next.
-export function upNext(workflow: WorkflowSummary): WorkflowPhase[] {
-  const started = workflow.phases.map((phase) => phaseState(phaseAgents(workflow, phase)) !== "pending");
-  const last = started.lastIndexOf(true);
-  return workflow.phases.filter((phase, i) => i > last && phase.id !== "unassigned");
-}
-
 /// A model id as people say it: `claude-opus-5-5` -> "Opus 5.5", `sonnet` -> "Sonnet"; else as is.
 export function modelName(model: string): string {
   const match = /^(?:claude-)?([a-z]+)(?:-(\d+)(?:-(\d+))?)?(?:-\d{8})?$/i.exec(model.trim());

@@ -18,7 +18,10 @@ import Foundation
 ///                "glassTintStrength": 0.35,     // 0 to 1
 ///                "cornerRadius": "theme",       // capsule, or points 0 to 16
 ///                "shadow": false,
-///                "backgroundOpacity": 0 }       // 0 to 1, over a see-through window
+///                "backgroundOpacity": 0,        // 0 to 1, over a see-through window
+///                // the bar's size (issue 28734): "density" follows the density preset
+///                "height": "density",           // or points 20 to 56
+///                "fontSize": "density" }        // or points 10 to 24
 /// }
 /// ```
 ///
@@ -40,6 +43,15 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
     public static let cornerRadiusPath = ["browser", "omnibar", "cornerRadius"]
     public static let shadowPath = ["browser", "omnibar", "shadow"]
     public static let backgroundOpacityPath = ["browser", "omnibar", "backgroundOpacity"]
+    /// The bar's height and text size; `density` (the default) follows the density preset.
+    public static let heightPath = ["browser", "omnibar", "height"]
+    public static let fontSizePath = ["browser", "omnibar", "fontSize"]
+    /// `height` points (the bar still grows to fit its text, `OmnibarMetrics`).
+    public static let heightRange: ClosedRange<Double> = 20...56
+    /// `fontSize` points.
+    public static let fontSizeRange: ClosedRange<Double> = 10...24
+    /// The paths whose number is clamped into range (with a diagnostic) instead of refused.
+    static let clampedPaths: [[String]: ClosedRange<Double>] = [heightPath: heightRange, fontSizePath: fontSizeRange]
     /// `cornerRadius` points; the words are `theme` and `capsule`.
     public static let cornerRadiusRange: ClosedRange<Double> = 0...16
     /// The built-in engines, then `custom`.
@@ -78,6 +90,10 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
     /// How much the flat bar covers a see-through window, 0 to 1; 0 keeps
     /// the window's transparency down to the text's legibility floor.
     public var backgroundOpacity = 0.0
+    /// The bar's height in points; nil follows density.
+    public var height: Double?
+    /// The bar's text size in points; nil follows density.
+    public var fontSize: Double?
 
     public init() {}
 
@@ -88,7 +104,14 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> BrowserOmnibarSetting {
         var setting = fallback
         for descriptor in OmnibarSettingsSchema.descriptors {
-            guard let value = root.value(at: descriptor.path) else { continue }
+            guard var value = root.value(at: descriptor.path) else { continue }
+            if let range = clampedPaths[descriptor.path], let number = value.doubleValue, number.isFinite, !range.contains(number) {
+                // A size past its range applies at the nearest end, and says so.
+                let clamped = min(max(number, range.lowerBound), range.upperBound)
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id,
+                                                      message: OmnibarSettingsSchema.expectation(descriptor) + "; using \(Int(clamped))"))
+                value = .number(clamped)
+            }
             guard descriptor.accepts(value) else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
                 continue
@@ -113,6 +136,8 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
                 }
             case shadowPath: setting.shadow = value.boolValue ?? false
             case backgroundOpacityPath: setting.backgroundOpacity = value.doubleValue ?? setting.backgroundOpacity
+            case heightPath: setting.height = value.stringValue == "density" ? nil : value.doubleValue
+            case fontSizePath: setting.fontSize = value.stringValue == "density" ? nil : value.doubleValue
             default: break
             }
         }
