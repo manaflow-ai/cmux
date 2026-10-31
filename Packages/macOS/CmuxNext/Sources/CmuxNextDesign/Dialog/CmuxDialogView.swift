@@ -18,9 +18,14 @@ public final class CmuxDialogView: NSView {
     private(set) var focusables: [NSView] = []
     private let stack = NSStackView()
     private(set) var surface: OverlaySurfaceView?
+    /// The window's active-look scope the card's glass keeps the key look with.
+    private let activeLook: ActiveLookScope?
 
-    public init(spec: CmuxDialogSpec) {
+    /// `activeLook` is the dialog window's ``ActiveLookScope`` (its `backdropActiveLook`): the card
+    /// keeps the key-window glass while it fades out. Nil follows the key state.
+    public init(spec: CmuxDialogSpec, activeLook: ActiveLookScope? = nil) {
         self.spec = spec
+        self.activeLook = activeLook
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         build()
@@ -206,7 +211,7 @@ public final class CmuxDialogView: NSView {
         content.addSubview(stack)
         // The card keeps the key-window glass: its panel gives key back as the close fade starts, and the
         // inactive frost turned the card a lighter grey for the whole fade (debug.dialog_strip).
-        let surface = Glass.makeOverlayPanel(content: content, tone: .neutralGlass(.dialog), keepsActiveLook: true)
+        let surface = Glass.makeOverlayPanel(content: content, tone: .neutralGlass(.dialog), activeLook: activeLook)
         addSubview(surface)
         self.surface = surface
         NSLayoutConstraint.activate([

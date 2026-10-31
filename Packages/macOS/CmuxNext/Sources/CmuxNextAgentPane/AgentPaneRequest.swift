@@ -208,7 +208,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case asksAnswer(AgentPaneAskAnswer)
     /// `chat.subagentPane {subagent, focus}`: this chat's subagent in an agent pane of its own,
     /// right of the chat (``AgentSubagentPanes``); `focus` moves keyboard focus to it.
-    case subagentPane(String, focus: Bool)
+    case subagentPane(String, focus: Bool, title: String? = nil)
+    /// `chat.subagentShown {subagent?, title?}`: a pane opened on a subagent now shows that subagent
+    /// (named `title`), or its chat again (no subagent): its tab's name follows (``SubagentTabTitles``).
+    case subagentShown(String?, title: String?)
     /// `chat.processTerminal {toolCallId}`: the background process this chat's tool call started,
     /// in a read-only terminal tab beside the chat (``AgentPaneProcessViewer``).
     case processTerminal(toolCall: String)
@@ -316,6 +319,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// key (``AgentPaneDisplaySetting/writablePath(_:)``); a null value removes it.
     /// `pane.setAttachmentView {view}` writes `agentPane.attachmentView` the same way (`inline` or `strip`).
     case displaySetting(path: [String], value: JSONValue?)
+    /// `tips.state`: read the feature tip records, keep one, or ask to show a tip
+    /// (``AgentPaneFeatureTipRecords``).
+    case featureTips(AgentPaneFeatureTipRequest)
     /// `chat.toolCard.respond {id, action, value?}`: a click on a button of a tool card (``AgentPaneToolCard``),
     /// with what the person typed in its field.
     case toolCard(card: String, action: String, value: AgentPaneToolCard.Entered?)

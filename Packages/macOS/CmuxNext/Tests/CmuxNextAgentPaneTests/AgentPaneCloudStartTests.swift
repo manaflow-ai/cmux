@@ -14,8 +14,9 @@ struct AgentPaneCloudStartTests {
 
     @MainActor private final class Starts { var seen: [AgentPaneCloudStart] = []; var heldDuringRun: Bool? }
 
-    private static func pane(_ starts: Starts, sessionId: String? = nil) -> AgentPaneModel {
+    private static func pane(_ starts: Starts, sessionId: String? = nil, root: String? = nil) -> AgentPaneModel {
         let model = AgentPaneModel(host: NoHost(), sessionId: sessionId)
+        if let root { model.transport.roots = { [root] } }
         model.onCloudStartChat = { [weak model] start in
             starts.seen.append(start)
             // A second hand-off in the same pane is refused while this one runs.
@@ -29,17 +30,30 @@ struct AgentPaneCloudStartTests {
         AgentPaneRequest(body: ["method": "cloud.startChat", "params": params])
     }
 
+    /// A real folder (the check reads the disk) under its own new root: (root, folder).
+    private static func project() throws -> (root: String, folder: String) {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cloud-start-\(UUID().uuidString)")
+        let folder = root.appendingPathComponent("paint")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return (root.path, folder.path)
+    }
+
+    private static func canonical(_ path: String) -> String? { AcpmuxPathPolicy.canonical(path) }
+
     private static let good: [String: Any] = ["task": "fix the build", "cwd": "/Users/me/src/paint", "harness": "codex", "model": "gpt-6-astra",
                                               "key": UUID().uuidString]
 
-    @Test func aNewChatsSendWithAGestureStartsInCloud() async {
+    @Test func aNewChatsSendWithAGestureStartsInCloud() async throws {
         let starts = Starts()
-        let model = Self.pane(starts)
+        let (root, folder) = try Self.project()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let model = Self.pane(starts, root: root)
         model.transport.gestures.record()
-        let reply = await model.respond(to: Self.start(Self.good))
+        let reply = await model.respond(to: Self.start(Self.good.merging(["cwd": folder]) { $1 }))
         #expect(reply["ok"] as? Bool == true)
         #expect(starts.seen.map(\.task) == ["fix the build"])
-        #expect(starts.seen.first?.cwd == "/Users/me/src/paint")
+        // The runner gets the folder's canonical path, the one the pane's check allowed.
+        #expect(starts.seen.first?.cwd == Self.canonical(folder))
         #expect(starts.seen.first?.harness == "codex")
         #expect(starts.seen.first?.model == "gpt-6-astra")
         #expect(starts.heldDuringRun == true)
@@ -72,11 +86,19 @@ struct AgentPaneCloudStartTests {
         #expect(first.tabKey != other.tabKey)
     }
 
-    @Test func aRefusedStartReleasesTheHoldSoTheSendMayBeTriedAgain() async {
+    @Test func aRefusedStartReleasesTheHoldSoTheSendMayBeTriedAgain() async throws {
+        let (root, folder) = try Self.project()
+        defer { try? FileManager.default.removeItem(atPath: root) }
         let model = AgentPaneModel(host: NoHost())
-        model.onCloudStartChat = { _ in AgentPaneReply.failure(code: "cloud_start_failed", message: "no machine") }
+        model.transport.roots = { [root] }
+        let starts = Starts()
+        model.onCloudStartChat = { start in
+            starts.seen.append(start)
+            return AgentPaneReply.failure(code: "cloud_start_failed", message: "no machine")
+        }
         model.transport.gestures.record()
-        let reply = await model.respond(to: Self.start(Self.good))
+        let reply = await model.respond(to: Self.start(Self.good.merging(["cwd": folder]) { $1 }))
+        #expect(starts.seen.count == 1)
         #expect(reply["ok"] as? Bool == false)
         #expect(model.transport.replacements.beginSandbox())
     }
@@ -107,6 +129,85 @@ struct AgentPaneCloudStartTests {
             #expect(reply["ok"] as? Bool != true)
         }
         #expect(starts.seen.isEmpty)
+    }
+
+    @Test func aFolderOutsideThePanesRootsIsNeverCopied() async throws {
+        let starts = Starts()
+        let (root, folder) = try Self.project()
+        let (outsideRoot, outside) = try Self.project()
+        defer {
+            try? FileManager.default.removeItem(atPath: root)
+            try? FileManager.default.removeItem(atPath: outsideRoot)
+        }
+        // A link inside the root to a folder outside it names the outside folder.
+        let link = (root as NSString).appendingPathComponent("escape")
+        try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: outside)
+        for cwd in [outside, link, root + "/paint/../../" + (outsideRoot as NSString).lastPathComponent + "/paint",
+                    root + "/missing", "/", NSHomeDirectory()] {
+            let model = Self.pane(starts, root: root)
+            model.transport.gestures.record()
+            let reply = await model.respond(to: Self.start(Self.good.merging(["cwd": cwd]) { $1 }))
+            #expect(reply["ok"] as? Bool != true, "\(cwd)")
+            // Refused before the hold and the gesture: the person can pick another folder and send.
+            #expect(model.transport.replacements.beginSandbox())
+        }
+        // A pane whose folder is home (a folderless tab) offers no folder under home by that alone.
+        let homeTab = Self.pane(starts, root: NSHomeDirectory())
+        homeTab.transport.gestures.record()
+        let underHome = await homeTab.respond(to: Self.start(Self.good.merging(["cwd": NSHomeDirectory() + "/Library"]) { $1 }))
+        #expect(underHome["ok"] as? Bool != true)
+        #expect(starts.seen.isEmpty)
+        // The root's own folder still starts.
+        let model = Self.pane(starts, root: root)
+        model.transport.gestures.record()
+        #expect(await model.respond(to: Self.start(Self.good.merging(["cwd": folder]) { $1 }))["ok"] as? Bool == true)
+    }
+
+    /// The copy uploads the Git working copy that holds the folder: a grant of /repo/paint never
+    /// uploads /repo (its siblings and its history); a grant of /repo does, as its upload root.
+    @Test func aFolderInsideAGitWorkingCopyIsCopiedOnlyWhenTheWholeCopyIsInScope() async throws {
+        let starts = Starts()
+        let (repo, folder) = try Self.project()
+        defer { try? FileManager.default.removeItem(atPath: repo) }
+        try FileManager.default.createDirectory(atPath: (repo as NSString).appendingPathComponent(".git"), withIntermediateDirectories: true)
+        let narrow = Self.pane(starts, root: folder)
+        narrow.transport.gestures.record()
+        let refused = await narrow.respond(to: Self.start(Self.good.merging(["cwd": folder]) { $1 }))
+        #expect(refused["ok"] as? Bool != true)
+        #expect(narrow.transport.replacements.beginSandbox())
+        #expect(starts.seen.isEmpty)
+
+        let whole = Self.pane(starts, root: repo)
+        whole.transport.gestures.record()
+        let started = await whole.respond(to: Self.start(Self.good.merging(["cwd": folder]) { $1 }))
+        #expect(started["ok"] as? Bool == true)
+        #expect(starts.seen.first?.cwd == Self.canonical(folder))
+        #expect(starts.seen.first?.uploadRoot == Self.canonical(repo))
+        let canonicalFolder = try #require(Self.canonical(folder))
+        #expect(AgentPaneCloudStart.uploadRoot(of: canonicalFolder) == Self.canonical(repo))
+    }
+
+    /// The create's key is the send's: a retry after a lost create answer gets the same machine.
+    @Test func aRetryOfTheSameSendCreatesUnderTheSameKey() throws {
+        let key = UUID().uuidString
+        let first = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": key]) { $1 }))
+        let retry = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": key.lowercased()]) { $1 }))
+        let other = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": UUID().uuidString]) { $1 }))
+        #expect(first.createKey == retry.createKey)
+        #expect(first.createKey != other.createKey)
+        #expect(first.createKey.count <= 128)
+    }
+
+    @Test func eachSendCopiesTheFolderToItsOwnPlaceOnTheMachine() throws {
+        let key = UUID().uuidString
+        let first = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": key]) { $1 }))
+        let retry = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": key.lowercased()]) { $1 }))
+        let other = try #require(AgentPaneCloudStart(params: Self.good.merging(["key": UUID().uuidString]) { $1 }))
+        // A second Cloud chat from the same folder never syncs over the first one's copy; a retry
+        // of the same send lands in the same copy.
+        #expect(first.remotePlace == retry.remotePlace)
+        #expect(first.remotePlace != other.remotePlace)
+        #expect(first.remotePlace == "chats/" + key.lowercased())
     }
 
     @Test func withoutARunnerTheMethodIsUnsupported() async {

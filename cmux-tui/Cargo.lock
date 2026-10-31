@@ -964,6 +964,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-automations"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cmux-browser-host"
 version = "1.0.0"
 dependencies = [
@@ -1366,6 +1376,7 @@ name = "cmux-rd-link"
 version = "0.1.0"
 dependencies = [
  "cmux-transport",
+ "libc",
  "snow",
 ]
 
@@ -1634,6 +1645,7 @@ dependencies = [
  "bytes",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
+ "cmux-automations",
  "cmux-build-identity",
  "cmux-chat-index",
  "cmux-config",
