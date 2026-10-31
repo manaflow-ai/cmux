@@ -6,7 +6,7 @@ import Testing
 
 @MainActor @Suite(.serialized) struct SSHConnectRecoveryTests {
     @Test func networkAndDaemonFailuresOfferRecovery() {
-        for status: SSHConnectionMachine.Status in [.unreachable("nohost.invalid"), .failed("daemon exited"),
+        for status: SSHConnectionMachine.Status in [.unreachable("nohost.invalid"), .failed("daemon exited"), .sessionInUse("in use"),
                                                    .authFailed("denied"), .hostKeyUntrusted("changed"), .installFailed("download failed")] {
             #expect(status.needsRecovery)
         }

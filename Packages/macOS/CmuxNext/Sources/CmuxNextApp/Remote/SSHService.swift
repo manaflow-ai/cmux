@@ -235,9 +235,9 @@ final class SSHService {
 
     static func reconnectStep(link: SSHConnectionMachine.Status, daemon: DaemonStartupState, daemonFailed: Bool) -> ReconnectStep {
         switch link {
-        case .offline, .unreachable, .failed:
-            // These failures leave the gate open for automatic backoff, so a user
-            // Retry must start a fresh attempt rather than only waking the loop.
+        case .offline, .unreachable, .failed, .sessionInUse:
+            // These failures leave the gate open for automatic backoff (a session in use: for
+            // this Reconnect), so a user Retry must start a fresh attempt, not only wake the loop.
             return .connect
         case .connected:
             // A healthy transport has no reconnect to perform. If only the daemon

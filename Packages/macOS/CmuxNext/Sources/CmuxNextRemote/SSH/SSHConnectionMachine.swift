@@ -32,12 +32,22 @@ public struct SSHConnectionMachine: Hashable, Sendable {
         case installing
         case installFailed(String)
         case failed(String)
+        /// The machine's cmux-tui session is owned by another daemon (``SSHFailure/sessionInUse``):
+        /// only Reconnect tries again, never a network change, a wake, an activation or a chat
+        /// that uses the machine (its reconnect on use).
+        case sessionInUse(String)
+
+        /// Whether using the machine (a chat that opens or sends) may reconnect it on its own: not a
+        /// session another daemon owns, which fails the same way on every try and waits for Reconnect.
+        public var reconnectsOnUse: Bool {
+            if case .sessionInUse = self { false } else { true }
+        }
 
         /// A first connection needs a visible recovery action, even while the
         /// underlying link remains eligible for automatic network retries.
         public var needsRecovery: Bool {
             switch self {
-            case .unreachable, .failed, .authFailed, .hostKeyUntrusted, .installFailed: true
+            case .unreachable, .failed, .sessionInUse, .authFailed, .hostKeyUntrusted, .installFailed: true
             default: false
             }
         }
@@ -124,7 +134,7 @@ public struct SSHConnectionMachine: Hashable, Sendable {
                 status = .failed(text)
                 blocked = false
             case .sessionInUse(let text):
-                status = .failed(text)
+                status = .sessionInUse(text)
                 blocked = true
                 onlyUserUnblocks = true
             }

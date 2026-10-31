@@ -143,7 +143,7 @@ final class SSHMachineSession {
                     await self.updateDaemonFailure(link: link, attemptID: self.connectionAttemptID, error: error)
                 }
             }
-        case .connecting, .reconnecting, .failed: break
+        case .connecting, .reconnecting, .failed, .sessionInUse: break
         case .offline, .authFailed, .hostKeyUntrusted, .unreachable, .needsInstall, .installing, .installFailed:
             linkReached = false
             daemonFailure = nil

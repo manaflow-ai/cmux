@@ -1,5 +1,8 @@
+import CmuxNextDaemon
 import CmuxNextRemote
+import CmuxNextSidebar
 import Testing
+@testable import CmuxNextApp
 
 /// A link whose session on the machine is owned by another cmux daemon (the
 /// machine's own app or a Chief brain holds `main`) fails the same way on
@@ -26,8 +29,8 @@ import Testing
         var machine = SSHConnectionMachine()
         machine.handle(.connect)
         machine.handle(.failed(failure))
-        guard case .failed(let text) = machine.status else {
-            Issue.record("status is \(machine.status), not failed")
+        guard case .sessionInUse(let text) = machine.status else {
+            Issue.record("status is \(machine.status), not sessionInUse")
             return
         }
         #expect(text.contains("--session"))
@@ -38,6 +41,28 @@ import Testing
         #expect(!machine.mayAttempt)
         machine.handle(.wake(.user))
         #expect(machine.mayAttempt)
+    }
+
+    /// Opening a chat on the machine, or sending to it, reconnects a machine whose link dropped
+    /// (``SidebarBridge/paneUse(_:in:)``). A session in use waits for Reconnect instead: the chat's
+    /// automatic retry never redials it, while the header, recovery and Reconnect read it as Failed.
+    @MainActor @Test func aChatOnTheMachineDoesNotRedialASessionInUse() throws {
+        let failure = try #require(SSHFailure.classifyLink(stderr: Self.stderr))
+        var machine = SSHConnectionMachine()
+        machine.handle(.connect)
+        machine.handle(.failed(failure))
+        #expect(!machine.status.reconnectsOnUse)
+        #expect(SidebarBridge.sshStatus(link: machine.status, startupFailed: false, daemonConnected: false, compatibility: nil) == .failed)
+        #expect(machine.status.needsRecovery)
+        #expect(SSHService.reconnectStep(link: machine.status, daemon: .connecting, daemonFailed: false) == .connect)
+        // Any other failed link still reconnects on use.
+        var other = SSHConnectionMachine()
+        other.handle(.connect)
+        other.handle(.failed(.remoteFailed("link closed during handshake")))
+        #expect(other.status.reconnectsOnUse)
+        for status: SSHConnectionMachine.Status in [.offline, .unreachable("x"), .failed("x"), .connecting] {
+            #expect(status.reconnectsOnUse)
+        }
     }
 
     @Test func anotherRemoteFailureStillRetries() throws {

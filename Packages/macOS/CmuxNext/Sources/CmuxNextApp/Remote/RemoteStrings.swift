@@ -120,7 +120,7 @@ enum RemoteStrings {
             return needText(need, session)
         case .installing:
             return String(localized: "remote.status.installing", defaultValue: "Installing cmux-tui…", table: "Remote", bundle: .module)
-        case .installFailed(let message), .failed(let message):
+        case .installFailed(let message), .failed(let message), .sessionInUse(let message):
             return message
         }
     }
@@ -130,7 +130,7 @@ enum RemoteStrings {
     static func sshError(_ session: SSHMachineSession) -> String? {
         let text: String? = switch session.linkStatus {
         case .authFailed(let message), .hostKeyUntrusted(let message), .unreachable(let message),
-             .installFailed(let message), .failed(let message): message
+             .installFailed(let message), .failed(let message), .sessionInUse(let message): message
         case .needsInstall(let need): needText(need, session)
         case .connecting, .connected, .reconnecting: session.daemonFailure?.error ?? session.lastError
         case .offline, .installing: session.lastError
