@@ -210,3 +210,39 @@ async fn a_client_that_does_not_ask_gets_text_frames() {
         assert_eq!(binary > 0, ask, "binary frames when asked={ask}: {binary}");
     }
 }
+
+/// A compressed frame that inflates to no JSON-RPC message ends the link with why: it may have
+/// been the reply a caller waits on (here the handshake's `initialize`).
+#[tokio::test]
+async fn a_compressed_frame_that_is_not_json_rpc_ends_the_link() {
+    let listener = bind_ws("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+        while let Some(Ok(frame)) = ws.next().await {
+            if let Frame::Text(_) = frame {
+                let bad = crate::frame_compress::deflate(b"{\"jsonrpc\": \"2.0\", \"id\": 1, ");
+                let _ = ws.send(Frame::Binary(bad.into())).await;
+            }
+        }
+    });
+    let (tx, mut notices) = mpsc::channel(64);
+    let peer = Peer::new("bad", &format!("ws://127.0.0.1:{port}"), Some(TOKEN.into()), None, tx);
+    let link = tokio::spawn(peer.clone().run());
+    let why = loop {
+        let (_, _, notice) = tokio::time::timeout(Duration::from_secs(10), notices.recv())
+            .await
+            .expect("the link ends instead of waiting out the handshake")
+            .expect("the link reports");
+        match notice {
+            PeerNotice::Disconnected(why) => break why,
+            PeerNotice::Connected => panic!("connected on a bad reply"),
+            _ => {}
+        }
+    };
+    assert!(why.contains("not a JSON-RPC message"), "{why}");
+    peer.stop();
+    link.abort();
+    server.abort();
+}

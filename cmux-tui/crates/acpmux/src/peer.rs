@@ -1435,17 +1435,17 @@ impl Peer {
                     last_frame = tokio::time::Instant::now();
                     wake_probe = None;
                     self.with_link(|l| l.heard(crate::store::now_ms()));
-                    let text = match frame {
+                    let (text, compressed) = match frame {
                         tokio_tungstenite::tungstenite::Message::Text(t) => {
                             self.received.add(t.len(), t.len());
-                            t.to_string()
+                            (t.to_string(), false)
                         }
                         // Asked for in `initialize` (`frame_compress.rs`). One that does not
                         // inflate would lose a reply its caller waits on: the link starts over.
                         Frame::Binary(b) => match crate::frame_compress::inflate(&b, crate::server::WS_MAX_MESSAGE_BYTES) {
                             Ok(text) => {
                                 self.received.add(b.len(), text.len());
-                                text
+                                (text, true)
                             }
                             Err(e) => break Err(e),
                         },
@@ -1455,7 +1455,14 @@ impl Peer {
                         Frame::Close(_) => break Err("peer closed the connection".to_owned()),
                         _ => continue,
                     };
-                    let Ok(msg) = Message::parse(&text) else { continue };
+                    let msg = match Message::parse(&text) {
+                        Ok(msg) => msg,
+                        // Only large messages are compressed, and a reply among them would be
+                        // lost while its caller waits: the link starts over, as for a frame
+                        // that does not inflate.
+                        Err(e) if compressed => break Err(format!("a compressed frame is not a JSON-RPC message: {e}")),
+                        Err(_) => continue,
+                    };
                     match msg {
                         Message::Response { id, result, error } => {
                             let key = id.to_string();
