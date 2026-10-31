@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 760,
-    "mcp": 678
+    "verbs": 758,
+    "mcp": 676
   },
   "nouns": [
     {
@@ -690,6 +690,13 @@
           "mcpTool": null
         },
         {
+          "command": "cmux browser edit-source",
+          "title": "Edit Source",
+          "id": "browser.editSource",
+          "mcp": true,
+          "mcpTool": "app_browser_edit_source"
+        },
+        {
           "command": "cmux browser enable",
           "title": "Enable cmux Browser",
           "id": "palette.enableBrowser",
@@ -1074,20 +1081,6 @@
       "noun": "cloud",
       "verbs": [
         {
-          "command": "cmux cloud api-key-list",
-          "title": "List Cloud API Keys",
-          "id": "cloudAPIKeyList",
-          "mcp": true,
-          "mcpTool": "app_cloud_api_key_list"
-        },
-        {
-          "command": "cmux cloud api-key-revoke",
-          "title": "Revoke Cloud API Key",
-          "id": "cloudAPIKeyRevoke",
-          "mcp": true,
-          "mcpTool": "app_cloud_api_key_revoke"
-        },
-        {
           "command": "cmux cloud apply-machine-config",
           "title": "Apply Machine Config",
           "id": "cloudApplyMachineConfig",
@@ -1359,13 +1352,6 @@
           "id": "palette.cloud.promoteTemplate",
           "mcp": true,
           "mcpTool": "app_cloud_promote_machine_to_template"
-        },
-        {
-          "command": "cmux cloud provision-api",
-          "title": "Provision API on Machine…",
-          "id": "cloudProvisionAPI",
-          "mcp": true,
-          "mcpTool": "app_cloud_provision_api"
         },
         {
           "command": "cmux cloud publication-list",
