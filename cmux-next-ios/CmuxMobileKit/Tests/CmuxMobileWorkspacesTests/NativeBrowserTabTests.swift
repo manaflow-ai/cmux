@@ -239,7 +239,7 @@ final class DevServerChannel: LinkChannel, @unchecked Sendable {
         }
         native.macForwardsLocalhost = { $0 == "mac-studio" }
         // 127.0.0.1: the test runner has no App Transport Security exception for `localhost`.
-        let port = try await freePort()
+        let port = try freePort()
         let (source, _, _) = try await linked(at: "http://127.0.0.1:\(port)/", native: native)
         source.openOnPhone(tab)
         let phone = try #require(try page(source) as? BrowserTabModel, "the Mac's localhost opens on the phone")
@@ -249,7 +249,7 @@ final class DevServerChannel: LinkChannel, @unchecked Sendable {
         #expect(native.forwarder?.ports == [port])
 
         // Typed as people type it: no scheme, no slash (WebKit asks for `.../`).
-        let typed = try await freePort()
+        let typed = try freePort()
         source.navigate(tab, to: "127.0.0.1:\(typed)")
         for _ in 0..<2000 where native.forwarder?.ports.contains(typed) != true { try await Task.sleep(for: .milliseconds(5)) }
         #expect(native.forwarder?.ports.contains(typed) == true, "a typed address opens its port: \(String(describing: phone.problem))")
@@ -265,7 +265,7 @@ final class DevServerChannel: LinkChannel, @unchecked Sendable {
         let native = NativeBrowserTabs(defaults: defaults())
         native.forwarder = LocalhostForwarder { _, _ in DevServerChannel(page: "x") }
         native.macForwardsLocalhost = { _ in true }
-        let port = try await freePort()
+        let port = try freePort()
         native.open(tab: "s1", macID: "mac-a", at: URL(string: "http://127.0.0.1:\(port)/"))
         // Mac A's tab holds the port once WebKit asked for it.
         for _ in 0..<1000 where native.forwarder?.ports.contains(port) != true { try await Task.sleep(for: .milliseconds(5)) }
@@ -276,20 +276,28 @@ final class DevServerChannel: LinkChannel, @unchecked Sendable {
         native.drop(tab: "s2", macID: "mac-b")
     }
 
-    /// A port nothing on this machine listens on (the simulator shares the host's loopback).
-    func freePort() async throws -> UInt16 {
-        let probe = LocalhostForwarder { _, _ in DevServerChannel(page: "") }
-        for _ in 0..<20 {
-            let port = UInt16.random(in: 20000...60000)
-            do {
-                try await probe.forward(port: port, macID: nil)
-                probe.stop(port)
-                return port
-            } catch {
-                continue
+    /// A port nothing on this machine listens on (the simulator shares the host's loopback):
+    /// the kernel's pick for a socket bound to `127.0.0.1:0`. The socket never listens and
+    /// is closed before this returns, so the port is free at once. A probe listener freed
+    /// its port only when its cancel finished, after `stop` returned, so the tab's own bind
+    /// of that port sometimes failed as in use ("Another app on this iPhone uses port …").
+    func freePort() throws -> UInt16 {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        defer { Darwin.close(fd) }
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = 0
+        address.sin_addr.s_addr = in_addr_t(UInt32(0x7f00_0001).bigEndian)
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let bound = withUnsafeMutablePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(fd, $0, length) == 0 && getsockname(fd, $0, &length) == 0
             }
         }
-        throw CancellationError()
+        guard bound else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        return UInt16(bigEndian: address.sin_port)
     }
 
     /// A Mac from before `localhost-forward-v1`: its localhost stays mirrored.
