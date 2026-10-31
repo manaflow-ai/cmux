@@ -124,7 +124,9 @@ public struct PushActions: Sendable {
     /// (the button opened a second field, and read as unexplained).
     public func extensionActions(for payload: PushPayload, replyField: Bool = false) -> [UNNotificationAction]? {
         guard payload.previews else { return nil }
-        let plan = plan(for: payload).filter { !(replyField && $0.action == .reply) }
+                // Chief keeps its Reply button: its long look has no composer, and a
+        // Chief alert without Reply read as unrepliable (2026-10-30).
+        let plan = plan(for: payload).filter { !(replyField && $0.action == .reply && payload.kind != .chief) }
         return plan.map { button in
             // Without the composer the system field is the way to reply: say to whom.
             let title = button.action == .reply ? payload.agent.map { String(localized: "Reply to \($0)") } ?? button.title : button.title

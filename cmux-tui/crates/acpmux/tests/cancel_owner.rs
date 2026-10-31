@@ -46,8 +46,13 @@ struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
 
 impl Client {
     fn new(hub: &Arc<Hub>, origin: Origin, auth: ConnAuth) -> Self {
+        Self::reading(hub, origin, auth, 4096)
+    }
+
+    /// A client whose outbound queue holds `room` lines: past it the daemon drops notifications.
+    fn reading(hub: &Arc<Hub>, origin: Origin, auth: ConnAuth, room: usize) -> Self {
         let (in_tx, in_rx) = mpsc::channel(64);
-        let (out_tx, out_rx) = mpsc::channel(4096);
+        let (out_tx, out_rx) = mpsc::channel(room);
         tokio::spawn(serve_connection_authed(hub.clone(), in_rx, out_tx, origin, auth));
         Client(in_tx, out_rx, 0)
     }
@@ -209,6 +214,9 @@ async fn guests_other_members_and_forged_owner_claims_cannot_stop_it_and_hear_wh
         assert_eq!(told["sessionId"], id, "{what}: {told}");
         assert_eq!(told["reason"], REFUSED, "{what}: {told}");
         assert_eq!(told["message"], message, "{what}: {told}");
+        // It names the turn it refused to stop, so the pane can tell it from a late answer.
+        let turn = hub.resolve(&id).unwrap().turn().expect("a running turn").turn_id;
+        assert_eq!(told["turnId"], turn, "{what}: {told}");
 
         assert!(!turn_ended(&mut local, &id, 300).await, "{what}: a refused Stop ended the turn");
         local.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await;
@@ -293,16 +301,59 @@ async fn the_owners_stop_of_a_lane_started_on_the_peer_ends_its_turn() {
 #[tokio::test]
 async fn a_peers_refusal_of_a_forwarded_stop_reaches_the_sender() {
     let (a, b, mut cb, id, home) = two_daemons("web").await;
+    let turn = b.resolve(&id).unwrap().turn().expect("a running turn").turn_id;
+    until_row_turn(&a, "b/lane", &turn).await;
     let mut web = Client::new(&a, Origin::Web, ConnAuth::ListenerToken);
     web.notify(method::SESSION_CANCEL, json!({"sessionId": "b/lane"})).await;
     let told = web.wait_for(method::MUX_CANCEL_REFUSED, |_| true).await;
     assert_eq!(told["sessionId"], "b/lane", "{told}");
     assert_eq!(told["reason"], REFUSED, "{told}");
     assert_eq!(told["peer"], "b", "{told}");
+    // The turn A's row showed when the Stop went on, the one B refused to stop.
+    assert_eq!(told["turnId"], turn, "{told}");
     assert!(!turn_ended(&mut cb, &id, 300).await, "a guest's forwarded Stop ended the turn");
     b.shutdown_all().await;
     a.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&home);
+}
+
+/// Waits until `a`'s row of the peer's chat `key` shows its turn `turn`.
+async fn until_row_turn(a: &Hub, key: &str, turn: &str) {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        if a.resolve_remote(key).is_some_and(|(_, _, row)| row["turn"]["turnId"] == turn) {
+            return;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "{key} never showed turn {turn}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// A client that reads slowly still hears every refused Stop: the daemon drops a notification
+/// when the client's queue is full, but not a refusal, or its pane would show Stopping for good.
+#[tokio::test]
+async fn a_refusal_waits_for_a_slow_reader_and_is_not_dropped() {
+    let hub = hub();
+    // Room for one notification past the replies' reserve.
+    let mut web = Client::reading(&hub, Origin::Web, ConnAuth::ListenerToken, 4);
+    let keys: Vec<String> = (1..=5).map(|n| format!("nope-{n}")).collect();
+    for key in &keys {
+        web.notify(method::SESSION_CANCEL, json!({"sessionId": key})).await;
+    }
+    // Let the daemon take them all before the client reads.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let mut heard = Vec::new();
+    while heard.len() < keys.len() {
+        let line = tokio::time::timeout(Duration::from_secs(5), web.1.recv()).await;
+        let Ok(Some(line)) = line else { break };
+        if let Ok(Message::Notification { method, params: Some(p) }) = Message::parse(&line)
+            && method == method::MUX_CANCEL_REFUSED
+        {
+            heard.push(p["sessionId"].as_str().unwrap_or_default().to_owned());
+        }
+    }
+    heard.sort();
+    assert_eq!(heard, keys, "refusals were dropped for a slow reader");
 }
 
 /// How a fake peer answers a forwarded Stop.

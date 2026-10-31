@@ -511,6 +511,7 @@
 }
 
 .apps-scopes,
+.apps-deploy-targets,
 .apps-versions {
   list-style: none;
   margin: 0;
@@ -527,9 +528,17 @@
   align-items: baseline;
 }
 
-.apps-versions li {
+.apps-versions li,
+.apps-deploy-targets li {
   display: flex;
   gap: 10px;
+  align-items: baseline;
+}
+
+/* A deployed app's instance under its id: where it runs, as the owner reports it. */
+.apps-instance {
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
 }
 
 .apps-version {

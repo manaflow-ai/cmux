@@ -32,8 +32,11 @@ class AttachmentCapsGuardTests(unittest.TestCase):
                     self.assertTrue(reason.strip())
                     self.check_source(f"let {name} = 1", 0, relative)
                     self.check_source(f"let {name} = 1", 1, "new/uploads/service.swift")
-            self.check_source("let maximumNewFileBytes = 1", 1, relative)
-            self.check_source("guard size <= 1_048_576 else { return failure() }", 1, relative)
+            if guard.attachment_path(Path(relative)):
+                self.check_source("let maximumNewFileBytes = 1", 1, relative)
+                self.check_source("guard size <= 1_048_576 else { return failure() }", 1, relative)
+                self.check_source("guard files.count <= 64 else { return failure() }", 1, relative)
+            self.check_source("let MAX_NEW_ATTACHMENTS = 1", 1, relative)
 
     def test_camel_case_file_and_stage_caps(self):
         for name in ("maximumFileSize", "maximumUploadBytes", "maximumUploadStageFile", "maximumStagedBytes"):
@@ -133,6 +136,61 @@ class AttachmentCapsGuardTests(unittest.TestCase):
             root = Path(folder)
             (root / "upload.ts").write_text("const MAX_CHUNK_BYTES = 1024; const MAX_TOTAL_BYTES = 100;\n")
             self.assertEqual(guard.violations(root), ["upload.ts:1: MAX_TOTAL_BYTES"])
+
+    def test_count_caps_in_upload_paths(self):
+        for source in (
+            "if (files.length > 10) throw pageError();",
+            "guard !list.isEmpty, list.count <= 64 else { return .unsupported(method) }",
+            "if (files.length + added.length >= MAX_ATTACHMENTS) break;",
+            "guard manifest.count < 65 else { return failure() }",
+            "if attachments.len() > 16 { return Err(error); }",
+        ):
+            with self.subTest(source=source):
+                self.check_source(source, 1, "src/uploads/composer.ts")
+
+    def test_count_cap_names_anywhere(self):
+        for name in ("MAX_ATTACHMENTS", "MAX_SEND_ATTACHMENTS", "maxAttachments", "MAX_UPLOADS", "maximumUploads"):
+            with self.subTest(name=name):
+                self.check_source(f"const {name} = 10;", 1, "src/pages/home/store.ts")
+        # A file limit outside attachment code (a diff, a git listing) is not an attachment cap.
+        for name in ("MAX_FILES", "maximumFiles", "MAX_UNTRACKED_FILES"):
+            with self.subTest(name=name):
+                self.check_source(f"const {name} = 10;", 0, "src/diff/source.ts")
+                self.check_source(f"const {name} = 10;", 1, "src/uploads/service.ts")
+        self.check_source("guard key.count >= 32 else { return nil }", 0, "src/attachments/keys.swift")
+
+    def test_literal_counts_outside_upload_paths_are_not_scanned(self):
+        # A transcript's layout cache or a diff's file list is not a send's admission.
+        self.check_source("if attachments.count > 512 { attachments.removeAll() }", 0, "src/transcript/rows.swift")
+        self.check_source("if (files.length > 10) collapse();", 0, "src/diff/list.ts")
+
+    def test_routes_and_non_caps_are_not_count_caps(self):
+        for source in (
+            "if let manifest, batchToken == nil, manifest.count > 1 { startBatch() }",
+            "if (files.length === 0) return;",
+            "if (list.count >= 2) showGrid();  // cap-allow: route",
+            "// one message or several: cap-allow: route\nif (parts.length > MESSAGE_PARTS) split();",
+            "guard text.count <= 40_000 else { return failure() }",
+            "if (chunks.length > 100) flush();",
+        ):
+            with self.subTest(source=source):
+                self.check_source(source, 0, "src/uploads/composer.ts")
+
+    def test_route_mark_on_the_line_above(self):
+        self.check_source("// cap-allow: route (one message or several)\nif (files.length > 16) split();", 0,
+                          "src/uploads/composer.ts")
+        self.check_source("// cap-allow: route\n\nif (files.length > 16) split();", 1, "src/uploads/composer.ts")
+
+    def test_warn_mode_annotates_and_exits_zero(self):
+        import subprocess, sys
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "upload.ts").write_text("if (files.length > 10) refuse();\n", encoding="utf-8")
+            warned = subprocess.run([sys.executable, "-I", str(SCRIPT), "--warn", str(root)], capture_output=True, text=True)
+            self.assertEqual(warned.returncode, 0, warned.stdout + warned.stderr)
+            self.assertIn("::warning file=upload.ts,line=1,title=attachment cap::literal count cap", warned.stdout)
+            failed = subprocess.run([sys.executable, "-I", str(SCRIPT), str(root)], capture_output=True, text=True)
+            self.assertEqual(failed.returncode, 1, failed.stdout + failed.stderr)
 
 
 if __name__ == "__main__":

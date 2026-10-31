@@ -25,7 +25,7 @@
 // Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, type Browser, type Locator, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -536,6 +536,8 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
   // envelopes in a prompt (an adopted Claude session's history).
   describe("messages from other agents", () => {
     const incoming = (page: Page) => page.locator(".cv-received");
+    /// The pointer on a message's line: its hover actions (Reply, Retry, ⋯) take clicks only then.
+    const hoverLine = (card: Locator) => card.locator(":scope > .cv-disclosure__line").hover();
     /// One message as cmux's agent_message_prompt.rs `render` writes it: the prompt's text.
     const renderedMessage = (body: string, { id = "m-1", from = "Grid fix (acp:child-3)", reply = true } = {}) =>
       [
@@ -593,8 +595,8 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       expect(await card.innerText()).not.toContain("Message id:");
       await card.getByRole("button", { name: "Details" }).click();
       await card.locator("pre").getByText("[cmux agent message] from Grid fix").waitFor({ timeout: 5_000 });
-      // The sender is a chat here: a click on its line opens it by its session id, not its address.
-      await card.locator(".cv-disclosure__open").click();
+      // The sender is a chat here: a click on its name opens it by its session id, not its address.
+      await card.locator(".cv-received__from--open").click();
       await waitUntil(() => calls.some((c) => c.params.sessionId === "child-3"));
       expect(calls.some((c) => c.params.sessionId === "acp:child-3")).toBe(false);
       await page.close();
@@ -740,6 +742,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       });
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
+      await hoverLine(card);
       await card.getByRole("button", { name: /^Reply/ }).click();
       const field = card.getByRole("textbox", { name: "Reply to Grid fix" });
       await field.waitFor({ timeout: 5_000 });
@@ -810,6 +813,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       });
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
+      await hoverLine(card);
       await card.getByRole("button", { name: /^Reply/ }).click();
       const field = card.getByRole("textbox", { name: "Reply to Grid fix" });
       await field.waitFor({ timeout: 5_000 });
@@ -837,6 +841,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       });
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
+      await hoverLine(card);
       await card.getByRole("button", { name: /^Reply/ }).click();
       const field = card.getByRole("textbox", { name: "Reply to Grid fix" });
       await field.waitFor({ timeout: 5_000 });
@@ -977,6 +982,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
         ],
       });
       await page.getByText("Reviewing #123 now.").first().waitFor({ timeout: 10_000 });
+      await hoverLine(incoming(page).last());
       await page.getByRole("button", { name: "Retry", exact: true }).last().click();
       await waitUntil(() => calls.some((c) => c.method === "session/prompt"));
       const sent = JSON.stringify(calls.find((c) => c.method === "session/prompt")?.params.prompt);
@@ -1045,6 +1051,8 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
           }),
         ],
       });
+      // It waits for the running turn, in the one group of waiting messages (pendingMessages.ts).
+      await page.locator(".cv-pending__toggle").click();
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
       // Closed, the line alone; its images are in the panel the line opens.

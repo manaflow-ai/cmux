@@ -1,6 +1,8 @@
 import AppKit
 @testable import CmuxNextFeed
+import CmuxNextTestSupport
 import Foundation
+import os
 import Testing
 
 /// The Feed list (panel and Inbox column) is one AppKit table over the feed model: its event rows
@@ -8,7 +10,7 @@ import Testing
 /// and hands the list each change as row edits, so one owner event moves, inserts or redraws only
 /// its own row and builds no other row's value; rows are built only when shown; an event above the
 /// reader keeps the reader's row in place; a click selects and reads the item.
-@MainActor @Suite struct FeedRowsViewTests {
+@MainActor @Suite(.closesItsWindows) struct FeedRowsViewTests {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
 
     private func item(_ index: Int, ago seconds: TimeInterval, dedupe: String? = nil) -> FeedItem {
@@ -159,6 +161,25 @@ import Testing
         await until { model.pending.isEmpty }
         #expect(edits.first == FeedRowChanges(removed: [archived]), "an archive: \(edits)")
         #expect(model.listRow(of: "fi_11") == nil && model.listCount == 1_500)
+    }
+
+    /// A list subscription released off the main thread ends too. Its deinit returned off the main
+    /// thread without ending the registration (#26698), so the model kept calling the released
+    /// subscriber's body on every change.
+    @Test func aSubscriptionReleasedOffTheMainThreadEnds() async {
+        let (_, model, source, window) = shown(count: 10)
+        defer { window.close() }
+        var releasedCalls = 0, keptCalls = 0
+        let held = OSAllocatedUnfairLock<FeedListSubscription?>(initialState: model.observeList { _ in releasedCalls += 1 })
+        let kept = model.observeList { _ in keptCalls += 1 }
+        defer { kept.cancel() }
+        // The last reference goes on a thread of the global executor, not on the main thread.
+        await Task.detached { held.withLock { $0 = nil } }.value
+
+        source.post(item(5_000, ago: 0))
+        await until { keptCalls > 0 }
+        #expect(keptCalls > 0)
+        #expect(releasedCalls == 0, "a subscription released off the main thread still heard \(releasedCalls) changes")
     }
 
     /// The model's kept order is the order a full sort gives, through a mixed run of new events,

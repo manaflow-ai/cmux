@@ -12,6 +12,7 @@ import { messageGroupLine } from "./MessageGroupRow";
 import { configureMessageGroupLook } from "./messageGroupLook";
 import { resetTranscriptDisclosure } from "./transcriptDisclosure";
 import { ToolRows } from "./TurnRows";
+import { pageClocks } from "../../../ui/pageClock";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -126,40 +127,26 @@ test("a finished run of messages is one closed line; a click opens the card at o
 });
 
 test("a run with a message going out starts open, names its target and ticks only while it goes", async () => {
-  const realSet = globalThis.setInterval;
-  const realClear = globalThis.clearInterval;
-  const live = new Set<unknown>();
-  globalThis.setInterval = ((handler: () => void, ms?: number) => {
-    const id = realSet(handler, ms);
-    live.add(id);
-    return id;
-  }) as typeof setInterval;
-  globalThis.clearInterval = ((id?: Parameters<typeof clearInterval>[0]) => {
-    live.delete(id);
-    realClear(id);
-  }) as typeof clearInterval;
-  try {
-    const started = Date.now() - 11_000;
-    const done = sendMessage("Rail", "one", "completed", started);
-    const going = sendMessage("Picker", "two", "in_progress", started + 4_000);
-    const node = await render(<ToolRows row={row([done, going])} />);
-    const line = node.querySelector(".cv-msggroup__line")!;
-    expect(line.textContent).toContain("Messaging Picker");
-    expect(node.querySelector(".cv-msggroup__time")?.textContent).toMatch(/^1[12]s$/);
-    expect(line.getAttribute("aria-expanded")).toBe("true");
-    expect(node.querySelectorAll(".cv-msggroup .cv-agentmsg__line")).toHaveLength(2);
-    expect(live.size).toBe(1);
-    // The last message went: the clock stops and the group closes to its summary.
-    const sent = { ...going, tool: { ...going.tool!, status: "completed", endedAt: started + 5_000 } };
-    await act(async () => root!.render(<ToolRows row={row([done, sent])} />));
-    expect(line.textContent).toContain("Messaged 2 agents");
-    expect(node.querySelector(".cv-msggroup__time")).toBeNull();
-    expect(line.getAttribute("aria-expanded")).toBe("false");
-    expect(live.size).toBe(0);
-  } finally {
-    globalThis.setInterval = realSet;
-    globalThis.clearInterval = realClear;
-  }
+  // The group's clock is the page's shared second clock (ui/pageClock.ts): it runs only while a
+  // message goes out.
+  const ticking = () => pageClocks().items.filter((clock) => clock.name === "elapsed" && clock.running).length;
+  const started = Date.now() - 11_000;
+  const done = sendMessage("Rail", "one", "completed", started);
+  const going = sendMessage("Picker", "two", "in_progress", started + 4_000);
+  const node = await render(<ToolRows row={row([done, going])} />);
+  const line = node.querySelector(".cv-msggroup__line")!;
+  expect(line.textContent).toContain("Messaging Picker");
+  expect(node.querySelector(".cv-msggroup__time")?.textContent).toMatch(/^1[12]s$/);
+  expect(line.getAttribute("aria-expanded")).toBe("true");
+  expect(node.querySelectorAll(".cv-msggroup .cv-agentmsg__line")).toHaveLength(2);
+  expect(ticking()).toBe(1);
+  // The last message went: the clock stops and the group closes to its summary.
+  const sent = { ...going, tool: { ...going.tool!, status: "completed", endedAt: started + 5_000 } };
+  await act(async () => root!.render(<ToolRows row={row([done, sent])} />));
+  expect(line.textContent).toContain("Messaged 2 agents");
+  expect(node.querySelector(".cv-msggroup__time")).toBeNull();
+  expect(line.getAttribute("aria-expanded")).toBe("false");
+  expect(ticking()).toBe(0);
 });
 
 test("the before look draws each message as its own row", () => {

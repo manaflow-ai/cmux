@@ -20,10 +20,13 @@ extension PaletteModel {
                 deferred.append(provider)
                 continue
             }
-            if let items = provider.immediateItems {
-                state.providerItems[provider.id] = items
+            // Read once: most providers build their rows in `immediateItems` (the command page's
+            // registry builds a row per catalog action, Go to Workspace one per workspace).
+            let immediate = provider.immediateItems
+            if let immediate {
+                state.providerItems[provider.id] = immediate
             }
-            if provider.immediateItems == nil || provider.refreshesOnOpen {
+            if immediate == nil || provider.refreshesOnOpen {
                 pending.insert(provider.id)
             }
         }
@@ -31,24 +34,45 @@ extension PaletteModel {
         state.rebuild()
         if state === current { isLoading = !pending.isEmpty }
         for provider in page.providers where pending.contains(provider.id) {
-            let providerID = provider.id
-            state.tasks.append(Task { [weak self, weak state] in
-                let items = await provider.items()
-                guard !Task.isCancelled, let self, let state else { return }
-                state.providerItems[providerID] = items
-                state.pendingProviders.remove(providerID)
-                state.rebuild()
-                if state === self.current {
-                    self.isLoading = !state.pendingProviders.isEmpty
-                    // Same generation: the rows update, the selection stays.
-                    self.search(state)
-                }
-            })
+            state.tasks.append(loadTask(provider, into: state))
         }
         if !deferred.isEmpty {
             let scheduled = !deferredLoads.isEmpty
             deferredLoads.append(PaletteDeferredLoad(state: state, providers: deferred))
             if !scheduled { afterFrame { [weak self] in self?.flushDeferredLoads() } }
+        }
+    }
+
+    /// Reads `provider` into `state`: its items once, or each list of its updates as it comes
+    /// (``PaletteProvider/itemUpdates()``). Same generation: the rows update, the selection stays.
+    private func loadTask(_ provider: any PaletteProvider, into state: PageState) -> Task<Void, Never> {
+        let providerID = provider.id
+        return Task { [weak self, weak state] in
+            if let updates = provider.itemUpdates() {
+                var any = false
+                for await items in updates {
+                    guard !Task.isCancelled, let self, let state else { return }
+                    any = true
+                    self.apply(items, of: providerID, to: state)
+                }
+                // A stream that ended with no list leaves the provider's rows as they were, not loading.
+                guard !any, !Task.isCancelled, let self, let state else { return }
+                self.apply(state.providerItems[providerID] ?? [], of: providerID, to: state)
+                return
+            }
+            let items = await provider.items()
+            guard !Task.isCancelled, let self, let state else { return }
+            self.apply(items, of: providerID, to: state)
+        }
+    }
+
+    private func apply(_ items: [PaletteItem], of providerID: String, to state: PageState) {
+        state.providerItems[providerID] = items
+        state.pendingProviders.remove(providerID)
+        state.rebuild()
+        if state === current {
+            isLoading = !state.pendingProviders.isEmpty
+            search(state)
         }
     }
 
@@ -65,19 +89,8 @@ extension PaletteModel {
                     state.providerItems[provider.id] = items
                     if !provider.refreshesOnOpen { continue }
                 }
-                let providerID = provider.id
-                state.pendingProviders.insert(providerID)
-                state.tasks.append(Task { [weak self, weak state] in
-                    let items = await provider.items()
-                    guard !Task.isCancelled, let self, let state else { return }
-                    state.providerItems[providerID] = items
-                    state.pendingProviders.remove(providerID)
-                    state.rebuild()
-                    if state === self.current {
-                        self.isLoading = !state.pendingProviders.isEmpty
-                        self.search(state)
-                    }
-                })
+                state.pendingProviders.insert(provider.id)
+                state.tasks.append(loadTask(provider, into: state))
             }
             state.rebuild()
             if state === current {
@@ -168,10 +181,7 @@ extension PaletteModel {
                 self.searchTask = nil
                 self.deliver(Self.leading(queryItems?(request.query), state.resolve(result.sections)), to: state,
                              generation: generation)
-                if self.pendingClose {
-                    self.pendingClose = false
-                    self.handle(.closeItem)
-                }
+                self.closeIfPending()
             }
         }
     }
@@ -206,10 +216,7 @@ extension PaletteModel {
             state.answeringSearch = nil
             if state === self.current { self.isLoading = false }
             self.deliver(last ?? [], to: state, generation: generation)
-            if self.pendingClose {
-                self.pendingClose = false
-                self.handle(.closeItem)
-            }
+            self.closeIfPending()
         }
     }
 

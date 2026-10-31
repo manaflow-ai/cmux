@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextDaemon
 import Foundation
@@ -13,6 +14,9 @@ import Foundation
 /// - `paused`: the machine is paused (by the idle auto-pause or a person's
 ///   Pause Machine) and nothing attached yet; not a failure, and an attach
 ///   resumes it;
+/// - `pausing`, `resuming`, `deleting`: the server accepted a Pause, Resume
+///   or Kill and its provider call has not landed; nothing is offered until
+///   it does;
 /// - `failed`: why it stopped, from the API, the link or the daemon.
 nonisolated enum CloudMachineStage: Hashable, Sendable {
     case requesting
@@ -22,9 +26,12 @@ nonisolated enum CloudMachineStage: Hashable, Sendable {
     case ready
     /// Paused; `idle` when the idle auto-pause paused it.
     case paused(idle: Bool)
+    case pausing
+    case resuming
+    case deleting
     case failed(String)
 
-    /// The stages in order, for the progress list (no `paused` or `failed`).
+    /// The stages in order, for the progress list (no `paused`, a change or `failed`).
     static let steps: [CloudMachineStage] = [.requesting, .creating, .booting, .connecting, .ready]
 
     /// The position in `steps`; a failure has none.
@@ -39,6 +46,9 @@ nonisolated enum CloudMachineStage: Hashable, Sendable {
         case .connecting: "connecting"
         case .ready: "ready"
         case .paused: "paused"
+        case .pausing: "pausing"
+        case .resuming: "resuming"
+        case .deleting: "deleting"
         case .failed: "failed"
         }
     }
@@ -47,6 +57,9 @@ nonisolated enum CloudMachineStage: Hashable, Sendable {
         if case .paused = self { return true }
         return false
     }
+
+    /// A pause, resume or delete the server accepted is still on its way.
+    var isChanging: Bool { self == .pausing || self == .resuming || self == .deleting }
 
     var failure: String? {
         if case .failed(let reason) = self { return reason }
@@ -69,12 +82,18 @@ nonisolated struct CloudMachineStageInput: Hashable, Sendable {
     var daemonFailure: String?
     /// The app link ended ("click to connect"), nil otherwise.
     var linkEnded: String?
-    /// Why a paused machine is paused (`/api/vm` `pauseReason`).
+    /// Why a paused machine is paused (`/api/vm` `pauseReason`, the backend's `pause_reason`).
     var pauseReason: CloudMachine.PauseReason?
     /// An attach is resuming the paused machine.
     var resuming = false
     /// Why the attach's resume failed, nil otherwise.
     var resumeFailure: String?
+    /// Why the machine's last pause, resume or resize failed on the server
+    /// (``CloudMachine/lastChangeFailure``), nil otherwise.
+    var changeFailure: String?
+    /// The ended link went down or was revoked (`CloudAppLinks.isDrop`), not
+    /// refused by the provider.
+    var linkDropped = false
 
     /// The stage. A link that is still starting is `booting` even after the
     /// daemon's ten-second first-connect deadline: a new VM's link takes
@@ -87,7 +106,15 @@ nonisolated struct CloudMachineStageInput: Hashable, Sendable {
         case .failed(let reason): return .failed(reason)
         case .created, nil: break
         }
+        // A change the server accepted reads as itself until it lands, even
+        // while the daemon still answers (a pausing machine's link is going).
+        switch machineStatus {
+        case .pausing: return .pausing
+        case .deleting: return .deleting
+        default: break
+        }
         if daemonConnected, daemonLoaded { return .ready }
+        if machineStatus == .starting { return .resuming }
         if machineStatus == .paused {
             // A paused machine is not a failure: it reads "Paused (idle)" or
             // "Paused" until an attach resumes it. An app link ends when its
@@ -98,7 +125,7 @@ nonisolated struct CloudMachineStageInput: Hashable, Sendable {
             if link == .idle || linkEnded != nil { return .paused(idle: pauseReason == .idle) }
         }
         if let linkEnded { return .failed(linkEnded) }
-        if machineStatus == .failed { return .failed(CloudStrings.machineFailed) }
+        if machineStatus == .failed { return .failed(changeFailure ?? CloudStrings.machineFailed) }
         switch link {
         case .up:
             if let daemonFailure { return .failed(daemonFailure) }
@@ -109,4 +136,37 @@ nonisolated struct CloudMachineStageInput: Hashable, Sendable {
             return .booting
         }
     }
+
+    /// The failure is a link that went down or was revoked: its header reads
+    /// "Disconnected". "Failed to start" stays for a create, a connect or a
+    /// resume the provider failed, and a machine whose record says failed.
+    var isDisconnect: Bool {
+        guard linkDropped, linkEnded != nil, stage.failure != nil, machineStatus != .failed else { return false }
+        if case .failed = creation { return false }
+        return true
+    }
 }
+
+
+extension CloudMachineStage {
+    /// The power actions a change on its way holds (``CloudMachine/Status/blocks(_:)``).
+    static let powerActions: [(ActionID, CloudMachine.PowerAction)] = [
+        ("cloudPauseMachine", .pause), ("cloudResumeMachine", .resume), ("cloudKillMachine", .kill),
+    ]
+
+    /// While a pause, resume or delete is on its way, the actions it holds are disabled in the
+    /// menu with why, and every run (palette, CLI, MCP, keyboard) is refused with it. A reason
+    /// another binder set first (the machine's own state) still applies after this one.
+    @MainActor static func gatePowerActions(into registry: ActionRegistry, context: AppActionContext) {
+        for (id, action) in powerActions {
+            let earlier = registry.action(for: id)?.targetUnavailableReason
+            context.setTargetReason(id) { invocation in
+                let status = (try? CloudHandlers.machine(invocation, context))?.effectiveStatus
+                return status.flatMap { $0.blocks(action) ? CloudStrings.machineChanging($0) : nil } ?? earlier?(invocation)
+            }
+        }
+    }
+}
+
+/// A session holds its machine record for ``CloudMachineChanges``.
+extension CloudMachineSession: CloudMachineHolder {}
