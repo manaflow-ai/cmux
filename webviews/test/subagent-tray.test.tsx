@@ -1224,7 +1224,9 @@ describe("workflow progress in the default tray and Inspector", () => {
         // The tray's row says no tokens (Leo, 2026-10-31: "we can remove the symbols and the tokens");
         // the Inspector's list still does.
         expect(view.root.querySelector(".acpmux-agent-line__progress")?.textContent).toBe(
-          surface === "tray" ? "37/101 agents · 2 failed · 4 queued" : "37/101 agents · 2 failed · 4 queued · 1.2M tokens",
+          surface === "tray"
+            ? "37/101 agents · 2 failed · 4 queued"
+            : "37/101 agents · 2 failed · 4 queued · 1.2M tokens",
         );
         expect(buttons().find((button) => button.textContent?.includes("Unrelated agent"))).toBe(unrelated);
         await view.show(draw({ ...workflow, agents: { done: 40, started: 101 }, tokens: 1_300_000 }));
