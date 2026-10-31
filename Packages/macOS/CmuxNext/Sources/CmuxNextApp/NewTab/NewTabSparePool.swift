@@ -107,10 +107,10 @@ final class NewTabSparePool {
     /// The parked native spare for the new tab `key`, out of the parking view, or nil (the page is made
     /// cold). The pane's view for `key` claims it (``claimNative(_:)``); the next spare follows when input is quiet.
     func takeNative(for key: String) -> NativeNewTabHostingView? {
-        // Re-park the replacement in the next main-actor turn.  Waiting for the idle-input
+        guard let host = nativeSpare else { return nil }
+        // Re-park the replacement in the next main-actor turn. Waiting for the idle-input
         // debounce here leaves the next Cmd-T/Cmd-N with no warm page at all.
         defer { scheduleWarmImmediately() }
-        guard let host = nativeSpare else { return nil }
         nativeSpare = nil
         host.removeFromSuperview()
         // One opening at a time: a spare an earlier open took but no pane claimed (its tab closed first) goes.
@@ -251,11 +251,11 @@ final class NewTabSparePool {
         usedThisSession = true
         observeWindows()
         if target == nil, let window { retarget(window) }
+        guard let view = slot.take() else { return nil }
         // Hand the parked page out now, then start making its replacement without waiting for
         // the user's input to go quiet. The replacement is background work on the next turn;
         // a later New Tab click therefore does not fall back to a cold mount.
         defer { scheduleWarmImmediately() }
-        guard let view = slot.take() else { return nil }
         snapshotGeneration &+= 1
         view.redraw.newTabFrameCaptureChanged = nil
         view.isHidden = false
