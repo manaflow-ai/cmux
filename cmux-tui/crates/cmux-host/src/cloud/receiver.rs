@@ -133,11 +133,12 @@ impl ReceiverSnapshot {
                     services: peer
                         .services
                         .iter()
-                        .map(|s| match s {
-                            CloudVmReceiverPeerServicesItem::Daemon => Service::Daemon,
-                            CloudVmReceiverPeerServicesItem::Ssh => Service::Ssh,
-                            // Construction already rejected unknown services.
-                            _ => unreachable!("validated services"),
+                        .filter_map(|s| match s {
+                            CloudVmReceiverPeerServicesItem::Daemon => Some(Service::Daemon),
+                            CloudVmReceiverPeerServicesItem::Ssh => Some(Service::Ssh),
+                            // Validation rejects unknown services. Keep this conversion
+                            // non-panicking and never grant authority for an unknown value.
+                            _ => None,
                         })
                         .collect(),
                 })
