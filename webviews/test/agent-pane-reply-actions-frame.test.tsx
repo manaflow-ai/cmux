@@ -9,7 +9,10 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
   virtualConsole: new VirtualConsole(),
 });
 const scope = globalThis as Record<string, unknown>;
-const observers = new Set<{ targets: Set<Element>; notify: (entries: { target: Element }[]) => void }>();
+const observers = new Set<{
+  targets: Set<Element>;
+  notify: (entries: { target: Element }[]) => void;
+}>();
 const replacements: Record<string, unknown> = {
   window: dom.window,
   document: dom.window.document,
@@ -52,14 +55,30 @@ const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[k
 Object.assign(scope, replacements);
 
 // jsdom has no layout. A tall viewport mounts every row of these small conversations.
-Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 10_000 });
-Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
+Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", {
+  configurable: true,
+  get: () => 10_000,
+});
+Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", {
+  configurable: true,
+  get: () => 760,
+});
 
 // jsdom draws nothing: a row has the height set here, and none (unmeasured) otherwise.
 const drawn = new Map<string, number>();
 dom.window.HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
   const height = drawn.get(this.dataset.rowId ?? "") ?? 0;
-  return { x: 0, y: 0, top: 0, left: 0, right: 760, bottom: height, width: 760, height, toJSON() {} } as DOMRect;
+  return {
+    x: 0,
+    y: 0,
+    top: 0,
+    left: 0,
+    right: 760,
+    bottom: height,
+    width: 760,
+    height,
+    toJSON() {},
+  } as DOMRect;
 };
 
 const { act } = await import("react");
@@ -78,11 +97,36 @@ const { turnView, WORKED } = await import("../src/agent-session/acpmux/conversat
 const source = [
   { id: "u1", version: 1, at: 0, kind: "user", text: "Check the change." },
   { id: "a1", version: 1, at: 1_000, kind: "assistant", text: "Checking now." },
-  { id: "t1", version: 1, at: 2_000, kind: "activity", toolCount: 1, items: [{
-    kind: "tool", text: "git status", tool: { id: "c1", title: "git status", kind: "execute", status: "completed", command: "git status" },
-  }] },
+  {
+    id: "t1",
+    version: 1,
+    at: 2_000,
+    kind: "activity",
+    toolCount: 1,
+    items: [
+      {
+        kind: "tool",
+        text: "git status",
+        tool: {
+          id: "c1",
+          title: "git status",
+          kind: "execute",
+          status: "completed",
+          command: "git status",
+        },
+      },
+    ],
+  },
   { id: "a2", version: 1, at: 3_000, kind: "assistant", text: "The check passed." },
-  { id: "f1", version: 1, at: 4_000, kind: "turnSummary", durationMs: 4_000, toolCount: 1, status: "completed" },
+  {
+    id: "f1",
+    version: 1,
+    at: 4_000,
+    kind: "turnSummary",
+    durationMs: 4_000,
+    toolCount: 1,
+    status: "completed",
+  },
 ];
 
 test("several assistant messages and tool calls render exactly one footer at the turn end", async () => {
@@ -91,9 +135,9 @@ test("several assistant messages and tool calls render exactly one footer at the
     const expanded = new Set(opened ? [`${WORKED}-u1`] : []);
     const rows = turnView(source, expanded, { now: 10_000 });
     try {
-      await act(async () => root.render(
-        <VirtualTranscript rows={rows} onToggleActivity={() => {}} expanded={expanded} />,
-      ));
+      await act(async () =>
+        root.render(<VirtualTranscript rows={rows} onToggleActivity={() => {}} expanded={expanded} />),
+      );
       const document = dom.window.document;
       expect(document.querySelector('[data-row-id="a2"]')).not.toBeNull();
       if (opened) expect(document.querySelector('[data-row-id="a1"]')).not.toBeNull();
