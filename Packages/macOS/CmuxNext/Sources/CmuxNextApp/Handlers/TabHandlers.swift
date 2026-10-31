@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextFiles
 import CmuxNextLayout
 
@@ -304,17 +305,27 @@ enum TabHandlers {
     }
 
     /// The file the targeted (else focused) tab's other view shows (``FileOpenKind/otherView(asText:editorFile:markdownFile:pageURL:)``).
-    private static func otherView(_ invocation: ActionInvocation, _ ctx: AppActionContext, asText: Bool) -> URL? {
+    private static func otherView(_ invocation: ActionInvocation, _ ctx: AppActionContext, asText: Bool) -> (file: URL, machine: DaemonService, tab: String)? {
         let s = ctx.services
         guard let id = (invocation.target?.kind == .tab ? invocation.target?.id : nil) ?? s.windows.active?.focusedPane?.stripModel.selectedID?.rawValue else { return nil }
-        let page = LocalPageTab.page(of: FilePageHandlers.providerKey(id, s)), file = FilePageHandlers.file(ofTab: id, s)
-        return FileOpenKind.otherView(asText: asText, editorFile: page == FilePageKind.editor.page ? file : nil, markdownFile: page == FilePageKind.markdown.page ? file : nil,
-                                      pageURL: s.locateTab(id)?.0.url ?? s.cache.existingBrowser(id)?.tab.state.url?.absoluteString)
+        let key = FilePageHandlers.providerKey(id, s)
+        if let kind = FilePageKind.allCases.first(where: { $0.page == LocalPageTab.page(of: key) }) {
+            guard let location = FilePageHandlers.service(kind, s).location(key),
+                  location.machine.isLocal || FilePageKind.isMarkdown(location.file),
+                  let file = FileOpenKind.otherView(asText: asText, editorFile: kind == .editor ? location.file : nil,
+                                                   markdownFile: kind == .markdown ? location.file : nil, pageURL: nil) else { return nil }
+            return (file, location.machine, id)
+        }
+        guard let file = FileOpenKind.otherView(asText: asText, editorFile: nil, markdownFile: nil,
+                                                pageURL: s.locateTab(id)?.0.url ?? s.cache.existingBrowser(id)?.tab.state.url?.absoluteString) else { return nil }
+        return (file, s.daemon, id)
     }
 
     private static func switchView(_ invocation: ActionInvocation, _ ctx: AppActionContext, asText: Bool) -> ActionEffect {
-        guard let file = otherView(invocation, ctx, asText: asText) else { return .refused(FilePageStrings.notAFile) }
-        ctx.services.linkOpener.openFile(file, from: ctx.services.locateTab(invocation.target?.id ?? "").flatMap { ctx.services.paneController(for: $0.1) }, asText: asText); return .done
+        guard let location = otherView(invocation, ctx, asText: asText) else { return .refused(FilePageStrings.notAFile) }
+        let opener = ctx.services.linkOpener
+        opener.openFile(location.file, on: location.machine, from: opener.source(tab: location.tab), asText: asText)
+        return .done
     }
 
     /// Optimistic rename; an empty name clears it on the daemon.

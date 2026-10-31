@@ -1,3 +1,4 @@
+import CmuxNextFiles
 import CmuxNextSettings
 import Darwin
 import Foundation
@@ -97,6 +98,6 @@ final class FileChangeWatch {
         let stamp = Stamp(device: Int64(info.st_dev), inode: UInt64(info.st_ino), size: Int64(info.st_size),
                           modified: Int64(info.st_mtimespec.tv_sec) * 1_000_000_000 + Int64(info.st_mtimespec.tv_nsec))
         guard stamp != previous else { return (stamp, nil) }
-        return (stamp, FileDocument.current(url, inWorkspace: inWorkspace))
+        return (stamp, FileDocument().current(url, inWorkspace: inWorkspace))
     }
 }

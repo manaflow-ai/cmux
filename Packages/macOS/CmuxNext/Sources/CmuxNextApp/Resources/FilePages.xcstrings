@@ -3275,6 +3275,661 @@
           }
         }
       }
+    },
+    "filePages.remote.offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‏„%@“ غير متصل. سيظهر الملف مجددًا عند إعادة الاتصال."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@“ nije povezan. Datoteka će se ponovo prikazati kada se ponovo poveže."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” er ikke forbundet. Filen vises igen, når forbindelsen er genoprettet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@“ ist nicht verbunden. Die Datei wird wieder angezeigt, sobald die Verbindung besteht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” is not connected. The file shows again when it reconnects."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» no está conectado. El archivo volverá a mostrarse cuando se reconecte."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "« %@ » n’est pas connecté. Le fichier s’affichera de nouveau à la reconnexion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” non è connesso. Il file verrà mostrato di nuovo alla riconnessione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」は接続されていません。再接続するとファイルが再び表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” មិនបានភ្ជាប់ទេ។ ឯកសារនឹងបង្ហាញម្ដងទៀតនៅពេលភ្ជាប់ឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‘%@’에 연결되어 있지 않습니다. 다시 연결되면 파일이 다시 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» er ikke tilkoblet. Filen vises igjen når den kobler til på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@” nie jest połączony. Plik pojawi się ponownie po ponownym połączeniu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” não está conectado. O arquivo aparecerá de novo quando reconectar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» не подключён. Файл снова появится после переподключения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” ไม่ได้เชื่อมต่อ ไฟล์จะแสดงอีกครั้งเมื่อเชื่อมต่อใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” bağlı değil. Yeniden bağlandığında dosya tekrar gösterilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» не під’єднано. Файл знову з’явиться після повторного під’єднання."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” chưa được kết nối. Tệp sẽ hiển thị lại khi kết nối lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”未连接。重新连接后会再次显示文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」未連線。重新連線後會再次顯示檔案。"
+          }
+        }
+      }
+    },
+    "filePages.remote.noFiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‏„%@“ لا يشارك ملفاته مع هذا الـ Mac. حدّث cmux عليه لفتح ملفاته هنا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@“ ne dijeli svoje datoteke s ovim Macom. Ažurirajte cmux na njemu da biste ovdje otvarali njegove datoteke."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” deler ikke sine filer med denne Mac. Opdater cmux på den for at åbne dens filer her."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@“ teilt seine Dateien nicht mit diesem Mac. Aktualisiere cmux dort, um seine Dateien hier zu öffnen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” does not share its files with this Mac. Update cmux on it to open its files here."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» no comparte sus archivos con este Mac. Actualiza cmux en esa máquina para abrir sus archivos aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "« %@ » ne partage pas ses fichiers avec ce Mac. Mettez à jour cmux sur cette machine pour ouvrir ses fichiers ici."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” non condivide i suoi file con questo Mac. Aggiorna cmux su quella macchina per aprirne i file qui."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」はこの Mac とファイルを共有していません。ここでファイルを開くには、そのマシンの cmux をアップデートしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” មិនចែករំលែកឯកសាររបស់វាជាមួយ Mac នេះទេ។ ធ្វើបច្ចុប្បន្នភាព cmux នៅលើវា ដើម្បីបើកឯកសាររបស់វានៅទីនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‘%@’은(는) 이 Mac과 파일을 공유하지 않습니다. 여기서 파일을 열려면 해당 기기의 cmux를 업데이트하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» deler ikke filene sine med denne Macen. Oppdater cmux på den for å åpne filene her."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@” nie udostępnia swoich plików temu Macowi. Zaktualizuj na nim cmux, aby otwierać tu jego pliki."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” não compartilha os arquivos com este Mac. Atualize o cmux nele para abrir os arquivos aqui."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» не делится своими файлами с этим Mac. Обновите на нём cmux, чтобы открывать его файлы здесь."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” ไม่ได้แชร์ไฟล์กับ Mac เครื่องนี้ อัปเดต cmux บนเครื่องนั้นเพื่อเปิดไฟล์ที่นี่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” dosyalarını bu Mac ile paylaşmıyor. Dosyalarını burada açmak için oradaki cmux’u güncelleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» не ділиться файлами з цим Mac. Оновіть на ньому cmux, щоб відкривати його файли тут."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” không chia sẻ tệp với máy Mac này. Hãy cập nhật cmux trên máy đó để mở tệp tại đây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”未与这台 Mac 共享文件。请更新该机器上的 cmux，以便在此打开其文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」未與這部 Mac 共享檔案。請更新該機器上的 cmux，以便在此開啟其檔案。"
+          }
+        }
+      }
+    },
+    "filePages.remote.denied": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‏„%@“ لم يسمح بقراءة هذا الملف. تُفتح هنا الملفات الموجودة في مجلد المنزل الخاص به."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@“ nije dozvolio čitanje ove datoteke. Datoteke iz njegove početne mape otvaraju se ovdje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” tillod ikke at læse denne fil. Filer i dens hjemmemappe åbnes her."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@“ hat das Lesen dieser Datei nicht erlaubt. Dateien in seinem Benutzerordner lassen sich hier öffnen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” did not allow reading this file. Files in its home folder open here."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» no permitió leer este archivo. Los archivos de su carpeta de inicio se abren aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "« %@ » n’a pas autorisé la lecture de ce fichier. Les fichiers de son dossier personnel s’ouvrent ici."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” non ha consentito la lettura di questo file. I file nella sua cartella Inizio si aprono qui."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」はこのファイルの読み取りを許可しませんでした。ホームフォルダ内のファイルはここで開けます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” មិនបានអនុញ្ញាតឱ្យអានឯកសារនេះទេ។ ឯកសារក្នុងថតដើមរបស់វាបើកនៅទីនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‘%@’이(가) 이 파일 읽기를 허용하지 않았습니다. 홈 폴더의 파일은 여기서 열 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» tillot ikke å lese denne filen. Filer i hjemmemappen åpnes her."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@” nie pozwolił odczytać tego pliku. Pliki z jego folderu domowego otwierają się tutaj."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” não permitiu ler este arquivo. Arquivos da pasta pessoal dele abrem aqui."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» не разрешил прочитать этот файл. Здесь открываются файлы из его домашней папки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” ไม่อนุญาตให้อ่านไฟล์นี้ ไฟล์ในโฟลเดอร์หลักของเครื่องนั้นเปิดที่นี่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” bu dosyanın okunmasına izin vermedi. Ana klasöründeki dosyalar burada açılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» не дозволив прочитати цей файл. Тут відкриваються файли з його домашньої папки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” không cho phép đọc tệp này. Các tệp trong thư mục chính của máy đó mở được tại đây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”不允许读取此文件。其个人文件夹中的文件可在此打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」不允許讀取這個檔案。其個人資料夾中的檔案可在此開啟。"
+          }
+        }
+      }
+    },
+    "filePages.remote.preview": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‏„%@“ موجود على جهاز آخر. يفتح cmux الملفات النصية من هناك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@“ je na drugoj mašini. cmux odatle otvara tekstualne datoteke."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” ligger på en anden maskine. cmux åbner tekstfiler derfra."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@“ liegt auf einem anderen Gerät. cmux öffnet von dort Textdateien."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” is on another machine. cmux opens text files from there."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» está en otra máquina. cmux abre archivos de texto desde allí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "« %@ » se trouve sur une autre machine. cmux ouvre les fichiers texte depuis celle-ci."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” si trova su un’altra macchina. cmux apre da lì i file di testo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」は別のマシンにあります。cmux はそこからテキストファイルを開きます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” នៅលើម៉ាស៊ីនផ្សេង។ cmux បើកឯកសារអត្ថបទពីទីនោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‘%@’은(는) 다른 기기에 있습니다. cmux는 그곳의 텍스트 파일을 엽니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» ligger på en annen maskin. cmux åpner tekstfiler derfra."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@” jest na innej maszynie. cmux otwiera stamtąd pliki tekstowe."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” está em outra máquina. O cmux abre arquivos de texto de lá."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» находится на другой машине. cmux открывает оттуда текстовые файлы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” อยู่บนเครื่องอื่น cmux เปิดไฟล์ข้อความจากที่นั่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” başka bir makinede. cmux oradan metin dosyalarını açar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» розташовано на іншій машині. cmux відкриває звідти текстові файли."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” nằm trên máy khác. cmux mở tệp văn bản từ đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”位于另一台机器上。cmux 可从那里打开文本文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」位於另一部機器上。cmux 可從那裡開啟文字檔案。"
+          }
+        }
+      }
+    },
+    "filePages.remote.tooLargeToSave": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‏هذا الملف أكبر من أن يُحفظ في „%@“ من هذا الـMac. تُحفظ هنا الملفات حتى 12 ميغابايت."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova datoteka je prevelika da bi se s ovog Maca spremila na „%@“. Ovdje se spremaju datoteke do 12 MB."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne fil er for stor til at blive gemt på “%@” fra denne Mac. Filer på op til 12 MB gemmes her."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Datei ist zu groß, um sie von diesem Mac aus auf „%@“ zu sichern. Hier werden Dateien bis 12 MB gesichert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This file is too large to save to “%@” from this Mac. Files up to 12 MB save here."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este archivo es demasiado grande para guardarlo en “%@” desde este Mac. Aquí se guardan archivos de hasta 12 MB."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce fichier est trop volumineux pour être enregistré sur « %@ » depuis ce Mac. Les fichiers jusqu’à 12 Mo s’enregistrent ici."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo file è troppo grande per essere salvato su “%@” da questo Mac. Qui si salvano file fino a 12 MB."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルは大きすぎるため、このMacから“%@”に保存できません。ここで保存できるのは12 MBまでのファイルです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឯកសារនេះធំពេកក្នុងការរក្សាទុកទៅ “%@” ពី Mac នេះ។ ឯកសាររហូតដល់ 12 MB រក្សាទុកនៅទីនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 파일은 너무 커서 이 Mac에서 “%@”에 저장할 수 없습니다. 여기서는 12MB까지의 파일을 저장할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne filen er for stor til å arkiveres på «%@» fra denne Macen. Filer på opptil 12 MB arkiveres her."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten plik jest za duży, aby zachować go na „%@” z tego Maca. Tutaj zachowywane są pliki do 12 MB."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este arquivo é grande demais para ser salvo em “%@” a partir deste Mac. Arquivos de até 12 MB são salvos aqui."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот файл слишком большой, чтобы сохранить его на «%@» с этого Mac. Здесь сохраняются файлы до 12 МБ."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไฟล์นี้ใหญ่เกินกว่าจะบันทึกไปยัง “%@” จาก Mac เครื่องนี้ได้ ไฟล์ขนาดไม่เกิน 12 MB บันทึกได้ที่นี่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu dosya, bu Mac’ten “%@” makinesine kaydedilemeyecek kadar büyük. Burada 12 MB’a kadar olan dosyalar kaydedilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей файл завеликий, щоб зберегти його на «%@» з цього Mac. Тут зберігаються файли до 12 МБ."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tệp này quá lớn để lưu vào “%@” từ máy Mac này. Tại đây có thể lưu tệp tối đa 12 MB."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此文件太大，无法从这台 Mac 存储到“%@”。这里可存储不超过 12 MB 的文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此檔案太大，無法從這台 Mac 儲存到「%@」。這裡可儲存不超過 12 MB 的檔案。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
