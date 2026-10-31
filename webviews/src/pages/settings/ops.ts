@@ -207,6 +207,9 @@ export type HostLists = {
     levels: string[];
     current: Record<string, string | null>;
     config?: GhosttyTheme | null;
+    /** The Mac's own light or dark (the side of a light/dark pair the terminals use). The page's
+     * prefers-color-scheme is its window's, which a light or dark App Theme sets. */
+    system_scheme?: "light" | "dark";
   };
   terminal?: { ghostty_config: string; shell_integration: string | null };
   /** R92: the Ghostty lines cmux does not apply (the socket's `ghostty.diagnostics` list). */

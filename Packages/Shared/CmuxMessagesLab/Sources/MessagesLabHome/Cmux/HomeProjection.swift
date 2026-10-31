@@ -804,6 +804,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     func videoState(_ ref: PartRef) -> HomeVideoState { video.state(ref) }
 
+    func openVideo(_ ref: PartRef, _ attachment: ID) {
+        guard let attachmentRef = attachmentRef(ref.messageId, attachment) else { return }
+        video.openLarge(ref, attachment: attachmentRef, source: media, in: controller.host)
+    }
+
     private func attachmentRef(_ message: ID, _ attachment: ID) -> AttachmentRef? {
         item(message)?.parts.lazy.compactMap { p -> AttachmentRef? in
             if case .attachment(let r) = p, r.hash == attachment { return r }
