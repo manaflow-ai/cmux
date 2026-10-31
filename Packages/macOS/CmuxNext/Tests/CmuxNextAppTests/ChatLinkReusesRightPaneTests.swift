@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextBrowser
 import CmuxNextLayout
 @testable import CmuxNextApp
 import Testing
@@ -63,5 +64,24 @@ struct ChatLinkReusesRightPaneTests {
         #expect(NewTabPage.picksBeside(.terminal))
         #expect(NewTabPage.picksBeside(.browser))
         #expect(!NewTabPage.picksBeside(.agent))
+    }
+
+    /// A setup action that keeps its page or chat (Log In, Update, Open in Terminal) still opens beside the dock,
+    /// leaving the page; with no strip beside the dock, the usual route (review of #28544 at 39fa77d8).
+    @Test func aKeptPickInTheDockStillOpensInTheStrip() {
+        #expect(NewTabPage.dockPick(hasStrip: true, keep: true) == .beside(closesPage: false))
+        #expect(NewTabPage.dockPick(hasStrip: true, keep: false) == .beside(closesPage: true))
+        #expect(NewTabPage.dockPick(hasStrip: false, keep: false) == .usual)
+    }
+
+    /// What a typed submission reads as decides where it opens, not the kind the field was on: `!ls` typed as a
+    /// prompt is a terminal, which goes beside the chat (review of #28544 at 39fa77d8).
+    @Test func aTypedCommandOpensBesideTheChatWhateverTheFieldsKind() {
+        let resolver = OmniboxResolver()
+        let typed = NewTabSubmit.plan(text: "!ls", search: false, agent: nil, resolver: resolver, home: nil)
+        #expect(typed == .terminal(command: "ls"))
+        #expect(typed.opensBesideChat)
+        #expect(NewTabSubmit.plan(text: "fix the tests", search: false, agent: nil, resolver: resolver, home: nil).opensBesideChat == false)
+        #expect(!NewTabSubmit.page.opensBesideChat)
     }
 }

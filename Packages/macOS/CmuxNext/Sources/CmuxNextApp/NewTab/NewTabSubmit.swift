@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextMacScreen
 import CmuxNextSettings
 import Foundation
+import enum CmuxNextLayout.ChatColumnPlacement
 
 /// `newTab.submit` (plans/cmux-next/new-tab.md section 5): the new tab
 /// field's decision for the paths without a page (CLI `cmux tab
@@ -51,6 +52,15 @@ nonisolated enum NewTabSubmit: Equatable {
 }
 
 extension NewTabSubmit {
+    /// Whether what this submission opens is a tool that goes beside the chat, never into the chat dock: a
+    /// terminal or a browser. The page, a chat and a refusal stay where they were asked for.
+    var opensBesideChat: Bool {
+        switch self {
+        case .terminal, .browser: true
+        case .page, .chat, .refused: false
+        }
+    }
+
     /// The `openBrowser` run that opens `url` for `invocation`: the same
     /// target and origin, so openBrowser's guard (agents never open
     /// Chromium's own pages, CLI/MCP/script tabs are agent-driven) covers
@@ -78,7 +88,11 @@ extension NewTabSubmit {
         case .refused(let reason):
             services.registry.refuse(reason)
         case .terminal(let command):
-            pane.newTerminalTab(cwd: cwd, typing: command.isEmpty ? nil : command)
+            // From the chat dock, the main pane, the terminal opens in the strip beside it (Leo 2026-10-30: "not to
+            // fucking open it up in the main fucking pane"); a browser does through openBrowser's own route. Review
+            // of #28544 at 39fa77d8: `!ls` typed on the native page as a prompt made its terminal in the dock.
+            let target = plan.opensBesideChat ? ChatColumnPlacement.pagePick(from: pane) ?? pane : pane
+            target.newTerminalTab(cwd: cwd, typing: command.isEmpty ? nil : command)
         case .browser(let url):
             guard let open = browserInvocation(url, from: invocation) else { return }
             TabLifecycle.newBrowser(ctx, open)

@@ -150,8 +150,11 @@ extension NewTabPage {
         // The pick takes the page's place, like a browser's new tab (Leo 2026-10-20); the Debug toggle
         // `newTab.picksFollowLinks` lands it where links do (Lawrence 2026-10-19).
         // A page in the chat dock, the main pane: the pick opens in the strip beside it, whatever else the dock
-        // holds (Leo 2026-10-30: "not to fucking open it up in the main fucking pane").
-        if !keep, let strip = ChatColumnPlacement.pagePick(from: pane) { return Self.openBeside(key, with: request, cwd: cwd, from: pane, in: strip) }
+        // holds (Leo 2026-10-30: "not to fucking open it up in the main fucking pane"). A setup action's `keep`
+        // (Log In, Update, Open in Terminal) goes there too and leaves the page or chat in place.
+        if let strip = ChatColumnPlacement.pagePick(from: pane), case .beside(let closesPage) = Self.dockPick(hasStrip: true, keep: keep) {
+            return Self.openBeside(key, with: request, cwd: cwd, from: pane, in: strip, closesPage: closesPage)
+        }
         if !keep, Self.opensBeside(key, in: pane) { return Self.openBeside(key, with: request, cwd: cwd, from: pane) }
         let closePage = keep ? close : NewTabSlot.placing(replacing: key, onMachine: pane.daemon.machineID, services: services, then: close) ?? close // the page's slot
         switch request.kind {
@@ -193,9 +196,9 @@ extension NewTabPage {
     /// ``replace(_:with:cwd:in:keep:)`` beside the page: the terminal or browser opens in `strip`, else through
     /// ``LinkOpener`` (the pane on the right, else a new split), then the page closes.
     private static func openBeside(_ key: String, with request: AgentPaneOpenTab, cwd: String?, from pane: PaneController,
-                                   in strip: PaneController? = nil) {
+                                   in strip: PaneController? = nil, closesPage: Bool = true) {
         let services = pane.services
-        let closePage = closingPage(key, in: pane)
+        let closePage = closesPage ? closingPage(key, in: pane) : {}
         let make: LinkOpener.Make = { target, placed in
             let landed: @MainActor (SurfaceID) -> Void = { surface in
                 placed?(surface)
@@ -239,6 +242,20 @@ extension NewTabPage {
             guard let page else { return }
             MainPaneLayout.dockChat(of: page, keeping: surface, focus: true, services: services)
         }
+    }
+
+    /// What a pick on a page in the chat dock does, given whether a strip pane is beside the dock: it opens there,
+    /// closing the page unless the request keeps it (`keep`: a setup action, or a chat with a session). Review of
+    /// #28544 at 39fa77d8: a kept request skipped the strip and opened its terminal in the dock.
+    enum DockPick: Equatable {
+        /// The pick takes the usual route (nothing beside the dock).
+        case usual
+        /// The pick opens in the strip beside the dock.
+        case beside(closesPage: Bool)
+    }
+
+    nonisolated static func dockPick(hasStrip: Bool, keep: Bool) -> DockPick {
+        hasStrip ? .beside(closesPage: !keep) : .usual
     }
 
     /// Whether a pick of `kind` on a New Tab page in the main pane goes beside the chat: a terminal or browser
