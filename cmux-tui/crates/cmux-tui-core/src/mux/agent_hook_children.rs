@@ -52,6 +52,7 @@ impl Mux {
     pub(super) fn apply_agent_child_hook(
         &self,
         ingress: &crate::JournalIngress,
+        sequence: u64,
     ) -> anyhow::Result<()> {
         let Some(terminal_id) = ingress
             .subjects
@@ -73,6 +74,25 @@ impl Mux {
         else {
             return Ok(());
         };
+        // Child hooks belong to the same session incarnation as lifecycle hooks. In
+        // particular, an exact journal retry must not recreate a child after that session
+        // ended. Hold this fence through posting as well, so a new turn cannot invalidate a
+        // held finish while its last child is posting it. Child events never advance the
+        // lifecycle sequence: a later child must not suppress an earlier Stop's retry.
+        let fences = self.agent_hook_fences.lock().unwrap_or_else(|e| e.into_inner());
+        if !matches!(
+            HookFence::journal_transition(
+                fences.get(&terminal_id),
+                terminal_id.as_str(),
+                text("agent_session_id"),
+                false,
+                sequence,
+                crate::journal_reducers::hook_observed_at_ms(&ingress.payload),
+            ),
+            JournalHookTransition::Apply(_)
+        ) {
+            return Ok(());
+        }
         let held = {
             let mut children = self.agent_hook_children.lock().unwrap_or_else(|e| e.into_inner());
             let entry = children.entry(terminal_id.clone()).or_default();

@@ -30,7 +30,7 @@ impl Mux {
         }
         // A child agent changes no lifecycle state, but a turn's finish may wait for it.
         if ingress.kind.starts_with("agent.child.") {
-            return self.apply_agent_child_hook(ingress);
+            return self.apply_agent_child_hook(ingress, sequence);
         }
         use crate::journal_reducers::hook_roster_state;
         let native_event =

@@ -304,6 +304,7 @@ impl Hub {
         c: &Carried,
         continues: &Continues,
     ) -> u64 {
+        self.clear_deferred_unread(session);
         {
             let mut m = session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             m.turn_count += 1;

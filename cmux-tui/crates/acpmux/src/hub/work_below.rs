@@ -19,6 +19,13 @@ use super::*;
 pub const RECORD_KIND: &str = "subagents_working";
 
 impl Hub {
+    /// A new turn supersedes an earlier turn's deferred unread dot. Serialize with the
+    /// background-work transition that could otherwise release it at the same time.
+    pub(super) fn clear_deferred_unread(&self, session: &Session) {
+        let _mark = session.work_below_since.lock().unwrap_or_else(|e| e.into_inner());
+        session.unread_after_work.store(false, Ordering::SeqCst);
+    }
+
     /// Since when work `session` started still runs past its own turn; None while none does.
     pub(super) fn work_below_since(&self, session: &Session) -> Option<u64> {
         let since = *session.work_below_since.lock().unwrap_or_else(|e| e.into_inner());
@@ -39,7 +46,7 @@ impl Hub {
             }
             *mark = if works { now_ms().max(1) } else { 0 };
             // The turn that ended while the work ran is done now: unread, set before the record
-            // so its summary already says so. A turn that starts drops the note (`turns.rs`).
+            // so its summary already says so. Every new turn drops the note.
             let unread = !works
                 && session.unread_after_work.swap(false, Ordering::SeqCst)
                 && !self.shown(session)
