@@ -364,3 +364,25 @@ test("a step of only quiet thoughts takes no room, estimated or drawn", () => {
   expect(placed.heights[0]).toBe(0);
   expect(placed.tops[1]).toBe(0);
 });
+
+test("a status row between two replies is estimated in the middle of the gap", () => {
+  // Leo, 2026-10-30: "see how claude code has those centered tool calls / id like more alignment too".
+  // The reply over the run ends at its action row (its 4px meta gap and 24px line, no message gap);
+  // the run (2px over its 22px row) ends 30px over the next reply, the action row's room and the
+  // run's 2px top margin (conversation.css --cv-status-gap).
+  const tool = {
+    kind: "tool",
+    text: "",
+    tool: { id: "c", title: "ls", kind: "execute", status: "completed", command: "ls" },
+  };
+  const before = { id: "r1", version: 1, at: 0, kind: "assistant", text: "Done." };
+  const run = { id: "b", version: 1, at: 1, kind: "activity", items: [tool] };
+  const after = { id: "r2", version: 1, at: 2, kind: "assistant", text: "Then this." };
+  const [reply, step] = heightsOf([before, run, after]);
+  const [alone] = heightsOf([before]);
+  expect(step).toBe(2 + 22 + 30);
+  // The same reply over a prompt: its own action row, then the message gap.
+  const [overPrompt] = heightsOf([before, { id: "p", version: 1, at: 1, kind: "user", text: "Next" }]);
+  expect(reply).toBe(overPrompt! - 8);
+  expect(alone).toBeGreaterThan(0);
+});

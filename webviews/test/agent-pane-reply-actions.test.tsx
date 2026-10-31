@@ -159,7 +159,10 @@ test("the last row of the chat waits: a reply with nothing after it gets its row
   const more = [...rows, row("m1", "user", 2_000, { text: "Also.", incoming: message("Also.") })];
   const after = layoutConversation(more, 600, undefined, undefined, undefined, { rows, layout: alone });
   const at = rows.findIndex((one) => one.id === "a1");
-  expect(after.heights[at]! - alone.heights[at]!).toBeGreaterThanOrEqual(28);
+  // It gains its row (the 4px meta gap and the 24px line) and gives its 8px message gap to the
+  // room around the status row that now follows it, centred between the replies (model.ts
+  // `statusEdge`, design/chat-transcript.md "Rows between replies").
+  expect(after.heights[at]! - alone.heights[at]!).toBeGreaterThanOrEqual(20);
 });
 
 test("the row draws Copy and the reply's age, and the layout reserves its line", () => {
