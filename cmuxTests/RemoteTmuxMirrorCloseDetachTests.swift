@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import CmuxControlSocket
 import CmuxSettings
 import Testing
@@ -29,6 +30,86 @@ import Testing
 @Suite(.serialized, .exclusiveAppContext) struct RemoteTmuxMirrorCloseDetachTests {
     fileprivate let sshOverrideKey = "CMUX_REMOTE_TMUX_SSH_FOR_TESTING"
     private let sshLogKey = "CMUX_PR7264_SSH_LOG"
+
+    enum BatchCloseState: CaseIterable {
+        case connected, reconnecting, cancelled
+    }
+
+    @Test(arguments: [false, true], BatchCloseState.allCases)
+    func closeOtherTabsRoutesRemoteWindows(
+        contextMenu: Bool,
+        state: BatchCloseState
+    ) throws {
+        let reconnecting = state == .reconnecting
+        let acceptConfirmation = state != .cancelled
+        let harness = try RemoteTmuxSessionMirrorLayoutHarness(
+            initialWindowLines: (1...4).map {
+                "@\($0) abcd,80x24,0,0,\($0 * 11) abcd,80x24,0,0,\($0 * 11) [] tab\($0)"
+            },
+            initialRectsByWindow: Dictionary(uniqueKeysWithValues: (1...4).map {
+                ($0, ["%\($0 * 11) 0 0 80 24 1 off :zsh"])
+            })
+        )
+        defer {
+            harness.connection.stop()
+            harness.tearDown()
+        }
+        let appDelegate = try #require(AppDelegate.shared)
+        let controller = appDelegate.remoteTmuxController
+        let key = "close-other-tabs-\(UUID().uuidString)"
+        controller.insertSessionMirror(harness.sessionMirror, forKey: key)
+        defer { controller.removeSessionMirror(forKey: key) }
+
+        let workspace = harness.workspace
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let tabs = workspace.bonsplitController.tabs(inPane: pane)
+        try #require(tabs.count == 4)
+        let retainedTab = tabs[1]
+        workspace.bonsplitController.selectTab(retainedTab.id)
+        let pinnedPanelID = try #require(workspace.panelIdFromSurfaceId(tabs[0].id))
+        workspace.setPanelPinned(panelId: pinnedPanelID, pinned: true)
+        try #require(workspace.isPanelPinned(pinnedPanelID))
+        let expectedWindowIDs = try [tabs[2], tabs[3]].map { tab in
+            let panelID = try #require(workspace.panelIdFromSurfaceId(tab.id))
+            return try #require(harness.sessionMirror.windowId(forPanel: panelID))
+        }
+        let warningStore = CloseTabWarningStore(defaults: harness.manager.closeTabWarningDefaults)
+        let previousWarning = warningStore.warnsBeforeClosingTab
+        warningStore.setWarnsBeforeClosingTab(true)
+        defer { warningStore.setWarnsBeforeClosingTab(previousWarning) }
+        var promptCount = 0
+        harness.manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return acceptConfirmation
+        }
+        if reconnecting { harness.connection.beginReconnecting() }
+
+        if contextMenu {
+            workspace.splitTabBar(
+                workspace.bonsplitController,
+                didRequestTabContextAction: .closeOthers,
+                for: retainedTab,
+                inPane: pane
+            )
+        } else {
+            harness.manager.closeOtherTabsInFocusedPaneWithConfirmation()
+        }
+
+        #expect(promptCount == 1)
+        // Remote tabs remain until tmux acknowledges their removal. Rejected
+        // and cancelled requests must leave both local and remote tabs alone.
+        #expect(Set(workspace.bonsplitController.tabs(inPane: pane).map(\.id)) == Set(tabs.map(\.id)))
+        #expect(workspace.bonsplitController.selectedTab(inPane: pane)?.id == retainedTab.id)
+        harness.writer.close()
+        let data = try harness.pipe.fileHandleForReading.readToEnd() ?? Data()
+        let killCommands = String(decoding: data, as: UTF8.self)
+            .split(separator: "\n")
+            .filter { $0.hasPrefix("kill-window ") }
+            .map(String.init)
+        #expect(killCommands == (acceptConfirmation && !reconnecting
+            ? expectedWindowIDs.map { "kill-window -t @\($0)" }
+            : []))
+    }
 
     /// The mark seam must NOT flag a mirror workspace's window for kill-on-close:
     /// the close detaches, the remote tmux session survives for resume. Before the
