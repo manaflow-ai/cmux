@@ -25,14 +25,16 @@
 #             hang watchdog. Filters come as comma lists, separate arguments,
 #             or both. A failing suite does not stop the ones after it; the
 #             summary lists every suite and the step fails when any failed. A
-#             filter that runs no test fails. The watchdog limits apply to
+#             filter that runs no test fails, and so does one whose tests all
+#             skipped or that skipped any for a missing same-tree cmux-tui
+#             ("no result", never excused as a base red). The watchdog limits apply to
 #             each suite (CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS, 900 s), so N
 #             suites can take N times that; cmux-ci's --timeout covers the step.
 #             Lanes: cmux-ci run --class light --script
 #             scripts/ci/package-test-lane.sh --ref SHA --arg=suite
 #             --arg=Packages/macOS/CmuxNext --arg=SuiteA,SuiteB,SuiteC
 #             --env CMUX_CI_XCODE_APP=/Applications/Xcode_26.6.app
-#   compile-tests MERGE_BASE_SHA
+#   compile-tests MERGE_BASE_SHA [--skip-package=DIR ...]
 #             compile, without running, the test targets this commit's change
 #             can break: scripts/ci/compile_test_plan.py over `git diff
 #             MERGE_BASE_SHA HEAD` (the CmuxNext test targets that depend on a
@@ -45,6 +47,10 @@
 #             compile", anything else when there is no verdict. The marker is
 #             printed as soon as a target fails, so a later package's setup
 #             failure (any exit) never hides an earlier compile failure.
+#             --skip-package=DIR leaves that package out of the plan
+#             (compile_test_plan.py --skip-package); the pull-request check
+#             skips CmuxNext, whose test targets cmux-next.yml's swift test
+#             job already builds.
 #
 # --event and --full-suite default to EVENT_NAME and FULL_SUITE. Run from the
 # repository root; every helper path is relative to it.
@@ -56,11 +62,18 @@ case "${1:-}" in
   prebuild-one) phase="$1"; prebuild_package="$2"; prebuild_log="$3"; shift 3 ;;
   compile-tests)
     phase="$1"
-    if [ "$#" -ne 2 ] || ! [[ "$2" =~ ^[0-9a-f]{40}$ ]]; then
-      echo "usage: package-test-lane.sh compile-tests MERGE_BASE_SHA (the full sha of the change's merge base)" >&2; exit 2
+    if [ "$#" -lt 2 ] || ! [[ "$2" =~ ^[0-9a-f]{40}$ ]]; then
+      echo "usage: package-test-lane.sh compile-tests MERGE_BASE_SHA [--skip-package=DIR ...] (the full sha of the change's merge base)" >&2; exit 2
     fi
     compile_base="$2"
     shift 2
+    compile_skip=()
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --skip-package=?*) compile_skip+=(--skip-package "${1#--skip-package=}"); shift ;;
+        *) echo "usage: package-test-lane.sh compile-tests MERGE_BASE_SHA [--skip-package=DIR ...]: unknown argument $1" >&2; exit 2 ;;
+      esac
+    done
     ;;
   suite)
     phase="$1"; suite_package="${2:-}"
@@ -102,8 +115,11 @@ esac
 # the physical core count unless the caller set one. The variable is
 # experimental in swift-testing and is ignored by a toolchain without it.
 if [ -z "${SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH:-}" ]; then
-  SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH="$(sysctl -n hw.physicalcpu 2>/dev/null || echo 4)"
+  SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH="$(sysctl -n hw.physicalcpu 2>/dev/null || nproc 2>/dev/null || echo 4)"
   export SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH
+fi
+if [ "$phase" = suite ]; then
+  echo "Swift Testing configured width: SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH=$SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH"
 fi
 event="${EVENT_NAME:-}"
 full_suite="${FULL_SUITE:-false}"
@@ -323,7 +339,7 @@ toolchain_mismatch() {
   local hit
   hit="$(grep -m1 -oE 'SDK is not supported by the compiler|Invalid manifest|no tests found' "$1" || true)"
   [ -n "$hit" ] || return 1
-  echo "::error title=Swift toolchain and SDK differ::$2: swift test reported '$hit' with DEVELOPER_DIR=$DEVELOPER_DIR SDKROOT=${SDKROOT:-unset}; no test result here is valid"
+  echo "::error title=Swift toolchain and SDK differ::$2: swift test reported '$hit' with DEVELOPER_DIR=${DEVELOPER_DIR:-unset} SDKROOT=${SDKROOT:-unset}; no test result here is valid"
 }
 
 # A fleet step has no ghostty submodule checkout, only the empty directory git
@@ -410,8 +426,13 @@ record_built_ref() {
 # package whose prebuild fails is built again by its `swift test`, which
 # reports the error in that package's group as before.
 prebuild_one() {
-  local pkg="$1" log="$2" started=$SECONDS status=0
-  if ! package_args "$pkg" > "$log" 2>&1; then
+  local pkg="$1" log="$2" started=$SECONDS status=0 args_status=0
+  package_args "$pkg" > "$log" 2>&1 || args_status=$?
+  if [ "$args_status" -eq 75 ]; then
+    # The resolve failed on the network on every try: no build here; the package's run resolves again.
+    cat "$log" >&2
+    return 75
+  elif [ "$args_status" -ne 0 ]; then
     cat "$log" >&2
     echo "error: prebuild of $pkg compiled nothing: package not found." >&2
     return 2
@@ -558,7 +579,7 @@ run_package_tests() {
   }
   test_package() {
     local pkg="$1"
-    package_args "$pkg" || return 1
+    package_args "$pkg" || return $? # 1: not found; 75: the resolve failed on the network (no verdict)
     case "$pkg" in
     # These packages have process-tree suites whose child fixtures
     # share global process resources; run each suite in its own Swift
@@ -599,6 +620,7 @@ run_package_tests() {
   fi
   failed=0
   first_failure_status=0
+  no_verdict=0
   while IFS= read -r pkg; do
     [ -n "$pkg" ] || continue
     echo "::group::swift test $pkg"
@@ -610,6 +632,12 @@ run_package_tests() {
     if [ "$package_status" -eq 0 ]; then
       result=passed
       passed+=("$pkg")
+    elif [ "$package_status" -eq 75 ]; then
+      # Its resolve failed on the network on every try: no test of it ran. Not a failure; the lane goes on,
+      # and it ends with 75 (no verdict) only when no package failed for real.
+      no_verdict=$((no_verdict + 1))
+      result="no verdict (fetch)"
+      echo "::warning title=Swift package not tested::$pkg: fetch failed, no test ran (network, after retries); rerun the step"
     else
       failed=$((failed + 1))
       [ "$first_failure_status" -ne 0 ] || first_failure_status="$package_status"
@@ -637,6 +665,10 @@ run_package_tests() {
   if [ "$failed" -ne 0 ]; then
     echo "$failed of ${#summary[@]} Swift packages failed."
     exit "$first_failure_status"
+  fi
+  if [ "$no_verdict" -ne 0 ]; then
+    echo "$no_verdict of ${#summary[@]} Swift packages were not tested: fetch failed, no test ran (exit 75, no verdict)."
+    exit 75
   fi
 }
 
@@ -675,9 +707,62 @@ ensure_cmux_tui_tree() {
   echo "::endgroup::"
 }
 
+# On Linux a suite runs only for a package scripts/ci/swift-linux-packages.txt lists, with that row's
+# ENV and only filters that name one of its test targets; it selects no Xcode and no macOS SDK.
+# CMUX_PACKAGE_LANE_TEST_OS stands in for `uname -s` in the lane's tests (Linux or Darwin, on any host).
+linux_list=scripts/ci/swift-linux-packages.txt
+lane_os="${CMUX_PACKAGE_LANE_TEST_OS:-$(uname -s)}"
+linux_suite_setup() {
+  local dir targets envs row="" filter target ok pair
+  if [ -f "$linux_list" ]; then
+    row="$(awk -v p="$suite_package" '$1 == p { print; exit }' "$linux_list")"
+  fi
+  if [ -z "$row" ]; then
+    echo "::error title=Not a Linux package::package-test-lane.sh: $suite_package is not in $linux_list; its suites run on macOS" >&2
+    exit 2
+  fi
+  read -r dir targets envs <<< "$row"
+  for filter in "${suite_filters[@]}"; do
+    ok=0
+    IFS=, read -r -a linux_targets <<< "$targets"
+    for target in "${linux_targets[@]}"; do
+      case "$filter" in "$target"|"$target".*|"$target"/*) ok=1 ;; esac
+    done
+    if [ "$ok" -ne 1 ]; then
+      echo "::error title=Not a Linux test target::package-test-lane.sh: filter '$filter' names none of $suite_package's Linux test targets ($targets); it runs on macOS" >&2
+      exit 2
+    fi
+  done
+  if [ "${envs:--}" != - ]; then
+    IFS=, read -r -a linux_envs <<< "$envs"
+    for pair in "${linux_envs[@]}"; do
+      [[ "$pair" =~ ^[A-Z_][A-Z0-9_]*=[A-Za-z0-9_.:/-]*$ ]] || { echo "package-test-lane.sh: bad ENV '$pair' in $linux_list" >&2; exit 2; }
+      export "${pair?}"
+    done
+  fi
+  echo "Linux: $(swift --version 2>/dev/null | head -n 1) (${envs:--})"
+}
+
+# swift_filter FILTER: the --filter regex for FILTER. swift test matches it unanchored, so on Linux,
+# where only the listed targets may run, it is anchored with its dots escaped and must end at a
+# target, suite or test boundary: ListedTests never reaches ListedTestsExtra. The suite parser
+# accepts only [A-Za-z0-9_./:-] in a filter, so '.' is its one regex metacharacter (no |, *, [, (,
+# ^, $, +, ?, \). macOS passes FILTER as is.
+swift_filter() {
+  if [ "$lane_os" = Linux ]; then
+    printf '^%s($|[./(])' "${1//./\\.}"
+  else
+    printf '%s' "$1"
+  fi
+}
+
 run_suite() {
-  select_xcode
-  echo "Xcode: $DEVELOPER_DIR"
+  if [ "$lane_os" = Linux ]; then
+    linux_suite_setup
+  else
+    select_xcode
+    echo "Xcode: $DEVELOPER_DIR"
+  fi
   if grep -q 'GhosttyKit\.xcframework' "$suite_package/Package.swift"; then
     ensure_ghosttykit
   fi
@@ -701,7 +786,7 @@ run_suite() {
     ensure_cmux_tui_tree
   fi
   local scratch="$suite_package/.build${CMUX_SWIFT_SANITIZE:+-sanitize-$CMUX_SWIFT_SANITIZE}"
-  swiftpm_binary_module_guard "$suite_package" "$scratch"
+  swiftpm_binary_module_guard "$suite_package" "$scratch" || exit $? # 75: fetch failed, no test ran
   echo "::group::swift build --build-tests ${configuration[*]} $suite_package"
   local build_log build_status=0
   build_log="$(mktemp -t swift-suite-build.XXXXXX)"
@@ -712,7 +797,7 @@ run_suite() {
   if [ "$build_status" -ne 0 ] && swiftpm_stale_module_failure "$build_log"; then
     echo "::warning title=Stale precompiled module::$suite_package: the warm build read a stale explicit module; building again from clean outputs"
     swiftpm_purge_build_outputs "$scratch"
-    swiftpm_binary_module_guard "$suite_package" "$scratch"
+    swiftpm_binary_module_guard "$suite_package" "$scratch" || exit $? # 75: fetch failed, no test ran
     build_status=0
     swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null || build_status=$?
   fi
@@ -722,7 +807,8 @@ run_suite() {
   echo "::endgroup::"
   # swift build copies String Catalogs into the resource bundles uncompiled; without the
   # compiled <lang>.lproj tables, localization suites fail (cmux-next.yml runs the same step).
-  if [ -x scripts/cmux-next/compile-string-catalogs.sh ]; then
+  # (xcstringstool is Xcode's: on Linux the listed packages have no catalogs, and their CI job proves it.)
+  if [ "$lane_os" != Linux ] && [ -x scripts/cmux-next/compile-string-catalogs.sh ]; then
     (cd "$suite_package" && "$OLDPWD/scripts/cmux-next/compile-string-catalogs.sh")
   fi
   # One build serves every suite. Each suite runs in its own `swift test` so the
@@ -732,8 +818,18 @@ run_suite() {
   # counts skipped tests, so a headless worker printed "passed" for suites
   # that never ran (aws-m4pro-6, 2026-10-26). CMUX_TEST_REQUIRE_GUI=1 (a job
   # that asked for a GUI session) fails on any skip.
-  local log filter status started result failed=0 skipped_suites=0 first_failure_status=0 rows=()
-  local ran skipped reason
+  # A suite the lane named that ran none of its tests is no result, and a test
+  # skipped because this tree's cmux-tui is missing ("needs the same-tree
+  # cmux-tui", the live-daemon suites' trait) is no result too: either fails the
+  # step, never "passed" or a green "skipped". The line says "required tests did
+  # not run", which the per-test classifier (test_reds) reads as a run that is not whole, so
+  # the base-red excuse never excuses it.
+  # A suite that ran none of its tests because every one of them needs a display is not a result either
+  # way, and display tests gate nothing (Leo, 2026-10-31: "i dont like doing display tests anymore"): it
+  # reads "skipped (needs a display)" with a notice and does not fail the step, unless the step asked for a
+  # display (CMUX_TEST_REQUIRE_GUI=1, or cmux-ci's --display marks it CMUX_CI_DISPLAY_ROUTED=1).
+  local log filter status started result failed=0 first_failure_status=0 display_only=0 rows=()
+  local ran skipped reason reasons daemon_skips display_skips hint
   for filter in "${suite_filters[@]}"; do
     echo "::group::swift test --filter $filter"
     log="$(mktemp -t swift-suite-test.XXXXXX)"
@@ -743,19 +839,29 @@ run_suite() {
       --stall-seconds "${CMUX_SWIFT_TEST_STALL_SECONDS:-180}" \
       --timeout-seconds "${CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS:-900}" \
       --sample-seconds 5 --label "$filter" --log "$log" \
-      -- swift test "${configuration[@]}" --package-path "$suite_package" --skip-build --filter "$filter" < /dev/null || status=$?
+      -- swift test "${configuration[@]}" --package-path "$suite_package" --skip-build --filter "$(swift_filter "$filter")" < /dev/null || status=$?
     if toolchain_mismatch "$log" "$filter in $suite_package"; then
       [ "$status" -ne 0 ] || status=1
     elif [ "$status" -eq 0 ]; then
       python3 scripts/ci/require_swift_test_execution.py --log "$log" --skip-report "$log.skips" || status=$?
     fi
     echo "::endgroup::"
-    ran=0 skipped=0
+    ran=0 skipped=0 reasons=0 display_skips=0 hint=""
+    # Read from the log itself, whatever the exit status or CMUX_TEST_REQUIRE_GUI: a failing test or a GUI
+    # skip beside a missing-cmux-tui skip must not hide the no-result line.
+    daemon_skips="$(grep -cE '(Test|Suite) .+ skipped: "needs the same-tree cmux-tui' "$log" || true)"
+    if [ "$daemon_skips" -gt 0 ]; then
+      echo "::error title=Swift suite no result::$filter in $suite_package: required tests did not run: tests skipped because this tree's cmux-tui is missing (CMUX_NEXT_TUI_TREE_PATH=${CMUX_NEXT_TUI_TREE_PATH:-unset}); no result, never a pass or a base red"
+    fi
     if [ "$status" -eq 0 ]; then
       read -r ran skipped < "$log.skips"
       if [ "$skipped" -gt 0 ]; then
         while IFS= read -r reason; do
           echo "$filter: skipped $reason"
+          reasons=$((reasons + 1))
+          # The suites' own display traits: "the drag tests need a display", "needs an awake display ...",
+          # "run on a GUI host", "no GUI login session".
+          if printf '%s' "$reason" | grep -qiE 'display|screen|GUI'; then display_skips=$((display_skips + 1)); fi
         done < <(tail -n +2 "$log.skips")
       fi
       if [ "$skipped" -gt 0 ] && [ "${CMUX_TEST_REQUIRE_GUI:-}" = 1 ]; then
@@ -763,10 +869,29 @@ run_suite() {
       fi
     fi
     rm -f "$log.skips"
-    if [ "$status" -eq 0 ] && [ "$ran" -eq 0 ]; then
-      result=skipped
-      skipped_suites=$((skipped_suites + 1))
-      echo "::warning title=Swift suite skipped::$filter in $suite_package: none of its $skipped tests ran (skipped)"
+    if [ "$status" -eq 0 ] && [ "$ran" -eq 0 ] && [ "$daemon_skips" -eq 0 ] && [ "$reasons" -gt 0 ] &&
+       [ "$display_skips" -eq "$reasons" ] && [ "${CMUX_TEST_REQUIRE_GUI:-}" != 1 ] &&
+       [ "${CMUX_CI_DISPLAY_ROUTED:-}" != 1 ]; then
+      display_only=$((display_only + 1))
+      result="skipped (needs a display)"
+      echo "::notice title=Swift suite needs a display::$filter in $suite_package: none of its $skipped tests ran (each needs a display); display tests gate nothing, so the step goes on. Run it on a display worker with cmux-ci run --display"
+    elif [ "$status" -eq 0 ] && { [ "$ran" -eq 0 ] || [ "$daemon_skips" -gt 0 ]; }; then
+      failed=$((failed + 1))
+      status=1
+      [ "$first_failure_status" -ne 0 ] || first_failure_status="$status"
+      if [ "$daemon_skips" -gt 0 ]; then
+        result="no result (no cmux-tui)"
+      else
+        result="no result (0 ran)"
+        # cmux-ci sends a step naming a listed display suite (scripts/ci/display-suites.txt) to a display
+        # worker and marks it CMUX_CI_DISPLAY_ROUTED=1; the lane's hint is for a step routing did not reach.
+        if [ "$display_skips" -gt 0 ] && [ "${CMUX_CI_DISPLAY_ROUTED:-}" = 1 ]; then
+          hint="; this suite needs a display and was sent to a display worker, whose console session was lost (locked or logged out)"
+        elif [ "$display_skips" -gt 0 ]; then
+          hint="; this suite needs a display; rerun with CMUX_TEST_REQUIRE_GUI=1 (or cmux-ci run --display)"
+        fi
+        echo "::error title=Swift suite no result::$filter in $suite_package: required tests did not run: none of its $skipped tests ran (all skipped)$hint; no result, never a pass or a base red"
+      fi
     elif [ "$status" -eq 0 ] && [ "$skipped" -gt 0 ]; then
       result="passed, $skipped skipped"
     elif [ "$status" -eq 0 ]; then
@@ -791,14 +916,14 @@ run_suite() {
     printf '### Swift suites (%s)\n\n```\n%s\n```\n' "$suite_package" "$table" >> "$GITHUB_STEP_SUMMARY"
   fi
   if [ "$failed" -ne 0 ]; then
-    echo "$failed of ${#suite_filters[@]} suites failed."
+    echo "$failed of ${#suite_filters[@]} suites failed or gave no result."
     exit "$first_failure_status"
   fi
-  if [ "$skipped_suites" -ne 0 ]; then
-    echo "$((${#suite_filters[@]} - skipped_suites)) of ${#suite_filters[@]} suites passed; $skipped_suites skipped (none of their tests ran)."
-    return 0
+  if [ "$display_only" -gt 0 ]; then
+    echo "$((${#suite_filters[@]} - display_only)) of ${#suite_filters[@]} suites passed; $display_only skipped (needs a display, not gating)."
+  else
+    echo "All ${#suite_filters[@]} suites passed."
   fi
-  echo "All ${#suite_filters[@]} suites passed."
 }
 
 # compile_one LOG SWIFT_BUILD_ARGS...: one `swift build` into LOG (and the step
@@ -811,7 +936,7 @@ compile_one() {
   if [ "$status" -ne 0 ] && swiftpm_stale_module_failure "$log"; then
     echo "::warning title=Stale precompiled module::the warm build read a stale explicit module; building again from clean outputs"
     swiftpm_purge_build_outputs "$compile_scratch"
-    swiftpm_binary_module_guard "$compile_pkgdir" "$compile_scratch"
+    swiftpm_binary_module_guard "$compile_pkgdir" "$compile_scratch" || exit $? # 75: fetch failed, nothing compiled
     status=0
     swift build "$@" < /dev/null 2>&1 | tee "$log" || status=$?
   fi
@@ -830,7 +955,7 @@ run_compile_tests() {
   local changed="$work/compile-tests-changed.txt" plan="$work/compile-tests-plan.txt"
   git diff --no-renames --name-only "$compile_base" HEAD > "$changed" \
     || { echo "compile-tests: no diff from $compile_base" >&2; exit 3; }
-  python3 scripts/ci/compile_test_plan.py --changed-files "$changed" > "$plan" \
+  python3 scripts/ci/compile_test_plan.py --changed-files "$changed" ${compile_skip[@]+"${compile_skip[@]}"} > "$plan" \
     || { echo "compile-tests: compile_test_plan.py failed" >&2; exit 3; }
   echo "compile-tests: $(wc -l < "$changed" | tr -d ' ') files changed since ${compile_base:0:12}"
   if [ ! -s "$plan" ]; then
@@ -864,7 +989,7 @@ run_compile_tests() {
     if [ "${#submodules[@]}" -gt 0 ]; then
       git submodule update --init --depth 1 -- "${submodules[@]}"
     fi
-    swiftpm_binary_module_guard "$compile_pkgdir" "$compile_scratch"
+    swiftpm_binary_module_guard "$compile_pkgdir" "$compile_scratch" || exit $? # 75: fetch failed, nothing compiled
     if [ "${#words[@]}" -gt 1 ]; then
       builds=("${words[@]:1}")
     else

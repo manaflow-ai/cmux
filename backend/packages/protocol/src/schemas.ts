@@ -1,9 +1,10 @@
 import { Schema } from "effect"
 import { ServerNetworkState } from "./server-network.ts"
+import { isMinLength, isPattern } from "./json-checks.ts"
 
 /** Public prefixed ids (cli.md C7). 20 lowercase hex characters after the prefix. */
 const prefixedId = (prefix: string, identifier: string, description: string) =>
-  Schema.String.check(Schema.isPattern(new RegExp(`^${prefix}_[a-z0-9]{20}$`))).annotate({ identifier, description })
+  Schema.String.check(isPattern(new RegExp(`^${prefix}_[a-z0-9]{20}$`))).annotate({ identifier, description })
 
 export const UserId = prefixedId("user", "UserId", "A cmux user (Stack user id kept as an external id).")
 export const TeamId = prefixedId("team", "TeamId", "A team; a personal account is a team of one.")
@@ -17,7 +18,7 @@ export const IdempotencyKey = Schema.String.check(Schema.isMinLength(1), Schema.
   identifier: "IdempotencyKey",
   description: "Client-chosen key; a retry with the same key replays the original result."
 })
-export const Revision = Schema.String.check(Schema.isPattern(/^[0-9]+$/)).annotate({
+export const Revision = Schema.String.check(isPattern(/^[0-9]+$/)).annotate({
   identifier: "Revision",
   description: "Decimal per-object revision (the owner's event sequence)."
 })
@@ -44,12 +45,12 @@ export const OpClass = Schema.Literals([...OP_RISKS, "cloud-link", "vm-self"]).a
 export const PublicJwk = Schema.Struct({
   kty: Schema.Literal("EC"),
   crv: Schema.Literal("P-256"),
-  x: Schema.String.check(Schema.isMinLength(43), Schema.isMaxLength(43)),
-  y: Schema.String.check(Schema.isMinLength(43), Schema.isMaxLength(43))
+  x: Schema.String.check(isMinLength(43), Schema.isMaxLength(43)),
+  y: Schema.String.check(isMinLength(43), Schema.isMaxLength(43))
 }).annotate({ identifier: "PublicJwk", description: "ES256 (P-256) public key of an install." })
 
 /** What a paired server says it is (`optchat-chief-brain`: it runs a user's Chief); lowercase words joined by hyphens. */
-export const ServerCapability = Schema.String.check(Schema.isPattern(/^[a-z0-9][a-z0-9-]{0,39}$/)).annotate({ identifier: "ServerCapability" })
+export const ServerCapability = Schema.String.check(isPattern(/^[a-z0-9][a-z0-9-]{0,39}$/)).annotate({ identifier: "ServerCapability" })
 export const ServerCapabilities = Schema.Array(ServerCapability).check(Schema.isMaxLength(8))
 
 export const Install = Schema.Struct({
@@ -69,7 +70,7 @@ export const Install = Schema.Struct({
   /** The team whose SSO session registered this install (enterprise P17-4: sso.enforce keeps installs to SSO-registered ones). */
   sso_team: Schema.optionalKey(TeamId),
   /** A VM install (kind vm, made at bind): the one Cloud machine it speaks for. */
-  bound_machine: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^vm_[a-z0-9]{20}$/))),
+  bound_machine: Schema.optionalKey(Schema.String.check(isPattern(/^vm_[a-z0-9]{20}$/))),
   /** A paired server's capabilities from its pairing request (server.md 6.2). */
   capabilities: Schema.optionalKey(ServerCapabilities)
 }).annotate({ identifier: "Install" })
@@ -95,12 +96,12 @@ export const UserProfile = Schema.Struct({
 }).annotate({ identifier: "UserProfile" })
 
 export const HostKind = Schema.Literals(["device", "server"]).annotate({ identifier: "HostKind" })
-export const WgPublicKey = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9+/]{43}=$/)).annotate({
+export const WgPublicKey = Schema.String.check(isPattern(/^[A-Za-z0-9+/]{43}=$/)).annotate({
   identifier: "WgPublicKey",
   description: "A WireGuard public key, standard base64 of 32 bytes."
 })
 /** Pairing code: 8 Crockford base32 symbols, shown as XXXX-XXXX (plans/cmux-next/server.md 6.2). */
-export const PairingCode = Schema.String.check(Schema.isPattern(/^[0-9A-HJKMNP-TV-Z]{8}$/)).annotate({
+export const PairingCode = Schema.String.check(isPattern(/^[0-9A-HJKMNP-TV-Z]{8}$/)).annotate({
   identifier: "PairingCode",
   description: "A normalized pairing code: 8 Crockford base32 symbols, no hyphen."
 })

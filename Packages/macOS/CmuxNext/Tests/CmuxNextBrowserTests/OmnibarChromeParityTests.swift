@@ -1,5 +1,7 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -8,6 +10,7 @@ import Testing
 /// typing during page loads never flashes or loses keys, and the address
 /// rules match Chromium's `AutocompleteInput` / `url_fixer`.
 @MainActor
+@Suite(.closesItsWindows)
 struct OmnibarChromeParityTests {
     // MARK: Fixtures
 
@@ -60,7 +63,8 @@ struct OmnibarChromeParityTests {
     /// (`OmniboxEditModel::OpenMatch` → `LocationBarView::OnOmniboxBlurred`).
     @Test(arguments: ["example.org", "swift testing macros", "localhost:3000"])
     func enterLoadsAndHandsFocusToThePage(_ text: String) throws {
-        let (chrome, tab, _) = chrome()
+        let (chrome, tab, window) = chrome()
+        defer { window.closeTestWindowAndOverlay() }
         var returned = 0
         // The App's focus coordinator moves the responder; here the request is what counts.
         chrome.onReturnFocusToPage = { returned += 1 }
@@ -77,7 +81,8 @@ struct OmnibarChromeParityTests {
     /// Cmd-Enter, Option-Enter and a row click end editing the same way.
     @Test func everyCommitPathHandsFocusToThePage() throws {
         for disposition: OmnibarDisposition in [.currentTab, .newBackgroundTab, .newForegroundTab, .newWindow] {
-            let (chrome, _, _) = chrome()
+            let (chrome, _, window) = chrome()
+            defer { window.closeTestWindowAndOverlay() }
             var returned = 0
             chrome.onReturnFocusToPage = { returned += 1 }
             chrome.onOpenURL = { _, _ in }
@@ -94,7 +99,8 @@ struct OmnibarChromeParityTests {
     /// commits, redirects or finishes while keys arrive changes nothing the
     /// user sees, and the field is written zero times (no flash).
     @Test func typingWhileThePageNavigatesNeverRewritesTheField() throws {
-        let (bar, _) = bar()
+        let (bar, window) = bar()
+        defer { window.closeTestWindowAndOverlay() }
         bar.focus()
         let writesBefore = bar.controller.applier.textWrites
         let text = "github.com/manaflow-ai/cmux"
@@ -117,6 +123,7 @@ struct OmnibarChromeParityTests {
     /// they are not torn down and rebuilt per keystroke.
     @Test func theCardReusesItsRowsWhileTyping() throws {
         let (bar, window) = bar()
+        defer { window.closeTestWindowAndOverlay() }
         let panel = bar.panel
         let url = URL(string: "https://example.com/")!
         for keystroke in 1...20 {
@@ -232,5 +239,17 @@ struct OmnibarChromeParityTests {
         #expect(item.string(forType: .URL) == url.absoluteString)
         #expect(item.string(forType: .string) == url.absoluteString)
         #expect(item.string(forType: BrowserURLDragItem.urlNameType) == "Example")
+    }
+}
+
+private extension NSWindow {
+    /// A test's teardown for a fixture window: closes it and the overlay panel its
+    /// `WindowOverlayHost` keeps (the suggestion card shows there), which closing the window only
+    /// orders out (`.closesItsWindows`).
+    func closeTestWindowAndOverlay() {
+        let panel = WindowOverlayHost.existingHost(for: self)?.panel
+        isReleasedWhenClosed = false
+        close()
+        panel?.close()
     }
 }

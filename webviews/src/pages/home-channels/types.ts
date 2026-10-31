@@ -3,6 +3,11 @@
 // conversation owner plus the Cloud owners) into these shapes. The page keeps a window of it as
 // view state; it is never a second store. Times are milliseconds since 1970.
 
+/** The owner's parts per message (cmux-conversation and home-core `MAX_PARTS`): a protocol bound on
+ * one message, never on a send. A send with more files goes as several messages
+ * (`messageGroups`), so any number of files attaches. cap-allow: route */
+export const MESSAGE_PARTS = 16;
+
 export const HomeOps = {
   inbox: "cmux.home.inbox",
   page: "cmux.home.page",
@@ -572,10 +577,12 @@ export interface HomeRunChange {
   steps: HomeRunStep[];
 }
 
-/** `cmux.home.runs`: the newest runs of a conversation, or the runs of these reply keys. */
+/** `cmux.home.runs`: runs of these reply keys, or a page of newest runs before `beforeStartedAt`. */
 export interface HomeRunList {
   runs: HomeRun[];
   hasMore: boolean;
+  /** This owner returned every retained run answering the requested message ids. */
+  answersComplete?: boolean;
 }
 
 /** `cmux.home.run`: one run and its steps written after `afterRev`, oldest write first. */

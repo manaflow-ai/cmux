@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { lintGeometry, parseArtifact, parseConfig, type GeometryArtifact, type GeometryConfig, type GeometryRule } from "./geometry";
+import { createHash } from "node:crypto";
+import { lintGeometry, parseArtifact, parseConfig, validateScreenshot, type GeometryArtifact, type GeometryConfig, type GeometryRule } from "./geometry";
+import { PNG } from "pngjs";
 import { main as lintMain } from "./geometry-lint";
 
 const sha = "92c51f49804f48da9f46a86bbebea2bc11cd7f99";
@@ -33,6 +35,72 @@ test("native AX rules reject view frames", async () => {
   const value = artifact(); value.elements = value.elements.map((element) => ({ ...element, kind: "native", source: "view-frame" }));
   const report = await lint(value, [{ id: "native-column", kind: "required-source", group: "icons", tolerancePx: 0, requiredSource: "ax-frame" }]);
   expect(report.passed).toBe(false);
+});
+
+test("native evidence requires a native frame source", () => {
+  const value = artifact();
+  value.elements[0]!.kind = "native";
+  expect(() => parseArtifact(value)).toThrow("native element a");
+  for (const source of ["ax-frame", "view-frame"] as const) {
+    value.elements[0]!.source = source;
+    expect(parseArtifact(value).elements[0]!.source).toBe(source);
+  }
+});
+
+test("evidence enums reject coerced strings before measurement", async () => {
+  const value = artifact();
+  value.capture.coordinateSpace = "screenshot-pixels";
+  value.capture.deviceScaleFactor = 2;
+  value.elements.forEach((element) => { element.style = { borderRadius: 4 }; });
+  const radius: GeometryRule = { id: "radius", kind: "style-token", group: "icons", tolerancePx: 0, property: "borderRadius", tokensPx: [4] };
+  expect((await lint(parseArtifact(value), [radius])).passed).toBe(false);
+  for (const invalid of [["screenshot-pixels"], { toString: () => "screenshot-pixels" }, new String("screenshot-pixels")]) {
+    expect(() => parseArtifact({ ...value, capture: { ...value.capture, coordinateSpace: invalid } })).toThrow("coordinateSpace");
+  }
+  for (const kind of ["native", "web"]) {
+    for (const source of ["dom-rect", "ax-frame", "view-frame"]) {
+      expect(() => parseArtifact({ ...value, elements: [{ ...value.elements[0], kind, source: [source] }] })).toThrow("source");
+    }
+  }
+});
+
+test("accepted debt needs a reason and a non-negative limit", () => {
+  for (const debt of [{ maxDeltaPx: 1, reason: "" }, { maxDeltaPx: 1, reason: "  " }, { maxDeltaPx: -1, reason: "documented" }]) {
+    expect(() => parseConfig({ ...config(), acceptedFindings: { existing: debt } })).toThrow("acceptedFindings");
+  }
+  expect(parseConfig({ ...config(), acceptedFindings: { existing: { maxDeltaPx: 0, reason: "documented" } } }).acceptedFindings?.existing?.maxDeltaPx).toBe(0);
+});
+
+test("font weight evidence is numeric and square geometry is valid", async () => {
+  for (const fontWeight of [[400], new Number(400), "400", NaN, Infinity]) {
+    const value = artifact(); Object.assign(value.elements[0]!, { style: { fontWeight } });
+    expect(() => parseArtifact(value)).toThrow("fontWeight");
+  }
+  const value = artifact();
+  value.elements.forEach((element) => { element.secondary = true; element.style = { fontWeight: 400, color: "#777", borderRadius: 0 }; });
+  const radius: GeometryRule = { id: "square", kind: "style-token", group: "icons", tolerancePx: 0, property: "borderRadius", tokensPx: [0] };
+  const secondary: GeometryRule = { id: "weight", kind: "secondary-text", group: "icons", tolerancePx: 0, colors: ["#777"], weights: [400] };
+  expect((await lintGeometry([{ file: "fixture.json", artifact: parseArtifact(value) }], parseConfig(config([radius, secondary])))).passed).toBe(true);
+  for (const token of [-1, NaN, Infinity]) expect(() => parseConfig(config([{ ...radius, tokensPx: [token] }]))).toThrow("tokensPx");
+});
+
+test("individual rules accept one element but still reject absent evidence", async () => {
+  const value = artifact();
+  value.elements = [{ ...value.elements[0]!, control: true, menuOpen: true, secondary: true, hoverRect: value.elements[0]!.rect, style: { borderRadius: 4, color: "#777", fontWeight: 400 } }];
+  const rules: GeometryRule[] = [
+    { id: "hover", kind: "hover-control-only", group: "icons", tolerancePx: 0, requireMenuOpen: true },
+    { id: "radius", kind: "style-token", group: "icons", tolerancePx: 0, property: "borderRadius", tokensPx: [4] },
+    { id: "secondary", kind: "secondary-text", group: "icons", tolerancePx: 0, colors: ["#777"], weights: [400] },
+    { id: "source", kind: "required-source", group: "icons", tolerancePx: 0, requiredSource: "dom-rect" },
+    { id: "inset", kind: "inset", group: "icons", containerGroup: "container", edge: "left", tolerancePx: 0, tokensPx: [10] },
+  ];
+  value.elements.push({ id: "container", kind: "web", source: "dom-rect", group: "container", rect: { x: 0, y: 0, width: 100, height: 100 } });
+  expect((await lint(value, rules)).passed).toBe(true);
+  expect((await lint(value, rules.map((entry) => ({ ...entry, minCount: 2 })))).findings).toHaveLength(5);
+  const peerRules: GeometryRule[] = [rule(), { id: "size", kind: "peer-size", group: "icons", tolerancePx: 0, dimension: "width" }, { id: "spacing", kind: "spacing", group: "icons", tolerancePx: 0, axis: "y", tokensPx: [4] }, { id: "baseline", kind: "text-baseline", group: "icons", tolerancePx: 0 }];
+  expect((await lint(value, peerRules)).findings.every((entry) => entry.message.includes("expected at least 2"))).toBe(true);
+  value.elements = value.elements.filter((entry) => entry.group !== "icons");
+  expect((await lint(value, rules)).findings).toHaveLength(5);
 });
 
 test("spacing tolerances are per rule and debt never hides missing evidence", async () => {
@@ -85,6 +153,128 @@ test("evidence flags reject non-booleans instead of treating them as truthy", ()
     }
   }
   expect(parseArtifact(artifact()).elements[0]!.control).toBeUndefined();
+});
+
+
+test("rejects captures whose revision differs from the configured baseline", async () => {
+  const value = artifact();
+  value.revision.sha = "abcdef0123456789";
+  const report = await lint(value);
+  expect(report.passed).toBe(false);
+  expect(report.errors).toContain(`fixture.geometry.json: capture revision abcdef0123456789 does not match config revision ${sha}`);
+});
+
+test("revision source must match the config and every artifact", async () => {
+  const wrong = artifact(); wrong.revision.source = "different-fixture";
+  const report = await lint(wrong);
+  expect(report.passed).toBe(false);
+  expect(report.errors).toContain('fixture.geometry.json: capture source "different-fixture" does not match config source "fixture"');
+
+  const baseline = config();
+  wrong.capture.theme = "dark";
+  baseline.required.push({ caseId: "rows", engine: "chromium", theme: "dark" });
+  const inputs = [{ file: "light.geometry.json", artifact: artifact() }, { file: "dark.geometry.json", artifact: wrong }];
+  const mixed = await lintGeometry(inputs, baseline);
+  expect(mixed.passed).toBe(false);
+  expect(mixed.errors).toContain("dark.geometry.json: mixed capture revisions");
+  // Matching each other is insufficient when both captures name the wrong source.
+  inputs[0]!.artifact.revision.source = wrong.revision.source;
+  const uniformlyWrong = await lintGeometry(inputs, baseline);
+  expect(uniformlyWrong.passed).toBe(false);
+  expect(uniformlyWrong.errors.filter((error) => error.includes("does not match config source"))).toHaveLength(2);
+  for (const { artifact: value } of inputs) value.revision.source = baseline.revision.source;
+  expect((await lintGeometry(inputs, baseline)).passed).toBe(true);
+});
+
+test("a required capture may declare its own gallery source", async () => {
+  const baseline = config();
+  baseline.required.push({ caseId: "status", engine: "chromium", theme: "light", source: "status-fixture" });
+  const status = artifact(); status.capture.caseId = "status"; status.revision.source = "status-fixture";
+  const inputs = [{ file: "rows.geometry.json", artifact: artifact() }, { file: "status.geometry.json", artifact: status }];
+  expect(await lintGeometry(inputs, baseline)).toMatchObject({ passed: true, errors: [] });
+  // The override binds only its own capture: the global source no longer satisfies it, nor does it leak to others.
+  status.revision.source = "fixture";
+  expect((await lintGeometry(inputs, baseline)).errors).toContain('status.geometry.json: capture source "fixture" does not match config source "status-fixture"');
+  status.revision.source = "status-fixture"; inputs[0]!.artifact.revision.source = "status-fixture";
+  expect((await lintGeometry(inputs, baseline)).errors).toContain('rows.geometry.json: capture source "status-fixture" does not match config source "fixture"');
+  expect(() => parseConfig({ ...baseline, required: [{ caseId: "rows", engine: "chromium", theme: "light", source: "" }] })).toThrow("required capture tuples");
+});
+
+test("finding IDs preserve element boundaries", async () => {
+  const first = artifact();
+  first.elements[0]!.id = "a,b";
+  first.elements[1]!.id = "c";
+  first.elements[1]!.rect.x = 20;
+  const second = artifact();
+  second.elements[0]!.id = "a";
+  second.elements[1]!.id = "b,c";
+  second.elements[1]!.rect.x = 20;
+  const firstReport = await lint(first);
+  const secondReport = await lint(second);
+  expect(firstReport.findings).toHaveLength(1);
+  expect(secondReport.findings).toHaveLength(1);
+  expect(firstReport.findings[0]!.id).not.toBe(secondReport.findings[0]!.id);
+  const baseline = config();
+  baseline.acceptedFindings = { [firstReport.findings[0]!.id]: { maxDeltaPx: 10, reason: "only the first pair" } };
+  expect((await lintGeometry([{ file: "first.geometry.json", artifact: first }], baseline)).passed).toBe(true);
+  expect((await lintGeometry([{ file: "second.geometry.json", artifact: second }], baseline)).passed).toBe(false);
+  const otherTuple = structuredClone(first);
+  first.capture.caseId = "rows:extra";
+  otherTuple.capture.engine = "extra:chromium";
+  expect((await lint(first)).findings[0]!.id).not.toBe((await lint(otherTuple)).findings[0]!.id);
+});
+
+
+test("capture tuples preserve colons for duplicate detection and crop lookup", async () => {
+  const dir = mkdtempSync(join(process.cwd(), "geometry-capture-keys-"));
+  try {
+    const first = artifact(); first.capture.caseId = "rows:extra";
+    const second = artifact(); second.capture.engine = "extra:chromium";
+    const baseline = config(); baseline.required = [first.capture, second.capture];
+    const inputs = [first, second].map((value, index) => {
+      const png = new PNG({ width: 100, height: 100 });
+      png.data.fill(index === 0 ? 17 : 231);
+      const screenshot = join(dir, `${index}.png`);
+      writeFileSync(screenshot, PNG.sync.write(png));
+      value.capture.screenshot = screenshot;
+      return { file: join(dir, `${index}.geometry.json`), artifact: value };
+    });
+    expect((await lintGeometry(inputs, baseline)).passed).toBe(true);
+    const duplicate = await lintGeometry([...inputs, inputs[0]!], baseline);
+    expect(duplicate.errors).toHaveLength(1);
+    expect(duplicate.errors[0]).toContain('duplicate capture ["rows:extra","chromium","light"]');
+
+    second.elements[1]!.rect.x += 2;
+    const report = await lintGeometry(inputs, baseline, dir);
+    expect(report.errors).toEqual([]);
+    expect(report.findings).toHaveLength(1);
+    const crop = PNG.sync.read(readFileSync(join(dir, report.findings[0]!.crop!)));
+    expect(crop.data[0]).toBe(231);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("full-page screenshots may exceed viewport height", async () => {
+  const dir = mkdtempSync(join(process.cwd(), "geometry-screenshot-"));
+  try {
+    const screenshot = join(dir, "full-page.png");
+    const png = new PNG({ width: 100, height: 180 });
+    writeFileSync(screenshot, PNG.sync.write(png));
+    const value = artifact();
+    value.capture.screenshot = screenshot;
+    value.capture.screenshotSha256 = createHash("sha256").update(readFileSync(screenshot)).digest("hex");
+    expect(await validateScreenshot("fixture.geometry.json", value)).toEqual([]);
+    const narrow = new PNG({ width: 99, height: 180 });
+    writeFileSync(screenshot, PNG.sync.write(narrow));
+    value.capture.screenshotSha256 = createHash("sha256").update(readFileSync(screenshot)).digest("hex");
+    expect((await validateScreenshot("fixture.geometry.json", value))[0]).toContain("do not cover viewport");
+    writeFileSync(screenshot, PNG.sync.write(new PNG({ width: 100, height: 99 })));
+    value.capture.screenshotSha256 = createHash("sha256").update(readFileSync(screenshot)).digest("hex");
+    expect((await validateScreenshot("fixture.geometry.json", value))[0]).toContain("do not cover viewport");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("CLI writes a failing report when screenshot evidence is missing", async () => {

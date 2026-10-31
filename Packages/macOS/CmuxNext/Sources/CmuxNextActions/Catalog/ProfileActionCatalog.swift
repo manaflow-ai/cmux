@@ -20,6 +20,25 @@ nonisolated enum ProfileActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .menu, .contextMenu], arguments: [CatalogArgument.roomRoom.suppliedByTarget], targets: [.profile],
                 cliName: "space new-window", mainMenu: .file
             ),
+            // Incognito space (spaces-overhaul-DESIGN.md rule 2): a new space shown in a new incognito window; it keeps
+            // nothing (off-the-record pages, no restore) and is deleted when that window closes or the app quits.
+            ActionDescriptor(
+                id: "space.newIncognito",
+                title: String(localized: "action.space.newIncognito", defaultValue: "New Incognito Space", table: "ProfileActions", bundle: .module),
+                keywords: ["room", "profile", "space", "incognito", "private", "off the record"], category: .workspace, symbol: "eyeglasses",
+                surfaces: [.palette, .keyboard, .menu, .contextMenu], arguments: [CatalogArgument.nameString.optional],
+                cliName: "space new-incognito", mainMenu: .window
+            ),
+            // Open Space in New Window (spaces-overhaul-DESIGN.md rule 4): a new window shows the space and the
+            // window it came from keeps it. The space's right-click menu, a dot dragged out of the switcher,
+            // the palette, the CLI and MCP run it.
+            ActionDescriptor(
+                id: "space.openInNewWindow",
+                title: String(localized: "action.space.openInNewWindow", defaultValue: "Open Space in New Window", table: "ProfileActions", bundle: .module),
+                keywords: ["room", "profile", "space", "window", "open", "detach"], category: .workspace, symbol: "macwindow.on.rectangle",
+                surfaces: [.palette, .keyboard, .contextMenu], arguments: [CatalogArgument.roomRoom.suppliedByTarget], targets: [.profile],
+                cliName: "space open-in-new-window"
+            ),
             ActionDescriptor(
                 id: "space.newWorkspace",
                 title: String(localized: "action.space.newWorkspace", defaultValue: "New Workspace in Space…", table: "ProfileActions", bundle: .module),
@@ -154,6 +173,18 @@ nonisolated enum ProfileActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .contextMenu], targets: [.profile], cliName: "space move-right"
             ),
             ActionDescriptor(
+                id: "space.moveToStart",
+                title: String(localized: "action.space.moveToStart", defaultValue: "Move Space to Start", table: "ProfileActions", bundle: .module),
+                keywords: ["room", "profile", "reorder", "first", "start", "beginning", "left"], category: .workspace, symbol: "arrow.left.to.line",
+                surfaces: [.palette], targets: [.profile], cliName: "space move-to-start"
+            ),
+            ActionDescriptor(
+                id: "space.moveToEnd",
+                title: String(localized: "action.space.moveToEnd", defaultValue: "Move Space to End", table: "ProfileActions", bundle: .module),
+                keywords: ["room", "profile", "reorder", "last", "end", "right"], category: .workspace, symbol: "arrow.right.to.line",
+                surfaces: [.palette], targets: [.profile], cliName: "space move-to-end"
+            ),
+            ActionDescriptor(
                 id: "space.move",
                 title: String(localized: "action.space.move", defaultValue: "Move Space to Position…", table: "ProfileActions", bundle: .module),
                 keywords: ["room", "profile", "reorder"], category: .workspace, symbol: "arrow.left.arrow.right",
@@ -162,14 +193,16 @@ nonisolated enum ProfileActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "space.next",
                 title: String(localized: "action.space.next", defaultValue: "Next Space", table: "ProfileActions", bundle: .module),
-                keywords: ["room", "profile", "space", "switch"], defaultShortcut: Shortcut("]", modifiers: [.option, .command]),
+                keywords: ["room", "profile", "space", "switch"],
+                defaultShortcut: Shortcut(Shortcut.rightArrowKey, modifiers: [.control, .option, .command]),
                 category: .workspace, symbol: "chevron.right.circle", surfaces: [.palette, .keyboard, .menu], cliName: "space next",
                 mainMenu: .window
             ),
             ActionDescriptor(
                 id: "space.previous",
                 title: String(localized: "action.space.previous", defaultValue: "Previous Space", table: "ProfileActions", bundle: .module),
-                keywords: ["room", "profile", "space", "switch"], defaultShortcut: Shortcut("[", modifiers: [.option, .command]),
+                keywords: ["room", "profile", "space", "switch"],
+                defaultShortcut: Shortcut(Shortcut.leftArrowKey, modifiers: [.control, .option, .command]),
                 category: .workspace, symbol: "chevron.left.circle", surfaces: [.palette, .keyboard, .menu], cliName: "space previous",
                 mainMenu: .window
             ),
@@ -177,7 +210,7 @@ nonisolated enum ProfileActionCatalog: ActionCatalogGroup {
                 id: "space.selectByNumber",
                 title: String(localized: "action.space.selectByNumber", defaultValue: "Select Space 1…9", table: "ProfileActions", bundle: .module),
                 keywords: ["room", "profile", "space", "switch", "index"], defaultShortcut: Shortcut("1", modifiers: [.control, .option]),
-                shortcutFamily: .digits, category: .workspace, symbol: "number.circle", surfaces: [.keyboard, .menu],
+                shortcutFamily: .digits, category: .workspace, symbol: "number.circle", surfaces: [.palette, .keyboard, .menu],
                 arguments: [CatalogArgument.indexNumber], cliName: "space select-1-9", mainMenu: .window
             ),
             ActionDescriptor(

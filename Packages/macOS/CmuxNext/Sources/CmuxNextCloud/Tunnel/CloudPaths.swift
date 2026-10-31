@@ -19,9 +19,11 @@ public struct CloudPaths: Sendable {
             .appendingPathComponent("cloud-next", isDirectory: true))
     }
 
-    var privateKey: URL { root.appendingPathComponent("wireguard.private.key") }
+    /// Where builds before the per-launch key kept this Mac's WireGuard private key.
+    var legacyPrivateKey: URL { root.appendingPathComponent("wireguard.private.key") }
     var deviceIDFile: URL { root.appendingPathComponent("device-id") }
-    var wireGuardConfig: URL { root.appendingPathComponent("wireguard.conf") }
+    /// Where builds before the stdin config wrote the hub's config (with the private key).
+    var legacyWireGuardConfig: URL { root.appendingPathComponent("wireguard.conf") }
     var linkState: URL { root.appendingPathComponent("link-state", isDirectory: true) }
 
     /// Unix socket paths are limited to 104 bytes; the hub socket lives in
@@ -82,6 +84,9 @@ public struct CloudPaths: Sendable {
         for directory in [root, linkState] {
             try FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         }
+        // The WireGuard key now lives only in memory and the hub's config travels on stdin; an
+        // earlier build's files of them go, so no other program can start a tunnel on this Mac's key.
+        for legacy in [legacyWireGuardConfig, legacyPrivateKey] { try? FileManager.checked.removeItem(at: legacy) }
     }
 
     /// Writes `text` atomically with mode 0600.
@@ -91,19 +96,6 @@ public struct CloudPaths: Sendable {
         guard rename(temporary.path, url.path) == 0 else {
             throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: url.path])
         }
-    }
-
-    /// The installation's WireGuard key (Curve25519, base64 raw bytes),
-    /// created once.
-    func loadOrCreateKey() throws -> Curve25519.KeyAgreement.PrivateKey {
-        if let text = try? String(contentsOf: privateKey, encoding: .utf8),
-           let data = Data(base64Encoded: text.trimmingCharacters(in: .whitespacesAndNewlines)),
-           let key = try? Curve25519.KeyAgreement.PrivateKey(rawRepresentation: data) {
-            return key
-        }
-        let key = Curve25519.KeyAgreement.PrivateKey()
-        try writeSecret(key.rawRepresentation.base64EncodedString(), to: privateKey)
-        return key
     }
 
     /// `mac-<uuid>`, created once per installation. Blocking disk I/O: call it off the main thread.

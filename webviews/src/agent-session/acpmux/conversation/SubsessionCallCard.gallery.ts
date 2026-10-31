@@ -26,6 +26,8 @@ const viaCmux = (name: string, args: unknown, result?: unknown, status = "comple
   });
 
 /// A recorded `start_session` request: a lane's brief, Markdown with quotes and blank lines.
+const IOS_BRIEF =
+  "You are ios-remote, the area owner for cmux's iOS app and the remote/mobile client (the cmux-remote code, including its Iroh transport), in example/cmux on its main branch. Report to the coordinator. Builds and tests go to the fleet.";
 const BRIEF = [
   "You are **net-retries**, a Claude Opus lane started by the coordinator. Use subagents if useful.",
   "",
@@ -122,10 +124,25 @@ const CHILDREN: AcpmuxSessionEntry[] = [
   }),
 ];
 
+/// A fresh session whose only line is its prompt's opening words, cut (acpmux names it from the
+/// prompt): only the prompt-not-twice state lists it.
+const IOS_CHILD = child("sub-ios", "ios-remote", {
+  harness: "claude",
+  lane: "working",
+  indicator: "working",
+  status: "running",
+  doing:
+    "You are ios-remote, the area owner for cmux's iOS app and the remote/mobile client (the cmux-remote code, includi\u2026",
+});
+
 /// The gallery's chat, with its sub-sessions in the session list.
-const withChildren = (rows: Parameters<typeof chat>[0], fields: Parameters<typeof chat>[1] = {}) => {
+const withChildren = (
+  rows: Parameters<typeof chat>[0],
+  fields: Parameters<typeof chat>[1] = {},
+  extra: readonly AcpmuxSessionEntry[] = [],
+) => {
   const snapshot = chat(rows, { title: "Split the net audit into lanes", ...fields });
-  return { ...snapshot, sessions: [...snapshot.sessions, ...CHILDREN] };
+  return { ...snapshot, sessions: [...snapshot.sessions, ...CHILDREN, ...extra] };
 };
 
 const prompt = "Split the net audit into lanes: tests, docs, deps, bench and lint.";
@@ -138,7 +155,7 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/conversation/SubsessionCallCard.tsx"],
   variants: {
     recorded: {
-      note: "A recorded start_session through the cmux server (mcp__cmux__subsessions_start_session): the sub-session's card with its harness, model, live state (the working spinner) and what it does now, Open chat, and its prompt as Markdown cut to three lines with Show prompt. The call's JSON is behind Raw.",
+      note: "Variant A (selected): a Claude-Code-style one-line disclosure with a working spinner, muted model and Open chat on hover. Expanding opens the full prompt as Markdown; Raw stays at the panel end.",
       snapshot: withChildren(
         [
           user("Start a lane for the retry banner.", 3),
@@ -155,6 +172,26 @@ export default agentPaneEntry({
           assistant("Started net-retries.", 2.5),
         ],
         { isWorking: true },
+      ),
+    },
+    "prompt-not-twice": {
+      note: 'A sub-session started a moment ago: its only line is its prompt\'s opening words, which the prompt preview right under it starts with. The card shows those words once, as the prompt (Leo 2026-10-29: "this doubling up is kinda weird? first line then whatever goes next").',
+      snapshot: withChildren(
+        [
+          user("Find the iOS/remote area owner lane.", 3),
+          activity(
+            [
+              viaCmux(
+                "start_session",
+                { name: "ios-remote", harness: "claude", model: "opus", cwd: "/tmp/lanes", prompt: IOS_BRIEF },
+                startedResult("sub-ios", "ios-remote", "claude"),
+              ),
+            ],
+            2.8,
+          ),
+        ],
+        { isWorking: true },
+        [IOS_CHILD],
       ),
     },
     "recorded-wait": {
@@ -198,7 +235,7 @@ export default agentPaneEntry({
       ),
     },
     started: {
-      note: "Five sub-sessions started, each with its state now: tests working (what it does under it, 2 queued), docs waiting on a question (its prompt after), deps waiting for permission, bench failed, lint done. A name opens that chat beside this one.",
+      note: "Variant B: five adjacent starts use the same one-line disclosure family, keeping Working, Waiting on you, Failed and Done visible without prompt text. A single start opens its chat on hover.",
       snapshot: withChildren(
         [
           user(prompt, 6),
@@ -218,7 +255,7 @@ export default agentPaneEntry({
       ),
     },
     avatars: {
-      note: "Sub-sessions whose person uploaded an avatar (the chat menu's Set Avatar…): each card draws it in place of the harness mark (a synthetic picture).",
+      note: "Variant C: grouped starts keep the family row compact while each child disclosure retains its uploaded avatar. This is the selected grouped treatment for three adjacent sessions.",
       snapshot: withChildren(
         [
           user(prompt, 6),
@@ -229,8 +266,12 @@ export default agentPaneEntry({
       ),
       native: { "agent.avatar": { src: UPLOADED_AVATAR } },
       play: async (ctx) => {
+        await ctx.click({ selector: ".cv-disclosure__toggle" });
         avatarsChanged(ctx.document, ["sub-tests", "sub-docs", "sub-lint"]);
-        await ctx.waitFor(() => ctx.document.querySelectorAll("img.cv-agent-avatar").length >= 3);
+        await ctx.waitFor(() => {
+          const avatars = ctx.document.querySelectorAll<HTMLImageElement>(".cv-disclosure__panel img.cv-agent-avatar");
+          return avatars.length === 3 && [...avatars].every((avatar) => avatar.complete && avatar.naturalWidth > 0);
+        });
       },
     },
     messages: {

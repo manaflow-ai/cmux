@@ -285,8 +285,13 @@ test("off by default; on, but not with Full Width or a column too wide for the r
     await pane.render("Done.");
     await act(async () => flushFrames());
     expect(pane.host.querySelector(".acpmux-chat-minimap")).toBeNull();
-    // The thread rail at the left is there either way.
-    expect(pane.host.querySelectorAll("[data-tick]").length).toBe(PROMPTS);
+    // The thread rail stays available independently, with a window of the full prompt list.
+    const ticks = pane.host.querySelectorAll("[data-tick]");
+    expect(ticks.length).toBeGreaterThan(0);
+    expect(ticks.length).toBeLessThan(PROMPTS);
+    const entries = pane.host.querySelectorAll(".acpmux-minimap__list [aria-setsize]");
+    expect(entries.length).toBe(ticks.length);
+    for (const entry of entries) expect(entry.getAttribute("aria-setsize")).toBe(String(PROMPTS));
     await act(async () => setChatDisplay({ "agentPane.display.vscodeMinimap": true }));
     await pane.render("Done.");
     await act(async () => flushFrames());
@@ -360,6 +365,47 @@ test("the scrollbar's value is the share scrolled of the real range, focused or 
     expect(value()).toBe("0");
     await key("ArrowDown");
     expect(value()).toBe(String(Math.round((100 * 40) / (page.height - VIEWPORT))));
+  } finally {
+    await pane.done();
+    setChatDisplay({});
+  }
+});
+
+test("absolute minimap keys clear a fractional origin while relative keys keep it", async () => {
+  setChatDisplay({ "agentPane.display.vscodeMinimap": true });
+  const pane = await mount();
+  const { layoutScrollTop, scrollOrigin, writeAnchorScrollTop } =
+    await import("../src/agent-session/acpmux/conversation/scrollCoordinates");
+  try {
+    await pane.render("Done.");
+    await act(async () => flushFrames());
+    const node = pane.scroller();
+    const page = content(node, 1000);
+    let physical = 200;
+    Object.defineProperty(node, "scrollTop", {
+      configurable: true,
+      get: () => Math.min(physical, page.height - VIEWPORT),
+      set: (value: number) => {
+        physical = Math.round(value);
+      },
+    });
+    const control = pane.host.querySelector<HTMLElement>(".acpmux-chat-minimap [role=scrollbar]")!;
+    const key = (name: string) =>
+      act(async () => {
+        control.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true }));
+      });
+    writeAnchorScrollTop(node, 200.25);
+    expect(scrollOrigin(node)).toBe(-0.25);
+    await key("ArrowDown");
+    expect(layoutScrollTop(node)).toBe(240.25);
+    expect(scrollOrigin(node)).toBe(-0.25);
+    await key("Home");
+    expect(layoutScrollTop(node)).toBe(0);
+    expect(scrollOrigin(node)).toBe(0);
+    writeAnchorScrollTop(node, 200.25);
+    await key("End");
+    expect(layoutScrollTop(node)).toBe(page.height - VIEWPORT);
+    expect(scrollOrigin(node)).toBe(0);
   } finally {
     await pane.done();
     setChatDisplay({});

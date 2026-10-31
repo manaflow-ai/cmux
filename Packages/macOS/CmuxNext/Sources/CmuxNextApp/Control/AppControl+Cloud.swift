@@ -32,8 +32,15 @@ extension AppControl {
                                        "creations": .array(services.cloud.creations.controlRows),
                                        "last_error": services.cloud.lastError.map(JSONValue.string) ?? .null]))
             },
+            // `cmux automation --target cloud`: one Cloud automation op as the signed-in user (CloudAutomationRelay).
+            .async("cloud.automation") { [relay = CloudAutomationRelay.signedIn(services.cloud.auth), registry = services.registry] call in
+                if let refusal = await MainActor.run(body: { Self.policyRefusal("cloud.automation", disabled: registry.disabledFeatures) }) { throw refusal }
+                let reply = await relay.forward(try JSONSerialization.data(withJSONObject: JSONValue.object(call.params).foundationObject))
+                return JSONValue(foundation: try JSONSerialization.jsonObject(with: reply)) ?? .null
+            }.withDeadline(.fixed(.seconds(30))),
         ])
         registerRunMethods(services)
+        registerVMAgentKeyMethods(services)
         // Tagged DEV builds only (debug.* methods; a release build registers
         // none, and ControlRouter drops them too).
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -133,6 +140,8 @@ extension AppControl {
             }.withDeadline(.fixed(.seconds(25))),
             ControlMethod.async("runs.cancel") { call in
                 let id = try Self.runID(call.params)
+                // The person's own cancel: the Run's end tells nothing (SandboxRunNotices).
+                await MainActor.run { services.agentTabs.pageChats.runNotices?.follower.noteCancel(id) }
                 let api = try await Self.runsAPI(services, newRun: false)
                 return try await Self.runJSON { try await api.cancelRun(id) }
             }.withDeadline(.fixed(.seconds(65))),
@@ -198,6 +207,8 @@ extension AppControl {
         case .noBackend: return ControlError(code: "no_backend", message: error.description)
         case .transport: return ControlError(code: "unavailable", message: error.description)
         case .decoding: return ControlError(code: "bad_response", message: error.description)
+        // A refusal a paid plan lifts: the CLI tells the person which plan, nothing ran.
+        case let .planRequired(_, _, plan): return ControlError(code: "plan_required", message: CloudStrings.apiErrorText(error), data: .object(["plan": .string(plan)]))
         }
     }
 }

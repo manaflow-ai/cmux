@@ -41,7 +41,7 @@ for (const key of Object.getOwnPropertyNames(dom.window))
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
 
-const { act, useState } = await import("react");
+const { Activity, act, useState } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { AttachmentStrip } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
 const { linkAttachment } = await import("../src/agent-session/acpmux/attachments");
@@ -215,6 +215,67 @@ try {
     // Its late answer adds nothing anywhere.
     await act(async () => calls[0]!.answer(INFO));
     expect(busy).toBe(false);
+  });
+
+  test("an Activity hide retries an interrupted read, ignores its stale answer, and keeps settled metadata", async () => {
+    calls = [];
+    await act(async () => {
+      root.render(
+        <Activity mode="visible">
+          <Harness initial={[video()]} local />
+        </Activity>,
+      );
+    });
+    const first = calls[0]!;
+    expect(first.method).toBe("video.info");
+
+    await act(async () => {
+      root.render(
+        <Activity mode="hidden">
+          <Harness initial={[video()]} local />
+        </Activity>,
+      );
+    });
+    // The interrupted chip remains pending for submission, even before its effect reconnects.
+    expect(state?.reading).toBe(1);
+    expect(calls.filter((call) => call.method === "video.info")).toHaveLength(1);
+
+    await act(async () => {
+      root.render(
+        <Activity mode="visible">
+          <Harness initial={[video()]} local />
+        </Activity>,
+      );
+    });
+    const reads = calls.filter((call) => call.method === "video.info");
+    expect(reads).toHaveLength(2);
+    expect(state?.reading).toBe(1);
+
+    // The hidden Activity's response must not settle or annotate the replacement read.
+    await act(async () => first.answer(INFO));
+    expect(state?.attachments[0]?.video).toBeUndefined();
+    expect(state?.reading).toBe(1);
+    await act(async () => reads[1]!.answer(INFO));
+    expect(state?.attachments[0]?.video).toEqual(INFO);
+    expect(state?.reading).toBe(0);
+
+    // A settled chip is still marked complete across another hide/reveal and is not re-read.
+    await act(async () => {
+      root.render(
+        <Activity mode="hidden">
+          <Harness initial={[state!.attachments[0]!]} local />
+        </Activity>,
+      );
+    });
+    await act(async () => {
+      root.render(
+        <Activity mode="visible">
+          <Harness initial={[state!.attachments[0]!]} local />
+        </Activity>,
+      );
+    });
+    expect(calls.filter((call) => call.method === "video.info")).toHaveLength(2);
+    expect(state?.attachments[0]?.video).toEqual(INFO);
   });
 
   test("other files are not read", async () => {

@@ -33,5 +33,12 @@ sizes and row-frame sequences. Production conversion rejects missing mapping.
 
 Coverage gaps remain explicit: this export is view-frame evidence, not AX or ink;
 it does not record theme identity, so it cannot establish light/dark coverage.
-The adapter regressions run in gallery CI. Producing fresh native captures remains
-the native gallery runner's responsibility; this adapter does not schedule builds.
+Producing fresh native captures remains the native gallery runner's
+responsibility; this adapter does not schedule builds. Like the rest of the
+geometry audit, the adapter regressions are lane-run rather than a CI gate; run
+them through the fleet from the repository root:
+
+```sh
+cmux-ci test --setup webviews --timeout 600 -- bash -c \
+  'cd scripts/gallery-matrix && bun install --frozen-lockfile && bun test geometry-sidebar.test.ts'
+```

@@ -37,8 +37,10 @@ function installDom(): HTMLElement {
     getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
     IS_REACT_ACT_ENVIRONMENT: true,
   });
+  // The card's labels are pane strings (its row labels too): keep the preloaded English table.
+  const preloaded = saved.get("__cmuxPaneStrings") as Record<string, Record<string, string>> | undefined;
   globalThis.__cmuxPaneStrings = {
-    en: { "turn.copy": "Copy", "turn.copied": "Copied", "status.copyAll": "Copy all" },
+    en: { ...preloaded?.en, "turn.copy": "Copy", "turn.copied": "Copied", "status.copyAll": "Copy all" },
   };
   return dom.window.document.getElementById("root")!;
 }
@@ -245,7 +247,8 @@ test("the focused real minimap preview takes Escape before status", async () => 
           <PreviewCard
             id="preview"
             x={0}
-            y={0}
+            center={0}
+            viewportHeight={600}
             prompt="Test prompt"
             reply={[]}
             bookmark={{ marked: false, toggle: () => {} }}

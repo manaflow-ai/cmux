@@ -13,7 +13,7 @@ struct AgentPaneSessionInfoTests {
 
     @Test(.timeLimit(.minutes(1))) func paletteSessionInfoReachesItsOwnPageCommand() async throws {
         let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: "session-a"), source: .bundled(file), pageHost: true))
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: "session-a"), source: .bundled(file), pageHost: true, testRoot: true))
         // Subscribing queues the replay and flushes it in a task, so a command published right
         // after arrives later: read the stream until it shows up (or the time limit cancels).
         let (events, sink) = AsyncStream.makeStream(of: JSONValue.self)

@@ -41,6 +41,8 @@ export function checkContainerRule(value: unknown, artifact: GeometryArtifact): 
       continue;
     }
     if (rule.kind === "exclusive-parts") {
+      const minimum = rule.minCount ?? 1;
+      if (peers.length < minimum) { findings.push({ ids: [container.id, ...peers.map((element) => element.id)], message: `missing peers in container: expected ${minimum}, got ${peers.length}` }); continue; }
       const unknown = peers.filter((element) => !element.part || !rule.parts.includes(element.part));
       for (const element of unknown) findings.push({ ids: [container.id, element.id], message: "missing or unknown visible part" });
       const visibleParts = new Set(peers.map((element) => element.part).filter((part) => rule.parts.includes(part ?? "")));

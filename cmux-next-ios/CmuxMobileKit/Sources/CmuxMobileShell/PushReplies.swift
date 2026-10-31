@@ -60,11 +60,9 @@ public final class PushReplies {
     @ObservationIgnored private weak var live: LiveCoordinator?
     /// Foreground replies waiting for the app to be active, unlocked and live.
     private(set) var waiting: [PushReply] = []
-    /// Background deliveries in flight on the headless coordinator (one at a
-    /// time, review #8): it stops when the last one ends.
-    private(set) var headlessRunning = false
-    @ObservationIgnored private var headlessCount = 0
-    @ObservationIgnored private var headlessCoordinator: LiveCoordinator?
+    /// The headless coordinator stays alive until the last background delivery ends.
+    var headlessRunning: Bool { headlessSession.running }
+    @ObservationIgnored private let headlessSession = HeadlessPushSession<LiveCoordinator>()
     @ObservationIgnored private var draining = false
     /// The first drain after a cold attach waits as long as a cold launch does (review #7).
     @ObservationIgnored private var coldAttach = true
@@ -98,7 +96,7 @@ public final class PushReplies {
 
     /// Settings → Require Face ID changed (AppLock): the buttons follow it.
     func setRequireFaceID(_ on: Bool) {
-        // Called from every RootView body pass (AppLockController.init): an unchanged value writes nothing.
+        // AppLock calls this on appear and on every change: an unchanged value writes nothing.
         let writes = faceIDSync.set(on)
         if writes.local { PushActions.setRequireFaceID(on, defaults: .standard) }
         if writes.shared {
@@ -142,6 +140,8 @@ public final class PushReplies {
         /// False: the push may open the app but no button acts (an unsealed push
         /// from a Mac that seals, or a stale one; PR B security review H1).
         public var actionable: Bool
+        /// Photos and files the long look's "+" staged for Reply (outbox file names).
+        public var attachments: [String] = []
 
         public init(actionIdentifier: String, text: String?, payload: PushPayload?, retry: PushReply?, actionable: Bool = true) {
             self.actionIdentifier = actionIdentifier
@@ -191,10 +191,16 @@ public final class PushReplies {
         guard let button = PushAction(identifier: identifier) else { return .nothing }
         if button == .answer { return .open(payload) }
         let opensApp = PushActions(requireFaceID: requireFaceID).opensApp(button)
-        guard let reply = PushReply(payload: payload, button: button, text: response.text) else {
+        guard let reply = PushReply(payload: payload, button: button, text: response.text, attachments: response.attachments) else {
             return opensApp ? .open(payload) : .nothing
         }
         return opensApp ? .foreground(reply, open: payload) : .background(reply)
+    }
+
+    /// What the long look staged for the notification `requestID`'s Reply (off the main thread).
+    static func stagedAttachments(for requestID: String) async -> [String] {
+        guard let outbox = PushOutbox(group: await PushAppGroup.resolved()) else { return [] }
+        return await Task.detached(priority: .userInitiated) { outbox.takeStaged(for: requestID) }.value
     }
 
     /// One notification response (the app delegate). Returns once a
@@ -210,6 +216,9 @@ public final class PushReplies {
             if let payload { NotificationRouter.shared.open(payload) } else { NotificationRouter.shared.open(reply: reply) }
             enqueueForeground(reply)
         case .background(let reply):
+            if case .text(_, let names) = reply.action {
+                log.info("push reply: \(reply.kind.rawValue, privacy: .public) text reply with \(names.count, privacy: .public) attachment(s)")
+            }
             await deliverInBackground(reply)
         }
     }
@@ -278,22 +287,13 @@ public final class PushReplies {
             return
         }
         // One headless coordinator for every reply of a cold launch (the hub keeps one socket per device).
-        headlessCount += 1
-        headlessRunning = true
-        defer {
-            headlessCount -= 1
-            if headlessCount == 0 {
-                headlessCoordinator?.stop()
-                headlessCoordinator = nil
-                headlessRunning = false
+        await headlessSession.withCoordinator(create: { await self.headless() }, stop: { $0.stop() }) { coordinator in
+            guard let coordinator else {
+                await self.postCouldNotReach(reply, reason: String(localized: "Open cmux to sign in."))
+                return
             }
+            await self.send(reply, on: coordinator, budget: Self.coldBudget)
         }
-        if headlessCoordinator == nil { headlessCoordinator = await headless() }
-        guard let coordinator = headlessCoordinator else {
-            await postCouldNotReach(reply, reason: String(localized: "Open cmux to sign in."))
-            return
-        }
-        await send(reply, on: coordinator, budget: Self.coldBudget)
     }
 
     /// A coordinator for a cold background launch: the account restored from

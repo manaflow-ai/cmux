@@ -37,6 +37,13 @@ pub(crate) enum EffectSend {
 pub(crate) struct PendingRegistryReceipt(Receiver<Result<RegistryReceipt, String>>);
 
 impl PendingRegistryReceipt {
+    /// A receipt the test answers itself through the returned sender.
+    #[cfg(test)]
+    pub(crate) fn for_test() -> (std::sync::mpsc::Sender<Result<RegistryReceipt, String>>, Self) {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        (sender, Self(receiver))
+    }
+
     /// The receipt once the writer answered, `None` while it has not. A
     /// writer that dropped the channel without an answer reports an error.
     pub(crate) fn try_take(&self) -> Option<Result<RegistryReceipt, String>> {

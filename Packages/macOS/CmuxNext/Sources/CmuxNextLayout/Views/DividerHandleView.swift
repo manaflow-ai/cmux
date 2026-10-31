@@ -13,10 +13,15 @@ final class DividerHandleView: NSView {
         case rowEdge(ColumnID, RowID)
     }
 
+    /// Every pointer event carries the modifier keys held (resize-modifiers.md).
     enum DragEvent {
-        case began(NSPoint)
-        case moved(NSPoint)
-        case ended(NSPoint)
+        case began(NSPoint, NSEvent.ModifierFlags)
+        case moved(NSPoint, NSEvent.ModifierFlags)
+        case ended(NSPoint, NSEvent.ModifierFlags)
+        /// A modifier key went down or up mid-drag, with no pointer move.
+        case modifiersChanged(NSEvent.ModifierFlags)
+        /// Escape mid-drag: the drag goes back to where it began; the release that follows is ignored.
+        case cancelled
         case doubleClick
     }
 
@@ -46,9 +51,14 @@ final class DividerHandleView: NSView {
     var onPointerChange: (() -> Void)?
 
     private let line = CALayer()
+    /// The accent band over the line while hovered or dragged (`DividerGlowBand`).
+    let glow = DividerGlowBand()
     private(set) var isHovered = false { didSet { if isHovered != oldValue { applyColors() } } }
     private var isDragging = false { didSet { applyColors() } }
     private var trackingArea: NSTrackingArea?
+    /// Escape and modifier keys while a drag runs: this handle is never first responder, so it
+    /// would hear neither. Installed on the press, removed when the drag ends.
+    private var keyMonitor: Any?
 
     init(kind: Kind, axis: SplitAxis) {
         self.kind = kind
@@ -56,6 +66,7 @@ final class DividerHandleView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.addSublayer(line)
+        layer?.addSublayer(glow.layer)
         setAccessibilityElement(true)
         setAccessibilityRole(.splitter)
         switch kind {
@@ -96,6 +107,7 @@ final class DividerHandleView: NSView {
         CATransaction.setDisableActions(true)
         line.frame = lineFrame
         CATransaction.commit()
+        glow.place(along: lineFrame, vertical: axis == .horizontal)
     }
 
     /// A column edge sits in a gap and draws only while hovered or dragged.
@@ -155,7 +167,8 @@ final class DividerHandleView: NSView {
     /// must show above Chromium pages (an occlusion hole), unlike the rest
     /// of the hit area.
     var lineFrameInSuperview: CGRect {
-        convert(lineFrame, to: superview)
+        // A lit band reaches past the line: the page must leave its halo uncovered too.
+        convert(glow.isLit ? lineFrame.union(glow.extent) : lineFrame, to: superview)
     }
 
     private var lineFrame: CGRect {
@@ -173,6 +186,7 @@ final class DividerHandleView: NSView {
     /// a transparent line at rest and only draw while hovered or dragged; the
     /// overlay must not reserve a Chromium occlusion hole for that clear state.
     var isLineVisible: Bool {
+        if glow.isLit { return true }
         // Use the presentation color while the hover fade is running. The
         // page must remain covered until the last visible native pixel fades.
         guard let color = (line.presentation() ?? line).backgroundColor else { return false }
@@ -192,6 +206,7 @@ final class DividerHandleView: NSView {
         if newSuperview == nil {
             isDragging = false
             isHovered = false
+            stopKeyMonitor()
         }
     }
 
@@ -207,18 +222,52 @@ final class DividerHandleView: NSView {
             return
         }
         isDragging = true
-        onDrag?(.began(event.locationInWindow))
+        startKeyMonitor()
+        onDrag?(.began(event.locationInWindow, event.modifierFlags))
     }
 
     override func mouseDragged(with event: NSEvent) {
         guard isDragging else { return }
-        onDrag?(.moved(event.locationInWindow))
+        onDrag?(.moved(event.locationInWindow, event.modifierFlags))
     }
 
     override func mouseUp(with event: NSEvent) {
         guard isDragging else { return }
         isDragging = false
-        onDrag?(.ended(event.locationInWindow))
+        stopKeyMonitor()
+        onDrag?(.ended(event.locationInWindow, event.modifierFlags))
+    }
+
+    override func flagsChanged(with event: NSEvent) {
+        guard isDragging else { return super.flagsChanged(with: event) }
+        onDrag?(.modifiersChanged(event.modifierFlags))
+    }
+
+    /// Escape mid-drag (the key monitor; tests call it directly).
+    override func cancelOperation(_ sender: Any?) {
+        guard isDragging else { return }
+        isDragging = false
+        stopKeyMonitor()
+        onDrag?(.cancelled)
+    }
+
+    private func startKeyMonitor() {
+        stopKeyMonitor()
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { [weak self] event in
+            guard let self, self.isDragging else { return event }
+            if event.type == .flagsChanged {
+                self.flagsChanged(with: event)
+                return event
+            }
+            // Escape cancels the drag and goes no further; other keys go on as usual.
+            if event.keyCode == 53 { self.cancelOperation(nil) }
+            return event.keyCode == 53 ? nil : event
+        }
+    }
+
+    private func stopKeyMonitor() {
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+        keyMonitor = nil
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -227,6 +276,10 @@ final class DividerHandleView: NSView {
     }
 
     private func applyColors() {
+        glow.applyTheme(self)
+        // A drag always lights the band, under `layout.paneSeparation` none too (the app's default
+        // look): it is the drag's cue, not a separator. Hover lights it only where hover shows a line.
+        glow.set(isDragging ? .dragging : isHovered && showsActiveLine ? .hovered : .rest)
         let isEdge = isEdgeHandle
         performWithTheme {
             let active = (isHovered || isDragging) && showsActiveLine

@@ -76,12 +76,20 @@
   mask-image: none;
 }
 /* Under the strip, the prompt, its placeholder and the shell field (with its glyph) start one gap
-   down instead of the field's own top inset, so entering shell mode still moves nothing. */
-.acpmux-attachments ~ .acpmux-composer-field-menu :is(.acpmux-md-field, .acpmux-shell-field) {
+   down instead of the field's own top inset, so entering shell mode still moves nothing.
+   Shell mode draws its padding, its glyph and its height from one top inset (composerStates.css), so
+   the band re-points that inset rather than the padding it feeds: its height follows the gap too, in
+   both looks (this sits on the shell prompt, inside either look's box, so it wins by proximity). A
+   band that moved only the padding left the field a minimum of one line in the insets it no longer
+   had, so it stood taller than the prompt it replaced. */
+.acpmux-attachments ~ .acpmux-composer-field-menu .acpmux-md-field {
   padding-top: var(--acpmux-attach-gap);
 }
-.acpmux-attachments ~ .acpmux-composer-field-menu :is(.acpmux-md-placeholder, .acpmux-shell-glyph) {
+.acpmux-attachments ~ .acpmux-composer-field-menu .acpmux-md-placeholder {
   top: var(--acpmux-attach-gap);
+}
+.acpmux-attachments ~ .acpmux-composer-field-menu .acpmux-shell-prompt {
+  --acpmux-shell-inset-top: var(--acpmux-attach-gap);
 }
 .acpmux-attachment {
   position: relative;
@@ -133,7 +141,7 @@
    (chips/chips.css .cv-media__duration). A click plays it. */
 .acpmux-attachment-video-open {
   position: relative;
-  cursor: pointer;
+  cursor: default;
 }
 .acpmux-attachment-video-play {
   position: absolute;
@@ -239,12 +247,12 @@
   flex: none;
   padding: 0 8px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 4px;
   background: color-mix(in srgb, var(--agent-text) 12%, transparent);
   color: var(--agent-text);
   font: inherit;
   font-size: var(--text-caption);
-  cursor: pointer;
+  cursor: default;
   letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-attachment-retry:hover {
@@ -446,7 +454,7 @@
   background: color-mix(in srgb, var(--acpmux-composer-bg) 82%, transparent);
   box-shadow: 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
   color: var(--agent-text);
-  cursor: pointer;
+  cursor: default;
 }
 .acpmux-attachment-file .acpmux-attachment-remove {
   top: 8px;
@@ -540,7 +548,7 @@ button.acpmux-attachment-pasted-open:hover {
   cursor: grabbing;
   opacity: 0.85;
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px color-mix(in srgb, #000 30%, transparent);
+  box-shadow: var(--elevation-2);
 }
 
 /* One file body in the composer and transcript. The name yields before its extension or size. */

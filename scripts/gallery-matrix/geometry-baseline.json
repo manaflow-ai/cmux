@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "revision": {
     "sha": "025db075fae19040c3d3c3eb686e2aca4f353b81",
-    "source": "fleet capture 0e45b912aef01d3b17ad0eb4; product tree from 92c51f49804f48da9f46a86bbebea2bc11cd7f99"
+    "source": "src/agent-session/acpmux/inspector/ChatInspector.gallery.tsx"
   },
   "required": [
     {
@@ -18,32 +18,50 @@
     {
       "caseId": "session-status-claude-light",
       "engine": "chromium",
-      "theme": "light"
+      "theme": "light",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
     },
     {
       "caseId": "session-status-claude-dark",
       "engine": "chromium",
-      "theme": "dark"
+      "theme": "dark",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
     },
     {
       "caseId": "session-status-codex-light",
       "engine": "chromium",
-      "theme": "light"
+      "theme": "light",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
     },
     {
       "caseId": "session-status-codex-dark",
       "engine": "chromium",
-      "theme": "dark"
+      "theme": "dark",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
     },
     {
       "caseId": "session-status-opencode-light",
       "engine": "chromium",
-      "theme": "light"
+      "theme": "light",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
     },
     {
       "caseId": "session-status-opencode-dark",
       "engine": "chromium",
-      "theme": "dark"
+      "theme": "dark",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
+    },
+    {
+      "caseId": "session-status-header-light",
+      "engine": "chromium",
+      "theme": "light",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
+    },
+    {
+      "caseId": "session-status-header-dark",
+      "engine": "chromium",
+      "theme": "dark",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
     }
   ],
   "rules": [
@@ -77,7 +95,9 @@
         "session-status-codex-light",
         "session-status-codex-dark",
         "session-status-opencode-light",
-        "session-status-opencode-dark"
+        "session-status-opencode-dark",
+        "session-status-header-light",
+        "session-status-header-dark"
       ]
     },
     {
@@ -96,16 +116,18 @@
         "session-status-codex-light",
         "session-status-codex-dark",
         "session-status-opencode-light",
-        "session-status-opencode-dark"
+        "session-status-opencode-dark",
+        "session-status-header-light",
+        "session-status-header-dark"
       ]
     }
   ],
   "acceptedFindings": {
-    "session-info-top-block-label-column:session-info-light:chromium:light:top-block-label:0,top-block-label:1,top-block-label:2,top-block-label:3,top-block-label:4,top-block-label:5,top-block-label:6": {
+    "[\"session-info-top-block-label-column\",\"session-info-light\",\"chromium\",\"light\",[\"top-block-label:0\",\"top-block-label:1\",\"top-block-label:2\",\"top-block-label:3\",\"top-block-label:4\",\"top-block-label:5\",\"top-block-label:6\"]]": {
       "maxDeltaPx": 2,
       "reason": "Audit 2026-10-28: Context/Connectors start at126px; five Environment labels at128px (header6px vsrow8px gap). Measured in fleet capture0e45b912; surface owner fixes separately."
     },
-    "session-info-top-block-label-column:session-info-dark:chromium:dark:top-block-label:0,top-block-label:1,top-block-label:2,top-block-label:3,top-block-label:4,top-block-label:5,top-block-label:6": {
+    "[\"session-info-top-block-label-column\",\"session-info-dark\",\"chromium\",\"dark\",[\"top-block-label:0\",\"top-block-label:1\",\"top-block-label:2\",\"top-block-label:3\",\"top-block-label:4\",\"top-block-label:5\",\"top-block-label:6\"]]": {
       "maxDeltaPx": 2,
       "reason": "Audit 2026-10-28: Context/Connectors start at126px; five Environment labels at128px (header6px vsrow8px gap). Measured in fleet capture0e45b912; surface owner fixes separately."
     }
@@ -230,6 +252,36 @@
         "height": 360,
         "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
       }
+    },
+    {
+      "id": "session-status-header-light",
+      "path_or_url": "frame.html",
+      "params": {
+        "entry": "agent-pane.harness-status",
+        "variant": "header-action-alignment",
+        "frame": "component",
+        "locale": "en",
+        "theme": "Apple System Colors Light",
+        "colorScheme": "light",
+        "width": 620,
+        "height": 360,
+        "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
+      }
+    },
+    {
+      "id": "session-status-header-dark",
+      "path_or_url": "frame.html",
+      "params": {
+        "entry": "agent-pane.harness-status",
+        "variant": "header-action-alignment",
+        "frame": "component",
+        "locale": "en",
+        "theme": "Apple System Colors",
+        "colorScheme": "dark",
+        "width": 620,
+        "height": 360,
+        "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
+      }
     }
   ],
   "selectors": {
@@ -321,6 +373,36 @@
       }
     ],
     "session-status-opencode-dark": [
+      {
+        "group": "status-actions",
+        "selector": ".acpmux-harness-status__copy-all, .acpmux-harness-status__close",
+        "containerSelector": ".acpmux-harness-status__head",
+        "containerGroup": "status-headers"
+      },
+      {
+        "group": "status-visible-content",
+        "selector": ".acpmux-harness-status__copy-all > span[aria-hidden=false], .acpmux-harness-status__close",
+        "measurement": "text-range",
+        "containerSelector": ".acpmux-harness-status__head",
+        "containerGroup": "status-headers"
+      }
+    ],
+    "session-status-header-light": [
+      {
+        "group": "status-actions",
+        "selector": ".acpmux-harness-status__copy-all, .acpmux-harness-status__close",
+        "containerSelector": ".acpmux-harness-status__head",
+        "containerGroup": "status-headers"
+      },
+      {
+        "group": "status-visible-content",
+        "selector": ".acpmux-harness-status__copy-all > span[aria-hidden=false], .acpmux-harness-status__close",
+        "measurement": "text-range",
+        "containerSelector": ".acpmux-harness-status__head",
+        "containerGroup": "status-headers"
+      }
+    ],
+    "session-status-header-dark": [
       {
         "group": "status-actions",
         "selector": ".acpmux-harness-status__copy-all, .acpmux-harness-status__close",

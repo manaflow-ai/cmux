@@ -5,14 +5,14 @@
 //   - a reply right over its turn's footer (`.acpmux-row--before-footer`), or over the running turn's
 //     line that the footer takes the place of: its text and the 4px meta gap, with no 34px floor;
 //   - a task's result (`.cv-received`): its 26px line and the 8px message gap;
-//   - another agent's message: its line, then its glass card cut to RECEIVED_LINES lines;
+//   - another agent's message: its one disclosure line, however long the message;
 //   - a turn's footer: its 24px line and the 16px turn gap, including the chat's last one
 //     (`.acpmux-row--last-footer`), so the composer uses the same rhythm as the transcript.
 //
 // Before: a reply over a footer was estimated as any reply (8px below it, at least 34px), and a
 // task's result kept the old 16px below it.
 import { expect, test } from "bun:test";
-import { layoutConversation, placeRows, RECEIVED_LINES } from "./model";
+import { layoutConversation, placeRows } from "./model";
 import { turnView } from "./conversation/turns";
 import { COLLAPSED_PROMPT_LINES, PASTE_CHIP_HEIGHT, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
 import { currentChatMetrics } from "./chatDisplay";
@@ -256,27 +256,18 @@ test("a hidden row after the chat's last footer leaves it the last one", () => {
   expect(heights[2]).toBe(0);
 });
 
-test("another agent's message is its 26px line in 2px margins, its card cut to eight lines, and the 8px message gap", () => {
-  const row = (text: string) => ({
-    id: "m",
+test("another agent's message is its one 26px line in 2px margins and the 8px message gap, however long", () => {
+  const row = (id: string, text: string) => ({
+    id,
     version: 1,
     at: 0,
     kind: "user",
     text,
     incoming: { kind: "message", message: { name: "cmux16/glass-lens", text, raw: text } },
   });
-  const { lineHeight } = currentChatMetrics();
-  // The card: 4px above, 8px padding each side and 6px below its text.
-  const [short] = heightsOf([row("Draft is up.")]);
-  expect(short).toBe(2 + 26 + 2 + 4 + 8 + lineHeight + 8 + 6 + 8);
-  // Rendered geometry: eight text lines, plus the Show more control (20px + 4px margin).
-  const rows = [row("Line of the report.\n".repeat(40)), reply("after", "Ready.")];
-  const estimated = layoutConversation(rows as never, 720);
-  const renderedHeight = 2 + 26 + 2 + 4 + 8 + RECEIVED_LINES * lineHeight + 24 + 8 + 6 + 8;
-  const rendered = placeRows(estimated, (index) => (index === 0 ? renderedHeight : undefined));
-  expect(estimated.heights[0]).toBe(renderedHeight);
-  expect(rendered.tops[1]).toBe(estimated.tops[1]);
-  expect(rendered.totalHeight).toBe(estimated.totalHeight);
+  const [short, long] = heightsOf([row("m1", "Draft is up."), row("m2", "Line of the report.\n".repeat(40))]);
+  expect(short).toBe(2 + 26 + 2 + 8);
+  expect(long).toBe(short);
 });
 
 test("a task notice is a tool row's line, 2px under the row's top, and the 8px message gap", () => {

@@ -1,6 +1,7 @@
 import CmuxNextCompat
 public import CmuxNextDesign
 import CmuxNextPages
+import Foundation
 
 /// The look of what stands on the composer card's top edge (the location strip of a new chat, the
 /// queued prompts of a started one), for comparing designs: `agentPane.debug.topStripStyle`.
@@ -85,6 +86,24 @@ public nonisolated enum AgentPaneReasoningSliderStyle: String, Sendable, CaseIte
         switch self {
         case .accent: "Accent (current)"
         case .minimal: "Minimal (quiet fill, outlined thumb)"
+        }
+    }
+}
+
+/// Alternative harness placements for the model picker (DEV/NIGHTLY).
+public nonisolated enum AgentPaneHarnessPlacement: String, Sendable, CaseIterable, TunableChoice {
+    case left
+    case top
+    case compact
+
+    public var tunableTitle: String {
+        switch self {
+        case .left:
+            String(localized: "agentPane.harnessPlacement.left", defaultValue: "Left rail with names", bundle: .module)
+        case .top:
+            String(localized: "agentPane.harnessPlacement.top", defaultValue: "Top strip with names", bundle: .module)
+        case .compact:
+            String(localized: "agentPane.harnessPlacement.compact", defaultValue: "Compact left rail", bundle: .module)
         }
     }
 }
@@ -196,12 +215,12 @@ public nonisolated struct AgentPaneTunables {
         default: false, code: "AgentPaneTunables.sessionStatus")
 
     /// Side sessions: the composer's `/btw <question>` opens a read-only side session about the chat
-    /// beside it.
-    /// Off by default; the page reads it from the header state (``AgentPaneHeaderState/sideSessions``).
+    /// beside it, and the palette offers Ask a Side Question… when the gate is on.
+    /// On by default; the page reads it from the header state (``AgentPaneHeaderState/sideSessions``).
     public static let sideSessions = Tunable<Bool>.toggle(
         "agentPane.debug.sideSessions", PageTunables.section, "Side sessions (/btw)",
-        help: "The composer's /btw opens a read-only side session beside the chat.",
-        default: false, code: "AgentPaneTunables.sideSessions")
+        help: "The composer's /btw opens a read-only side session beside the chat, and the palette offers Ask a Side Question….",
+        default: true, code: "AgentPaneTunables.sideSessions")
 
     /// Thoughts fold once done (webviews conversation/ThoughtRow.tsx): the thoughts
     /// ``thoughtFoldThreshold`` picks fold to one line that opens to their text. On by default (Leo
@@ -281,6 +300,13 @@ public nonisolated struct AgentPaneTunables {
         "agent.composerPlainFooter", PageTunables.section, "Agent composer: plain footer",
         help: "The composer's model, effort and mode chips draw as plain text until hovered, focused or open.",
         default: true, code: "AgentPaneTunables.composerPlainFooter")
+
+    public static let harnessPlacement = Tunable<AgentPaneHarnessPlacement>.choice(
+        "agent.harnessPlacement", PageTunables.section,
+        String(localized: "agentPane.harnessPlacement.title", defaultValue: "Model picker harness placement", bundle: .module),
+        help: String(localized: "agentPane.harnessPlacement.help",
+                     defaultValue: "Compare a named left rail, a wrapping top strip and a compact left rail.", bundle: .module),
+        default: .left, code: "AgentPaneTunables.harnessPlacement")
 
     /// Tool runs fold as the Codex desktop app folds them (webviews conversation/turns.ts
     /// `codexRuns`, cx-ncc.108): each finished run is one summary line between the paragraphs
@@ -436,6 +462,7 @@ public nonisolated struct AgentPaneTunables {
             liveThoughtViewport.descriptor,
             lostPromptReplay.descriptor,
             modelMenu.descriptor,
+            harnessPlacement.descriptor,
             needsYou.descriptor,
             needsYouPill.descriptor,
             newTabPicksFollowLinks.descriptor,
@@ -446,7 +473,6 @@ public nonisolated struct AgentPaneTunables {
             reasoningSlider.descriptor,
             reasoningSliderStyle.descriptor,
             updatePeersAutomatically.descriptor,
-            restartUnresponsiveAcpmux.descriptor,
             sessionStatus.descriptor,
             sidebarPreviewVariant.descriptor,
             scrollerFade.descriptor,

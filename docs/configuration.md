@@ -154,21 +154,6 @@ What Cmd-W does on a pinned tab.
 
 A tab closed by name (its menu, `cmux tab close`, MCP) closes with either value. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.cmdWClosesPinnedTabs false`.
 
-## `tabs.terminalFirst`
-
-What Cmd-T, Cmd-D and Cmd-Shift-D open.
-
-```json
-{
-  "tabs": { "terminalFirst": true }
-}
-```
-
-- `false` (default): Cmd-T opens the New Tab page, and a split from a browser tab, the New Tab page or an agent chat opens the New Tab page in the new pane.
-- `true`: Cmd-T opens a terminal tab and Cmd-D and Cmd-Shift-D open a terminal in the new pane, as in cmux classic.
-
-With it on, Cmd-T always opens a tab in the focused pane, even with `newTerminal.opensWorkspace` or `layout.newPanePlacement: split`. A new workspace still starts on the New Tab page. Scripts (`cmux tab new`, `cmux pane split-right`, MCP) are not affected. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.terminalFirst true`.
-
 ## `tabs.swapCmdTAndCmdN`
 
 Which of Cmd-T and Cmd-N opens a tab and which opens a workspace.
@@ -409,7 +394,22 @@ Which scroll moves columns and rows, and which scrolls the pane under the pointe
 - `command` (default): a plain scroll, with the trackpad or the mouse wheel, in any direction, always scrolls the pane under the pointer (terminal scrollback, a web page, a wide table). Command + Scroll moves the layout from anywhere on the screen: sideways scrolls the columns, up and down scrolls the rows of the column under the pointer. In a column whose rows all fit, Command + Scroll up and down scrolls the columns. Over a scroll area, Command + Scroll sideways moves the area first. On a canvas, Command + Scroll pans the canvas. A plain scroll still moves the layout over the gaps between panes (also while a Chromium page shows) and over the columns scrollbar.
 - `none`: a sideways scroll moves the columns unless the pane under the pointer scrolls sideways itself, and rows scroll over the gaps between them or with Command held.
 
-The first event of a trackpad gesture decides what the whole gesture scrolls, including its momentum: pressing or releasing Command midway changes nothing. Each mouse-wheel notch decides on its own. Scrolling a pane does not move keyboard focus unless **Focus Follows Mouse** (`layout.focusFollowsMouse`) is on. A Command + Scroll that begins where the layout has something to scroll (columns that do not fit, rows that overflow under the pointer, a scroll area under the pointer) is the layout's from its first event, whichever way it then moves, so it never goes Back or Forward in a web page, Chromium or WebKit. Where the layout has nothing to scroll, the page gets the gesture, and a sideways swipe over a web page goes Back or Forward as it does without Command. Change it in **Settings > General > Columns** or with `cmux settings set layout.scrollModifier none`.
+The first event of a trackpad gesture decides what the whole gesture scrolls, including its momentum: pressing or releasing Command midway changes nothing. Each mouse-wheel notch decides on its own. Scrolling a pane does not move keyboard focus unless **Focus Follows Mouse** (`layout.focusFollowsMouse`) is on. On a columns screen, Command + Scroll is always the layout's, over a terminal, a chat or a browser alike, and also in browser focus mode (focus mode gives the page your keys, not Command + Scroll). This holds even when the columns fit: the columns follow your fingers and spring back, and the pane never scrolls or goes Back or Forward. A web page that uses Command + Scroll itself, such as Figma or Excalidraw, keeps it (`layout.pagesHandleCommandScroll`). Change it in **Settings > General > Columns** or with `cmux settings set layout.scrollModifier none`.
+
+## `layout.pagesHandleCommandScroll`
+
+Whether a web page that uses Command + Scroll itself keeps it, such as Figma or Excalidraw zooming their canvas.
+
+```json
+{
+  "layout": { "pagesHandleCommandScroll": true }
+}
+```
+
+- `true` (default): when a Command + Scroll begins over a Chromium page, cmux asks the page first. A page that cancels the Command + wheel event (`preventDefault`) gets the whole gesture, momentum included. Over any other page, Command + Scroll moves the columns. If the page does not answer within about two frames, the columns move.
+- `false`: Command + Scroll over a page always moves the columns, as over a terminal.
+
+It applies with `layout.scrollModifier` set to `command`. A page inside a frame from another site counts as not using Command + Scroll. A page that cancels every wheel event (some code editors, maps and spreadsheets) also keeps Command + Scroll; turn this setting off to pan the columns over them. Pages in the WebKit engine are not asked: Command + Scroll moves the columns over them. Change it in **Settings > General > Columns**, in the command palette (Cmd-Shift-P, "Web Pages Get Command + Scroll First"), or with `cmux settings set layout.pagesHandleCommandScroll false`.
 
 ## `workspaces.newPlacement`
 
@@ -607,6 +607,18 @@ The first-run Number Keys screen (also under Help > Continue Setup) offers the o
 
 A binding you set yourself for either action stays when you pick a choice. Rebind or unbind each family from Settings > Keyboard Shortcuts or `shortcuts.bindings`; the first key names the whole 1…9 family. To give Ctrl+digits back to terminal programs (for example Ctrl+6 for Vim's alternate file), set `"selectSurfaceByNumber": "cmd+opt+1"` or `null`. macOS Mission Control "Switch to Desktop N" uses Ctrl+1…9 when you turn it on in System Settings > Keyboard > Keyboard Shortcuts; macOS then takes those keys before cmux sees them.
 
+## Space shortcuts
+
+| Keys | Action | Id |
+| --- | --- | --- |
+| Ctrl+Option+Cmd+Left / Right | Previous / Next Space | `space.previous` / `space.next` |
+| Option+Cmd+[ / ] | Previous / Next Space (also; not in the code editor) | `space.previous` / `space.next` |
+| Ctrl+Option+Cmd+1…9 | Select Space 1…9 (9 is the last) | `space.selectByNumber` |
+| Ctrl+Option+1…9 | Select Space 1…9 (the Number Keys default) | `space.selectByNumber` |
+| Shift+Cmd+N | New Window, on a new space | `newWindow` |
+
+Ctrl+Cmd+Left / Right resize the focused pane (Ghostty's `resize_split`) and Ctrl+Cmd+1…9 focus pane 1…9, so the space keys add Option. macOS keeps Ctrl+arrows and Ctrl+digits for Mission Control. Rebinding an action (Settings > Keyboard Shortcuts or `shortcuts.bindings["space.next"]`) replaces all its default keys; `null` removes them. Every space action is also in the command palette (Shift+Cmd+P), the `cmux space …` CLI and MCP: for example `cmux space next`, `cmux space select-1-9 --index 2` and `cmux space open-in-new-window --space <space>`.
+
 ## Several shortcuts for one action
 
 A binding in `shortcuts.bindings` is one key (`"cmd+]"`) or a two-key chord (`["ctrl+b", "n"]`). To give an action more than one, list them under `any`; each item is a key or a chord, and every one runs the action:
@@ -642,7 +654,7 @@ Turn it on in Settings > General > Start Agent from Any App. Its key is a separa
 
 ## Background mode and `app.hideDockIconWithoutWindows`
 
-When you close the last cmux window, cmux keeps running, and so do your terminals and agents. By default it then leaves the Dock and the app switcher (Cmd-Tab) and shows a cmux item in the menu bar instead, with Show cmux, New Window, Settings and Quit. Opening any window brings the Dock icon back: the menu bar item, opening cmux again from Finder or Spotlight, a notification, a link, or the `cmux` CLI. To keep the Dock icon while no window is open:
+When you close the last cmux window, cmux keeps running, and so do your terminals and agents. By default it then leaves the Dock and the app switcher (Cmd-Tab). The cmux menu bar item (`app.showMenuBarIcon`, below) stays as the way back; with that item off, a smaller menu bar item shows instead, with Show cmux, New Window, Settings and Quit. Opening any window brings the Dock icon back: the menu bar item, opening cmux again from Finder or Spotlight, a notification, a link, or the `cmux` CLI. To keep the Dock icon while no window is open:
 
 ```json
 {
@@ -653,6 +665,31 @@ When you close the last cmux window, cmux keeps running, and so do your terminal
 ```
 
 Or turn off Settings > General > Hide Dock Icon When No Windows Are Open.
+
+## The menu bar item and `app.showMenuBarIcon`
+
+cmux puts a monochrome cmux icon in the macOS menu bar. Its menu, top to bottom:
+
+- Your cmux account: your name, email and team (the team row opens the team picker), or Sign In to cmux… when you are signed out.
+- Agents working: N, and Needs input: N (it jumps to the newest unread), when agents run or wait.
+- Open cmux (shows the Show/Hide All Windows key when `app.globalHotKey` is on), New Workspace, Go to Home, Message the Chief, Start Agent…
+- Send Feedback, cmux Documentation…, Troubleshooting and Support.
+- Join the cmux Discord, Follow @cmux on X, cmux on GitHub, What's New in cmux.
+- About cmux, Check for Updates… (Restart to Update instead when an update is downloaded; cmux restarts only when you choose it), Settings….
+- Reveal Logs in Finder (this build's error journal folder) and Copy Logs (the build, macOS version and the problems of the last 3 days, redacted, as text to paste into a bug report).
+- Sign Out (when signed in) and Quit cmux.
+
+The Help menu and the command palette have the same Troubleshooting, Discord, X, GitHub and log commands. To remove the icon:
+
+```json
+{
+  "app": {
+    "showMenuBarIcon": false
+  }
+}
+```
+
+Or turn off Settings > General > Show Menu Bar Icon. With the icon off and no cmux window open, background mode still shows its own menu bar item, so there is always a way back to cmux. A build started by an agent (`CMUX_NEXT_NO_ACTIVATE=1`) shows no menu bar item.
 
 ## Message the Chief from any app
 
@@ -1020,7 +1057,9 @@ shows the same keys.
       "glassTintStrength": 0.35,
       "cornerRadius": "theme",
       "shadow": false,
-      "backgroundOpacity": 0
+      "backgroundOpacity": 0,
+      "height": "density",
+      "fontSize": "density"
     }
   }
 }
@@ -1067,9 +1106,20 @@ shows the same keys.
   only as far as the bar's text needs to stay readable (4.5:1 over a black or a white desktop).
   `1` makes the bar solid. An opaque window with the theme's toolbar color looks the same at any
   value.
+- `omnibar.height`: the address bar's height, `density` (default) or points from `20` to `56`.
+  `density` follows `appearance.density`: 28 pt at Compact (the default), Chrome's roomier 34 pt
+  at Comfortable, tighter at Ultra-compact and taller at Spacious; the toolbar buttons, their
+  icons and the suggestion rows follow the same density. The bar always grows to fit its text, so
+  a small height with a large `fontSize` never cuts the address off. A number outside the range
+  applies at the nearest end, with a warning.
+- `omnibar.fontSize`: the size of the address, the page-info chip's text and the suggestion rows,
+  `density` (default) or points from `10` to `24`. `density` is 14 pt at Compact and 15 pt at
+  Comfortable, and follows a custom density's `fontSize`. Out-of-range numbers are clamped like
+  `height`. Both keys apply live, like the density.
 
 Agents (MCP `settings_set`) may change `inlineAutocomplete`, `maxRows`, `calculator`, `showFullURLs` and the look
-keys (`glass`, `glassTint`, `glassTintStrength`, `cornerRadius`, `shadow`, `backgroundOpacity`); the search
+keys (`glass`, `glassTint`, `glassTintStrength`, `cornerRadius`, `shadow`, `backgroundOpacity`, `height`,
+`fontSize`); the search
 engine and remote suggestions decide what leaves the Mac, so only you change them.
 
 ## `agentPane.editedFiles.*`

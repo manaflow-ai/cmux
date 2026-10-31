@@ -29,7 +29,8 @@ import AppKit
             sidebar.hideDropOutline()
             return nil
         }
-        sidebar.showDropOutline(region.convert(drop.frame, to: nil), refused: false)
+        // A band row runs past the region's edge by the row trim (`rowEdgeGap`); its outline stops at the edge.
+        sidebar.showDropOutline(region.convert(drop.frame.clippedX(to: region.bounds), to: nil), refused: false)
         return drop
     }
 
@@ -55,7 +56,7 @@ import AppKit
         } else {
             frame = drop.frame
         }
-        return region.convert(frame, to: nil)
+        return region.convert(frame.clippedX(to: region.bounds), to: nil) // as the outline
     }
 
     /// Whether `windowPoint` is over the workspace list (outlined); false

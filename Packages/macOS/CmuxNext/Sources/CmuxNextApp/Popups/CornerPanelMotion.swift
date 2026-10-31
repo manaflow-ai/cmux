@@ -20,7 +20,7 @@ final class CornerPanelMotion {
         panel.ignoresMouseEvents = false
         if !reopening { panel.alphaValue = 0 }
         panel.orderFront(nil)
-        panel.openPopup(pivot: Self.pivot(of: panel))
+        panel.openPopup(pivot: Self.pivot(of: panel), entrance: true)
         // A reopen continues the close's scale, whose pivot was for the frame before.
         if reopening { resized(panel) }
     }

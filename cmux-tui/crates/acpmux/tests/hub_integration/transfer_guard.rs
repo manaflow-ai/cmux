@@ -74,6 +74,8 @@ fn config(policy: &str, extra: Value) -> Config {
 /// A daemon on `cfg`, its log in memory or under `store`, and a client that is the person.
 async fn daemon(mut cfg: Config, store: Option<&Path>) -> (Arc<Hub>, TestClient) {
     cfg.store.mode = if store.is_some() { StoreMode::Local } else { StoreMode::Memory };
+    // The queue path before the inbox (`hub/inbox.rs`), which these tests cover.
+    cfg.agent_inbox = Some(false);
     let dir = store.unwrap_or(Path::new("/nonexistent"));
     let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, dir).unwrap());
     let client = connect(&hub).await;
@@ -801,6 +803,11 @@ async fn a_guarded_move_never_replaces_a_moved_away_copy_outside_the_roots() {
     let back = move_chat(&mut b, &mut a, &id, g(), json!({})).await.unwrap();
     assert_eq!(back["sessionId"], id.as_str(), "{back}");
     assert_ne!(back["status"], "closed", "{back}");
+    let returned = a.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(
+        returned["transferBlocked"], false,
+        "returning import clears revocation: {returned}"
+    );
 }
 
 /// A moved-in chat cannot say an agent here sent its prompts: a guarded move drops the

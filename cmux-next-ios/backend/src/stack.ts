@@ -65,20 +65,20 @@ export const sendTeamInvite = async (env: Env, caller: Caller, teamId: string, e
 
 export type CreateTeamResult = { ok: true; id: string; name: string } | { ok: false; status: number; code: string }
 
+/** The Stack team permission that makes a member a cmux team admin (web/services/teams/permissions.ts). */
+export const TEAM_ADMIN_PERMISSION = "team_admin"
+
 /**
- * Creates a Stack team with the caller as its creator (and so its first member). Stack refuses team
- * creation from the client API in both projects (`client_team_creation_enabled` is false), so this
- * needs the project's server key; without one it says so instead of pretending.
+ * Creates a Stack team with the caller as its creator (and so its first member), then grants the caller
+ * `team_admin`, as web's `createTeamForUser` does: Stack's creator default does not make the creator a
+ * cmux admin, and a team with no admin cannot be renamed, deleted or billed from the web. When the grant
+ * fails the team is deleted again rather than left unmanageable. Stack refuses team creation from the
+ * client API in both projects (`client_team_creation_enabled` is false), so this needs the project's
+ * server key; without one it says so instead of pretending. `fetcher` is injectable for tests.
  */
-export const createTeam = async (env: Env, caller: Caller, name: string): Promise<CreateTeamResult> => {
-  if (env.ENVIRONMENT === "test") {
-    // Tests have no server key: the primary project stands for one that has it.
-    return caller.projectId === primaryProject(env).id
-      ? { ok: true, id: `team-${crypto.randomUUID()}`, name }
-      : { ok: false, status: 503, code: "team_creation_unavailable" }
-  }
+export const createTeam = async (env: Env, caller: Caller, name: string, fetcher: typeof fetch = fetch): Promise<CreateTeamResult> => {
   if (!usesServerKey(env, caller)) return { ok: false, status: 503, code: "team_creation_unavailable" }
-  const res = await fetch(`${API}/teams`, {
+  const res = await fetcher(`${API}/teams`, {
     method: "POST",
     headers: headers(env, caller),
     body: JSON.stringify({ display_name: name, creator_user_id: caller.userId }),
@@ -88,5 +88,38 @@ export const createTeam = async (env: Env, caller: Caller, name: string): Promis
   if (!res.ok) return { ok: false, status: res.status, code: res.headers.get("x-stack-known-error") ?? "stack_error" }
   const body = (await res.json()) as { id?: unknown; display_name?: unknown }
   if (typeof body.id !== "string") return { ok: false, status: 502, code: "stack_error" }
-  return { ok: true, id: body.id, name: typeof body.display_name === "string" ? body.display_name : name }
+  const teamId = body.id
+  const granted = await grantTeamAdmin(env, caller, teamId, fetcher)
+  if (!granted.ok) {
+    const removed = await deleteTeam(env, caller, teamId, fetcher)
+    if (!removed) console.error(JSON.stringify({ msg: "team create rollback failed", teamId }))
+    return granted
+  }
+  return { ok: true, id: teamId, name: typeof body.display_name === "string" ? body.display_name : name }
+}
+
+const grantTeamAdmin = async (env: Env, caller: Caller, teamId: string, fetcher: typeof fetch): Promise<{ ok: true } | { ok: false; status: number; code: string }> => {
+  try {
+    const res = await fetcher(
+      `${API}/team-permissions/${encodeURIComponent(teamId)}/${encodeURIComponent(caller.userId)}/${TEAM_ADMIN_PERMISSION}`,
+      { method: "POST", headers: headers(env, caller), body: "{}", signal: AbortSignal.timeout(10_000) }
+    )
+    await res.body?.cancel()
+    if (res.ok) return { ok: true }
+    return { ok: false, status: 502, code: res.headers.get("x-stack-known-error") ?? "team_admin_grant_failed" }
+  } catch {
+    return { ok: false, status: 502, code: "team_admin_grant_failed" }
+  }
+}
+
+/** Best-effort rollback of a team whose admin grant failed; false when Stack did not confirm the delete. */
+const deleteTeam = async (env: Env, caller: Caller, teamId: string, fetcher: typeof fetch): Promise<boolean> => {
+  const { "content-type": _contentType, ...rest } = headers(env, caller)
+  try {
+    const res = await fetcher(`${API}/teams/${encodeURIComponent(teamId)}`, { method: "DELETE", headers: rest, signal: AbortSignal.timeout(10_000) })
+    await res.body?.cancel()
+    return res.ok
+  } catch {
+    return false
+  }
 }

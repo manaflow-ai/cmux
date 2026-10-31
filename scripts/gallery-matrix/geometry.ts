@@ -13,7 +13,7 @@ export type GeometryKind = "web" | "native";
 
 export type GeometryStyle = {
   fontSize?: number;
-  fontWeight?: number | string;
+  fontWeight?: number;
   lineHeight?: number | string;
   /** Measured text baseline in the same coordinate space as rect.y. */
   baseline?: number;
@@ -82,7 +82,8 @@ export type AcceptedFinding = { maxDeltaPx: number; reason: string };
 export type GeometryConfig = {
   schemaVersion: typeof GEOMETRY_SCHEMA_VERSION;
   revision: { sha: string; source: string };
-  required: Array<{ caseId: string; engine: string; theme: string }>;
+  /** `source` overrides `revision.source` for captures of another gallery entry. */
+  required: Array<{ caseId: string; engine: string; theme: string; source?: string }>;
   rules: GeometryRule[];
   /** Existing debt is explicit and bounded. New findings always fail. */
   acceptedFindings?: Record<string, AcceptedFinding>;
@@ -131,7 +132,7 @@ export function parseArtifact(value: unknown, file = "artifact"): GeometryArtifa
   const capture = item.capture as Record<string, unknown> | undefined;
   if (!capture || typeof capture.caseId !== "string" || typeof capture.engine !== "string" || typeof capture.theme !== "string" || typeof capture.screenshot !== "string") throw new Error(`${file}: capture provenance is required`);
   if (!capture.caseId || !capture.engine || !capture.theme || !capture.screenshot || typeof capture.screenshotSha256 !== "string" || !/^[0-9a-f]{64}$/.test(capture.screenshotSha256)) throw new Error(`${file}: non-empty capture identity and screenshotSha256 are required`);
-  if (!["css-px", "screenshot-pixels"].includes(String(capture.coordinateSpace))) throw new Error(`${file}: coordinateSpace is required`);
+  if (typeof capture.coordinateSpace !== "string" || !["css-px", "screenshot-pixels"].includes(capture.coordinateSpace)) throw new Error(`${file}: coordinateSpace must be css-px or screenshot-pixels`);
   const viewport = capture.viewport as Record<string, unknown> | undefined;
   if (!viewport || !finite(viewport.width) || viewport.width <= 0 || !finite(viewport.height) || viewport.height <= 0 || !finite(capture.deviceScaleFactor) || (capture.deviceScaleFactor as number) <= 0) throw new Error(`${file}: positive viewport/deviceScaleFactor are required`);
   if (!Array.isArray(item.elements) || item.elements.length === 0) throw new Error(`${file}: elements evidence is required`);
@@ -139,11 +140,13 @@ export function parseArtifact(value: unknown, file = "artifact"): GeometryArtifa
   const elements = item.elements.map((raw, index) => {
     if (!raw || typeof raw !== "object") throw new Error(`${file}: element ${index} must be an object`);
     const element = raw as Record<string, unknown>;
-    if (typeof element.id !== "string" || !element.id || ids.has(element.id) || (element.kind !== "web" && element.kind !== "native") || !["dom-rect", "ax-frame", "view-frame"].includes(String(element.source)) || !rectValid(element.rect)) throw new Error(`${file}: element ${index} has invalid or duplicate id/kind/source/rect`);
+    if (typeof element.id !== "string" || !element.id || ids.has(element.id) || (element.kind !== "web" && element.kind !== "native") || typeof element.source !== "string" || !["dom-rect", "ax-frame", "view-frame"].includes(element.source) || !rectValid(element.rect)) throw new Error(`${file}: element ${index} has invalid or duplicate id/kind/source/rect`);
     ids.add(element.id);
     if (element.kind === "web" && element.source !== "dom-rect") throw new Error(`${file}: web element ${element.id} must use dom-rect source`);
+    if (element.kind === "native" && element.source === "dom-rect") throw new Error(`${file}: native element ${element.id} must use ax-frame or view-frame source`);
     const style = element.style;
     if (style !== undefined && (!style || typeof style !== "object")) throw new Error(`${file}: element ${element.id} style must be an object`);
+    if (style && (style as GeometryStyle).fontWeight !== undefined && !finite((style as GeometryStyle).fontWeight)) throw new Error(`${file}: element ${element.id} fontWeight must be a finite number`);
     if (element.hoverRect !== undefined && !rectValid(element.hoverRect)) throw new Error(`${file}: element ${element.id} hoverRect is invalid`);
     for (const flag of ["control", "secondary", "menuOpen"]) {
       if (element[flag] !== undefined && typeof element[flag] !== "boolean") throw new Error(`${file}: element ${element.id} ${flag} must be a boolean`);
@@ -160,7 +163,7 @@ export function parseConfig(value: unknown, file = "geometry config"): GeometryC
   const revision = item.revision as Record<string, unknown> | undefined;
   if (!revision || typeof revision.sha !== "string" || typeof revision.source !== "string") throw new Error(`${file}: revision is required`);
   const required = item.required as Array<Record<string, unknown>> | undefined;
-  if (!Array.isArray(required) || !required.length || required.some((entry) => !entry || !["caseId", "engine", "theme"].every((key) => typeof entry[key] === "string" && entry[key]))) throw new Error(`${file}: required capture tuples are required`);
+  if (!Array.isArray(required) || !required.length || required.some((entry) => !entry || !["caseId", "engine", "theme"].every((key) => typeof entry[key] === "string" && entry[key]) || (entry.source !== undefined && (typeof entry.source !== "string" || !entry.source)))) throw new Error(`${file}: required capture tuples are required`);
   if (!Array.isArray(item.rules) || item.rules.length === 0) throw new Error(`${file}: at least one rule is required`);
   const rules = item.rules as GeometryRule[];
   const ids = new Set<string>();
@@ -176,12 +179,12 @@ export function parseConfig(value: unknown, file = "geometry config"): GeometryC
     if (rule.kind === "inset" && (!["left", "top", "right", "bottom"].includes(rule.edge) || !rule.containerGroup)) throw new Error(`${file}: invalid inset`);
     if (rule.kind === "style-token" && !["borderRadius", "gap"].includes(rule.property)) throw new Error(`${file}: invalid property`);
     if (!["peer-alignment", "peer-size", "spacing", "inset", "style-token", "text-baseline", "secondary-text", "hover-control-only", "required-source"].includes(rule.kind)) throw new Error(`${file}: unknown rule kind ${String((rule as { kind?: unknown }).kind)}`);
-    if ((rule.kind === "spacing" || rule.kind === "inset" || rule.kind === "style-token") && (!Array.isArray(rule.tokensPx) || rule.tokensPx.length === 0 || rule.tokensPx.some((token) => !finite(token) || token <= 0))) throw new Error(`${file}: ${rule.kind} rule ${rule.id} needs positive tokensPx`);
+    if ((rule.kind === "spacing" || rule.kind === "inset" || rule.kind === "style-token") && (!Array.isArray(rule.tokensPx) || rule.tokensPx.length === 0 || rule.tokensPx.some((token) => !finite(token) || token < 0))) throw new Error(`${file}: ${rule.kind} rule ${rule.id} needs non-negative tokensPx`);
     if (rule.kind === "secondary-text" && (!Array.isArray(rule.colors) || rule.colors.length === 0 || !Array.isArray(rule.weights) || rule.weights.length === 0)) throw new Error(`${file}: secondary-text rule ${rule.id} needs colors and weights`);
     if (rule.kind === "required-source" && !["dom-rect", "ax-frame", "view-frame"].includes(rule.requiredSource)) throw new Error(`${file}: required-source rule ${rule.id} has invalid source`);
   }
   const accepted = item.acceptedFindings;
-  if (accepted !== undefined && (!accepted || typeof accepted !== "object" || Object.values(accepted as object).some((value) => !value || typeof value !== "object" || !finite((value as AcceptedFinding).maxDeltaPx) || typeof (value as AcceptedFinding).reason !== "string"))) throw new Error(`${file}: acceptedFindings entries need maxDeltaPx/reason`);
+  if (accepted !== undefined && (!accepted || typeof accepted !== "object" || Object.values(accepted as object).some((value) => !value || typeof value !== "object" || !finite((value as AcceptedFinding).maxDeltaPx) || (value as AcceptedFinding).maxDeltaPx < 0 || typeof (value as AcceptedFinding).reason !== "string" || !(value as AcceptedFinding).reason.trim()))) throw new Error(`${file}: acceptedFindings entries need non-negative maxDeltaPx and non-empty reason`);
   if (item.coverageGaps !== undefined && (!Array.isArray(item.coverageGaps) || item.coverageGaps.some((gap) => typeof gap !== "string" || !gap))) throw new Error(`${file}: invalid coverageGaps`);
   return { schemaVersion: GEOMETRY_SCHEMA_VERSION, coverageGaps: item.coverageGaps as string[] | undefined, revision: revision as GeometryConfig["revision"], required: required as GeometryConfig["required"], rules, acceptedFindings: accepted as GeometryConfig["acceptedFindings"] };
 }
@@ -192,12 +195,13 @@ function measure(rect: Rect, axis: "x" | "y", point: "start" | "center" | "end")
   return point === "start" ? origin : point === "center" ? origin + size / 2 : origin + size;
 }
 
-function findingId(rule: GeometryRule, artifact: GeometryArtifact, suffix: string): string {
-  return `${rule.id}:${artifact.capture.caseId}:${artifact.capture.engine}:${artifact.capture.theme}:${suffix}`;
+function findingId(rule: GeometryRule, artifact: GeometryArtifact, elementIds: string[]): string {
+  // JSON preserves element boundaries; delimiter-joined IDs collide when IDs contain commas.
+  return JSON.stringify([rule.id, artifact.capture.caseId, artifact.capture.engine, artifact.capture.theme, elementIds]);
 }
 
 function pushFinding(findings: GeometryFinding[], rule: GeometryRule, artifact: GeometryArtifact, elementIds: string[], message: string, observedPx?: number, expectedPx?: number, deltaPx?: number): void {
-  findings.push({ id: findingId(rule, artifact, elementIds.join(",")), rule: rule.id, caseId: artifact.capture.caseId, theme: artifact.capture.theme, engine: artifact.capture.engine, elementIds, observedPx, expectedPx, deltaPx, message, screenshot: artifact.capture.screenshot });
+  findings.push({ id: findingId(rule, artifact, elementIds), rule: rule.id, caseId: artifact.capture.caseId, theme: artifact.capture.theme, engine: artifact.capture.engine, elementIds, observedPx, expectedPx, deltaPx, message, screenshot: artifact.capture.screenshot });
 }
 
 /** Rules and reported deltas use CSS px; preserve raw evidence for screenshot crops. */
@@ -224,7 +228,8 @@ function lintRule(findings: GeometryFinding[], rule: GeometryRule, artifact: Geo
     return;
   }
   const elements = artifact.elements.filter((element) => element.group === rule.group);
-  const minCount = rule.minCount ?? 2;
+  const peerRule = ["peer-alignment", "peer-size", "spacing", "text-baseline"].includes(rule.kind);
+  const minCount = rule.minCount ?? (peerRule ? 2 : 1);
   if (elements.length < minCount) {
     pushFinding(findings, rule, artifact, elements.map((element) => element.id), `missing evidence for group ${rule.group}: expected at least ${minCount} elements`);
     return;
@@ -291,7 +296,7 @@ function lintRule(findings: GeometryFinding[], rule: GeometryRule, artifact: Geo
       const weight = element.style?.fontWeight;
       if (!element.secondary) {
         pushFinding(findings, rule, artifact, [element.id], `secondary text marker is missing`);
-      } else if (color === undefined || !rule.colors.includes(color) || weight === undefined || !rule.weights.map(String).includes(String(weight))) {
+      } else if (color === undefined || !rule.colors.includes(color) || !finite(weight) || !rule.weights.map(String).includes(String(weight))) {
         pushFinding(findings, rule, artifact, [element.id], `secondary text weight/colour is outside the declared palette`);
       }
     }
@@ -350,11 +355,19 @@ export async function validateScreenshot(file: string, artifact: GeometryArtifac
     if (createHash("sha256").update(bytes).digest("hex") !== artifact.capture.screenshotSha256) errors.push(`${file}: screenshot hash mismatch`);
     const png = PNG.sync.read(bytes);
     const scale = artifact.capture.deviceScaleFactor;
-    if (png.width !== Math.round(artifact.capture.viewport.width * scale) || png.height !== Math.round(artifact.capture.viewport.height * scale)) errors.push(`${file}: screenshot dimensions do not match viewport and scale`);
+    const expectedWidth = Math.round(artifact.capture.viewport.width * scale);
+    const minimumHeight = Math.round(artifact.capture.viewport.height * scale);
+    // Gallery captures use fullPage: true, so a page may be taller than the requested viewport.
+    // Width must remain exact; height must cover the viewport and may extend below it.
+    if (png.width !== expectedWidth || png.height < minimumHeight) errors.push(`${file}: screenshot dimensions do not cover viewport and scale`);
   } catch (error) {
     errors.push(`${file}: screenshot evidence unavailable: ${error instanceof Error ? error.message : String(error)}`);
   }
   return errors;
+}
+
+function captureKey(capture: Pick<GeometryCapture, "caseId" | "engine" | "theme">): string {
+  return JSON.stringify([capture.caseId, capture.engine, capture.theme]);
 }
 
 export async function lintGeometry(artifacts: Array<{ file: string; artifact: GeometryArtifact }>, config: GeometryConfig, reportDir?: string): Promise<GeometryReport> {
@@ -362,20 +375,26 @@ export async function lintGeometry(artifacts: Array<{ file: string; artifact: Ge
   const errors: string[] = [];
   if (!artifacts.length) errors.push("no geometry artifacts were supplied");
   const seen = new Set<string>();
+  const expectedSource = (capture: GeometryCapture) => config.required.find((tuple) => captureKey(tuple) === captureKey(capture))?.source ?? config.revision.source;
   for (const { file, artifact } of artifacts) {
-    if (artifact.revision.sha !== artifacts[0]?.artifact.revision.sha) errors.push(`${file}: mixed capture revisions`);
-    const key = `${artifact.capture.caseId}:${artifact.capture.engine}:${artifact.capture.theme}`;
+    if (artifact.revision.sha !== config.revision.sha) errors.push(`${file}: capture revision ${artifact.revision.sha} does not match config revision ${config.revision.sha}`);
+    const source = expectedSource(artifact.capture);
+    if (artifact.revision.source !== source) errors.push(`${file}: capture source ${JSON.stringify(artifact.revision.source)} does not match config source ${JSON.stringify(source)}`);
+    const first = artifacts[0]?.artifact;
+    // Captures of different gallery entries carry different sources; only the same entry must agree.
+    if (artifact.revision.sha !== first?.revision.sha || (expectedSource(first.capture) === source && artifact.revision.source !== first.revision.source)) errors.push(`${file}: mixed capture revisions`);
+    const key = captureKey(artifact.capture);
     if (seen.has(key)) errors.push(`${file}: duplicate capture ${key}`);
     seen.add(key);
     const measurements = measurementArtifact(artifact);
     for (const rule of config.rules) lintRule(findings, rule, measurements);
   }
-  for (const capture of config.required) if (!artifacts.some(({ artifact }) => artifact.capture.caseId === capture.caseId && artifact.capture.engine === capture.engine && artifact.capture.theme === capture.theme)) errors.push(`missing required capture: ${capture.caseId}:${capture.engine}:${capture.theme}`);
+  for (const capture of config.required) if (!seen.has(captureKey(capture))) errors.push(`missing required capture: ${capture.caseId}:${capture.engine}:${capture.theme}`);
   for (const finding of findings) {
     const accepted = config.acceptedFindings?.[finding.id];
     if (accepted && finding.deltaPx !== undefined && finding.deltaPx <= accepted.maxDeltaPx) finding.accepted = true;
     if (!finding.accepted && reportDir) {
-      const source = artifacts.find(({ artifact }) => `${artifact.capture.caseId}:${artifact.capture.engine}:${artifact.capture.theme}` === `${finding.caseId}:${finding.engine}:${finding.theme}`);
+      const source = artifacts.find(({ artifact }) => captureKey(artifact.capture) === captureKey(finding));
       if (source) await writeCrop(source.file, finding, source.artifact, reportDir);
     }
   }

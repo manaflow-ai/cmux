@@ -74,7 +74,8 @@ const native = { "pane.tabState": { inspector: true } };
 
 const settled: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-chat-inspector[data-presence=shown]"), { capMs: 3000 });
-  await ctx.waitFor(() => ctx.document.querySelectorAll("li.acpmux-chat-inspector-pr").length >= 3, { capMs: 3000 });
+  // The read-only `gh pr view` is a Source; only the created and merged PRs belong in Changes.
+  await ctx.waitFor(() => ctx.document.querySelectorAll("li.acpmux-chat-inspector-pr").length >= 2, { capMs: 3000 });
 };
 
 export default agentPaneEntry({
