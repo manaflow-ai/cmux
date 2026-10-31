@@ -261,6 +261,9 @@ export class AppsStore {
     this.starting = false;
     this.unwatch?.();
     this.unwatch = undefined;
+    // The host may finish an accepted mutation after this page leaves. Its old reply must not
+    // publish, and a later start must not inherit a busy flag that reply can no longer clear.
+    if (this.snapshot.registry.busy) this.setRegistry({ busy: undefined });
   }
 
   /** Re-reads the catalog, installed list, and update list owned by the supervisor. */
@@ -622,16 +625,18 @@ export class AppsStore {
   async loadRegistry(): Promise<void> {
     const client = this.client;
     if (!client) return;
+    const lifetime = this.lifetime;
     const [me, listings] = await Promise.all([
       client.call<RegistryMe>(RegistryOps.me, {}).then(
         (value) => ({ value, error: undefined as unknown }),
         (error: unknown) => ({ value: undefined, error }),
       ),
-      this.readRegistryListings(client).then(
+      this.readRegistryListings(client, lifetime).then(
         (value) => ({ value, error: undefined as unknown }),
         (error: unknown) => ({ value: undefined, error }),
       ),
     ]);
+    if (lifetime !== this.lifetime) return;
     // A `me` that fails signed out is a signed-out person, not an error.
     const who: RegistryMe | undefined = me.value ?? (isCode(me.error, SIGNED_OUT) ? { signedIn: false } : undefined);
     const patch: Partial<RegistrySnapshot> = {
@@ -649,19 +654,21 @@ export class AppsStore {
       patch.queueStatus = "idle";
     }
     this.setRegistry(patch);
+    if (lifetime !== this.lifetime) return;
     await Promise.all([
-      who?.signedIn ? this.loadSubmissions() : undefined,
-      who?.reviewer ? this.loadQueue() : undefined,
+      who?.signedIn ? this.loadSubmissions(lifetime) : undefined,
+      who?.reviewer ? this.loadQueue(lifetime) : undefined,
     ]);
   }
 
   /** Follow the registry's cursor so search includes apps beyond its first page. */
-  private async readRegistryListings(client: PageClient): Promise<RegistryListingsResult> {
+  private async readRegistryListings(client: PageClient, lifetime: number): Promise<RegistryListingsResult> {
     const listings: RegistryListingsResult["listings"] = [];
     const seen = new Set<string>();
     let cursor: string | undefined;
     for (;;) {
       const page = await client.call<RegistryListingsResult>(RegistryOps.listings, cursor ? { cursor } : {});
+      if (lifetime !== this.lifetime) return { listings };
       listings.push(...page.listings);
       if (!page.cursor || seen.has(page.cursor)) return { listings };
       seen.add(page.cursor);
@@ -669,22 +676,27 @@ export class AppsStore {
     }
   }
 
-  private async loadSubmissions(): Promise<void> {
-    if (!this.client) return;
+  private async loadSubmissions(lifetime = this.lifetime): Promise<void> {
+    if (!this.client || lifetime !== this.lifetime) return;
     this.setRegistry({ submissionsStatus: "loading", submissionsError: undefined });
+    if (lifetime !== this.lifetime) return;
     try {
       const result = await this.client.call<RegistrySubmissionsResult>(RegistryOps.submissions, {});
+      if (lifetime !== this.lifetime) return;
       this.setRegistry({ submissions: result.submissions, submissionsStatus: "ready" });
     } catch (error) {
+      if (lifetime !== this.lifetime) return;
       this.setRegistry({ submissionsStatus: registryStatus(error), submissionsError: message(error) });
     }
   }
 
-  private async loadQueue(): Promise<void> {
-    if (!this.client) return;
+  private async loadQueue(lifetime = this.lifetime): Promise<void> {
+    if (!this.client || lifetime !== this.lifetime) return;
     this.setRegistry({ queueStatus: "loading", queueError: undefined });
+    if (lifetime !== this.lifetime) return;
     try {
       const result = await this.client.call<ReviewQueueResult>(RegistryOps.reviewQueue, {});
+      if (lifetime !== this.lifetime) return;
       const selection = this.snapshot.registry.reviewSelection;
       const kept = result.submissions.some((item) => item.id === selection);
       this.setRegistry({
@@ -694,6 +706,7 @@ export class AppsStore {
         reviewFile: kept ? this.snapshot.registry.reviewFile : undefined,
       });
     } catch (error) {
+      if (lifetime !== this.lifetime) return;
       this.setRegistry({ queueStatus: registryStatus(error), queueError: message(error) });
     }
   }
@@ -704,21 +717,25 @@ export class AppsStore {
    */
   async getListing(app: string, version: string): Promise<void> {
     if (!this.client || this.snapshot.registry.busy) return;
+    const lifetime = this.lifetime;
     this.setRegistry({ busy: app });
+    if (lifetime !== this.lifetime) return;
     try {
       await this.client.call(RegistryOps.get, { app, version });
     } catch (error) {
+      if (lifetime !== this.lifetime) return;
       this.setRegistry({ busy: undefined });
-      if (!isCode(error, CANCELLED)) this.set(failure(error));
+      if (lifetime === this.lifetime && !isCode(error, CANCELLED)) this.set(failure(error));
       return;
     }
+    if (lifetime !== this.lifetime) return;
     try {
       await this.intent(AppsOps.install, { app, grant_optional: false }, { reread: false });
     } finally {
-      this.setRegistry({ busy: undefined });
+      if (lifetime === this.lifetime) this.setRegistry({ busy: undefined });
     }
     // The app is in the catalog now, whether or not the person allowed the install.
-    await this.reload();
+    if (lifetime === this.lifetime) await this.reload();
   }
 
   /** Opens or closes the Submit for Review form of an installed local app. */
@@ -729,19 +746,24 @@ export class AppsStore {
   /** Submit for Review: the host shows its native confirmation first (publishing is outward-facing). */
   async submit(app: string, publisher: string, notes: string): Promise<void> {
     if (!this.client || this.snapshot.registry.busy) return;
+    const lifetime = this.lifetime;
     const params: Record<string, unknown> = { app, publisher: publisher.trim() };
     if (notes.trim()) params.notes = notes.trim();
     this.setRegistry({ busy: app });
+    if (lifetime !== this.lifetime) return;
     try {
       await this.client.call(RegistryOps.submit, params);
     } catch (error) {
+      if (lifetime !== this.lifetime) return;
       this.setRegistry({ busy: undefined });
-      if (!isCode(error, CANCELLED)) this.set(failure(error));
+      if (lifetime === this.lifetime && !isCode(error, CANCELLED)) this.set(failure(error));
       return;
     }
+    if (lifetime !== this.lifetime) return;
     this.setRegistry({ busy: undefined, submitFor: undefined });
+    if (lifetime !== this.lifetime) return;
     if (this.snapshot.error) this.set({ error: undefined });
-    await this.loadSubmissions();
+    await this.loadSubmissions(lifetime);
   }
 
   /** Selects a pending submission in the review queue; its files load on demand. */
@@ -753,11 +775,13 @@ export class AppsStore {
   /** Reads one file of a pending submission (`cmux.registry.review.file`) to show it as text. */
   async openReviewFile(id: string, path: string): Promise<void> {
     if (!this.client) return;
+    const lifetime = this.lifetime;
     this.setRegistry({ reviewFile: { id, path, status: "loading" } });
     const current = () => {
       const open = this.snapshot.registry.reviewFile;
-      return open?.id === id && open.path === path;
+      return lifetime === this.lifetime && open?.id === id && open.path === path;
     };
+    if (!current()) return;
     try {
       const result = await this.client.call<ReviewFileResult>(RegistryOps.reviewFile, { id, path });
       if (current()) this.setRegistry({ reviewFile: { id, path, status: "ready", file: decodeFile(result.base64) } });
@@ -772,26 +796,31 @@ export class AppsStore {
    */
   async decide(id: string, decision: ReviewDecision, reason: string): Promise<boolean> {
     if (!this.client || this.snapshot.registry.busy) return false;
+    const lifetime = this.lifetime;
     const text = reason.trim();
     if (decision === "reject" && !validRejectReason(text)) {
       this.setRegistry({ reviewFormError: "store.registry.reasonLength" });
       return false;
     }
     this.setRegistry({ busy: id, reviewFormError: undefined });
+    if (lifetime !== this.lifetime) return false;
     try {
       // The app and version name the host's sheet; the Cloud decides by id.
       const row = this.snapshot.registry.queue.find((q) => q.id === id);
       const named = row ? { app: row.app, version: row.version } : {};
       await this.client.call(RegistryOps.reviewDecide, { id, decision, reason: text, ...named });
     } catch (error) {
+      if (lifetime !== this.lifetime) return false;
       this.setRegistry({ busy: undefined });
-      if (!isCode(error, CANCELLED)) this.set(failure(error));
+      if (lifetime === this.lifetime && !isCode(error, CANCELLED)) this.set(failure(error));
       return false;
     }
+    if (lifetime !== this.lifetime) return false;
     this.setRegistry({ busy: undefined, reviewSelection: undefined, reviewFile: undefined });
+    if (lifetime !== this.lifetime) return false;
     if (this.snapshot.error) this.set({ error: undefined });
-    await this.loadQueue();
-    return true;
+    await this.loadQueue(lifetime);
+    return lifetime === this.lifetime;
   }
 
   private setRegistry(patch: Partial<RegistrySnapshot>): void {
