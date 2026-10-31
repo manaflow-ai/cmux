@@ -308,7 +308,7 @@ mod imp {
 #[cfg(target_os = "macos")]
 mod imp {
     /// Reads only `pid` already (no process scan here).
-    pub(super) fn sample_process(pid: u32) -> Option<super::ProcessSample> {
+    pub(super) fn sample_process(pid: u32) -> Option<ProcessSample> {
         Sampler::new().sample(pid)
     }
 
@@ -491,7 +491,7 @@ mod imp {
 #[cfg(windows)]
 mod imp {
     /// The full snapshot `Sampler::new` takes (no per-pid read here yet).
-    pub(super) fn sample_process(pid: u32) -> Option<super::ProcessSample> {
+    pub(super) fn sample_process(pid: u32) -> Option<ProcessSample> {
         Sampler::new().sample(pid)
     }
 
@@ -550,7 +550,7 @@ mod imp {
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 mod imp {
     /// Reads only `pid` already (no process scan here).
-    pub(super) fn sample_process(pid: u32) -> Option<super::ProcessSample> {
+    pub(super) fn sample_process(pid: u32) -> Option<ProcessSample> {
         Sampler::new().sample(pid)
     }
 

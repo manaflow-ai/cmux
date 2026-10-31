@@ -390,6 +390,19 @@ fn a_reopen_during_a_restart_does_not_wait_behind_other_adoptions() {
         took < std::time::Duration::from_millis(3_000),
         "the reopen waited {took:?} for its kept terminal behind the other adoptions' turns"
     );
+    // The busy workspace's terminals still adopt in held turns (two waves of
+    // 5 s); the fixture can close them only once they are running.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    loop {
+        let terminals = state_cli(&server, None, &["terminal", "list"]);
+        let all_running =
+            terminals.as_array().unwrap().iter().all(|terminal| terminal["lifecycle"] == "running");
+        if all_running {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "terminals never adopted: {terminals}");
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
 }
 
 /// Splits, keeps the split's terminal, closes its pane, restarts the daemon
