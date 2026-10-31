@@ -187,6 +187,8 @@ test("the composer ring keeps Claude's breakdown details and uses a compact tool
 
 // Leo, 2026-10-28: "You don't have the compact session." Compact session in Session Info's Context:
 // only where the App hands a compact (the agent lists /compact and the chat can be sent to).
+// The composer ring's card has none (Leo, 2026-10-31: "JUST F***ING REMOVE COMPACT FROM THE F***ING
+// POPOVER").
 const compactButton = (container: ParentNode) =>
   [...container.querySelectorAll<HTMLButtonElement>(".acpmux-chat-inspector-context__actions button")].find(
     (button) => button.textContent === "Compact session",
@@ -260,16 +262,12 @@ test("with Claude's /context, the tokens until auto-compact sit beside Compact s
   expect(container.querySelector(".acpmux-chat-inspector-context__compact")).not.toBeNull();
 });
 
-test("the composer ring's card shows Compact again when the App hands one, and sends it", async () => {
+test("the composer ring's card has no Compact, only Details", async () => {
   const container = installDom();
   root = createRoot(container);
-  const sent: string[] = [];
-  await act(async () =>
-    root!.render(<ContextRing used={60_000} size={200_000} onCompact={() => sent.push("compact")} />),
-  );
+  await act(async () => root!.render(<ContextRing used={60_000} size={200_000} onOpenDetails={() => {}} />));
   await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-context-ring")!.click());
-  const compact = document.querySelector<HTMLButtonElement>(".acpmux-context-card-compact")!;
-  expect(compact.textContent).toBe("Compact");
-  await act(async () => compact.click());
-  expect(sent).toEqual(["compact"]);
+  const buttons = [...document.querySelectorAll<HTMLButtonElement>(".acpmux-context-card button")];
+  expect(buttons.map((button) => button.className)).toEqual(["acpmux-context-card-details"]);
+  expect(buttons.some((button) => button.textContent === "Compact")).toBe(false);
 });
