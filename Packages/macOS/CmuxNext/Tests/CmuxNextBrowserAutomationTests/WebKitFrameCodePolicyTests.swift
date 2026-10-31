@@ -177,7 +177,9 @@ import WebKit
         private init(listener: NWListener, port: UInt16) { self.listener = listener; self.port = port }
 
         static func start() async throws -> Server {
-            let listener = try NWListener(using: .tcp, on: .any)
+            let parameters = NWParameters.tcp
+            parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+            let listener = try NWListener(using: parameters)
             let queue = DispatchQueue(label: "pr25858-frame-policy-test")
             let port: UInt16 = try await withCheckedThrowingContinuation { continuation in
                 listener.stateUpdateHandler = { state in

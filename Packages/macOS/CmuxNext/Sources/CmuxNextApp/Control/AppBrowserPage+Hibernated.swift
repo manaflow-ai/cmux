@@ -61,6 +61,6 @@ extension AppBrowserPage {
     }
 
     static var wakeFailed: ControlError {
-        ControlError(code: "unavailable", message: BrowserPageStrings.wakeFailed)
+        ControlError(code: "unavailable", message: BrowserPageCaptureStrings().wakeFailed)
     }
 }
