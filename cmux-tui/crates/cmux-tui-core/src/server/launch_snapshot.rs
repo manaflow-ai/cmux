@@ -199,6 +199,8 @@ fn launch_snapshot_value(mux: &Mux, include_projections: bool) -> anyhow::Result
     // Rooms, pins and personal groups filter and group the sidebar, so a
     // provisional sidebar drawn without them regroups when live data lands.
     // Room default env can hold credentials; the sidebar does not need it.
+    // A session's capability list (up to `MAX_SESSION_CAPABILITIES_BYTES`
+    // each) is not drawn either, and the file has its own size bound.
     let personal = match mux.personal_snapshot() {
         Ok(personal) => {
             let mut personal = serde_json::to_value(personal)?;
@@ -207,6 +209,13 @@ fn launch_snapshot_value(mux: &Mux, include_projections: bool) -> anyhow::Result
             {
                 if let Some(defaults) = profile.get_mut("defaults").and_then(Value::as_object_mut) {
                     defaults.remove("env");
+                }
+            }
+            for session in
+                personal.get_mut("sessions").and_then(Value::as_array_mut).into_iter().flatten()
+            {
+                if let Some(session) = session.as_object_mut() {
+                    session.remove("capabilities");
                 }
             }
             personal
@@ -572,6 +581,25 @@ mod tests {
             .unwrap();
         assert_eq!(work["defaults"]["cwd"], "/tmp");
         assert!(work["defaults"].get("env").is_none(), "room env stays out of the file");
+        // A session's capability list stays out of the file too.
+        run_command(
+            &mux,
+            json!({"cmd":"put-session","session_id":"remote-1","transport":{"kind":"ssh"},
+                   "capabilities":["profiles-v1"]}),
+        );
+        let snapshot = wait_for_snapshot(writer.path(), |snapshot| {
+            snapshot["personal"]["sessions"].as_array().is_some_and(|sessions| {
+                sessions.iter().any(|session| session["session_id"] == "remote-1")
+            })
+        });
+        assert!(
+            snapshot["personal"]["sessions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|session| session.get("capabilities").is_none()),
+            "session capabilities stay out of the file"
+        );
         assert_eq!(
             snapshot["personal"]["personal_revision"],
             run_command(&mux, json!({"cmd":"list-personal"}))["personal_revision"]
