@@ -10,8 +10,7 @@ import { usePaneLanguage, useT, type PaneLanguage, type Translate } from "../i18
 import type { AcpmuxRow } from "../model";
 import { formatDuration } from "../conversation/turns";
 import type { Subagent } from "./subagentFold";
-import { AgentTonesContext } from "./agentTones";
-import { agentTone } from "./agentTones";
+import { agentTone, AgentTonesContext } from "./agentTones";
 import { AgentIdentity, isRepeatedAgentKind } from "./AgentIdentity";
 import { subagentProgress } from "./subagentProgress";
 import { waveProps } from "../../../ui/wave";
