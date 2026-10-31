@@ -84,9 +84,14 @@ package actor NativeCloudLinkChild {
     private func launch(epoch: UInt64) async throws -> String {
         let startup = try await prepare()
         try check(epoch)
-        guard !startup.bytes.isEmpty, startup.bytes.count <= 4096,
-              let bundle = Bundle(url: bundleURL) else { throw POSIXError(.EACCES) }
-        let executable = try NativeCloudExecutable(bundle: bundle, publisher: publisher)
+        guard !startup.bytes.isEmpty, startup.bytes.count <= 4096 else { throw POSIXError(.EACCES) }
+        // The signature check hashes the bundle and its binary: on the blocking lane, never the actor's executor.
+        let (bundleURL, publisher, work) = (bundleURL, publisher, blockingWork)
+        let executable = try await work.run(.userVisible, mayBlock: .system) {
+            guard let bundle = Bundle(url: bundleURL) else { throw POSIXError(.EACCES) }
+            return try NativeCloudExecutable(bundle: bundle, publisher: publisher)
+        }
+        try check(epoch)
         let (parent, inherited) = try NativeBrokerDescriptor.pair()
         defer { Darwin.close(parent) }
         let input = FileHandle(fileDescriptor: inherited, closeOnDealloc: true)
