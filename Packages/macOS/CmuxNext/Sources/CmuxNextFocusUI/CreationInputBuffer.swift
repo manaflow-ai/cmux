@@ -6,9 +6,13 @@ public final class CreationInputBuffer {
     /// A ticket names its buffer too: a buffer flushed early never takes a later buffer's ticket of the same number.
     public struct Ticket: Hashable { fileprivate let id: Int; fileprivate let owner: ObjectIdentifier }
 
-    /// The held keys in typing order, each with the creation it was typed for: the newest one
-    /// pending when it was typed (the pane the person saw get the focus), nil for none.
+    /// The held keys in typing order, each with the creation it was typed for (its lane): the creation whose tab the
+    /// focus named when the key was typed (the pane the person saw get the focus), nil for none. A key goes only to
+    /// its own creation's terminal, never to another creation's (P0 1193: after Cmd-D, keys, Cmd-D, keys, the first
+    /// new terminal ran the second one's keys while the second's focus was on its way).
     private var events: [(event: NSEvent, creation: Int?)] = []
+    /// Each creation's provisional tab, kept after its reply: the terminal its lane goes to.
+    private var laneTabs: [Int: String] = [:]
     private var pending: [Int: UInt64] = [:]
     private var awaited: Set<UInt64> = []
     /// Pending creations whose new terminal's view takes keys before the reply, by its tab id.
@@ -39,7 +43,7 @@ public final class CreationInputBuffer {
         nextID += 1
         pending[nextID] = generation
         if let earlyTab { earlyTabs[nextID] = earlyTab }
-        if let tab { tabs[nextID] = tab }
+        if let tab { tabs[nextID] = tab; laneTabs[nextID] = tab }
         return Ticket(id: nextID, owner: ObjectIdentifier(self))
     }
 
@@ -54,6 +58,7 @@ public final class CreationInputBuffer {
             tabs[id] = nil
             earlyTabs[id] = nil
             pending[id] = nil
+            laneTabs[id] = nil
         }
         events.removeAll { $0.creation.map(ids.contains) ?? false }
         if pending.isEmpty, awaited.isEmpty { events.removeAll() }
@@ -63,8 +68,15 @@ public final class CreationInputBuffer {
     /// Whether a creation of this hold still waits for its reply and shows `tab`.
     public func isCreating(tab: String) -> Bool { tabs.contains { $0.value == tab && pending[$0.key] != nil } }
 
-    /// Whether a pending creation's new terminal view, tab `tab`, takes keys now.
-    public func takesKeysEarly(tab: String) -> Bool { earlyTabs.values.contains(tab) }
+    /// The pending creation whose new terminal view, tab `tab`, takes its own keys before the reply (its early view).
+    public func earlyLane(tab: String) -> Int? { earlyTabs.filter { $0.value == tab }.map(\.key).max() }
+
+    /// The lane of a key typed while the focus names (or is on its way to) tab `focusedTab`: the newest creation of
+    /// this hold that shows that tab, nil when the focus names none of them (a key typed after the person moved on).
+    public func lane(focusedTab: String?) -> Int? {
+        guard let focusedTab else { return nil }
+        return laneTabs.filter { $0.value == focusedTab }.map(\.key).max()
+    }
 
     /// `awaitsFocus`: the creation asked for focus under its generation; the keys wait until that
     /// expectation landed or was replaced. A failed creation asked for nothing.
@@ -79,19 +91,49 @@ public final class CreationInputBuffer {
 
     public func awaits(_ generation: UInt64) -> Bool { awaited.contains(generation) }
 
-    /// Holds `event`, typed for the newest pending creation.
-    public func capture(_ event: NSEvent) { events.append((event, pending.keys.max())) }
+    /// Holds `event`, typed while the focus named `focusedTab` (``lane(focusedTab:)``).
+    public func capture(_ event: NSEvent, focusedTab: String?) { events.append((event, lane(focusedTab: focusedTab))) }
 
     /// Holds `earlier` (keys taken and not run yet, typed after the key that started the newest
-    /// pending creation) before the keys held now, typed for that creation.
+    /// creation) before the keys held now, typed for that creation.
     public func prepend(_ earlier: ArraySlice<NSEvent>) {
-        let creation = pending.keys.max()
+        let creation = nextID > 0 ? nextID : nil
         events.insert(contentsOf: earlier.map { ($0, creation) }, at: 0)
     }
 
     public func take() -> [NSEvent] {
         defer { events.removeAll() }
         return events.map(\.event)
+    }
+
+    /// Takes the keys of lane `lane` only, in typing order (its early view has the keyboard); the others keep waiting.
+    public func take(lane: Int) -> [NSEvent] {
+        defer { events.removeAll { $0.creation == lane } }
+        return events.filter { $0.creation == lane }.map(\.event)
+    }
+
+    /// Ends the hold. Each lane whose terminal is not the focused tab `focused` gets its keys as typed text through
+    /// `writer(tab)` (that terminal's input, by the terminal id its creation chose, nil when no terminal of the window
+    /// shows it), so a key never runs into another terminal than the one it was typed for. Returns the rest in typing
+    /// order, to run again as typed: the focused lane's keys, keys of no lane, and any lane with a key that is not plain
+    /// text (a chord runs only through the app's dispatch) or whose terminal is gone.
+    public func take(focused: String?, writer: (String) -> (@MainActor (Data) -> Void)?) -> [NSEvent] {
+        for (lane, tab) in laneTabs where tab != focused {
+            let keys = events.filter { $0.creation == lane }.map(\.event)
+            let text = keys.map(Self.typedText)
+            guard !keys.isEmpty, !text.contains(nil), let write = writer(tab) else { continue }
+            write(Data(text.compactMap { $0 }.joined().utf8))
+            events.removeAll { $0.creation == lane }
+        }
+        return take()
+    }
+
+    /// What plain typing `event` sends to a terminal (its characters), nil for a Command chord or a function key (an
+    /// arrow, F1): those run only through the app's dispatch.
+    public static func typedText(_ event: NSEvent) -> String? {
+        guard event.modifierFlags.isDisjoint(with: [.command, .function]), let text = event.characters, !text.isEmpty,
+              !text.unicodeScalars.contains(where: { (0xF700...0xF8FF).contains($0.value) }) else { return nil }
+        return text
     }
 
     /// Calls `expired` after `limit` unless a creation of this hold still waits for its reply then

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextFocus
 import CmuxNextTerminal
 import os
 
@@ -23,25 +24,13 @@ final class CreationInputCoordinator {
     /// The longest a key waits for a selected terminal's surface (the slowest takes about 350 ms).
     var holdLimit: Duration = .seconds(2)
 
-    /// Why a window's creation hold ended (R-L5: its end is a signal). `focusLanded`: every creation of the hold replied
-    /// and the focus it asked for holds, with a responder that takes the keys. `limitReached`: the hold's 2 s bound ended
-    /// it first, so the keys typed for the new terminal went on up to that late; logged, as a person feels it.
-    /// `focusLeft`: a key went to a field outside the content (a sidebar or bar field), which ends any hold. `windowClosed`.
-    /// `creationFailed`: a creation of the hold failed (the daemon refused it, or the connection ended); no focus landed.
-    enum HoldEnd: Equatable, Sendable {
-        case focusLanded, limitReached, focusLeft, windowClosed, creationFailed
-    }
-
-    /// Windows whose current hold had a creation that failed: its unforced end is ``HoldEnd/creationFailed``.
-    private var failedCreation: Set<Int> = []
-
-    /// How the last creation hold of each window ended, by window number (tests, `debug.focus`).
-    private(set) var lastHoldEnd: [Int: HoldEnd] = [:]
+    /// How each window's creation holds ended (``CreationHoldEnd``, R-L5: its end is a signal).
+    private(set) var holdEnds = CreationHoldLog()
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "focus.creation-hold")
 
     /// How `window`'s last creation hold ended; nil when it never held.
-    func lastHoldEnd(in window: NSWindow?) -> HoldEnd? { window.flatMap { lastHoldEnd[$0.windowNumber] } }
+    func lastHoldEnd(in window: NSWindow?) -> CreationHoldEnd? { window.flatMap { holdEnds.last[$0.windowNumber] } }
 
     /// Whether `window`'s keys wait in a creation hold now (tests: a key typed meanwhile is replayed later).
     func isHolding(in window: NSWindow?) -> Bool {
@@ -102,7 +91,7 @@ final class CreationInputCoordinator {
     /// and after the focus events the reply queued.
     func resolve(_ ticket: CreationInputBuffer.Ticket?, landed: Bool, in window: NSWindow?) {
         guard let ticket, let window, let buffer = buffers[window.windowNumber] else { return }
-        if !landed { failedCreation.insert(window.windowNumber) }
+        if !landed { holdEnds.creationFailed(in: window.windowNumber) }
         buffer.resolve(ticket, awaitsFocus: landed)
         scheduleFlush(in: window)
         // The focus it asked for may never land (a split from a page tab shows a New Tab page):
@@ -144,27 +133,40 @@ final class CreationInputCoordinator {
         guard kind == .content, controller != nil, buffer.holds(event, limit: holdLimit, expiring: true, closes: closes) else {
             flush(in: shell, force: true, end: .focusLeft)
             guard let next = buffers[shell.windowNumber], next.holds(event, limit: holdLimit, expiring: false, closes: closes) else { return false }
-            next.capture(event)
+            next.capture(event, focusedTab: controller?.focus.state.typingTab)
             return true
         }
-        // A pending creation's early view has the keyboard: held keys first, then this one.
-        if let controller, case .terminal(_, let tab) = controller.focus.state.resolved, buffer.takesKeysEarly(tab: tab), Self.responderTakesKeys(controller, window: shell) {
-            let held = buffer.take(), opened = buffer.openedCount
-            for (index, key) in held.enumerated() {
-                replaying = true
-                NSApp.sendEvent(key)
-                replaying = false
-                // A key run again started another creation: the rest, and this key, wait for it, in order.
-                if buffer.openedCount != opened {
-                    buffer.prepend(held.dropFirst(index + 1))
-                    buffer.capture(event)
-                    return true
-                }
-            }
-            return false
-        }
-        buffer.capture(event)
+        // A pending creation's early view has the keyboard: the keys held for it first, then this one if it was typed for
+        // it too. Keys typed for another creation wait for that one's terminal (P0 1193).
+        if let controller, let lane = Self.earlyLane(buffer, controller, shell), runAgain(buffer.take(lane: lane), from: buffer, in: shell),
+           lane == buffer.lane(focusedTab: controller.focus.state.typingTab) { return false }
+        buffer.capture(event, focusedTab: controller?.focus.state.typingTab)
         return true
+    }
+
+    /// Runs held `keys` of `window` again as typed, in order. False when one started another creation (a new hold, or
+    /// another creation in `buffer`): the rest wait for it, in order.
+    private func runAgain(_ keys: [NSEvent], from buffer: CreationInputBuffer, in window: NSWindow) -> Bool {
+        let opened = buffer.openedCount
+        for (index, key) in keys.enumerated() {
+            replaying = true
+            NSApp.sendEvent(key)
+            replaying = false
+            if let next = buffers[window.windowNumber], next !== buffer || next.openedCount != opened {
+                next.prepend(keys.dropFirst(index + 1))
+                return false
+            }
+        }
+        return true
+    }
+
+    /// The pending creation whose early view has the keyboard: focus names its tab, its pane shows it and the window's
+    /// first responder is that terminal's view (never another terminal, a composer or Home's message box).
+    private static func earlyLane(_ buffer: CreationInputBuffer, _ controller: WindowController, _ window: NSWindow) -> Int? {
+        guard case .terminal(let pane, let tab) = controller.focus.state.resolved, let lane = buffer.earlyLane(tab: tab),
+              let shown = controller.content?.paneController(key: pane), shown.currentTabKey == tab,
+              case .terminal(let entry)? = shown.currentContent, let responder = window.firstResponder as? NSView else { return nil }
+        return responder === entry.session.surfaceView || responder.isDescendant(of: entry.session.view) ? lane : nil
     }
 
     /// Keys the daemon gave back from terminal `terminalID`, a creation that did not take them: they
@@ -207,14 +209,20 @@ final class CreationInputCoordinator {
     }
 
     /// `force`: the hold ends now (its limit, focus left the content), whatever it waited for.
-    /// `end`: why a forced end happened; an unforced one is ``HoldEnd/focusLanded``.
-    private func flush(in window: NSWindow, force: Bool = false, end forcedEnd: HoldEnd = .limitReached) {
-        guard let buffer = buffers[window.windowNumber], force || buffer.isResolved else { return }
+    /// `end`: why a forced end happened (``CreationHoldLog/end(in:forced:)``).
+    private func flush(in window: NSWindow, force: Bool = false, end forcedEnd: CreationHoldEnd = .limitReached) {
+        guard let buffer = buffers[window.windowNumber] else { return }
+        // Before every reply, only a creation whose early view has the keyboard takes its own keys (a focus settle).
+        if !force, !buffer.isResolved {
+            if let controller = router?.focus(for: window).0, let lane = Self.earlyLane(buffer, controller, window) {
+                _ = runAgain(buffer.take(lane: lane), from: buffer, in: window)
+            }
+            return
+        }
         guard let router, let controller = router.focus(for: window).0 else {
             // The window is gone: its keys go with it.
             buffers[window.windowNumber] = nil
-            failedCreation.remove(window.windowNumber)
-            lastHoldEnd[window.windowNumber] = .windowClosed
+            holdEnds.windowClosed(window.windowNumber)
             return
         }
         if !force {
@@ -223,24 +231,16 @@ final class CreationInputCoordinator {
             guard Self.responderTakesKeys(controller, window: window) else { return }
         }
         buffers[window.windowNumber] = nil
-        let failed = failedCreation.remove(window.windowNumber) != nil
-        let end = force ? forcedEnd : failed ? .creationFailed : .focusLanded
-        lastHoldEnd[window.windowNumber] = end
-        let pending = buffer.take()
+        let end = holdEnds.end(in: window.windowNumber, forced: force ? forcedEnd : nil)
+        let pending = buffer.take(focused: controller.focus.state.terminalTab) { tab in
+            guard case .terminal(let entry)? = controller.content?.panes.values.first(where: { $0.currentTabKey == tab })?.currentContent else { return nil }
+            return entry.session.sendBytes
+        }
         if end == .limitReached {
             // The person's keys for a new terminal waited the whole bound and go on now, into whatever has the focus.
             Self.logger.notice("creation hold of window \(window.windowNumber, privacy: .public) ended at its limit, not on focus: \(pending.count, privacy: .public) held key(s) go on now; last action \(router.lastInterception?.action.rawValue ?? "-", privacy: .public)")
         }
-        for (index, event) in pending.enumerated() {
-            replaying = true
-            NSApp.sendEvent(event)
-            replaying = false
-            // A replayed key started another creation: the rest wait for that one, in order.
-            if let next = buffers[window.windowNumber] {
-                next.prepend(pending.dropFirst(index + 1))
-                return
-            }
-        }
+        _ = runAgain(pending, from: buffer, in: window)
     }
 }
 
