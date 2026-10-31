@@ -255,6 +255,26 @@ class App:
         return True
 
 
+ENV_KEYS = ("HOME", "TMPDIR", "XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_RUNTIME_DIR", "USER", "LOGNAME", "PATH")
+
+
+def proc_env(pid):
+    """A process's argv and the environment keys that pick state paths (ps eww, same user): for the C4 check."""
+    out = subprocess.run(["ps", "eww", "-o", "command=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+    env = {}
+    for word in out.split():
+        key, sep, val = word.partition("=")
+        if sep and (key in ENV_KEYS or key.startswith("CMUX_")):
+            env[key] = val
+    return {"pid": pid, "argv_head": out.split(" HOME=")[0][:600], "env": env}
+
+
+def log_daemon_env(label):
+    rows = {"app": proc_env(APP.pid), "daemons": [proc_env(pid) for pid in APP.daemon_pids()]}
+    with open(os.path.join(opts.out, "daemon-env.jsonl"), "a") as f:
+        f.write(json.dumps({"t": round(time.time() - T0, 2), "label": label, **rows}) + "\n")
+
+
 def cli(*args, timeout=ACTION_BOUND):
     """The bundled `cmux --json` on the tag's daemon: (answer, seconds)."""
     started = time.time()
@@ -741,6 +761,7 @@ def iteration(seed, targets, keep=None, label="i"):
         killed_at = time.time()
         pids = kill(target)
     rec["killed"] = pids
+    log_daemon_env(f"before-kill-{target}")
     if not pids:
         rec["verdict"] = "not run"
         rec["problems"].append(f"no {target} process of this build to kill")
@@ -748,6 +769,7 @@ def iteration(seed, targets, keep=None, label="i"):
     say(f"  iter seed {seed}: {len(rec['actions'])} actions, SIGKILL {target} {pids} ({rec['point']})")
     state, timings, problem = restore(target, killed_at, old_daemons)
     rec["timings"] = timings
+    log_daemon_env(f"after-restore-{target}")
     if problem:
         rec["problems"].append(problem)
         rec["crash_reports"] = evidence(f"{label}-{seed}")
@@ -828,6 +850,7 @@ def main():
         say("no acpmux daemon of this build runs now; acpmux kills are judged only when one runs")
     seed = opts.seed if opts.seed is not None else int(time.time() * 1000) % (1 << 31)
     say(f"restore-fuzz seed {seed} chaos {opts.chaos} targets {targets}")
+    log_daemon_env("start")
     master = random.Random(seed)
     deadline = T0 + opts.max_seconds
     records, violations = [], []
