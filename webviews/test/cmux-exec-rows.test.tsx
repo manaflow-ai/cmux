@@ -12,7 +12,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
-import { cmuxTitle, execView, scriptCalls } from "../src/agent-session/acpmux/conversation/cmuxExec";
+import { cmuxTitle, execParts, execView, scriptCalls } from "../src/agent-session/acpmux/conversation/cmuxExec";
 import { mcpCall } from "../src/agent-session/acpmux/conversation/mcpCalls";
 import { jsTokens } from "../src/agent-session/acpmux/conversation/jsHighlight";
 import { treeText, valueTree } from "../src/agent-session/acpmux/conversation/valueTree";
@@ -151,6 +151,35 @@ test("the cmux server's own tools called directly say what they did; other serve
   // A folded server's tool (computer use, sub-sessions) is not the cmux server's own.
   expect(titles([codexCmux("cua_click", { x: 1 })])).toBeUndefined();
   expect(titles([codexCmux("subsessions_start_session", {})])).toBeUndefined();
+});
+
+test("a direct call's title names its workspace once the run's names resolve it", () => {
+  const item = codexCmux("app_agent_open_tab", { session: "s1", workspace: "ws_leads" });
+  const call = mcpCall(item.tool!)!;
+  // Drawn first before the run's names are known, then again with them: the title is not stuck.
+  expect(cmuxTitle(t, [call], [item.tool!], new Map())).toBe("Opened 1 agent session");
+  expect(cmuxTitle(t, [call], [item.tool!], new Map([["ws_leads", "Leads"]]))).toBe("Opened 1 agent session in Leads");
+  expect(cmuxTitle(t, [call], [item.tool!], new Map())).toBe("Opened 1 agent session");
+});
+
+test("an integer a double would round, in any JSON layer, shows the response as it came", () => {
+  const answer = (id: string) =>
+    `{"calls":1,"call_log":[{"name":"workspace_list","ok":true}],"logs":[],"result":{"id":${id}}}`;
+  // Only in the text block: the outer JSON holds it inside a string, so only the inner layer loses it.
+  const nested = (id: string) => exec(LIST_SCRIPT, JSON.stringify({ content: [{ type: "text", text: answer(id) }] }));
+  const parts = (item: AcpmuxActivity) => {
+    const call = mcpCall(item.tool!)!;
+    return execParts(execView(item.tool!, call.args), (text) => text);
+  };
+  const lossy = parts(nested("9007199254740993"));
+  expect(lossy.rawResponse).toBe(true);
+  expect(lossy.result).toBeUndefined();
+  // The title still reads the call_log.
+  expect(titleOf(nested("9007199254740993"))).toBe("Listed workspaces");
+  // A safe integer still reads as a tree.
+  const safe = parts(nested("42"));
+  expect(safe.rawResponse).toBe(false);
+  expect(treeText(safe.result!)).toBe("id: 42");
 });
 
 test("the script's tokens keep every character and color its keywords, strings and calls", () => {

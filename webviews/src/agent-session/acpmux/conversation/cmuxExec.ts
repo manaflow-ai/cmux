@@ -207,7 +207,10 @@ export function scriptCalls(source: string): string[] {
 /// response that holds none (an error the harness wrote as text, a cut response).
 export function readAnswer(output: string): ExecView["answer"] {
   if (output.length > MAX_ANSWER_CHARS) return undefined;
-  const found = findAnswer(parse(output), 0);
+  // Every JSON layer is checked before it is parsed (the response, then any text block in it):
+  // one with an integer a double would round keeps the answer from drawing as a tree.
+  const layers = { exact: !losesNumbers(output) };
+  const found = findAnswer(parse(output), 0, layers);
   if (!found) return undefined;
   const records = Array.isArray(found.call_log) ? found.call_log : [];
   const callLog: ExecCall[] = [];
@@ -228,16 +231,26 @@ export function readAnswer(output: string): ExecView["answer"] {
     ...("error" in found && { error: found.error }),
     logs,
     hasResult: "result" in found,
-    exact: !losesNumbers(output),
+    exact: layers.exact,
   };
 }
 
-function findAnswer(value: unknown, depth: number): Record<string, unknown> | undefined {
+function findAnswer(
+  value: unknown,
+  depth: number,
+  layers: { exact: boolean },
+): Record<string, unknown> | undefined {
   if (depth > 5) return undefined;
-  if (typeof value === "string") return /^\s*\{/.test(value) ? findAnswer(parse(value), depth + 1) : undefined;
+  if (typeof value === "string") {
+    if (!/^\s*\{/.test(value)) return undefined;
+    const parsed = parse(value);
+    const found = findAnswer(parsed, depth + 1, layers);
+    if (found && losesNumbers(value)) layers.exact = false;
+    return found;
+  }
   if (Array.isArray(value)) {
     for (const entry of value.slice(0, 8)) {
-      const found = findAnswer(entry, depth + 1);
+      const found = findAnswer(entry, depth + 1, layers);
       if (found) return found;
     }
     return undefined;
@@ -248,7 +261,7 @@ function findAnswer(value: unknown, depth: number): Record<string, unknown> | un
   // The MCP result: its structured content first (the answer itself), then its blocks' text.
   for (const key of ["structuredContent", "content", "text", "output", "result"]) {
     if (!(key in value)) continue;
-    const found = findAnswer(value[key], depth + 1);
+    const found = findAnswer(value[key], depth + 1, layers);
     if (found) return found;
   }
   return undefined;
@@ -382,7 +395,9 @@ function docsLine(t: Translate, query: string | undefined, running: boolean): st
   return t(running ? "tools.cmux.searching" : "tools.cmux.searched");
 }
 
-const titleCache = new WeakMap<Tool, Map<Translate, string>>();
+/// A cached title and the workspace name it was made with: a direct call's title names the
+/// workspace the run's names resolve, which can arrive after the row first draws.
+const titleCache = new WeakMap<Tool, Map<Translate, { workspace: string | undefined; title: string }>>();
 
 /// The title of one or more consecutive calls to one cmux tool (`calls` and their `tools`, in
 /// order), or nil for calls the transcript says as any other MCP call. Kept per call snapshot and
@@ -397,9 +412,10 @@ export function cmuxTitle(
   const tool = tools[0];
   if (!first || !tool || !isCmuxCall(first)) return undefined;
   const one = calls.length === 1;
+  const named = first.tool === EXEC || first.tool === DOCS ? undefined : argWorkspace(first.args, names);
   if (one) {
     const cached = titleCache.get(tool)?.get(t);
-    if (cached !== undefined) return cached;
+    if (cached && cached.workspace === named) return cached.title;
   }
   const running = tools.some(isRunningTool);
   let title: string;
@@ -417,7 +433,7 @@ export function cmuxTitle(
   if (one) {
     let byLanguage = titleCache.get(tool);
     if (!byLanguage) titleCache.set(tool, (byLanguage = new Map()));
-    byLanguage.set(t, title);
+    byLanguage.set(t, { workspace: named, title });
   }
   return title;
 }
