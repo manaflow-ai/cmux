@@ -5,7 +5,8 @@ public import Foundation
 ///
 /// Values come from the bundle's `Info.plist` `LSEnvironment` (what
 /// `scripts/reload.sh` bakes into tagged builds), then the process
-/// environment. Release builds always use production. A Debug build built
+/// environment. Release builds use production except the signed NEXT DEV
+/// channel, which uses the development Worker and staging sign-in. A Debug build built
 /// without `--direct-backend` points at a loopback origin with no server;
 /// ``backend`` says so, so Cloud actions can explain how to fix the build
 /// instead of timing out.
@@ -36,12 +37,12 @@ public struct CloudConfiguration: Sendable, Equatable {
     public enum LinkSource: Sendable, Equatable {
         /// `/api/vm` list, create and attach endpoint and a `cmux-tui remote
         /// connect` process (frozen, contract 2.5). The default until the
-        /// first-party app packages ship in the bundle (cx-t2rz).
+        /// first-party app packages ship in the bundle (cx-t2rz), except NEXT DEV.
         case legacy
         /// The Cloud app server (contract 2.1, 2.3): the machine list,
         /// create and the `cloud.machine.connect` carrier socket, all on the
         /// cmux-next API Worker through the host credential relay (cx-t2rz).
-        /// Debug builds with `CMUX_NEXT_CLOUD_LINK=app` (launch env) or
+        /// Signed NEXT DEV, or Debug builds with `CMUX_NEXT_CLOUD_LINK=app` (launch env) or
         /// `CMUX_CLOUD_LINK=app` (baked).
         case appServer
     }
@@ -67,6 +68,8 @@ public struct CloudConfiguration: Sendable, Equatable {
     /// Stands in where a literal URL failed to parse (tests parse every literal).
     static let inertURL = URL(fileURLWithPath: "/dev/null")
     static let productionOrigin = URL(string: "https://cmux.com") ?? inertURL
+    static let stagingOrigin = URL(string: "https://cmux-staging.vercel.app") ?? inertURL
+    static let developmentWorkerOrigin = URL(string: "https://cmux-api-development.debussy.workers.dev") ?? inertURL
     static let stackOrigin = URL(string: "https://api.stack-auth.com") ?? inertURL
     static let localDevelopmentOrigin = URL(string: "http://localhost:3777") ?? inertURL
     static let developmentProjectID = "454ecd03-1db2-4050-845e-4ce5b0cd9895"
@@ -81,6 +84,16 @@ public struct CloudConfiguration: Sendable, Equatable {
     /// tagged build to another backend.
     public static func resolve(bundleID: String?, bundled: [String: String], process: [String: String],
                                isDebugBuild: Bool) -> CloudConfiguration {
+        // NEXT DEV is a signed Release compile, not a DEBUG build. Its Worker
+        // accepts staging Stack tokens. Keep this channel's endpoints fixed so
+        // inherited environment variables cannot redirect its credentials.
+        if !isDebugBuild, bundleID == "com.cmuxterm.app.debug.next" {
+            return CloudConfiguration(
+                backend: .development(stagingOrigin), apiBaseURL: stagingOrigin, authWebOrigin: stagingOrigin,
+                stackBaseURL: stackOrigin, stackProjectID: developmentProjectID, stackPublishableClientKey: developmentClientKey,
+                isProductionAuth: false, callbackScheme: "cmux-next-dev", bundleID: bundleID, isDebugBuild: false,
+                linkSource: .appServer)
+        }
         let value = { (key: String) -> String? in
             let raw = bundled[key] ?? process[key]
             let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -119,10 +132,12 @@ public struct CloudConfiguration: Sendable, Equatable {
 
     /// This process's configuration.
     /// The API Worker (`/v1/read`, `/v1/ops`, `/v1/auth/*`): production
-    /// auth uses cloud-api.cmux.dev, everything else the staging Worker. The
+    /// auth uses cloud-api.cmux.dev, signed NEXT DEV the development Worker,
+    /// and other development builds the staging Worker. The
     /// `CMUX_NEXT_FEED_API_URL` override is honored in debug builds only, so
     /// a release build never sends a credential to another origin.
     public func ownerAPIBaseURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+        if !isDebugBuild, bundleID == "com.cmuxterm.app.debug.next" { return Self.developmentWorkerOrigin }
         if isDebugBuild, let raw = environment["CMUX_NEXT_FEED_API_URL"], let url = URL(string: raw) { return url }
         // Both are constant https literals (CloudCrashLiteralTests parses them); /dev/null stands in.
         return URL(string: isProductionAuth ? "https://cloud-api.cmux.dev" : "https://cloud-api-staging.cmux.dev") ?? Self.inertURL
