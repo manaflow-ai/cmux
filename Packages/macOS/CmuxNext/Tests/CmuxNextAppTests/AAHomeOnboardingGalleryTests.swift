@@ -2,6 +2,7 @@ import AppKit
 import CmuxHomeCore
 @testable import CmuxNextDesign
 @testable import CmuxNextHome
+import CmuxNextTestSupport
 import CmuxTheme
 import CryptoKit
 import ImageIO
@@ -9,7 +10,7 @@ import Testing
 
 /// Actual empty Home transcript, not the web HomeInbox or an account-state mock.
 /// The manifest explicitly lists axes this fixture cannot exercise.
-@MainActor @Suite(.serialized) struct AAHomeOnboardingGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AAHomeOnboardingGalleryTests {
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"))
     func captureFreshHome() async throws {
         _ = NSApplication.shared

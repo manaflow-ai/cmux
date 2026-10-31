@@ -219,7 +219,7 @@ export function EnvironmentSection({
       {remoteControl && (
         <li className="acpmux-chat-inspector-row">
           <Icon name="device.phone" size={ROW_ICON} row />
-          <label className="acpmux-chat-inspector-switch">
+          <label className="acpmux-chat-inspector-switch" title={t("chatInspector.environment.remoteControl.help")}>
             <span className="acpmux-chat-inspector-row__name">{t("chatInspector.environment.remoteControl")}</span>
             <input
               type="checkbox"

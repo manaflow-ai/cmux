@@ -215,6 +215,9 @@ enum AgentPaneContextMenu {
             } else {
                 copies.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyMessage, symbol: "doc.on.doc") { actions.copy(target.text) })
             }
+            // Quote in Reply without selecting first (u18673): the whole message, as the reader sees it in Markdown.
+            let quoted = Self.quote(target.markdown ?? target.text)
+            message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.quoteInReply, symbol: "text.quote") { actions.edit(quoted) })
             if let row = target.retryRowId {
                 message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.retry, symbol: "arrow.clockwise") { actions.retry(row) })
             }
