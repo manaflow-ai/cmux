@@ -56,6 +56,9 @@ pub(crate) struct ReapSchedule {
     deadlines: HashMap<String, Instant>,
     /// Consecutive failed reapable-set scans (retry spacing).
     scan_failures: u32,
+    /// The registry holds no unplaced time (the last pass removed or found
+    /// none): a pass that sees no unplaced terminal skips the registry.
+    unplaced_rows_empty: bool,
 }
 
 impl ReapSchedule {
@@ -240,15 +243,25 @@ impl Mux {
     /// The reapable terminals, each with how long it has been unplaced,
     /// counted from the durable time the owner (this one or an earlier one)
     /// first saw it so (`terminal_unplaced_store.rs`).
-    fn reapable_terminals_unplaced_for(&self) -> anyhow::Result<HashMap<String, Duration>> {
+    /// A pass that sees no unplaced terminal while the registry holds no
+    /// unplaced time (`unplaced_rows_empty`) does not touch the registry.
+    fn reapable_terminals_unplaced_for(
+        &self,
+        unplaced_rows_empty: &mut bool,
+    ) -> anyhow::Result<HashMap<String, Duration>> {
         let (unplaced, retained) = self.reapable_and_retained_terminals()?;
+        if unplaced.is_empty() && *unplaced_rows_empty {
+            return Ok(HashMap::new());
+        }
         let wall_ms = now_ms();
-        let since = self
+        let synced = self
             .workspace_registry
             .lock()
-            .unwrap()
+            .unwrap_or_else(PoisonError::into_inner)
             .sync_terminal_unplaced(&unplaced, &retained, wall_ms)?;
-        Ok(since
+        *unplaced_rows_empty = !synced.rows_left;
+        Ok(synced
+            .since_ms
             .into_iter()
             .map(|(terminal_id, since_ms)| {
                 (terminal_id, Duration::from_millis(wall_ms.saturating_sub(since_ms)))
@@ -322,7 +335,7 @@ impl Mux {
         now: Instant,
     ) -> Vec<String> {
         let grace = self.terminal_reap_grace();
-        match self.reapable_terminals_unplaced_for() {
+        match self.reapable_terminals_unplaced_for(&mut schedule.unplaced_rows_empty) {
             Ok(reapable) => schedule.observe_unplaced(now, grace, &reapable),
             Err(error) => {
                 self.report_internal_diagnostic(format!("terminal reap scan failed: {error}"));

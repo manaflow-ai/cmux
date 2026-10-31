@@ -13,6 +13,13 @@
 //! schema version does not change and an older binary still opens this
 //! registry (it ignores the table, and counts the grace from its own start as
 //! before). Rows of tombstoned or unknown terminals are pruned by the reaper.
+//!
+//! An owner that does not keep the table (an older binary, or a daemon
+//! started without a reap grace) leaves rows as they were: a terminal it
+//! placed again and that was unplaced again later keeps its first time, and
+//! the next owner that keeps the table can reap it up to one grace early.
+//! Only a closed terminal that is not kept and has no attached client is
+//! affected; it loses the rest of its undo window.
 
 use std::collections::{HashMap, HashSet};
 
@@ -30,22 +37,33 @@ pub(super) fn create_terminal_unplaced_schema(transaction: &Transaction<'_>) -> 
     Ok(())
 }
 
+/// What [`WorkspaceRegistry::sync_terminal_unplaced`] found.
+#[derive(Debug, Default)]
+pub struct UnplacedSince {
+    /// Each unplaced terminal's first unplaced time (Unix ms).
+    pub since_ms: HashMap<String, u64>,
+    /// Whether any row is left (a terminal unplaced, or one still adopting);
+    /// with none, a pass that sees no unplaced terminal has nothing to do.
+    pub rows_left: bool,
+}
+
 impl WorkspaceRegistry {
     /// Record what the reaper sees now and return, for each of `unplaced`,
     /// the wall-clock time (Unix ms) it was first seen unplaced: a terminal
     /// without a row gets `now_ms`. Rows of `placed` terminals (a placement
-    /// came back, or the terminal is kept) and of tombstoned or unknown
-    /// terminals are removed. A terminal in neither set (one a restarted
-    /// owner is still adopting) keeps its row, so its grace goes on counting.
-    /// Writes only when a row changes.
+    /// came back, or the terminal is kept) and of terminals that are no
+    /// longer live (exited, tombstoned or unknown) are removed. A live
+    /// terminal in neither set (one a restarted owner is still adopting)
+    /// keeps its row, so its grace goes on counting. Writes only when a row
+    /// changes.
     pub fn sync_terminal_unplaced(
         &mut self,
         unplaced: &HashSet<String>,
         placed: &HashSet<String>,
         now_ms: u64,
-    ) -> anyhow::Result<HashMap<String, u64>> {
+    ) -> anyhow::Result<UnplacedSince> {
         let db = self.connection.get();
-        let mut rows: HashMap<String, u64> = {
+        let read_rows = || -> anyhow::Result<HashMap<String, u64>> {
             let mut statement =
                 db.prepare("SELECT terminal_id, since_ms FROM terminal_unplaced")?;
             let rows = statement
@@ -55,11 +73,14 @@ impl WorkspaceRegistry {
                 let (terminal_id, since_ms) = row?;
                 map.insert(terminal_id, u64::try_from(since_ms).unwrap_or(0));
             }
-            map
+            Ok(map)
         };
-        let stale: Vec<&String> = rows.keys().filter(|id| placed.contains(*id)).collect();
-        let fresh: Vec<&String> = unplaced.iter().filter(|id| !rows.contains_key(*id)).collect();
-        if !stale.is_empty() || !fresh.is_empty() {
+        let mut rows = read_rows()?;
+        let stale: Vec<String> = rows.keys().filter(|id| placed.contains(*id)).cloned().collect();
+        let fresh: Vec<String> =
+            unplaced.iter().filter(|id| !rows.contains_key(*id)).cloned().collect();
+        let unseen = rows.keys().any(|id| !placed.contains(id) && !unplaced.contains(id));
+        if !stale.is_empty() || !fresh.is_empty() || unseen {
             let stored = i64::try_from(now_ms).unwrap_or(i64::MAX);
             let tx = db.unchecked_transaction()?;
             for terminal_id in &stale {
@@ -73,29 +94,33 @@ impl WorkspaceRegistry {
                     params![terminal_id, stored],
                 )?;
             }
-            tx.execute(
+            let pruned = tx.execute(
                 "DELETE FROM terminal_unplaced
                  WHERE terminal_id NOT IN (
-                   SELECT terminal_id FROM terminal_hosts WHERE lifecycle != 'tombstoned'
+                   SELECT terminal_id FROM terminal_hosts
+                   WHERE lifecycle IN ('launching', 'adopting', 'running')
                  )",
                 [],
             )?;
             tx.commit()?;
-            let stale: Vec<String> = stale.into_iter().cloned().collect();
-            let fresh: Vec<String> = fresh.into_iter().cloned().collect();
-            for terminal_id in stale {
-                rows.remove(&terminal_id);
-            }
-            for terminal_id in fresh {
-                rows.insert(terminal_id, now_ms);
+            if pruned > 0 {
+                rows = read_rows()?;
+            } else {
+                for terminal_id in stale {
+                    rows.remove(&terminal_id);
+                }
+                for terminal_id in fresh {
+                    rows.insert(terminal_id, now_ms);
+                }
             }
         }
-        Ok(unplaced
+        let since_ms = unplaced
             .iter()
             .map(|terminal_id| {
                 (terminal_id.clone(), rows.get(terminal_id).copied().unwrap_or(now_ms))
             })
-            .collect())
+            .collect();
+        Ok(UnplacedSince { since_ms, rows_left: !rows.is_empty() })
     }
 }
 
