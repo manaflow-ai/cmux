@@ -37,8 +37,9 @@ pub(crate) struct Candidate {
 }
 
 impl Candidate {
+    /// Its daemon can be reached, or soon will be (`CloudMachine.Status.isLive`).
     fn is_live(&self) -> bool {
-        matches!(self.status.as_str(), "running" | "provisioning")
+        matches!(self.status.as_str(), "running" | "provisioning" | "starting")
     }
 
     /// A pause, resume or delete the server accepted is on its way
@@ -52,12 +53,15 @@ impl Candidate {
         self.status == "paused" && self.pause_reason.as_deref() == Some("idle")
     }
 
-    /// Can take work now or after a resume: connected, live, or paused (by a
-    /// person or the idle timer). Never one the server failed or is removing,
-    /// even while a stale link to it still reads as connected.
+    /// Can take work now or after a resume: connected, live (resuming
+    /// included), or paused or pausing (by a person or the idle timer). Never
+    /// one the server failed or is removing, even while a stale link to it
+    /// still reads as connected.
     fn is_usable(&self) -> bool {
         !matches!(self.status.as_str(), "failed" | "deleting" | "deleted" | "destroyed")
-            && (self.connected || self.is_live() || self.status == "paused")
+            && (self.connected
+                || self.is_live()
+                || matches!(self.status.as_str(), "paused" | "pausing"))
     }
 
     fn names(&self) -> impl Iterator<Item = &str> {

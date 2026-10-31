@@ -776,6 +776,27 @@ fn a_workspaces_gone_teammates_or_failed_machine_is_replaced_by_a_new_one() {
         );
         assert_eq!(pins.workspace_machine("ws-a", ACCOUNT), None, "{gone:?}");
     }
+    // #28407's shown status: a workspace's machine that is pausing or resuming,
+    // its link down meanwhile, stays the workspace's own.
+    for status in ["pausing", "starting"] {
+        let mut pins = Ledger::default();
+        pins.bind("ws-a", ACCOUNT, "vm-a");
+        let changing = [offline(machine("vm-a", "cloud-chats-2"), status, None)];
+        assert_eq!(
+            pick::destination(
+                &send(&key()),
+                ACCOUNT,
+                Some("ws-a"),
+                &mut pins,
+                &changing,
+                &[],
+                Some(ME),
+                true
+            ),
+            Destination::Machine("vm-a".into()),
+            "{status}"
+        );
+    }
     // Signed out, a workspace's machine is not taken either.
     let mut pins = Ledger::default();
     pins.bind("ws-a", ACCOUNT, "vm-a");
