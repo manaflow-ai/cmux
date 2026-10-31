@@ -814,12 +814,25 @@ public final class LiveCoordinator {
     }
 
     /// Where a notification's session lives: the agent tab bound to it, or
-    /// the tab the Mac named.
-    public func destination(sessionID: String?, workspaceID: String?, tabID: String?) -> AgentChatDestination? {
-        if let sessionID, let place = place(sessionID: sessionID) {
-            return AgentChatDestination(workspaceID: place.workspaceID, tabID: place.tabID)
+    /// the tab the Mac named. A push includes its Mac's identity, so resolve
+    /// that Mac only; the same session or workspace ids on a different Mac
+    /// must never open the wrong chat. Links without a Mac keep the global lookup.
+    public func destination(sessionID: String?, workspaceID: String?, tabID: String?,
+                            macID: String? = nil) -> AgentChatDestination? {
+        if let sessionID {
+            let found: LiveFeed.Place?
+            if let macID {
+                found = sessions[macID]?.place(sessionID: sessionID)
+            } else {
+                found = place(sessionID: sessionID)
+            }
+            if let found {
+                return AgentChatDestination(workspaceID: found.workspaceID, tabID: found.tabID)
+            }
         }
-        guard let workspaceID, let tabID, store.workspace(id: workspaceID)?.tabs.contains(where: { $0.id == tabID }) == true else { return nil }
+        guard let workspaceID, let tabID, let workspace = store.workspace(id: workspaceID),
+              (macID == nil || workspace.macID == macID),
+              workspace.tabs.contains(where: { $0.id == tabID }) else { return nil }
         return AgentChatDestination(workspaceID: workspaceID, tabID: tabID)
     }
 
