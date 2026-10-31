@@ -1,4 +1,4 @@
-import CoreGraphics
+public import CoreGraphics
 import Foundation
 
 /// App-wide window membership and lifecycle (plans/cmux-next/REWRITE.md
@@ -28,24 +28,24 @@ import Foundation
 ///
 /// Pure value type: every transition is a mutating method returning the
 /// `Changes` the App animates. `WindowManager` applies them to controllers.
-struct WindowRegistry: Equatable, Sendable {
-    struct Window: Equatable, Sendable, Identifiable {
-        let id: String
+public struct WindowRegistry: Equatable, Sendable {
+    public struct Window: Equatable, Sendable, Identifiable {
+        public let id: String
         /// Owned workspace ids (`WorkspaceModel.id`), in daemon sidebar
         /// order as of the last membership transition. Never empty for a
         /// registered window. The daemon owns the order; this mirrors it when
         /// membership changes, not on every move (the sidebar draws its own
         /// order): a move must not cost a pass over every workspace.
-        var workspaceIDs: [String]
+        public var workspaceIDs: [String]
         /// AppKit screen frame (bottom-left origin).
-        var frame: CGRect?
+        public var frame: CGRect?
         /// Display the window was on (`CGDisplayCreateUUIDFromDisplayID`).
-        var display: String?
+        public var display: String?
         /// False after the user closed it: kept so its workspaces stay
         /// restorable (one closed group).
-        var isOpen = true
+        public var isOpen = true
 
-        init(id: String, workspaceIDs: [String] = [], frame: CGRect? = nil, display: String? = nil, isOpen: Bool = true) {
+        public init(id: String, workspaceIDs: [String] = [], frame: CGRect? = nil, display: String? = nil, isOpen: Bool = true) {
             self.id = id
             self.workspaceIDs = workspaceIDs
             self.frame = frame
@@ -55,23 +55,25 @@ struct WindowRegistry: Equatable, Sendable {
     }
 
     /// What a transition did, for animation and focus.
-    struct Changes: Equatable, Sendable {
+    public struct Changes: Equatable, Sendable {
         /// Windows removed because they lost their last workspace.
-        var emptied: [String] = []
+        public var emptied: [String] = []
         /// Workspaces whose owner changed, by new owner.
-        var moved: [String: [String]] = [:]
+        public var moved: [String: [String]] = [:]
         /// Workspaces of a closed incognito window: no window lists them
         /// any more, and the caller closes them.
-        var discarded: [String] = []
+        public var discarded: [String] = []
 
-        var isEmpty: Bool { emptied.isEmpty && moved.isEmpty && discarded.isEmpty }
+        public var isEmpty: Bool { emptied.isEmpty && moved.isEmpty && discarded.isEmpty }
+
+        public init() {}
     }
 
     /// Creation order. A write that changes membership rebuilds `owners`
     /// (O(n)); loops that touch several windows write a local copy back once.
     /// A frame or open-state change compares O(windows) (equal arrays share
     /// storage) and rebuilds nothing.
-    private(set) var windows: [Window] = [] {
+    public private(set) var windows: [Window] = [] {
         didSet {
             let same = windows.count == oldValue.count
                 && zip(windows, oldValue).allSatisfy { $0.id == $1.id && $0.workspaceIDs == $1.workspaceIDs }
@@ -84,21 +86,21 @@ struct WindowRegistry: Equatable, Sendable {
     /// `windows`; not part of `==`.
     private var owners: [String: String] = [:]
     /// Window ids, front first: key changes and `WindowActivation` orders keep it (`WindowManager.windowDidOrder`).
-    private(set) var recency: [String] = []
+    public private(set) var recency: [String] = []
     /// Incognito windows, registered or about to be (New Incognito Window
     /// marks the id before its workspace is reported).
-    private(set) var incognito: Set<String> = []
+    public private(set) var incognito: Set<String> = []
     /// Workspaces of closed incognito windows until the daemons stop
     /// reporting them: reconcile never gives them to a window.
-    private(set) var discarding: Set<String> = []
+    public private(set) var discarding: Set<String> = []
 
-    init(windows: [Window] = []) {
+    public init(windows: [Window] = []) {
         self.windows = windows
         owners = Self.ownerIndex(windows)
         recency = windows.map(\.id)
     }
 
-    static func == (lhs: WindowRegistry, rhs: WindowRegistry) -> Bool {
+    public static func == (lhs: WindowRegistry, rhs: WindowRegistry) -> Bool {
         lhs.windows == rhs.windows && lhs.recency == rhs.recency && lhs.incognito == rhs.incognito
             && lhs.discarding == rhs.discarding
     }
@@ -114,31 +116,31 @@ struct WindowRegistry: Equatable, Sendable {
 
     // MARK: Queries
 
-    func window(_ id: String) -> Window? { windows.first { $0.id == id } }
+    public func window(_ id: String) -> Window? { windows.first { $0.id == id } }
 
-    func owner(of workspaceID: String) -> String? { owners[workspaceID] }
+    public func owner(of workspaceID: String) -> String? { owners[workspaceID] }
 
-    var openWindows: [Window] { windows.filter(\.isOpen) }
+    public var openWindows: [Window] { windows.filter(\.isOpen) }
 
     /// The most recently active open window, excluding `excluded`.
     /// `incognito` picks the kind: normal windows unless true.
-    func mostRecentOpen(excluding excluded: Set<String> = [], incognito wanted: Bool = false) -> String? {
+    public func mostRecentOpen(excluding excluded: Set<String> = [], incognito wanted: Bool = false) -> String? {
         let open = Set(openWindows.map(\.id).filter { isIncognito($0) == wanted }).subtracting(excluded)
         return recency.first { open.contains($0) } ?? windows.first { open.contains($0.id) }?.id
     }
 
-    func isIncognito(_ windowID: String) -> Bool { incognito.contains(windowID) }
+    public func isIncognito(_ windowID: String) -> Bool { incognito.contains(windowID) }
 
     /// True when moving `workspaceIDs` into window `id` would cross between
     /// an incognito window and a normal one (a workspace no window lists
     /// crosses nothing).
-    func crossesIncognito(_ workspaceIDs: [String], to id: String) -> Bool {
+    public func crossesIncognito(_ workspaceIDs: [String], to id: String) -> Bool {
         let target = isIncognito(id)
         return workspaceIDs.contains { owner(of: $0).map { isIncognito($0) != target } ?? false }
     }
 
     /// Descriptions of broken invariants (empty when consistent).
-    func violations() -> [String] {
+    public func violations() -> [String] {
         var seen: [String: String] = [:]
         var problems: [String] = []
         for window in windows {
@@ -166,7 +168,7 @@ struct WindowRegistry: Equatable, Sendable {
     /// incognito; a mix of both kinds, or normal workspaces for a window
     /// marked incognito, opens nothing.
     @discardableResult
-    mutating func openWindow(id: String, workspaceIDs: [String] = [], frame: CGRect? = nil, display: String? = nil,
+    public mutating func openWindow(id: String, workspaceIDs: [String] = [], frame: CGRect? = nil, display: String? = nil,
                              behind: Bool = false) -> Changes {
         guard window(id) == nil else { return move(workspaceIDs, to: id) }
         guard !workspaceIDs.isEmpty else { return Changes() }
@@ -189,7 +191,7 @@ struct WindowRegistry: Equatable, Sendable {
     /// move to the most recent other open window. An incognito window closes
     /// for good, and its workspaces are `discarded`.
     @discardableResult
-    mutating func close(_ id: String, keepsGroup: Bool = true) -> Changes {
+    public mutating func close(_ id: String, keepsGroup: Bool = true) -> Changes {
         guard let index = windows.firstIndex(where: { $0.id == id }) else { return Changes() }
         if isIncognito(id) {
             var changes = Changes()
@@ -209,7 +211,7 @@ struct WindowRegistry: Equatable, Sendable {
     /// Closed window `id`'s group was deleted: its workspaces move to the most
     /// recent open window of its kind, else it opens again (never hidden).
     @discardableResult
-    mutating func releaseClosed(_ id: String) -> Changes {
+    public mutating func releaseClosed(_ id: String) -> Changes {
         guard let window = window(id), !window.isOpen else { return Changes() }
         guard let heir = mostRecentOpen(excluding: [id], incognito: isIncognito(id)) else {
             _ = reopen(id: id)
@@ -232,7 +234,7 @@ struct WindowRegistry: Equatable, Sendable {
 
     /// Opens the most recent closed window again (Dock click, Show cmux).
     /// Returns its id, or nil when none is closed.
-    mutating func reopen() -> String? {
+    public mutating func reopen() -> String? {
         guard let id = recency.first(where: { id in window(id)?.isOpen == false && !isIncognito(id) }),
               let index = windows.firstIndex(where: { $0.id == id }) else { return nil }
         windows[index].isOpen = true
@@ -242,30 +244,30 @@ struct WindowRegistry: Equatable, Sendable {
 
     /// Marks restored window `id` open or closed (a relaunch keeps a closed
     /// window closed, `WindowRecord.isClosed`).
-    mutating func setRestored(_ id: String, open: Bool) {
+    public mutating func setRestored(_ id: String, open: Bool) {
         guard let index = windows.firstIndex(where: { $0.id == id }) else { return }
         windows[index].isOpen = open
     }
 
     /// Opens closed window `id` again (Reopen Closed of its `window` group).
     /// False when it is not a closed window of this app.
-    mutating func reopen(id: String) -> Bool {
+    public mutating func reopen(id: String) -> Bool {
         guard let index = windows.firstIndex(where: { $0.id == id }), !windows[index].isOpen else { return false }
         windows[index].isOpen = true
         activate(id)
         return true
     }
 
-    mutating func activate(_ id: String) {
+    public mutating func activate(_ id: String) {
         guard window(id) != nil else { return }
         recency.removeAll { $0 == id }
         recency.insert(id, at: 0)
     }
 
     /// Window `id` was ordered in behind the app's other windows.
-    mutating func moveToBack(_ id: String) { if window(id) != nil { recency.removeAll { $0 == id }; recency.append(id) } }
+    public mutating func moveToBack(_ id: String) { if window(id) != nil { recency.removeAll { $0 == id }; recency.append(id) } }
 
-    mutating func setGeometry(_ id: String, frame: CGRect?, display: String?) {
+    public mutating func setGeometry(_ id: String, frame: CGRect?, display: String?) {
         guard let index = windows.firstIndex(where: { $0.id == id }) else { return }
         windows[index].frame = frame
         if let display { windows[index].display = display }
@@ -277,7 +279,7 @@ struct WindowRegistry: Equatable, Sendable {
     /// already there (else appended). Windows left empty close.
     @discardableResult
     /// Nothing moves across incognito and normal windows (`crossesIncognito`).
-    mutating func move(_ workspaceIDs: [String], to id: String, before anchor: String? = nil) -> Changes {
+    public mutating func move(_ workspaceIDs: [String], to id: String, before anchor: String? = nil) -> Changes {
         guard window(id) != nil, !workspaceIDs.isEmpty, !crossesIncognito(workspaceIDs, to: id) else { return Changes() }
         var changes = Changes()
         let taken = detach(workspaceIDs)
@@ -301,7 +303,7 @@ struct WindowRegistry: Equatable, Sendable {
     /// A new placement window in `behind` opens behind the others, so it is
     /// the least recent (cx-ppw2w). Windows left empty close.
     @discardableResult
-    mutating func reconcile(live: [String], dead: Set<String>, placements: [String: String] = [:], held: Set<String> = [],
+    public mutating func reconcile(live: [String], dead: Set<String>, placements: [String: String] = [:], held: Set<String> = [],
                             behind: Set<String> = [], fallbackWindow: @autoclosure () -> String) -> Changes {
         var changes = Changes()
         let rank = Dictionary(live.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
@@ -336,7 +338,7 @@ struct WindowRegistry: Equatable, Sendable {
 
     /// Orders each window's workspaces like `live` (the daemons' order);
     /// workspaces not in it keep their place after the ordered ones.
-    mutating func order(like live: [String]) {
+    public mutating func order(like live: [String]) {
         let rank = Dictionary(live.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         var ordered = windows
         for index in ordered.indices { ordered[index].workspaceIDs = ordered[index].workspaceIDs.merged(adding: [], rank: rank) }
@@ -365,13 +367,13 @@ struct WindowRegistry: Equatable, Sendable {
 
     /// Workspaces of incognito windows from a run that ended without
     /// closing them (a crash): no window takes them while they close.
-    mutating func markDiscarding(_ ids: [String]) {
+    public mutating func markDiscarding(_ ids: [String]) {
         discarding.formUnion(ids)
     }
 
     /// Marks window `id` incognito: a registered window, or the id New
     /// Incognito Window claims its first workspace for.
-    mutating func markIncognito(_ id: String) {
+    public mutating func markIncognito(_ id: String) {
         incognito.insert(id)
     }
 
