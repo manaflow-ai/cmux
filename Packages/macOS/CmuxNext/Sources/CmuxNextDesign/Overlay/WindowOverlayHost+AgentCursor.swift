@@ -3,7 +3,7 @@ public import CmuxNextDesignTokens
 
 /// The view that carries a window's agent cursor layer. It takes the mouse
 /// only on a name tag, which is a link to its agent's workspace (user,
-/// 2026-10-20): a pointing hand, a highlight and a tooltip on hover, a press
+/// 2026-10-20): a highlight and a tooltip on hover (the arrow stays), a press
 /// on click. Each tag is a VoiceOver button; the carrier itself is no element.
 ///
 /// Two subviews, bottom to top: a behind-window glass (`NSVisualEffectView`)
@@ -86,7 +86,7 @@ final class AgentCursorCarrierView: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         guard tracking == nil else { return }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .cursorUpdate,
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited,
                                                          .activeInActiveApp, .inVisibleRect], owner: self, userInfo: nil)
         addTrackingArea(area)
         tracking = area
@@ -98,16 +98,10 @@ final class AgentCursorCarrierView: NSView {
 
     override func mouseExited(with event: NSEvent) { hover(nil) }
 
-    override func cursorUpdate(with event: NSEvent) {
-        if hovered != nil { NSCursor.pointingHand.set() } else { super.cursorUpdate(with: event) }
-    }
-
-    /// The pointer is on `tag`, or on no tag: a pointing hand, the tag's
-    /// highlight (by its source) and its tooltip.
+    /// The pointer is on `tag`, or on no tag: the tag's highlight (by its source) and its
+    /// tooltip. The cursor stays the arrow, as over any native control.
     func hover(_ tag: AgentCursorTagTarget?) {
-        if tag != nil { NSCursor.pointingHand.set() }
         guard tag?.id != hovered?.id else { return }
-        let left = hovered != nil
         hovered = tag
         tags?.hoverAgentCursorTag(tag?.id)
         if let tag {
@@ -115,7 +109,6 @@ final class AgentCursorCarrierView: NSView {
             if let tracker = TooltipTracker.all(of: self).last { TooltipPresenter.shared.enter(tracker) }
         } else {
             setThemedToolTipRegions([])
-            if left { NSCursor.arrow.set() }
         }
     }
 

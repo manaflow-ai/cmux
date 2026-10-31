@@ -93,6 +93,8 @@ final class CloudService {
     /// Machine creations in flight (sidebar can show a placeholder).
     private(set) var creating = 0
     @ObservationIgnored let changes = CloudMachineChanges()
+    /// The names app server creates in flight asked for, typed or default: a default picked meanwhile skips them.
+    @ObservationIgnored private var machineNamesInFlight: [String] = []
     /// New Cloud Workspace runs from the click to the open terminal: each
     /// window's progress view and sidebar row (cx-lu8f).
     let creations = CloudCreations()
@@ -614,6 +616,8 @@ final class CloudService {
             session = CloudMachineSession(machine: machine, link: link, mainWork: mainWork)
         }
         session.daemon.workTracker = machines.local.workTracker
+        session.daemon.onPaneNotReady = machines.local.onPaneNotReady
+        session.daemon.paneNotReadyText = machines.local.paneNotReadyText
         // An attach to a paused machine resumes it through Resume Machine's own path.
         session.resumer = { [weak self] id in try await self?.resumeMachine(id) }
         // An attach reads a record that may be stale (paused behind the app) again first.
@@ -657,7 +661,7 @@ final class CloudService {
                        request: CloudMachineRequest = CloudMachineRequest(), proceed: () throws -> Void = {}) async throws -> CloudMachineSession {
         if let reason = unavailableReason { throw ActionFailure(message: reason) }
         guard auth.isSignedIn else { throw ActionFailure(message: CloudStrings.signInFirst) }
-        let name = name ?? request.name
+        var name = name ?? request.name
         // The app server's create takes none of them yet, and its machines have no `/api/vm` file
         // or exec route for a bootstrap: refuse rather than make a machine without what was asked.
         if configuration.linkSource == .appServer, !request.isDefault {
@@ -667,6 +671,24 @@ final class CloudService {
         if configuration.linkSource != .appServer, request.environment != nil {
             throw ActionFailure(message: CloudEnvironmentStrings().unavailable)
         }
+        // The cmux-next backend stores no name and no slug for an unnamed machine, so it would be titled by
+        // its raw id: give it a readable one, unique among this account's machines and creations in flight.
+        // The classic `/api/vm` create names it itself (its slug).
+        var reserved: String?
+        if configuration.linkSource == .appServer {
+            if let pinned = creation?.pinnedMachineName {
+                name = pinned
+            } else if name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true {
+                name = CloudMachine.defaultName(
+                    taken: machines.cloud.map(\.machine.title) + creations.all.compactMap(\.pinnedMachineName) + machineNamesInFlight,
+                    base: CloudStrings.defaultMachineName, numbered: CloudStrings.defaultMachineName(numbered:))
+            }
+            creation?.pinnedMachineName = name
+            // Held until this create ends, typed names included, so a default picked meanwhile is another one.
+            reserved = name
+            if let name { machineNamesInFlight.append(name) }
+        }
+        defer { if let reserved, let index = machineNamesInFlight.firstIndex(of: reserved) { machineNamesInFlight.remove(at: index) } }
         creating += 1
         defer { creating -= 1 }
         let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }

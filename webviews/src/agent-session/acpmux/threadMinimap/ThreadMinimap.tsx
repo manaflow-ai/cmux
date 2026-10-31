@@ -1,6 +1,6 @@
 // The thread minimap, as the Codex desktop app's prompt rail: one 10 px row per user prompt, pinned
 // to the pane's left edge with a spacing-token inset. Hovering magnifies the rows near the pointer
-// like the Dock and, after the app's hover delay (ui/hoverIntent.ts), opens a preview card (the prompt, its bookmark and
+// like the Dock and, on the same frame (CARD_DELAY), opens a preview card (the prompt, its bookmark and
 // the start of the reply) beside the hovered row. A click scrolls the transcript so the prompt
 // lands near the top and flashes its bubble; dragging scrubs; Tab walks the rows. Bookmarks show
 // as a dot past the tick, and the row's right spot toggles one. Geometry comes from the
@@ -38,7 +38,6 @@ import { tickRanges } from "./tickWindow";
 import { useThreadMinimapArm } from "../chatDisplay";
 import {
   CARD_DELAY,
-  cardOffset,
   JUMP_CURVE,
   jumpDuration,
   LANDING_OFFSET,
@@ -215,9 +214,8 @@ export function ThreadMinimap({
   const [focused, setFocused] = useState<number | undefined>(undefined);
   /// The row the card shows (it stays while the pointer is in the card).
   const [cardRow, setCardRow] = useState<number | undefined>(undefined);
-  // The card's hover intent (ui/hoverIntent.ts): the first waits Codex's 250 ms (CARD_DELAY), then
-  // the card follows the pointer from row to row at once, and the rail cools a moment after it goes.
-  // Keyboard focus shows it at once.
+  // The card's hover intent (ui/hoverIntent.ts) with no dwell (CARD_DELAY): the card shows on the
+  // frame the pointer reaches a row and follows it from row to row. Keyboard focus shows it at once.
   const preview = useHoverIntent<"rail">({ delay: CARD_DELAY });
   const cardOpen = preview.shown !== null;
   const intend = preview.hover;
@@ -261,7 +259,6 @@ export function ThreadMinimap({
   const keyed = useRef<{ focused?: KeyedRow; hovered?: KeyedRow; card?: KeyedRow }>({});
   /// The prompt key of the tick the page's focus is on, if one is.
   const [domFocus, setDomFocus] = useState<{ sessionId?: string; key: string } | undefined>(undefined);
-  const [cardHeight, setCardHeight] = useState(0);
   const rail = useRef<HTMLElement>(null);
   const list = useRef<HTMLOListElement>(null);
   const card = useRef<HTMLDivElement>(null);
@@ -420,8 +417,11 @@ export function ThreadMinimap({
     };
   }, [scroller, sessionId]);
 
-  /// Scrolls the transcript to turn `index`: smoothly on the measured curve when its row is mounted,
-  /// at once when it is not (or under Reduce Motion, or while scrubbing). It lands the top of the
+  /// Scrolls the transcript to turn `index`. A click or a scrub lands at once, in the frame of the
+  /// input (Leo, 2026-10-29: "faster scrttoll"; a jump the reader asked for by pointing needs no
+  /// travel to read, and the 200-400 ms glide was the slowest step of a rail click). A Previous or
+  /// Next Turn step and a bookmark jump glide on the measured curve when the row is mounted. Any jump
+  /// lands at once when its row is not drawn, or under Reduce Motion. It lands the top of the
   /// prompt's row (its sent images, else its bubble) LANDING_OFFSET down. A click or a bookmark jump
   /// flashes the prompt's bubble where it lands. Returns where the scroll goes.
   const [jump] = useState(() => (index: number, how: Jump): number | undefined => {
@@ -455,13 +455,15 @@ export function ThreadMinimap({
           return box.top - node.getBoundingClientRect().top - LANDING_OFFSET;
         },
         SETTLE_FRAMES,
+        { explicit: true },
       );
-    if (how === "scrub" || !row || reducedMotion()) {
+    if (how === "scrub" || how === "click" || !row || reducedMotion()) {
       stopScroll(node);
       node.scrollTop = to;
       if (how !== "scrub") settle();
-    } else if (how === "step") animateScroll(node, target, STEP_MS, STEP_CURVE, settle);
-    else animateScroll(node, target, jumpDuration(to - node.scrollTop), JUMP_CURVE, settle);
+    } else if (how === "step") animateScroll(node, target, STEP_MS, STEP_CURVE, settle, undefined, { explicit: true });
+    else
+      animateScroll(node, target, jumpDuration(to - node.scrollTop), JUMP_CURVE, settle, undefined, { explicit: true });
     if (how === "click" || how === "bookmark") {
       if (row) highlightBubble(bubbleOf(row));
       // An unmounted row mounts once the transcript draws its new place.
@@ -533,10 +535,6 @@ export function ThreadMinimap({
   // A card closed with focus in it (Escape, a click elsewhere) takes no blur: it starts unfocused.
   if (!showCard && cardFocus) setCardFocus(false);
   useEscapeCloses(showCard && cardFocus, dismiss);
-  useLayoutEffect(() => {
-    const node = card.current;
-    if (showCard && node) setCardHeight(node.offsetHeight);
-  }, [showCard, cardTurn]);
 
   // Older turns that load above the reader (the transcript pages them in as it nears the top) add
   // rows above the band and would move it on screen in one frame: 150 px for a 30-turn page. The
@@ -837,10 +835,8 @@ export function ThreadMinimap({
   // reveal the rail over the text only while the strip, rail, card or keyboard focus holds it open.
   const magnified = hovered;
   const cardMarked = cardTurn ? marks.has(cardTurn) : false;
-  const cardTop =
-    cardRow === undefined
-      ? 0
-      : cardOffset(railTop + cardRow * ROW_PITCH + ROW_PITCH / 2 - listTop, cardHeight, viewportHeight);
+  /// The card centers itself on its row and keeps inside the view (PreviewCard `place`).
+  const cardCenter = cardRow === undefined ? 0 : railTop + cardRow * ROW_PITCH + ROW_PITCH / 2 - listTop;
   return (
     <div className="acpmux-minimap" style={{ "--acpmux-rail-left": `${placement.left}px` } as React.CSSProperties}>
       {/* Right-clicking the rail (or its narrow-pane strip) moves it to the other edge. */}
@@ -923,8 +919,9 @@ export function ThreadMinimap({
             style={
               {
                 "--acpmux-minimap-fade": `${railFade(height)}px`,
-                // The ticks' entrance staggers down the rows in the rail's room (threadMinimap.css).
-                "--acpmux-minimap-first": Math.floor(listTop / ROW_PITCH),
+                // The ticks' entrance staggers down the rows in the rail's room (threadMinimap.css). Each
+                // tick keeps its own place from its mount (Tick), so a scroll changes nothing the list's
+                // rows inherit: a per-scroll value here restyled every drawn row on every scrolled frame.
                 "--acpmux-minimap-rows": Math.max(1, Math.ceil(height / ROW_PITCH)),
               } as React.CSSProperties
             }
@@ -1007,6 +1004,7 @@ export function ThreadMinimap({
               active={active}
               first={onScreen.first}
               last={onScreen.last}
+              listFirst={Math.floor(listTop / ROW_PITCH)}
               described={showCard ? cardRow : undefined}
               cardId={cardId}
               actions={actions}
@@ -1024,13 +1022,13 @@ export function ThreadMinimap({
           // card.right == rail.left on the right.
           x={edge + railWidth}
           railLeft={placement.left}
-          y={cardTop}
+          center={cardCenter}
+          viewportHeight={viewportHeight}
           // Out of the scroller: its edge mask would keep the card's blur from the rows (PreviewCard.tsx).
           scroller={scroller.current}
           prompt={cardTurn.prompt}
           reply={cardTurn.reply}
           metadata={cardTurn.metadata}
-          onSizeChange={() => setCardHeight(card.current?.offsetHeight ?? 0)}
           bookmark={marks.can(cardTurn) ? { marked: cardMarked, toggle: () => marks.toggle(cardTurn) } : undefined}
           onPointerLeave={(event) => {
             // Back onto the rail keeps it (its row takes over); anywhere else it goes.
@@ -1078,6 +1076,7 @@ const TickList = memo(function TickList({
   active,
   first,
   last,
+  listFirst,
   described,
   cardId,
   actions,
@@ -1092,6 +1091,9 @@ const TickList = memo(function TickList({
   /// The band: the prompts on screen.
   first: number;
   last: number;
+  /// The first row in the list's view: a tick's entrance place counts from it (Tick `place`). It
+  /// moves with the list's scroll, as `ranges` does, so it renders the list no more often.
+  listFirst: number;
   /// The row the open card describes.
   described: number | undefined;
   cardId: string;
@@ -1149,6 +1151,7 @@ const TickList = memo(function TickList({
         <Tick
           entering={entering.pending.has(tick.key)}
           index={index}
+          place={index - listFirst}
           last={ticks.length - 1}
           progress={hovered !== undefined ? tickProgress(index - hovered) : index === focused ? 1 : 0}
           active={index === active}
@@ -1186,6 +1189,7 @@ type TickActions = {
 const Tick = memo(function Tick({
   entering,
   index,
+  place,
   last,
   progress,
   active,
@@ -1197,6 +1201,9 @@ const Tick = memo(function Tick({
 }: {
   entering: boolean;
   index: number;
+  /// Its row's place in the list's view when it mounted, for its entrance stagger
+  /// (threadMinimap.css). Read only at mount, so a scroll re-renders no tick (tickPropsEqual).
+  place: number;
   last: number;
   progress: number;
   active: boolean;
@@ -1208,6 +1215,7 @@ const Tick = memo(function Tick({
 }) {
   // Capture eligibility at mount: consuming it after commit must not cancel this entrance.
   const [enter] = useState(entering);
+  const [entrance] = useState(place);
   const length = tickLength(progress);
   return (
     <MinimapTick
@@ -1222,7 +1230,7 @@ const Tick = memo(function Tick({
       data-focus-ring="tick"
       data-tone={active ? "active" : current ? "current" : "rest"}
       data-bookmarked={marked || undefined}
-      style={{ "--acpmux-minimap-row": index } as React.CSSProperties}
+      style={{ "--acpmux-minimap-place": entrance } as React.CSSProperties}
       aria-label={label}
       aria-current={current ? "true" : undefined}
       aria-describedby={describedBy}
@@ -1265,4 +1273,13 @@ const Tick = memo(function Tick({
       <span className="acpmux-minimap__dot-hit" data-dot-hit="" />
     </MinimapTick>
   );
-});
+}, tickPropsEqual);
+
+const MOUNT_ONLY = new Set(["place", "entering"]);
+
+/// A tick's props as `memo` compares them, but for `place` and `entering`, which only its mount reads.
+function tickPropsEqual(was: Readonly<Record<string, unknown>>, next: Readonly<Record<string, unknown>>): boolean {
+  for (const key in next) if (!MOUNT_ONLY.has(key) && !Object.is(was[key], next[key])) return false;
+  for (const key in was) if (!(key in next)) return false;
+  return true;
+}
