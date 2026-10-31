@@ -30,9 +30,17 @@ final class ApprovalNotificationCaptureUITests: XCTestCase {
     }
 
     @MainActor
-    func testPermissionNotificationCapture() throws {
+    func testPermissionNotificationCaptureDark() throws { try capture(.dark) }
+
+    @MainActor
+    func testPermissionNotificationCaptureLight() throws { try capture(.light) }
+
+    /// One appearance per test: set before the app launches, so iOS and the extension both draw in it.
+    @MainActor
+    private func capture(_ appearance: XCUIDevice.Appearance) throws {
         XCUIDevice.shared.orientation = .portrait
-        XCUIDevice.shared.appearance = .light
+        XCUIDevice.shared.appearance = appearance
+        sleep(3)
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
@@ -47,9 +55,7 @@ final class ApprovalNotificationCaptureUITests: XCTestCase {
         XCUIDevice.shared.press(.home)
         sleep(2)
 
-        for appearance in [XCUIDevice.Appearance.light, .dark] {
-            XCUIDevice.shared.appearance = appearance
-            sleep(2)
+        do {
             let name = appearance == .dark ? "dark" : "light"
             _ = openNotificationCenter(springboard)
             sleep(2)
