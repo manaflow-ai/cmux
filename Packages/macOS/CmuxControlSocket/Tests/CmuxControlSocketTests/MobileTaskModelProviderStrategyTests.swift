@@ -172,6 +172,81 @@ struct MobileTaskModelProviderStrategyTests {
         ])
     }
 
+    @Test func codexHonorsCustomExecutableAndCodexHome() async {
+        let probe = MobileTaskModelStrategyProbe()
+        await probe.setFile(
+            path: "/Volumes/work/codex-home/config.toml",
+            data: Data(#"model = "host-next-999""#.utf8)
+        )
+        await probe.setCommandOutput(#"{"models":[{"slug":"host-next-999","display_name":"Host Next 999","visibility":"list"}]}"#)
+
+        let result = await makeStrategy(
+            probe: probe,
+            environment: [
+                "CODEX_HOME": "/Volumes/work/codex-home",
+                "CMUX_CUSTOM_CODEX_PATH": "/opt/codex's bin/codex",
+            ]
+        ).models(for: .codex)
+
+        let model = MobileTaskModel(id: "host-next-999", displayName: "Host Next 999")
+        #expect(result == MobileTaskModelListResult(
+            models: [model],
+            source: .discovered,
+            defaultModel: model
+        ))
+        #expect(await probe.commands.map(\.0) == [
+            #"CODEX_HOME='/Volumes/work/codex-home' exec '/opt/codex'\''s bin/codex' debug models"#,
+        ])
+        #expect(await probe.readPaths == ["/Volumes/work/codex-home/config.toml"])
+    }
+
+    @Test func codexFallsBackToCustomCodexHomeCacheAndDefaultModel() async {
+        let probe = MobileTaskModelStrategyProbe()
+        await probe.setFile(
+            path: "/Users/tester/accounts/work/models_cache.json",
+            data: Data(#"{"models":[{"slug":"host-next-999","display_name":"Host Next 999","visibility":"list"}]}"#.utf8)
+        )
+        await probe.setFile(
+            path: "/Users/tester/accounts/work/config.toml",
+            data: Data(#"model = "host-next-999""#.utf8)
+        )
+
+        let result = await makeStrategy(
+            probe: probe,
+            environment: ["CODEX_HOME": "~/accounts/work/"]
+        ).models(for: .codex)
+
+        let model = MobileTaskModel(id: "host-next-999", displayName: "Host Next 999")
+        #expect(result == MobileTaskModelListResult(
+            models: [model],
+            source: .discovered,
+            defaultModel: model
+        ))
+        #expect(await probe.commands.map(\.0) == [
+            "CODEX_HOME='/Users/tester/accounts/work' exec codex debug models",
+        ])
+        #expect(await probe.readPaths == [
+            "/Users/tester/accounts/work/models_cache.json",
+            "/Users/tester/accounts/work/config.toml",
+        ])
+    }
+
+    @Test func missingCustomCodexExecutableReportsProviderUnavailable() async {
+        let probe = MobileTaskModelStrategyProbe()
+
+        let result = await makeStrategy(
+            probe: probe,
+            environment: ["CMUX_CUSTOM_CODEX_PATH": "/opt/codex/bin/codex"]
+        ).models(for: .codex)
+
+        #expect(result.error == .providerUnavailable)
+        #expect(await probe.commands.map(\.0) == [
+            "exec '/opt/codex/bin/codex' debug models",
+            "command -v '/opt/codex/bin/codex'",
+        ])
+        #expect(await probe.readPaths == ["/Users/tester/.codex/models_cache.json"])
+    }
+
     @Test func failedAgentDiscoveryReturnsNoInventedValues() async {
         let probe = MobileTaskModelStrategyProbe()
         let strategy = makeStrategy(probe: probe)
@@ -205,10 +280,12 @@ struct MobileTaskModelProviderStrategyTests {
     }
 
     private func makeStrategy(
-        probe: MobileTaskModelStrategyProbe
+        probe: MobileTaskModelStrategyProbe,
+        environment: [String: String] = [:]
     ) -> MobileTaskModelProviderStrategy {
         MobileTaskModelProviderStrategy(
             homeDirectory: home,
+            environment: environment,
             commandRunner: { command, timeout in
                 await probe.run(command, timeout: timeout)
             },
