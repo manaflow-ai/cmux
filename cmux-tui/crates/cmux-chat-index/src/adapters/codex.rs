@@ -19,6 +19,7 @@ use crate::text::{prompt_text, title_line};
 use crate::time::parse_rfc3339_ms;
 
 mod threads;
+pub use threads::forget;
 use threads::query_threads;
 
 const ARCHIVED: &str = "archived_sessions";

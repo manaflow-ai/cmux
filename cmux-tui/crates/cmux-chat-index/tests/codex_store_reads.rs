@@ -6,7 +6,9 @@
 //! row holding its first prompt three times (`title`, `preview`, `first_user_message`, ~29 KB
 //! each), so one read was 391 MB and ~200 ms while about two rows had changed.
 
-use cmux_chat_index::{AdapterKind, ChatIndex, ChatRoot, IndexedChat, RootSource};
+use cmux_chat_index::{
+    AdapterKind, ChatIndex, ChatRoot, IndexedChat, RootSource, forget_codex_reads,
+};
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 
@@ -21,12 +23,15 @@ fn prompt(i: usize) -> String {
     format!("prompt for thread {i}\n{}", "context line\n".repeat(1_200))
 }
 
-/// A Codex state database with the column order Codex uses: the prompt columns come before the
-/// millisecond times, so a read of `updated_at_ms` passes through every prompt's pages unless an
-/// index covers it. Kept open in WAL mode, as a running Codex keeps it.
+/// A Codex state database with the column order Codex uses (the prompt columns before the
+/// millisecond times, the source and the name). Kept open in WAL mode, as a running Codex keeps
+/// it.
 fn codex_db(codex: &Path) -> Connection {
     std::fs::create_dir_all(codex).unwrap();
     let conn = Connection::open(codex.join("state_5.sqlite")).unwrap();
+    // As Codex makes it (`PRAGMA auto_vacuum` = 2): its pointer map lets SQLite pass a row's
+    // overflow pages without reading them, to the small columns stored after the prompts.
+    conn.execute_batch("pragma auto_vacuum = incremental").unwrap();
     let _: String = conn.query_row("pragma journal_mode=wal", [], |row| row.get(0)).unwrap();
     conn.execute_batch(
         "create table threads (
@@ -87,8 +92,10 @@ fn chats(index: &ChatIndex) -> Vec<IndexedChat> {
     index.chats().into_iter().cloned().collect()
 }
 
-/// What a new index reads from the database now: the result every incremental read must equal.
+/// What a new index reads from the whole table now: the result every incremental read must
+/// equal. The last read is forgotten first, so this read shares nothing with the one it checks.
 fn fresh(codex: &Path) -> Vec<IndexedChat> {
+    forget_codex_reads(codex);
     let mut index = ChatIndex::new(vec![root(codex)]);
     index.rescan_all();
     chats(&index)
@@ -119,8 +126,10 @@ fn a_thread_update_reads_that_thread_not_the_table() {
     let read = thread_read_bytes() - before;
 
     assert_eq!(changes.len(), 1, "one thread changed: {changes:?}");
+    // Every row's key costs its header and small columns (~10% of this database); the prompts
+    // are what a whole read pays for (~70%).
     assert!(
-        read < table / 10,
+        read < table / 4,
         "one changed thread read {read} bytes of a {table}-byte database (a whole-table read)"
     );
     assert_eq!(chats(&index), fresh(&codex));
@@ -138,6 +147,9 @@ fn every_store_change_matches_a_fresh_read() {
     let steps: &[(&str, &str)] = &[
         ("a title, no time bump", "update threads set title = 'Fix the login page' where id = ?1"),
         ("a name, no time bump", "update threads set name = 'Login work' where id = ?1"),
+        ("the same name's length, no bump", "update threads set name = 'Login wore' where id = ?1"),
+        ("the created time only", "update threads set created_at_ms = 5 where id = ?1"),
+        ("a cwd, no time bump", "update threads set cwd = '/work/api' where id = ?1"),
         ("archived, no time bump", "update threads set archived = 1 where id = ?1"),
         ("a subagent", "update threads set thread_source = 'subagent' where id = ?1"),
         (
@@ -147,13 +159,14 @@ fn every_store_change_matches_a_fresh_read() {
         ("deleted", "delete from threads where id = ?1"),
     ];
     for (i, (what, sql)) in steps.iter().enumerate() {
-        writer.execute(sql, [id(20 + i)]).unwrap();
+        let target = if sql.contains("Login wore") { id(20 + i - 1) } else { id(20 + i) };
+        writer.execute(sql, [target]).unwrap();
         index.paths_changed(&wal(&codex));
         assert_eq!(chats(&index), fresh(&codex), "after {what}");
     }
     // A thread Codex adds, and a spawn edge it removes.
     insert(&writer, THREADS, "a new chat");
-    writer.execute("delete from thread_spawn_edges where child_thread_id = ?1", [id(24)]).unwrap();
+    writer.execute("delete from thread_spawn_edges where child_thread_id = ?1", [id(27)]).unwrap();
     index.paths_changed(&wal(&codex));
     assert_eq!(chats(&index), fresh(&codex), "after a new thread and a removed edge");
     assert_eq!(
