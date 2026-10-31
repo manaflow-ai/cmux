@@ -5,6 +5,22 @@ public nonisolated enum HomeStrings {
     public static var title: String { String(localized: "home.title", defaultValue: "Home", table: "Home", bundle: .module) }
     /// The chief's name (N1): the chief conversation's title and the mux's name.
     public static var chiefName: String { String(localized: "home.chief.name", defaultValue: "Chief", table: "Home", bundle: .module) }
+    /// Chief's first message on a fresh install: its greeting (``ChiefWelcome``).
+    static var chiefWelcomeHello: String {
+        String(localized: "home.chief.welcomeHello", defaultValue: "Welcome to cmux! 👋 I'm Chief.", table: "Home", bundle: .module)
+    }
+    /// Chief's second message on a fresh install: what it can do (``ChiefWelcome``).
+    static var chiefWelcomeAbout: String {
+        String(localized: "home.chief.welcomeAbout",
+               defaultValue: "I can make new workspaces, start agents for you, and set up or customize cmux however you like.\nJust tell me what you want done.",
+               table: "Home", bundle: .module)
+    }
+    /// Chief's third message on a fresh install: the background offer, with the picker's `link`.
+    static func chiefWelcomeBackground(link: String) -> String {
+        String(format: String(localized: "home.chief.welcomeBackground",
+                              defaultValue: "Want to make it yours? [Pick a background](%@) from the built-in art or one of your own pictures. Or skip it and just say hi.",
+                              table: "Home", bundle: .module), link)
+    }
     public static var unavailable: String {
         String(localized: "home.unavailable", defaultValue: "Conversations need a newer cmux daemon.", table: "Home", bundle: .module)
     }

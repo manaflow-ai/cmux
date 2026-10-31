@@ -33,8 +33,8 @@ from nightly_workflow_text import nightly_text  # noqa: E402
 
 WORKFLOW = yaml.safe_load(nightly_text())
 JOBS = WORKFLOW["jobs"]
-SIGNER_JOBS = ("signer-build", "signer-app", "signer-dmg-image", "signer-dmg")
-SECRET_JOBS = {"signer-app", "signer-dmg"}
+SIGNER_JOBS = ("signer-build", "signer-app", "signer-app-notary", "signer-dmg-image", "signer-dmg")
+SECRET_JOBS = {"signer-app", "signer-app-notary", "signer-dmg"}
 VERIFY = ROOT / "scripts/ci/release-signer/verify_appcast_item.py"
 FINAL_DMG = "cmux-nightly-next-signer-final-dmg-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}"
 TIP_APPCAST = ROOT / "scripts/ci/tip_appcast_linux.py"
@@ -198,7 +198,7 @@ class Wiring(unittest.TestCase):
         # sent, and fails after the upload when one fails (signer-dmg needs the job's success).
         image = JOBS["signer-dmg-image"]["steps"]
         names = [s.get("name") for s in image]
-        apple = names.index("Apple's checks of the stapled app")
+        unpack = names.index("Unpack the signed app")
         start_checks = image[names.index("Start the signed-app checks")]
         self.assertEqual(start_checks["env"]["PACKAGE_HANDOFF"], "false")
         self.assertEqual(start_checks["run"], 'bash scripts/ci/signed-app-checks.sh start "$SIGNER_WORK/$CHANNEL_APP_NAME.app"')
@@ -210,7 +210,16 @@ class Wiring(unittest.TestCase):
         dmg = names.index("Build the unsigned DMG")
         upload = next(i for i, s in enumerate(image) if "upload-artifact" in str(s.get("uses", "")))
         finish = names.index("Finish the signed-app and verify-signed checks")
-        self.assertLess(apple, names.index("Start the signed-app checks"))
+        self.assertLess(unpack, names.index("Start the signed-app checks"))
+        # The checks start before the staple, so they run while Apple notarizes the app; Apple's
+        # checks of the stapled app come after it, before the DMG is built from it.
+        staple = names.index("Staple the app's notarization ticket")
+        apple = names.index("Apple's checks of the stapled app")
+        self.assertLess(names.index("Start the verify-signed checks"), staple)
+        self.assertLess(staple, apple)
+        self.assertLess(apple, names.index("Build the unsigned DMG"))
+        self.assertIn("signer-staple-app.sh", image[staple]["run"])
+        self.assertIn("signer-apple-checks.sh", image[apple]["run"])
         self.assertLess(daemon, names.index("Start the verify-signed checks"))
         self.assertLess(names.index("Start the verify-signed checks"), dmg)
         self.assertLess(upload, finish)
@@ -235,6 +244,34 @@ class Wiring(unittest.TestCase):
             self.assertIn(command, verify_text)
         self.assertFalse([s for s in JOBS["signer-dmg"]["steps"] if "signed-app-handoff" in yaml.safe_dump(s)])
 
+    def test_the_mac_staples_the_ticket_of_the_app_signer_app_notary_submits(self):
+        # signer-app hands the signed app on before Apple sees it; signer-app-notary notarizes those
+        # bytes (signer-app's digest) while signer-dmg-image downloads and checks them, and the Mac
+        # staples Apple's ticket. signer-dmg needs both, so a rejected app never reaches the DMG.
+        sign = JOBS["signer-app"]["steps"]
+        names = [s.get("name") for s in sign]
+        self.assertNotIn("secrets.ASC_API_KEY_P8_BASE64", yaml.safe_dump(sign[names.index("Pack the signed app"):]))
+        self.assertFalse([s for s in sign if "notarize-app.sh" in str(s.get("run", ""))])
+        upload = next(s for s in sign if "upload-artifact" in str(s.get("uses", "")))
+        self.assertEqual(upload["with"]["path"], "signer-out/signed-app.tar")
+        notary = JOBS["signer-app-notary"]
+        self.assertEqual(set(needs(notary)) & set(SIGNER_JOBS), {"signer-build", "signer-app"})
+        steps = notary["steps"]
+        names = [s.get("name") for s in steps]
+        unpack = steps[names.index("Unpack the signed app")]
+        # Both jobs unpack the one tar after checking it against signer-app's digest.
+        self.assertIn('echo "$APP_SHA256  signer-app/signed-app.tar" | "${sum[@]}" -c -', unpack["run"])
+        self.assertEqual(unpack["env"]["APP_SHA256"], "${{ needs.signer-app.outputs.sha256 }}")
+        notarize = steps[names.index("Notarize the app")]
+        self.assertIn("release-signer/notarize-app.sh", notarize["run"])
+        self.assertLess(names.index("Unpack the signed app"), names.index("Notarize the app"))
+        image = JOBS["signer-dmg-image"]
+        self.assertNotIn("signer-app-notary", needs(image))
+        self.assertIn("signer-app-notary", needs(JOBS["signer-dmg"]))
+        image_steps = {s.get("name"): s for s in image["steps"]}
+        self.assertEqual(image_steps["Unpack the signed app"], unpack)
+        self.assertIn("signer-app/signed-app.tar", (ROOT / "scripts/ci/nightly-steps/signer-appcast.sh").read_text())
+
     def test_the_stapled_app_download_retries_once(self):
         # Run 40809822736: GetSignedArtifactURL timed out on an office mini, signer-dmg-image failed
         # and the macOS signer covered the build about 8 min later. Each signer job that reads the
@@ -243,16 +280,16 @@ class Wiring(unittest.TestCase):
             with self.subTest(job=job):
                 steps = JOBS[job]["steps"]
                 names = [s.get("name") for s in steps]
-                first = steps[names.index("Download the stapled app")]
-                retry = steps[names.index("Download the stapled app (retry)")]
-                self.assertEqual(names.index("Download the stapled app (retry)"), names.index("Download the stapled app") + 1)
+                first = steps[names.index("Download the signed app")]
+                retry = steps[names.index("Download the signed app (retry)")]
+                self.assertEqual(names.index("Download the signed app (retry)"), names.index("Download the signed app") + 1)
                 self.assertEqual((first["id"], first["continue-on-error"], first["timeout-minutes"]),
                                  ("signer-download-app", True, 5))
                 self.assertEqual(retry["if"], "steps.signer-download-app.outcome == 'failure'")
                 self.assertNotIn("continue-on-error", retry)
                 self.assertEqual(first["with"], retry["with"])
-                later = yaml.safe_dump(steps[names.index("Download the stapled app (retry)") + 1:], width=1000)
-                self.assertIn("signer-app/stapled-app.tar", later)
+                later = yaml.safe_dump(steps[names.index("Download the signed app (retry)") + 1:], width=1000)
+                self.assertIn("signer-app/signed-app.tar", later)
                 self.assertIn("APP_SHA256", later)
 
     def test_verify_final_reads_one_copy_of_a_pool_signed_dmg(self):
@@ -431,6 +468,56 @@ class SignerVerifySigned(unittest.TestCase):
         del env["NIGHTLY_BUILD"]
         done = subprocess.run(["bash", str(self.SCRIPT), "start", str(self.app)], cwd=self.work, env=env,
                               capture_output=True, text=True)
+        self.assertNotEqual(done.returncode, 0)
+
+
+class SignerStapleApp(unittest.TestCase):
+    """signer-staple-app.sh asks Apple's stapler for the ticket until it exists, then validates it,
+    and fails at its deadline. xcrun is a stub that finds the ticket on a given attempt."""
+
+    SCRIPT = ROOT / "scripts/ci/nightly-steps/signer-staple-app.sh"
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.app = self.tmp / "cmux NEXT.app"
+        (self.app / "Contents").mkdir(parents=True)
+        self.calls = self.tmp / "calls"
+        self.xcrun = self.tmp / "xcrun"
+        self.xcrun.write_text('#!/usr/bin/env bash\n'
+                              'echo "$*" >> "$CALLS"\n'
+                              'n=$(grep -c "^stapler staple" "$CALLS")\n'
+                              'if [[ "$1 $2" == "stapler staple" && "$n" -lt "$READY_AT" ]]; then echo "CloudKit query failed: Record not found"; exit 65; fi\n'
+                              'if [[ "$1 $2" == "stapler validate" && "${BAD_VALIDATE:-}" == 1 ]]; then exit 1; fi\n'
+                              'echo "The $2 action worked!"\n')
+        self.xcrun.chmod(0o755)
+
+    def run_script(self, ready_at, max_wait="30", **env):
+        return subprocess.run(["bash", str(self.SCRIPT), str(self.app)], capture_output=True, text=True,
+                              env=dict(os.environ, XCRUN_TOOL=str(self.xcrun), CALLS=str(self.calls), READY_AT=str(ready_at),
+                                       STAPLE_RETRY_SECONDS="1", STAPLE_MAX_WAIT_SECONDS=max_wait,
+                                       GITHUB_STEP_SUMMARY=str(self.tmp / "summary"), **env))
+
+    def test_retries_until_apple_has_the_ticket_then_validates(self):
+        done = self.run_script(3)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.calls.read_text().splitlines(),
+                         [f"stapler staple {self.app}"] * 3 + [f"stapler validate {self.app}"])
+        self.assertIn("attempt 2 after", done.stdout)
+        self.assertIn("Record not found", done.stdout)
+
+    def test_fails_at_the_deadline_without_a_ticket(self):
+        done = self.run_script(1000, max_wait="2")
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("no notarization ticket", done.stderr)
+        self.assertNotIn("stapler validate", self.calls.read_text())
+
+    def test_a_staple_that_does_not_validate_fails(self):
+        self.assertNotEqual(self.run_script(1, BAD_VALIDATE="1").returncode, 0)
+
+    def test_refuses_a_missing_app(self):
+        done = subprocess.run(["bash", str(self.SCRIPT), str(self.tmp / "none.app")], capture_output=True, text=True,
+                              env=dict(os.environ, XCRUN_TOOL=str(self.xcrun)))
         self.assertNotEqual(done.returncode, 0)
 
 

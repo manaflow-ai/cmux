@@ -22,6 +22,8 @@ pub mod endpoint;
 mod replay;
 
 pub use endpoint::{Endpoint, EndpointEvent, Route, Transmit};
+#[cfg(feature = "net")]
+pub mod net;
 
 use control::{ControlReceiver, ControlSender};
 use replay::ReplayWindow;
@@ -95,6 +97,8 @@ pub enum LinkError {
     NotReady,
     /// Too many unacknowledged control records (the peer stopped answering).
     ControlBacklog,
+    /// A socket or thread could not be set up (the `net` driver).
+    Io(String),
 }
 
 impl std::fmt::Display for LinkError {
@@ -105,6 +109,7 @@ impl std::fmt::Display for LinkError {
             Self::HandshakeTimeout => write!(f, "the secure handshake timed out"),
             Self::NotReady => write!(f, "the secure handshake has not finished"),
             Self::ControlBacklog => write!(f, "the peer stopped acknowledging control messages"),
+            Self::Io(e) => write!(f, "network: {e}"),
         }
     }
 }
@@ -207,7 +212,8 @@ impl Link {
         let n = handshake.write_message(&[], &mut buf).map_err(LinkError::Noise)?;
         let mut packet = Vec::with_capacity(1 + n);
         packet.push(tag);
-        packet.extend_from_slice(&buf[..n]);
+        buf.truncate(n);
+        packet.extend_from_slice(&buf);
         self.out.push_back(packet.clone());
         self.last_handshake = Some((packet, now_us));
         Ok(())
@@ -350,11 +356,12 @@ impl Link {
         let mut plain = Vec::with_capacity(1 + payload.len());
         plain.push(kind);
         plain.extend_from_slice(payload);
-        let mut packet = vec![0u8; 1 + 8 + plain.len() + 16];
-        packet[0] = TAG_SEALED;
-        packet[1..9].copy_from_slice(&nonce.to_le_bytes());
-        let n =
-            transport.write_message(nonce, &plain, &mut packet[9..]).map_err(LinkError::Noise)?;
+        let mut packet = Vec::with_capacity(1 + 8 + plain.len() + 16);
+        packet.push(TAG_SEALED);
+        packet.extend_from_slice(&nonce.to_le_bytes());
+        packet.resize(1 + 8 + plain.len() + 16, 0);
+        let body = packet.get_mut(9..).unwrap_or_default();
+        let n = transport.write_message(nonce, &plain, body).map_err(LinkError::Noise)?;
         packet.truncate(9 + n);
         Ok(packet)
     }

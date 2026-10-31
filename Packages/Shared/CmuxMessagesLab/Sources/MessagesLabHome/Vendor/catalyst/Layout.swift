@@ -370,10 +370,16 @@ struct ThreadPreview: Hashable {
             p.box = CGSize(width: 48, height: (48 * CGFloat(a.height ?? 450) / CGFloat(max(1, a.width ?? 600))).rounded())
         } else if case let .text(t, _) = part {
             let maxBox = ThreadPreview.maxTextBoxWidth(width: width)
-            p.textLines = ThreadPreview.wrap(t, maxWidth: maxBox - ThreadPreview.textPadX)
-            // cmux (user, 2026-10-28): the quote hugs its widest line, wrapped or not, as Messages' does (it took the whole
-            // column when wrapped, leaving an empty band right of the text). Rounded up so the widest line always fits.
-            let widest = p.textLines.map { TextDraw.width($0, font: ThreadPreview.textFont) }.max() ?? 0
+            // cmux (2026-10-31): laid out once per root text and column (MeasureCache.quote): every row re-derivation quoted
+            // every root again with Core Text, 2.7-4.4 s main-thread hangs when a picture loaded (HomeQuoteRebuildCostTests).
+            let q = MeasureCache.shared.quote(t, maxWidth: maxBox - ThreadPreview.textPadX) { text, column in
+                let lines = ThreadPreview.wrap(text, maxWidth: column)
+                // cmux (user, 2026-10-28): the quote hugs its widest line, wrapped or not, as Messages' does (it took the whole
+                // column when wrapped, leaving an empty band right of the text). Rounded up so the widest line always fits.
+                return MeasureCache.Quote(lines: lines, widest: lines.map { TextDraw.width($0, font: ThreadPreview.textFont) }.max() ?? 0)
+            }
+            p.textLines = q.lines
+            let widest = q.widest
             p.box = CGSize(width: min(maxBox, (widest + ThreadPreview.textPadX).rounded(.up)),
                            height: ThreadPreview.textHeight(lines: p.textLines.count))
         } else {
@@ -845,6 +851,31 @@ final class MeasureCache: @unchecked Sendable {
     private let lock = NSLock()
     private(set) var hits = 0, misses = 0, estimates = 0, reuses = 0
 
+    /// cmux: a text quote's root text and the column it wraps in (`ThreadPreview.make`).
+    struct QuoteKey: Hashable { var text: String; var maxWidth: CGFloat }
+    /// cmux: a text quote's lines as drawn and its widest line's width.
+    struct Quote: Equatable { var lines: [String]; var widest: CGFloat }
+    /// cmux: quote layouts by root text and column, at most `quoteLimit` (then emptied, as `streamStore`). A root is
+    /// quoted by each of its replies and every re-derivation (a picture loading, a status change) quotes it again.
+    private var quotes: [QuoteKey: Quote] = [:]
+    private static let quoteLimit = 2_048
+    private(set) var quoteHits = 0, quoteMisses = 0
+
+    /// cmux: the quote of root text `text` wrapped at `maxWidth`, laid out by `layout` on a miss (outside the lock).
+    func quote(_ text: String, maxWidth: CGFloat, layout: (String, CGFloat) -> Quote) -> Quote {
+        let k = QuoteKey(text: text, maxWidth: maxWidth)
+        lock.lock()
+        if let q = quotes[k] { quoteHits += 1; lock.unlock(); return q }
+        quoteMisses += 1
+        lock.unlock()
+        let q = layout(text, maxWidth)
+        lock.lock()
+        if quotes.count >= MeasureCache.quoteLimit { quotes.removeAll(keepingCapacity: true) }
+        quotes.updateValue(q, forKey: k) // dictionary write
+        lock.unlock()
+        return q
+    }
+
     /// A part whose content changes in place is a new measurement: text a host
     /// replaces under the same message id (an optimistic send, then the stored
     /// message), a link preview's metadata (title, site, image), an
@@ -1017,8 +1048,11 @@ enum RowBuilder {
     /// min), more than 15 min on macOS 26 (the original
     /// recording, macOS 26: "Today 12:06 PM" over "hello world" 21 min after the message above) (cx-3cb row-gap).
     static var separatorGap: TimeInterval { ComposeMetrics.macOS26 ? 15 * 60 : 60 * 60 }
-    /// cmux: the typing row's gap under a bubble: its bubble top 8 pt under the bubble above (a new group's gap).
-    static var typingGapUnderBubble: CGFloat { 8 - (RowDraw.typingBubble.minY - RowDraw.margin) }
+    /// cmux: the typing row's gap under a bubble: its bubble top 14 pt under the bubble above (user, "maybe even more padding").
+    /// cmux: the gap above a message that stands alone (Message.cmuxStandsAlone) under the same sender's bubble: the
+    /// typing bubble's 14 pt (``typingGapUnderBubble``), so the bubble lands where Chief's dots were, with no jump.
+    static let standAloneGap: CGFloat = 14
+    static var typingGapUnderBubble: CGFloat { 14 - (RowDraw.typingBubble.minY - RowDraw.margin) }
 
     /// `previousRow`: the kind of the row just above `range` (gaps depend on it).
     /// `width`: layout width (captured on main). `exact`: message indices to
@@ -1068,6 +1102,18 @@ enum RowBuilder {
             for m in s.conversation.messages where m.retractedAt == nil && m.deletedAt == nil {
                 if let r = m.replyTo { liveRoots.insert(r.messageId) }
             }
+        }
+        // cmux: a reply's root by id, mapped once on the first quote (each quote scanned every loaded message for its root:
+        // O(replies x messages) per re-derivation, HomeQuoteRebuildCostTests). The first message of an id wins, as `first` did.
+        var rootIndex: [ID: Int]?
+        func rootMessage(_ id: ID) -> Message? {
+            if rootIndex == nil {
+                var map: [ID: Int] = [:]
+                map.reserveCapacity(s.conversation.messages.count)
+                for (i, x) in s.conversation.messages.enumerated() where map[x.id] == nil { map[x.id] = i }
+                rootIndex = map
+            }
+            return rootIndex?[id].flatMap { s.conversation.messages[checked: $0] } // checked
         }
         func thread(_ x: Message, at i: Int) -> ID? {
             if let r = x.replyTo { return r.messageId }
@@ -1120,6 +1166,10 @@ enum RowBuilder {
                 // A change of thread, for either sender: 32 pt (macOS 27, AX walk of the real transcript
                 // 2026-10-14, cx-3cb row-gap: 32.0 to 32.5 in 35 of 35 pairs across a thread boundary).
                 gap = 32
+            } else if m.cmuxStandsAlone == true, let p = prev, p.senderId == m.senderId {
+                // cmux: a message the host sets apart (Message.cmuxStandsAlone) starts its own group, with its own
+                // tail, 14 pt under the bubble above (where its typing dots sat), so each reads as its own arrival.
+                gap = standAloneGap
             } else if let p = prev, p.senderId == m.senderId, m.date.timeIntervalSince(p.date) < groupGap {
                 gap = 3      // measured 3 between parts of a group (text and media alike)
             } else if let p = prev, p.senderId == m.senderId, thread(m, at: idx) != nil {
@@ -1144,7 +1194,7 @@ enum RowBuilder {
             // A reply whose root is not directly above (and that does not
             // continue the same thread) gets a preview of the root.
             if let r = m.replyTo, !threadMode, connector == nil, let p = prev, p.id != r.messageId, p.replyTo != r {
-                let root = s.conversation.messages.first { $0.id == r.messageId }
+                let root = rootMessage(r.messageId)
                 let part = root.flatMap { r.partIndex < $0.parts.count ? $0.parts[r.partIndex] : nil }
                 var pv = ThreadPreview.make(root: r, part: part, count: replyCount[r.messageId] ?? 0, outgoing: root?.senderId == me, width: width)
                 // cmux: a group's quote of another person's message names them with their avatar (user, 2026-10-29).
@@ -1169,7 +1219,7 @@ enum RowBuilder {
             } else {
                 // no force unwrap 
                 let lastOfGroup = next.map { next in next.senderId != m.senderId || next.date.timeIntervalSince(m.date) >= groupGap
-                    || next.retractedAt != nil || next.replyTo != m.replyTo
+                    || next.cmuxStandsAlone == true || next.retractedAt != nil || next.replyTo != m.replyTo
                     || thread(next, at: idx + 1) != thread(m, at: idx) } ?? true
                 // cmux: a group chat's run of another person's messages (the rule of lastOfGroup, seen from the
                 // message above): its first bubble gets the sender's name, its last their avatar, and every
@@ -1178,7 +1228,7 @@ enum RowBuilder {
                 let inGroup = group && !outgoing
                 let sender = inGroup ? s.conversation.participants.first { $0.id == m.senderId } : nil
                 let startsRun = prev.map { p in p.senderId != m.senderId || m.date.timeIntervalSince(p.date) >= groupGap
-                    || p.retractedAt != nil || m.replyTo != p.replyTo
+                    || m.cmuxStandsAlone == true || p.retractedAt != nil || m.replyTo != p.replyTo
                     || thread(m, at: idx) != thread(p, at: prevIndex) } ?? true
                 if let name = sender?.displayName, !name.isEmpty, startsRun, connector == nil {
                     // cmux: under a group quote the name sits so that the bubble's top is 35 pt under the quote (Messages).
@@ -1272,15 +1322,19 @@ enum RowBuilder {
         // cmux: the host's status line (ask 9) goes above the typing indicator, not under it (upstream: last,
         // centered): the Chief's "working on" line reads as a caption of the bubble it heads (RowDraw `.notice`
         // draws it at the bubble's left edge). Same gap and height as upstream's.
+        var statusLine = false
         if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice, !notice.isEmpty {
             // cmux: one caption row per line (the running indicator's folded steps, narration and step: HomeNoticeRows).
             rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 8, height: HomeNoticeRows.height(notice)))
+            statusLine = true
         }
-        if !threadMode, span.upperBound == messages.count, s.atNewest, typists {
-            // cmux: right under a bubble the typing bubble keeps a separate message's gap, 8 pt body to body (the
-            // new-group gap above), so it does not touch the bubble above or its tail; it sat 4.3 pt under it (user,
-            // 2026-10-30, "more space in between typing bubble and the latest message"). Under the status line,
-            // a receipt or a label row it stays as it was.
+        // cmux (user 2026-10-30, "make it just one line with shimmer text"): the status line, shimmering
+        // (HomeNoticeShimmer), is the running indicator; no typing bubble under it.
+        if !threadMode, span.upperBound == messages.count, s.atNewest, typists, !statusLine {
+            // cmux: right under a bubble the typing bubble sits 14 pt under it body to body, so it stays clear of the
+            // bubble above and its tail; it sat 4.3 pt under it (user, 2026-10-30, "more space in between typing bubble
+            // and the latest message"), then 8 pt ("maybe even more padding"). Under a receipt or a label row it stays
+            // as it was (the status line has no typing bubble under it).
             var gap: CGFloat = 0
             switch rows.last?.kind ?? previousRow {
             case .part, .unsent: gap = Self.typingGapUnderBubble

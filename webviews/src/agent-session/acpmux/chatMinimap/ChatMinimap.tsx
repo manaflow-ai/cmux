@@ -9,6 +9,7 @@
 import React, { memo, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { transcriptColumn, type AcpmuxRow, type ConversationLayout } from "../model";
 import { useT } from "../i18n";
+import { clearScrollOrigin, layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
 import { useChatDisplay, useChatMinimap } from "../chatDisplay";
 import { chatColumnOf, useChatSizing } from "../chatWidth";
 import type { RowsChange } from "../threadMinimap/model";
@@ -159,7 +160,7 @@ const Minimap = memo(function Minimap({
     const box = view.current;
     if (!node || !box) return;
     const { viewportHeight: height, track: rail } = live.current;
-    const top = node.scrollTop;
+    const top = layoutScrollTop(node);
     const at = minimapView(top, height, drawn.current.scale, rail);
     // Where the box is drawn, which a press hit-tests against (it stays put while a reply streams).
     drawn.current.box = { top: Math.round(at.top * 4) / 4, height: Math.round(at.height * 4) / 4 };
@@ -175,7 +176,7 @@ const Minimap = memo(function Minimap({
     const owner = control.current;
     if (!node || !owner) return;
     const range = node.scrollHeight - node.clientHeight;
-    const now = String(range > 0 ? Math.round((100 * Math.min(range, Math.max(0, node.scrollTop))) / range) : 0);
+    const now = String(range > 0 ? Math.round((100 * Math.min(range, Math.max(0, layoutScrollTop(node)))) / range) : 0);
     if (owner.getAttribute("aria-valuenow") !== now) owner.setAttribute("aria-valuenow", now);
   });
   /// While a reply streams, the rows' changes move nothing on the map, but the range grows under the
@@ -364,7 +365,7 @@ const Minimap = memo(function Minimap({
     const scale = drawn.current.scale;
     if (!node || scale <= 0) return;
     stopScroll(node);
-    node.scrollTop = Math.max(0, y / scale - grab);
+    node.scrollTop = physicalScrollTop(node, Math.max(0, y / scale - grab));
   };
   const press = useRef<{ pointer: number; grab: number } | undefined>(undefined);
   const release = () => {
@@ -435,6 +436,8 @@ const Minimap = memo(function Minimap({
           if (delta === undefined) return;
           event.preventDefault();
           stopScroll(node);
+          // Absolute navigation owns a new end point; relative keys keep the row-coordinate origin.
+          if (event.key === "Home" || event.key === "End") clearScrollOrigin(node);
           node.scrollTop = Math.max(0, node.scrollTop + delta);
         }}
       >
