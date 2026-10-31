@@ -433,6 +433,48 @@ test("with Cloud picked, a send goes to onCloud with its prompt, not a new chat;
   expect(container.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("fix the flaky test");
 });
 
+test("with Cloud picked and Do not work in a project, a send copies nothing: not even the tab's inherited folder", async () => {
+  const clouded: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        cwd="/repo/A"
+        startCwd="/repo/A"
+        pageWidgets={new Set(["projects"])}
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        environments
+        runMode={{ mode: "cloud", onMode: () => {} }}
+        onCloud={(...args) => (clouded.push(args), false)}
+      />,
+    );
+  });
+  // Do not work in a project, from the card's chooser (the tab inherited /repo/A).
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-env .acpmux-project-button")!.click());
+  const noProject = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
+    row.textContent?.includes("Do not work in a project"),
+  );
+  expect(noProject).toBeTruthy();
+  await act(async () => noProject!.click());
+  expect(container.querySelector('.nt-env .nt-stage-row[aria-pressed="true"]')).toBeTruthy();
+  const field = container.querySelector<HTMLTextAreaElement>("textarea")!;
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLTextAreaElement.prototype, "value")!.set!;
+    setter.call(field, "fix the flaky test");
+    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(clouded).toEqual([]);
+  expect(container.querySelector('[role="alert"]')?.textContent).toBeTruthy();
+  expect(container.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("fix the flaky test");
+});
+
 test("while a Cloud start is out the box takes no edits, and takes them again once it ends", async () => {
   const page = (cloudStarting: boolean) => (
     <NewTabScreen

@@ -566,6 +566,12 @@ export function NewTabScreen(props: Props) {
     if (authBlocksSend(targetAuth)) return false;
     if (command.intercept(prompt, agent, attachments.length)) return false;
     if (props.runMode?.mode === "cloud" && props.onCloud) {
+      // No project picked: a Cloud start copies a folder, and without one the host would take the
+      // tab's inherited folder, which the person just said not to work in. Nothing goes.
+      if (none) {
+        setSandboxRefusal(t("composer.offloadNotRun", { action: t("composer.cloud") }));
+        return false;
+      }
       // The folder the chip names (envFolder), never the raw `cwd` a caller passes: a tab that
       // inherited home with a start folder elsewhere shows and copies the start folder.
       const started = props.onCloud(agent, prompt, envFolder, model, attachments);
@@ -1018,6 +1024,9 @@ export function NewTabScreen(props: Props) {
   const sendRef = useRef(send);
   sendRef.current = send;
   const editRef = useRef(edit);
+  /// A Cloud start is out (`cloudStarting`): dictation writes nothing then, as typing doesn't.
+  const cloudStartingRef = useRef(false);
+  cloudStartingRef.current = props.cloudStarting === true;
   editRef.current = edit;
   const { dictationField } = props;
   useLayoutEffect(() => {
@@ -1038,6 +1047,7 @@ export function NewTabScreen(props: Props) {
       // Dictation splices its words in as typing would, committed at once: its next update reads
       // the field back, and auto-send sends what it holds.
       writeText: (value, selectionStart, selectionEnd) => {
+        if (cloudStartingRef.current) return;
         flushSync(() => editRef.current(value));
         field.current?.setSelectionRange(selectionStart, selectionEnd);
       },

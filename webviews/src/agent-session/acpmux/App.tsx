@@ -7234,6 +7234,9 @@ function AcpmuxPane() {
   /// host closes this tab with only the sent prompt, so text or files added meanwhile would be lost;
   /// on failure the prompt is still in the composer to edit and send again.
   const cloudStarting = cloudStart?.state === "starting";
+  /// The same, for dictation's field getter (below), which is made once.
+  const cloudStartingNow = useRef(false);
+  cloudStartingNow.current = cloudStarting;
   const sendToCloud = (text: string, attachmentCount: number, start: Omit<CloudStart, "task">): string | false => {
     const refused = cloudPageRefusal(sandboxOffered, attachmentCount);
     if (refused === "cloud_not_now")
@@ -8137,6 +8140,8 @@ function AcpmuxPane() {
   const newTabDictationField = useRef<DictationField | null>(null);
   const dictationTarget = useRef<{ readonly current: DictationField | null }>({
     get current() {
+      // A Cloud start is out: dictation writes nowhere, as typing doesn't (`cloudStarting`).
+      if (cloudStartingNow.current) return null;
       return newTabDictationField.current ?? prompt.current;
     },
   }).current;
