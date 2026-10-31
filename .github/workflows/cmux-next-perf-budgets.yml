@@ -129,8 +129,8 @@ jobs:
       # Warm start (.github/warm-sources.json: actions-cache). The build keeps what it made in
       # CI_SHARED_CACHE_DIR: the tip's app (split-spring-apps/<sha>), the GhosttyKit archive
       # (ghosttykit-archives/<sha256>, checked against the pinned checksum on use), optchat-chief by
-      # its inputs and cmux-mobile-host by its source trees; the web bundles' Bun package cache rides along. A Blacksmith Mac starts empty, so the
-      # directory goes through actions/cache, which Blacksmith serves next to the runner. Every
+      # commit and cmux-mobile-host by its source trees; the web bundles' Bun package cache rides
+      # along. A Blacksmith Mac starts empty, so the directory goes through actions/cache, which Blacksmith serves next to the runner. Every
       # entry inside is keyed by its own inputs; the cache key adds the toolchain (Xcode, macOS,
       # arch, Rust) and the Cargo lockfiles, and the restore-keys fall back to the newest entry of
       # the same toolchain, so a new tip reuses the archive and the helpers and a re-measured tip
@@ -177,11 +177,10 @@ jobs:
           PRODUCT_SHA: ${{ inputs.product_sha }}
           RUNNER_CLASS: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.runner_class == 'blacksmith-6vcpu-macos-26' && 'blacksmith-6vcpu-macos-26' || inputs.runner_class == 'blacksmith-12vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || 'blacksmith-6vcpu-macos-26' }}
           CI_SHARED_CACHE_DIR: ${{ runner.temp }}/tipguard-cache
-          # The Rust helpers' caches live in the kept directory too; optchat-chief is keyed by its
-          # inputs (a tip that changes none of them reuses the binary) and checked on reuse.
+          # The Rust helpers' caches live in the kept directory too. optchat-chief stays keyed by commit:
+          # its input key includes the rustc identity, which changes once rustup installs the toolchain
+          # mid-build on a fresh VM, so the bundle phase missed the binary it had just built (run 41154112683).
           CMUX_NEXT_OPTCHAT_CHIEF_CACHE: ${{ runner.temp }}/tipguard-cache/optchat-chief
-          CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEYED: "1"
-          CMUX_NEXT_OPTCHAT_CHIEF_REQUIRE_IDENTITY: "1"
           CMUX_NEXT_MOBILE_HOST_CACHE: ${{ runner.temp }}/tipguard-cache/cmux-mobile-host
         run: |
           set -euo pipefail
@@ -260,8 +259,8 @@ jobs:
 
       - name: Trim the warm cache to this tip
         # Save once the tip's app is built, even when a measured part failed after it: the build is
-        # the cold part. Only this tip's app and the cmux-mobile-host it bundled go into the entry (the
-        # GhosttyKit archives and optchat-chief keep their own small LRU). Only this trusted
+        # the cold part. Only this tip's app and the helpers it bundled go into the entry (the GhosttyKit
+        # archives keep their own small LRU). Only this trusted
         # job saves: a manual dispatch in manaflow-ai/cmux by a writer, for a tip already on
         # feat-cmux-next (checked above); no pull request or fork ever runs it.
         id: warm-trim
@@ -277,7 +276,12 @@ jobs:
             exit 0
           fi
           find "$apps" -mindepth 1 -maxdepth 1 ! -name "$TIP_SHA" -exec rm -rf {} +
-          # cmux-mobile-host keeps no LRU of its own: keep only the source key this build bundled.
+          # optchat-chief (keyed by commit) and cmux-mobile-host keep no LRU of their own: keep only what
+          # this build bundled.
+          chief="$CI_SHARED_CACHE_DIR/optchat-chief"
+          if [ -d "$chief/$TIP_SHA" ]; then
+            find "$chief" -mindepth 1 -maxdepth 1 ! -name "$TIP_SHA" -exec rm -rf {} +
+          fi
           hosts="$CI_SHARED_CACHE_DIR/cmux-mobile-host"
           used="$(sed -n "s#^==> cmux-next: bundling cmux-mobile-host from $hosts/\([0-9a-f]*\)/.*#\1#p" artifacts/split-spring/reload.log 2>/dev/null | tail -n 1 || true)"
           if [ -n "$used" ] && [ -d "$hosts/$used" ]; then
