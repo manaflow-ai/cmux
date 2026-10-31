@@ -705,9 +705,9 @@ describe("a tray line says what it is and what a click does", () => {
       // Its stats stay on the line; the done line says no Done.
       // jsdom has no width, so the tray reads as narrow and the stats wrap under the title; the
       // browser test (subagent-tray-columns.test.ts "row anatomy") checks the trailing meta.
-      expect(
-        live!.querySelector(".acpmux-agent-line__stats, .acpmux-agent-line__progress")?.textContent,
-      ).toBe("236.6K tokens · 112 tool uses");
+      expect(live!.querySelector(".acpmux-agent-line__stats, .acpmux-agent-line__progress")?.textContent).toBe(
+        "236.6K tokens · 112 tool uses",
+      );
       expect(finished!.querySelector(".acpmux-summary-agent__state")).toBeNull();
       expect(finished!.querySelector(".acpmux-agent-line__sr")?.textContent).toBe("Done");
       expect(finished!.querySelector<HTMLElement>(".acpmux-agent-line__button")!.title).toContain("general-purpose");
