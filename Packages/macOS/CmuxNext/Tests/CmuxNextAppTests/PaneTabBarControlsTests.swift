@@ -183,7 +183,10 @@ import Testing
 
     @Test func theSidebarWorkspacePlusIsPlainAndItsNeighborOwnsTheChooser() {
         _ = NSApplication.shared
-        let sidebar = SidebarView(model: SidebarModel(), design: DesignSettings())
+        // The chevron is opt-in (`sidebar.showNewWorkspaceChooser`, off by default since 2026-10-30).
+        let design = DesignSettings()
+        design.sidebarSections.showNewWorkspaceChooser = true
+        let sidebar = SidebarView(model: SidebarModel(), design: design)
         sidebar.frame = NSRect(x: 0, y: 0, width: 280, height: 480)
         sidebar.layoutSubtreeIfNeeded()
         let menu = NSMenu()
@@ -261,15 +264,18 @@ import Testing
     /// right-click menu still opens the chooser.
     @Test func theSidebarChevronHidesBeforeItReachesTheLeadingReserve() {
         _ = NSApplication.shared
-        let sidebar = SidebarView(model: SidebarModel(), design: DesignSettings())
+        // The chevron is opt-in (`sidebar.showNewWorkspaceChooser`, off by default since 2026-10-30).
+        let design = DesignSettings()
+        design.sidebarSections.showNewWorkspaceChooser = true
+        let sidebar = SidebarView(model: SidebarModel(), design: design)
         sidebar.frame = NSRect(x: 0, y: 0, width: 280, height: 480)
         sidebar.layoutSubtreeIfNeeded()
         #expect(!sidebar.newWorkspaceOptionsButton.isHidden, "a roomy sidebar shows the chevron")
         let leftmost = { ([sidebar.newButton, sidebar.newWorkspaceOptionsButton, sidebar.priorityButton] as [NSView])
             .filter { !$0.isHidden }.map(\.frame.minX).min() ?? .infinity }
         let roomy = leftmost()
-        // Room for exactly what sat beside the + before the chevron existed, and not one point more.
-        sidebar.titlebarLeadingReserve = roomy + Metrics.space1 + SidebarStyle.toolbarButtonSize
+        // One point less room than the + and its chevron segment need together.
+        sidebar.titlebarLeadingReserve = roomy + 1
         sidebar.layoutSubtreeIfNeeded()
         #expect(sidebar.newWorkspaceOptionsButton.isHidden, "the chevron gives way on a narrow sidebar")
         #expect(leftmost() >= sidebar.titlebarLeadingReserve, "no titlebar control enters the reserve")

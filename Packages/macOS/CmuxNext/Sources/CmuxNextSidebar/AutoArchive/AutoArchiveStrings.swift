@@ -5,22 +5,19 @@ public nonisolated struct AutoArchiveStrings {
     public nonisolated init() {}
     static var undoTitle: String { text("autoArchive.undoTitle", "Archive Idle Workspaces") }
     static var restoreTitle: String { text("autoArchive.restoreTitle", "Restore Workspace") }
-    static var cardEyebrow: String { text("autoArchive.card.eyebrow", "Tidy Up") }
     static var cardArchive: String { text("autoArchive.card.archive", "Archive") }
+    static var cardAlways: String { text("autoArchive.card.always", "Always Archive") }
     static var cardNotNow: String { text("autoArchive.card.notNow", "Not Now") }
     static var nothingIdle: String { text("autoArchive.refusal.nothingIdle", "no workspace is idle long enough to archive") }
     static var needsDocument: String { text("autoArchive.refusal.needsDocument", "this sidebar cannot archive items yet") }
 
     static func archived(_ count: Int) -> String {
-        String(format: text("autoArchive.toast.archived", "Archived %lld idle workspaces"), count)
+        String(localized: "autoArchive.toast.archived", defaultValue: "Archived \(count) idle workspaces", bundle: .module)
     }
 
-    static func cardTitle(_ count: Int) -> String {
-        String(format: text("autoArchive.card.title", "%lld workspaces look idle"), count)
-    }
-
-    static func cardDetail(_ days: Int) -> String {
-        String(format: text("autoArchive.card.detail", "Not used in %lld days. Archived workspaces stay in their group, dimmed, and come back when you open them."), days)
+    /// "Archive 1 idle workspace?" / "Archive 2 idle workspaces?" (plural variations in the catalog).
+    static func cardQuestion(_ count: Int) -> String {
+        String(localized: "autoArchive.card.question", defaultValue: "Archive \(count) idle workspaces?", bundle: .module)
     }
 
     static func andMore(_ count: Int) -> String {

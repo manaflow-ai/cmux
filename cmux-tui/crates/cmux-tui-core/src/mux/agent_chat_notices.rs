@@ -427,12 +427,17 @@ fn read_watch(
     }});
     let watch = json!({"jsonrpc": "2.0", "id": 2, "method": "_acpmux/watch",
         "params": {"enabled": true, "limit": PAGE_SESSIONS}});
+    // The shares the list may close: one created after the list was asked for may be of a chat
+    // the list is too old to name.
+    let before = mux.upgrade().map(|mux| crate::server::open_chat_shares(&mux)).unwrap_or_default();
     writer.write_all(format!("{initialize}\n{watch}\n").as_bytes())?;
     let mut reader = BufReader::new(stream);
     // The reply that carries the next page; none once the list is whole.
     let mut page = Some(2_u64);
     let mut whole = None;
     let mut pushed = HashSet::new();
+    // Every local chat this connection's list named, whatever its status.
+    let mut listed = HashSet::new();
     loop {
         // A whole line however long: acpmux sends none past its largest message.
         let mut line = Vec::new();
@@ -451,6 +456,20 @@ fn read_watch(
                 return Err(std::io::Error::other("acpmux did not list its sessions"));
             };
             for summary in sessions {
+                if summary.get("peer").is_none_or(Value::is_null)
+                    && let Some(session) = summary.get("sessionId").and_then(Value::as_str)
+                {
+                    listed.insert(session.to_owned());
+                }
+                // A page may be older than a push (the chat reopened meanwhile), and a share made
+                // after the list was asked for is newer than the page: neither closes.
+                if summary.get("peer").is_none_or(Value::is_null)
+                    && summary.get("status").and_then(Value::as_str) == Some("closed")
+                    && let Some(session) = summary.get("sessionId").and_then(Value::as_str)
+                    && !pushed.contains(session)
+                {
+                    crate::server::close_listed_chat_shares(&mux, session, &before);
+                }
                 let Some(next) = Chat::of(summary) else { continue };
                 if pushed.contains(&next.session) {
                     continue;
@@ -472,7 +491,11 @@ fn read_watch(
                     Some(id)
                 }
                 Value::Null => {
-                    // The list is whole: a chat it left out is gone.
+                    // The list is whole: a chat it left out is gone, and so are its link shares
+                    // (purged while the watch was away, or before this daemon started). A chat
+                    // a push reached is still there.
+                    listed.extend(pushed.iter().cloned());
+                    crate::server::close_unlisted_chat_shares(&mux, &listed, &before);
                     unlisted.clear();
                     whole = Some(Instant::now());
                     None
@@ -532,6 +555,9 @@ fn changed(mux: &Mux, params: &Value, chats: &mut HashMap<String, Chat>) {
         return;
     }
     let Some(session) = params["sessionId"].as_str() else { return };
+    if closes_chat(params) {
+        crate::server::close_chat_shares(mux, session);
+    }
     if params["kind"] == "purged" {
         chats.remove(session);
         return;
@@ -539,6 +565,13 @@ fn changed(mux: &Mux, params: &Value, chats: &mut HashMap<String, Chat>) {
     let Some(next) = Chat::of(&params["session"]) else { return };
     let before = chats.remove(&next.session);
     apply(mux, before.as_ref(), next, chats);
+}
+
+/// A change that ends the chat for its link shares: closed by the person, or removed.
+fn closes_chat(params: &Value) -> bool {
+    params.get("kind").and_then(Value::as_str) == Some("purged")
+        || params.get("session").and_then(|s| s.get("status")).and_then(Value::as_str)
+            == Some("closed")
 }
 
 /// What the chat's change from `before` reads and posts; then the watch knows `next`.
@@ -936,6 +969,16 @@ mod tests {
         serve.join().expect("the fake acpmux");
         assert!(chats.contains_key("chat-1"), "the whole list was read");
         assert!(followed.is_err(), "a connection that ends right after its list keeps the backoff");
+    }
+
+    #[test]
+    fn a_closed_or_removed_chat_ends_its_link_shares() {
+        let change = |kind: &str, status: &str| json!({"sessionId": "chat-1", "kind": kind, "session": {"status": status}});
+        assert!(closes_chat(&change("updated", "closed")));
+        assert!(closes_chat(&json!({"sessionId": "chat-1", "kind": "purged"})));
+        for status in ["idle", "running", "disconnected"] {
+            assert!(!closes_chat(&change("updated", status)), "{status}");
+        }
     }
 
     #[test]

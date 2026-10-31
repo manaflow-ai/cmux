@@ -36,24 +36,40 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
      import { flushSync } from "react-dom";
      import { createRoot } from "react-dom/client";
      import { UpdatedCard, UpdateReadyHighlights } from ${JSON.stringify(path.join(source, "pages/changelog/UpdateSurfaces.tsx"))};
+     import { routeChipHost } from ${JSON.stringify(path.join(source, "pages/changelog/ChangePullRequest.tsx"))};
+     import { languageDirection, UiProvider } from ${JSON.stringify(path.join(source, "ui/UiProvider.tsx"))};
      import { createStrings } from ${JSON.stringify(path.join(source, "pages/shared/i18n.ts"))};
      import table from ${JSON.stringify(path.join(source, "pages/changelog/generated/strings.json"))};
      const calls = { openChangelog: 0, dismiss: 0 };
      (window as any).calls = calls;
+     // As surface.tsx's mountUpdateSurface mounts them (#28004): the PR chips' host routed (no
+     // host here) and the card inside the page's UiProvider.
      (window as any).mount = (kind: "ready" | "updated", data: unknown) => {
+       routeChipHost(null);
        document.documentElement.dataset.surface = kind;
        const actions = kind === "updated"
          ? { openChangelog: () => void calls.openChangelog++, dismiss: () => void calls.dismiss++ }
          : { openChangelog: () => void calls.openChangelog++ };
        const strings = createStrings(table);
-       const root = createRoot(document.getElementById("root")!);
-       flushSync(() => root.render(createElement(kind === "ready" ? UpdateReadyHighlights : UpdatedCard, { data, strings, actions } as any)));
+       const container = document.getElementById("root")!;
+       const root = createRoot(container);
+       const card = createElement(kind === "ready" ? UpdateReadyHighlights : UpdatedCard, { data, strings, actions } as any);
+       flushSync(() => root.render(createElement(UiProvider, { container, dir: languageDirection(strings.language), overlayPosition: "fixed" }, card)));
      };`,
   );
-  const built = await Bun.build({ entrypoints: [entry], target: "browser" });
+  // One function scope (iife): the page loads it as a classic script, whose top-level
+  // declarations would be the window's. Since the PR chips (#28004), the bundle holds a library's
+  // top-level `function addEventListener(target, type, listener, options)`, which then shadowed
+  // window.addEventListener, so the pane strings' languagechange listener threw as the bundle
+  // loaded and `mount` was never defined. The app loads its bundle as a module, which has no such
+  // leak.
+  const built = await Bun.build({ entrypoints: [entry], target: "browser", format: "iife" });
   fs.rmSync(dir, { recursive: true, force: true });
   if (!built.success) throw new Error(built.logs.join("\n"));
-  const script = await built.outputs[0].text();
+  // The chips also import stylesheets, which the build emits beside the script: take the script.
+  const output = built.outputs.find((artifact) => artifact.kind === "entry-point" && artifact.path.endsWith(".js"));
+  if (!output) throw new Error(`no script among ${built.outputs.map((artifact) => artifact.path).join(", ")}`);
+  const script = await output.text();
 
   const data = {
     version: "1.0.0-nightly.3845050428001",
@@ -100,7 +116,11 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
         await page.setContent(
           `<!doctype html><html style="--page-text:#ddd;--page-text-2:#aaa;--page-text-3:#888"><head><style>${css}</style></head><body><div id="root"${width ? ` style="width:${width}px"` : ""}></div></body></html>`,
         );
+        // A bundle that throws as it loads defines no mount: name its error, not the missing mount.
+        const errors: string[] = [];
+        page.on("pageerror", (error) => errors.push(error.stack ?? String(error)));
         await page.addScriptTag({ content: script });
+        if (errors.length > 0) throw new Error(`the bundle threw as it loaded: ${errors.join("; ")}`);
         await page.evaluate(([k, d]) => (window as any).mount(k, d), [kind, data] as const);
         return page;
       }

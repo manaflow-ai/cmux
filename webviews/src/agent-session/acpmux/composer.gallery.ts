@@ -1204,6 +1204,32 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachment-failed").length === 2);
       },
     },
+    "image-original-failed": {
+      note: "A pasted screenshot whose full-size original the app could not save: its preview stays staged and still sends, with a Retry badge whose tooltip says why.",
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+        chat(finished),
+      ),
+      native: { "chat.upload.begin": { nativeError: { code: "io", userMessage: "The disk is full." } } },
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const canvas = new view.OffscreenCanvas(320, 200);
+        const paint = canvas.getContext("2d")!;
+        paint.fillStyle = "#3a7bd5";
+        paint.fillRect(0, 0, 320, 200);
+        paint.fillStyle = "#ffffff";
+        paint.fillRect(40, 60, 240, 16);
+        const file = new view.File([await canvas.convertToBlob({ type: "image/png" })], "screenshot.png", {
+          type: "image/png",
+        });
+        pasteFiles(ctx, [file]);
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(".acpmux-attachment-image .acpmux-attachment-original-retry"),
+        );
+        const badge = ctx.find({ selector: ".acpmux-attachment-original-retry" });
+        if (!badge.getAttribute("title")?.includes("The disk is full."))
+          throw new Error("the Retry badge's tooltip must say why the original failed");
+      },
+    },
     draft: {
       note: "A draft the tab inherited (markdown, two lines).",
       ready: { draft: "Also add a **circuit breaker** after `5` failures.\nKeep the POST rule as is." },
@@ -1311,7 +1337,7 @@ export default agentPaneEntry({
       }),
     },
     "queued-from-agent": {
-      note: "Another agent's message waiting behind the turn: no queue row; it is its received card in the transcript after the turn, Read after this turn, its actions (Steer, Edit message, Delete) in its ⋯ menu (QueuedMessageCard.tsx). The person's prompt is the queue's one row, unchanged.",
+      note: "Another agent's message waiting behind the turn: no queue row; it waits in the transcript's one collapsed group after the turn, no Read after this turn, its actions (Copy; ⋯ Send now, Dismiss) on its line (QueuedMessageCard.tsx). The person's prompt is the queue's one row, unchanged.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [
@@ -1338,6 +1364,9 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
+        // It waits in the one collapsed group of waiting messages (PendingMessagesCard.tsx).
+        await ctx.click({ selector: ".cv-pending__toggle" });
+        await ctx.waitFor(() => ctx.document.querySelector('[data-queued-message="q1"] .cv-disclosure__toggle'));
         await ctx.click({ selector: '[data-queued-message="q1"] .cv-disclosure__toggle' });
         await ctx.waitFor(() =>
           ctx.document.querySelector('[data-queued-message="q1"] .cv-disclosure__toggle[aria-expanded="true"]'),
@@ -1681,13 +1710,17 @@ export default agentPaneEntry({
       },
     },
     "add-menu": {
-      note: "Play: open +; Attach files or images comes first and opens the file chooser, and the menu rises out of +.",
+      note: "Play: open +; Attach files or images comes first and opens the file chooser, the Search section offers Search chats and Search pages, and the menu rises out of +.",
       snapshot: chat(finished, {
         commands: [{ name: "compact", description: "Clear conversation history but keep a summary in context" }],
       }),
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-composer-plus [data-value="add.files"]'));
+        // The Search section: Search chats and Search pages open the app's palette pages.
+        for (const id of ["agentPane.searchChats", "history.search"])
+          if (!ctx.document.querySelector(`.acpmux-composer-plus [data-value="${id}"]`))
+            throw new Error(`the + menu lost ${id}`);
       },
     },
     // cx-ncc.71 (Codex parity): + > Attach Screenshot… and Attach Window… take a capture through the

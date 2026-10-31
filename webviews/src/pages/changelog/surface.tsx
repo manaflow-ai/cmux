@@ -9,6 +9,7 @@ import { createRoot } from "react-dom/client";
 import { languageDirection, UiProvider } from "../../ui/UiProvider";
 import { routeChipHost } from "./ChangePullRequest";
 import { CARD_SCROLL_ATTRIBUTE } from "../../scrollers";
+import { NATIVE_GLASS_ATTRIBUTE } from "../../ui/glass/glassState";
 import type { PageClient } from "../shared/pageClient";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
@@ -41,6 +42,9 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
   const strings = createStrings(table);
   document.documentElement.lang = strings.language;
   document.documentElement.dataset.surface = kind;
+  // The sidebar draws the Updated card's glass natively under this page (SidebarUpdatedCardHost):
+  // the lens draws no wallpaper copy over it, not even around a tooltip's glass.
+  if (kind === "updated") document.documentElement.setAttribute(NATIVE_GLASS_ATTRIBUTE, "");
   const call = (op: string, params: unknown = {}) => void client?.call(op, params).catch(() => undefined);
   const actions: UpdateSurfaceActions =
     kind === "updated"
@@ -76,6 +80,7 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
             strings={strings}
             actions={actions}
             closeButton={false}
+            glass={false}
           />
         )}
       </UiProvider>,

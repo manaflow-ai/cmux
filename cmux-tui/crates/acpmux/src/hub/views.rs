@@ -501,6 +501,8 @@ impl Hub {
             lane: None,
             lifecycle_receipt: None,
             peer: None,
+            // What its harness spent and holds, as the last read found it (`usage_view.rs`).
+            usage_stats: self.usage_stats_of(session, &m),
         };
         let receipt = SessionReceipt::new(
             LOCAL_HOST_ID,
@@ -516,6 +518,10 @@ impl Hub {
         summary.set("gitBranch", json!(self.git_branch_now(&m)));
         // Since when work it started runs on past its own turn (`work_below.rs`).
         summary.set("subagentsWorkingSince", json!(self.work_below_since(session)));
+        // The usage rules it breaks (`usage_warnings.rs`), read from `usageStats` above.
+        let limits = *self.usage_limits.lock().unwrap_or_else(|e| e.into_inner());
+        let warnings = super::usage_warnings::usage_warnings(&summary, &limits);
+        summary.set("usageWarnings", json!(warnings));
         decide(&mut summary);
         summary
     }
@@ -639,6 +645,9 @@ impl Hub {
             "peers": self.peers(),
             "remoteSessions": self.remote_sessions.lock().unwrap().len(),
             "openWaits": self.open_waits.load(Ordering::SeqCst),
+            // Messages this daemon sent near the per-message cap, or refused over it
+            // (`wire_size.rs`): the next one too large to send is seen coming.
+            "largeMessages": crate::wire_size::global().status(),
             "webUrl": web_url(&cfg),
             "listen": cfg.web_listener().map(|w| w.listen.clone()),
             "ready": self.startup_complete(),
