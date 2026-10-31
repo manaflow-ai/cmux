@@ -169,7 +169,7 @@ public final class MobileHostPairedStore: Sendable {
                         let markers = self.state.withLock { state in
                             state.generation == selected ? state.removals : [:]
                         }
-                        for removal in markers.keys where completed[removal] == nil {
+                        for removal in markers.keys where !completed.keys.contains(removal) {
                             persisted.remove(removal.id, transport: removal.transport)
                         }
                         try file.save(persisted)
