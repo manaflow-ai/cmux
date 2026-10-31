@@ -645,13 +645,20 @@ const PULL_ARCHIVE: &str = "/tmp/cmux-pull.tgz";
 /// Packs `paths` into `archive` on the guest and prints "SIZE TAR_STATUS".
 /// It writes at most one byte over `limit`, so an oversized pull stops there
 /// instead of filling the guest's disk; tar's own status is kept apart, since
-/// `head` ending the pipe early is the oversized case.
+/// `head` ending the pipe early is the oversized case. A path whose parent
+/// resolves outside the work directory (the command made `leak -> /etc`, then
+/// `--pull leak/passwd`) is refused: tar would follow that link. A path that
+/// is itself a link is archived as the link.
 fn pull_pack_script(workdir: &str, paths: &[String], archive: &str, limit: u64) -> String {
     let quoted: Vec<String> = paths.iter().map(|path| shell_quote(path)).collect();
     format!(
-        "cd {} && {{ tar -czf - -- {}; echo $? >{archive}.rc; }} | head -c {} >{archive} && \
+        "cd {} && w=$(pwd -P) && for p in {}; do \
+         r=$(cd -- \"$(dirname -- \"$p\")\" 2>/dev/null && pwd -P) || continue; \
+         case \"$r/\" in \"$w\"/*) ;; *) echo \"--pull $p leaves the work directory through a link\" >&2; exit 3;; esac; \
+         done && {{ tar -czf - -- {}; echo $? >{archive}.rc; }} | head -c {} >{archive} && \
          echo \"$(stat -c %s {archive}) $(cat {archive}.rc)\"",
         shell_quote(workdir),
+        quoted.join(" "),
         quoted.join(" "),
         limit + 1
     )
