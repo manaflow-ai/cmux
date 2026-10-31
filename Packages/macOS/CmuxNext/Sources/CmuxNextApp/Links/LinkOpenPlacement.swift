@@ -11,7 +11,9 @@ import CmuxNextSettings
 ///   the right column (`column`, when the caller measured it) places it by ``RightColumnPlacement``:
 ///   a split below that pane once, then tabs in the column's lower pane (Leo 2026-10-30: "if
 ///   there's already a thing on the right, there should be logic for just putting it on the lower
-///   pane of the right"). Unmeasured, the pane on the right gets the tab.
+///   pane of the right"). A terminal or browser goes to a pane there that already holds its kind,
+///   so only a different kind splits below (Leo 2026-10-31: "just open it on the existing").
+///   Unmeasured, the pane on the right gets the tab.
 /// - ``LinkPlacement/samePane``: a tab in the source pane, unless the source takes no new tabs.
 ///
 /// A source that takes no tabs (Home's pinned dock) never holds the opened tab, whatever the
@@ -45,11 +47,15 @@ struct LinkOpenPlacement<Pane: Equatable> {
 
     /// Where an item opened from `source` lands. `takesTabs`: the source's strip takes new tabs;
     /// `right`: the pane right of the source on its screen, if any; `column`: the right column it
-    /// is in, top to bottom, with `sourceWidth` and each pane's `width` (empty: not measured).
+    /// is in, top to bottom, with `sourceWidth` and each pane's `width` (empty: not measured). `kind`:
+    /// what opens, which `holds` matches against the column's panes (``RightColumnPlacement/Kind``).
     func target(source: Pane, takesTabs: Bool, right: Pane?, column: [Pane] = [], sourceWidth: CGFloat? = nil,
-                width: (Pane) -> CGFloat? = { _ in nil }) -> Target {
+                width: (Pane) -> CGFloat? = { _ in nil }, kind: RightColumnPlacement.Kind? = nil,
+                holds: (Pane, RightColumnPlacement.Kind) -> Bool = { _, _ in false }) -> Target {
         if setting == .samePane, takesTabs { return .pane(source) }
-        if let right, right != source { return Self.inColumn(right: right, column: column, sourceWidth: sourceWidth, width: width) }
+        if let right, right != source {
+            return Self.inColumn(right: right, column: column, sourceWidth: sourceWidth, width: width, kind: kind, holds: holds)
+        }
         if !takesTabs { return .besideDock(source) }
         if setting == .newColumn { return .newColumn(rightOf: source) }
         // A split halves the source: one that would leave it under the chat floor is a tab in it
@@ -77,10 +83,13 @@ struct LinkOpenPlacement<Pane: Equatable> {
 
     /// An item opened beside pane `right`, already on the source's right: ``RightColumnPlacement``
     /// over the measured `column` (a split below its one pane, else a tab in its lower pane), or a tab
-    /// in `right` when the column was not measured. Main pane layout's strip column uses it too.
-    static func inColumn(right: Pane, column: [Pane], sourceWidth: CGFloat?, width: (Pane) -> CGFloat?) -> Target {
+    /// in `right` when the column was not measured. A `kind` a pane there already `holds` is a tab in
+    /// that pane. Main pane layout's strip column uses it too.
+    static func inColumn(right: Pane, column: [Pane], sourceWidth: CGFloat?, width: (Pane) -> CGFloat?,
+                         kind: RightColumnPlacement.Kind? = nil,
+                         holds: (Pane, RightColumnPlacement.Kind) -> Bool = { _, _ in false }) -> Target {
         guard !column.isEmpty else { return .pane(right) }
-        switch RightColumnPlacement.decide(sourceWidth: sourceWidth, column: column, width: width) {
+        switch RightColumnPlacement.decide(sourceWidth: sourceWidth, column: column, width: width, opening: kind, holds: holds) {
         case .splitBelow(let pane): return .splitBelow(of: pane)
         case .tab(let pane): return .pane(pane ?? right)
         case .splitRight: return .pane(right)
