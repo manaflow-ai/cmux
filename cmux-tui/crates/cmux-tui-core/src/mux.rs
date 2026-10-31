@@ -911,6 +911,7 @@ impl Mux {
         id: SurfaceId,
         opts: SurfaceOptions,
     ) -> anyhow::Result<Arc<Surface>> {
+        use crate::panic_free::RecoverPoison;
         let (old, catalog) = {
             let mut state = self.state.lock().recover_poison();
             let old = state
