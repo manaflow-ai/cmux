@@ -118,6 +118,11 @@ nonisolated extension ContextMenuCatalog {
                 row["title_key"] = key
                 row["title_table"] = "Localizable"
                 row["children"] = exportEntries(children, byID: byID, titles: titles, labels: labels)
+            case .group(let group, let children):
+                // Only a person's arrangement has these; the generated export never does.
+                row["kind"] = "group"
+                row["title"] = group.title
+                row["children"] = exportEntries(children, byID: byID, titles: titles, labels: labels)
             }
             return row
         }

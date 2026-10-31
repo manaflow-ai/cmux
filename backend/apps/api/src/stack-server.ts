@@ -46,6 +46,8 @@ export interface StackServer {
    * 2026-10-08), "team_gone" for TEAM_NOT_FOUND. A member who holds no permission has an empty list.
    */
   getTeamMember(teamId: string, userId: string): Promise<StackMember | null | "team_gone">
+  /** The Stack team ids the user is a member of now (GET /teams?user_id); empty for USER_NOT_FOUND. user.teams.list repairs a team its webhook never synced from it. */
+  listUserTeams(userId: string): Promise<ReadonlyArray<string>>
   /** Removes the membership in Stack (DELETE /team-memberships/{team}/{user}); "absent" when it was not there. */
   removeTeamMember(teamId: string, userId: string): Promise<"removed" | "absent" | "team_gone">
 }
@@ -231,6 +233,11 @@ export const stackServer = (
       // This read names the member, so an answer without entries means they hold no permission: role member (cx-6wc8).
       return { display_name: name, permissions: perms.get(normal(userId)) ?? [], anonymous: r.user?.is_anonymous === true }
     },
+    listUserTeams: async (userId) => {
+      const r = await lookup<{ items?: Array<{ id?: unknown }> }>(`/teams?user_id=${encodeURIComponent(userId)}`, "user teams", ["USER_NOT_FOUND"])
+      if (isGone(r)) return []
+      return (r.items ?? []).flatMap((t) => (typeof t.id === "string" && t.id ? [normal(t.id)] : []))
+    },
     removeTeamMember: async (teamId, userId) => {
       const res = await http(new Request(`${API}/team-memberships/${encodeURIComponent(teamId)}/${encodeURIComponent(userId)}`, { method: "DELETE", headers, body: "{}", signal: AbortSignal.timeout(10_000) }))
       const known = res.headers.get("x-stack-known-error") ?? ""
@@ -267,3 +274,12 @@ export const stackServer = (
  */
 export const stackReadPace = (env: Env): Promise<boolean> =>
   env.STACK_READ_LIMIT ? env.STACK_READ_LIMIT.limit({ key: `stack-reads:${env.STACK_PROJECT_ID}` }).then((r) => r.success, () => false) : Promise.resolve(true)
+
+/**
+ * The low lane of the shared Stack read pace (STACK_READ_LOW_LIMIT, 2 a minute in production): a sync of a team
+ * cmux never mirrored that no person waits on (in production mostly cmux.com visitors' anonymous sign-up teams,
+ * about 7 a minute) takes a token here as well as one of stackReadPace, so such syncs use at most half the pace
+ * and a join in a known team is never starved (prod 2026-10-29: a join waited 70 s). No binding: no low cap.
+ */
+export const stackLowReadPace = (env: Env): Promise<boolean> =>
+  env.STACK_READ_LOW_LIMIT ? env.STACK_READ_LOW_LIMIT.limit({ key: `stack-reads-low:${env.STACK_PROJECT_ID}` }).then((r) => r.success, () => false) : Promise.resolve(true)

@@ -49,8 +49,11 @@
 //!   in flight after the attempt ended.
 //! - A wait is not persisted: a daemon restart (or a move) drops it. The chat's next load (or
 //!   its import) logs each entry the log left waiting or in flight again with `retry` and
-//!   `retryInFlight` null and `retryable: false` ([`Hub::settle_subagent_retries`]), and a retry
-//!   prompt its queue kept never starts ([`Retries::start`]). A chat keeps at most [`MAX_FAILED`]
+//!   `retryInFlight` null and `retryable: false` ([`Hub::settle_subagent_retries`]). A retry
+//!   prompt its queue kept leaves the queue as it is restored
+//!   ([`Hub::drop_unsent_subagent_retries`]): no wait is left to take it out when its subagent
+//!   runs again or ends, and a paused queue would keep it for good. One that still reaches its
+//!   start never starts ([`Retries::start`]). A chat keeps at most [`MAX_FAILED`]
 //!   failed subagents no retry waits for (given up or stopped, for a person's retry): past
 //!   that the oldest is forgotten, checked whenever one fails, is stopped or is given up. All
 //!   go at close, each entry then `retryable: false`.
@@ -529,6 +532,36 @@ impl Hub {
             self.append_entry(session, &id, &state, entry);
         }
         self.set_retry_open(session, false);
+    }
+
+    /// After `restore_queue` (a restart's load, its second pass after adoption, or a chat moved
+    /// or imported here): every subagent retry prompt in the queue that no attempt of this
+    /// daemon sent leaves it, `queue_removed` with reason `subagent_retry`. Its wait was not
+    /// persisted, so nothing takes it out when its subagent runs again or ends (`skip_wait`),
+    /// and a queue a failed turn paused never brings it to its start, where [`Retries::start`]
+    /// would refuse it: it would sit in the queue for good. The removal is logged, so the next
+    /// load does not restore it again.
+    pub(super) fn drop_unsent_subagent_retries(&self, session: &Arc<Session>) {
+        let queued: Vec<String> = session
+            .queue()
+            .into_iter()
+            .filter(|q| is_retry(q.run.provenance.as_ref()))
+            .map(|q| q.prompt_id)
+            .collect();
+        if queued.is_empty() {
+            return;
+        }
+        // One this daemon sent and has not skipped is still its attempt's.
+        let unsent: Vec<String> = {
+            let all = self.subagent_retries.lock();
+            queued
+                .into_iter()
+                .filter(|id| all.sent.get(&(session.id.clone(), id.clone())) != Some(&false))
+                .collect()
+        };
+        for prompt_id in unsent {
+            self.remove_queued_because(session, &prompt_id, Some(PROVENANCE_KIND));
+        }
     }
 
     /// Forgets the chat's oldest failures past [`MAX_FAILED`] no retry waits for: each entry

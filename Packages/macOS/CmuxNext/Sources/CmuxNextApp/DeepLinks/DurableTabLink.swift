@@ -110,7 +110,7 @@ enum DurableTabLink {
             // `tabListRevision`: the tracked read hears the tab appear (AppServices.locateTab).
             for await found in ObservationStream({
                 for daemon in services.machines.daemons { _ = daemon.store.tabListRevision }
-                return services.locateTab(id) != nil
+                return services.locateTabOnAnyMachine(id) != nil
             }) where found {
                 return true
             }

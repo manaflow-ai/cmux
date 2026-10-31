@@ -14,7 +14,7 @@ import CmuxNextSettings
 /// same center path a click takes.
 /// - `{}` lists the open dialogs (id, title, lines, origin, scope, visible,
 ///   buttons, field values, frame in window coordinates).
-/// - `{open: "confirm" | "text" | "credentials" | "save" | "choice" | "sessionMove" | "sessionMoveEnd" | "cloudCreateBefore" | "cloudWorkspaceEmpty" | "cloudWorkspaceRepository" | "cloudWorkspaceTeam" | "cloudWorkspaceCompact" | "cloudWorkspaceActions" | "cloudCredentials",
+/// - `{open: "confirm" | "text" | "credentials" | "save" | "choice" | "sessionMove" | "sessionMoveEnd" | "cloudCreateBefore" | "cloudWorkspaceEmpty" | "cloudWorkspaceRepository" | "cloudWorkspaceTeam" | "cloudWorkspaceCompact" | "cloudWorkspaceActions" | "cloudCredentials" | "cloudSetupGitHub" (app: ready | not_connected | not_configured | unknown | device),
 ///   scope: "window" | "app", origin?}`
 ///   shows a fixture (screenshots, latency) and returns its id.
 /// - `{id?, set: {field: string | bool}}`, `{id?, key: "return" | "escape" | "tab" | "shift-tab" | "cmd-<c>"}`,
@@ -60,6 +60,19 @@ enum DebugDialog {
                                        button: CloudStrings.createConfirmButton,
                                        identifier: CloudPresenter.createConfirmIdentifier,
                                        in: services.windows.active?.window) { _ in }
+                if let id = center.records.last(where: \.visible)?.id {
+                    result["opened"] = .number(Double(id))
+                }
+            } else if fixture == "cloudSetupGitHub" {
+                // Set Up GitHub on This Machine's confirm for a fixture identity, as the App check
+                // `app` answered (ready, not_connected, not_configured, unknown); `device` is the
+                // confirm before the App was the default. An inert completion: nothing runs.
+                let identity = CloudGitHubSetup.GitIdentity(name: "Ann Lee", email: "ann@example.com")
+                let app = params["app"]?.stringValue ?? "ready"
+                let body = app == "device" ? CloudStrings.gitHubConfirmBody(name: "Ann Lee", email: "ann@example.com")
+                    : CloudGitHubHandlers.confirmBody(identity, app: CloudGitHubApp(rawValue: app) ?? .unknown)
+                CloudPresenter.confirm(CloudStrings.gitHubConfirmTitle("demo-cloud"), body, button: CloudStrings.gitHubSetUp,
+                                       identifier: "cmux.dialog.cloud.setupGitHub", in: services.windows.active?.window) { _ in }
                 if let id = center.records.last(where: \.visible)?.id {
                     result["opened"] = .number(Double(id))
                 }

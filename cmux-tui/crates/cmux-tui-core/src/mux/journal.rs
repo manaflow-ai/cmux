@@ -13,6 +13,7 @@ impl Mux {
 
     pub(crate) fn publish_journal_event(&self) {
         self.journal_kernel.notify_commit();
+        self.journal_maintenance_control.note_change();
         let mut epoch = self.journal_event_epoch.lock().unwrap();
         *epoch = epoch.wrapping_add(1);
         self.journal_event_changed.notify_all();
