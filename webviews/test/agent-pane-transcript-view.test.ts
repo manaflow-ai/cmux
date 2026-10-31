@@ -310,7 +310,8 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
       await openCommands.first().waitFor();
       const verbose = { open: (await openCommands.count()) === (await commands.count()) };
 
-      // The reader's own close of a turn holds in Verbose: that turn's calls go, the other turn's stay.
+      // The reader's own close of the turn holds in Verbose: a finished turn has one fold (turns.ts
+      // foldSegments), so closing it takes every call out of sight.
       const before = await commands.count();
       await worked.click();
       await page.waitForFunction(
@@ -320,7 +321,6 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
       const closedByHand = {
         worked: await worked.getAttribute("aria-expanded"),
         fewer: (await commands.count()) < before,
-        otherTurn: await page.locator(".cv-worked").nth(1).getAttribute("aria-expanded"),
       };
 
       await pick(page, "Normal");
@@ -334,7 +334,7 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
         normal: { worked: "false", thoughts: 0, commands: 0 },
         thinking: { worked: "true", thoughts: true, commands: true, someClosed: true },
         verbose: { open: true },
-        closedByHand: { worked: "false", fewer: true, otherTurn: "true" },
+        closedByHand: { worked: "false", fewer: true },
         backToNormal: { worked: "false", thoughts: 0, commands: 0 },
       });
       await page.close();
