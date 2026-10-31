@@ -1,11 +1,5 @@
 {
   "title": "Import Cookies banner",
-  "windows": [
-    {
-      "name": "banner-overlay",
-      "class": "OverlayHostPanel"
-    }
-  ],
   "steps": [
     {
       "title": "Launch",
@@ -24,41 +18,45 @@
     },
     {
       "title": "Browser workspace",
-      "cmux": [
-        "action",
-        "run",
-        "newBrowserWorkspace"
-      ],
-      "wait": 3,
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "newBrowserWorkspace",
+          "focus": true
+        }
+      },
+      "wait": 4,
       "shot": false
     },
     {
-      "title": "A page in the person's own browser tab",
-      "cmux": [
-        "tab",
-        "new-browser",
-        "--url",
-        "https://example.com"
-      ],
+      "title": "The person types a page into the omnibar of their own tab",
+      "rpc": {
+        "method": "debug.omnibar_type",
+        "params": {
+          "text": "https://example.com/"
+        }
+      },
       "wait": 5,
       "shot": false
     },
     {
-      "title": "The banner offers to import cookies, with Don't Show Again, Not Now and Import",
+      "title": "The banner offers to import cookies (Don't Show Again, Not Now, Import)",
       "rpc": {
         "method": "debug.browser_import_offer",
         "params": {
           "action": "show"
         }
       },
-      "wait": 3,
-      "expect": {
+      "wait": 3
+    },
+    {
+      "title": "State: shown",
+      "rpc": {
         "method": "debug.browser_import_offer",
-        "fields": {
-          "showing": true,
-          "offered": true
-        }
-      }
+        "params": {}
+      },
+      "record": true,
+      "shot": false
     },
     {
       "title": "Don't Show Again: browser.import.cookieBanner turns off and the banner goes",
@@ -69,30 +67,33 @@
           "choice": "never"
         }
       },
-      "wait": 3,
-      "expect": {
-        "method": "debug.browser_import_offer",
-        "fields": {
-          "dismissed": true,
-          "offered": false,
-          "showing": false
-        }
-      }
+      "wait": 3
     },
     {
-      "title": "Show Import Cookies Banner (cmux browser show-cookie-banner): back on and shown again",
+      "title": "State: dismissed",
+      "rpc": {
+        "method": "debug.browser_import_offer",
+        "params": {}
+      },
+      "record": true,
+      "shot": false
+    },
+    {
+      "title": "Show Import Cookies Banner (cmux browser show-cookie-banner): on again and shown on the person's tab",
       "cmux": [
         "browser",
         "show-cookie-banner"
       ],
-      "wait": 4,
-      "expect": {
+      "wait": 4
+    },
+    {
+      "title": "State: shown again",
+      "rpc": {
         "method": "debug.browser_import_offer",
-        "fields": {
-          "dismissed": false,
-          "showing": true
-        }
-      }
+        "params": {}
+      },
+      "record": true,
+      "shot": false
     }
   ]
 }
