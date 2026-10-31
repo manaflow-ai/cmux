@@ -203,6 +203,16 @@ rustfmt. The pre-commit hook does the same for staged files and restages them.
 Both touch only those files, so agents sharing a checkout never reformat each
 other's work. `CMUX_SKIP_FORMAT_HOOKS=1` skips both in an emergency.
 
+## macOS and iOS parity
+
+Every new feature or capability built on cmux-next macOS, however small or big, must also be
+supported in the cmux-next iPhone app (`cmux-next-ios/`), with a row in
+[cmux-next-ios/verify/parity-mac.md](cmux-next-ios/verify/parity-mac.md). Two exceptions, each
+recorded there as "not from a phone" with its reason: Mac-only chrome (windows, menu bar, Dock),
+and anything a paired phone may not do under [cmux-next-ios/SECURITY.md](cmux-next-ios/SECURITY.md)
+and "Remote CLI relay" below. A phone path that needs a new trust or security policy goes to
+https://github.com/manaflow-ai/cmux/issues/13742 with a recommendation first.
+
 ## Area instructions
 
 Read these before working in their scope; nested files may not load automatically:
@@ -210,6 +220,7 @@ Read these before working in their scope; nested files may not load automaticall
 - `ios/` or `Packages/iOS/`: [ios/AGENTS.md](ios/AGENTS.md).
 - `web/` or any cmux Cloud database work: [web/AGENTS.md](web/AGENTS.md).
 - `cmux-tui/`: [cmux-tui/AGENTS.md](cmux-tui/AGENTS.md).
+- `cmux-next-ios/`: [cmux-next-ios/SECURITY.md](cmux-next-ios/SECURITY.md) and the parity rule above.
 
 ## Contributions and publication
 
@@ -243,6 +254,17 @@ reservation without a fallback. The nightly app builder remains dedicated;
 Release gates do not share it. Signing, notarization and GUI steps that truly
 require macOS run on owned Macs first and Blacksmith macOS last, in parallel
 with the fast checks. Keep the target at zero queue.
+
+**Nightlies never use Blacksmith, ever** (Lawrence, 2026-10-30). Every job of
+every nightly workflow (`.github/workflows/*nightly*.yml`,
+`*notarization*.yml`, the nightly appcast repair) runs only on our own Mac
+minis, for cmux-next and classic alike. This covers every path: the primary
+label, fallbacks, re-runs and rescue attempts, twin/backup signing jobs, the
+cloud overflow switch, and any input or repository variable a nightly
+`runs-on` reads. Never add a Blacksmith label (or a variable that may hold one,
+such as `LINUX_RUNNER` or `MACOS_RUNNER_*`) to a nightly job; when owned
+capacity is short, fix the owned pool. `tests/test_ci_nightly_off_blacksmith.py`
+enforces this.
 
 - Commit the failing behavioral regression before its fix; record the same
   focused command's red and green results ([testing policy](skills/cmux-testing/SKILL.md#reproduce-and-repair)).

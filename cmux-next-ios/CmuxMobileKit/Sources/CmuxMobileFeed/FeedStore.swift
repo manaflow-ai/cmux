@@ -274,6 +274,19 @@ public final class FeedStore {
         }
     }
 
+    /// Recovery finishes opening the Macs' feeds before reading them again.
+    public func retry(reconnect: @MainActor () async -> Void = {}) async {
+        await reconnect()
+        guard !Task.isCancelled else { return }
+        await refresh()
+    }
+
+    #if DEBUG
+    public func setRefreshErrorForDemo() {
+        refreshError = Self.notConnectedMessage
+    }
+    #endif
+
     public func clearRefreshError() { refreshError = nil }
 
     /// No Mac to send to: the item keeps its question and says why.

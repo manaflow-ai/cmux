@@ -10,6 +10,23 @@ import Foundation
 // WebKit view stays as an unloaded, hidden subview, so a page that fails in Chromium reopens in
 // WebKit at once (``fallBackToWebKit(_:)``) and WebKit-only hosts keep compiling.
 extension PageWebView {
+    /// Re-syncs every Chromium page in a view subtree with its AppKit state.
+    public static func syncChromiumVisibility(in root: NSView) {
+        if let page = root as? PageWebView { page.setChromiumVisibility(true) }
+        for child in root.subviews { syncChromiumVisibility(in: child) }
+    }
+
+    /// Synchronizes the separate Chromium child window with the page's actual visibility.
+    /// AppKit does not propagate an ancestor's alpha to a child window, so paint holds call this
+    /// explicitly when they make the host transparent. The page's own alpha does not count: a pane
+    /// clears its page while it waits for the page's first frame (loading state, move cover), and
+    /// a hidden Chromium page draws no frame, so the wait would last until its give-up.
+    public func setChromiumVisibility(_ requested: Bool) {
+        let visible = requested && window != nil && !isHiddenOrHasHiddenAncestor
+            && sequence(first: self as NSView, next: \.superview).dropFirst().allSatisfy { $0.alphaValue > 0.001 }
+        chromiumSession?.page.setVisible(visible)
+    }
+
     /// The handlers the page scripts post to without a reply, in Chromium mode.
     static let chromiumFireAndForget = [
         PagePaintProbe.handlerName, PageInputReadiness.handlerName, ConsoleErrorCapture.handlerName,
@@ -141,7 +158,7 @@ extension PageWebView {
         }
         chromiumSession = session
         scriptTarget.bridge = bridge
-        bridge.evaluate(DesignSettings.shared.interfaceScaleScript)
+        bridge.evaluate(DesignSettings.shared.interfaceScaleScript(pageZoom: pageZoom))
         page.setZoom(pageZoom)
         // The WebKit page draws no background (`drawsBackground` off): the Chromium page neither.
         page.setSeeThrough(true)
@@ -149,7 +166,7 @@ extension PageWebView {
         page.contentView.autoresizingMask = [.width, .height]
         addSubview(page.contentView)
         applyNativeRects()
-        page.setVisible(window != nil && !isHiddenOrHasHiddenAncestor)
+        setChromiumVisibility(true)
         #if DEBUG || CMUX_BENCH_HOOKS
         traceMark(.navigationStart)
         #endif
@@ -183,6 +200,7 @@ extension PageWebView {
         router.reset()
         loaded = false
         if ended, !reloadsAfterCrash {
+            lastTermination = .unknown
             logger.error("page \(self.descriptor.id, privacy: .public) Chromium ended; no automatic reload (the crash notice offers Reload)")
             webKitLoadsOnReload = true
             onCrash?(self, false)
@@ -223,6 +241,7 @@ extension PageWebView {
         case .finished:
             documentFinished()
         case .crashed:
+            lastTermination = PageTermination(reason: .crash)
             contentProcessTerminated()
         case .ended:
             fallBackToWebKit(.chromiumFailed, detail: "the Chromium browser ended", ended: true)

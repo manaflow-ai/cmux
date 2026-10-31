@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextHome
 
 /// The panels the Home transcript header's top-right toggles open and close beside Home, like
@@ -22,6 +23,9 @@ struct HomeHeaderPanel {
     let action: ActionID
     /// Whether the toggle shows for this conversation (Memory: a Chief's only).
     var isShown: @MainActor (HomeHeaderPanelContext) -> Bool = { _ in true }
+    /// Shown even while Debug Settings > Home > Home header panel toggles is off: a control that is
+    /// also an indicator the person must always see (Share Screen with Chief).
+    var alwaysShown = false
     /// The click's arguments (Memory names this conversation's Chief).
     var arguments: @MainActor (HomeHeaderPanelContext) -> [String: ActionValue] = { _ in [:] }
     /// The panel is open in the context's window. Read inside an observation, so it must read
@@ -44,7 +48,16 @@ struct HomeHeaderPanelContext {
 @MainActor
 enum HomeHeaderPanels {
     /// Every header toggle, left to right.
-    static let all: [HomeHeaderPanel] = [memory, rightSidebar]
+    static let all: [HomeHeaderPanel] = [screenShare, memory, rightSidebar]
+
+    /// Share Screen with Chief (docs/chief-screen-share.md): on this Mac's own Chief only, lit while
+    /// the Chief can see the screen; a click starts or stops sharing.
+    static let screenShare = HomeHeaderPanel(
+        id: "screenShare", symbol: "display", onSymbol: "record.circle", label: { ChiefScreenShareActions.headerLabel },
+        action: ChiefScreenShareActions.toggleID,
+        isShown: { $0.isChief && $0.chief == nil && $0.server == nil },
+        alwaysShown: true,
+        isOpen: { $0.services.chiefScreenShare.isOn })
 
     /// The Chief's Memory Inspector, a tab in Home's right column (``ChiefMemoryPageService``).
     static let memory = HomeHeaderPanel(
@@ -68,13 +81,12 @@ enum HomeHeaderPanels {
         action: "toggleRightSidebar",
         isOpen: { $0.window?.rightSidebar.isVisible ?? false })
 
-    /// The cluster's buttons for `context` (empty while Debug Settings > Home > Home header panel
-    /// toggles is off): an observable read, so a watch redraws them when any panel opens or closes.
+    /// The cluster's buttons for `context` (only the ``HomeHeaderPanel/alwaysShown`` ones while Debug
+    /// Settings > Home > Home header panel toggles is off): an observable read, so a watch redraws them when any panel opens or closes.
     static func items(_ context: HomeHeaderPanelContext, panels: [HomeHeaderPanel] = all,
                       enabled: Bool = HomeTunables.headerPanelToggles.value) -> [HomeHeaderPanelItem] {
-        guard enabled else { return [] }
         let registry = context.services.registry
-        return panels.filter { $0.isShown(context) }.map { panel in
+        return panels.filter { (enabled || $0.alwaysShown) && $0.isShown(context) }.map { panel in
             HomeHeaderPanelItem(id: panel.id, symbol: panel.symbol, onSymbol: panel.onSymbol, label: panel.label(),
                                 shortcut: registry.shortcutDisplay(for: panel.action), isOn: panel.isOpen(context))
         }
