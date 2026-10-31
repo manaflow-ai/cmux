@@ -26,6 +26,24 @@ import Testing
         #expect(second == nil, "one answer, then the stream ends")
     }
 
+    /// Review 2 of #28090: after a reconnect every window is asked again, and until acpmux's full
+    /// answer comes the rows are the old connection's. An unchanged query is not answered then.
+    @Test func aWindowIsNotAnsweredAgainUntilTheNewConnectionAnswers() throws {
+        let windows = AcpmuxChatWindows()
+        var sent: [[String: any Sendable]] = []
+        windows.connected { _, params in sent.append(params) }
+        let spec = AcpmuxChatWindows.Spec(window: AgentChatsPalettePage.window, limit: 10, query: "zebra")
+        windows.open(spec)
+        let generation = try #require(sent.last?["gen"] as? UInt64)
+        windows.apply(.init(window: spec.window, generation: generation, revision: 1, full: true, keys: [], rows: []))
+        #expect(windows.isAnswered(spec))
+        windows.connected { _, params in sent.append(params) }
+        #expect(sent.count == 2, "the new connection asks for the window again")
+        #expect(!windows.isAnswered(spec), "the old connection's rows do not answer the new connection's request")
+        windows.apply(.init(window: spec.window, generation: generation, revision: 1, full: true, keys: [], rows: []))
+        #expect(windows.isAnswered(spec))
+    }
+
     /// No regression (review of #28090): acpmux ranks every chat and says how many matched; when
     /// more match than the page holds, the page says so in a last row that runs nothing.
     @Test func morePastThePageIsShownAsANoticeRow() async throws {

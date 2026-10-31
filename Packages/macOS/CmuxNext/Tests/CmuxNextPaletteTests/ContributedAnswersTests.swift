@@ -1,0 +1,151 @@
+import AppKit
+import CmuxNextActions
+@testable import CmuxNextPalette
+import CmuxNextTestSupport
+import Testing
+
+/// Review 2 of #28090 (issuecomment-6542219906): a contributed page that answers its own queries
+/// (`PalettePageSpec.queryResults`, the agent chats page asks acpmux) joined into Search and the
+/// Chats & agents scope. Its answers land in later turns than the ranked rows; these pin what the
+/// person sees and what Return runs when they do.
+@MainActor
+@Suite(.paletteRanker, .closesItsWindows, .timeLimit(.minutes(1)))
+struct ContributedAnswersTests {
+    /// The chats contribution: each query's stream, answered when the test says (or at once).
+    @MainActor final class Chats {
+        var streams: [String: AsyncStream<[PaletteItem]>.Continuation] = [:]
+        var asked: [String] = []
+        /// Answer every query at once with these rows (acpmux had the query's window already).
+        var immediate: [PaletteItem]?
+
+        func results(_ query: String) -> AsyncStream<[PaletteItem]> {
+            asked.append(query)
+            let (stream, continuation) = AsyncStream.makeStream(of: [PaletteItem].self, bufferingPolicy: .bufferingNewest(1))
+            if let immediate {
+                continuation.yield(immediate)
+                continuation.finish()
+            } else {
+                streams[query] = continuation
+            }
+            return stream
+        }
+
+        /// acpmux answers `query` with `rows`, and the query's stream ends (the chats page's one answer).
+        /// The palette may ask in a later turn than the key's: this waits for the ask first.
+        func answer(_ query: String, _ rows: [PaletteItem]) async {
+            await ContributedAnswersTests.until { self.streams[query] != nil }
+            streams[query]?.yield(rows)
+            streams[query]?.finish()
+        }
+    }
+
+    static func item(_ id: String, _ title: String, ran: Ran) -> PaletteItem {
+        PaletteItem(id: id, title: title,
+                    primary: PaletteCommand(id: "open", title: "Open", symbol: "return", effect: .perform { ran.ids.append(id) }))
+    }
+
+    @MainActor final class Ran { var ids: [String] = [] }
+
+    /// Search with a history page (section order 40, above the chats' 30) and the chats contribution.
+    static func palette(chats: Chats, ran: Ran) -> (PaletteController, ActionRegistry) {
+        _ = NSApplication.shared
+        var sources = PaletteSources()
+        let history = [item("history:quokka", "Quokka notes", ran: ran), item("history:zebra", "Zebra wiki", ran: ran),
+                       item("session:wombat", "Wombat session", ran: ran)]
+        sources.searchContributions = [
+            PaletteSearchContribution(id: "agentChats", title: "Agent Chats", order: 30, searchesChats: true) {
+                PalettePageSpec(id: "agentChats", title: "Agent Chats", placeholder: "", providers: [],
+                                queryResults: { chats.results($0) }, filtersByQuery: false)
+            },
+            PaletteSearchContribution(id: "history", title: "History", order: 40, searchesChats: true) {
+                PalettePageSpec(id: "history.search", title: "History", placeholder: "",
+                                providers: [StaticPaletteProvider(id: "history.search", items: history)])
+            },
+        ]
+        let registry = ActionRegistry.standard()
+        let palette = PaletteController(registry: registry, sources: sources, frecencyPersistence: nil)
+        palette.bindRegistryActions()
+        return (palette, registry)
+    }
+
+    /// Waits until `check` holds (an answer lands on a later main-actor turn), or gives up.
+    static func until(_ check: () -> Bool) async {
+        for _ in 0..<500 where !check() { await Task.yield() }
+    }
+
+    /// F1: acpmux answers the new query before its rank lands. The old query's ranked rows must not
+    /// stand as the new query's final rows: a Return pressed at once runs the new query's best row.
+    @Test func aReturnBeforeTheRankRunsTheNewQuerysBestRow() async {
+        let chats = Chats(), ran = Ran()
+        chats.immediate = [Self.item("chat:any", "Some chat", ran: ran)]
+        let (palette, registry) = Self.palette(chats: chats, ran: ran)
+        defer { palette.closeForTest() }
+        _ = registry.perform("search.chats", invocation: ActionInvocation(arguments: [:], origin: .user))
+        await palette.model.settle()
+        palette.model.send(.setQuery("zebra"))
+        await palette.model.settle()
+        await Self.until { palette.model.rows.contains { $0.id == "chat:any" } }
+        palette.model.send(.setQuery("quokka"))
+        palette.model.send(.activate(nil))
+        await palette.model.settle()
+        await Self.until { !ran.ids.isEmpty }
+        #expect(ran.ids == ["history:quokka"], "Return ran \(ran.ids), not the new query's best row")
+    }
+
+    /// F2: the chats answer lands after the ranked rows, whose best match is in a section ordered after
+    /// the chats (History, 40). The selected best row stays the first row on screen.
+    @Test func aLateAnswerDoesNotPushTheSelectedBestRowDown() async {
+        let chats = Chats(), ran = Ran()
+        let (palette, registry) = Self.palette(chats: chats, ran: ran)
+        defer { palette.closeForTest() }
+        _ = registry.perform("search.chats", invocation: ActionInvocation(arguments: [:], origin: .user))
+        await palette.model.settle()
+        palette.model.send(.setQuery("quokka"))
+        await palette.model.settle()
+        #expect(palette.model.selectedRowID == "history:quokka")
+        await chats.answer("quokka", (0..<5).map { Self.item("chat:\($0)", "Quokka chat \($0)", ran: ran) })
+        await Self.until { palette.model.rows.contains { $0.id == "chat:0" } }
+        #expect(palette.model.rows.contains { $0.id == "chat:0" }, "the chats show")
+        #expect(palette.model.selectedRowID == "history:quokka")
+        #expect(palette.model.rows.first?.id == palette.model.selectedRowID,
+                "the selected best row stays first: \(palette.model.rows.map(\.id))")
+    }
+
+    /// F2: the next key keeps the chats on screen until the new query's answer replaces them (no block
+    /// that drops out and comes back at each key).
+    @Test func theChatsStayUntilTheNextAnswerReplacesThem() async {
+        let chats = Chats(), ran = Ran()
+        let (palette, registry) = Self.palette(chats: chats, ran: ran)
+        defer { palette.closeForTest() }
+        _ = registry.perform("search.chats", invocation: ActionInvocation(arguments: [:], origin: .user))
+        await palette.model.settle()
+        palette.model.send(.setQuery("quokka"))
+        await palette.model.settle()
+        await chats.answer("quokka", [Self.item("chat:old", "Quokka chat", ran: ran)])
+        await Self.until { palette.model.rows.contains { $0.id == "chat:old" } }
+        palette.model.send(.setQuery("quokka n"))
+        await palette.model.settle()
+        #expect(palette.model.rows.contains { $0.id == "chat:old" }, "rows: \(palette.model.rows.map(\.id))")
+        await chats.answer("quokka n", [Self.item("chat:new", "Quokka new chat", ran: ran)])
+        await Self.until { palette.model.rows.contains { $0.id == "chat:new" } }
+        #expect(!palette.model.rows.contains { $0.id == "chat:old" }, "the new answer replaces the old one")
+    }
+
+    /// F3: in the Chats & agents scope the chats are the page's main content. A Return pressed before
+    /// acpmux answers runs the best chat once it lands, as the chats page itself does.
+    @Test func aReturnInTheChatsScopeWaitsForTheChats() async {
+        let chats = Chats(), ran = Ran()
+        let (palette, _) = Self.palette(chats: chats, ran: ran)
+        defer { palette.closeForTest() }
+        _ = palette.show(scope: PaletteScopeID.chats)
+        await palette.model.settle()
+        palette.model.send(.setQuery("wombat"))
+        palette.model.send(.activate(nil))
+        await palette.model.settle()
+        await Self.until { chats.streams["wombat"] != nil }
+        #expect(ran.ids.isEmpty, "nothing runs before the chats answer: \(ran.ids)")
+        await chats.answer("wombat", [Self.item("chat:wombat", "Wombat chat", ran: ran)])
+        await Self.until { !ran.ids.isEmpty }
+        #expect(ran.ids == ["chat:wombat"], "Return ran \(ran.ids)")
+    }
+}
