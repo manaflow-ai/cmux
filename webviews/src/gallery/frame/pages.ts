@@ -5,7 +5,7 @@
 import { HostError, installMockHost, type HostOp } from "../../../test/latency/mock-host";
 import type { PageClient } from "../../pages/shared/pageClient";
 import { AppsOps, OPEN_ACTION, RegistryOps } from "../../pages/apps/types";
-import { sampleApps, MockAppsProvider } from "../../pages/apps/mockProvider";
+import { MockAppsProvider } from "../../pages/apps/mockProvider";
 import type { PortForward } from "../../pages/cloud/ops";
 import { CloudOps, ACTION_RUN as CLOUD_ACTION_RUN, PAGE_COMMAND as CLOUD_PAGE_COMMAND } from "../../pages/cloud/ops";
 import { MockCloudProvider } from "../../pages/cloud/mockProvider";

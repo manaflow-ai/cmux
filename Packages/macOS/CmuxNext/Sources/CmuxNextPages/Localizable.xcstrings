@@ -7869,6 +7869,124 @@
           }
         }
       }
+    },
+    "pages.confirm.registry.getTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get “%1$@” version %2$@?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%1$@“ in Version %2$@ herunterladen?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Télécharger la version %2$@ de « %1$@ » ?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد تنزيل الإصدار %2$@ من «%1$@»؟"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Descargar la versión %2$@ de «%1$@»?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取得「%1$@」的 %2$@ 版本？"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "获取“%1$@”的 %2$@ 版本？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%1$@” 버전 %2$@을(를) 가져오시겠습니까?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%1$@」のバージョン %2$@ を取得しますか？"
+          }
+        }
+      }
+    },
+    "pages.confirm.registry.getDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This replaces the app’s downloaded files. If it is installed, this version can run immediately with its existing permissions."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dies ersetzt die heruntergeladenen Dateien der App. Wenn sie installiert ist, kann diese Version sofort mit den bestehenden Berechtigungen ausgeführt werden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les fichiers téléchargés de l’app seront remplacés. Si elle est installée, cette version peut s’exécuter immédiatement avec les autorisations existantes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سيؤدي هذا إلى استبدال ملفات التطبيق التي تم تنزيلها. إذا كان التطبيق مثبّتًا، فيمكن تشغيل هذا الإصدار فورًا باستخدام أذوناته الحالية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esto reemplaza los archivos descargados de la app. Si está instalada, esta versión puede ejecutarse inmediatamente con sus permisos actuales."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這會取代 App 已下載的檔案。如果 App 已安裝，此版本可立即使用現有權限執行。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这会替换 App 已下载的文件。如果 App 已安装，此版本可立即使用现有权限运行。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "앱의 다운로드된 파일이 교체됩니다. 앱이 설치되어 있으면 이 버전이 기존 권한으로 즉시 실행될 수 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダウンロード済みのアプリのファイルを置き換えます。インストール済みの場合、このバージョンは既存の権限ですぐに実行されることがあります。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

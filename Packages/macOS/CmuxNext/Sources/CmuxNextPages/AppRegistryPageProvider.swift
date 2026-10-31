@@ -8,14 +8,15 @@ public import Foundation
 ///   `review.file`.
 /// - `submit` packs the local app on the Mac (``Pack``) and sends it.
 /// - `get` downloads an approved bundle and hands it to the app supervisor (``Put``), which
-///   checks it against the listing's hash before it joins the catalog; installing
-///   it is the ordinary `cmux.apps.install` behind its own sheet.
+///   checks it against the listing's hash before it joins the catalog. It needs a native
+///   sheet because replacing an installed bundle can immediately restart its host or pane.
+///   First-time installation is still `cmux.apps.install` behind its own scopes sheet.
 /// - `submit` and `review.decide` publish or decide something in the person's name,
 ///   so they run only after the host's native sheet (`context.confirmed`).
 @MainActor
 public final class AppRegistryPageProvider: PageProvider {
     public nonisolated static let prefix = "cmux.registry."
-    nonisolated static let confirmedOps: Set<String> = ["cmux.registry.submit", "cmux.registry.review.decide"]
+    nonisolated static let confirmedOps: Set<String> = ["cmux.registry.get", "cmux.registry.submit", "cmux.registry.review.decide"]
 
     /// Packs the local `app` for review under `publisher`: the request body's
     /// `manifest` and `files` (``AppRegistrySubmission`` in CmuxNextApps).
@@ -136,10 +137,16 @@ public final class AppRegistryPageProvider: PageProvider {
 }
 
 /// The native sheets of the community ops: sending an app for review publishes its files, and a
-/// reviewer's decision lists or refuses another person's app.
+/// reviewer's decision lists or refuses another person's app. Getting an approved bundle may
+/// replace the code of an already installed app, so that activation also needs consent.
 public nonisolated extension PageConfirmation {
     static func appRegistry(op: String, params: JSONValue) -> PageConfirmation? {
         switch op {
+        case "cmux.registry.get":
+            let app = params["app"]?.stringValue ?? ""
+            let version = params["version"]?.stringValue ?? ""
+            return PageConfirmation(kind: .custom, name: String(format: PageStrings.registryGetTitle, app, version),
+                                    detail: PageStrings.registryGetDetail)
         case "cmux.registry.submit":
             let app = params["app"]?.stringValue ?? ""
             return PageConfirmation(kind: .custom, name: String(format: PageStrings.registrySubmitTitle, app),
