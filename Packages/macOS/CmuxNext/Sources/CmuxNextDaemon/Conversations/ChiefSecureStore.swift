@@ -9,7 +9,24 @@ public import Security
 /// Blocking Keychain calls: callers run them off the main actor. A value with no state: make one
 /// where it is used (`ChiefSecureStore().credential(forHost:)`).
 public struct ChiefSecureStore: Sendable {
-    public init() {}
+    private let updateItem: @Sendable ([String: Any], [String: Any]) -> OSStatus
+    private let addItem: @Sendable ([String: Any]) -> OSStatus
+    private let deleteItem: @Sendable ([String: Any]) -> OSStatus
+
+    public init() {
+        self.init(updateItem: { SecItemUpdate($0 as CFDictionary, $1 as CFDictionary) },
+                  addItem: { SecItemAdd($0 as CFDictionary, nil) },
+                  deleteItem: { SecItemDelete($0 as CFDictionary) })
+    }
+
+    /// Mutation boundary for deterministic Keychain failure tests; production uses Security.
+    init(updateItem: @escaping @Sendable ([String: Any], [String: Any]) -> OSStatus,
+         addItem: @escaping @Sendable ([String: Any]) -> OSStatus,
+         deleteItem: @escaping @Sendable ([String: Any]) -> OSStatus) {
+        self.updateItem = updateItem
+        self.addItem = addItem
+        self.deleteItem = deleteItem
+    }
 
     public static let label = "cmux Secure Store"
     /// Marks our items apart from any other internet password for the same server.
@@ -26,11 +43,11 @@ public struct ChiefSecureStore: Sendable {
         guard let site = Self.normalized(site) else { throw Failure.invalidSite }
         guard !username.isEmpty, !password.isEmpty else { throw Failure.emptyCredential }
         // One item per site: an older one (another username) goes first.
-        let removed = SecItemDelete(Self.query(site: site) as CFDictionary)
+        let removed = deleteItem(Self.query(site: site))
         guard removed == errSecSuccess || removed == errSecItemNotFound else { throw Failure.keychain(removed) }
         let add = Self.query(site: site, adding: [kSecAttrAccount as String: username, kSecValueData as String: Data(password.utf8),
                                                   kSecAttrDescription as String: Self.label])
-        let status = SecItemAdd(add as CFDictionary, nil)
+        let status = addItem(add)
         guard status == errSecSuccess else { throw Failure.keychain(status) }
     }
 
@@ -63,7 +80,7 @@ public struct ChiefSecureStore: Sendable {
     /// Removes the sign-in for `site` (no error when there is none).
     public func remove(site: String) throws {
         guard let site = Self.normalized(site) else { throw Failure.invalidSite }
-        let status = SecItemDelete(Self.query(site: site) as CFDictionary)
+        let status = deleteItem(Self.query(site: site))
         guard status == errSecSuccess || status == errSecItemNotFound else { throw Failure.keychain(status) }
     }
 
