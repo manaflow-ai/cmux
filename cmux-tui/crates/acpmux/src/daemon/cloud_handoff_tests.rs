@@ -745,6 +745,19 @@ fn a_cause_in_the_raw_error_holds_the_turn() {
     assert_eq!(why, "The turn failed.");
 }
 
+/// A revoked token holds the turn too: a chat's first send goes again on it
+/// (`hub/auto_resume/first_send.rs`), and a later turn's is settled at once.
+#[test]
+fn a_revoked_token_holds_the_turn_for_its_first_send_retry() {
+    let msg = json!({"status": "failed", "error": "Failed to authenticate: OAuth token revoked",
+        "errorText": "Failed to authenticate: OAuth token revoked", "promptId": "handoff-1-a"});
+    let Some(Step::Ended(End::Failed { retried, .. }, Some(1))) = step_of("turn_result", &msg)
+    else {
+        panic!()
+    };
+    assert!(retried);
+}
+
 #[tokio::test]
 async fn nothing_is_sent_without_the_agent_or_for_an_id_the_store_refuses() {
     let (mut r, fake) = reporter();
