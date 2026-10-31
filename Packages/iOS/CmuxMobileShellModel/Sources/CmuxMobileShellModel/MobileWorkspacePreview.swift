@@ -91,6 +91,9 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     /// badge shows). `nil` when connected to a Mac old enough not to emit it;
     /// the indicator then falls back to the plain dot.
     public var unreadCount: Int?
+    /// The Mac sidebar's inferred or manually overridden completion lane.
+    /// `nil` means status is hidden or unsupported by the Mac.
+    public var taskStatus: MobileWorkspaceTaskStatus?
     /// The terminals contained in the workspace, in display order.
     public var terminals: [MobileTerminalPreview]
     /// Every Mac-rendered surface, in the Mac workspace's spatial order.
@@ -158,6 +161,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         lastActivityAt: Date? = nil,
         hasUnread: Bool = false,
         unreadCount: Int? = nil,
+        taskStatus: MobileWorkspaceTaskStatus? = nil,
         terminals: [MobileTerminalPreview],
         surfaces: [MobileSurfacePreview] = [],
         simulators: [MobileSimulatorPanelDescriptor] = []
@@ -179,6 +183,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         self.lastActivityAt = lastActivityAt
         self.hasUnread = hasUnread
         self.unreadCount = unreadCount
+        self.taskStatus = taskStatus
         self.terminals = terminals
         self.surfaces = surfaces
         self.simulators = simulators
