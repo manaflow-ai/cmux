@@ -50,9 +50,9 @@ final class KeyRouter: BrowserKeyRouting {
     var whichKey: WhichKeyController?
     /// Leaving the app ends a waiting chord (the overlay hides with it); the token removes itself when released.
     private var resignObserver: MainActorObservation?
-    /// Where a creation hold's keys run again (``CreationInputCoordinator``), from the composition root.
-    let heldKeyReplay: HeldKeyReplay
-    init(registry: ActionRegistry, inputDispatch: InputDispatchContext = InputDispatchContext(), heldKeyReplay: @escaping HeldKeyReplay) {
+    let heldKeyReplay: HeldKeyReplay // where a creation hold's keys run again (``CreationInputCoordinator``)
+    init(registry: ActionRegistry, inputDispatch: InputDispatchContext = InputDispatchContext(),
+         heldKeyReplay: @escaping HeldKeyReplay = { event, _, _ in NSApp.sendEvent(event) }) {
         (self.registry, self.inputDispatch, self.heldKeyReplay) = (registry, inputDispatch, heldKeyReplay)
         resignObserver = MainActorObservation(NSApplication.didResignActiveNotification) { [weak self] in self?.cancelChord() }
     }

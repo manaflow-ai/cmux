@@ -24,8 +24,8 @@ struct SplitOfPendingSplitTests {
     /// The red form of the test above: a replay that drops the held keys, the shape of #28436 (`NSApp.sendEvent` with
     /// no key window delivers them nowhere). The check must fail on its own assertion, the line missing from the second
     /// pane; a pass here means the check no longer proves the keys arrive.
-    @Test func aReplayThatDropsTheHeldKeysFailsTheCheck() async {
-        await withKnownIssue("the replay drops the held keys, so the typed line cannot run") {
+    @Test func aReplayThatDropsTheHeldKeysFailsTheCheck() async throws {
+        try await withKnownIssue("the replay drops the held keys, so the typed line cannot run") {
             try await Self.typeDuringTheHold(replay: { _, _, _ in })
         } matching: { issue in
             issue.comments.contains { $0.rawValue.contains("did not run in the second pane") }

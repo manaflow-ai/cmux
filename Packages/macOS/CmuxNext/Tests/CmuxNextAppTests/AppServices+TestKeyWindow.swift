@@ -14,10 +14,3 @@ extension AppServices {
                   heldKeyReplay: heldKeyReplay, launchReveal: launchReveal, agentPaneEnvironment: agentPaneEnvironment)
     }
 }
-
-extension KeyRouter {
-    /// A router for a test with no creation hold to replay: the app's replay (`NSApp.sendEvent`).
-    convenience init(registry: ActionRegistry) {
-        self.init(registry: registry, heldKeyReplay: { event, _, _ in NSApp?.sendEvent(event) })
-    }
-}
