@@ -204,3 +204,47 @@ test("a click still runs the row it presses", async () => {
   await act(async () => browser.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, cancelable: true })));
   expect(calls).toEqual([["create", "browser"]]);
 });
+
+// The classic New Tab page's suggestions had the same trap: its rows' mouse move took Return too.
+async function classicEnter(hoverLast: boolean) {
+  const { createRoot } = await import("react-dom/client");
+  const { NewTabPage } = await import("../src/agent-session/acpmux/NewTabPage");
+  act(() => root?.unmount());
+  root = createRoot(host);
+  const submitted: unknown[][] = [];
+  await act(async () =>
+    root!.render(
+      <NewTabPage
+        snapshot={noChat()}
+        lastAgent="claude"
+        onSubmit={(...args) => {
+          submitted.push(args);
+        }}
+        onOpenSession={noop}
+        onShowAll={noop}
+      />,
+    ),
+  );
+  const field = host.querySelector<HTMLInputElement>(".acpmux-newtab-field")!;
+  await act(async () => field.focus());
+  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+  await act(async () => {
+    setValue.call(field, "helo");
+    field.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  const options = rows();
+  expect(options.length).toBeGreaterThan(1);
+  const target = options.findIndex((option) => option.getAttribute("aria-selected") === "true");
+  if (hoverLast) await hover(options.at(-1)!);
+  expect(rows().findIndex((option) => option.getAttribute("aria-selected") === "true")).toBe(target);
+  await act(async () =>
+    field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
+  );
+  return submitted;
+}
+
+test("classic New Tab: Return does what it did before the pointer rested on another row", async () => {
+  const plain = await classicEnter(false);
+  expect(plain.length).toBe(1);
+  expect(await classicEnter(true)).toEqual(plain);
+});

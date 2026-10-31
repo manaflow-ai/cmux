@@ -799,7 +799,8 @@ export function NewTabPage({
                 tabIndex={-1}
                 aria-selected={index === selected}
                 className={index === selected ? "acpmux-omni-row is-selected" : "acpmux-omni-row"}
-                onMouseMove={() => index !== selected && setSelected(index)}
+                // Hover only lights the row (styles.css); Return stays the keyboard's row, as on
+                // the New Tab screen (newtab/NewTabScreen.tsx). A press still runs the row.
                 onMouseDown={(event) => {
                   event.preventDefault();
                   activate(row);
