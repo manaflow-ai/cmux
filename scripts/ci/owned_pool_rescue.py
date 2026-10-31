@@ -277,6 +277,10 @@ NIGHTLY_APP_JOB = "build-nightly-app"
 # job-started hook admits only main's push and schedule jobs. Only nightly.yml's
 # app build asks for one through this watch.
 TRUSTED_LABEL = re.compile(r"glaeda-(?:root-)?trusted-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
+# glaeda's nightly slot (glaeda#1684, runner.nightlySlot): one runner per mini that takes only nightly jobs, which
+# nightly-next's build picker offers first (nightly_build_runner.NIGHTLY_SLOT_LABEL). main's copy of this watch (the
+# one workflow_run runs) matches it through pr_runner_pool.LANE_LABEL; this copy matches it too.
+NIGHTLY_SLOT_LABEL = re.compile(r"glaeda-(?:aws-)?nightly-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
 SIDE_WORKFLOW_PATHS = frozenset({
     # cmux NEXT Stable: its UI tests, suites, perf and dry-run signing take the owned gui pool on attempt 1
     # and Blacksmith macOS on a re-run (stable-next.yml).
@@ -458,7 +462,8 @@ def parse_time(value: object) -> dt.datetime | None:
 def job_pool(job: Mapping[str, Any]) -> str | None:
     """The owned pool a job asked for, if any: a pull request pool or the trusted one."""
     for label in job.get("labels") or []:
-        if persistent(str(label)) or TRUSTED_LABEL.fullmatch(str(label)) or nightly_dedicated(str(label)):
+        if (persistent(str(label)) or TRUSTED_LABEL.fullmatch(str(label)) or NIGHTLY_SLOT_LABEL.fullmatch(str(label))
+                or nightly_dedicated(str(label))):
             return str(label)
     return None
 
