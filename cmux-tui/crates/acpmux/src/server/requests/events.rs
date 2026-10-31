@@ -37,7 +37,6 @@ pub(super) fn handle(
             "hasMore": false,
             "lastSeq": last,
             "pageThrough": through,
-            "promptIndex": true,
             "createdAt": created,
         }));
     }

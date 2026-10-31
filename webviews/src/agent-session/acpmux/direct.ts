@@ -2338,6 +2338,7 @@ export class AcpmuxDirectClient {
     for (const { timers } of this.deliveries.values()) timers.forEach(clearTimeout);
     this.deliveries.clear();
     this.firstSeq = undefined;
+    this.promptIndex = undefined;
     this.lastSeq = 0;
     this.clockOffset = undefined;
     this.summary = undefined;
@@ -3886,6 +3887,8 @@ export class AcpmuxDirectClient {
       if (!replaced) this.events = this.events.filter((event) => event.seq >= oldest);
       this.turnOpener = undefined;
       this.historyExhausted = false;
+      // The prompt index was read for the held history that just went: read it again.
+      this.promptIndex = undefined;
       this.usageFromSeq = Infinity;
       this.forkedAtSeq = undefined;
       this.usage = undefined;

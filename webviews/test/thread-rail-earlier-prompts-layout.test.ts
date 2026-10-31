@@ -55,3 +55,26 @@ test("the rail holds every turn's tick while history pages in", async () => {
     previous = next;
   }
 });
+
+test("the index arriving after the open, then a streamed reply, keeps every tick once and in order", async () => {
+  const { rows } = await fakeClient(records(CHAT, Array.from({ length: 8 }, (_, n) => turn(n + 1)).flat()));
+  const all = rows();
+  const prompts = all.filter((row) => row.kind === "user");
+  const keys = minimapTurns(all, CHAT).ticks.map((tick) => tick.key);
+  const held = all.slice(all.indexOf(prompts[5]!));
+  const earlier = prompts.slice(0, 5).map(indexed);
+  // First frame: no index yet. Then it lands. Then the last reply streams over several snapshots.
+  let read = minimapTurns(held, CHAT);
+  read = minimapTurns(held, CHAT, read, undefined, earlier);
+  expect(read.ticks.map((tick) => tick.key)).toEqual(keys);
+  const reply = held.findLast((row) => row.kind === "assistant")!;
+  for (let n = 0; n < 6; n++) {
+    const streamed = held.map((row) => (row === reply ? { ...row, text: `${row.text} more ${n}` } : row));
+    const next = minimapTurns(streamed, CHAT, read, undefined, earlier);
+    expect(next.ticks.map((tick) => tick.key)).toEqual(keys);
+    expect(next.turns.map((turn) => turn.index >= 0)).toEqual(keys.map((_, index) => index >= 5));
+    // The committed result's lists are never written into by the next read.
+    expect(read.turns.map((turn) => turn.key)).toEqual(keys);
+    read = next;
+  }
+});

@@ -439,16 +439,26 @@ export function ThreadMinimap({
   /// lands at once when its row is not drawn, or under Reduce Motion. It lands the top of the
   /// prompt's row (its sent images, else its bubble) LANDING_OFFSET down. A click or a bookmark jump
   /// flashes the prompt's bubble where it lands. Returns where the scroll goes.
-  const waiting = useRef<{ id: string; how: Jump } | undefined>(undefined);
+  /// A click on a prompt not loaded yet: the jump that runs once its row is held, in that chat.
+  const waiting = useRef<{ id: string; how: Jump; sessionId?: string } | undefined>(undefined);
+  const loadThroughNow = useRef(loadThrough);
+  loadThroughNow.current = loadThrough;
   const [jump] = useState(() => (index: number, how: Jump): number | undefined => {
     const node = scroller.current;
     const turn = live.current.turns[index];
     if (!node || !turn) return undefined;
     if (turn.index < 0) {
       const seq = Number(turn.id.slice(turn.id.indexOf("-") + 1));
-      if (!Number.isFinite(seq) || !loadThrough) return undefined;
-      waiting.current = { id: turn.id, how };
-      void loadThrough(seq).catch(() => undefined);
+      const load = loadThroughNow.current;
+      if (!Number.isFinite(seq) || !load) return undefined;
+      const pending = { id: turn.id, how, sessionId: live.current.sessionId };
+      waiting.current = pending;
+      void load(seq).then(
+        () => undefined,
+        () => {
+          if (waiting.current === pending) waiting.current = undefined;
+        },
+      );
       return undefined;
     }
     const target = () =>
@@ -500,11 +510,15 @@ export function ThreadMinimap({
   useLayoutEffect(() => {
     const pending = waiting.current;
     if (!pending) return;
+    if (pending.sessionId !== sessionId) {
+      waiting.current = undefined;
+      return;
+    }
     const index = turns.findIndex((turn) => turn.id === pending.id && turn.index >= 0);
     if (index < 0) return;
     waiting.current = undefined;
     jump(index, pending.how);
-  }, [turns, jump]);
+  }, [turns, jump, sessionId]);
 
   // Previous Turn and Next Turn (the app's Ctrl-Opt-Up and Ctrl-Opt-Down) and Previous and Next
   // Bookmarked Prompt (palette actions) are bridge commands that raise these events. They work

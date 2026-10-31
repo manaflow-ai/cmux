@@ -313,7 +313,6 @@ export type MinimapTurns = {
   loadedTicks?: readonly MinimapTick[];
   loadedStart?: number;
   earlierTurns?: readonly MinimapTurn[];
-  spareCombined?: MinimapTurn[];
   /// The list the next changed turns are written into (the one before `turns`), never `turns`.
   spare?: MinimapTurn[];
 };
@@ -448,61 +447,40 @@ export function minimapTurns(
   // two last differed, so a streamed token whose reply preview is still filling writes the live turn
   // alone, not a copy of every turn (#24058 review round 5), and `previous` stays the committed rows'
   // (round 6). A dropped render wrote only the spare, and its agreement says how far it still holds.
+  // The indexed prompts older than the held rows go first, as turns with no row (index -1), so the
+  // rail lays out every turn from the first frame. The combined list is a new array whenever the
+  // earlier or the loaded turns change, never one a committed result still holds: the loaded turns'
+  // own lists stay `spare`'s alone. With no earlier prompts the loaded lists are the result's.
   const withEarlier = (
     loadedTurns: readonly MinimapTurn[],
     loadedTicks: readonly MinimapTick[],
     spare?: MinimapTurn[],
   ): MinimapTurns => {
-    if (
-      prior &&
-      prior.earlierRows === earlierRows &&
-      prior.loadedTurns === loadedTurns &&
-      prior.loadedTicks === loadedTicks
-    )
-      return prior;
-    const sameEarlier = prior?.earlierRows === earlierRows;
-    const earlier =
-      (sameEarlier && prior?.earlierTurns) ||
-      earlierRows.map((row): MinimapTurn => ({
-        index: -1,
-        id: row.id,
-        key: turnKey(sessionId, row),
-        prompt: (row.text ?? "").replace(/\s+/g, " ").trim(),
-        reply: [],
-      }));
-    let turns = loadedTurns;
-    let spareCombined: MinimapTurn[] | undefined;
-    if (earlier.length) {
-      const combined = prior?.spareCombined ?? [];
-      if (!sameEarlier) {
-        combined.length = earlier.length;
-        for (let index = 0; index < earlier.length; index += 1) combined[index] = earlier[index]!;
-      } else if (combined.length < earlier.length) {
-        combined.length = earlier.length;
-        for (let index = 0; index < earlier.length; index += 1) combined[index] = earlier[index]!;
-      }
-      combined.length = earlier.length;
-      for (const turn of loadedTurns) combined.push(turn);
-      turns = combined;
-      spareCombined = prior?.turns as MinimapTurn[] | undefined;
-    }
+    const base = { rows, sessionId, loadedTurns, loadedTicks, ...(spare ? { spare } : {}) };
+    if (!earlierRows.length) return { ...base, turns: loadedTurns, ticks: loadedTicks, loadedStart: 0 };
+    const sameEarlier = prior?.earlierRows === earlierRows && prior.earlierTurns !== undefined;
+    if (sameEarlier && prior!.loadedTurns === loadedTurns && prior!.loadedTicks === loadedTicks)
+      return { ...prior!, ...base };
+    const earlier = sameEarlier
+      ? prior!.earlierTurns!
+      : earlierRows.map(
+          (row): MinimapTurn => ({
+            index: -1,
+            id: row.id,
+            key: turnKey(sessionId, row),
+            prompt: (row.text ?? "").trim(),
+            reply: [],
+          }),
+        );
+    const turns = [...earlier, ...loadedTurns];
     return {
-      rows,
-      sessionId,
+      ...base,
       turns,
-      ticks:
-        earlier.length && sameEarlier && prior?.loadedTicks === loadedTicks
-          ? prior.ticks
-          : earlier.length
-            ? ticksOf(turns, prior?.ticks)
-            : loadedTicks,
+      // A token streaming into a reply leaves the prompts, and so the ticks, as they were.
+      ticks: sameEarlier && prior!.loadedTicks === loadedTicks ? prior!.ticks : ticksOf(turns, prior?.ticks),
       earlierRows,
-      loadedTurns,
-      loadedTicks,
-      loadedStart: earlier.length,
       earlierTurns: earlier,
-      ...(spareCombined ? { spareCombined } : {}),
-      ...(spare ? { spare } : {}),
+      loadedStart: earlier.length,
     };
   };
   if (!old) {
@@ -604,7 +582,7 @@ export function currentTurn(
     if ((tops[turns[middle].index] ?? 0) <= anchor) low = middle + 1;
     else high = middle;
   }
-  return Math.max(0, low - 1);
+  return Math.max(firstLoaded, low - 1);
 }
 
 /// The turns on screen, first to last, as the Codex rail's IntersectionObserver sees them. Codex
