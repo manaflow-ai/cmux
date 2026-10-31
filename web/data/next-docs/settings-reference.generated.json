@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 532,
+  "count": 533,
   "sections": [
     {
       "id": "general",
@@ -4487,14 +4487,6 @@
           ]
         },
         {
-          "key": "browser.agentSecureStoreFill",
-          "title": "Let Agents Sign In from the Secure Store",
-          "help": "When an agent's page needs a sign-in you saved in the Secure Store, cmux fills it into the agent's own tab. The agent never sees the password, and its scripts are refused on that site from then on.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Agent Input"
-        },
-        {
           "key": "browser.builtInAdBlocker",
           "title": "Built-in uBlock Origin",
           "help": "The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts.",
@@ -4717,6 +4709,14 @@
           "group": "Address Bar"
         },
         {
+          "key": "browser.omnibar.fontSize",
+          "title": "Address Bar Text Size",
+          "help": "The size of the address and the suggestions. Match Density follows the density.",
+          "kind": "choice_or_number",
+          "default": "density",
+          "group": "Address Bar"
+        },
+        {
           "key": "browser.omnibar.glass",
           "title": "Address Bar Glass",
           "help": "The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color.",
@@ -4755,6 +4755,14 @@
             "max": 1,
             "unit": "fraction"
           }
+        },
+        {
+          "key": "browser.omnibar.height",
+          "title": "Address Bar Height",
+          "help": "Match Density follows the density. The bar always grows to fit its text.",
+          "kind": "choice_or_number",
+          "default": "density",
+          "group": "Address Bar"
         },
         {
           "key": "browser.omnibar.inlineAutocomplete",

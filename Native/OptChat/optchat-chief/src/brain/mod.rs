@@ -393,8 +393,14 @@ pub enum Input {
     FleetPolled {
         id: String,
     },
-    /// The pool tool refused to pause `peer` (busy there): it is tried again.
+    /// The pool tool refused or failed to pause `peer` with `error`: it is
+    /// tried again after a growing wait (`cloud_pause_backoff`).
     CloudPauseFailed {
+        peer: String,
+        error: String,
+    },
+    /// The pool tool paused `peer`.
+    CloudPaused {
         peer: String,
     },
     /// A finished subagent's own VM `peer` is deleted (its work was pushed).
@@ -782,6 +788,10 @@ pub struct Brain {
     cloud_idle: std::time::Duration,
     cloud_paused: std::collections::BTreeSet<String>,
     cloud_idle_since: std::collections::BTreeMap<String, u64>,
+    /// Peers whose last pause failed: when the next try may run and the
+    /// error last logged. The waits come from `cloud_pause_backoff`.
+    cloud_pause_retry: std::collections::BTreeMap<String, spawns::PauseRetry>,
+    cloud_pause_backoff: Vec<std::time::Duration>,
     /// One VM per subagent: how long a finished subagent's own VM stays
     /// (paused) before it is deleted, since when each is done, and the
     /// deletes in flight.
@@ -999,6 +1009,8 @@ impl Brain {
             cloud_idle: std::time::Duration::from_secs(chief.cloud_auto_pause_idle_secs),
             cloud_paused: Default::default(),
             cloud_idle_since: Default::default(),
+            cloud_pause_retry: Default::default(),
+            cloud_pause_backoff: spawns::PAUSE_BACKOFF.to_vec(),
             cloud_reap: std::time::Duration::from_secs(
                 chief.cloud_delete_after_paused_days * 86_400,
             ),
@@ -1177,6 +1189,14 @@ impl Brain {
     ) {
         self.fleet = fleet;
         self.fleet_every = every;
+    }
+
+    /// The waits before each new try of a failed VM pause, the last one
+    /// repeated (5 s, 30 s, 2 min, 10 min on a host).
+    pub fn set_cloud_pause_backoff(&mut self, waits: Vec<std::time::Duration>) {
+        if !waits.is_empty() {
+            self.cloud_pause_backoff = waits;
+        }
     }
 
     pub fn set_cloud_reap(&mut self, after: std::time::Duration) {
@@ -1482,7 +1502,8 @@ impl Brain {
             Input::FleetPolled { id } => {
                 self.fleet_polling.remove(&id);
             }
-            Input::CloudPauseFailed { peer } => self.cloud_pause_failed(&peer),
+            Input::CloudPauseFailed { peer, error } => self.cloud_pause_failed(&peer, &error),
+            Input::CloudPaused { peer } => self.cloud_pause_ok(&peer),
             Input::CloudVmDeleted { peer } => self.cloud_vm_deleted(&peer),
             Input::CloudVmDeleteFailed { peer } => self.cloud_vm_delete_failed(&peer),
             Input::SubagentPlacedHere { id, why } => self.sub_placed_here(&id, &why),
