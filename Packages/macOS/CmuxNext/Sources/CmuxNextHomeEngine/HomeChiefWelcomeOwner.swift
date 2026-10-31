@@ -28,5 +28,10 @@ public nonisolated struct HomeChiefWelcomeOwner: ChiefWelcomeOwner {
 
     public func importWelcome(_ request: ConversationImportRequest) async throws {
         _ = try await ConversationClient(connection).importHistory(request)
+        // An import is one revision and sends only the conversation's head, so an open transcript sees
+        // no gap and loads nothing: the owner's newest page goes to the store as a fresh open's would.
+        if let page = try? await source.snapshot(of: conversation, tail: 50) {
+            source.publish(.conversationPage(page))
+        }
     }
 }
