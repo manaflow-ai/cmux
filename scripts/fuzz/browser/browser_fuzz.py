@@ -305,11 +305,33 @@ class Session:
         self.hang_cursor()
 
     def close(self):
-        try:
-            rpc(self.sock, "action.run", {"action": "quitEndSessions", "origin": "script"}, 10)
-        except Exception:  # noqa: BLE001 (best effort: end_bundle follows)
-            pass
+        """All end steps, unwatched (a launch that ends early)."""
+        for step in (self.quit_app, self.kill_app, self.cleanup):
+            try:
+                step()
+            except Exception:  # noqa: BLE001 (best effort: the next step still runs)
+                pass
+
+    def end_probe(self):
+        """The app still answers after the last op, on and off its main thread (lead 22:0xZ: did the ops leave it
+        wedged?). Through self.call, so no answer is the no_answer oracle (a finding, shrunk like any other)."""
+        started = time.monotonic()
+        self.call("system.ping", {}, index=-2)
+        ping_ms = (time.monotonic() - started) * 1000
+        started = time.monotonic()
+        self.call("debug.focus", {}, index=-2)
+        main_ms = (time.monotonic() - started) * 1000
+        hangs = self.call("debug.hangs", {"after": self.cursor, "limit": 20}, index=-2) if self.has.get("debug.hangs") else {}
+        print(f"browser-fuzz: end probe: system.ping {ping_ms:.0f} ms, debug.focus (main) {main_ms:.0f} ms, "
+              f"stalls since the last op {len(hangs.get('records') or [])}, max gap {hangs.get('max_gap_ms', '?')} ms", flush=True)
+
+    def quit_app(self):
+        rpc(self.sock, "action.run", {"action": "quitEndSessions", "origin": "script"}, 10)
+
+    def kill_app(self):
         self.bm.end_bundle(self.opts.app)
+
+    def cleanup(self):
         import shutil
         shutil.rmtree(self.scratch, ignore_errors=True)
         real = pwd.getpwuid(os.getuid()).pw_dir
@@ -793,14 +815,32 @@ def run_ops(opts, site, ops: list[dict], run_token: str, log, label: str, seed: 
             finally:
                 if watch:
                     watch.done()
+        end_step(session, "probe", session.end_probe, seed, len(ops), label)
         return None, dict(session.counts, notes=session.notes[-20:]), session.stalls
     except Failure as failure:
         return failure, dict(session.counts, notes=session.notes[-20:]), session.stalls
     except Exception as error:  # noqa: BLE001 (a harness bug: reported, never a verdict)
         raise HarnessError(f"{type(error).__name__}: {error}\n{traceback.format_exc()[-1500:]}") from None
     finally:
-        session.close()
+        for step, work in (("quit", session.quit_app), ("kill", session.kill_app), ("cleanup", session.cleanup)):
+            try:
+                end_step(session, step, work, seed, len(ops), label)
+            except Exception as error:  # noqa: BLE001 (the next end step still runs)
+                print(f"browser-fuzz: {label} end:{step} failed: {type(error).__name__}: {error}", flush=True)
         LIVE["session"] = None
+
+
+def end_step(session, step: str, work, seed: int, index: int, label: str):
+    """One end-of-seed step under the end deadline (--end-deadline), announced by a line, as an op is."""
+    watch = LIVE["watch"]
+    print(f"browser-fuzz: {label} end:{step}", flush=True)
+    if watch:
+        watch.start(seed, index, {"op": "end", "step": step}, label, limit_s=getattr(session.opts, "end_deadline", None))
+    try:
+        work()
+    finally:
+        if watch:
+            watch.done()
 
 
 def end_now(verdict: str, code: int, claimed: bool = False):
@@ -875,8 +915,14 @@ def handle_hang(hung: dict, opts):
         ping = alive and ping
         focus, seconds = answers(session.sock, "debug.focus", 5)
         main_ms = seconds * 1000 if focus else 5000.0
-    print(f"browser-fuzz: HANG: {hung['label']} op {hung['index']} {hung['op'].get('op')} ran {hung['elapsed_s']:.0f} s "
-          f"(limit {opts.op_deadline:.0f} s); app alive {alive}, system.ping answered {ping}, main-thread call "
+    where = f"end:{hung['op'].get('step')}" if hung["op"].get("op") == "end" else f"op {hung['index']} {hung['op'].get('op')}"
+    if session is not None and alive:
+        try:
+            sample_app(session)
+        except Exception as error:  # noqa: BLE001 (the sample is extra evidence; the verdict must not depend on it)
+            print(f"browser-fuzz: HANG: sample failed: {type(error).__name__}: {error}", flush=True)
+    print(f"browser-fuzz: HANG: {hung['label']} {where} ran {hung['elapsed_s']:.0f} s "
+          f"(limit {hung.get('limit_s', opts.op_deadline):.0f} s); app alive {alive}, system.ping answered {ping}, main-thread call "
           f"{'not asked (no app)' if main_ms is None else 'no answer in 5 s' if main_ms == 5000.0 else f'{main_ms:.0f} ms'}",
           flush=True)
     for thread_id, frame in sys._current_frames().items():
@@ -902,6 +948,28 @@ def handle_hang(hung: dict, opts):
     if not finding and earlier:
         line, finding = f"FAIL {earlier} finding(s) before {line[len('NOVERDICT '):]}", True
     end_now(line, 1 if finding else 2, claimed=True)
+
+
+def sample_app(session):
+    """`sample <pid> 3` of the app this run launched (a read; nothing is signalled), the main thread's stack first,
+    into the log: what the app was doing when the harness gave up on it."""
+    pid = getattr(session, "pid", None)
+    if not isinstance(pid, int) or pid <= 0:
+        print("browser-fuzz: HANG: no app pid to sample", flush=True)
+        return
+    path = os.path.join(LIVE.get("out") or tempfile.gettempdir(), f"sample-{pid}.txt")
+    try:
+        subprocess.run(["/usr/bin/sample", str(pid), "3", "-mayDie", "-file", path],
+                       capture_output=True, text=True, timeout=30)
+        with open(path, errors="replace") as handle:
+            text = handle.read()
+    except (OSError, subprocess.SubprocessError) as error:
+        print(f"browser-fuzz: HANG: sample of the app {pid} failed: {error}", flush=True)
+        return
+    lines = text.splitlines()
+    start = next((i for i, l in enumerate(lines) if "Thread_" in l and ("main-thread" in l or "com.apple.main-thread" in l)), 0)
+    print(f"browser-fuzz: HANG: sample of the app {pid} ({path}), main thread:\n" + "\n".join(lines[start:start + 80]),
+          flush=True)
 
 
 def watchdog(opts):
@@ -946,6 +1014,8 @@ def main() -> int:
     parser.add_argument("--replay", help="a repro JSON (BROWSER-FUZZ-FINDING's object, or {ops}) to run once, no fuzzing")
     parser.add_argument("--shrink-replays", type=int, default=6, help="fresh launches each finding may spend on shrinking")
     parser.add_argument("--answer-timeout", type=float, default=30)
+    parser.add_argument("--end-deadline", type=float, default=180,
+                        help="seconds one end-of-seed step (probe, quit, kill, cleanup) may run before a HANG in that step")
     parser.add_argument("--op-deadline", type=float, default=300,
                         help="seconds one op may run before the run reports a HANG at that op (the longest bounded op waits about 2 min)")
     parser.add_argument("--build-config", default=os.environ.get("BROWSER_FUZZ_BUILD_CONFIG", "debug"),

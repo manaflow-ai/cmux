@@ -331,9 +331,11 @@ class OpWatch:
         self.lock = threading.Lock()
         self.current: dict | None = None
 
-    def start(self, seed: int, index: int, op: dict, label: str):
+    def start(self, seed: int, index: int, op: dict, label: str, limit_s: float | None = None):
+        """Watches one op (or end step) from now; `limit_s` overrides the watch's limit for it."""
         with self.lock:
-            self.current = {"seed": seed, "index": index, "op": op, "label": label, "started": self.clock(), "reported": False}
+            self.current = {"seed": seed, "index": index, "op": op, "label": label, "started": self.clock(),
+                            "reported": False, "limit_s": limit_s if limit_s is not None else self.limit_s}
 
     def done(self):
         with self.lock:
@@ -346,10 +348,16 @@ class OpWatch:
             if not cur or cur["reported"]:
                 return None
             elapsed = self.clock() - cur["started"]
-            if elapsed < self.limit_s:
+            if elapsed < cur["limit_s"]:
                 return None
             cur["reported"] = True
-            return {k: cur[k] for k in ("seed", "index", "op", "label")} | {"elapsed_s": elapsed}
+            return {k: cur[k] for k in ("seed", "index", "op", "label", "limit_s")} | {"elapsed_s": elapsed}
+
+
+# The end of a seed, in order. "probe" and "quit" talk to the app, so a hang there is judged like an op's; "kill" and
+# "cleanup" are the harness ending the app it launched and deleting its scratch files.
+END_STEPS = ("probe", "quit", "kill", "cleanup")
+APP_END_STEPS = {"probe", "quit"}
 
 
 def hang_verdict(seed: int, index: int, op: dict, elapsed_s: float, *, app_alive: bool, ping_answered: bool,
@@ -358,7 +366,14 @@ def hang_verdict(seed: int, index: int, op: dict, elapsed_s: float, *, app_alive
     product finding. The app is at fault when its process ended, it does not answer system.ping, or its main thread does
     not answer debug.focus (a main-actor call) within a second; else the harness itself is stuck (no verdict). A
     system.ping that waits for a stale snapshot can also time out during a main-thread stall: the verdict is FAIL either way."""
-    what = f"HANG at op {index} {op.get('op')} after {elapsed_s:.0f} s (seed {seed})"
+    if op.get("op") == "end":
+        step = op.get("step")
+        what = f"HANG in end:{step} after {elapsed_s:.0f} s (seed {seed})"
+        if step not in APP_END_STEPS:
+            # The harness ends the app on purpose here (kill, cleanup): a hang is the harness's.
+            return f"NOVERDICT {what}: the harness is stuck in its own end step", False
+    else:
+        what = f"HANG at op {index} {op.get('op')} after {elapsed_s:.0f} s (seed {seed})"
     if not app_alive:
         return f"FAIL {what}: the app process ended", True
     if not ping_answered:
