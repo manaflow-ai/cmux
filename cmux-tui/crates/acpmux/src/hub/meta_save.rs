@@ -1,34 +1,73 @@
-//! Part of `Hub`; see `hub/mod.rs`. A chat's metadata saves (`session.json`).
+//! Part of `Hub`; see `hub/mod.rs`. A chat's metadata (`session.json`): one writer, versioned
+//! commits.
 //!
-//! A save copies the chat's metadata and writes the copy. Each chat's saves hold its `meta_save`
-//! lock from the copy through the write, so they reach `session.json` in the order of their
-//! copies: a save that copied the metadata before a change can no longer write after that
-//! change's own save. Before, two saves of one chat ran side by side, and an older copy could
-//! write over an acknowledged change, which a `kill -9` before the next save then lost (fuzz row
-//! g finding g2: an acknowledged `_acpmux/draft_set`, "the one durable shared draft").
+//! Every change to a chat's metadata (its draft, name, mode, unread mark, bookmarks, tags, turn
+//! cap, policy, rules and the rest) is made in memory and then committed with
+//! [`Hub::commit_meta`]: the change takes the chat's next version, and the chat's writer
+//! commits to `session.json` in version order. The writer is whichever caller finds none at
+//! work; it reads the version committed so far as its target, copies the metadata (which holds
+//! every change up to that version, as each change is made before it takes its version), writes
+//! the copy (`write_atomic`: on disk, renamed, its folder synced), marks the target durable, and
+//! goes on while a newer version waits. Every other caller writes nothing. So a copy older than a
+//! committed change can never be written after it, and a burst of changes shares one write.
 //!
-//! A request whose answer reports the change saves with [`Hub::save_meta_answered`]: a save that
-//! fails fails the request (`store.save_failed`), so no change is acknowledged that is not in
-//! `session.json`. The change stays in memory, as the daemon's other state does, and the next
-//! save that succeeds writes it.
+//! Before, each caller copied the metadata and wrote its own copy, with no order between two
+//! callers of one chat: a copy taken before a change could be written after that change's own
+//! write, so `session.json` kept the older value although the change had been answered, and a
+//! `kill -9` before the next save lost it (fuzz row g finding g2: an acknowledged
+//! `_acpmux/draft_set`, "the one durable shared draft").
+//!
+//! A request whose answer reports a change ([`Hub::save_meta_answered`]) waits until its version
+//! is durable; a commit that fails fails the request (`store.save_failed`), and the change stays
+//! in memory for the next commit. A change no request answers for ([`Hub::save_meta`]) takes its
+//! version and returns: the writer at work (or this caller, when none is) commits it.
 //!
 //! Test seam (debug builds): `ACPMUX_TEST_SAVE_META_HOLD_DIR` names a folder. When it holds
-//! `hold-<session id>`, the next save of that chat's metadata takes the file (renames it to
+//! `hold-<session id>`, the writer's next commit for that chat takes the file (renames it to
 //! `held-<session id>`) after it copied the metadata and before it writes the copy, and waits until
 //! `release-<session id>` exists (at most 30 s). A test so holds an older copy of a chat's
-//! metadata while other requests change and save it (`tests/meta_save_order.rs`).
+//! metadata while other requests change it (`tests/meta_save_order.rs`).
 
 use super::*;
+use std::sync::Condvar;
+
+/// One chat's metadata writer (module text). Its lock is never held across a write.
+#[derive(Default)]
+pub(crate) struct MetaWriter {
+    state: StdMutex<WriterState>,
+    /// Signalled when a commit ends, written or failed.
+    done: Condvar,
+}
+
+#[derive(Default)]
+struct WriterState {
+    /// The newest version a change took.
+    requested: u64,
+    /// The newest version on disk.
+    durable: u64,
+    /// A caller is writing.
+    writing: bool,
+    /// The newest version a failed commit covered, and its error: the requests for versions up
+    /// to it that are not durable fail.
+    failed: Option<(u64, String)>,
+}
+
+/// Whether a commit waits for its version to be durable.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Wait {
+    Durable,
+    No,
+}
 
 impl Hub {
-    /// Saves the chat's metadata; a failure is logged (a save no request answers for).
+    /// Commits a change no request answers for; a failed commit is logged.
     pub(super) fn save_meta(&self, session: &Session) {
-        if let Err(e) = self.write_meta(session) {
+        if let Err(e) = self.commit_meta(session, Wait::No) {
             tracing::warn!(session = %session.id, "save meta failed: {e}");
         }
     }
 
-    /// Saves the chat's metadata for a request whose answer reports the change: a failed save
+    /// Commits a change a request answers for: returns once it is durable; a failed commit
     /// fails the request.
     pub(super) fn save_meta_answered(&self, session: &Session) -> Result<(), RpcError> {
         self.write_meta(session).map_err(|e| {
@@ -38,13 +77,97 @@ impl Hub {
         })
     }
 
-    /// One save: the copy and its write under the chat's `meta_save` lock (module text). A
-    /// purged chat saves nothing.
+    /// Commits the chat's metadata and waits until it is durable (a chat's first save, a fork's).
     pub(super) fn write_meta(&self, session: &Session) -> Result<()> {
+        self.commit_meta(session, Wait::Durable)
+    }
+
+    /// The commit of the change just made to `session`'s metadata (module text).
+    fn commit_meta(&self, session: &Session, wait: Wait) -> Result<()> {
+        let writer = &session.meta_writer;
+        let mut state = writer.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.requested += 1;
+        let version = state.requested;
+        loop {
+            if state.durable >= version {
+                return Ok(());
+            }
+            if let Some((upto, error)) = &state.failed
+                && *upto >= version
+            {
+                anyhow::bail!("{error}");
+            }
+            if !state.writing {
+                state.writing = true;
+                drop(state);
+                self.run_writer(session);
+                state = writer.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                continue;
+            }
+            if wait == Wait::No {
+                return Ok(());
+            }
+            // The writer runs no task of this runtime: it copies, writes and wakes.
+            state = writer.done.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+    }
+
+    /// The writer: commits until nothing newer waits or a commit fails, then hands the role back.
+    fn run_writer(&self, session: &Session) {
+        let writer = &session.meta_writer;
+        // A writer that unwinds hands the role back, so no waiter waits for it forever.
+        struct Unwind<'a>(&'a MetaWriter);
+        impl Drop for Unwind<'_> {
+            fn drop(&mut self) {
+                if std::thread::panicking() {
+                    let mut state =
+                        self.0.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    state.writing = false;
+                    state.failed = Some((state.requested, "the metadata writer panicked".into()));
+                    self.0.done.notify_all();
+                }
+            }
+        }
+        let _unwind = Unwind(writer);
+        loop {
+            let target = {
+                let mut state =
+                    writer.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                if state.requested <= state.durable {
+                    state.writing = false;
+                    writer.done.notify_all();
+                    return;
+                }
+                state.requested
+            };
+            // Read after the target: the copy holds every change up to it.
+            let written = self.write_snapshot(session);
+            let mut state = writer.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            match written {
+                Ok(()) => {
+                    state.durable = state.durable.max(target);
+                    if state.failed.as_ref().is_some_and(|(upto, _)| *upto <= target) {
+                        state.failed = None;
+                    }
+                    writer.done.notify_all();
+                }
+                Err(e) => {
+                    // No retry here: the requests it covered fail, and the next change commits
+                    // again.
+                    state.failed = Some((target, e.to_string()));
+                    state.writing = false;
+                    writer.done.notify_all();
+                    return;
+                }
+            }
+        }
+    }
+
+    /// One copy of the metadata, written. A purged chat writes nothing.
+    fn write_snapshot(&self, session: &Session) -> Result<()> {
         if session.purged.load(Ordering::SeqCst) {
             return Ok(());
         }
-        let _order = session.meta_save.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let meta = session.meta();
         #[cfg(debug_assertions)]
         hold_seam(&session.id);
@@ -59,7 +182,18 @@ impl Hub {
     }
 }
 
-/// The seam in the module text, between a save's copy and its write.
+/// Runs the seam's wait; on a worker of a multi-thread runtime, the worker's other tasks go to
+/// another thread first (a task in a blocked worker's LIFO slot is not stolen), so the requests a
+/// test sends while a commit is held run.
+#[cfg(debug_assertions)]
+fn off_worker<T>(wait: impl FnOnce() -> T) -> T {
+    match tokio::runtime::Handle::try_current().map(|h| h.runtime_flavor()) {
+        Ok(tokio::runtime::RuntimeFlavor::MultiThread) => tokio::task::block_in_place(wait),
+        _ => wait(),
+    }
+}
+
+/// The seam in the module text, between the writer's copy and its write.
 #[cfg(debug_assertions)]
 fn hold_seam(session_id: &str) {
     let Some(dir) = std::env::var_os("ACPMUX_TEST_SAVE_META_HOLD_DIR") else { return };
@@ -78,9 +212,6 @@ fn hold_seam(session_id: &str) {
     // On a worker of the daemon's runtime, the wait hands the worker's other tasks to another
     // thread first, so the requests the test sends meanwhile run (a task in a blocked worker's
     // LIFO slot is not stolen).
-    match tokio::runtime::Handle::try_current().map(|h| h.runtime_flavor()) {
-        Ok(tokio::runtime::RuntimeFlavor::MultiThread) => tokio::task::block_in_place(wait),
-        _ => wait(),
-    }
+    off_worker(wait);
     let _ = std::fs::remove_file(release);
 }
