@@ -23,7 +23,7 @@ export const vmReceiverPeers = async (d: Deps, target: VmReceiverPeerTarget): Pr
       ? teamAuthorityVersion(d.team, target.creator, role, state.team.kind, currentPolicy(state).version, d.rows) : null
   }
   if (d.now() >= target.deadline || creator() === null || networkOrigin(d.origin()) !== target.origin || tenant?.team !== d.team || tenant.project !== d.project || tenant.tenant !== policy.tenantId || !all) return null
-  const inMesh = (h: (typeof all)[number]) => h.network?.tenant === policy.tenantId && h.network.mesh === policy.meshId
+  const inMesh = (h: (typeof all)[number]) => h.network?.tenant === policy.tenantId && h.network?.mesh === policy.meshId
   const candidates = all.filter((h) => inMesh(h) && liveHost(d, h))
   const stamp = () => digest([creator(), d.origin(), d.allowed(), networkHosts(d)?.filter((h) => inMesh(h) && liveHost(d, h)).map((h) => hostStamp(d, h))])
   const graph = stamp(), first = await boundedIdentities(d, candidates, target.deadline)
