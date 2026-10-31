@@ -68,7 +68,7 @@ struct AgentTabContent {
         // A saved picture with no alpha over a page that is clear now (an older version's Chromium JPEG of a
         // see-through page) is black where the page is clear: the pane shows its loading state instead.
         let saved = { images.take(key, size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView))
-            .flatMap { image in view.map { $0.pictureCoversPage(image, in: paneView) } == false ? nil : image } }
+            .flatMap { image in AgentPaneView.savedPictureCovers(image, page: view, in: paneView) ? image : nil } }
         let image = { saved() ?? newTabFrame() }
         if paneView.launchImageView == nil, let image = image() { paneView.showLaunchImage(image) }
         guard let imageView = paneView.launchImageView, let view else { return }

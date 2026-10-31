@@ -85,7 +85,7 @@ parser.add_argument("--record-launch", type=float, default=0,
                     help="restore: record each relaunch's windows for SECONDS from the first frame (the app's "
                          "--record-launch) into --launch-frames, and list the pictures the quit saved")
 parser.add_argument("--launch-frames", default="artifacts/launch-frames.tar.gz",
-                    help="with --record-launch: the archive of every relaunch's recorded frames")
+                    help="with --record-launch: the archive of every relaunch's recorded frames (.tar.gz is added when missing)")
 parser.add_argument("--backdrop", choices=["opaque", "frosted", "glass", "glass-clear"], default="opaque",
                     help="the window material (appearance.backgroundBlur at 85%% opacity; opaque leaves the default): "
                          "a page over a translucent window is clear, which a saved picture must keep")
@@ -255,7 +255,9 @@ class Run:
             # the trace reads it, so a launch trace armed by the variable never ran.
             args = ["--chat-open-trace-launch"] if trace_launch else []
             if record:
-                # The app's own launch recorder (DebugWindowRecord): every window from its first frame.
+                # The app's own launch recorder (DebugWindowRecord): every window from its first frame,
+                # into a folder that must exist.
+                os.makedirs(record, exist_ok=True)
                 args += ["--record-launch", record, "--record-launch-seconds", str(opts.record_launch)]
             self.pid, self.sock = relaunch(self.scratch, env, args)
         self.app = bm.App(APP, self.sock)
@@ -513,8 +515,8 @@ def main():
             run.end()
         if opts.record_launch and os.path.isdir(frames_root):
             os.makedirs(os.path.dirname(os.path.abspath(opts.launch_frames)), exist_ok=True)
-            archive = os.path.abspath(opts.launch_frames)
-            shutil.make_archive(archive.removesuffix(".tar.gz"), "gztar", frames_root)
+            # make_archive adds the suffix itself: the path it returns is the one written.
+            archive = shutil.make_archive(os.path.abspath(opts.launch_frames).removesuffix(".tar.gz"), "gztar", frames_root)
             say(f"chat-open: launch frames in {archive}")
         shutil.rmtree(root, ignore_errors=True)
     table = markdown(results)
