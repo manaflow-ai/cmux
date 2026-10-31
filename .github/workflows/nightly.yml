@@ -190,11 +190,18 @@ jobs:
       attestations: write
       id-token: write
     if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '')
-    # This gate only resolves the fixed revision and publication decision.
-    # Keep its default on the hosted runner so a busy paid Linux pool cannot
-    # delay every nightly before the macOS work is admitted; retain the normal
-    # Linux runner fallback for repositories that do not set the override.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    # This gate only resolves the fixed revision and publication decision: a checkout,
+    # github-script and two stdlib Python helpers, which run the same on a Mac. It is the
+    # run's first job, so no picker can run before it. Attempt 1 of a nightly-next push
+    # takes the owned nightly slot (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, glaeda's
+    # nightly-only runner on each mini, admitted ahead of every PR job); the owned-pool
+    # rescue watches that attempt and, when no slot takes decide within
+    # CI_OWNED_POOL_RESCUE_SECONDS and nothing of the run has started, re-runs it, and
+    # attempt 2 takes the Blacksmith Linux set below. Run 41234993713 (3017ef19) queued
+    # decide on blacksmith-32vcpu-ubuntu-2404 with no fleet route at all. Leo,
+    # 2026-10-31: "FOR OUR NIGHTLIES ARE THEY END TO END ON OUR FLEET? WE CAN'T BE
+    # RELYING ON BLACKSMITH THAT CUTS OUT".
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
       head_sha: ${{ steps.decide.outputs.head_sha }}
@@ -1833,8 +1840,9 @@ jobs:
           OWNED_LABELS: ${{ format('{0} {1}', vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, vars.CI_SIDE_LANE_RUNNER) }}
           CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
           # Unread runners (a 403 on /actions/runners) still queue on the watched owned pool, which the
-          # owned-pool rescue moves; only while the CI_PR_POOL_OWNED kill switch is on.
-          UNREAD_OWNED_FALLBACK: ${{ vars.CI_PR_POOL_OWNED == '1' && '1' || '' }}
+          # owned-pool rescue moves; only while the CI_PR_POOL_OWNED kill switch is on and the rescue itself is
+          # (ci-owned-pool-rescue.yml runs only while CI_OWNED_POOL_RESCUE is not '0').
+          UNREAD_OWNED_FALLBACK: ${{ vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' && '1' || '' }}
         run: python3 .publish-tooling/scripts/ci/nightly_build_runner.py
 
       # The rescue's workflow_run watch covers attempt 1 of a push. A dispatch made with
@@ -5084,6 +5092,21 @@ jobs:
         if: env.TRACK == 'nightly-next'
         run: ./scripts/cmux-next/check-version-surfaces.sh "$CHANNEL_APP_PATH"
 
+      # Every CLI command that must work from the bundle alone runs from the
+      # signed app on this Mac (a subcommand once exec'd a cmux-vm binary no
+      # bundle shipped). A slice this Mac cannot run is checked by the
+      # variant that can.
+      - name: Verify bundled CLI commands run from the bundle alone
+        if: env.TRACK == 'nightly-next' && hashFiles('scripts/cmux-next/check-bundled-cli-commands.sh') != ''
+        run: |
+          set -euo pipefail
+          archs="$(lipo -archs "$CHANNEL_APP_PATH/Contents/Resources/bin/cmux")"
+          if [[ " $archs " == *" $(uname -m) "* ]]; then
+            ./scripts/cmux-next/check-bundled-cli-commands.sh "$CHANNEL_APP_PATH"
+          else
+            echo "bin/cmux is $archs; this runner is $(uname -m): the matching variant checks it"
+          fi
+
 
 
       # sign-cmux-bundle.sh ran the static sidecar checks while the keychain
@@ -7017,7 +7040,8 @@ jobs:
     steps: &sign-nightly-identity-legacy-steps
       # First, before the checkout's token or any secret: on an owned Mac this job holds the whole
       # mini (glaeda's exclusive class) or fails here (tests/test_ci_signing_owned_mac.py CLAIM_GATE).
-      - name: Hold the whole Mac before any credential
+      - &hold-the-whole-mac
+        name: Hold the whole Mac before any credential
         id: claim-gate
         shell: bash
         run: |
@@ -7634,11 +7658,9 @@ jobs:
     permissions:
       contents: read
       actions: read
-    # Nightlies never use Blacksmith (Lawrence, 2026-10-30): an owned Mac, the nightly slot first, then the side
-    # lane, then the owned std pool. Deltas are optional: a failed or slow delta never fails the run or holds the
-    # feed, which already serves the full DMG (republish-nightly-deltas then republishes nothing).
-    # NIGHTLY_DELTAS=off skips them.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}
+    # Never Blacksmith (Lawrence, 2026-10-30). A Sparkle key: placed and held whole as the legacy sign. Optional:
+    # a failed or refused delta never fails the run or holds the feed. NIGHTLY_DELTAS=off skips them.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}
     continue-on-error: true
     strategy:
       fail-fast: false
@@ -7653,14 +7675,12 @@ jobs:
       CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
       NIGHTLY_SPARKLE_KEY: ${{ vars.NIGHTLY_SPARKLE_KEY }}
       TRACK: ${{ needs.decide.outputs.track }}
-      # The nightly-next track gets only its own key; the others never see it.
-      SHARED_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track != 'nightly-next' && secrets.SPARKLE_PRIVATE_KEY || '' }}
-      NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track != 'nightly-next' && secrets.NIGHTLY_SPARKLE_PRIVATE_KEY || '' }}
-      NEXT_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track == 'nightly-next' && secrets.SPARKLE_NEXT_PRIVATE_KEY || '' }}
       # Every item starts on the new build's ring; republish-nightly-deltas
       # moves the ones whose canary passed back to Nightly.
       SPARKLE_CHANNEL: ${{ needs.decide.outputs.track == 'nightly-next' && (vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'cmux-next-dev' || 'cmux-next') || '' }}
     steps:
+      - *hold-the-whole-mac
+
       - name: Checkout build ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -7681,7 +7701,13 @@ jobs:
             scripts/ci/gh_app_token.sh
             scripts/ci/nightly-steps/release-notes-recheck-publication-head.sh
             scripts/ci/nightly-steps/release-notes-upload-to-r2.sh
+            scripts/ci/signing-runner-claim.sh
+            scripts/ci/glaeda-signing-hooks.txt
           sparse-checkout-cone-mode: false
+
+      # The build ref may predate the hook list.
+      - name: Claim the whole Mac for signing
+        run: bash .publish-tooling/scripts/ci/signing-runner-claim.sh
 
       - *gh-app-token-read
 
@@ -7701,6 +7727,10 @@ jobs:
       - name: Generate deltas and revised appcast
         env:
           GH_TOKEN: ${{ github.token }}
+          # The nightly-next track gets only its own key; the others never see it.
+          SHARED_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track != 'nightly-next' && secrets.SPARKLE_PRIVATE_KEY || '' }}
+          NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track != 'nightly-next' && secrets.NIGHTLY_SPARKLE_PRIVATE_KEY || '' }}
+          NEXT_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track == 'nightly-next' && secrets.SPARKLE_NEXT_PRIVATE_KEY || '' }}
         run: |
           set -euo pipefail
           feed="appcast.xml"

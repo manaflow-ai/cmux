@@ -14,6 +14,8 @@ const base = {
 };
 
 export function sampleMachines(): CloudMachine[] {
+  // Relative to now, so the cost line reads "Running 2h 14m" whenever the page renders.
+  const runningSince = Date.now() - (2 * 60 + 14) * 60_000;
   return [
     {
       ...base,
@@ -26,6 +28,8 @@ export function sampleMachines(): CloudMachine[] {
       created_at: T0 - 3 * DAY,
       last_active_at: T0,
       idle_policy: { idle_seconds: 1800 },
+      hourly_rate_usd: 0.2645,
+      running_since: runningSince,
       revision: "7",
     },
     {
@@ -39,6 +43,8 @@ export function sampleMachines(): CloudMachine[] {
       created_at: T0 - 10 * DAY,
       last_active_at: T0 - DAY,
       idle_policy: { idle_seconds: 900 },
+      hourly_rate_usd: 0.1322,
+      running_since: null,
       revision: "4",
     },
     {
