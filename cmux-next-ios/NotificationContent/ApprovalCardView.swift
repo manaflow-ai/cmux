@@ -37,10 +37,8 @@ struct ApprovalCardView: View {
             }
             if model.actionable { answers }
         }
-        .padding(16)
+        // On the long look's own platter, as the plain view: no card drawn inside it.
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.quaternary))
         .accessibilityIdentifier("cmux.push.approval")
     }
 
