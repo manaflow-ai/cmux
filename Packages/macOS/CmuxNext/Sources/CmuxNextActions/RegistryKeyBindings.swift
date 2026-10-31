@@ -44,10 +44,14 @@ public struct RegistryKeyBindings {
         return sub
     }
 
-    /// Bound, available in `context` (the key window's facts), and enabled.
+    /// Bound, available in `context` (the key window's facts), and enabled, or disabled by a reason
+    /// a person's key may take a recovery past (``ActionRecovery``: Sign In, then the action).
     public func canPerform(_ id: ActionID, in context: ActionContext) -> Bool {
         guard let action = registry.action(for: id), registry.isAvailable(id, in: context) else { return false }
-        return action.isEnabled()
+        if action.isEnabled() { return true }
+        var invocation = ActionInvocation()
+        invocation.keyContext = context
+        return registry.personRecovery(for: id, invocation) != nil
     }
 
     /// Runs a resolved binding with the context of the window whose key

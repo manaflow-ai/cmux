@@ -23,7 +23,7 @@ import { realWorkflowFixture } from "../realWorkflowFixture";
 type Props = Pick<
   ComponentProps<typeof SummaryCard>,
   "rows" | "background" | "sessions" | "onAttach" | "workflow" | "workflowActions" | "onOpenInspector"
-> & { tabRowHeight?: number; preview?: boolean; inspectorPush?: boolean };
+> & { tabRowHeight?: number; preview?: boolean; popover?: boolean; inspectorPush?: boolean };
 
 const none = () => undefined;
 /// The inline column, shown and open.
@@ -38,7 +38,7 @@ const card: SummaryCardControl = {
   fold: none,
 };
 
-function GallerySummaryCard({ tabRowHeight, preview, inspectorPush, ...props }: Props) {
+function GallerySummaryCard({ tabRowHeight, preview, popover, inspectorPush, ...props }: Props) {
   return (
     <div
       className="acpmux-shell"
@@ -97,7 +97,13 @@ function GallerySummaryCard({ tabRowHeight, preview, inspectorPush, ...props }: 
         />
       ) : inspectorPush ? null : (
         <SummaryCard
-          card={card}
+          card={popover ? { ...card, column: false } : card}
+          environment={{
+            summary: { sessionId: "gallery-session", cwd: CWD, branch: "feature/session-details" },
+            machineName: "Development Mac",
+            repository: "example/atlas-web",
+            onOpenFolder: none,
+          }}
           subagents={{ views: undefined, current: undefined, asks: new Set(), onOpen: none }}
           onOpenOutput={none}
           {...props}
@@ -198,6 +204,35 @@ const workflow: WorkflowSummary = {
 const workflowActions: WorkflowActions = { onPause: none, onStop: none, onSave: none, onOpenTranscript: none };
 const [realWorkflow] = createWorkflowAdapter()(realWorkflowFixture(GALLERY_NOW), "gallery-session");
 
+/// Two subagents, one still running, for the Subagents title and tab.
+const liveSubagentRows = [
+  ...rows,
+  row("subagents", 1, {
+    subagents: [
+      {
+        id: "explore-docs",
+        name: "Explore docs",
+        task: "Read the release docs",
+        parent: null,
+        state: "running",
+        startedAt: minutesAgo(3),
+      },
+      {
+        id: "check-links",
+        name: "Check links",
+        task: "Check every link",
+        parent: null,
+        state: "completed",
+        startedAt: minutesAgo(3),
+        endedAt: minutesAgo(1),
+      },
+    ],
+  }),
+];
+
+/// A record from before acpmux reported subagents: Claude's Task tool as a titled `think` call.
+const legacySubagentRows = [...rows, activity([tool("Audit the retry callers", "think", "in_progress")], 2)];
+
 const background = (list: InspectorProcess[]) => ({
   processes: list,
   listed: true,
@@ -215,6 +250,22 @@ export default componentEntry<Props>({
   covers: ["agent-session/acpmux/summary/SummaryTasks.tsx", "agent-session/acpmux/inspector/ChildSessionRows.tsx"],
   load: async () => GallerySummaryCard,
   variants: {
+    "popover-environment": {
+      note: "The toolbar popover begins with Environment and keeps activity counts in Subagents, without a title row.",
+      props: { popover: true, rows, background: background(processes), sessions: { list: sessions, onOpen: none } },
+    },
+    "popover-legacy-subagents": {
+      note: "An older record's Task-tool subagent beside a running command: the popover lists Subagents once.",
+      props: { popover: true, rows: legacySubagentRows, background: background(processes.slice(0, 2)) },
+    },
+    "popover-subagents": {
+      note: "A narrow pane's popover with live subagents: Environment first, and the Subagents title still opens the Subagents tab.",
+      props: { popover: true, rows: liveSubagentRows, background: background(processes.slice(0, 2)) },
+    },
+    "inline-subagents": {
+      note: "The inline column with the same live subagents: the Subagents title opens the Subagents tab beside Summary.",
+      props: { rows: liveSubagentRows, background: background(processes.slice(0, 2)) },
+    },
     "preview-tab-row": {
       note: "The Preview sibling obeys the same native tab-row clearance, both beside the chat and covering a narrow pane.",
       props: { tabRowHeight: 32, preview: true, rows: [] },

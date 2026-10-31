@@ -169,6 +169,25 @@ import Testing
       {"id":2,"type":"option","label":"Cherry","enabled":false,"checked":false,"items":[]}]}}
     """#
 
+    @Test func selectLabelsKeepLiteralAmpersandsAndContextLabelsDropMnemonics() async throws {
+        let (model, _, sink) = try await model()
+        await host(sink, #"""
+        {"t":"rb.menu.show","token":5,"menu":{"kind":"select","items":[
+          {"id":-1,"type":"group","label":"Research & Development","items":[
+            {"id":0,"type":"option","label":"R&D","items":[]},
+            {"id":1,"type":"option","label":"A&&B","items":[]}]}]}}
+        """#)
+        let group = try #require(model.selectMenu?.menu.items.first)
+        #expect(group.label == "Research & Development")
+        #expect(group.items.map(\.label) == ["R&D", "A&&B"])
+
+        model.requestContextMenu(x: 40, y: 80) { _ in }
+        await host(sink, Self.linkMenu)
+        let context = try #require(model.contextMenu)
+        #expect(context.menu.items.first { $0.id == 50100 }?.label == "Open Link in New Tab")
+        #expect(context.menu.items.first { $0.id == 50170 }?.items.first?.label == "Check Spelling While Typing")
+    }
+
     /// `<select>`: the options show until a pick, which goes back as its index.
     @Test func aSelectShowsItsOptionsAndSendsThePick() async throws {
         let (model, stream, sink) = try await model()
@@ -221,6 +240,31 @@ import Testing
         await host(sink, #"{"t":"rb.dialog.show","token":4,"dialog":{"kind":"alert","origin":"","message":"Hi","default_text":null,"is_reload":false}}"#)
         // A new dialog replaces the old one; an alert has only OK.
         #expect(model.dialog?.token == 4 && model.dialog?.dialog.hasCancel == false)
+    }
+
+    /// A button belongs to the question the person saw, even if the host has
+    /// cancelled it and sent another question before the alert redraws.
+    @Test(arguments: [false, true])
+    func aStaleDialogAnswerLeavesItsReplacementOpen(accept: Bool) async throws {
+        let (model, stream, sink) = try await model()
+        await host(sink, #"{"t":"rb.dialog.show","token":1,"dialog":{"kind":"confirm","origin":"","message":"First question?"}}"#)
+        let shown = try #require(model.dialog)
+        await host(sink, #"{"t":"rb.dialog.cancel","token":1}"#)
+        await host(sink, #"{"t":"rb.dialog.show","token":2,"dialog":{"kind":"prompt","origin":"","message":"Replacement question?","default_text":"Ada"}}"#)
+        let replacement = try #require(model.dialog)
+
+        model.answerDialog(shown.token, accept: accept, text: "stale answer")
+        #expect(sent(stream, "rb.dialog.result").isEmpty)
+        #expect(model.dialog == replacement)
+
+        model.answerDialog(replacement.token, accept: true, text: "Grace")
+        let results = sent(stream, "rb.dialog.result")
+        #expect(results.count == 1)
+        let result = try #require(results.first)
+        #expect(result["token"] as? Int == 2)
+        #expect(result["accept"] as? Bool == true)
+        #expect(result["text"] as? String == "Grace")
+        #expect(model.dialog == nil)
     }
 
     /// The page closed its dialog itself (it navigated away): the alert goes, unanswered,
