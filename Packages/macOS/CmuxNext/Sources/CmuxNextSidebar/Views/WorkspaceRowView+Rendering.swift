@@ -113,9 +113,8 @@ extension WorkspaceRowView {
         case .swatch?: side = SidebarStyle.dotSize + Metrics.space1
         case .symbol?, .emoji?, .favicon?: side = SidebarStyle.iconBox
         }
-        // A glyph centers in the icon column; with no glyph the empty frame stays on lead.
-        let iconX = side > 0 ? leading + (columns.iconBox - side) / 2 : leading
-        icon.frame = NSRect(x: iconX, y: cy - side / 2, width: side, height: side)
+        // The glyph starts on lead (where an iconless title would start); the text column after it is the grid's.
+        icon.frame = NSRect(x: leading, y: cy - side / 2, width: side, height: side)
         layoutTreeLine(leading: SidebarStyle.columns(rowWidth: b.width).lead)
 
         // Trailing cluster, right to left: the dot or spinner on the trailing column, the disclosure

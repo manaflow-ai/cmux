@@ -257,7 +257,7 @@ final class SectionHeaderRowView: SidebarRowView {
         var nameX = columns.lead
         if !machineIcon.isHidden {
             let side = SidebarStyle.leadingGlyphSide
-            machineIcon.frame = NSRect(x: nameX + (columns.iconBox - side) / 2, y: (b.height - side) / 2, width: side, height: side)
+            machineIcon.frame = NSRect(x: nameX, y: (b.height - side) / 2, width: side, height: side)
             nameX = columns.text
         }
         var trailing = columns.textEnd(trailingMarks: 1)

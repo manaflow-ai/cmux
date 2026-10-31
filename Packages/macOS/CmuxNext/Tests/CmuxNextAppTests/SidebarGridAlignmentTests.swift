@@ -91,11 +91,13 @@ import Testing
             view.layout()
             #expect(view.window == nil)
             let hasLeadingMark = c.kind == .workspace || c.kind == .item
-            // A tab row keeps #27530's hierarchy (its parent's title + the 24 pt child indent, its label 2 pt into
-            // its cell); with no list here the parent's title is the lead. grid.md has no separate tab-row line.
-            let child: CGFloat = c.kind == .tab ? 26 : 0
-            let text: CGFloat = (hasLeadingMark ? Self.text(c.comfortable) : Self.lead(c.comfortable)) + child
-            if let workspace = view as? WorkspaceRowView {
+            let text: CGFloat = hasLeadingMark ? Self.text(c.comfortable) : Self.lead(c.comfortable)
+            if c.kind == .tab {
+                // A tab row's lead is #27530's hierarchy (under its parent's title), not a grid line; its mid is checked.
+                let label = try #require(view.subviews.compactMap { $0 as? ChromeLabel }.first { !$0.isHidden && !$0.stringValue.isEmpty })
+                let font = try #require(label.font)
+                #expect(abs(label.frame.minY + label.firstBaselineOffsetFromTop - font.capHeight / 2 - height / 2) <= 0.5)
+            } else if let workspace = view as? WorkspaceRowView {
                 #expect(abs(origin + workspace.title.frame.minX - text - CGFloat(c.depth * 7)) <= 0.5)
                 let font = workspace.title.font
                 let mid = workspace.title.frame.minY + font.ascender - font.capHeight / 2
@@ -357,7 +359,8 @@ extension SidebarGridAlignmentTests {
     }
 
     /// Base rail/bar geometry is independent of text and icon columns. At default interface
-    /// density the rail reach is four points, the outer inset is 6/8, and each nested step is seven.
+    /// density the rail reach is four points, the outer inset is 6/8, each nested step is seven, and the
+    /// bar keeps `groupEdgePadding` (the inset less the rail reach: 2/4, Lawrence 63d46f83) from the edge.
     @Test(arguments: [false, true], Array(0...6))
     func groupBarAndRailXStayAtBaseEveryDepth(comfortable: Bool, depth: Int) {
         Self.withDensity(comfortable) {
@@ -365,12 +368,13 @@ extension SidebarGridAlignmentTests {
             list.frame = NSRect(x: 0, y: 0, width: 320, height: 600)
             let inset: CGFloat = comfortable ? 8 : 6
             #expect(SidebarStyle.groupGutter == 7)
-            #expect(SidebarStyle.groupEdgePadding == (comfortable ? 6 : 4))
+            let padding: CGFloat = comfortable ? 4 : 2
+            #expect(SidebarStyle.groupEdgePadding == padding)
             var row = Self.row(.group(GroupID("base-rail")), height: SidebarDensityTokens.rowHeight)
             row.depth = depth
             let membersX = inset + CGFloat(depth * 7)
             let railX = max(0, membersX - 4)
-            let barX = min(membersX, max(max(0, railX - SidebarStyle.groupHeaderOverhang), inset - 2))
+            let barX = min(membersX, max(max(0, railX - SidebarStyle.groupHeaderOverhang), padding))
             #expect(abs(list.frame(for: row).minX - barX) <= 0.5)
             #expect(abs(list.frame(for: row).minX + list.railReach(for: row) - membersX) <= 0.5)
             #expect(abs(SidebarStyle.groupLineX(membersMinX: membersX) - railX) <= 0.5)

@@ -251,7 +251,7 @@ class SidebarItemRowView: NSView {
         let lead = style == .chip ? Metrics.space2 : inner.lead
         let iconFrame = style.isIconOnly
             ? NSRect(x: (b.width - side) / 2, y: (b.height - side) / 2, width: side, height: side)
-            : NSRect(x: lead + (style == .chip ? 0 : (inner.iconBox - side) / 2), y: (b.height - side) / 2, width: side, height: side)
+            : NSRect(x: lead, y: (b.height - side) / 2, width: side, height: side)
         pin.isHidden = !info.leadingPin
         pin.frame = pinFrame
         // Icon-only items keep their pill around the glyph (a full-width fill reads
@@ -263,7 +263,7 @@ class SidebarItemRowView: NSView {
         pill.cornerRadius = isRailButton ? SidebarStyle.railTileCornerRadius : SidebarStyle.rowCornerRadius
         // A text-only workspace with a color draws it as its list row does: a dot before the title.
         let dot = SidebarStyle.dotSize
-        chip.frame = showsSwatchDot ? NSRect(x: lead + (inner.iconBox - dot) / 2, y: (b.height - dot) / 2, width: dot, height: dot)
+        chip.frame = showsSwatchDot ? NSRect(x: lead + (side - dot) / 2, y: (b.height - dot) / 2, width: dot, height: dot)
             : style == .list && !bare ? iconFrame : .zero
         chip.cornerRadius = showsSwatchDot ? dot / 2 : Metrics.space1 + 1
         CATransaction.commit()

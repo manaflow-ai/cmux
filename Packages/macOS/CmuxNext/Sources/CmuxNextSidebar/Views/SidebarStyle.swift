@@ -39,13 +39,10 @@ enum SidebarStyle {
         guard step != 0 else { return base }
         return Typography.system(.default, size: base.pointSize + step, weight: weight)
     }
-    /// The icon column's width on the sidebar grid (16; 20 at comfortable; never narrower than a glyph's box at a
-    /// larger `sidebar.textSize`): glyphs keep `iconBox` and center in it.
-    static var iconColumnBox: CGFloat { max(SidebarDensityTokens.iconBox, iconBox) }
     /// The one leading icon column (Leo 2026-10-28: "the alignment"): in a row whose leading slot starts at `leading`,
     /// every leading glyph (a band row's, a pinned row's pin, a workspace row's icon) centers its ink here, one
     /// `iconBox` wide, so glyphs of different shapes and margins share one center x at every density.
-    static func iconColumnCenterX(leading: CGFloat) -> CGFloat { leading + iconColumnBox / 2 }
+    static func iconColumnCenterX(leading: CGFloat) -> CGFloat { leading + iconBox / 2 }
     /// A workspace row's leading glyph: the size an icon takes beside the
     /// row title (cap height and stroke matched to the text).
     static var kindGlyphSize: CGFloat { .iconRowSize(forLabelPointSize: titleFont.pointSize) }
