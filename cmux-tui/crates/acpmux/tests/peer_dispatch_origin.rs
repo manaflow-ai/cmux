@@ -172,7 +172,11 @@ async fn peer_dispatch_names_no_peer() {
     for host in ["local", "auto"] {
         let theirs = call(&a, Some(Origin::Peer), method::MUX_DISPATCH, dispatch(host)).await;
         let theirs = theirs.unwrap_or_else(|e| panic!("{host}: {e}"));
-        assert!(theirs["warning"].as_str().is_some_and(|w| w.contains(&here)), "{theirs}");
+        // The budget names this host by its short name, the key of its `hosts` entry
+        // (`host_pressure::host_name`: `cmux-rust-builder-1` for an FQDN host name), which
+        // can differ from the label `host_health` shows (cx-8wgmhe).
+        let budget_host = acpmux::host_pressure::host_name();
+        assert!(theirs["warning"].as_str().is_some_and(|w| w.contains(&budget_host)), "{theirs}");
         assert!(theirs["suggestedHost"].is_null(), "a peer was told of this host's peer: {theirs}");
         assert_eq!(theirs["brief"]["host"], "local", "{host}: it runs here: {theirs}");
         assert!(theirs["brief"].get("suggestedHost").is_none(), "{theirs}");
