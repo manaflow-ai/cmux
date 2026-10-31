@@ -70,6 +70,7 @@ import Testing
 
         func tearDown() {
             chrome.hideCookieImportOffer()
+            chrome.closePopupPanels()
             window.orderOut(nil)
             window.close()
             page.close()

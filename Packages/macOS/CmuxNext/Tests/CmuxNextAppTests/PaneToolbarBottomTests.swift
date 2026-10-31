@@ -40,6 +40,7 @@ import Testing
         var pageArea: NSRect { rect(chrome.contentContainer) }
 
         func tearDown() {
+            chrome.closePopupPanels()
             window.orderOut(nil)
             window.close()
             page.close()
