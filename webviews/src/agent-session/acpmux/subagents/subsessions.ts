@@ -49,7 +49,9 @@ export type SubsessionInfo = {
 /// The user-facing name for a session. Keep the raw id in `session.name` for matching and
 /// diagnostics, but never expose an opaque optchat id as the identity in a row.
 export function subsessionDisplayName(t: Translate, session: Pick<SubsessionInfo, "name" | "sessionId">): string {
-  return session.name === session.sessionId ? t("tray.kind.subagent") : session.name;
+  return session.name === session.sessionId || /(?:^|\/)optchat-[a-z0-9-]+$/iu.test(session.name)
+    ? t("tray.kind.subagent")
+    : session.name;
 }
 
 /// What a sub-session waiting on the person waits for, in one line: a question (and its first
