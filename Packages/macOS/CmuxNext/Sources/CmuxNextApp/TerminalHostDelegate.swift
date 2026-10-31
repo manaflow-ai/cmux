@@ -110,8 +110,13 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
         guard let services else { return }
         let files = services.agentGit.link(for: machine)
         for path in TerminalLinkResolver.remoteCandidates(text, cwd: cwd) {
-            guard let stat = try? await files.stat(path) else { continue }
-            guard stat.kind == "file" || stat.kind == "symlink" else { return }
+            do {
+                let stat = try await files.stat(path)
+                guard stat.kind == "file" || stat.kind == "symlink" else { return }
+            } catch {
+                if RemoteFilePageFiles.code(of: error) == "fs.not_found" { continue }
+                // The remote page names offline, unsupported and denied machines; never drop the click.
+            }
             let position = TerminalLinkResolver.location(text).map { FilePosition(line: $0.line, column: $0.column ?? 1) }
             services.linkOpener.openFile(URL(fileURLWithPath: path), on: machine, from: services.linkOpener.source(tab: request.tab?.id),
                                          at: position)
