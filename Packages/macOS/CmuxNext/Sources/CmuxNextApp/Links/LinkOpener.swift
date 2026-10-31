@@ -139,7 +139,7 @@ final class LinkOpener {
     /// link (Leo 2026-10-21). In the source's own pane the clicked tab is its opener: the new tab
     /// goes right after it and its close selects it again (``BrowserTabOpeners``). A focused tab
     /// anywhere else gives the focus back to the source when its close empties its pane (``returnPane(closing:in:emptiesPane:)``).
-    /// `reusesTab` (an agent chat's links and cards): a page the pane on the right already shows is
+    /// `reusesTab` (an agent chat's links and cards): a page the column on the right already shows is
     /// selected there instead of opened again; a terminal's Cmd-click stays a new, fresh tab.
     @discardableResult
     func openWeb(_ url: URL, from source: PaneController?, background: Bool, reusesTab: Bool = false) -> Bool {
@@ -149,8 +149,7 @@ final class LinkOpener {
         // The same link clicked again (a chat's PR link or card): the pane on the right selects the
         // tab it already has for that page instead of piling up another (Austin 2026-10-25, eleven
         // tabs of one PR). A tab in the source's own pane stays Chrome's: each click is a new tab.
-        if reusesTab, !background, let from, case .pane(let id) = target(from: from), id != from.layoutPaneID,
-           let pane = from.workspace?.panes[id], let shown = browserTab(showing: url, in: pane) {
+        if reusesTab, !background, let from, let (pane, shown) = browserTab(showing: url, from: from) {
             // As for a new tab clicked open there: its close, emptying that pane, gives the focus back.
             if let content = from.workspace { returnFocus(of: shown.surface, to: from.layoutPaneID, in: content) }
             pane.select(StripTabID(shown.id))
@@ -173,6 +172,23 @@ final class LinkOpener {
             }
             return pane.newBrowserTab(url: url, background: background || placed != nil, opener: opener, placementOwner: placed != nil, then: then)
         }
+    }
+
+    /// The existing browser tab the source's foreground link may reuse. Search the placement's
+    /// pane first, then its column's other rows. Resolve controllers only in the source's content
+    /// controller: an equal page in another workspace or window is never a candidate.
+    func browserTab(showing url: URL, from source: PaneController) -> (PaneController, TabModel)? {
+        guard case .pane(let id) = target(from: source), id != source.layoutPaneID,
+              let content = source.workspace, let pane = content.panes[id] else { return nil }
+        if let shown = browserTab(showing: url, in: pane) { return (pane, shown) }
+        guard let column = content.layoutModel.screen(containing: id)?.layout.column(containing: id),
+              !column.trees.contains(where: { $0.contains(source.layoutPaneID) }) else { return nil }
+        for sibling in column.trees.flatMap(\.panes) where sibling != id {
+            if let pane = content.panes[sibling], let shown = browserTab(showing: url, in: pane) {
+                return (pane, shown)
+            }
+        }
+        return nil
     }
 
     /// A browser tab of `pane` showing `url`'s page (``SidebarBridge/samePage(_:_:)``) at the same
