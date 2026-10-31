@@ -5,12 +5,17 @@
 mod access_cli;
 mod agent_cli;
 mod cloud;
+mod cloud_broker;
 mod cloud_fs;
 mod control;
+mod daemon_entry;
+pub(crate) use daemon_entry::DaemonEntryStartup;
 mod dial;
 mod dial_cli;
 mod enrollment;
 mod ensure;
+mod native_broker;
+mod native_route;
 mod sync_cli;
 // Wired into `serve` when Cloud hosts run the link (needs the TeamDO peer
 // map and a token format); tested now.
@@ -24,8 +29,15 @@ pub(crate) mod machine_gate;
 pub(crate) mod machine_update;
 mod mesh;
 mod mesh_cloud;
+#[cfg(target_os = "linux")]
+mod native_process;
+#[cfg_attr(not(test), allow(dead_code))]
+mod native_receiver;
+#[cfg(target_os = "linux")]
+mod native_supervision;
 mod paired_streams;
 mod process_exit;
+mod receiver_deadline;
 mod state;
 
 #[cfg(test)]
@@ -152,6 +164,8 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
     let Some(action) = args.first().map(String::as_str) else { return Err(help()) };
     let rest = &args[1..];
     match action {
+        #[cfg(target_os = "linux")]
+        "__receive-vm" => native_process::run(&flags(rest, &["--session-socket"])?),
         "init" => {
             run_init(&flags(rest, &["--state-dir", "--install", "--port", "--server-identity"])?)
         }
@@ -159,7 +173,14 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
         "peer" => run_peer(rest),
         "serve" => run_serve(&flags(
             rest,
-            &["--state-dir", "--session-socket", "--server-config", "--ready-fd"],
+            &[
+                "--state-dir",
+                "--session-socket",
+                "--server-config",
+                "--credential-socket",
+                "--ready-fd",
+                "--native-cloud-broker-fd",
+            ],
         )?),
         "ensure" => {
             // `--handoff` is the one flag without a value.
@@ -169,7 +190,14 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
             ensure::run_ensure(
                 &flags(
                     &rest,
-                    &["--state-dir", "--install", "--port", "--session-socket", "--server-config"],
+                    &[
+                        "--state-dir",
+                        "--install",
+                        "--port",
+                        "--session-socket",
+                        "--server-config",
+                        "--credential-socket",
+                    ],
                 )?,
                 handoff,
             )
@@ -362,6 +390,16 @@ async fn reload(socket: &Path) -> bool {
 }
 
 fn run_serve(flags: &Flags) -> anyhow::Result<()> {
+    let native = flags.contains_key("--native-cloud-broker-fd");
+    if native
+        && ["--credential-socket", "--session-socket", "--server-config"]
+            .iter()
+            .any(|flag| flags.contains_key(*flag))
+    {
+        bail!("cloud.native.scope_conflict");
+    }
+    let broker =
+        flags.get("--native-cloud-broker-fd").map(|fd| native_broker::bind(fd)).transpose()?;
     // Before any setup: an update during it is still seen (`launchd_refresh.rs`).
     #[cfg(target_os = "macos")]
     let watch = launchd::plist_path()
@@ -371,9 +409,10 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     let watch: Option<AgentWatch> = None;
     let state = state(flags)?;
     let session_socket = flags.get("--session-socket").map(PathBuf::from);
+    let credential_socket = flags.get("--credential-socket").map(PathBuf::from);
     // `server.json` is read once: the owner session is parsed from, and
     // `link.status` hashes, the same bytes.
-    let config_path = server_config_path(flags);
+    let config_path = if native { None } else { server_config_path(flags) };
     let config_bytes = read_server_config(config_path.as_deref())?;
     let owner = owner_session(config_path.as_deref(), config_bytes.as_deref())?;
     let ready = match flags.get("--ready-fd") {
@@ -384,7 +423,16 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     // UDP bind: a second `serve` of the same state directory stops here.
     let _lock = serve_lock(&state)?;
     let served = ensure::Served::of(flags, config_path, config_bytes.as_deref());
-    tokio_runtime()?.block_on(serve(state, session_socket, owner, ready, served, watch))
+    tokio_runtime()?.block_on(serve(
+        state,
+        session_socket,
+        credential_socket,
+        owner,
+        ready,
+        served,
+        watch,
+        broker,
+    ))
 }
 
 /// `<state>/link.lock`, held by a running `serve` (never blocks).
@@ -449,13 +497,23 @@ fn owner_session(
 async fn serve(
     state: LinkState,
     session_socket: Option<PathBuf>,
+    credential_socket: Option<PathBuf>,
     owner: Option<Arc<OwnerSession>>,
     ready: Option<ensure::ReadyPipe>,
     served: ensure::Served,
     watch: Option<AgentWatch>,
+    mut broker: Option<cloud_broker::Bound>,
 ) -> anyhow::Result<()> {
-    let config = state.config().context("run `cmux link init --install ID` first")?;
-    let private_key = state.private_key()?;
+    let native = broker.as_ref().is_some_and(|bound| bound.identity.is_some());
+    let (config, private_key, native_route) =
+        match broker.as_mut().and_then(|bound| bound.identity.take()) {
+            Some(identity) => (identity.config, identity.key, Some(identity.route)),
+            None => (
+                state.config().context("run `cmux link init --install ID` first")?,
+                state.private_key()?,
+                None,
+            ),
+        };
     let public_key = state::public_key(&private_key);
     let socket =
         tokio::net::UdpSocket::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, config.port)))
@@ -470,11 +528,29 @@ async fn serve(
         },
         socket,
     )?;
-    let overlay = Arc::new(MeshOverlay::new(mesh, private_key));
-    // Cloud host ids resolve through the host credential relay, which is
-    // not served yet: Cloud dials report `unreachable` until it ships.
-    let resolver = Arc::new(cloud::CloudResolver::new(cloud::RelaySource));
-    let peers = Arc::new(Peers::load(state.peers_path())?);
+    let overlay = Arc::new(MeshOverlay::new(mesh, private_key).with_native_route(native_route));
+    // Cloud host ids resolve through the private credential relay owned by
+    // the signed-in app. A missing relay fails closed as unavailable.
+    let (source, broker_driver) = match broker {
+        Some(cloud_broker::Bound { stream, .. }) => {
+            stream.set_nonblocking(true)?;
+            let (source, driver) = cloud_broker::channel(tokio::net::UnixStream::from_std(stream)?);
+            (cloud::CloudSource::Broker(source), Some(driver))
+        }
+        None => (
+            cloud::CloudSource::Relay(
+                credential_socket
+                    .map_or_else(cloud::RelaySource::unavailable, cloud::RelaySource::socket),
+            ),
+            None,
+        ),
+    };
+    let resolver = Arc::new(cloud::CloudResolver::new(source));
+    let peers = Arc::new(if native {
+        Peers::isolated(state.peers_path())
+    } else {
+        Peers::load(state.peers_path())?
+    });
     overlay.sync_peers(&peers.snapshot()).await?;
     let listener = overlay.listen(LINK_PORT).await?;
     let socket_path = state.socket_path();
@@ -486,7 +562,7 @@ async fn serve(
             .to_string()
             .into();
     registration::write(&state.registration_dir(), &Registration::new(socket_path.clone(), pid))?;
-    let ready_line = json!({
+    let mut ready_line = json!({
         "event": "link-ready",
         "socket": socket_path,
         "pid": pid,
@@ -494,6 +570,10 @@ async fn serve(
         "udp": udp,
         "relay_available": cmux_link::dial::RELAY_AVAILABLE,
     });
+    if native {
+        ready_line["native"] = json!(true);
+        ready_line["wg_public_key"] = json!(STANDARD.encode(public_key));
+    }
     print_json(&ready_line);
     if let Some(ready) = ready {
         ready.send(&ready_line);
@@ -503,6 +583,7 @@ async fn serve(
         () = serve_overlay(listener, peers.clone(), session_socket, owner) => Ok(()),
         signal = shutdown_signal() => signal,
         outcome = launchd_agent_outcome(watch) => outcome,
+        broker = cloud_broker::run(broker_driver) => broker.map_err(anyhow::Error::from),
     };
     registration::remove_if_owned(&state.registration_dir(), pid);
     let _ = std::fs::remove_file(&socket_path);

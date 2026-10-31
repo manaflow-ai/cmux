@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCloudCredentials
 import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextControl
@@ -105,6 +106,8 @@ final class CloudService {
     @ObservationIgnored let bringBackRetries = CloudMoveRetries(key: "cmux.cloud.bringBackRetries")
     /// The chats moved from this Mac, for Bring Back Local.
     @ObservationIgnored let movedChats = CloudMovedChats()
+    /// The machine each recent `cloud.startChat` send ran on, so its retry stays there.
+    @ObservationIgnored let startChatDestinations = CloudStartChat.Destinations()
     /// Agents' asks to move their chats, and the cards they raise in chats.
     @ObservationIgnored let moveAsks = CloudMoveAsks()
     @ObservationIgnored let toolCards = AgentToolCards()
@@ -193,24 +196,14 @@ final class CloudService {
         hands = HandsService(
             apiBaseURL: configuration.ownerAPIBaseURL(), accessToken: { [auth] in try await auth.tokens().access }, identity: installIdentity,
             presence: HandPresenceKeyStore(directory: paths.root.appendingPathComponent("install", isDirectory: true)))
-        let launcher = configuration.linkSource == .appServer ? CloudLinkLauncher.forApp(build: LaunchIdentity.current().build) : nil
+        let relay = CloudCredentialRelay.live(identity: identity, baseURL: configuration.ownerAPIBaseURL(),
+            signedIn: { [auth] in await MainActor.run { auth.isSignedIn } },
+            allowedOps: { await CloudCredentialRelay.bundledServedOps() })
+        credentialProvider = CloudCredentialProvider(relay: relay)
+        let launcher = configuration.linkSource == .appServer
+            ? CloudLinkLauncher.forApp(build: LaunchIdentity.current().build, relay: relay) : nil
         link = CloudLinkLifecycle(launcher: launcher, installID: { [identity] in await identity.installID() },
                                   connection: { [machines] in machines.local.connection })
-        let transport = InstallHTTPTransport(baseURL: configuration.ownerAPIBaseURL())
-        let clientHeaders = identity.requestHeaders
-        credentialProvider = CloudCredentialProvider(relay: CloudCredentialRelay(
-            post: { path, body, bearer in try await transport.post(path, json: body, bearer: bearer, headers: clientHeaders) },
-            token: { try await identity.installToken() },
-            invalidate: { await identity.invalidate() },
-            // The team is the backend team the relay bills: the install
-            // token's team claim (never the Stack team id) (cx-i6g4).
-            session: { [auth] in
-                guard await MainActor.run(body: { auth.isSignedIn }) else { return CloudCredentialRelay.Session(signedIn: false, team: nil) }
-                let token = try? await identity.installToken()
-                return CloudCredentialRelay.Session(signedIn: true, team: token.flatMap(MacInstallIdentity.team(ofToken:)))
-            },
-            allowedOps: { await CloudCredentialRelay.bundledServedOps() }
-        ))
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
         move.cli = binary
         move.ledger = .standard
@@ -218,6 +211,7 @@ final class CloudService {
             hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: Self.deviceName)
         }
         movedChats.defaults = { [weak self] in self?.move.ledger }
+        startChatDestinations.defaults = { [weak self] in self?.move.ledger }
         moveRetries.defaults = { [weak self] in self?.move.ledger }
         bringBackRetries.defaults = { [weak self] in self?.move.ledger }
         moveAsks.defaults = { [weak self] in self?.move.ledger }

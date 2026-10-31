@@ -17,6 +17,14 @@ export const HOST_CONFIG_PATH = "/etc/cmux/host.json";
 /** The frozen unit command: `<current>/bin/cmux host run`; argv[0] named `cmux` selects the `host` verb. */
 export const HOST_RUN = `${CURRENT_BIN}/cmux host run --mode system`;
 export const HOST_CLI = `${CURRENT_BIN}/cmux host`;
+/** Verify the running root service, not just a file that systemd has not loaded. */
+export const NATIVE_RECEIVER_SMOKE = [
+  `test "$(systemctl show ${HOST_UNIT} -p User --value)" = root`,
+  `pid="$(systemctl show ${HOST_UNIT} -p MainPID --value)"`,
+  'test "$pid" -gt 1',
+  'test "$(stat -c %u /proc/$pid)" = 0',
+  `tr '\\0' '\\n' < /proc/$pid/cmdline | grep -Fx -- '--native-receiver'`,
+].join(" && ");
 /** The Cloud role's log lines (journal of the host unit). */
 export const HOST_JOURNAL = `journalctl -m -u ${HOST_UNIT} --no-pager -o cat`;
 
@@ -40,7 +48,7 @@ export function hostConfig(): string {
 }
 
 /** The host unit. `extraEnv` (agent tools) reaches the session host and every terminal it creates. */
-export function hostUnit(envLines: readonly string[], storePath: string): string {
+export function hostUnit(envLines: readonly string[], storePath: string, nativeReceiver = false): string {
   return [
     "[Unit]",
     "Description=cmux host: bind agent, session host supervisor and Cloud agent (cmux host run)",
@@ -61,7 +69,9 @@ export function hostUnit(envLines: readonly string[], storePath: string): string
     "Environment=CMUX_BROWSER_HOST_EGRESS=isolated",
     `Environment=PATH=${storePath}`,
     ...envLines,
-    `ExecStart=${HOST_RUN}`,
+    // Only the dedicated Native image opts in. The root host waits for an authorized
+    // enrollment before starting the receiver; an environment variable cannot enable it.
+    `ExecStart=${HOST_RUN}${nativeReceiver ? " --native-receiver" : ""}`,
     "Restart=always",
     "RestartSec=3",
     "RestartSteps=5",

@@ -56,6 +56,8 @@
 //!   (`restore.rs`); its stable prompt id still admits that attempt only once.
 //! - `_acpmux/retry` retries a failed turn on demand, taking over a continuation that waits
 //!   ([`retry_turn`]).
+//! - A chat's first send that a revoked OAuth token failed is sent again once, 2 s later, through
+//!   the same mark ([`first_send`]).
 
 use cmux_json::JsonSet as _;
 
@@ -97,6 +99,16 @@ pub(super) fn set_after_finish_replaced_check(hook: Box<dyn FnOnce()>) {
 
 /// `_acpmux/retry`: a failed turn retried on demand.
 pub(crate) mod retry_turn;
+
+/// A first send a revoked OAuth token failed goes again once, 2 s later.
+mod first_send;
+
+/// Whether a failed turn's `error` is one acpmux may retry by itself: a transient one
+/// ([`super::turn_errors::resume_cause`]), or a revoked token, which a chat's first send retries
+/// ([`first_send`]). A row shows such a turn's retry being decided until that is settled.
+fn retry_decided_on(error: &str) -> bool {
+    super::turn_errors::resume_cause(error, error).is_some() || first_send::retried_error(error)
+}
 
 /// Waits before attempts 1, 2, 3 and 4, in milliseconds.
 pub const DEFAULT_DELAYS_MS: [u64; 4] = [10_000, 60_000, 300_000, 1_200_000];
@@ -481,6 +493,18 @@ impl Hub {
         };
         let reason = cut.as_ref().and_then(|c| super::turn_errors::resume_cause(c.error, c.error));
         let reason = reason.and_then(RetryReason::from_cause);
+        // A first send a revoked token failed: sent again once, its wait this mark's.
+        if let (Some(cut), None, Some(true)) = (cut.as_ref(), reason, ending)
+            && first_send::retries(session, cut)
+        {
+            let wake = Arc::new(Notify::new());
+            let mark =
+                Mark::Waiting { turn: turn_id.to_owned(), retry: None, _wake: Wake(wake.clone()) };
+            pending.replace(mark);
+            drop(pending);
+            self.retry_first_send(session, cut, wake);
+            return;
+        }
         let (Some(cut), Some(reason), Some(true)) = (cut, reason, ending) else {
             if ending.is_some() {
                 pending.take();
@@ -584,9 +608,7 @@ impl Hub {
         let last = session.meta().last_turn;
         let deciding = last.as_ref().is_some_and(|t| {
             let error = t["errorText"].as_str().unwrap_or_default();
-            t["status"] == "failed"
-                && t["turnId"] == turn_id
-                && super::turn_errors::resume_cause(error, error).is_some()
+            t["status"] == "failed" && t["turnId"] == turn_id && retry_decided_on(error)
         });
         if deciding {
             let mut msg = json!({"turnId": turn_id, "why": why});
@@ -807,10 +829,9 @@ impl Hub {
         session: &Session,
         last: Option<&Value>,
     ) -> (Option<RetrySummary>, bool) {
-        let failed = last.filter(|t| t["status"] == "failed").filter(|t| {
-            let error = t["errorText"].as_str().unwrap_or_default();
-            super::turn_errors::resume_cause(error, error).is_some()
-        });
+        let failed = last
+            .filter(|t| t["status"] == "failed")
+            .filter(|t| retry_decided_on(t["errorText"].as_str().unwrap_or_default()));
         let cut = failed.and_then(|t| t["turnId"].as_str());
         let snapshot = || {
             let pending = session.auto_resume.lock();

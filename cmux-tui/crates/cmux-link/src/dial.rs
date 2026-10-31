@@ -13,8 +13,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::stamp::valid_id;
 
-/// The longest request, reply or hello line.
+/// The longest control request or reply line.
 pub const MAX_LINE_BYTES: usize = 1024;
+pub const MAX_LINK_TOKEN_BYTES: usize = 8192;
+/// One bounded signed token plus the service/epoch JSON envelope.
+pub const MAX_HELLO_BYTES: usize = MAX_LINK_TOKEN_BYTES + 128;
 
 /// The services a link stream can reach. Slice 1 has only the session
 /// daemon's remote entry.
@@ -174,6 +177,18 @@ impl std::fmt::Debug for ServiceHello {
 }
 
 impl ServiceHello {
+    pub fn parse(line: &str) -> Option<Self> {
+        let line = line.strip_suffix('\n').unwrap_or(line);
+        if line.len() > MAX_HELLO_BYTES {
+            return None;
+        }
+        let hello: Self = serde_json::from_str(line).ok()?;
+        if hello.link_token.as_ref().is_some_and(|token| token.len() > MAX_LINK_TOKEN_BYTES) {
+            return None;
+        }
+        Some(hello)
+    }
+
     /// The hello to a paired peer (no token).
     pub fn paired(service: Service) -> Self {
         Self { service, link_token: None, epoch: None }
@@ -209,6 +224,34 @@ pub fn parse_line<T: for<'de> Deserialize<'de>>(line: &str) -> Option<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn receiver_protocol_hello_bounds_leave_control_frames_small() {
+        for length in [1100, MAX_LINK_TOKEN_BYTES] {
+            let hello = ServiceHello {
+                service: Service::Daemon,
+                epoch: Some(4),
+                link_token: Some("t".repeat(length)),
+            };
+            let wire = line(&hello);
+            assert!(wire.len() > MAX_LINE_BYTES && wire.len() <= MAX_HELLO_BYTES);
+            assert_eq!(ServiceHello::parse(&wire), Some(hello));
+            assert!(parse_line::<serde_json::Value>(&wire).is_none());
+        }
+        let oversized = ServiceHello {
+            service: Service::Daemon,
+            epoch: Some(4),
+            link_token: Some("t".repeat(MAX_LINK_TOKEN_BYTES + 1)),
+        };
+        assert!(ServiceHello::parse(&line(&oversized)).is_none());
+        let padded = format!(
+            "{}{}",
+            " ".repeat(MAX_HELLO_BYTES),
+            line(&ServiceHello::paired(Service::Daemon))
+        );
+        assert!(ServiceHello::parse(&padded).is_none());
+        assert!(ServiceHello::parse(r#"{"service":"daemon","extra":true}"#).is_none());
+    }
 
     #[test]
     fn the_dial_contract_has_stable_wire_shapes() {
