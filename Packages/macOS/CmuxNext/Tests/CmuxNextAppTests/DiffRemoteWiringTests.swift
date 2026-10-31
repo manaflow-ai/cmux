@@ -71,4 +71,26 @@ struct DiffRemoteWiringTests {
         #expect(!service.readsOnPaneMachine(machineLink, selected: "chat"))
         machineLink.close()
     }
+
+    @Test(arguments: [true, false])
+    func aForkedChatStillRefusesAnotherRegistry(resourceIDs: Bool) throws {
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let cloud = CloudMoveTests.machine(services, cli: URL(fileURLWithPath: "/usr/bin/false"),
+                                           root: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
+        services.machines.add(cloud)
+        var chat = TabSnapshot(surface: 1, tabResourceID: resourceIDs ? "forked-chat" : nil,
+                               kind: .conversation, title: "Forked chat")
+        chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "registry:other-registry"))
+        let pane = PaneSnapshot(id: 1, tabs: [chat])
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
+        let tree = DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "Forked", screens: [screen])])
+        services.daemon.store.apply(snapshot: tree)
+        cloud.daemon.store.apply(snapshot: tree)
+        let selected = try #require(cloud.daemon.store.workspaces.first?.screens.first?.panes.first?.tabs.first)
+        #expect(services.locateTab(selected.id) == nil)
+        services.agentTabs.gitLink = { _ in nil }
+        let service = DiffPageService(services: services)
+        #expect(!service.readsOnPaneMachine(services.agentGit.link(for: cloud.daemon), selected: selected.id))
+        #expect(service.gitLink(for: selected.id) == nil)
+    }
 }
