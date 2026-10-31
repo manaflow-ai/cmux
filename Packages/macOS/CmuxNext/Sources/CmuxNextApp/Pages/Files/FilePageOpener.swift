@@ -46,30 +46,11 @@ final class FilePageOpener: FileOpening {
         open(file, in: pane, userChose: true)
     }
 
-    /// Where an open of a file shows it (``route(for:userChose:asText:)``).
-    enum Route: Equatable {
-        /// A browser tab renders the page (HTML or SVG).
-        case renderedPage
-        /// The markdown page.
-        case markdown
-        /// The code editor page (Monaco): the file's text.
-        case editor
-        /// The browser tab's preview (an image, a PDF, media).
-        case preview
-    }
+    typealias Route = FileOpenKind.PageRoute
 
-    /// The one rule for where `url` opens. `asText` (Open as Text, u9489): a page cmux renders
-    /// (``FileOpenKind/opensAsText``) opens as its source in the code editor; other files open as
-    /// they always do. A web page renders whoever opens it (u18051: an agent's `file.open` of an
-    /// HTML report showed its source); `userChose` only decides what is writable.
+    /// The shared file-domain route; `userChose` decides writability, not rendering.
     nonisolated static func route(for url: URL, userChose: Bool, asText: Bool = false) -> Route {
-        let file = FileOpenKind(fileName: url.lastPathComponent, isDirectory: false, isPackage: false)
-        if file.opensAsText, asText || file == .web { return asText ? .editor : .renderedPage }
-        switch kind(for: url) {
-        case .markdown?: return .markdown
-        case .editor?: return .editor
-        case nil: return .preview
-        }
+        FileOpenKind(fileName: url.lastPathComponent, isDirectory: false, isPackage: false).pageRoute(asText: asText)
     }
 
     /// `userChose` false for an agent's or a script's open (`cmux file open`): a markdown document
