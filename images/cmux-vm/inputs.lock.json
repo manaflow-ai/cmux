@@ -5,9 +5,9 @@
     "snapshot": "freestyle/ubuntu-sm",
     "fingerprint": {
       "kernelRelease": "6.1.102",
-      "dpkgListSha256": "2fd3f30960da22ba41487d43cc79add2f5f74131c8e805320b97a369a7a36243",
-      "dpkgPackageCount": 416,
-      "recordedAt": "2026-10-21T20:06:51Z"
+      "dpkgListSha256": "815053cdba81366878fda45596bf3ce5f4d095c334848513be2517d817857b22",
+      "dpkgPackageCount": 419,
+      "recordedAt": "2026-10-31T10:51:59Z"
     },
     "runtimes": {
       "node": "v24.21.0",
@@ -19,15 +19,15 @@
     },
     "basePackages": {
       "docker.io": "29.1.3-0ubuntu3~24.04.2",
-      "containerd": "2.2.1-0ubuntu1~24.04.3",
+      "containerd": "2.2.1-0ubuntu1~24.04.4",
       "runc": "1.3.4-0ubuntu1~24.04.1",
-      "git": "1:2.43.0-1ubuntu7.3",
-      "curl": "8.5.0-2ubuntu10.15",
+      "git": "1:2.43.0-1ubuntu7.4",
+      "curl": "8.5.0-2ubuntu10.16",
       "jq": "1.7.1-3ubuntu0.24.04.2",
-      "ca-certificates": "20260601~24.04.1",
+      "ca-certificates": "20260816ubuntu0.24.04.1",
       "wireguard-tools": "1.0.20210914-1ubuntu4",
-      "openssh-server": "1:9.6p1-3ubuntu13.19",
-      "tmux": "3.4-1ubuntu0.1",
+      "openssh-server": "1:9.6p1-3ubuntu13.20",
+      "tmux": "3.4-1ubuntu0.2",
       "perl": "5.38.2-3.2ubuntu0.6"
     },
     "npmGlobals": {
