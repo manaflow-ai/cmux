@@ -416,6 +416,11 @@ public final class HomeNativeTranscriptView: NSView {
 
     func applyTextScale(_ scale: CGFloat) {
         firstRun.applyScale(scale)
+        // The notice above the field sits outside the magnified transcript: its caption follows the chat's scale.
+        let caption = Typography.caption
+        let font = NSFont(descriptor: caption.fontDescriptor, size: caption.pointSize * Self.chatScale) ?? caption
+        noticeLabel.font = font
+        noticeButton.font = font
         needsLayout = true
     }
 
@@ -444,11 +449,12 @@ public final class HomeNativeTranscriptView: NSView {
     /// Above the field, inset like it; MessagesLab's field keeps its geometry.
     func layoutNotice() {
         guard notice != nil else { return }
-        let width = max(0, bounds.width - 32)
+        let inset = 16 * Self.chatScale
+        let width = max(0, bounds.width - 2 * inset)
         noticeLabel.preferredMaxLayoutWidth = width
         let height = ceil(noticeLabel.intrinsicContentSize.height)
         let action: CGFloat = noticeAction == nil ? 0 : ceil(noticeButton.intrinsicContentSize.height)
-        noticeLabel.frame = CGRect(x: 16, y: transcript.fieldTop - height - action - 8, width: width, height: height)
+        noticeLabel.frame = CGRect(x: inset, y: transcript.fieldTop - height - action - inset / 2, width: width, height: height)
         if noticeAction != nil {
             let w = min(width, ceil(noticeButton.intrinsicContentSize.width))
             noticeButton.frame = CGRect(x: (bounds.width - w) / 2, y: noticeLabel.frame.maxY, width: w, height: action)
