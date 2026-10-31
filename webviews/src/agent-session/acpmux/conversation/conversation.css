@@ -80,6 +80,8 @@
   --cv-footer-chevron-slot: var(--cv-footer-control-slot);
   --cv-footer-gap: 0px;
   --cv-tool-run-bottom-gap: 4px;
+  --cv-tool-gap: var(--ds-space-2, 8px);
+  --cv-disclosure-gap: var(--ds-space-1, 4px);
   /* A message's hover row fades as Claude Code desktop's (--cds-message-actions-reveal-*): in after
      100ms over 120ms, out at once (Claude's 60ms is off the motion scale: its quick 80ms), both on
      Claude's snap curve. */
@@ -1655,7 +1657,7 @@ pre.cv-math-source {
 }
 .cv-worked__chevron {
   margin-top: 0;
-  margin-left: 2px;
+  margin-inline-start: calc(var(--cv-disclosure-gap) - var(--cv-worked-gap, 2px));
 }
 /* The running line's counts (WorkingFor.tsx), after its label on the same 20px line. They keep
    to one line and give way at the line's end, never wrapping it to a second. */
@@ -1851,10 +1853,9 @@ pre.cv-math-source {
 .cv-tool {
   all: unset;
   box-sizing: border-box;
-  display: grid;
-  grid-template-columns: var(--cv-glyph-slot) minmax(0, 1fr) auto var(--cv-disclosure-slot);
+  display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--cv-tool-gap);
   width: 100%;
   min-height: var(--cv-tool-row-height);
   line-height: 20px;
@@ -1928,7 +1929,6 @@ pre.cv-math-source {
   }
 }
 .cv-tool__icon {
-  grid-column: 1;
   display: inline-flex;
   flex: none;
   align-items: center;
@@ -1938,7 +1938,7 @@ pre.cv-math-source {
   margin-right: -1.5px;
 }
 .cv-tool__text {
-  grid-column: 2;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1973,15 +1973,22 @@ pre.cv-math-source {
 }
 /* Quiet and always there. On hover a row adds only a finished call's check and time (above). */
 .cv-tool__chevron {
-  grid-column: 4;
+  order: 3;
   display: inline-flex;
+  flex: none;
   align-items: center;
   justify-content: flex-end;
   width: var(--cv-disclosure-slot);
   height: var(--cv-disclosure-slot);
-  justify-self: end;
-  margin-left: 0;
+  /* The row's shared 8px gap also applies here; subtract it so the caret's visible gap is the
+     disclosure token rather than an icon-to-label spacing. */
+  margin-inline-start: calc(var(--cv-disclosure-gap) - var(--cv-tool-gap));
   color: var(--cv-text-dim);
+}
+.cv-tool:not(.cv-agentmsg__line) > .cv-command__meta,
+.cv-tool:not(.cv-agentmsg__line) > .cv-tool__meta {
+  order: 4;
+  margin-inline-start: auto;
 }
 /* A thought in full (while it streams, or with a Debug choice that folds only long ones): a muted
    "Thinking" (or "Thought for 12s" once done) on its own line, then its text under the opened
@@ -1995,9 +2002,9 @@ pre.cv-math-source {
 }
 /* The folded label uses the same row height as tools; full thought text keeps its padding. */
 .cv-thought.is-toggle {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto var(--cv-disclosure-slot);
+  display: flex;
   align-items: center;
+  gap: var(--cv-tool-gap);
   padding-block: 0;
 }
 .cv-thought.is-full {
@@ -2312,8 +2319,9 @@ pre.cv-math-source {
   border-top: var(--cmux-hairline, .5px) solid var(--cv-rule);
 }
 .cv-step > .cv-tool {
+  display: grid;
   grid-template-columns: minmax(0, max-content) var(--cv-disclosure-slot) minmax(0, 1fr) auto;
-  gap: 4px;
+  gap: var(--cv-disclosure-gap);
 }
 .cv-step > .cv-tool > .cv-tool__icon {
   display: none;
@@ -2328,6 +2336,7 @@ pre.cv-math-source {
 }
 .cv-step > .cv-tool > .cv-tool__chevron {
   grid-column: 2;
+  margin-inline-start: 0;
   justify-self: start;
   justify-content: flex-start;
 }
@@ -2496,7 +2505,7 @@ pre.cv-math-source {
 /* "Ran npm test  ✓ 4.2s": the command fills the row, its status and time sit at the right edge. */
 .cv-command__text {
   grid-column: 2;
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2529,8 +2538,7 @@ pre.cv-math-source {
   opacity: 0;
 }
 .cv-tool > .cv-command__meta {
-  grid-column: 3;
-  margin-left: 0;
+  margin-left: auto;
   min-width: var(--cv-glyph-slot);
   min-height: var(--cv-glyph-line);
   justify-content: center;
@@ -2553,8 +2561,7 @@ pre.cv-math-source {
 }
 /* A lone shell row's background state (ToolRow.tsx, BackgroundMark.tsx) sits at its right edge. */
 .cv-tool__meta {
-  grid-column: 3;
-  margin-left: 0;
+  margin-left: auto;
 }
 .cv-command__bg-state {
   display: flex;

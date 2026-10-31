@@ -159,6 +159,7 @@ import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
+import type { BrowseRequest } from "./AddProjectPanel";
 import { restoreComposerDraft } from "./composerRestore";
 import {
   linkAttachment,
@@ -492,6 +493,7 @@ import {
   AcpmuxRestartGate,
   hostErrorShows,
   hostIsReconnecting,
+  hostRefusedTooLarge,
   nextRetryDelay,
   offersAcpmuxRestart,
 } from "./hostRetry";
@@ -4865,6 +4867,7 @@ function DefaultComposerChips({
   return (
     <ComposerPickers
       snapshot={startsChat ? newTabChipSnapshot(snapshot, picker.catalog) : snapshot}
+      startsChat={startsChat}
       // A New Tab pick is held once acpmux's actions are connected and the chat has a harness to
       // start (start() sends chat.new first); before that a pick would reach nothing.
       holdsModePick={
@@ -9612,7 +9615,9 @@ function AcpmuxPane() {
         if (!cancelled) {
           acpWire.lifecycle("handshake failed", { message: String(error) });
           setSnapshot((current) => ({ ...current, connection: `connecting: ${String(error)}` }));
-          setHostError(errorMessage(error) || String(error));
+          // A chat too large to open says so in plain words; the reply's byte count stays in the log.
+          const tooLarge = hostRefusedTooLarge(error);
+          setHostError(tooLarge ? translate("host.tooLarge") : errorMessage(error) || String(error));
           failingSince ??= Date.now();
           const recovering = hostIsReconnecting(error);
           setHostErrorShown(hostErrorShows(error, Date.now() - failingSince));
@@ -9622,7 +9627,8 @@ function AcpmuxPane() {
           setAcpmuxRestartOffered(offersAcpmuxRestart(error));
           // Back off so a host without a daemon is not asked four times a second. A Restart acpmux
           // in flight asks again itself when it ends.
-          if (restartGate.mayAsk()) {
+          // A reply too large to send is the same at every ask: only the line's Retry asks again.
+          if (!tooLarge && restartGate.mayAsk()) {
             retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
             retryDelay = nextRetryDelay(retryDelay, reconnect || recovering);
           }
@@ -10703,13 +10709,11 @@ function AcpmuxPane() {
       // with no folder yet may still start in the workspace's root, so nothing is checked then.
       noProject: cwd ? isAgentHome(cwd) : chooseFolder,
       onPick: chooseProject,
-      onBrowse: () => {
-        void callNative<{ cwd?: string }>("project.browse")
-          .then((result) => {
-            if (result?.cwd) chooseProject(result.cwd);
-          })
-          .catch(() => undefined);
-      },
+      onBrowse: (request?: BrowseRequest) =>
+        callNative<{ cwd?: string }>("project.browse").then((result) => {
+          if (result?.cwd && !request?.deferPick) chooseProject(result.cwd);
+          return result?.cwd;
+        }),
       // The chat starts in its agent-home folder, never the workspace's (AcpmuxPathPolicy).
       // A refused start keeps the folder picked before.
       onNoProject: () => {
@@ -10753,11 +10757,14 @@ function AcpmuxPane() {
   const toolCards = useToolCards();
   const computerUsePreview = useComputerUsePreview();
   // The live preview card shows beside the column, which keeps its room, in a pane wide enough. With
-  // the Inspector open it sits under the Inspector's card instead (inspector/underInspector.ts), whose
-  // shift or push keeps the chat clear of both: the column keeps no room of its own.
+  // Session Info open it sits under Session Info's card instead (inspector/underInspector.ts). Floating,
+  // the column keeps its room, so opening or closing Session Info never reflows the chat (Leo,
+  // 2026-10-31: "why is the session info thing still pushing my layout when it doesnt need to???");
+  // only Settings Push always, whose column already keeps the chat clear of both, gives it back.
   const previewRoom = useComputerUsePreviewRoom();
   const previewShown = computerUsePreview !== null && previewRoom && !quick && !diffView && !inspectorOpen;
-  const previewBeside = previewShown && !inspector.shown;
+  const inspectorPushes = useChatDisplay().inspector === "push";
+  const previewBeside = previewShown && !(inspector.shown && inspectorPushes);
   // What the chat waits on the person for: the running turn's line says it, never "Thinking".
   const waiting = chatWaitsOn({
     trust: trustAsk.ask,
@@ -11130,15 +11137,22 @@ function AcpmuxPane() {
       sessionId: snapshot.sessionId,
       missingFolder: Boolean(folderNeeded && !snapshot.sessionId),
     });
-  const chooseWorkspaceFolder = () => {
+  const chooseWorkspaceFolder = (request?: BrowseRequest) => {
     setFolderError(undefined);
-    void callNative<{ cwd?: string }>("workspace.chooseFolder")
+    return callNative<{ cwd?: string }>("workspace.chooseFolder")
       .then((result) => {
         if (!result?.cwd) return;
-        setChooseFolder(false);
-        chooseProject(result.cwd);
+        if (!request?.deferPick) {
+          setChooseFolder(false);
+          chooseProject(result.cwd);
+        }
+        return result.cwd;
       })
-      .catch((error: unknown) => setFolderError(errorMessage(error) || undefined));
+      .catch((error: unknown) => {
+        setFolderError(errorMessage(error) || undefined);
+        if (request?.deferPick) throw error;
+        return undefined;
+      });
   };
   // A subagent's own pane is a tab on the chat's session: the chat's composer, queue and pull
   // request bars there were the chat's, and a prompt typed in it went to the chat.
@@ -11192,7 +11206,11 @@ function AcpmuxPane() {
             tier={snapshot.switching?.phase === "deferred" ? "status" : "error"}
             when={snapshot.switching && snapshot.switching.phase !== "starting"}
           >
-            <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
+            <SwitchNotice
+              switching={snapshot.switching}
+              onRetry={() => void callNative("chat.harness.retry")}
+              onAction={(action) => (action === "newCloudMachine" ? connectMachine("cloud") : chooseWorkspaceFolder())}
+            />
           </Notice>
         )}
         {!harnessCard && (
@@ -11546,13 +11564,11 @@ function AcpmuxPane() {
               folderChoiceOffered
                 ? chooseWorkspaceFolder
                 : freshChat && !quick
-                  ? () => {
-                      void callNative<{ cwd?: string }>("project.browse")
-                        .then((result) => {
-                          if (result?.cwd) chooseProject(result.cwd);
-                        })
-                        .catch(() => undefined);
-                    }
+                  ? (request?: BrowseRequest) =>
+                      callNative<{ cwd?: string }>("project.browse").then((result) => {
+                        if (result?.cwd && !request?.deferPick) chooseProject(result.cwd);
+                        return result?.cwd;
+                      })
                   : undefined
             }
             // The host runs commands on this Mac: a Cloud chat has no shell mode.
@@ -11569,12 +11585,7 @@ function AcpmuxPane() {
             environments={preview}
             {...(sandboxOffered ? { runMode: sandboxModeRows } : {})}
             onBrowseFolder={
-              canMove
-                ? () =>
-                    callNative<{ cwd?: string }>("project.browse")
-                      .then((result) => result?.cwd)
-                      .catch(() => undefined)
-                : undefined
+              canMove ? () => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd) : undefined
             }
             // A started local chat's folder is fixed (Leo 2026-10-13): its folder menu starts a new chat
             // in a tab of its own; a Cloud chat's folder is a label.
@@ -12004,12 +12015,7 @@ function AcpmuxPane() {
                   {...(newTabChatsPending ? { chatsPending: true } : {})}
                   {...((newTab.host ?? machineName) ? { machineName: (newTab.host ?? machineName)! } : {})}
                   projects={newTabProjects}
-                  onBrowseProject={() =>
-                    callNative<{ cwd?: string }>("project.browse").then(
-                      (result) => result?.cwd,
-                      () => undefined,
-                    )
-                  }
+                  onBrowseProject={() => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd)}
                   chips={registryChips ?? NewTabComposerChips}
                   focusField={newTab.focusesField !== false}
                   onPlusCommand={runNewTabPlusSearch}
@@ -12082,11 +12088,7 @@ function AcpmuxPane() {
               onJump={(target, id) => void callNative("tab.jump", { target, id })}
               onOpenSession={selectSession}
               onShowAll={showAllChats}
-              onBrowseProject={() =>
-                callNative<{ cwd?: string }>("project.browse")
-                  .then((result) => result?.cwd)
-                  .catch(() => undefined)
-              }
+              onBrowseProject={() => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd)}
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
               inputToken={newTab.inputToken}
               onInputReady={(token) => void callNative("newTab.inputReady", { token })}
