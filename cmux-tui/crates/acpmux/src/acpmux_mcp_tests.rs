@@ -329,24 +329,44 @@ fn target(index: usize, to: &str, key: &str) -> send::Target {
     }
 }
 
-/// A batch's messages to one session form one chain, by name or by key; others their own.
+/// A batch's messages to one session form one chain, however it is named; others their own.
 #[test]
 fn messages_to_one_session_form_one_chain() {
+    let ids: Vec<String> =
+        ["id-a", "id-b", "id-a", "\0unresolved", "huge-blue/id-c", "\0unresolved"]
+            .map(str::to_owned)
+            .to_vec();
+    assert_eq!(send::same_session(&ids), vec![vec![0, 2], vec![1], vec![3, 5], vec![4]]);
+}
+
+/// Codex review: a session named by its name in one item and by its id in another is one
+/// session, so its messages are one chain; a tag's target is its id already.
+#[tokio::test]
+async fn one_session_by_name_and_by_id_is_one_identity() {
+    let (_hub, client, _dir) = daemon().await;
+    let a = session(&client, "ident-a").await;
+    session(&client, "ident-b").await;
+    let mut by_tag = target(3, "ident-a", &a);
+    by_tag.tag = Some("area=x".to_owned());
     let targets = [
-        target(0, "lane-a", "lane-a"),
-        target(1, "lane-b", "lane-b"),
-        // A tag's expansion of lane-a: keyed by its id, named lane-a.
-        target(2, "lane-a", "id-a"),
-        target(3, "id-a", "id-a"),
-        target(4, "huge-blue/lane-c", "huge-blue/id-c"),
+        target(0, "ident-a", "ident-a"),
+        target(1, &a, &a),
+        target(2, "ident-b", "ident-b"),
+        by_tag,
+        target(4, "nobody", "nobody"),
     ];
-    assert_eq!(send::same_session(&targets), vec![vec![0, 2, 3], vec![1], vec![4]]);
+    let ids = send::identities(&client, &targets).await;
+    assert_eq!(ids[0], a);
+    assert_eq!(ids[1], a);
+    assert_eq!(ids[3], a);
+    assert_ne!(ids[2], a);
+    assert_eq!(send::same_session(&ids), vec![vec![0, 1, 3], vec![2], vec![4]]);
 }
 
 /// Codex review: the outbox runs every delivery on its own and retries it, so a message queued
-/// while the one before it to the same session is still on its way could arrive first. The next
-/// is sent only once the one before it settled; one still on its way at the deadline stops the
-/// rest of its chain, each row saying why, and nothing after it is queued.
+/// while the one before it to the same session is still on its way could arrive first. Here the
+/// first delivery settles late: the second is not queued until it did. One still on its way at
+/// the deadline stops the rest of its chain, each row saying why.
 #[tokio::test]
 async fn a_message_waits_for_the_one_before_it_to_the_same_session() {
     let targets = [
@@ -354,20 +374,25 @@ async fn a_message_waits_for_the_one_before_it_to_the_same_session() {
         target(1, "lane-a", "lane-a"),
         target(2, "lane-a", "lane-a"),
     ];
-    let calls = std::sync::Mutex::new(Vec::new());
+    let log = std::sync::Mutex::new(Vec::new());
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-    // The first is delivered, the second stays on its way (a peer that is down).
     let rows = send::in_order(&targets, vec![0, 1, 2], deadline, |t, wait| {
-        calls.lock().unwrap().push((t.index, wait));
-        let status = if t.index == 0 { "delivered" } else { "queued" };
-        let row = json!({"index": t.index, "to": t.to, "ok": true, "status": status,
-            "deliveryId": format!("d{}", t.index)});
-        async move { row }
+        let log = &log;
+        async move {
+            log.lock().unwrap().push(format!("queue {}", t.index));
+            assert!(wait <= Duration::from_secs(5));
+            // The first is slow to settle, then delivered; the second stays on its way.
+            if t.index == 0 {
+                tokio::time::sleep(Duration::from_millis(300)).await;
+            }
+            log.lock().unwrap().push(format!("settled {}", t.index));
+            let status = if t.index == 0 { "delivered" } else { "queued" };
+            json!({"index": t.index, "to": t.to, "ok": true, "status": status,
+                "deliveryId": format!("d{}", t.index)})
+        }
     })
     .await;
-    let called: Vec<usize> = calls.lock().unwrap().iter().map(|(i, _)| *i).collect();
-    assert_eq!(called, [0, 1], "the third was queued behind one still on its way");
-    assert!(calls.lock().unwrap().iter().all(|(_, w)| *w <= Duration::from_secs(5)));
+    assert_eq!(*log.lock().unwrap(), ["queue 0", "settled 0", "queue 1", "settled 1"]);
     assert_eq!(rows.len(), 3);
     assert_eq!(rows[2].0, 2);
     assert_eq!(rows[2].1["ok"], false, "{:?}", rows[2]);

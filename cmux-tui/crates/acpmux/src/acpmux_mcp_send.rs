@@ -28,6 +28,9 @@ pub(super) const MAX_RECIPIENTS: usize = 64;
 /// about 64k tokens, a third of a 200k-token context and more than any brief. A file past it is an
 /// attachment (`acpmux send --attach`), which the receiver opens when it needs it.
 pub(super) const MAX_FILE_BYTES: u64 = 256 << 10;
+/// How long a batch gives each session name to resolve to its id ([`identities`]), before its
+/// own wait for the deliveries.
+const RESOLVE_WAIT: Duration = Duration::from_secs(2);
 
 pub(super) fn tool() -> Value {
     json!({
@@ -350,9 +353,9 @@ async fn send_batch(daemon: &Arc<Client>, args: &Value) -> Value {
             targets.len()
         ));
     }
+    let chains = same_session(&identities(daemon, &targets).await);
     let now = tokio::time::Instant::now();
     let deadline = now.checked_add(STATUS_WAIT).unwrap_or(now);
-    let chains = same_session(&targets);
     let sent = futures::future::join_all(chains.into_iter().map(|chain| {
         in_order(&targets, chain, deadline, move |target, wait| async move {
             match queue(daemon, target).await {
@@ -370,24 +373,48 @@ async fn send_batch(daemon: &Arc<Client>, args: &Value) -> Value {
 }
 
 /// The batch's targets in chains, each the seats (indexes into `targets`) of one session in the
-/// order given. Two targets are one session when either's key or name is the other's (a name
-/// and a tag's expansion of the same session, by its id, are one only when the names match).
-pub(super) fn same_session(targets: &[Target]) -> Vec<Vec<usize>> {
-    let mut chains: Vec<Vec<usize>> = Vec::new();
-    for (seat, t) in targets.iter().enumerate() {
-        let names = [t.key.as_str(), t.to.as_str()];
-        let found = chains.iter_mut().find(|chain| {
-            chain
-                .iter()
-                .filter_map(|&s| targets.get(s))
-                .any(|o| names.contains(&o.key.as_str()) || names.contains(&o.to.as_str()))
-        });
-        match found {
-            Some(chain) => chain.push(seat),
-            None => chains.push(vec![seat]),
+/// order given, by `identities` (one per target, [`identities`]).
+pub(super) fn same_session(identities: &[String]) -> Vec<Vec<usize>> {
+    let mut chains: Vec<(&str, Vec<usize>)> = Vec::new();
+    for (seat, id) in identities.iter().enumerate() {
+        match chains.iter_mut().find(|(have, _)| *have == id.as_str()) {
+            Some((_, chain)) => chain.push(seat),
+            None => chains.push((id.as_str(), vec![seat])),
         }
     }
-    chains
+    chains.into_iter().map(|(_, chain)| chain).collect()
+}
+
+/// Which session each target is, so one named two ways (its name, its id, `host/name`) is one
+/// chain: a tag's target is already its id (`peer/id` on a peer, as [`crate::cli::resolve::routed_id`]
+/// gives); a name is resolved, each distinct one once, side by side, within [`RESOLVE_WAIT`]. Names
+/// that resolve to nothing (a peer that is down, a name nobody has) are all one chain: which
+/// session such a name is cannot be known, so none of them may overtake another.
+pub(super) async fn identities(daemon: &Arc<Client>, targets: &[Target]) -> Vec<String> {
+    let mut names: Vec<&str> =
+        targets.iter().filter(|t| t.tag.is_none()).map(|t| t.key.as_str()).collect();
+    names.sort_unstable();
+    names.dedup();
+    let resolved: BTreeMap<&str, Option<String>> =
+        futures::future::join_all(names.into_iter().map(|name| async move {
+            let id = tokio::time::timeout(RESOLVE_WAIT, crate::cli::run::resolve_id(daemon, name))
+                .await
+                .ok()
+                .and_then(Result::ok);
+            (name, id)
+        }))
+        .await
+        .into_iter()
+        .collect();
+    targets
+        .iter()
+        .map(|t| match (&t.tag, resolved.get(t.key.as_str())) {
+            (Some(_), _) => t.key.clone(),
+            (None, Some(Some(id))) => id.clone(),
+            // Not a session id any target can have.
+            (None, _) => "\0unresolved".to_owned(),
+        })
+        .collect()
 }
 
 /// One session's messages, in order: each is queued only once the one before it settled (the
