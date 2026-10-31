@@ -9,7 +9,7 @@ extension AppControl {
     nonisolated static func policyFeature(of method: String) -> ActionFeature? {
         switch method {
         // A new sandboxed run is Cloud; waiting on or cancelling one that exists is its cleanup.
-        case "cloud.machines", "debug.cloud.link_ensure", "runs.sandbox.create", "vm.agent_key.create": return .cloud
+        case "cloud.machines", "cloud.automation", "debug.cloud.link_ensure", "runs.sandbox.create", "vm.agent_key.create": return .cloud
         case "remote.machines": return .remoteHosts
         default:
             // CodeRouter writes configure the Cloud model plane; its reads stay.

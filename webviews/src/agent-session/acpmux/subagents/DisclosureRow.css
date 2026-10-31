@@ -26,7 +26,7 @@
   gap: calc(var(--ds-space-1) + 2px);
   box-sizing: border-box;
   min-height: var(--cv-disclosure-line-height);
-  cursor: pointer;
+  cursor: default;
   border-radius: 6px;
   padding: 0 var(--ds-space-1);
 }

@@ -7,7 +7,8 @@
 // AgentPaneProjectRepo.swift: the main checkout's folder, the name, the branch, the GitHub
 // repository). Without it (an older host, a gallery state) the usual worktree homes stand in:
 // `~/.cmux/worktrees/<repo>/<lane>`, `<repo>/.worktrees/<lane>`, `<repo>/.claude/worktrees/<lane>`,
-// Conductor's `workspaces/<repo>/<lane>` and Codex's `.codex/worktrees/<id>/<repo>`.
+// Conductor's `workspaces/<repo>/<lane>`, Codex's `.codex/worktrees/<id>/<repo>` and a lane's
+// `wt/lanes/<lane>/<repo>`.
 
 import { githubRepository } from "./githubRepository";
 
@@ -59,6 +60,8 @@ export function guessProjectRepo(cwd: string): ProjectRepo | undefined {
     // Lane checkouts: `checkouts/<repo>/<branch>` (a branch's `/` written `--`) and `<repo>-worktrees/<lane>`.
     [/\/checkouts\/([^/]+)\/([^/]+)$/, (m) => ({ name: m[1]!, branch: m[2]!.replaceAll("--", "/") })],
     [/\/([^/]+)-worktrees\/([^/]+)$/, (m) => ({ name: m[1]!, branch: m[2]! })],
+    // A lane's own worktree, `wt/lanes/<lane>/<repo>`: named for its repository, told apart by its lane.
+    [/\/wt\/lanes\/([^/]+)\/([^/]+)$/, (m) => ({ name: m[2]!, branch: m[1]! })],
   ];
   for (const [pattern, read] of patterns) {
     const match = path.match(pattern);
@@ -199,6 +202,45 @@ export function projectRows<T extends { cwd: string; label: string; repo?: Proje
     project,
   }));
   return groupByRepo(folders, current).map((group) => group.lead.project);
+}
+
+/// The rows of a project menu that lists no worktrees (ProjectChooser: the new chat's hero, the New
+/// Tab headline). With no words, one per repository, its lead (as projectRows): a lane's worktree,
+/// a scratch folder and the home folder are no rows of their own (Leo, "why is this all misaligned
+/// in the agent chat project selectin": two lane worktrees of cmux listed as two "cmux" projects).
+/// With words, every folder whose name, path or machine has them all, but a repository's other
+/// folders only when the words name them, not just their repository (shownRepoRows): "cmux" lists
+/// cmux once, "next-reds" its lane, so a hidden folder is one search away. Another machine's
+/// folders are never folded (this Mac reads none of their repositories) and come last, as given.
+export function chooserRows<T extends { cwd: string; label: string; repo?: ProjectRepo; peer?: string; host?: string }>(
+  projects: readonly T[],
+  query: string,
+  current?: string,
+): T[] {
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const has = (project: T) => {
+    const text = `${project.label} ${project.cwd} ${project.host ?? ""}`.toLowerCase();
+    return words.every((word) => text.includes(word));
+  };
+  const local = projects.filter((project) => !project.peer);
+  const remote = projects.filter((project) => project.peer);
+  const folders = local.map((project) => ({
+    id: project.cwd,
+    label: project.label,
+    ...(project.repo ? { repo: project.repo } : {}),
+    project,
+  }));
+  const groups = groupByRepo(folders, current);
+  if (words.length === 0) return [...groups.map((group) => group.lead.project), ...remote];
+  const rows: T[] = [];
+  for (const { group, worktrees } of shownRepoRows(groups, query, new Set())) {
+    if (has(group.lead.project)) rows.push(group.lead.project);
+    rows.push(...worktrees.map((worktree) => worktree.project));
+  }
+  // A folder no repository's row stands for (the home folder, a scratch folder): by its own words.
+  const grouped = new Set(groups.flatMap((group) => group.members.map((member) => member.project)));
+  rows.push(...local.filter((project) => !grouped.has(project) && has(project)));
+  return [...rows, ...remote.filter(has)];
 }
 
 /// The projects in the order they were last used: those a chat used, newest chat first, then the
