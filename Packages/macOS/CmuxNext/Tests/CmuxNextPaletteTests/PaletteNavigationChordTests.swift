@@ -44,4 +44,26 @@ struct PaletteNavigationChordTests {
         #expect(ran.ids == ["newSurface"])
         #expect(!palette.isVisible, "the palette closes, so the new terminal gets the keyboard")
     }
+
+    /// Typing stays the search field's, and a system chord (Cmd-W: Close Tab, the menu's and the palette's own rule)
+    /// is not run from here; the palette stays open.
+    @Test func typingAndSystemChordsDoNotRunFromThePalette() throws {
+        let (palette, ran) = Self.palette()
+        defer { palette.hide() }
+        palette.show(.commands)
+        #expect(!palette.runsNavigationChord(try Self.key("`", keyCode: 50, modifiers: [])))
+        #expect(!palette.runsNavigationChord(try Self.key("w", keyCode: 13, modifiers: [.command])))
+        #expect(ran.ids.isEmpty)
+        #expect(palette.isVisible)
+    }
+
+    /// A chord bound to an action that yields to a text field (`KeyBindingDefaults.notTextInput`: Cmd-Return's
+    /// checklist toggle) does not run from the palette's field.
+    @Test func aChordThatYieldsToTextInputDoesNotRun() throws {
+        let (palette, ran) = Self.palette()
+        defer { palette.hide() }
+        palette.show(.commands)
+        #expect(!palette.runsNavigationChord(try Self.key("\r", keyCode: 36, modifiers: [.command])))
+        #expect(!ran.ids.contains("toggleChecklistItemComplete"))
+    }
 }
