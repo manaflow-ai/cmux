@@ -250,13 +250,6 @@ html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
   overscroll-behavior: contain;
   padding-inline: 4px;
 }
-/* The list takes focus only so no chip opens its hover card on open; Tab reaches the chips,
-   which keep their own focus ring. */
-.acpmux-pr-dock__popover .acpmux-pr-dock__list:focus,
-.acpmux-pr-dock__popover .acpmux-pr-dock__list:focus-visible {
-  outline: none;
-  box-shadow: none;
-}
 .acpmux-pr-dock__popover .acpmux-pr-dock__bar {
   height: 24px;
   flex: none;

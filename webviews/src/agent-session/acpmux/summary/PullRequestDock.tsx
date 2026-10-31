@@ -84,9 +84,6 @@ function PullRequestPills({ prs }: { prs: readonly SummaryPullRequest[] }) {
   const row = useRef<HTMLSpanElement>(null);
   const measure = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  // Opening the list focuses the list itself, not its first chip: a focused chip opens its hover
-  // card over the list. Tab moves into the chips.
-  const list = useRef<HTMLSpanElement>(null);
   const press = usePopoverTrigger(open, setOpen);
   const mode = pullRequestDockVariant();
   const limit = mode === "one" ? 1 : 2;
@@ -149,13 +146,15 @@ function PullRequestPills({ prs }: { prs: readonly SummaryPullRequest[] }) {
         open={open && rest > 0}
         onOpenChange={setOpen}
         anchor={trigger.current}
-        initialFocus={list}
+        // Focus stays on +N: a focused first chip would open its hover card over the list. Tab
+        // moves into the chips; Escape returns to +N.
+        initialFocus={false}
         finalFocus={trigger}
         label={t("prDock.label")}
         side="top"
         className="acpmux-pr-dock__popover"
       >
-        <span ref={list} className="acpmux-pr-dock__list" tabIndex={-1}>
+        <span className="acpmux-pr-dock__list">
           {prs.slice(visible).map((pr) => (
             <PullRequestChip key={pr.url} pr={pr} live={live} titled listed />
           ))}
