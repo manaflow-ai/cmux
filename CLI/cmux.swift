@@ -32448,8 +32448,22 @@ struct CMUXCLI {
             print(guardResponse)
             fflush(stdout)
 
-        case "pre-tool-use":
-            telemetry.breadcrumb("claude-hook.pre-tool-use")
+        case "pre-tool-use", "post-tool-use":
+            let isPostToolUse = subcommand == "post-tool-use"
+            if isPostToolUse {
+                // Feed treats completion telemetry as progress and retires
+                // pending decisions. Rejected completions must not reach the
+                // fallback defer or clear a newer question in this session.
+                didSendFeedTelemetry = true
+                guard let toolName = parsedInput.object?["tool_name"] as? String,
+                      toolName == "AskUserQuestion" || toolName == "ExitPlanMode" else {
+                    printClaudeHookAck()
+                    return
+                }
+            }
+            let hookEventName = reportedHookEventName(from: parsedInput)
+                ?? (isPostToolUse ? "PostToolUse" : "PreToolUse")
+            telemetry.breadcrumb("claude-hook.\(subcommand)")
             // Clears "Needs input" status and notification when Claude resumes work
             // (e.g. after permission grant). Runs async so it doesn't block tool execution.
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
@@ -32465,14 +32479,16 @@ struct CMUXCLI {
                 client: client
             ), resolvedTarget.isAuthoritative else {
                 didSendFeedTelemetry = true
-                telemetry.breadcrumb("claude-hook.pre-tool-use.unresolved")
+                telemetry.breadcrumb("claude-hook.\(subcommand).unresolved")
                 printClaudeHookAck()
                 return
             }
             let workspaceId = resolvedTarget.workspaceId
             let resolvedSurface = resolvedTarget
             let surfaceId = resolvedSurface.surfaceId
-            sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+            if !isPostToolUse {
+                sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+            }
             // A helper can invoke PreToolUse after the parent turn's Stop hook.
             // That event belongs to the completed turn, so it must not reopen
             // the parent session as Running. A new parent turn always passes
@@ -32480,7 +32496,7 @@ struct CMUXCLI {
             // lifecycle and clears the guard.
             let parentTurnAlreadyEnded = mappedSession?.turnSettled == true
             guard !parentTurnAlreadyEnded else {
-                telemetry.breadcrumb("claude-hook.pre-tool-use.after-stop")
+                telemetry.breadcrumb("claude-hook.\(subcommand).after-stop")
                 printClaudeHookAck()
                 return
             }
@@ -32503,14 +32519,17 @@ struct CMUXCLI {
                 surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
                 telemetry: telemetry
             ) else {
-                telemetry.breadcrumb("claude-hook.pre-tool-use.stale")
+                telemetry.breadcrumb("claude-hook.\(subcommand).stale")
                 printClaudeHookAck()
                 return
             }
             guard !suppressVisibleMutations else {
-                telemetry.breadcrumb("claude-hook.pre-tool-use.nested-suppressed")
+                telemetry.breadcrumb("claude-hook.\(subcommand).nested-suppressed")
                 printClaudeHookAck()
                 return
+            }
+            if isPostToolUse {
+                sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             }
 
             // AskUserQuestion and ExitPlanMode are blocking "needs input" tools:
@@ -32522,7 +32541,8 @@ struct CMUXCLI {
             // through to the generic ".running" tail (which would leave a tab blocked
             // on a question / plan approval looking busy and silent).
             // https://github.com/manaflow-ai/cmux/issues/6606
-            if let toolName = parsedInput.object?["tool_name"] as? String,
+            if !isPostToolUse,
+               let toolName = parsedInput.object?["tool_name"] as? String,
                toolName == "AskUserQuestion" || toolName == "ExitPlanMode",
                let sessionId = parsedInput.sessionId {
                 // Save the question / plan summary in the session so the Notification
@@ -32639,7 +32659,7 @@ struct CMUXCLI {
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
                     agentLifecycle: .running,
-                    hookEventName: reportedHookEventName(from: parsedInput) ?? "PreToolUse",
+                    hookEventName: hookEventName,
                     updateLastSummary: true
                 )
             }
@@ -32652,7 +32672,7 @@ struct CMUXCLI {
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 isSubagent: isNestedAgentSession,
-                nativeEvent: reportedHookEventName(from: parsedInput) ?? "PreToolUse",
+                nativeEvent: hookEventName,
                 declaredPhase: .running,
                         attention: Self.semanticAttentionContext(parsedInput.rawObject),
                         occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
@@ -32683,7 +32703,7 @@ struct CMUXCLI {
                     defaultValue: "Running subagents"
                 )
             } else {
-                statusValue = "Running"
+                statusValue = String(localized: "agent.generic.status.running", defaultValue: "Running")
             }
             try setClaudeStatus(
                 client: client,
@@ -32701,7 +32721,7 @@ struct CMUXCLI {
             telemetry.breadcrumb("claude-hook.help")
             print(
                 """
-                cmux claude-hook <session-start|stop|session-end|notification|push-notification|prompt-submit|pre-tool-use> [--workspace <id|index>] [--surface <id|index>]
+                cmux claude-hook <session-start|stop|session-end|notification|push-notification|prompt-submit|pre-tool-use|post-tool-use> [--workspace <id|index>] [--surface <id|index>]
                 """
             )
 
