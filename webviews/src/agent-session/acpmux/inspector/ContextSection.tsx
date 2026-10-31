@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
+import { rowIconSize } from "../icons/iconSize";
 import type { AcpmuxContextBreakdown } from "../model";
 import "./inspector.css";
 import "./ContextSection.css";
@@ -37,6 +38,7 @@ export type Breakdown = {
 
 /// How many colors the used categories cycle through (ContextSection.css `data-tone`).
 const TONES = 6;
+const ROW_ICON = rowIconSize(12);
 const KINDS: readonly Kind[] = ["used", "buffer", "deferred", "free"];
 const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : 0);
 const named = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined);
@@ -155,7 +157,7 @@ export function ContextBreakdownView({ breakdown }: { breakdown: Breakdown }) {
             aria-expanded={open.has(list.id)}
             onClick={() => toggle(list.id)}
           >
-            <Icon name={open.has(list.id) ? "disclosure.expanded" : "disclosure.collapsed"} size={10} />
+            <Icon name={open.has(list.id) ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
             <span className="acpmux-chat-inspector-row__name">{t(LIST_LABEL[list.id])}</span>
             <span className="acpmux-chat-inspector-row__end">{list.items.length}</span>
           </button>

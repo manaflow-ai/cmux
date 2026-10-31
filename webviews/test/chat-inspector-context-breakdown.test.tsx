@@ -138,6 +138,9 @@ test("the Inspector's Context draws a row per category, deferred ones dimmed wit
   const fold = container.querySelector<HTMLButtonElement>('[data-list="mcpTools"] button')!;
   expect(fold.getAttribute("aria-expanded")).toBe("false");
   expect(fold.textContent).toContain("2");
+  const disclosure = fold.querySelector<SVGElement>('svg[data-icon="disclosure.collapsed"]')!;
+  expect(disclosure.getAttribute("viewBox")).toBe("2.5 2.5 19 19");
+  expect(disclosure.getAttribute("width")).toBe("14");
   await act(async () => fold.click());
   expect(fold.getAttribute("aria-expanded")).toBe("true");
   const items = container.querySelectorAll('[data-list="mcpTools"] .acpmux-context-breakdown__items li');
