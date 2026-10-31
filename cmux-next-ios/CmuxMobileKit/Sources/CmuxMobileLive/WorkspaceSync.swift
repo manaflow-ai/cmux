@@ -53,7 +53,13 @@ public final class WorkspaceSync {
     @ObservationIgnored private var arrangementStale = true
     /// When an event last arrived per surface (agent state or title): the
     /// only activity time the daemon gives.
-    @ObservationIgnored private var activity: [Int: Date] = [:]
+    @ObservationIgnored private(set) var activity: [Int: Date] = [:]
+    /// Each surface's last title on this connection: a title set again to the
+    /// same text (a shell prompt does it constantly) is not activity, and
+    /// re-listing for it republished every workspace to the store.
+    @ObservationIgnored private var titles: [Int: String] = [:]
+    /// Title events dropped as repeats (tests).
+    @ObservationIgnored private(set) var titleEventsIgnored = 0
     @ObservationIgnored public private(set) var macID = ""
     /// Counts bound `daemon` channels: names the current connection (a new
     /// channel, even to the same Mac, is a new one).
@@ -79,6 +85,7 @@ public final class WorkspaceSync {
         client = nil
         connectionSerial += 1
         activity = [:]
+        titles = [:]
         guard let channel else {
             lastError = nil
             identity = nil
@@ -129,6 +136,7 @@ public final class WorkspaceSync {
         projection = WorkspaceProjection()
         let projection = projection
         activity = [:]
+        titles = [:]
         agents.bySurface = [:]
         arrangement = nil
         arrangementStale = true
@@ -214,6 +222,21 @@ public final class WorkspaceSync {
 
     private func enqueue(_ event: DaemonEvent, sequence: UInt64?) {
         guard event != .other else { return }
+        switch event {
+        case .titleChanged(let surface, let title):
+            // A title set again to the same text is not activity, and applying it
+            // republished the workspace for nothing.
+            guard titles.updateValue(title, forKey: surface) != title else {
+                titleEventsIgnored += 1
+                return
+            }
+            activity[surface] = Date()
+        case .resubscribe:
+            // Title events may have been lost: the next one is news whatever it says.
+            titles = [:]
+        default:
+            break
+        }
         let entry = QueuedEvent(event: event, sequence: sequence)
         guard !isBeforeSnapshot(entry) else { return }
         if event == .treeChanged, let index = queued.firstIndex(where: { $0.event == .treeChanged }) {
@@ -262,8 +285,9 @@ public final class WorkspaceSync {
                         let event = queued.remove(at: index).event
                         var agentChanged = false
                         switch event {
-                        case .titleChanged(let surface, _):
-                            activity[surface] = Date()
+                        case .titleChanged:
+                            // Stamped as activity when it arrived (`enqueue`).
+                            break
                         case .agentChanged(let surface, let state, let agent, let updatedAt, let harnessSession):
                             if updatedAt == nil, agents.bySurface[surface]?.state != state { activity[surface] = Date() }
                             agents.bySurface[surface] = AgentState(state: state, agent: agent, updatedAt: updatedAt, harnessSession: harnessSession)
