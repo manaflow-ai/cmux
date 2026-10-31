@@ -63,14 +63,75 @@ final class ProjectsImport {
         batches(store.chats, sent: sent, complete: complete)
     }
 
+    /// Where the projects go: the local daemon's connection (its identity) and the sends over it.
+    nonisolated struct Target: Sendable {
+        let id: ObjectIdentifier
+        let send: @Sendable (_ batches: [Batch], _ fresh: Bool) async -> Sent
+    }
+
+    /// What one relay delivered: whether its `project.sync` went (a fresh connection), each
+    /// harness's fingerprint, and whether a request failed.
+    nonisolated struct Sent: Sendable {
+        var synced: Bool
+        var delivered: [String: Int]
+        var failed = false
+    }
+
     private weak var services: AppServices?
+    /// The local daemon as a ``Target`` while it is connected and lists projects; tests pass their own.
+    private let target: @MainActor () -> Target?
+    private weak var feed: ChatsFeed?
     private var connectionID: ObjectIdentifier?
     private var sent: [String: Int] = [:]
     private var sending: Task<Void, Never>?
     private var sendAgain = false
-    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "projects-import")
+    /// The clock a failed relay's retry waits on; tests pass a manual one.
+    private let clock: any Clock<Duration>
+    private nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "projects-import")
 
-    init(services: AppServices) { self.services = services }
+    /// - Parameters:
+    ///   - target: Where the projects go; nil reads the local daemon of `services`.
+    ///   - clock: The clock a failed relay's retry waits on.
+    init(services: AppServices, target: (@MainActor () -> Target?)? = nil, clock: any Clock<Duration> = ContinuousClock()) {
+        self.services = services
+        self.clock = clock
+        self.target = target ?? { [weak services] in Self.localDaemon(services) }
+    }
+
+    /// The relay in flight, if any (tests await it).
+    var inFlight: Task<Void, Never>? { sending }
+
+    /// The wait before a failed relay's retry, if one is pending (tests await it).
+    var pendingRetry: Task<Void, Never>? { nil }
+
+    /// `services`' local daemon as a ``Target``, nil while it is away or does not list projects.
+    private static func localDaemon(_ services: AppServices?) -> Target? {
+        guard let services, let connection = services.machines.local.connection,
+              services.machines.local.supports(DaemonCapability.projectList.rawValue) else { return nil }
+        let client = ProjectStateClient(connection: connection)
+        return Target(id: ObjectIdentifier(connection)) { batches, fresh in await deliver(batches, fresh: fresh, to: client) }
+    }
+
+    /// `project.sync` first on a `fresh` connection, then one complete `project.observe` per batch, in order.
+    /// The first failed request ends the relay.
+    @concurrent private nonisolated static func deliver(_ batches: [Batch], fresh: Bool, to client: ProjectStateClient) async -> Sent {
+        var sent = Sent(synced: !fresh, delivered: [:])
+        do {
+            if fresh {
+                try await client.sync(existing: [], gone: [], idempotencyKey: UUID().uuidString)
+                sent.synced = true
+            }
+            for batch in batches {
+                try await client.observe(source: batch.source, entries: batch.entriesJSON, complete: true,
+                                         idempotencyKey: UUID().uuidString)
+                sent.delivered[batch.source] = batch.fingerprint
+            }
+        } catch {
+            logger.error("project import failed: \(String(describing: error), privacy: .private)")
+            sent.failed = true
+        }
+        return sent
+    }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
@@ -80,10 +141,14 @@ final class ProjectsImport {
 
     /// Follows the chat index and the local daemon connection for the app's life.
     func start(feed: ChatsFeed?) {
-        feed?.observe(self) { [weak self] in self?.relay() }
+        self.feed = feed
+        feed?.observe(self) { [weak self] in self?.indexChanged() }
         armConnection()
         relay()
     }
+
+    /// The chat index changed.
+    func indexChanged() { relay() }
 
     private func armConnection() {
         guard let daemon = services?.machines.local else { return }
@@ -104,50 +169,29 @@ final class ProjectsImport {
             sendAgain = true
             return
         }
-        guard let services, let connection = services.machines.local.connection,
-              services.machines.local.supports(DaemonCapability.projectList.rawValue) else { return }
-        let id = ObjectIdentifier(connection)
+        guard let target = target() else { return }
+        let id = target.id, send = target.send
         let fresh = connectionID != id
         if fresh { sent = [:] }
-        let feed = services.chatsFeed
         // A copy-on-write snapshot (O(1) here); the walk over every chat runs off the main actor.
         let store = feed?.store ?? AcpmuxChatsStore()
         let complete = (feed?.isReady ?? false) && (feed?.isEnabled ?? false)
         let alreadySent = sent
-        let client = ProjectStateClient(connection: connection)
         // task-owner: awaited at once by `sending` below. Only this task holds the snapshot, so it
         // is released when the batches are ready, not after the sends: a held snapshot would make
         // the next main-actor store change copy all 5000 chats.
         let grouping = Task { await Self.batches(of: store, sent: alreadySent, complete: complete) }
         sending = Task { [weak self] in
             let batches = await grouping.value
-            var delivered: [String: Int] = [:]
-            var synced = !fresh
-            guard fresh || !batches.isEmpty else {
-                self?.finished(id, synced: synced, delivered: delivered)
-                return
-            }
-            do {
-                if fresh {
-                    try await client.sync(existing: [], gone: [], idempotencyKey: UUID().uuidString)
-                    synced = true
-                }
-                for batch in batches {
-                    try await client.observe(source: batch.source, entries: batch.entriesJSON, complete: true,
-                                             idempotencyKey: UUID().uuidString)
-                    delivered[batch.source] = batch.fingerprint
-                }
-            } catch {
-                self?.logger.error("project import failed: \(String(describing: error), privacy: .private)")
-            }
-            self?.finished(id, synced: synced, delivered: delivered)
+            let ended = fresh || !batches.isEmpty ? await send(batches, fresh) : Sent(synced: !fresh, delivered: [:])
+            self?.finished(id, ended)
         }
     }
 
-    private func finished(_ id: ObjectIdentifier, synced: Bool, delivered: [String: Int]) {
+    private func finished(_ id: ObjectIdentifier, _ ended: Sent) {
         sending = nil
-        if synced { connectionID = id }
-        if connectionID == id { sent.merge(delivered) { $1 } }
+        if ended.synced { connectionID = id }
+        if connectionID == id { sent.merge(ended.delivered) { $1 } }
         if sendAgain {
             sendAgain = false
             relay()
