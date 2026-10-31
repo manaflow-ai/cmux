@@ -67,6 +67,8 @@ test("a Cloud chat copies its project; with none (or home) it starts in the mach
   expect(cloudStartFolder("/Users/me/src/paint/")).toEqual({ cwd: "/Users/me/src/paint" });
   for (const none of [undefined, "", "relative/path", "/", "/Users", "/Users/me", "/Users/me/", "/home/me"])
     expect(cloudStartFolder(none)).toEqual({ home: true });
+  // A no-project chat's private agent-home folder is never copied.
+  expect(cloudStartFolder("/Users/me/Library/Application Support/cmux/agent-home/abc123")).toEqual({ home: true });
 });
 
 test("a start with no project tells the host home, and never names a folder", async () => {

@@ -187,8 +187,14 @@ extension CloudStartChat {
     fileprivate func runHome(_ start: AgentPaneCloudStart, tab: TabModel, report: @MainActor (Step) -> Void) async throws -> String {
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user)
         report(Step(name: "machine"))
-        let machine = try await self.machine(for: start, invocation: invocation) { await CloudChatPick(services: services).read(folder: nil, tab: tab) }
+        let account = services.cloud.account
+        let machine = try await self.machine(for: start, account: account, invocation: invocation) {
+            await CloudChatPick(services: services).read(folder: nil, tab: tab)
+        }
         let name = machine.machine.title
+        // The account may have changed while the machine connected: open nothing there then, as a
+        // start with a folder copies nothing (``run``).
+        try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         let context = AppActionContext(services: services)
         let anchor = try await CloudHandlers.terminalAnchor(on: machine, context)
         report(Step(name: "opening", machine: name, size: Self.sizeText(machine.machine.size)))

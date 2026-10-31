@@ -7,6 +7,8 @@
 /// message (CloudStartView, cloudStartProgress.ts); the prompt stays in the composer until the chat
 /// opens on the machine.
 
+import { isAgentHome } from "./sessionList";
+
 /// What the page hands the host. `home`: the chat has no project folder on this Mac, so nothing is
 /// copied and the chat starts in the machine's own home folder (cloudStartFolder).
 export type CloudStart = { task: string; cwd?: string; home?: boolean; harness?: string; model?: string };
@@ -19,6 +21,9 @@ export function cloudStartFolder(project: string | undefined): { cwd: string } |
   const folder = project?.replace(/\/+$/, "");
   // `/`, `/Users`, a home folder: never copied (NewTabScreen's homeOrAbove, CloudMoveFolder isTooBroad).
   if (!folder?.startsWith("/") || /^(?:\/(?:Users|home)(?:\/[^/]+)?)?$/.test(folder)) return { home: true };
+  // A no-project chat's private agent-home folder (sessionList.ts isAgentHome) is no project either:
+  // never copied.
+  if (isAgentHome(folder)) return { home: true };
   return { cwd: folder };
 }
 
