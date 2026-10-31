@@ -404,12 +404,24 @@ def signing_variants(root, app, result):
 
 
 def sign_inside_out(copy):
-    """Ad-hoc signs every nested code bundle deepest first, then the app (codesign --deep is deprecated for signing)."""
-    nested = sorted((p for p, _, _ in os.walk(copy) if p != copy and p.endswith((".app", ".framework", ".xpc", ".appex"))),
-                    key=lambda p: -p.count(os.sep))
-    loose = [p for p in macho_files(copy) if not any(p.startswith(b + os.sep) for b in nested)
-             and "/Contents/MacOS/" not in p]
-    for path in loose + nested + [copy]:
+    """Ad-hoc signs every Mach-O and every nested code bundle, deepest first, then the app, so no file keeps its
+    Developer ID signature (codesign --deep is deprecated for signing). A bundle's own main executable is signed with
+    its bundle."""
+    import plistlib
+    bundles = [p for p, _, _ in os.walk(copy) if p != copy and p.endswith((".app", ".framework", ".xpc", ".appex", ".bundle"))]
+    mains = set()
+    for bundle in bundles + [copy]:
+        for info in (os.path.join(bundle, "Contents/Info.plist"), os.path.join(bundle, "Resources/Info.plist")):
+            try:
+                with open(info, "rb") as f:
+                    exe = plistlib.load(f).get("CFBundleExecutable")
+            except (OSError, ValueError):
+                continue
+            if exe:
+                for folder in ("Contents/MacOS", "Versions/A", ""):
+                    mains.add(os.path.realpath(os.path.join(bundle, folder, exe)))
+    files = [p for p in macho_files(copy) if os.path.realpath(p) not in mains]
+    for path in sorted(files + bundles, key=lambda p: -p.count(os.sep)) + [copy]:
         code, _, err = run(["codesign", "--force", "--sign", "-", path], timeout=900)
         if code != 0:
             return f"codesign {os.path.relpath(path, copy)}: {err.strip()[:200]}"
