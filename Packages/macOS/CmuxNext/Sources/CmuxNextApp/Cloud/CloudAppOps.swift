@@ -75,6 +75,7 @@ extension CloudMachine {
         self.init(id: id, provider: "cmux-next", status: status, displayName: value["name"]?.stringValue,
                   pauseReason: Self.nextPauseReason(value["pause_reason"] ?? value["pauseReason"]), idlePauseMinutes: minutes,
                   idlePause: idlePause, lastChangeFailure: Self.changeFailure(value["error"]))
+        serverRevision = value["revision"]?.stringValue
         createdBy = value["creator"]?.stringValue
     }
 

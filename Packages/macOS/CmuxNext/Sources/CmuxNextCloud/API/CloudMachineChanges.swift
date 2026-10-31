@@ -32,6 +32,7 @@ public final class CloudMachineChanges {
         let id: UUID
         let status: CloudMachine.Status
         let baselineUpdatedAt: Date?
+        let baselineServerRevision: String?
         var baselineFailure: CloudMachine.ChangeFailure?
         /// The ordered read ticket issued when the accepted request returned.
         var requestReturnedRead: Int?
@@ -88,6 +89,7 @@ public final class CloudMachineChanges {
         let id = UUID()
         mutations[machineID, default: []].append(Mutation(id: id, status: change,
             baselineUpdatedAt: holder()?.machine.updatedAt,
+            baselineServerRevision: holder()?.machine.serverRevision,
             baselineFailure: holder()?.machine.lastChangeFailure, requestReturnedRead: nil))
         showPending(machineID, on: holder())
         do {
@@ -151,6 +153,7 @@ public final class CloudMachineChanges {
             guard let returnedRead = mutation.requestReturnedRead else { return false }
             let readIsAfterAcceptance = read.map { $0 > returnedRead } ?? true
             let isNewerServerRevision: Bool = {
+                if Self.newerRevision(record.serverRevision, than: mutation.baselineServerRevision) { return true }
                 guard let recordRevision = record.updatedAt else { return false }
                 guard let baseline = mutation.baselineUpdatedAt else { return true }
                 return recordRevision > baseline
@@ -170,6 +173,18 @@ public final class CloudMachineChanges {
         }
         mutations[record.id] = outstanding.isEmpty ? nil : outstanding
         return failedMutationID
+    }
+
+    /// Compare unsigned decimal revisions without truncation, overflow or lexical digit-count mistakes.
+    private static func newerRevision(_ current: String?, than previous: String?) -> Bool {
+        func normalized(_ value: String?) -> String? {
+            guard let value, !value.isEmpty,
+                  value.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }) else { return nil }
+            let digits = value.drop(while: { $0 == "0" })
+            return digits.isEmpty ? "0" : String(digits)
+        }
+        guard let current = normalized(current), let previous = normalized(previous) else { return false }
+        return current.count == previous.count ? current > previous : current.count > previous.count
     }
 
     /// A list omitted a machine (including an authoritative delete confirmation).

@@ -254,6 +254,8 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     /// The server's row revision. Status records with a newer value supersede an older
     /// local mutation; stale responses retain the optimistic overlay.
     public var updatedAt: Date?
+    /// App-server row revision, kept as decimal text to avoid fixed-width overflow.
+    public var serverRevision: String?
     /// When the machine last started running (`runningSince`, epoch ms).
     /// Nil while it is paused, so a paused machine shows no running cost.
     public var runningSince: Date?
