@@ -17,6 +17,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -242,7 +243,8 @@ class AppWindowCaptureTests(unittest.TestCase):
                                        FAKE_CAPTURES=str(self.root / "captures.log"))
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(manifest["capture_mode"], "direct")
-        self.assertEqual(manifest["frame_interval"], 0.5)
+        self.assertGreater(manifest["capture_fps"], 2)
+        self.assertIn("video_fallback", manifest)
         out = self.root / "out/demo"
         for step in manifest["steps"]:
             self.assertEqual(step["status"], "ok")
@@ -731,6 +733,45 @@ class FocusAfterCloseTests(unittest.TestCase):
         self.load([self.run_action("closePane"), self.run_action("splitRight"), self.run_action("focusLeft")])
         self.load([self.run_action("focusRight"), self.run_action("closePane"), self.run_action("focusPaneByNumber")])
 
+
+
+class WindowVideoTests(unittest.TestCase):
+    def test_native_capture_stops_and_finalizes_before_the_app(self):
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        events = []
+        with tempfile.TemporaryDirectory() as root:
+            session = mock.Mock(prefix=[], capture_prefix=[], user="test")
+            session.shareable.side_effect = lambda path: (path.mkdir(parents=True, exist_ok=True) or path)
+            app = mock.Mock(identity={}, log_path=Path(root) / "absent")
+            app.main_window_frame.return_value = [0, 0, 800, 600]
+            app.stop.side_effect = lambda: events.append("app-stop")
+            native = mock.Mock(reason="")
+            native.start.return_value = True
+            native.stop.side_effect = lambda: (events.append("video-stop") or True)
+            with mock.patch.object(tour, "App", return_value=app), \
+                    mock.patch.object(tour, "WindowVideo", return_value=native), \
+                    mock.patch.object(tour.Screen, "capture", return_value=None), \
+                    mock.patch.object(tour, "run_step", return_value={"status": "ok"}), \
+                    mock.patch.object(tour.signal, "signal"), \
+                    mock.patch.object(tour.Recorder, "start") as stills:
+                manifest = tour.run_tour(Path(root), {"name": "demo", "title": "Demo", "steps": [{}]},
+                                         Path(root), session)
+            self.assertEqual(manifest["video"], "capture.mov")
+            self.assertEqual(events, ["video-stop", "app-stop"])
+            stills.assert_not_called()
+
+    def test_stop_times_out_and_kills_only_the_owned_recorder(self):
+        sys.path.insert(0, str(SCRIPT.parent))
+        import video
+        with tempfile.TemporaryDirectory() as root:
+            recording = video.WindowVideo(mock.Mock(), 123, Path(root), Path(root))
+            process = mock.Mock(returncode=-9)
+            process.communicate.side_effect = [subprocess.TimeoutExpired("recorder", 20), ("", "")]
+            recording.process = process
+            self.assertFalse(recording.stop())
+            process.kill.assert_called_once_with()
+            self.assertIsNone(recording.process)
 
 if __name__ == "__main__":
     unittest.main()
