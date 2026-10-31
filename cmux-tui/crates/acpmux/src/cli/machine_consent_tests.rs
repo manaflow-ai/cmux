@@ -19,6 +19,20 @@ fn tags_share_enrollment_and_live_grants_and_revocation() {
     assert_eq!(a.status()["consent"]["screen"], "none");
     assert_eq!(a.status()["consentRequired"], true);
 }
+/// A process the daemon spawns while a change holds the lock shares the lock's open file
+/// description from its fork until its exec. The change must release the lock anyway.
+#[cfg(unix)]
+#[test]
+fn a_change_releases_its_lock_while_a_spawned_child_holds_a_copy() {
+    let (_dir, a, b) = fixture();
+    a.enroll().unwrap();
+    let held = a.lock().unwrap();
+    let inherited = held.0.try_clone().unwrap();
+    drop(held);
+    b.set("screen", true).unwrap();
+    assert_eq!(a.status()["consent"]["screen"], "granted");
+    drop(inherited);
+}
 #[test]
 fn own_branch_state_carries_requirement_never_grants() {
     let (_dir, a, b) = fixture();

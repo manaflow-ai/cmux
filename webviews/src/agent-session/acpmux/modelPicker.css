@@ -362,8 +362,8 @@
 .acpmux-quick-railed {
   display: flex;
   flex-direction: column;
-  width: min(480px, var(--available-width, calc(100vw - 24px)));
-  max-width: min(480px, var(--available-width, calc(100vw - 24px)));
+  width: min(480px, calc(100vw - 24px), var(--available-width, calc(100vw - 24px)));
+  max-width: min(480px, calc(100vw - 24px), var(--available-width, calc(100vw - 24px)));
   padding: 0;
   --acpmux-quick-room: min(var(--available-height, calc(100vh - 16px)), calc(100vh - 16px));
   max-height: calc(100vh - 16px);
@@ -419,6 +419,17 @@
 .acpmux-quick-rail-tab[aria-pressed="true"] {
   background: var(--acpmux-menu-hover);
   color: var(--agent-text);
+}
+.acpmux-quick-rail-add { justify-content: center; color: var(--agent-muted); }
+.acpmux-quick-rail-add-icon {
+  display: grid;
+  width: 16px;
+  aspect-ratio: 1;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: var(--text-control);
+  line-height: 1;
 }
 .acpmux-quick-placement-top .acpmux-quick-layout { flex-direction: column; }
 .acpmux-quick-placement-top .acpmux-quick-rail {
@@ -549,4 +560,93 @@
 :root[data-reduce-transparency] .acpmux-mp-rail-viewport {
   -webkit-mask-image: none;
   mask-image: none;
+}
+
+/* One row per model (no wall of effort words): the model, then its effort item at the trailing
+   edge, the running model's level and a chevron. The item opens the model's levels as a side
+   dropdown beside the row, a vertical list in its own popup (Leo 2026-10-30: "we dont like
+   horizontal text for effort. just make it vertical. hell, why not do a vertical slider?"). */
+.acpmux-quick-model-effort {
+  display: flex;
+  align-items: center;
+}
+.acpmux-quick-model-effort > .acpmux-quick-item:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ui-menu-item.acpmux-quick-effort-trigger {
+  flex: none;
+  justify-content: flex-end;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  padding-inline: var(--ds-space-2) var(--ui-row-padding-inline);
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  white-space: nowrap;
+}
+/* A row that is not the running one shows its effort item only while pointed at or reached. */
+.acpmux-quick-model-effort:not([data-running]):not(:hover):not(:has([data-highlighted], [data-popup-open]))
+  .acpmux-quick-effort-trigger {
+  opacity: 0;
+}
+/* The dropdown is as wide as its levels, not the model menu's 280px floor, so it fits beside the row. */
+.acpmux-quick-menu.acpmux-quick-effort-menu { min-width: 0; }
+.acpmux-quick-effort-menu .acpmux-quick-effort-segment { gap: var(--ds-space-2); }
+.acpmux-quick-effort-badge {
+  padding: 0 var(--ds-space-1);
+  border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  /* A small-radius rect, as the menus' other badges (.acpmux-menu-badge): no capsule pills. */
+  border-radius: 4px;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: 16px;
+  white-space: nowrap;
+}
+/* The slider version: the stepped track stood on end, Low at the bottom. */
+.acpmux-quick-effort-vertical {
+  /* One length for the track and the column that holds it stood on end, so they never drift apart
+     at any interface scale. */
+  --acpmux-effort-vertical-track: 124px;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: calc(var(--acpmux-effort-vertical-track) + 2 * var(--ds-space-2));
+  padding: var(--ds-space-2) 0;
+}
+.acpmux-quick-effort-vertical .acpmux-effort-track {
+  width: var(--acpmux-effort-vertical-track);
+  margin: 0;
+  transform: rotate(-90deg);
+  animation: none;
+}
+.acpmux-quick-effort-vertical .acpmux-effort-ends { display: none; }
+.acpmux-quick-width-probe-efforts {
+  display: inline-block;
+  width: 112px;
+}
+.acpmux-quick-menu.acpmux-quick-placement-left:has(.acpmux-quick-effort-trigger) .acpmux-quick-rail { flex-basis: 28%; }
+.acpmux-quick-menu.acpmux-quick-placement-compact:has(.acpmux-quick-effort-trigger) .acpmux-quick-rail {
+  flex-basis: 76px;
+}
+.acpmux-quick-width-probe {
+  display: inline-flex;
+  flex-direction: column;
+  width: max-content;
+  max-width: calc(100vw - 24px);
+  max-height: 0;
+  overflow: visible;
+  visibility: hidden;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.acpmux-quick-width-probe-row {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: var(--ui-row-height);
+  padding-inline: var(--ui-row-padding-inline);
+}
+.acpmux-quick-width-probe-efforts {
+  display: inline-flex;
+  gap: var(--ds-space-1);
 }

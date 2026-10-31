@@ -30,6 +30,7 @@ WRAPPER = ROOT / "scripts/ci/webviews-tests-new-reds.sh"
 COLLECT = ROOT / "scripts/ci/webviews_test_results.py"
 COMPARE = ROOT / "scripts/ci/guards_new_reds.py"
 SHARDS = ROOT / "scripts/ci/webviews_test_shards.py"
+HISTORY = ROOT / "scripts/ci/webviews_test_history.py"
 WORKFLOW = ROOT / ".github/workflows/ci-web.yml"
 
 FAKE_BUN = """#!/usr/bin/env bash
@@ -314,7 +315,7 @@ class Workflow(unittest.TestCase):
                 subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
                 subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t",
                                 "commit", "-qm", "fixture"], check=True)
-                for source in (COLLECT, COMPARE, SHARDS):
+                for source in (COLLECT, COMPARE, SHARDS, HISTORY):
                     shutil.copy(source, repo / "scripts/ci" / source.name)
             runner_temp.mkdir()
             bins.mkdir()
@@ -362,7 +363,9 @@ class Workflow(unittest.TestCase):
         # The base builds with its own declared bun, before it installs anything.
         self.assertLess(base.index("run: scripts/cmux-next/private-bun.sh"), base.index("bun install --frozen-lockfile"))
         self.assertIn("actions/download-artifact@", text)
-        self.assertIn("guards_new_reds.py --label \"Webview test\"", text)
+        # The head's comparison and flake history, which its shard publishes beside its runner.
+        self.assertIn('python3 "$runner/guards_new_reds.py" --label "Webview test" --flaky "$flaky"', text)
+        self.assertIn("../scripts/ci/guards_new_reds.py ../scripts/ci/webviews_test_history.py", text)
         self.assertIn("printf '{}\\n' > \"$BASE_RESULTS\"", text)
         self.assertNotIn('cp "$HEAD_RESULTS" "$BASE_RESULTS"', text)
         self.assertIn('CMUX_WEB_TEST_FILES="$(cat "$files")"', text)
@@ -390,7 +393,13 @@ class Workflow(unittest.TestCase):
         text = WORKFLOW.read_text(encoding="utf-8")
         step = text[text.index("      - name: Test webviews\n"):]
         step = step[: step.index("\n      - name:", 10)]
-        self.assertIn('CMUX_WEB_TEST_RETRY_BUDGET: "300"', step)
+        # #27425: a fixed 300 s budget still cut accent-glass-invariants' retry and skipped two more
+        # files. The step's retry deadline bounds every retry, inside the job's 40 min, and no smaller
+        # budget cuts a retry before it.
+        budget = int(re.search(r'CMUX_WEB_TEST_RETRY_BUDGET: "(\d+)"', step).group(1))
+        deadline = int(re.search(r'CMUX_WEB_TEST_RETRY_DEADLINE: "(\d+)"', step).group(1))
+        self.assertGreaterEqual(budget, deadline)
+        self.assertLessEqual(deadline, 34 * 60)
 
 
     def test_a_head_red_the_merge_parent_has_is_a_base_red_even_when_the_old_base_passed(self):
@@ -430,7 +439,7 @@ class Workflow(unittest.TestCase):
             (bins / "bun").write_text(FAKE_BUN)
             (bins / "bun").chmod(0o755)
             (runner_temp / "head-results/runner").mkdir(parents=True)
-            for runner in (ROOT / "scripts/ci/run-webviews-tests.sh", COLLECT):  # as the head shard publishes them
+            for runner in (ROOT / "scripts/ci/run-webviews-tests.sh", COLLECT, COMPARE, HISTORY):  # as the head shard publishes them
                 shutil.copy(runner, runner_temp / "head-results/runner")
             head_results = runner_temp / "head-results/webviews-head-results.json"
             head_results.write_text(json.dumps({f"{red} > received preview opens": False}))

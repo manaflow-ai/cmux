@@ -10,9 +10,8 @@
 // - Esc stops the turn on a second press (escapeStop.ts): the first arms Stop (same glyph, no text,
 //   named "Press Esc again to stop"), and typing, a click, focus moving or the window ending puts Stop back. An Esc nothing else took
 //   (focus outside the composer, as in a question card) counts too; with no turn, Esc does nothing.
-// - Stop always frees the chat: acpmux's forced end of a turn whose agent ignored the cancel says
-//   so, and a turn still open a few seconds after Stop stops showing as working (cosmic-gray,
-//   2026-10-14: a chat stuck "running" after `/permissions`, Stop doing nothing).
+// - Stop says Stopping until acpmux ends the turn. Only its forced-end event says the agent
+//   ignored cancellation; elapsed time in this page never declares the turn ended.
 // - A slash command that runs only in Claude Code's terminal (`/permissions`) is not sent: the
 //   composer keeps it and names the control to use.
 //
@@ -54,6 +53,11 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
     queue: [],
     turn,
     updatedAt: Date.now(),
+    // Claude Code's commands, as acpmux keeps the newest list: a skill (/loop) among them.
+    availableCommands: {
+      sessionUpdate: "available_commands_update",
+      availableCommands: [{ name: "loop", description: "Run a prompt or slash command on a recurring interval" }],
+    },
   };
   const opening = [
     {
@@ -193,12 +197,20 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
 
   let socket: { send(data: string): void } | undefined;
   /// An acpmux record, as the attached page gets it.
-  const record = (kind: string, msg: Record<string, unknown>) =>
+  const record = (kind: string, msg: Record<string, unknown>, hostSeq?: number) =>
     socket?.send(
       JSON.stringify({
         jsonrpc: "2.0",
         method: "_acpmux/event",
-        params: { sessionId: SESSION, seq: ++seq, at: Date.now(), dir: "mux", kind, msg },
+        params: { sessionId: SESSION, seq: ++seq, at: Date.now(), dir: "mux", kind, msg, hostSeq },
+      }),
+    );
+  const recordInbound = (kind: string, msg: Record<string, unknown>) =>
+    socket?.send(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "_acpmux/event",
+        params: { sessionId: SESSION, seq: ++seq, at: Date.now(), dir: "in", kind, msg },
       }),
     );
 
@@ -273,7 +285,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
   });
 
   /// The chat with its turn running; `clock` puts the page's timers on Playwright's clock, so a test
-  /// can move past Stop's grace without waiting it out.
+  /// can move past the old Stop deadline without waiting it out.
   async function openChat({ clock = false } = {}): Promise<Page> {
     prompts.length = 0;
     cancels.length = 0;
@@ -400,22 +412,122 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
         }
       });
 
+    // Claude Code holds a command until the command it runs ends, so a steered `/loop` sat as an
+    // unread steer with Send now (Leo, 2026-10-31: "the commands don't work!"). It queues instead
+    // and runs as its own turn; text that only starts with a slash still steers.
+    test("Enter queues one of the agent's slash commands even to an agent that steers", async () => {
+      summary.steering = true;
+      try {
+        const page = await openChat();
+        await page.locator(".acpmux-composer-prompt").click();
+        await page.keyboard.type("/loop keep launching new dev builds");
+        expect(await page.locator(".acpmux-steer-now").count()).toBe(0);
+        await page.keyboard.press("Enter");
+        await page.locator(".acpmux-queued", { hasText: "/loop keep launching new dev builds" }).waitFor();
+        await page.keyboard.type("/tmp is full, clean it");
+        await page.keyboard.press("Enter");
+        await until(() => prompts.length === 2, "the second prompt");
+        expect(prompts.map((p) => Boolean(p._meta?.acpmux?.steer))).toEqual([false, true]);
+        await page.close();
+      } finally {
+        summary.steering = false;
+      }
+    });
+
     test("acpmux's end of a turn whose agent ignored Stop says so", async () => {
       const page = await openChat();
+      recordInbound("compaction", {
+        method: "session/update",
+        params: { update: { sessionUpdate: "compaction", state: "running" } },
+      });
+      await page.locator('.cv-compaction[data-state="running"]').waitFor();
       await page.getByRole("button", { name: "Stop" }).click();
       await until(() => cancels.length > 0, "Stop's session/cancel");
+      record("compaction_metadata_fenced", { sourceKind: "compaction" }, 40);
+      await drawn(page);
+      expect(await page.getByRole("button", { name: "Continue", exact: true }).count()).toBe(0);
+      expect(await page.locator('.cv-compaction[data-state="running"]').count()).toBe(1);
       record("turn_end", { stopReason: "cancelled", turnId: "turn-1" });
       record("turn_result", { status: "cancelled", stopReason: "cancelled", turnId: "turn-1", cancelForced: true });
+      record("status", { status: "idle" });
       await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").waitFor({ timeout: 5_000 });
+      expect(await page.getByRole("button", { name: "Continue", exact: true }).count()).toBe(1);
+      // The cancelled compaction can report its boundary after a new explicit prompt. It must not
+      // revive the old row; a fresh running update still gets its own row.
+      record("user_message", { text: "next prompt", promptId: "p-next", turnId: "turn-2" });
+      record("turn_started", { promptId: "p-next", turnId: "turn-2" });
+      recordInbound("compaction", {
+        method: "session/update",
+        params: { update: { sessionUpdate: "compaction", state: "completed" } },
+      });
+      await drawn(page);
+      expect(await page.locator('.cv-compaction[data-state="completed"]').count()).toBe(0);
+      recordInbound("compaction", {
+        method: "session/update",
+        params: { update: { sessionUpdate: "compaction", state: "running" } },
+      });
+      await page.locator('.cv-compaction[data-state="running"]').last().waitFor();
+      const compactionRows = await page.locator(".cv-compaction").count();
+      record("compaction_metadata_fenced", { sourceKind: "compaction_summary" }, 41);
+      record("compaction_metadata_fenced", { sourceKind: "compaction" }, 42);
+      await drawn(page);
+      expect(await page.locator(".cv-compaction").count()).toBe(compactionRows);
+      expect(await page.locator('.cv-compaction[data-state="running"]').count()).toBe(1);
+      recordInbound("compaction", {
+        method: "session/update",
+        params: { update: { sessionUpdate: "compaction", state: "completed" } },
+      });
+      // Even after fresh running, these ambiguous boundaries could belong to the stopped turn.
+      record("turn_end", { stopReason: "cancelled", turnId: "turn-1" });
+      record("turn_end", { stopReason: "cancelled" });
+      record("turn_result", { status: "cancelled" });
+      await drawn(page);
+      expect(await page.locator('.cv-compaction[data-state="completed"]').count()).toBe(0);
+      expect(await page.locator('.cv-compaction[data-state="running"]').count()).toBe(1);
+      record("turn_result", { status: "completed", turnId: "turn-2" });
+      await drawn(page);
+      expect(await page.locator('.cv-compaction[data-state="running"]').count()).toBe(0);
+      recordInbound("compaction", {
+        method: "session/update",
+        params: { update: { sessionUpdate: "compaction", state: "completed" } },
+      });
+      await drawn(page);
+      expect(await page.locator('.cv-compaction[data-state="completed"]').count()).toBe(0);
       await page.close();
     });
 
-    test("a turn still open a few seconds after Stop stops showing as working, and says so", async () => {
-      const page = await openChat();
+    test("Stopping stays visible past the old grace until the daemon ends the turn", async () => {
+      const page = await openChat({ clock: true });
       // This acpmux never ends the turn (one without the forced end).
       await page.getByRole("button", { name: "Stop" }).click();
-      await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").waitFor({ timeout: 10_000 });
-      expect(await page.getByRole("button", { name: "Stop" }).count()).toBe(0);
+      await page.getByRole("button", { name: "Stopping…", exact: true }).waitFor();
+      await page.clock.runFor(6_000);
+      await drawn(page);
+      expect(await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").count()).toBe(0);
+      expect(await page.getByRole("button", { name: "Stopping…", exact: true }).count()).toBe(1);
+      record("turn_end", { stopReason: "cancelled", turnId: "turn-1" });
+      await drawn(page);
+      expect(await page.getByRole("button", { name: "Stopping…", exact: true }).count()).toBe(0);
+      await page.close();
+    });
+
+    test("a pending Stop leaves a distinct new turn working and able to send now", async () => {
+      const page = await openChat({ clock: true });
+      await page.getByRole("button", { name: "Stop" }).click();
+      await until(() => cancels.length > 0, "Stop's session/cancel");
+      await page.clock.runFor(6_000);
+      await drawn(page);
+      expect(await page.getByRole("button", { name: "Stop", exact: true }).count()).toBe(0);
+      record("user_message", { text: "new work", turnId: "turn-2" });
+      record("turn_started", { turnId: "turn-2" });
+      await drawn(page);
+      expect(await page.getByRole("button", { name: "Stop", exact: true }).count()).toBe(1);
+      record("queued", { text: "send now", promptId: "p-now" });
+      record("queue_order", { promptId: "p-now", next: true, order: ["p-now"] });
+      record("turn_result", { status: "cancelled", turnId: "turn-2" });
+      await drawn(page);
+      // Send-now ended the current turn as a continuation, not as the older Stop.
+      expect(await page.getByRole("button", { name: "Continue", exact: true }).count()).toBe(0);
       await page.close();
     });
 
@@ -425,14 +537,14 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       await until(() => cancels.length > 0, "Stop's session/cancel");
       record("turn_end", { stopReason: "cancelled", turnId: "turn-1" });
       record("turn_result", { status: "cancelled", stopReason: "cancelled", turnId: "turn-1" });
-      // The next prompt's turn starts inside Stop's grace and is still running after it.
+      // The next prompt's turn starts before the old Stop deadline and is still running after it.
       record("turn_started", { turnId: "turn-2" });
       await drawn(page);
-      // Past Stop's 5 s grace (STOP_GRACE_MS); then the page draws one more record, after the grace's end.
+      // Past the old five-second client deadline, then draw another record.
       await page.clock.runFor(6_000);
       await drawn(page);
       expect(await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").count()).toBe(0);
-      expect(await page.getByRole("button", { name: "Stop" }).count()).toBe(1);
+      expect(await page.getByRole("button", { name: "Stop", exact: true }).count()).toBe(1);
       await page.close();
     });
 
@@ -441,35 +553,47 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       await page.getByRole("button", { name: "Stop" }).click();
       await until(() => cancels.length > 0, "Stop's session/cancel");
       // The stopped turn had already ended (the button was a frame stale): no turn_end follows,
-      // and the next prompt's turn starts inside Stop's grace.
+      // and the next prompt's turn starts before the old Stop deadline.
       record("turn_started", { turnId: "turn-2" });
       await drawn(page);
-      // Past Stop's 5 s grace (STOP_GRACE_MS); then the page draws one more record, after the grace's end.
+      // Past the old five-second client deadline, then draw another record.
       await page.clock.runFor(6_000);
       await drawn(page);
       expect(await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").count()).toBe(0);
-      expect(await page.getByRole("button", { name: "Stop" }).count()).toBe(1);
+      expect(await page.getByRole("button", { name: "Stop", exact: true }).count()).toBe(1);
       await page.close();
     });
 
-    test("a transcript rebuild inside Stop's grace does not cancel it", async () => {
-      const page = await openChat();
+    test("a transcript rebuild keeps Stopping until the stopped turn ends", async () => {
+      const page = await openChat({ clock: true });
       await page.getByRole("button", { name: "Stop" }).click();
       await until(() => cancels.length > 0, "Stop's session/cancel");
       // The replay passes the stopped turn's own turn_started again; it is not a new turn.
       await lag(page);
-      await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").waitFor({ timeout: 10_000 });
-      expect(await page.getByRole("button", { name: "Stop" }).count()).toBe(0);
+      await page.clock.runFor(6_000);
+      await drawn(page);
+      expect(await page.getByRole("button", { name: "Stopping…", exact: true }).count()).toBe(1);
+      expect(await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").count()).toBe(0);
       await page.close();
     });
 
-    test("a turn Stop gave up on stays not working after a transcript rebuild", async () => {
+    test("a turn the daemon forcibly ended stays stopped after a transcript rebuild", async () => {
       const page = await openChat();
       await page.getByRole("button", { name: "Stop" }).click();
-      await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").waitFor({ timeout: 10_000 });
-      await lag(page);
-      expect(await page.getByRole("button", { name: "Stop" }).count()).toBe(0);
-      await page.close();
+      await until(() => cancels.length > 0, "Stop's session/cancel");
+      record("turn_end", { stopReason: "cancelled", turnId: "turn-1" });
+      record("turn_result", { status: "cancelled", turnId: "turn-1", cancelForced: true });
+      summary.status = "idle";
+      socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { session: summary } }));
+      try {
+        await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").waitFor();
+        await lag(page);
+        expect(await page.getByRole("button", { name: "Stop", exact: true }).count()).toBe(0);
+        expect(await page.getByRole("button", { name: "Stopping…", exact: true }).count()).toBe(0);
+      } finally {
+        summary.status = "running";
+        await page.close();
+      }
     });
 
     test("/permissions is not sent to Claude: the composer keeps it and names the access menu", async () => {

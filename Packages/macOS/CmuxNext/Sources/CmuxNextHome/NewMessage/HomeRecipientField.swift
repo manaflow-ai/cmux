@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxHomeCore
 import CmuxNextDesign
 
 /// New Message's To: field, as in Messages: "To:", one token per
@@ -27,6 +28,11 @@ public final class HomeRecipientField: NSView, NSTextFieldDelegate {
     public var onNewChief: (() -> Void)?
     /// The idle list's Invite row, shown when the Team section has nobody, runs this (`home.invite`); nil leaves it out.
     public var onInvite: (() -> Void)?
+    /// The active team's name: a typed email address gets an "Invite … to <team>" row under it
+    /// (`onInviteToTeam`); nil (signed out, no team) leaves the row out.
+    public var inviteTeam: () -> String? = { nil }
+    /// The "Invite … to <team>" row was picked with its address (`home.inviteToTeam`).
+    public var onInviteToTeam: ((ContactAddress) -> Void)?
 
     public private(set) var draft = HomeNewMessageDraft()
     /// The suggestions under the field; the page places it (it overlaps the content).
@@ -79,6 +85,7 @@ public final class HomeRecipientField: NSView, NSTextFieldDelegate {
         suggestions.onChoose = { [weak self] in self?.choose($0) }
         suggestions.onNewChief = { [weak self] in self?.onNewChief?() }
         suggestions.onInvite = { [weak self] in self?.onInvite?() }
+        suggestions.onInviteToTeam = { [weak self] in self?.onInviteToTeam?($0) }
         applyColors()
     }
 
@@ -179,7 +186,7 @@ public final class HomeRecipientField: NSView, NSTextFieldDelegate {
         if draft.isEmpty {
             suggestions.show(rows: idleRows(), highlightFirst: false)
         } else {
-            suggestions.show(draft.suggestions(contacts: contacts()))
+            suggestions.show(rows: typedRows())
         }
         superview?.needsLayout = true
     }
@@ -199,6 +206,19 @@ public final class HomeRecipientField: NSView, NSTextFieldDelegate {
         if !team.isEmpty || onInvite != nil {
             rows.append(.header(HomeConversationStrings.teamSection))
             rows += team.isEmpty ? [.invite] : team.map { .recipient(.contact($0)) }
+        }
+        return rows
+    }
+
+    /// The list while something is typed: the matches, and after a typed email address an
+    /// "Invite … to <team>" row (an address in the To: field gets a DM invite; this row invites to the team).
+    func typedRows() -> [HomeRecipientSuggestion] {
+        let matches = draft.suggestions(contacts: contacts())
+        var rows = matches.map(HomeRecipientSuggestion.recipient)
+        if onInviteToTeam != nil, let team = inviteTeam(),
+           let address = matches.lazy.compactMap({ if case .address(let a) = $0, a.isEmail { a } else { nil } }).first {
+            let at = rows.firstIndex(of: .recipient(.address(address))).map { $0 + 1 } ?? rows.endIndex
+            rows.insert(.inviteToTeam(address, team: team), at: at)
         }
         return rows
     }

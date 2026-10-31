@@ -32,6 +32,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 #[cfg(unix)]
@@ -252,8 +253,8 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
         self.next_id += 1;
         let mut message = json!({ "id": id, "method": method });
         if let Some(name) = name {
-            message["name"] = json!(name);
-            message["arguments"] = arguments;
+            message.set("name", json!(name));
+            message.set("arguments", arguments);
             // The helper owns target policy. This process's env is caller-controlled.
         }
         self.send(&message).await?;

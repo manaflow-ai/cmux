@@ -63,7 +63,7 @@ extension TabDragSession {
                 bridge.accept(ids, at: WorkspaceMovePlan(window: bridge.model.sections).excluding([id], from: raw))
             case .intoGroup(let group)?:
                 bridge.accept(ids, intoGroup: group)
-            case .intoWorkspace?, .beforeTab?, nil:
+            case .intoWorkspace?, nil:
                 bridge.accept(ids, at: nil)
             }
         default:

@@ -172,6 +172,16 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             ActionDescriptor(id: "cloudFirewallDelete", title: String(localized: "action.cloudFirewallDelete", defaultValue: "Delete Cloud Firewall Rule", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "firewall", "network"], category: .cloud, symbol: "shield.slash", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString, CatalogArgument.confirmBool], cliName: "cloud firewall-delete", destructive: true),
             ActionDescriptor(id: "cloudDomainList", title: String(localized: "action.cloudDomainList", defaultValue: "List Cloud Domains", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "domain", "dns", "verify"], category: .cloud, symbol: "globe", surfaces: [.palette], cliName: "cloud domain-list"),
             ActionDescriptor(id: "cloudPublicationList", title: String(localized: "action.cloudPublicationList", defaultValue: "List Cloud Publications", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "domain", "publication", "tls"], category: .cloud, symbol: "globe.americas", surfaces: [.palette], cliName: "cloud publication-list"),
+            // A machine port as an API behind a key (#25594): publish it protected, mint a key, answer both.
+            ActionDescriptor(
+                id: "cloudProvisionAPI",
+                title: String(localized: "action.cloudProvisionAPI", defaultValue: "Provision API on Machine…", table: "ActionCatalog", bundle: .module),
+                keywords: ["cloud", "api", "endpoint", "publish", "port", "key", "url"], category: .cloud, symbol: "square.and.arrow.up",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.portInt, CatalogArgument.apiKeyNameString], targets: [.machine],
+                cliName: "cloud provision-api"
+            ),
+            ActionDescriptor(id: "cloudAPIKeyList", title: String(localized: "action.cloudAPIKeyList", defaultValue: "List Cloud API Keys", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "api", "key", "publication"], category: .cloud, symbol: "key", surfaces: [.palette], arguments: [CatalogArgument.pathString], cliName: "cloud api-key-list"),
+            ActionDescriptor(id: "cloudAPIKeyRevoke", title: String(localized: "action.cloudAPIKeyRevoke", defaultValue: "Revoke Cloud API Key", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "api", "key", "revoke", "publication"], category: .cloud, symbol: "key.slash", surfaces: [.palette], arguments: [CatalogArgument.pathString, CatalogArgument.apiKeyString, CatalogArgument.confirmBool], cliName: "cloud api-key-revoke", destructive: true),
             // Read only: a CLI or agent run answers the app's own machine list (the sidebar's
             // Cloud machines) as `result`; a person's run shows the Cloud sidebar.
             ActionDescriptor(
@@ -273,13 +283,14 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 arguments: [CatalogArgument.machineConfigString], targets: [.machine], cliName: "cloud apply-machine-config"
             ),
             // `cmux cloud deliver-secrets --target machine:<id>`: values of the declared secret names, over the
-            // machine's daemon link (CloudMachineSecrets); `cmux cloud secret set` stores them (Rust CLI).
+            // machine's daemon link (CloudMachineSecrets), or of `--names` to an own machine over ssh
+            // (SSHMachineSecrets); `cmux cloud secret set` stores them (Rust CLI).
             ActionDescriptor(
                 id: "cloudDeliverSecrets",
                 title: String(localized: "action.cloudDeliverSecrets", defaultValue: "Deliver Secrets to Machine", bundle: .module),
                 keywords: ["vm", "cloud", "secrets", "env", "keychain", "config"], category: .cloud,
                 symbol: "lock.rectangle.stack", surfaces: [.palette, .contextMenu], requires: [.cloudWorkspace],
-                arguments: [CatalogArgument.secretRepoString], targets: [.machine], cliName: "cloud deliver-secrets"
+                arguments: [CatalogArgument.secretRepoString, CatalogArgument.secretNamesString], targets: [.machine], cliName: "cloud deliver-secrets"
             ),
             ActionDescriptor(
                 id: "cloudSetIdlePause",
@@ -287,6 +298,13 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 keywords: ["vm", "cloud tree", "idle", "auto-pause", "pause", "sleep", "timeout"], category: .cloud,
                 symbol: "moon.zzz", surfaces: [.contextMenu],
                 arguments: [CatalogArgument.idlePauseChoice], targets: [.machine], cliName: "cloud set-idle-pause"
+            ),
+            ActionDescriptor(
+                id: "cloudSetNetworkAccess",
+                title: String(localized: "action.cloudSetNetworkAccess", defaultValue: "Internet Access…", bundle: .module),
+                keywords: ["vm", "network", "internet", "egress", "allowlist", "firewall", "offline", "sandbox"], category: .cloud,
+                symbol: "globe", surfaces: [.contextMenu],
+                arguments: [CatalogArgument.networkAccessChoice], targets: [.machine], cliName: "cloud set-network-access"
             ),
             ActionDescriptor(
                 id: "palette.cloud.deleteSnapshot",
@@ -333,6 +351,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             "cloudTunnelAttach", "cloudTunnelDetach", "cloudTunnelRotateKey", "cloudNetworkList",
             "cloudFirewallList", "cloudFirewallGet", "cloudFirewallCreate", "cloudFirewallDelete",
             "cloudDomainList", "cloudPublicationList", "cloudListMachines",
+            "cloudProvisionAPI", "cloudAPIKeyList", "cloudAPIKeyRevoke",
             // A CLI or agent run answers with the result: the machine's facts, the command's
             // output, the new machine's or workspace's id (CloudHandlers+Results.swift).
             "palette.cloud.status", "palette.cloud.ports", "palette.cloud.tools", "palette.cloud.handoff",
@@ -344,6 +363,8 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             // caller hears a failure instead of OK, and can name the result in the next command.
             "palette.cloud.fork", "palette.cloud.restore", "newCloudWorkspace", "cloudRenameMachine", "cloudKillMachine",
             "cloudResizeMachine", "cloudApplyMachineConfig", "cloudDeliverSecrets",
+            // The stored policy's mode and whether the server applied it (a PUT can take a while).
+            "cloudSetNetworkAccess",
         ]
         for index in actions.indices where waitsForResult.contains(actions[index].id) {
             actions[index].waitsForResult = true

@@ -174,7 +174,7 @@ await requireBrowserLane("agent-pane-queue-row-click.test.ts", async () => {
     }
     if (passes(rec)) socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: rec }));
   };
-  function answer(ws: Socket, method: string, params: { kinds?: string[] } = {}): unknown {
+  function answer(ws: Socket, method: string, params: { kinds?: string[]; promptId?: string } = {}): unknown {
     switch (method) {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [] } } };
@@ -192,6 +192,7 @@ await requireBrowserLane("agent-pane-queue-row-click.test.ts", async () => {
         return { ok: true };
       case "_acpmux/queue_remove":
         hear(method, params);
+        send(["mux", "queue_removed", { promptId: params.promptId, _meta: { acpmux: { withdrawn: true } } }]);
         return { removed: true };
       default:
         return null;

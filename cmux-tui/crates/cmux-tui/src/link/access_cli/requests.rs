@@ -40,6 +40,7 @@ use zeroize::{Zeroize as _, Zeroizing};
 use super::grants::{self, Mode, Store};
 use super::{Failure, grant, is_secret};
 use crate::link::sync_cli;
+use cmux_json::JsonSet as _;
 
 /// How long `request` polls between status questions.
 const POLL: Duration = Duration::from_millis(500);
@@ -391,7 +392,7 @@ fn deny(socket: &Path, request: &Pending) -> Result<Triaged, Failure> {
 }
 
 fn answer_machine(socket: &Path, request_id: &str, mut answer: Value) -> Result<(), Failure> {
-    answer["request_id"] = json!(request_id);
+    answer.set("request_id", json!(request_id));
     sync_cli::machine_call(socket, "access-request-answer", answer).map_err(machine_failure)?;
     Ok(())
 }

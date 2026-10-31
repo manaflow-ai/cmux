@@ -1,5 +1,5 @@
 import type { Principal, SqlStore, StoredRow } from "@cmux/ownership"
-import { CloudMachineConnectInfo, CloudMachineLinkToken, cloudServicesProblem, overlayAddress } from "@cmux/protocol"
+import { CloudMachineConnectInfo, CloudMachineLinkToken, cloudServicesProblem, overlayAddress, type CloudVmKind } from "@cmux/protocol"
 import { LINK_TOKEN_MAX_TTL_S, newJti, signLinkToken, signingKid, type SigningKeys } from "./link-token.ts"
 import type { ReadResult } from "./owner-do.ts"
 import { decodeParams } from "./domains/common.ts"
@@ -35,6 +35,20 @@ export const allowedServices = (entity: string, row: MachineRow, p: Principal, p
   if (services.length === 0) return { ok: false, code: "auth.forbidden", message: "the team policy allows no link service on this machine" }
   return { ok: true, services }
 }
+
+/**
+ * The one ownership check of a Cloud machine (cmux-platform#89): the caller created it, by exact
+ * non-empty user id, and is not an agent token. An agent acts as its principal for access, but it
+ * never carries the owner answer.
+ */
+export const callerCreated = (row: MachineRow, p: Principal): boolean => p.agent === undefined && p.user !== undefined && p.user !== "" && p.user === row.creator
+
+/**
+ * The caller's vm_kind: the creator is owner on any team, regardless of member count.
+ * Other members and agent tokens get team; their existing connect/exec/fs access is unchanged.
+ * Computed per request, never stored. CloudDO checks the caller's team before this answer.
+ */
+export const callerVmKind = (_entity: string, row: MachineRow, p: Principal): CloudVmKind => (callerCreated(row, p) ? "owner" : "team")
 
 /** Retention of connect/link audit rows: 400 days, above the 365-day policy floor (coordinator decision). */
 export const ACCESS_AUDIT_KEEP_MS = 400 * 86_400_000
@@ -81,7 +95,8 @@ export const connectInfo = async (entity: string, rows: Rows | undefined, p: Pri
   if (!row.host || !row.wg_public_key) return { ok: false, code: "cloud.machine.not_bound", message: "the machine is still provisioning" }
   const allowed = allowedServices(entity, row, p, await policy())
   if (!allowed.ok) return allowed
-  audit().record({ op: "connect_info", machine: row.id, host: row.host, ...who(p), services: allowed.services, at: Date.now() })
+  const vmKind = callerVmKind(entity, row, p)
+  audit().record({ op: "connect_info", machine: row.id, host: row.host, ...who(p), services: allowed.services, vm_kind: vmKind, at: Date.now() })
   return {
     ok: true,
     value: {
@@ -94,6 +109,7 @@ export const connectInfo = async (entity: string, rows: Rows | undefined, p: Pri
       gateway: null,
       services: allowed.services,
       daemon: { version: row.daemon?.version ?? null, capabilities: [...(row.daemon?.capabilities ?? [])] },
+      vm_kind: vmKind,
       revision: row.revision
     },
     revision: ""
@@ -137,10 +153,10 @@ export const mintLinkToken = async (
   if (!d.value.services.every((s) => allowed.services.includes(s))) return { ok: false, code: "auth.forbidden", message: "a service you asked for is not one you may dial on this machine" }
   if (!args.keys) return { ok: false, code: "owner.unreachable", message: "link signing keys are not configured on this deployment" }
   const iat = Math.floor(Date.now() / 1000)
-  const claims = { iss: `cmux:cloud:${args.environment}`, aud: row.host, sub: p.install, svc: [...d.value.services], epoch: row.epoch ?? 1, iat, exp: iat + LINK_TOKEN_MAX_TTL_S, jti: newJti(), team: entity }
+  const claims = { iss: `cmux:cloud:${args.environment}`, aud: row.host, sub: p.install, svc: [...d.value.services], epoch: row.epoch ?? 1, iat, exp: iat + LINK_TOKEN_MAX_TTL_S, jti: newJti(), team: entity, vmk: callerVmKind(entity, row, p) }
   const kid = signingKid(args.keys, Date.now())
   if (!kid) return { ok: false, code: "owner.unreachable", message: "no link signing key has been published long enough to sign" }
   const token = await signLinkToken(claims, kid, args.keys.keys[kid]!)
-  audit().record({ op: "link_token", request: args.request, machine: row.id, host: row.host, ...who(p), kid, jti: claims.jti, svc: claims.svc, exp: claims.exp, at: Date.now() })
-  return { ok: true, value: { token, expires_at: claims.exp * 1000, host: row.host, epoch: claims.epoch, services: claims.svc } }
+  audit().record({ op: "link_token", request: args.request, machine: row.id, host: row.host, ...who(p), kid, jti: claims.jti, svc: claims.svc, vm_kind: claims.vmk, exp: claims.exp, at: Date.now() })
+  return { ok: true, value: { token, expires_at: claims.exp * 1000, host: row.host, epoch: claims.epoch, services: claims.svc, vm_kind: claims.vmk } }
 }

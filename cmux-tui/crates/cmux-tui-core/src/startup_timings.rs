@@ -120,7 +120,7 @@ pub fn append_startup_timings(session_dir: &Path, line: &serde_json::Value) -> s
     let mut lines: Vec<&str> = previous.lines().filter(|line| !line.trim().is_empty()).collect();
     let new_line = line.to_string();
     lines.push(&new_line);
-    let keep = &lines[lines.len().saturating_sub(KEPT_STARTS)..];
+    let keep = lines.get(lines.len().saturating_sub(KEPT_STARTS)..).unwrap_or_default();
     let staged = session_dir.join(format!(".{STARTUP_TIMINGS_FILE}.{}", std::process::id()));
     {
         let mut file = fs::File::create(&staged)?;

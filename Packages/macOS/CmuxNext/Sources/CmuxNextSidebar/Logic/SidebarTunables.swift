@@ -88,15 +88,8 @@ public nonisolated enum SidebarTunables {
     /// How far a press moves before it drags (`SidebarPress.dragThreshold`; Leo 2026-10-20: a click never drags).
     public static let dragThreshold = Tunable<CGFloat>.number(
         "sidebar.drag.threshold", .sidebar, "Drag start distance",
-        help: "How far a press on a sidebar row, tab row or tile moves before it drags; a shorter move stays a click.",
+        help: "How far a press on a sidebar row or tile moves before it drags; a shorter move stays a click.",
         default: 6, range: 2...16, step: 0.5, unit: .points, code: "SidebarTunables.dragThreshold")
-
-    /// What a listed tab row says (`SidebarTabLine`; Leo 2026-10-27: "look at what's redundant and look at
-    /// what's useful").
-    public static let tabLines = Tunable<SidebarTabLineLook>.choice(
-        "sidebar.tabLines", .sidebar, "Listed tab rows",
-        help: "What a tab row under its workspace says: its title only, its name without repeats of the workspace or a bare ~, that plus one detail (status words, agent, page host or folder), or the program's status words first.",
-        default: .detail, code: "SidebarTunables.tabLines")
 
     public static let agentMark = Tunable<SidebarAgentMarkVariant>.choice(
         "sidebar.agentMark", .sidebar, "Agent mark",
@@ -279,6 +272,12 @@ public nonisolated enum SidebarTunables {
         help: "Workspace rows are one line (name, status, pull request), and Cmd-Shift-[ / ] go to the previous or next workspace, wrapping, instead of the previous or next tab (Home keeps its own keys).",
         default: false, code: "SidebarTunables.workspacesAsTabs")
 
+    /// Dogfood the connected group chip and capped rail without changing the shipped look.
+    public static let groupChromeShape = Tunable<Bool>.toggle(
+        "sidebar.groupChromeShape", .sidebar, "Connected group chip and rail",
+        help: "Prototype a group-colored header joined to a thicker rail with a clipped join and rounded end. Collapsed groups show only the header. Applies to the solid band look.",
+        default: false, code: "SidebarTunables.groupChromeShape")
+
     /// Every sidebar tunable, one per line in alphabetical order, so two pull requests that each add
     /// one insert different lines and merge cleanly (#21946). Debug Settings lists them in this order.
     public static var all: [TunableDescriptor] {
@@ -289,6 +288,7 @@ public nonisolated enum SidebarTunables {
             dragThreshold.descriptor,
             evenRowText.descriptor,
             groupByStatus.descriptor,
+            groupChromeShape.descriptor,
             groupEdgeFraction.descriptor,
             groupExitFraction.descriptor,
             groupRowLimit.descriptor,
@@ -299,7 +299,6 @@ public nonisolated enum SidebarTunables {
             remoteMachineResources.descriptor,
             sinceLooked.descriptor,
             slideHoldsContent.descriptor,
-            tabLines.descriptor,
             nowLine.descriptor,
             multiView.descriptor,
             NotificationBadgeLook.tunable.descriptor,
@@ -317,6 +316,8 @@ public nonisolated enum SidebarTunables {
             SidebarGroupHeaderStyle.tunable.descriptor,
             SidebarGroupPalette.tunable.descriptor,
             SidebarGroupLineLayout.tunable.descriptor,
+            SidebarInsertMotion.nudgeDistance.descriptor,
+            SidebarInsertMotion.tunable.descriptor,
             SidebarRowBadgeStackCap.tunable.descriptor,
             SidebarRowBadgeStyle.tunable.descriptor,
             simulatePendingUpdate.descriptor,

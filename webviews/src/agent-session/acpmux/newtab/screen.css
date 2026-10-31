@@ -14,11 +14,10 @@
 .nt-input{--nt-input-pad-block:var(--text-content);display:flex;align-items:flex-start;gap:10px;gap:var(--ds-space-2,8px);min-height:52px;min-height:calc(1lh + 2 * var(--nt-input-pad-block));padding:0 18px}
 :root[data-borders=none] .nt-box{--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) transparent}
 /* The field wraps a long draft and grows with it (field-sizing; NewTabScreen fits it only in an engine
-   without field-sizing) up to eight lines,
-   the chat composer's cap (markdownField.css), and never past 40% of the pane; then it scrolls.
+   without field-sizing) to the shared twelve-line cap (markdownField.css), and never past 40% of the pane; then it scrolls.
    The row follows the content line height, with one content-size unit above and below. Nothing cuts
    the draft. */
-.nt-field{flex:1;min-width:0;display:block;box-sizing:border-box;field-sizing:content;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:min(calc(8lh + 2 * var(--nt-input-pad-block)),40vh);margin:0;border:0;outline:0;padding:var(--nt-input-pad-block) 0;resize:none;overflow-x:hidden;overflow-y:auto;white-space:pre-wrap;overflow-wrap:break-word;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
+.nt-field{flex:1;min-width:0;display:block;box-sizing:border-box;field-sizing:content;min-height:calc(1lh + 2 * var(--nt-input-pad-block));max-height:min(calc(var(--acpmux-composer-max-lines, 12) * 1lh + 2 * var(--nt-input-pad-block)),40vh);margin:0;border:0;outline:0;padding:var(--nt-input-pad-block) 0;resize:none;overflow-x:hidden;overflow-y:auto;white-space:pre-wrap;overflow-wrap:break-word;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
 /* The hint stays one line (the empty field keeps its one-line row); only the draft wraps. */
 .nt-field::placeholder{color:var(--acpmux-composer-placeholder);opacity:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nt-hint{flex:none;color:var(--acpmux-composer-dim);font-size:12px;white-space:nowrap}
@@ -29,6 +28,8 @@
 .nt-popover .nt-rows{--popup-scroll-cap:360px;box-sizing:border-box;padding:var(--ui-popup-padding);max-height:min(48vh,360px);overflow:auto;overscroll-behavior:contain}
 .nt-row{display:flex;align-items:center;gap:10px;height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border-radius:var(--ui-row-radius);color:var(--agent-soft);font-size:var(--text-control);white-space:nowrap;letter-spacing:var(--text-control--letter-spacing)}
 .nt-row.is-selected{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 8%,transparent);color:var(--agent-text)}
+/* The pointer lights the row it is on in a neutral fill, apart from Return's row (is-selected, with its ↵): hover never takes Return (Leo 2026-10-31: "i cant even press enter on that hello anymore it doesnt send it to claude"). */
+.nt-row:not(.is-selected):hover,.nt-create-strip-item:not(.is-selected):hover{background:color-mix(in srgb,var(--agent-text) 5%,transparent);color:var(--agent-text)}
 .nt-row-glyph{flex:none;display:grid;place-items:center;width:16px;height:16px}
 .nt-row-icon{color:var(--acpmux-composer-dim)}
 .nt-row.is-selected .nt-row-icon,.nt-row:not(:disabled):hover .nt-row-icon{color:var(--agent-text)}
@@ -138,7 +139,9 @@
   gap: var(--nt-composer-gap);
 }
 :root:not([data-top-strip]) .nt-screen .nt-composer .acpmux-composer-strip {
-  --acpmux-strip-height: 26px;
+  /* The chat composer's strip height (composerLocation.css), so the two heads match (Leo
+     2026-10-29: "stop making them take up so much space"). */
+  --acpmux-strip-height: 24px;
   margin: 0;
   /* The ghost buttons' own inset puts the folder icon on the field's text edge. */
   padding: 0 6px;
@@ -259,7 +262,8 @@
 }
 /* Open Tabs (cx-jfo7): a split's page lists the workspace's tabs to move into its pane. */
 .nt-open-tabs{margin-top:12px;display:flex;flex-direction:column}
-.nt-open-tabs-head{height:30px;display:flex;align-items:center;padding:0 0 0 10px;color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-weight:500;letter-spacing:var(--text-detail--letter-spacing)}
+/* The page's lists (Open tabs, Recently closed, All chats) share one leading column: each heading's text and every row's glyph start on the shared row inset (design/grid.md rules 1, 2 and 6). */
+.nt-open-tabs-head{height:30px;display:flex;align-items:center;padding:0 0 0 var(--ui-row-padding-inline);color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-weight:500;letter-spacing:var(--text-detail--letter-spacing)}
 .nt-open-tab{width:100%;height:28px;border:0;border-radius:8px;background:none;font:inherit;font-size:var(--text-detail);text-align:left;letter-spacing:var(--text-detail--letter-spacing)}
 .nt-open-tab:not(:disabled):hover,.nt-open-tab:focus-visible{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
 .nt-open-tab:focus-visible .nt-row-action{opacity:1}
@@ -285,7 +289,7 @@
   padding-block:6px 18px;
   mask-image:linear-gradient(to bottom,transparent,#000 6px,#000 calc(100% - 18px),transparent);
 }
-.nt-all .nt-chats-head{height:30px;padding:0 0 0 10px}
+.nt-all .nt-chats-head{height:30px;padding:0 0 0 var(--ui-row-padding-inline)}
 .nt-all .nt-chats-tab{color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-weight:500;letter-spacing:var(--text-detail--letter-spacing)}
 /* Chats and Projects (cx-ncc.66): the view tabs are buttons; the chosen one reads in full ink. */
 .nt-all button.nt-chats-tab{padding:0;border:0;background:none;font-family:inherit}
@@ -309,7 +313,7 @@
 .nt-all-host{margin-top:4px}
 .nt-all-list{flex:1;min-height:0}
 .nt-all-item{box-sizing:border-box;padding:1px 0}
-.nt-all-row{display:flex;align-items:center;gap:10px;width:100%;height:100%;padding:0 10px;box-sizing:border-box;border:0;border-radius:8px;background:none;color:var(--agent-soft);font:inherit;font-size:var(--text-body);text-align:left;white-space:nowrap;letter-spacing:var(--text-body--letter-spacing)}
+.nt-all-row{display:flex;align-items:center;gap:10px;width:100%;height:100%;padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border:0;border-radius:8px;background:none;color:var(--agent-soft);font:inherit;font-size:var(--text-body);text-align:left;white-space:nowrap;letter-spacing:var(--text-body--letter-spacing)}
 .nt-all-row:hover,.nt-all-row:focus-visible{outline:0;background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
 .nt-all-glyph{flex:none;display:flex;width:16px;height:16px;filter:grayscale(1);opacity:.5}
 .nt-all-row:hover .nt-all-glyph,.nt-all-row:focus-visible .nt-all-glyph,.nt-all-row[data-state] .nt-all-glyph{filter:none;opacity:1}
@@ -321,7 +325,7 @@
 .nt-all-row[data-state=input] .nt-all-state{color:var(--agent-warning,var(--agent-text))}
 .nt-all-row[data-state=error] .nt-all-state,.nt-all-row[data-state=failed] .nt-all-state{color:var(--agent-danger)}
 /* A project's header in Projects: its folder and count; a click folds its chats. */
-.nt-all-group{display:flex;align-items:center;gap:6px;width:100%;height:100%;padding:0 10px;box-sizing:border-box;border:0;border-radius:8px;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail);font-weight:500;text-align:left;white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
+.nt-all-group{display:flex;align-items:center;gap:6px;width:100%;height:100%;padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border:0;border-radius:8px;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:var(--text-detail);font-weight:500;text-align:left;white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
 .nt-all-group:hover,.nt-all-group:focus-visible{outline:0;color:var(--agent-text)}
 .nt-all-group-chevron{flex:none;transform:rotate(90deg);transition:transform var(--agent-motion-in,.12s) var(--agent-ease-out,ease-out)}
 .nt-all-group[aria-expanded=false] .nt-all-group-chevron{transform:none}
@@ -387,7 +391,7 @@
 
 /* The browser omnibar's pointer (OmnibarPointer, cx-d0d.80): the field row is the text area, so
    the I-beam shows over all of it (a press there focuses the field, focusFromRow); its glyphs keep
-   the arrow, and the pickers and buttons show the pointing hand (desktop.css). The box itself has no hover state: it is the composer's surface at rest,
+   the arrow, and the pickers and buttons show the arrow (desktop.css). The box itself has no hover state: it is the composer's surface at rest,
    under the pointer and while it has the keyboard (Leo 2026-10-18). */
 .nt-input {
   cursor: text;
@@ -567,43 +571,6 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
    pane), so the New Tab composer is as wide as the chat composer in the same pane (Leo 2026-10-21). */
 /* The quiet row sits 4 px under the box (the column gap is 6). */
 .nt-foot .acpmux-composer-foot { margin-top: -2px; }
-/* Claude's location controls share the existing quiet row, never a tray of their own (Leo:
-   "the claw thing should be one single row"). Codex and the non-split templates retain theirs. */
-.nt-foot :is(.nt-location, .acpmux-composer-strip, .acpmux-composer-context) {
-  display: contents;
-}
-.nt-foot .acpmux-composer-strip::after { content: none; }
-.nt-foot .acpmux-composer-context > .acpmux-location-leading {
-  order: -3;
-  flex: 0 0 45%;
-  max-width: 45%;
-  margin-inline-end: auto;
-}
-.nt-foot:has(.acpmux-access) .acpmux-location-leading { margin-inline-end: 0; }
-/* Choosing a project replaces the folder glyph with its badge and can shorten its name.
-   Keep the folder slot reserved so machine and permission controls stay where the person found
-   them, but size its button to the content. Long names still truncate inside the slot. */
-.nt-foot .acpmux-location-leading > .acpmux-location-picker:first-child { flex: 1; }
-.nt-foot .acpmux-location-leading > .acpmux-location-picker:first-child .acpmux-location-button {
-  width: fit-content;
-  max-width: 100%;
-  padding-inline-start: calc(var(--ui-ghost-inset) - var(--ui-ghost-bearing));
-}
-.nt-foot .acpmux-location-leading > .acpmux-location-picker:first-child .acpmux-location-label {
-  flex: 0 1 auto;
-  text-align: start;
-}
-.nt-foot .acpmux-location-leading > .acpmux-location-picker:first-child .acpmux-project-badge {
-  width: var(--ui-ghost-icon-size);
-  height: var(--ui-ghost-icon-size);
-}
-
-.nt-foot .acpmux-location-leading .acpmux-project-badge > img { max-width: 100%; max-height: 100%; }
-.nt-foot .acpmux-composer-context > .acpmux-location-picker:last-child {
-  order: -2;
-  margin-inline: 0;
-}
-
 /* The stage layout (templates.ts stage; Leo 2026-10-19, Claude Code desktop's new-session screen):
    the composer at the foot of the page, full width of the column. The stage centers its cards
    while they fit. When content grows, the whole page scrolls together. */

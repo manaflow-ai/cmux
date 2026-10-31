@@ -23,10 +23,18 @@ async fn pair(
     target: SocketAddr,
     wrong_key: bool,
 ) -> (Arc<Transport>, Arc<Transport>, Vec<tempfile::TempDir>) {
+    pair_on(UdpSocket::bind("127.0.0.1:0").await.unwrap(), target, wrong_key).await
+}
+
+/// A pair whose `a` side runs on `a_socket`.
+async fn pair_on(
+    a_socket: UdpSocket,
+    target: SocketAddr,
+    wrong_key: bool,
+) -> (Arc<Transport>, Arc<Transport>, Vec<tempfile::TempDir>) {
     let homes = vec![tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
     let a_key = crate::cli::mesh_node_key::load_or_create_at(homes[0].path()).unwrap();
     let b_key = crate::cli::mesh_node_key::load_or_create_at(homes[1].path()).unwrap();
-    let a_socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let b_socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let a = StaticConfig {
         listen: a_socket.local_addr().unwrap(),
@@ -46,6 +54,21 @@ async fn pair(
     let a = Transport::from_socket(&a, &a_peers, homes[0].path(), target, a_socket).await.unwrap();
     let b = Transport::from_socket(&b, &b_peers, homes[1].path(), target, b_socket).await.unwrap();
     (a, b, homes)
+}
+
+/// What `/proc/self/fd` shows for `socket`'s descriptor: `socket:[inode]`.
+#[cfg(target_os = "linux")]
+fn fd_link(socket: &impl std::os::fd::AsRawFd) -> std::path::PathBuf {
+    std::fs::read_link(format!("/proc/self/fd/{}", socket.as_raw_fd())).unwrap()
+}
+
+/// Whether any descriptor of this process is `link`'s socket.
+#[cfg(target_os = "linux")]
+fn this_process_holds(link: &std::path::Path) -> bool {
+    std::fs::read_dir("/proc/self/fd")
+        .unwrap()
+        .flatten()
+        .any(|fd| std::fs::read_link(fd.path()).is_ok_and(|target| target == link))
 }
 
 fn runtime() -> tokio::runtime::Runtime {
@@ -90,8 +113,8 @@ fn wrong_key_cannot_open_a_stream() {
             tokio::time::timeout(Duration::from_secs(1), a.connect(a.route("b").unwrap())).await;
         assert!(!matches!(result, Ok(Ok(_))), "a wrong-key tunnel opened");
         assert!(tokio::time::timeout(Duration::from_millis(50), target.accept()).await.is_err());
-        a.shutdown().await;
-        b.shutdown().await;
+        a.shutdown(tokio::time::Instant::now()).await;
+        b.shutdown(tokio::time::Instant::now()).await;
     });
 }
 
@@ -191,8 +214,8 @@ fn session_streams_are_multiplexed_and_keep_websocket_authorization() {
         tokio::join!(web_calls, peer_calls);
         web.close(None).await.unwrap();
         peer.close(None).await.unwrap();
-        a.shutdown().await;
-        b.shutdown().await;
+        a.shutdown(tokio::time::Instant::now()).await;
+        b.shutdown(tokio::time::Instant::now()).await;
         server.abort();
         let _ = server.await;
     });
@@ -226,8 +249,8 @@ fn peer_uses_the_shared_mesh_before_its_unreachable_fallback() {
         assert!(peer.request("session/list", json!({})).await.unwrap().is_object());
         peer.stop();
         tokio::time::timeout(BOUND, task).await.unwrap().unwrap();
-        a.shutdown().await;
-        b.shutdown().await;
+        a.shutdown(tokio::time::Instant::now()).await;
+        b.shutdown(tokio::time::Instant::now()).await;
         server.abort();
         let _ = server.await;
     });
@@ -265,7 +288,10 @@ fn loopback_throughput_and_shutdown() {
     runtime().block_on(async {
         let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let target_address = target.local_addr().unwrap();
-        let (a, b, _homes) = pair(target_address, false).await;
+        let a_socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        #[cfg(target_os = "linux")]
+        let a_socket_link = fd_link(&a_socket);
+        let (a, b, _homes) = pair_on(a_socket, target_address, false).await;
         // Both paths use the same token-authenticated WebSocket echo fixture,
         // payload, limits and runner. Only the stream beneath WS changes.
         let echo = tokio::spawn(async move {
@@ -308,13 +334,52 @@ fn loopback_throughput_and_shutdown() {
         let after_handshake_ms = started.elapsed().as_secs_f64() * 1000.0;
         let (mut tunneled, after_rate) = measure_websocket(stream, &payload).await;
         println!("WIREGUARD_PERF before_tcp_ms={before_handshake_ms:.3} after_wg_tcp_ms={after_handshake_ms:.3} before_authenticated_ws_mib_s={before_rate:.3} after_authenticated_ws_mib_s={after_rate:.3} bytes={}", payload.len());
+        #[cfg(target_os = "linux")]
+        assert!(this_process_holds(&a_socket_link), "the transport runs on its UDP socket");
+        #[cfg(not(target_os = "linux"))]
         let local = a.local_addr();
-        a.shutdown().await;
+        a.shutdown(tokio::time::Instant::now()).await;
+        // Releasing UDP is this process closing its socket. A process another test is spawning
+        // holds a copy from its fork until its exec, and the port stays bound until that copy
+        // closes too, so a rebind here could fail with nothing of ours left holding it.
+        #[cfg(target_os = "linux")]
+        assert!(!this_process_holds(&a_socket_link), "shutdown must release UDP");
+        #[cfg(not(target_os = "linux"))]
         assert!(UdpSocket::bind(local).await.is_ok(), "shutdown must release UDP");
         let closed = tokio::time::timeout(BOUND, tunneled.next()).await
             .expect("shutdown must resolve a pending stream read");
         assert!(!matches!(closed, Some(Ok(frame)) if !frame.is_close()), "shutdown must end the stream");
-        b.shutdown().await;
+        b.shutdown(tokio::time::Instant::now()).await;
         tokio::time::timeout(BOUND, echo).await.unwrap().unwrap();
+    });
+}
+
+/// What this daemon's listener sent a peer just before the transport stops (a restart's
+/// WebSocket close 1012, sent as the daemon stops) reaches that peer before the tunnel's end.
+/// Before, the stop aborted each bridge before it forwarded those bytes and reset every tunnel
+/// connection, so the peer read a reset or an end with no close frame (full Linux test runs,
+/// jobs 38e8e52e01839ea5d499f49e and dd8687a112bd464b1a8350b0). The order is forced, not
+/// timed: on one thread the stop runs before the bridge reads the listener's last bytes.
+#[test]
+fn a_stop_delivers_what_the_listener_sent_before_the_tunnel_ends() {
+    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let (a, b, _homes) = pair(target.local_addr().unwrap(), false).await;
+        let mut stream =
+            tokio::time::timeout(BOUND, a.connect(a.route("b").unwrap())).await.unwrap().unwrap();
+        stream.write_all(b"hello").await.unwrap();
+        let (mut local, _) = tokio::time::timeout(BOUND, target.accept()).await.unwrap().unwrap();
+        let mut hello = [0; 5];
+        local.read_exact(&mut hello).await.unwrap();
+        // The listener's last words, then its close, as a draining WebSocket listener does.
+        local.write_all(b"last words").await.unwrap();
+        drop(local);
+        b.shutdown(tokio::time::Instant::now() + BOUND).await;
+        let mut got = Vec::new();
+        let read = tokio::time::timeout(BOUND, stream.read_to_end(&mut got)).await.unwrap();
+        assert!(read.is_ok(), "the tunnel was reset: {read:?}, after {got:?}");
+        assert_eq!(got, b"last words");
+        a.shutdown(tokio::time::Instant::now()).await;
     });
 }

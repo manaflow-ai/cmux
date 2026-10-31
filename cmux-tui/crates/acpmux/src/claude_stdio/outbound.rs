@@ -61,6 +61,11 @@ impl Translator {
                                 RpcError::invalid_params(super::STEER_NO_TURN),
                             ));
                         }
+                        // The hub's prompt for the turn Claude Code runs on steers it read after
+                        // its turn ended: nothing to write (`carry.rs`).
+                        if p.pointer("/_meta/carried").and_then(Value::as_bool) == Some(true) {
+                            return self.adopt_carried(id).await;
+                        }
                         let blocks =
                             p.get("prompt").and_then(Value::as_array).cloned().unwrap_or_default();
                         let content: Vec<Value> = blocks
@@ -110,6 +115,8 @@ impl Translator {
                         // Claude Code echoes the line with this uuid when it reads it.
                         let uuid = uuid::Uuid::now_v7().to_string();
                         let line = json!({"type": "user", "uuid": uuid, "message": {"role": "user", "content": content}});
+                        // A new prompt of the hub's: no carried turn waits for one any more.
+                        self.clear_carry().await;
                         self.in_turn.store(true, Ordering::SeqCst);
                         // A new prompt starts a fresh logical turn. A cancelled compaction may
                         // never emit its boundary/result, so clear its live compaction state here
@@ -143,6 +150,7 @@ impl Translator {
                         let val = p.get("value").and_then(Value::as_str).unwrap_or("").to_owned();
                         match cid {
                             "model" => {
+                                let val = super::model_id(&val);
                                 self.pending.lock().await.insert(
                                     id.to_string(),
                                     Pending::Control(Setting::Model, val.clone()),
@@ -234,11 +242,8 @@ impl Translator {
                         }
                     }
                     method::SESSION_SET_MODEL => {
-                        let val = p
-                            .get("modelId")
-                            .and_then(Value::as_str)
-                            .unwrap_or("default")
-                            .to_owned();
+                        let val = p.get("modelId").and_then(Value::as_str).unwrap_or("default");
+                        let val = super::model_id(val);
                         self.pending
                             .lock()
                             .await
@@ -304,6 +309,46 @@ impl Translator {
                         Outbound::Lines(vec![
                             json!({"type": "control_request", "request_id": format!("mcp-{}", id), "request": {"subtype": "mcp_reconnect", "serverName": server}}),
                         ])
+                    }
+                    SIDE_QUESTION => {
+                        // Check at the writer as well as the hub: the main turn
+                        // may have ended after the hub selected the native path.
+                        if !self.in_turn.load(Ordering::SeqCst) {
+                            return Outbound::Reply(Message::err(
+                                id.clone(),
+                                RpcError::method_not_found(SIDE_QUESTION),
+                            ));
+                        }
+                        let Some(question) = p
+                            .get("question")
+                            .and_then(Value::as_str)
+                            .filter(|q| !q.trim().is_empty())
+                        else {
+                            return Outbound::Reply(Message::err(
+                                id.clone(),
+                                RpcError::invalid_params("question is required"),
+                            ));
+                        };
+                        let history = match p.get("history") {
+                            None | Some(Value::Null) => Value::Null,
+                            Some(Value::Array(history)) => Value::Array(history.clone()),
+                            Some(_) => {
+                                return Outbound::Reply(Message::err(
+                                    id.clone(),
+                                    RpcError::invalid_params("history must be an array"),
+                                ));
+                            }
+                        };
+                        self.pending.lock().await.insert(id.to_string(), Pending::SideQuestion);
+                        let mut request = json!({"subtype": "side_question", "question": question});
+                        if !history.is_null() {
+                            request.set("history", history);
+                        }
+                        Outbound::Lines(vec![json!({
+                            "type": "control_request",
+                            "request_id": format!("side-{}", id),
+                            "request": request,
+                        })])
                     }
                     method::MUX_SUBAGENT_STOP => self.subagent_stop(id, &p).await,
                     method::MUX_STEER_WITHDRAW => self.withdraw_steer(id, &p).await,

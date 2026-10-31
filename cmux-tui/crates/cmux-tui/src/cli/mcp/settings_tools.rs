@@ -15,6 +15,7 @@ use serde_json::{Map, Value, json};
 
 use super::super::command::{RequestPlan, WireOperation};
 use super::{Backend, envelope, failure_result, success, tool_error, v2_tools};
+use cmux_json::JsonSet as _;
 
 pub(super) struct SettingTool {
     pub name: &'static str,
@@ -63,10 +64,12 @@ impl SettingTool {
         let mut properties = json!({"session": {"type": "string", "minLength": 1}});
         let mut required = Vec::new();
         if self.operation == ResourceOperation::SettingsList {
-            properties["section"] = json!({"type": "string", "minLength": 1});
-            properties["offset"] = json!({"type": "integer", "minimum": 0});
-            properties["limit"] =
-                json!({"type": "integer", "minimum": 1, "maximum": v2_tools::MAX_PAGE});
+            properties.set("section", json!({"type": "string", "minLength": 1}));
+            properties.set("offset", json!({"type": "integer", "minimum": 0}));
+            properties.set(
+                "limit",
+                json!({"type": "integer", "minimum": 1, "maximum": v2_tools::MAX_PAGE}),
+            );
         } else {
             let keys: Vec<_> = Schema::embedded()
                 .rows
@@ -74,18 +77,22 @@ impl SettingTool {
                 .filter(|row| !self.mutation() || row.agent_settable)
                 .map(|row| row.key.as_str())
                 .collect();
-            properties["key"] = json!({"type": "string", "enum": keys});
+            properties.set("key", json!({"type": "string", "enum": keys}));
             required.push("key");
         }
         if self.operation == ResourceOperation::SettingsSet {
-            properties["value"] =
-                json!({"description": "A JSON value accepted by this setting's schema."});
+            properties.set(
+                "value",
+                json!({"description": "A JSON value accepted by this setting's schema."}),
+            );
             required.push("value");
         }
         if self.mutation() {
-            properties["idempotency_key"] =
-                json!({"type": "string", "minLength": 1, "maxLength": 128});
-            properties["if_revision"] = json!({"type": "string", "pattern": "^[0-9]+$"});
+            properties.set(
+                "idempotency_key",
+                json!({"type": "string", "minLength": 1, "maxLength": 128}),
+            );
+            properties.set("if_revision", json!({"type": "string", "pattern": "^[0-9]+$"}));
         }
         json!({
             "name": self.name, "description": self.description,
@@ -153,19 +160,22 @@ impl SettingTool {
         }
         let mut params = json!({"machine": "current", "session": "current"});
         if let Some(section) = section {
-            params["section"] = json!(section);
+            params.set("section", json!(section));
         }
         if let Some(row) = row {
-            params["key"] = json!(row.key);
+            params.set("key", json!(row.key));
         }
         if self.operation == ResourceOperation::SettingsSet {
-            params["value"] = arguments
-                .get("value")
-                .cloned()
-                .ok_or_else(|| v2_tools::invalid("value is required"))?;
+            params.set(
+                "value",
+                arguments
+                    .get("value")
+                    .cloned()
+                    .ok_or_else(|| v2_tools::invalid("value is required"))?,
+            );
         }
         if self.mutation() {
-            params["origin"] = json!("mcp");
+            params.set("origin", json!("mcp"));
         }
         if let Some(revision) = text(arguments, "if_revision")? {
             if !revision.bytes().all(|byte| byte.is_ascii_digit())
@@ -173,7 +183,7 @@ impl SettingTool {
             {
                 return Err(v2_tools::invalid("if_revision must be a u64 decimal string"));
             }
-            params["if_revision"] = json!(revision);
+            params.set("if_revision", json!(revision));
         }
         let idempotency_key = text(arguments, "idempotency_key")?;
         if let Some(key) = idempotency_key {
@@ -239,18 +249,21 @@ fn project(row: &Row, value: &Value) -> Value {
     let redacted = !current.is_null()
         && (cmux_config::schema::accepts(row, current, &Domains::default()).is_err()
             || sensitive_value(&projected_value, matches!(row.kind, Kind::Url)));
-    projected["value"] = if redacted { Value::Null } else { projected_value };
-    projected["value_redacted"] = json!(redacted);
-    projected["customized"] = json!(value["customized"].as_bool().unwrap_or(false));
+    projected.set("value", if redacted { Value::Null } else { projected_value });
+    projected.set("value_redacted", json!(redacted));
+    projected.set("customized", json!(value["customized"].as_bool().unwrap_or(false)));
     let managed = &value["managed"];
-    projected["managed"] = match managed["source"].as_str() {
-        Some("mdm") => ManagedSource::Device.to_json(&row.key),
-        Some("team") => {
-            ManagedSource::Team(managed["team"].as_str().unwrap_or_default().to_owned())
-                .to_json(&row.key)
-        }
-        _ => Value::Null,
-    };
+    projected.set(
+        "managed",
+        match managed["source"].as_str() {
+            Some("mdm") => ManagedSource::Device.to_json(&row.key),
+            Some("team") => {
+                ManagedSource::Team(managed["team"].as_str().unwrap_or_default().to_owned())
+                    .to_json(&row.key)
+            }
+            _ => Value::Null,
+        },
+    );
     projected
 }
 

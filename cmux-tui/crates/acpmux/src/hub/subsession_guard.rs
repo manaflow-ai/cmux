@@ -28,6 +28,7 @@
 //!   walk reads that answer.
 
 use super::*;
+use cmux_json::JsonSet as _;
 use std::path::{Path, PathBuf};
 
 /// How much a session's harness runs without asking.
@@ -108,7 +109,7 @@ fn policy_rank(p: PermissionPolicy) -> u8 {
 /// A sub-session refusal: invalid params with `data.reason`.
 pub(super) fn refusal(reason: &str, message: String, data: Value) -> RpcError {
     let mut data = data;
-    data["reason"] = json!(reason);
+    data.set("reason", json!(reason));
     RpcError::invalid_params(message).with_data(data)
 }
 

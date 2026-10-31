@@ -8,6 +8,7 @@ import { childRows } from "../subagents/childRows";
 import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { workedTurnRows } from "../workedTurn";
+import { checkRunningLineLoops, hasCompleteRunningLineShimmer } from "./runningLineMotion";
 import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import {
   BUILD_REPORT_PDF_PAGE_PNG,
@@ -104,6 +105,43 @@ const selectionRows = [
   ),
   summary(4.9, { id: "gallery-selection-summary", status: "completed" }),
 ];
+
+// Message-surface review fixture: the same prompt, background work, assistant answer and a long
+// received peer message are captured over busy wallpaper and a plain dark surface. The `bordered`
+// arm preserves the earlier look; `soft` keeps a quiet fill only behind an agent-message card; the
+// selected default is borderless.
+const messageSurfaceChat = chat([
+  user("Review the release notes and tell the lane what changed", 7, { id: "message-surface-user" }),
+  activity(
+    [
+      tool("Read CHANGELOG.md", "read", "completed", { locations: [{ path: "CHANGELOG.md" }] }),
+      tool("Run transcript checks", "execute", "completed", { command: "bun test conversation" }),
+    ],
+    6.8,
+    { id: "message-surface-tools" },
+  ),
+  assistant("The release notes are updated and the transcript remains readable.", 6.4, {
+    id: "message-surface-answer",
+  }),
+  user(
+    "The lane sent a review report. It stays readable without a second message plate.\n\n" +
+      "The report includes the changed files, test result, and the final verification notes.",
+    5.8,
+    {
+      id: "message-surface-peer",
+      incoming: {
+        kind: "message",
+        message: {
+          name: "review-lane",
+          text: "The lane sent a review report.\n\n- CHANGELOG.md updated\n- Transcript checks pass\n- Light and dark captures are ready\n\nThe full report remains available with Show more.",
+          raw: "[review-lane] The lane sent a review report.",
+        },
+      },
+      untyped: true,
+    },
+  ),
+  summary(5.7, { status: "completed", durationMs: 78_000, toolCount: 2 }),
+]);
 
 const keyboardRows = [
   user("Open the work details with the keyboard", 4, { id: "gallery-keyboard-user" }),
@@ -246,7 +284,8 @@ const openGroupedShells = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-command").length === 2);
   await ctx.click({ selector: ".cv-command" });
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-shell__command").length === 1);
-  await ctx.click({ selector: ".cv-command:nth-of-type(2)" });
+  // Each command is a step of the opened group (ToolGroupRow.tsx), so the second is the second step.
+  await ctx.click({ selector: ".cv-step:nth-of-type(2) > .cv-command" });
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-shell__command").length === 2);
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__exit")));
 };
@@ -351,6 +390,84 @@ const shellDisclosureChecks = {
     value: 0.25,
     reason: "Opening command details intentionally reveals the shell block below its focused row.",
   },
+};
+
+/// A search call whose label (a long alternation) is cut at the row's edge until it is opened
+/// (ToolRow.tsx `is-whole-open`; Leo, ask-486cb2cec3: "why the fuck did you guys ffucking ellipsis
+/// EVERYTHING WITH NO WAY TO EXPAND WHAT WAS SAID TO SEE").
+const CUT_PATTERN =
+  "useAnchoredCollapse|useTranscriptDisclosure|holdFold|keepFold|foldToggleAt|ANCHORED_COLLAPSE_EVENT|trimmedFoldRoom";
+const cutLineRows = [
+  user("Find every place that holds a fold", 3, { id: "gallery-cut-line-user" }),
+  activity(
+    [
+      tool(`Grep ${CUT_PATTERN}`, "search", "completed", {
+        output: "src/agent-session/acpmux/App.tsx:4268: const line = foldHoldTarget(toggle, node);",
+      }),
+    ],
+    2.8,
+    { id: "gallery-cut-line-activity" },
+  ),
+  assistant("Two places hold a fold: the click and the anchored-collapse event.", 2.6, {
+    id: "gallery-cut-line-answer",
+  }),
+  summary(2.6, { id: "gallery-cut-line-summary", status: "completed", toolCount: 1 }),
+];
+const cutLine = ".cv-tool.is-toggle";
+/// Opens Worked for, and with `open` the cut line too; fails when the opened label is still cut.
+const showCutLine = (open: boolean) => async (ctx: PlayContext) => {
+  await openWorked(ctx);
+  await ctx.waitFor(() => Boolean(ctx.document.querySelector(cutLine)));
+  if (!open) return;
+  await ctx.click({ selector: cutLine });
+  await ctx.waitFor(() => ctx.find({ selector: cutLine }).getAttribute("aria-expanded") === "true");
+  const text = ctx.find({ selector: `${cutLine} > .cv-tool__text` }) as HTMLElement;
+  if (text.scrollWidth > text.clientWidth + 1) throw new Error("the opened line's label is still cut");
+};
+
+/// A long command output at the transcript's end, opened with Show all: closing it from its Show
+/// less, scrolled down to, leaves the reader at the control they clicked, never on a view of blank
+/// room under rows that closed up above it (foldAnchor.ts `foldHoldTarget`, review BLOCK at 5e59e449).
+const SHOW_LESS_LOG = Array.from(
+  { length: 160 },
+  (_, index) => `(pass) retry backoff case ${index + 1} [0.${index % 10}ms]`,
+).join("\n");
+const showLessAtEnd = async (ctx: PlayContext) => {
+  await openSingleShell(ctx);
+  const more = { selector: ".cv-shell .cv-output-more" };
+  await ctx.click(more);
+  await ctx.waitFor(() => ctx.find(more).getAttribute("aria-expanded") === "true");
+  // The opened output lands first: its fold plays and the rows under it place by their drawn
+  // heights, so the content stops growing (three frames at one height, nothing animating).
+  const scroller = ctx.find({ selector: ".acpmux-scroll" }) as HTMLElement;
+  let height = -1;
+  let still = 0;
+  await ctx.waitFor(() => {
+    still = scroller.scrollHeight === height ? still + 1 : 0;
+    height = scroller.scrollHeight;
+    return still >= 3 && scroller.getAnimations({ subtree: true }).every((a) => a.playState !== "running");
+  });
+  // The reader scrolls down to Show less, under the opened output, at the view's foot. A reader's
+  // scroll is a wheel, which lets go of the hold Show all's click started (App.tsx `release`); an
+  // offset set alone, inside that hold, is put back where the click held the row. The wheel is a
+  // pixel, so its own glide moves nothing that matters.
+  scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: 1, bubbles: true, cancelable: true }));
+  (ctx.find(more) as HTMLElement).scrollIntoView({ block: "end" });
+  scroller.dispatchEvent(new Event("scroll"));
+  const view = () => scroller.getBoundingClientRect();
+  await ctx.waitFor(() => (ctx.find(more) as HTMLElement).getBoundingClientRect().bottom <= view().bottom + 1);
+  const row = ctx.find(more).closest(".acpmux-row")!;
+  if (row.getBoundingClientRect().top >= view().top) throw new Error("the opened output's row top is still in view");
+  await ctx.click(more);
+  const clicked = performance.now();
+  // The hold lasts at most FOLD_HOLD_MAX_MS from the click; the view is the reader's after it.
+  await ctx.waitFor(
+    () => ctx.find(more).getAttribute("aria-expanded") === "false" && performance.now() - clicked > 1700,
+    { capMs: 5000 },
+  );
+  const control = (ctx.find(more) as HTMLElement).getBoundingClientRect();
+  if (control.bottom <= view().top || control.top >= view().bottom)
+    throw new Error("closing the output left the view on blank room: the control the reader clicked is out of view");
 };
 
 /// One long finished turn, shaped like the ones Lawrence and Leo pasted (synthetic text): runs of
@@ -714,14 +831,65 @@ const liveLineClear = async (ctx: PlayContext) => {
   if (hint && getComputedStyle(hint).opacity !== "0")
     throw new Error("the ⌃B hint shows before the pointer is on the line");
   if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    const shimmer = doc
-      .querySelector(".cv-worked.is-below .cv-thinking")!
-      .getAnimations()
-      .some((animation) => (animation as CSSAnimation).animationName === "cmux-shimmer");
-    if (!shimmer) throw new Error("the live line's words do not shimmer");
+    const line = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-thinking")!;
+    const loops = line
+      .getAnimations({ subtree: true })
+      .filter((animation) => animation.effect?.getTiming().iterations === Infinity)
+      .map((animation) => {
+        const effect = animation.effect as KeyframeEffect | null;
+        return {
+          name: (animation as CSSAnimation).animationName,
+          target: effect?.target instanceof Element ? effect.target : null,
+          playState: animation.playState,
+          playbackRate: animation.playbackRate,
+          currentTime: animation.currentTime,
+          duration: Number(effect?.getTiming().duration),
+          progress: effect?.getComputedTiming().progress ?? null,
+        };
+      });
+    const check = checkRunningLineLoops(loops);
+    if (check.unapproved.length || check.duplicateTargets.length || !hasCompleteRunningLineShimmer(check))
+      throw new Error("the live line's words do not shimmer as one loop per text layer");
   }
   await ctx.hover({ selector: ".cv-worked.is-below" });
   if (hint) await ctx.waitFor(() => getComputedStyle(hint).opacity === "1");
+};
+
+/// The selected borderless message arm is a real rendered contract: the prompt keeps liquid glass
+/// without an edge, received/agent bodies have no box shadow, and the assistant prose stays plain.
+const messageSurfaceComputedStyle = async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector('[data-row-id="message-surface-peer"] .cv-received'));
+  const view = ctx.document.defaultView!;
+  const prompt = ctx.document.querySelector<HTMLElement>('[data-row-id="message-surface-user"] .cv-user__bubble');
+  const peer = ctx.document.querySelector<HTMLElement>('[data-row-id="message-surface-peer"] .cv-received');
+  const assistant = ctx.document.querySelector<HTMLElement>('[data-row-id="message-surface-answer"] .cv-md');
+  if (!prompt || !peer || !assistant) throw new Error("message surface fixture did not render");
+  const promptStyle = view.getComputedStyle(prompt);
+  const peerStyle = view.getComputedStyle(peer);
+  if (promptStyle.getPropertyValue("--glass-edge").trim() !== "transparent")
+    throw new Error("the selected user bubble still has a glass edge");
+  // Every glass mode: Lens and Spectrum draw a specular line, a lower shade and fringes from
+  // --glass-rim, so the bubble's whole rim shadow must be clear under each, not only Plain's edge.
+  const root = ctx.document.documentElement;
+  const savedGlass = root.getAttribute("data-glass");
+  try {
+    for (const mode of ["plain", "lens", "spectrum"]) {
+      root.setAttribute("data-glass", mode);
+      const shadow = view.getComputedStyle(prompt).boxShadow;
+      const opaque = (shadow.match(/rgba?\([^)]*\)|color\([^)]*\)/g) ?? []).filter(
+        (color) => !/,\s*0\)$|\/\s*0\)$/.test(color),
+      );
+      if (opaque.length) throw new Error(`the user bubble draws a rim under ${mode} glass: ${shadow}`);
+    }
+  } finally {
+    if (savedGlass === null) root.removeAttribute("data-glass");
+    else root.setAttribute("data-glass", savedGlass);
+  }
+  if (peerStyle.boxShadow !== "none" || peerStyle.backgroundColor !== "rgba(0, 0, 0, 0)")
+    throw new Error(`the peer message is boxed: ${peerStyle.boxShadow} / ${peerStyle.backgroundColor}`);
+  const assistantStyle = view.getComputedStyle(assistant);
+  if (assistantStyle.backgroundColor !== "rgba(0, 0, 0, 0)" || assistantStyle.boxShadow !== "none")
+    throw new Error("assistant prose picked up a message container surface");
 };
 
 /// The running line ("Thinking", "Working for") holds still: no mark blinks before its words and
@@ -739,12 +907,28 @@ const runningLineStill =
     const loops = line
       .getAnimations({ subtree: true })
       .filter((animation) => animation.effect?.getTiming().iterations === Infinity);
-    const shimmer = loops.filter((animation) => (animation as CSSAnimation).animationName === "cmux-shimmer");
-    if (loops.length > shimmer.length)
-      throw new Error(`${loops.length - shimmer.length} animations loop on the running line`);
+    const check = checkRunningLineLoops(
+      loops.map((animation) => {
+        const effect = animation.effect as KeyframeEffect | null;
+        return {
+          name: (animation as CSSAnimation).animationName,
+          target: effect?.target instanceof Element ? effect.target : null,
+          playState: animation.playState,
+          playbackRate: animation.playbackRate,
+          currentTime: animation.currentTime,
+          duration: Number(effect?.getTiming().duration),
+          progress: effect?.getComputedTiming().progress ?? null,
+        };
+      }),
+    );
+    if (check.unapproved.length || check.duplicateTargets.length)
+      throw new Error(
+        `${check.unapproved.length + check.duplicateTargets.length} unapproved or duplicate animations loop on the running line`,
+      );
     // Motion allowed (the gallery stage), the word Thinking sweeps; Reduce Motion stills it (CSS).
-    if (shimmers && shimmer.length !== 1) throw new Error(`Thinking shimmers ${shimmer.length} times, not once`);
-    if (!shimmers && shimmer.length) throw new Error("a line other than Thinking shimmers");
+    if (shimmers && !hasCompleteRunningLineShimmer(check))
+      throw new Error(`Thinking shimmers ${check.shimmer.length} times, not one loop per text layer`);
+    if (!shimmers && check.shimmer.length) throw new Error("a line other than Thinking shimmers");
   };
 
 /// A run of commands longer than a group shows at once (ToolGroupRow.tsx GROUP_TAIL).
@@ -1158,6 +1342,35 @@ export default agentPaneEntry({
     "agent-session/acpmux/chips/BareReferenceChip.tsx#BareReferenceChip",
   ],
   variants: {
+    "activity-tone-secondary": {
+      note: "Selected activity hierarchy: tool calls, Worked for and received peer messages (their Markdown too) use one AA-readable secondary tone; prompts and assistant text stay primary. Capture in light and dark.",
+      snapshot: messageSurfaceChat,
+    },
+    "activity-tone-tertiary": {
+      note: "Gallery arm: a stronger tertiary dimming for background activity, checked against the same light/dark fixture.",
+      snapshot: messageSurfaceChat,
+      documentAttributes: { "transcript-activity-tone": "tertiary" },
+    },
+    "activity-tone-readable": {
+      note: "Gallery arm: the most readable secondary tone, compared with the selected middle value before landing.",
+      snapshot: messageSurfaceChat,
+      documentAttributes: { "transcript-activity-tone": "readable" },
+    },
+    "message-surfaces-bordered": {
+      note: "Before arm: the bordered user bubble and agent-message cards, captured on busy wallpaper and plain dark surfaces in light and dark themes.",
+      documentAttributes: { "message-surfaces": "bordered" },
+      snapshot: messageSurfaceChat,
+    },
+    "message-surfaces-soft": {
+      note: "Gallery arm: borderless, with a soft fill only behind an opened agent-message card, and no rim.",
+      documentAttributes: { "message-surfaces": "soft" },
+      snapshot: messageSurfaceChat,
+    },
+    "message-surfaces-borderless": {
+      note: "Selected arm: stronger glass fill and no rim (Plain, Lens or Spectrum) for the user's prompt, borderless agent-message cards, no layout changes.",
+      snapshot: messageSurfaceChat,
+      play: messageSurfaceComputedStyle,
+    },
     conversation: {
       note: "A finished exchange: prompt, markdown reply, turn footer.",
       snapshot: completedFooterSnapshot,
@@ -2659,6 +2872,33 @@ export default agentPaneEntry({
         );
       },
     },
+    "failed-send-too-large": {
+      note: 'A prompt larger than one message (message.too_large): acpmux refuses it the same way at every Retry, so the card names the attachment to take out and offers Edit, Remove and Details, never Retry (Leo, 2026-10-31: "this is completely hardlocked bc of message size").',
+      snapshot: chat([
+        user(prompt, 6),
+        assistant("Added retries with backoff.", 5.5),
+        summary(5.5, { status: "completed" }),
+        user("Why does the dashboard look like this on the staging build?", 1, {
+          failed: true,
+          error:
+            "Not sent: this message is too large to send at once. Take out dashboard-recording.png with Edit, or send it in a message of its own.",
+          delivery: {
+            state: "failed",
+            promptId: "p1",
+            sessionId: "s",
+            sentAt: 0,
+            failedAt: 900,
+            hop: "acpmux",
+            code: "-32000",
+            reason: "message.too_large",
+            error: "message too large to send: 16907300 bytes, the limit is 15728640",
+          },
+        }),
+      ]),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector('[data-failure-cause="too-large"]'));
+      },
+    },
     "edited-files": {
       note: "A turn that edited three files: the edited-files card with Undo.",
       snapshot: chat([...workedTurnRows(minutesAgo(15)), summary(14, { status: "completed", toolCount: 3 })]),
@@ -2861,6 +3101,24 @@ export default agentPaneEntry({
         },
       },
     },
+    "secret-card-unsent": {
+      note: "Play: a secret typed in the card whose send has not gone through stays in the private field, so the person does not retype it.",
+      snapshot: chat([user("Create the Stripe test webhook", 1), assistant("I need your Stripe key for that.", 0.9)], {
+        isWorking: true,
+        secret: {
+          secretId: "gallery-secret",
+          name: "STRIPE_API_KEY",
+          reason: "Create the test webhook",
+        },
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-secret-card-field" });
+        await ctx.type("sk-test-51Hx9", { selector: ".acpmux-secret-card-field" });
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(".acpmux-secret-card-field")?.matches("input:not(:placeholder-shown)"),
+        );
+      },
+    },
     queued: {
       note: "Prompts queued behind a running turn.",
       snapshot: chat([user(prompt, 2), assistant("Working on the policy type…", 1, { streaming: true })], {
@@ -2984,7 +3242,7 @@ export default agentPaneEntry({
       },
     },
     "shell-long-colored-output": {
-      note: "A long, coloured test run: no colour codes, the first lines of its end under a fade with Show all 1201 lines (every line and the command, though only the last 400 draw until opened), and Wrap lines and Copy in the label.",
+      note: "A long, coloured test run: no colour codes, its end scrolling in an eight-line box with Show all 1200 lines (every line, though only the last 400 draw until opened), and Wrap lines and Copy in the label.",
       checks: shellDisclosureChecks,
       snapshot: chat(
         shellRows("gallery-shell-long", "Run the whole suite", "bun test", {
@@ -2997,7 +3255,7 @@ export default agentPaneEntry({
       ),
       play: async (ctx) => {
         await openSingleShell(ctx);
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-output-more")?.textContent === "Show all 1201 lines");
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-output-more")?.textContent === "Show all 1200 lines");
       },
     },
     "edit-long-line-code": {
@@ -3164,6 +3422,32 @@ export default agentPaneEntry({
         await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__command")));
         await clickHoldsLine(ctx, ".cv-command", false);
       },
+    },
+    "cut-line-closed": {
+      note: "Leo, ask-486cb2cec3: \"why the fuck did you guys ffucking ellipsis EVERYTHING WITH NO WAY TO EXPAND WHAT WAS SAID TO SEE\". A search call's long pattern cut at the row's edge, closed. Play: open Worked for.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(cutLineRows),
+      play: showCutLine(false),
+    },
+    "cut-line-open": {
+      note: "The same line opened: its label wraps to the whole pattern above the output, never only its first words.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(cutLineRows),
+      play: showCutLine(true),
+    },
+    "show-less-keeps-place": {
+      note: "A long command output at the transcript's end, opened with Show all, then closed from Show less after scrolling down to it: the view stays on the control the reader clicked, with the rows above it, not on blank room under a row that closed up above the view.",
+      checks: {
+        layoutShiftMax: {
+          value: 1,
+          reason:
+            "Show all and Show less open and close a 160-line output; the play checks the clicked control stays in view.",
+        },
+      },
+      snapshot: chat(
+        shellRows("gallery-show-less", "Run the whole suite", "bun test", { output: SHOW_LESS_LOG, exitCode: 0 }),
+      ),
+      play: showLessAtEnd,
     },
     "fold-no-blank-collapsed": {
       note: "A long turn after a background task's notification, bookkeeping the person never typed and another agent's message, folded: Worked for, then the reply right under it. Before, each render row that draws nothing (in the app, an update that joined the first card; the gallery page draws no render frames) left a 34px band between them.",
