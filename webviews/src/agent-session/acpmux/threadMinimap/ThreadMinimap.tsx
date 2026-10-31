@@ -934,7 +934,11 @@ export function ThreadMinimap({
             }}
             onScroll={(event) => {
               listOffset.current = event.currentTarget.scrollTop;
-              setListTop(listOffset.current);
+              // Committed in the scroll event, before the frame paints: a scroll is a continuous
+              // event, whose update React renders in a task after the frame, so the frame showed the
+              // list at its new offset with the rows of the old one (blank at the edge it scrolled
+              // toward on a fast wheel, Leo 2026-10-31: "it can flicker and disapper at the edges").
+              flushSync(() => setListTop(listOffset.current));
               followPointer(event.currentTarget);
             }}
             onPointerOver={(event) => {
