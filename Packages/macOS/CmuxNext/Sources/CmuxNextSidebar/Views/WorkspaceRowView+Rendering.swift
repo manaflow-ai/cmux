@@ -83,10 +83,13 @@ extension WorkspaceRowView {
             tintSessionTree()
             let waits = if case .waiting = activityState { true } else { false }
             agentMark.setTint(waits ? Palette.attention : Palette.textSecondary)
-            // Fills only, no borders: drop target, selection, multi-selection or on screen, hover.
+            // Fills, no borders but the focus ring below: drop target, selection, multi-selection or on screen, hover.
             let fill = isDropTarget || isSelected ? Palette.selectionFill : isSecondarySelected || isOnScreen ? Palette.secondarySelectionFill
                 : isHovered && !isPlaceholderRow && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil
             paintFill(fill)
+            // The one border: the focus ring of the group this row stands for, as its header draws it.
+            layer?.borderColor = Palette.focusRing.cgColor
+            layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
             (rowBadge.ringColor, rowBadge.chipColor) = (Self.badgeBackdrop(fill), Palette.sidebarStep.cgColor)
             // The sidebar's own tonal step, once more: a bar a step apart.
             placeholderBar.layer?.backgroundColor = Palette.sidebarStep.cgColor
