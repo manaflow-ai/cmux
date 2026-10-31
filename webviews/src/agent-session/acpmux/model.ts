@@ -1177,18 +1177,26 @@ function isToolRun(row: AcpmuxRow): boolean {
 /// reply without one (a copy inside an opened "Worked for", one still streaming), the plain gap
 /// (`before-status-plain`). A status row over a reply takes the same room under its line: the action
 /// row's (`before-reply`), or the plain gap over a copy inside an opened fold (`before-reply-plain`),
-/// whose replies draw no action row. App.tsx marks the rows `acpmux-row--<edge>` (conversation.css
+/// whose replies draw no action row. A status row takes that room only between two replies: one
+/// under a prompt (a turn that starts with a tool) keeps its own spacing, so `prev`, the drawn row
+/// above, is read for that side alone. App.tsx marks the rows `acpmux-row--<edge>` (conversation.css
 /// `--cv-status-gap`, `--cv-status-gap-plain`).
 export type StatusEdge = "before-status" | "before-status-plain" | "before-reply" | "before-reply-plain";
-export const statusEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined): StatusEdge | undefined =>
+export const statusEdge = (
+  row: AcpmuxRow,
+  next: AcpmuxRow | undefined,
+  prev: AcpmuxRow | undefined,
+): StatusEdge | undefined =>
   row.kind === "assistant"
     ? isStatusRow(next) && !isBeforeFooter(row, next)
       ? hasReplyActions(row, next)
         ? "before-status"
         : "before-status-plain"
       : undefined
-    : next?.kind === "assistant" && isStatusRow(row)
-      ? next.settled === true
+    : next?.kind === "assistant" && prev?.kind === "assistant" && isStatusRow(row)
+      ? // A settled copy inside an opened fold draws no action row, unless it is a folded reply
+        // (`hasReplyActions` keeps those).
+        next.settled === true && next.foldedReply !== true
         ? "before-reply-plain"
         : "before-reply"
       : undefined;
@@ -1221,6 +1229,11 @@ export function nextDrawnRow(rows: readonly AcpmuxRow[], index: number): AcpmuxR
   for (let next = index + 1; next < rows.length; next += 1) if (!drawsNothing(rows[next]!)) return rows[next];
   return undefined;
 }
+/// The drawn row above `index` (`statusEdge` reads it for a status row over a reply).
+export function prevDrawnRow(rows: readonly AcpmuxRow[], index: number): AcpmuxRow | undefined {
+  for (let prev = index - 1; prev >= 0; prev -= 1) if (!drawsNothing(rows[prev]!)) return rows[prev];
+  return undefined;
+}
 /// The chat's last footer ends at the message gap, not the turn gap: no band over the composer
 /// (App.tsx marks it `acpmux-row--last-footer`). So does a footer over another agent's line (a
 /// message, a notice or a started task's result): that line belongs with the agent's text above
@@ -1246,8 +1259,8 @@ export const isContinuationFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined
     next.kind === ACTIVITY_LINE);
 /// What the row after a row changes about its height (`beforeFooter`, and a reply's own action row,
 /// `hasReplyActions`), as one key.
-const rowEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined) => {
-  const status = statusEdge(row, next);
+const rowEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined, prev: AcpmuxRow | undefined) => {
+  const status = statusEdge(row, next, prev);
   const edge = status ? `${footerEdge(row, next) ?? ""}${STATUS_EDGE}${status}` : footerEdge(row, next);
   return hasReplyActions(row, next) ? `${edge ?? ""}${ACTIONS_EDGE}` : edge;
 };
@@ -1725,7 +1738,8 @@ export function layoutConversation(
     while (drawn >= 0 && drawsNothing(rows[drawn]!)) drawn -= 1;
     if (
       drawn >= 0 &&
-      rowEdge(rows[drawn]!, nextDrawnRow(rows, drawn)) !== rowEdge(rows[drawn]!, nextDrawnRow(previous.rows, drawn))
+      rowEdge(rows[drawn]!, nextDrawnRow(rows, drawn), prevDrawnRow(rows, drawn)) !==
+        rowEdge(rows[drawn]!, nextDrawnRow(previous.rows, drawn), prevDrawnRow(previous.rows, drawn))
     )
       start = drawn;
     tops.set(previous.layout.tops.subarray(0, start));
@@ -1735,6 +1749,8 @@ export function layoutConversation(
   // Hidden bookkeeping can span many rows. Keep the next drawn row for the whole
   // pass: searching anew for every hidden row makes one run quadratic.
   let nextDrawn = start;
+  // The drawn row above the current one, carried along the pass for the same reason.
+  let prevDrawn = prevDrawnRow(rows, start);
   for (let index = start; index < rows.length; index += 1) {
     tops[index] = top;
     const row = rows[index]!;
@@ -1743,7 +1759,9 @@ export function layoutConversation(
       nextDrawn = index + 1;
       while (nextDrawn < rows.length && drawsNothing(rows[nextDrawn]!)) nextDrawn += 1;
     }
-    const edge = rowEdge(row, rows[nextDrawn]);
+    const prev = prevDrawn;
+    if (!drawsNothing(row)) prevDrawn = row;
+    const edge = rowEdge(row, rows[nextDrawn], prev);
     const kept = known?.get(row);
     let height: number;
     if (kept && kept.width === width && kept.edge === edge) height = kept.height;
@@ -1763,7 +1781,7 @@ export function layoutConversation(
             edge?.endsWith(ACTIONS_EDGE) === true,
           );
       // A row that draws nothing stays at 0; a custom renderer's height is its own.
-      if (!custom && height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn]));
+      if (!custom && height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn], prev));
       known?.set(row, { width, height, edge });
     }
     heights[index] = height;

@@ -12,7 +12,7 @@
 // Before: a reply over a footer was estimated as any reply (8px below it, at least 34px), and a
 // task's result kept the old 16px below it.
 import { expect, test } from "bun:test";
-import { layoutConversation, placeRows } from "./model";
+import { layoutConversation, placeRows, statusEdge, type AcpmuxRow } from "./model";
 import { turnView } from "./conversation/turns";
 import { COLLAPSED_PROMPT_LINES, PASTE_CHIP_HEIGHT, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
 import { currentChatMetrics } from "./chatDisplay";
@@ -385,4 +385,26 @@ test("a status row between two replies is estimated in the middle of the gap", (
   const [overPrompt] = heightsOf([before, { id: "p", version: 1, at: 1, kind: "user", text: "Next" }]);
   expect(reply).toBe(overPrompt! - 8);
   expect(alone).toBeGreaterThan(0);
+});
+
+test("a status row under a prompt keeps its own spacing over the reply", () => {
+  // Only a status row between two replies takes the centred room: a turn that starts with a tool
+  // (prompt, tool, reply) would otherwise get 30px under the tool and its prompt gap over it.
+  const tool = {
+    kind: "tool",
+    text: "",
+    tool: { id: "c", title: "ls", kind: "execute", status: "completed", command: "ls" },
+  };
+  const prompt = { id: "p", version: 1, at: 0, kind: "user", text: "List it." };
+  const run = { id: "b", version: 1, at: 1, kind: "activity", items: [tool] };
+  const after = { id: "r2", version: 1, at: 2, kind: "assistant", text: "Then this." };
+  const [, step] = heightsOf([prompt, run, after]);
+  const [, alone] = heightsOf([prompt, run]);
+  expect(step).toBe(alone);
+  expect(statusEdge(run as AcpmuxRow, after as AcpmuxRow, prompt as AcpmuxRow)).toBeUndefined();
+  // A settled folded reply draws its action row, so the run over it takes the full room.
+  const folded = { ...after, settled: true, foldedReply: true } as AcpmuxRow;
+  const reply = { id: "r1", version: 1, at: 0, kind: "assistant", text: "Done." } as AcpmuxRow;
+  expect(statusEdge(run as AcpmuxRow, folded, reply)).toBe("before-reply");
+  expect(statusEdge(run as AcpmuxRow, { ...folded, foldedReply: false }, reply)).toBe("before-reply-plain");
 });

@@ -46,6 +46,7 @@ import {
   type AcpmuxSnapshot,
   type QueueEdit,
   nextDrawnRow,
+  prevDrawnRow,
   isBeforeFooter,
   hasReplyActions,
   statusEdge,
@@ -2911,7 +2912,7 @@ export function VirtualTranscript({
                     row.version,
                     drawnHeightOf(target),
                     hasReplyActions(row, nextDrawnRow(shown, index)),
-                    statusEdge(row, nextDrawnRow(shown, index)),
+                    statusEdge(row, nextDrawnRow(shown, index), prevDrawnRow(shown, index)),
                   );
               }
             };
@@ -3277,7 +3278,7 @@ export function VirtualTranscript({
               const next = nextDrawnRow(rows, index);
               if (
                 (row.kind === "assistant" && Boolean(known.actions) !== hasReplyActions(row, next)) ||
-                known.status !== statusEdge(row, next)
+                known.status !== statusEdge(row, next, prevDrawnRow(rows, index))
               )
                 return undefined;
               return known.height;
@@ -4797,7 +4798,7 @@ export function VirtualTranscript({
                       joinsNext={isStepRow(row) && isStepRow(rows[absoluteIndex + 1])}
                       beforeFooter={isBeforeFooter(row, next)}
                       replyActions={actions}
-                      status={statusEdge(row, next)}
+                      status={statusEdge(row, next, prevDrawnRow(rows, absoluteIndex))}
                       lastFooter={isLastFooter(row, next)}
                       continuationFooter={isContinuationFooter(row, next)}
                       lastTurn={row.lastTurn === true}
