@@ -78,4 +78,20 @@ import Testing
         #expect(!buffer.cancel(tab: "new"))
         #expect(buffer.take().count == 1, "a resolved creation's keys wait for its focus")
     }
+
+    /// P0 1193 (lead 21:2xZ, from the review of #29693): the person closes the pending split of terminal B before the
+    /// daemon made it, and no other creation waits. The keys typed for B go with it; a line held for terminal A (another
+    /// creation of this hold, whose reply came) is not dropped with them: it still goes to A. Before, a cancel with
+    /// nothing left pending dropped every held key.
+    @Test func closingAPendingSplitKeepsTheKeysHeldForAnotherTerminal() {
+        let buffer = CreationInputBuffer(began: .now)
+        let first = buffer.open(generation: 1, tab: "terminalA")
+        let forA = Self.key("a", code: 0)
+        buffer.capture(forA, focusedTab: "terminalA")
+        buffer.resolve(first, awaitsFocus: false) // A's reply came; nothing waits for its focus
+        _ = buffer.open(generation: 2, tab: "splitB")
+        buffer.capture(Self.key("b", code: 11), focusedTab: "splitB")
+        #expect(buffer.cancel(tab: "splitB"))
+        #expect(buffer.take() == [forA], "the line held for terminal A was dropped with the closed split of terminal B")
+    }
 }
