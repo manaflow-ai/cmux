@@ -1,7 +1,7 @@
 import AppKit
 import CmuxHomeCore
 
-/// The message links of the native Home (HomeProjection+Links.swift), and their DEBUG socket drives
+/// The message links of the native Home (HomeProjection+ThreadHeader.swift), and their DEBUG socket drives
 /// (scripts/cmux-next/home-tree-thread-check.py).
 extension MessagesLabHomeView {
     /// The build's link scheme (`cmux`, `cmux-dev`, `cmux-dev-<tag>`): "Copy Link" names messages in it.

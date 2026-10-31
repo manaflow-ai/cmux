@@ -109,7 +109,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private var deferredThread: (root: MessageID?, parent: MessageID?) = (nil, nil)
     /// A permalink's message waiting for the window that holds it (`reveal`, HomeProjection+Tree.swift).
     var pendingReveal: MessageID?
-    /// Tree threads: permalink paging and Copy Link (HomeProjection+Links.swift).
+    /// Tree threads: permalink paging and Copy Link (HomeProjection+ThreadHeader.swift).
     let tree = HomeTreeState()
     /// One streamed-text commit per display frame (HomeStreamPacer).
     let streamPacer = HomeStreamPacer()
