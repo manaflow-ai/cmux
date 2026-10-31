@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "build": "4120525262903",
+  "notes": "notes/4120525262903.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 29247,
+      "title": "perf(ci): only wait for catch-up PRs we're allowed to repair",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29242,
+      "title": "perf(ci): fetch only catch-up PR/base history, drop all-ref checkouts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29193,
+      "title": "perf(ci): check mirror freshness cheaply; reserve 32 vCPUs for real bundles",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29384,
+      "title": "fix(ci): base_red_excuse skips base tier first runs that deferred their tree jobs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28818,
+      "title": "ci: warm-sources: cmux-tui's cargo jobs start from actions-cache (#28572)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28042,
+      "title": "Queue: acpmux's subagent resume is a labelled row; opening a row never moves its buttons",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
