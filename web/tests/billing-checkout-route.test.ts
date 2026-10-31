@@ -54,11 +54,11 @@ let stripeSessionResponse: { readonly id?: string; readonly url?: string } = {
   id: CHECKOUT_SESSION_ID,
   url: "https://checkout.stripe.com/c/session",
 };
-const createStripeSession = mock(async (params: unknown) => {
+const createStripeSession = mock(async (params: unknown, _options?: unknown) => {
   createdStripeSessions.push(params);
   return stripeSessionResponse;
 });
-const createStripeCustomer = mock(async (params: unknown) => {
+const createStripeCustomer = mock(async (params: unknown, _options?: unknown) => {
   createdStripeCustomers.push(params);
   return { id: "cus_team" };
 });
@@ -515,6 +515,23 @@ describe("billing checkout route", () => {
       line_items: [{ price: "price_year", quantity: 1 }],
       metadata: { plan: "pro", billingInterval: "year" },
     });
+  });
+
+  test("keys a personal Checkout Session by buyer and request so a repeat reuses it", async () => {
+    stripeConfigured = true;
+    userResponses = [signedInUser, signedInUser, signedInUser];
+
+    for (const query of ["plan=pro", "plan=pro", "plan=max"]) {
+      await GET(new NextRequest(`https://cmux.test/api/billing/checkout?${query}`));
+    }
+
+    const keys = createStripeSession.mock.calls.map((call) =>
+      (call[1] as { idempotencyKey?: unknown } | undefined)?.idempotencyKey);
+    expect(keys).toHaveLength(3);
+    expect(keys[0]).toEqual(expect.stringContaining(SIGNED_IN_USER_ID));
+    expect(keys[1]).toBe(keys[0]);
+    expect(keys[2]).toEqual(expect.stringContaining(SIGNED_IN_USER_ID));
+    expect(keys[2]).not.toBe(keys[0]);
   });
 
   test("creates Stripe checkout for a signed-in Pro buyer", async () => {
@@ -1001,10 +1018,10 @@ describe("billing checkout route", () => {
 
     expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/session");
     expect(resolveTeamPrice).toHaveBeenCalledWith("month");
-    expect(createStripeCustomer).toHaveBeenCalledWith({
-      name: "Signed Team",
-      metadata: { stackTeamId: TEAM_ID, app: "cmux" },
-    });
+    expect(createStripeCustomer).toHaveBeenCalledWith(
+      { name: "Signed Team", metadata: { stackTeamId: TEAM_ID, app: "cmux" } },
+      { idempotencyKey: expect.stringContaining(TEAM_ID) },
+    );
     expect(insertedStripeCustomers).toContainEqual({
       id: "cus_team",
       stackUserId: SIGNED_IN_USER_ID,
