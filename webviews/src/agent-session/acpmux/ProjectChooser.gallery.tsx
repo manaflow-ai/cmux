@@ -36,6 +36,12 @@ const projects: Project[] = [
   { cwd: "/Users/you/src/relay", label: "relay" },
 ];
 
+// A folder the host names by its path (a home folder has no project name), then a named project.
+const pathTitled: Project[] = [
+  { cwd: "/Users/sample", label: "/Users/sample" },
+  { cwd: "/Users/sample/projects/atlas-web", label: "atlas-web" },
+];
+
 const longProjects: Project[] = [
   {
     cwd: "/Users/you/Projects/very-long-folder-name-that-must-remain-readable/atlas-web",
@@ -128,6 +134,19 @@ export default componentEntry<Props>({
         onNoProject: () => {
           document.documentElement.dataset.galleryProjectAction = "none";
         },
+      },
+      play: open,
+    },
+    "open-path-titled": {
+      note: 'A folder titled by its own path (Leo, ":( alignemnt"): Do not work in a project, New project and the folder share one icon column and one text inset, the folder shows its path once, and a hairline splits the actions from the folders.',
+      props: {
+        projects: pathTitled,
+        current: pathTitled[0]!.cwd,
+        currentLabel: pathTitled[0]!.label,
+        icon,
+        onPick: () => undefined,
+        onBrowse: () => undefined,
+        onNoProject: () => undefined,
       },
       play: open,
     },
