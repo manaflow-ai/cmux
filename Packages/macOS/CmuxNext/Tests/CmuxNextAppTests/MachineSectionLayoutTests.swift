@@ -178,6 +178,14 @@ import Testing
         #expect(linkedView.snapshot?.menuOpen == true && linkedView.snapshot?.isLinked == true)
         #expect(meshView.snapshot?.busy == true && meshView.snapshot?.isLinked == false)
         #expect(linkedView.add.isEnabled && !meshView.add.isEnabled)
+        // The trailing workspace action is quiet at rest, then follows the row hover/menu state.
+        #expect(linkedView.add.alphaValue == 1) // the open menu keeps row actions revealed
+        view.update([Self.rows[0], mesh, linked], style: .compact, joined: .init())
+        #expect(linkedView.add.alphaValue == 0)
+        linkedView.setHovered(true)
+        #expect(linkedView.add.alphaValue == 1)
+        linkedView.setHovered(false)
+        #expect(linkedView.add.alphaValue == 0)
         _ = linkedView.more.pressMenu?()
         #expect(menus == ["m_1@h1"])
         // The store's state alone changing reaches the rows.
