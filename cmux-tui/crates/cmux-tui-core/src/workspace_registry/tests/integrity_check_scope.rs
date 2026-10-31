@@ -25,25 +25,60 @@ fn quick_checked_tables(database: &Path) -> Vec<String> {
 /// are only read by primary key, so a quick_check over them made startup
 /// track their size: a nightly's 1 GB `projection_mutations` held the
 /// daemon's socket back for 40 s after launch.
+///
+/// Since b3699a6181c a cold open also leaves the five tables that only grow
+/// (`history_check::BACKGROUND_CHECKED_TABLES`, `resource_mutations` among
+/// them) to the maintenance worker's full check, touching only their tail.
+/// A damaged one makes the next open check every state table in full, as
+/// every open did before: that full open still skips the mutation ledgers.
 #[test]
 fn open_integrity_check_skips_mutation_ledgers() {
+    const LEDGERS: [&str; 4] =
+        ["mutations", "projection_mutations", "terminal_mutations", "journal_ingress_receipts"];
     let root = temp_root("integrity-check-scope");
     let registry = WorkspaceRegistry::open(&root, "integrity-check-scope").unwrap();
     let database = registry.session_journal_database_path().unwrap();
     drop(registry);
 
+    // A cold open: state tables in full; ledgers and growing tables not.
     let checked = quick_checked_tables(&database);
     assert!(
         checked.iter().any(|table| table == "workspaces"),
         "state tables stay checked: {checked:?}"
     );
-    assert!(
-        checked.iter().any(|table| table == "resource_mutations"),
-        "resource_mutations holds restored state and stays checked: {checked:?}"
-    );
-    for ledger in
-        ["mutations", "projection_mutations", "terminal_mutations", "journal_ingress_receipts"]
-    {
+    for ledger in LEDGERS {
+        assert!(!checked.iter().any(|table| table == ledger), "{ledger} was quick_checked on open");
+    }
+    for (table, _) in history_check::BACKGROUND_CHECKED_TABLES {
+        assert!(
+            !checked.iter().any(|name| name == table),
+            "{table} is checked by the maintenance worker, not the open: {checked:?}"
+        );
+    }
+
+    // The maintenance worker covers resource_mutations, which holds
+    // restored state, and finds a healthy registry clean.
+    assert!(history_check::is_background_checked("resource_mutations"));
+    assert_eq!(history_check::scan_background_checked_tables(&database).unwrap(), Vec::new());
+
+    // After a background check found damage, the open checks every state
+    // table in full, resource_mutations included, and still no ledger.
+    let connection = Connection::open(&database).unwrap();
+    connection
+        .execute(
+            "INSERT INTO meta(key, value) VALUES(?1, 'resource_mutations: test')",
+            [history_check::FULL_OPEN_CHECK_META_KEY],
+        )
+        .unwrap();
+    drop(connection);
+    let checked = quick_checked_tables(&database);
+    for (table, _) in history_check::BACKGROUND_CHECKED_TABLES {
+        assert!(
+            checked.iter().any(|name| name == table),
+            "a full open checks {table}: {checked:?}"
+        );
+    }
+    for ledger in LEDGERS {
         assert!(!checked.iter().any(|table| table == ledger), "{ledger} was quick_checked on open");
     }
     fs::remove_dir_all(root).unwrap();
