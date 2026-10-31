@@ -370,10 +370,16 @@ struct ThreadPreview: Hashable {
             p.box = CGSize(width: 48, height: (48 * CGFloat(a.height ?? 450) / CGFloat(max(1, a.width ?? 600))).rounded())
         } else if case let .text(t, _) = part {
             let maxBox = ThreadPreview.maxTextBoxWidth(width: width)
-            p.textLines = ThreadPreview.wrap(t, maxWidth: maxBox - ThreadPreview.textPadX)
-            // cmux (user, 2026-10-28): the quote hugs its widest line, wrapped or not, as Messages' does (it took the whole
-            // column when wrapped, leaving an empty band right of the text). Rounded up so the widest line always fits.
-            let widest = p.textLines.map { TextDraw.width($0, font: ThreadPreview.textFont) }.max() ?? 0
+            // cmux (2026-10-31): laid out once per root text and column (MeasureCache.quote): every row re-derivation quoted
+            // every root again with Core Text, 2.7-4.4 s main-thread hangs when a picture loaded (HomeQuoteRebuildCostTests).
+            let q = MeasureCache.shared.quote(t, maxWidth: maxBox - ThreadPreview.textPadX) { text, column in
+                let lines = ThreadPreview.wrap(text, maxWidth: column)
+                // cmux (user, 2026-10-28): the quote hugs its widest line, wrapped or not, as Messages' does (it took the whole
+                // column when wrapped, leaving an empty band right of the text). Rounded up so the widest line always fits.
+                return MeasureCache.Quote(lines: lines, widest: lines.map { TextDraw.width($0, font: ThreadPreview.textFont) }.max() ?? 0)
+            }
+            p.textLines = q.lines
+            let widest = q.widest
             p.box = CGSize(width: min(maxBox, (widest + ThreadPreview.textPadX).rounded(.up)),
                            height: ThreadPreview.textHeight(lines: p.textLines.count))
         } else {
@@ -845,6 +851,31 @@ final class MeasureCache: @unchecked Sendable {
     private let lock = NSLock()
     private(set) var hits = 0, misses = 0, estimates = 0, reuses = 0
 
+    /// cmux: a text quote's root text and the column it wraps in (`ThreadPreview.make`).
+    struct QuoteKey: Hashable { var text: String; var maxWidth: CGFloat }
+    /// cmux: a text quote's lines as drawn and its widest line's width.
+    struct Quote: Equatable { var lines: [String]; var widest: CGFloat }
+    /// cmux: quote layouts by root text and column, at most `quoteLimit` (then emptied, as `streamStore`). A root is
+    /// quoted by each of its replies and every re-derivation (a picture loading, a status change) quotes it again.
+    private var quotes: [QuoteKey: Quote] = [:]
+    private static let quoteLimit = 2_048
+    private(set) var quoteHits = 0, quoteMisses = 0
+
+    /// cmux: the quote of root text `text` wrapped at `maxWidth`, laid out by `layout` on a miss (outside the lock).
+    func quote(_ text: String, maxWidth: CGFloat, layout: (String, CGFloat) -> Quote) -> Quote {
+        let k = QuoteKey(text: text, maxWidth: maxWidth)
+        lock.lock()
+        if let q = quotes[k] { quoteHits += 1; lock.unlock(); return q }
+        quoteMisses += 1
+        lock.unlock()
+        let q = layout(text, maxWidth)
+        lock.lock()
+        if quotes.count >= MeasureCache.quoteLimit { quotes.removeAll(keepingCapacity: true) }
+        quotes.updateValue(q, forKey: k) // dictionary write
+        lock.unlock()
+        return q
+    }
+
     /// A part whose content changes in place is a new measurement: text a host
     /// replaces under the same message id (an optimistic send, then the stored
     /// message), a link preview's metadata (title, site, image), an
@@ -1069,6 +1100,18 @@ enum RowBuilder {
                 if let r = m.replyTo { liveRoots.insert(r.messageId) }
             }
         }
+        // cmux: a reply's root by id, mapped once on the first quote (each quote scanned every loaded message for its root:
+        // O(replies x messages) per re-derivation, HomeQuoteRebuildCostTests). The first message of an id wins, as `first` did.
+        var rootIndex: [ID: Int]?
+        func rootMessage(_ id: ID) -> Message? {
+            if rootIndex == nil {
+                var map: [ID: Int] = [:]
+                map.reserveCapacity(s.conversation.messages.count)
+                for (i, x) in s.conversation.messages.enumerated() where map[x.id] == nil { map[x.id] = i }
+                rootIndex = map
+            }
+            return rootIndex?[id].flatMap { s.conversation.messages[checked: $0] } // checked
+        }
         func thread(_ x: Message, at i: Int) -> ID? {
             if let r = x.replyTo { return r.messageId }
             return liveRoots.contains(x.id) ? x.id : nil
@@ -1144,7 +1187,7 @@ enum RowBuilder {
             // A reply whose root is not directly above (and that does not
             // continue the same thread) gets a preview of the root.
             if let r = m.replyTo, !threadMode, connector == nil, let p = prev, p.id != r.messageId, p.replyTo != r {
-                let root = s.conversation.messages.first { $0.id == r.messageId }
+                let root = rootMessage(r.messageId)
                 let part = root.flatMap { r.partIndex < $0.parts.count ? $0.parts[r.partIndex] : nil }
                 var pv = ThreadPreview.make(root: r, part: part, count: replyCount[r.messageId] ?? 0, outgoing: root?.senderId == me, width: width)
                 // cmux: a group's quote of another person's message names them with their avatar (user, 2026-10-29).
