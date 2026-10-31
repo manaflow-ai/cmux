@@ -132,11 +132,7 @@ extension SidebarListViewComponents {
     func railReach(for row: SidebarRow) -> CGFloat {
         guard case .group = row.key else { return 0 }
         let membersX = inset + indentOffset(for: row)
-        // `inside` uses Chrome's corner geometry all the way to the list edge. The general
-        // header padding would clamp that overhang and put the line back under a member row.
-        let edgePadding = SidebarStyle.groupLineLayout == .inside ? 0 : SidebarStyle.groupEdgePadding
-        let barX = max(0, SidebarStyle.groupLineX(membersMinX: membersX) - SidebarStyle.groupHeaderOverhang)
-        return membersX - min(membersX, max(barX, edgePadding))
+        return membersX - SidebarStyle.groupBarX(membersMinX: membersX)
     }
     /// Whether `group` sits somewhere under `ancestor`, by the groups' parent links (cycle-safe).
     static func isNested(_ group: SidebarGroup, under ancestor: GroupID, in groups: [GroupID: SidebarGroup]) -> Bool {
@@ -378,7 +374,10 @@ extension SidebarListViewComponents {
             guard let ws = workspaces[id] else { return }
             view.configure(ws, row: row, badgeStyle: model.rowBadgeStyle)
             paintSecondaryFills(view, id)
-            view.isDropTarget = external?.proposal == .intoWorkspace(id) || drag?.target == .ontoWorkspace(id)
+            view.isDropTarget = external?.proposal == .intoWorkspace(id) || drag?.target == .ontoWorkspace(id) || standsForDropGroup(row)
+            // A group drawn as its one row draws its header's keyboard focus ring (`SidebarGroupKeys`).
+            view.isKeyboardFocused = showsFocusRing && row.standsForGroup && row.group == focusedGroup
+            view.standingGroup = row.standsForGroup ? row.group.map(standingGroupAccess) : nil
         case let (.item(id), view as SidebarItemListRowView):
             guard let item = listItems[id] else { return }
             view.configure(item, favicon: item.iconAddress.flatMap { SidebarModel.itemFavicon?($0) }, row: row)
