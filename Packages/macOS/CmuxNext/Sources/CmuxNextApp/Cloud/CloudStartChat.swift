@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
@@ -56,12 +57,17 @@ struct CloudStartChat {
         return services.cloud.isSignedIn ? nil : "not_signed_in"
     }
 
+    /// Whether `path` is an existing folder, read off the main thread.
+    @concurrent nonisolated private static func isFolder(_ path: String) async -> Bool {
+        var isFolder: ObjCBool = false
+        return FileManager.checked.fileExists(atPath: path, isDirectory: &isFolder) && isFolder.boolValue
+    }
+
     /// The start; returns the machine's name.
     private func run(_ start: AgentPaneCloudStart, tab: TabModel) async throws -> String {
         // The folder the page named, as Move to Cloud's `path` takes one: an existing folder, never
         // the home folder or the disk's root. A page could already start a chat on this Mac in it.
-        var isFolder: ObjCBool = false
-        guard let chat = start.cwd ?? tab.cwd, FileManager.default.fileExists(atPath: chat, isDirectory: &isFolder), isFolder.boolValue,
+        guard let chat = start.cwd ?? tab.cwd, await Self.isFolder(chat),
               let folder = CloudMoveFolder(chat: chat) else { throw CloudMove.Failure(message: CloudMoveStrings.noFolder) }
         guard !folder.isTooBroad else { throw CloudMove.Failure(message: CloudMoveStrings.homeFolder) }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
@@ -77,7 +83,8 @@ struct CloudStartChat {
         let context = AppActionContext(services: services)
         let anchor = try await CloudHandlers.terminalAnchor(on: machine, context)
         let seed = start.seed(cwd: remote.chat)
-        let pending = try services.agentTabs.open(in: anchor.pane.handle, of: machine.daemon, seed: AgentPaneSeedSource(seed))
+        let pending = try services.agentTabs.open(in: anchor.pane.handle, of: machine.daemon, seed: AgentPaneSeedSource(seed),
+                                                 idempotencyKey: start.tabKey)
         let opened = try await pending.value()
         CloudHandlers.show(anchor.id, context)
         if let pane = await machine.daemon.store.firstPane(mirroring: anchor.key) {

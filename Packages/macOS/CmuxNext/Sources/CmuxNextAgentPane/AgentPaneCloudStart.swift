@@ -34,6 +34,10 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         self.init(task: task, cwd: cwd as? String, harness: harness, model: model, key: key)
     }
 
+    /// The machine's chat tab's creation key: a retry of the same send (its answer was lost after
+    /// the machine's daemon made the tab) gets that tab back, never a second chat with the prompt again.
+    public var tabKey: String { "cloud-start-chat-" + key.lowercased() }
+
     /// The seed of the chat on the Cloud machine, in `cwd` (the folder's copy there): the person's
     /// prompt, sent once with the Send's gesture, on the agent and model the page picked.
     public func seed(cwd: String) -> AgentPaneSeed {
