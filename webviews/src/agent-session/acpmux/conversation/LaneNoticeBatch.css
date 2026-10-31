@@ -14,6 +14,7 @@
   height: var(--cv-message-line);
   padding-inline: var(--ds-space-1);
   border-radius: var(--ds-radius-control);
+  cursor: default;
 }
 .cv-lane-batch__toggle > svg {
   flex: none;
