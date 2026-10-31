@@ -232,5 +232,75 @@ class LocalSiteTests(unittest.TestCase):
             self.assertIn(status, (200, 204, 302, 404), filled)
 
 
+class HangTests(unittest.TestCase):
+    """Job 78618b4ec57bde51c8195e4a (cmux24, seed 368488418): the driver printed nothing after 'seed ... (150 ops)' for
+    45 min and the controller stopped it as hung. A slow op and a hung op must both name themselves."""
+
+    def test_op_watch_names_the_op_that_runs_past_its_deadline(self):
+        now = [100.0]
+        watch = model.OpWatch(limit_s=300, clock=lambda: now[0])
+        self.assertIsNone(watch.overdue())
+        watch.start(seed=368488418, index=7, op={"op": "open", "url": "http://x/big?kb=64"}, label="seed 368488418")
+        now[0] += 299
+        self.assertIsNone(watch.overdue())
+        now[0] += 2
+        hung = watch.overdue()
+        self.assertEqual((hung["seed"], hung["index"], hung["op"]["op"]), (368488418, 7, "open"))
+        self.assertGreaterEqual(hung["elapsed_s"], 300)
+        # Reported once, not on every tick.
+        self.assertIsNone(watch.overdue())
+        # A finished op is never overdue.
+        watch.start(seed=1, index=8, op={"op": "back"}, label="seed 1")
+        watch.done()
+        now[0] += 1000
+        self.assertIsNone(watch.overdue())
+
+    def test_a_hang_is_a_finding_when_the_app_does_not_answer(self):
+        op = {"op": "navigate", "url": "file:///etc/hosts"}
+        line, finding = model.hang_verdict(368488418, 2, op, 301, app_alive=True, ping_answered=False, main_stall_ms=290000)
+        self.assertTrue(finding)
+        self.assertTrue(line.startswith("FAIL HANG at op 2 navigate"), line)
+        self.assertIn("seed 368488418", line)
+        line, finding = model.hang_verdict(5, 3, {"op": "back"}, 301, app_alive=False, ping_answered=False, main_stall_ms=None)
+        self.assertTrue(finding)
+        self.assertIn("app process ended", line)
+
+    def test_a_hang_with_an_answering_app_is_the_harness(self):
+        line, finding = model.hang_verdict(9, 4, {"op": "download"}, 301, app_alive=True, ping_answered=True, main_stall_ms=12)
+        self.assertFalse(finding)
+        self.assertTrue(line.startswith("NOVERDICT HANG at op 4 download"), line)
+        self.assertIn("the harness", line)
+
+    def test_the_verdict_reader_takes_a_hang_line(self):
+        out = subprocess.run([sys.executable, os.path.join(HERE, "verdict.py")], capture_output=True, text=True,
+                             input="browser-fuzz: seed 1 op 2/150 navigate\nBROWSER-FUZZ-VERDICT FAIL HANG at op 2 navigate (seed 1)\n")
+        self.assertEqual(out.stdout.strip(), "FAIL HANG at op 2 navigate (seed 1)")
+
+
+class HangPathTests(unittest.TestCase):
+    """The driver's watchdog path end to end (its thread, the stacks, the verdict line, os._exit), with no app."""
+
+    def test_a_stuck_op_ends_the_run_with_a_hang_line_that_names_it(self):
+        script = (
+            "import sys, threading, time; sys.path.insert(0, %r)\n"
+            "import browser_fuzz as b, fuzz_model as m\n"
+            "class O: op_deadline = 0.2; ops = 150; build_config = 'debug'\n"
+            "b.WATCH_POLL_S = 0.05\n"
+            "b.LIVE['watch'] = m.OpWatch(0.2)\n"
+            "threading.Thread(target=b.watchdog, args=(O,), daemon=True).start()\n"
+            "b.LIVE['watch'].start(368488418, 3, {'op': 'back'}, 'seed 368488418')\n"
+            "time.sleep(30)\n"
+            "print('NOT REACHED')\n"
+        ) % HERE
+        out = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=60)
+        self.assertEqual(out.returncode, 2, out.stdout + out.stderr)
+        self.assertNotIn("NOT REACHED", out.stdout)
+        self.assertIn("browser-fuzz: HANG: seed 368488418 op 3 back", out.stdout)
+        self.assertIn("HANG stack of thread", out.stdout)
+        last = [l for l in out.stdout.splitlines() if l.startswith("BROWSER-FUZZ-VERDICT ")][-1]
+        self.assertTrue(last.startswith("BROWSER-FUZZ-VERDICT NOVERDICT HANG at op 3 back"), last)
+        self.assertIn("harness", last)
+
+
 if __name__ == "__main__":
     unittest.main()
