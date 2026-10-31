@@ -215,7 +215,8 @@ test("a failed sign-in retries its saved login after health refresh marks the ro
   await act(async () => codex.querySelector<HTMLButtonElement>("button")!.click());
   expect(status(container, "Codex")).toBe("Failed: Terminal could not open");
   auth.codex = "signedIn";
-  await act(async () => window.dispatchEvent(new Event("focus")));
+  // The page's own Event: jsdom refuses the runtime's global one.
+  await act(async () => window.dispatchEvent(new window.Event("focus")));
   await until(() => codex.dataset.harnessStatus === "ready", "the refreshed ready row");
   expect(codex.querySelector("button")?.textContent).toBe("Start Chat");
   await act(async () => codex.querySelector<HTMLButtonElement>("button")!.click());
