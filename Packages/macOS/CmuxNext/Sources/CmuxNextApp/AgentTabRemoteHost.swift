@@ -33,6 +33,8 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// A Cloud machine's link owner answer (``CloudMachineLinks/ownerLink``), read at each trust call
     /// and never kept. Nil for a machine that is not a Cloud machine.
     var ownerLink: AgentSessionAttachClient.OwnerLink?
+    /// The chat runs on the person's own Cloud VM (``RemoteAcpmuxWire/ownerCloud(_:served:)``).
+    var ownerCloud: RemoteAcpmuxWire.OwnerCloud?
 
     /// The keyed restart of the machine's acpmux (an SSH machine, or a paired server on the ssh
     /// route); nil where the app has no exec channel of its own (cx-0q7o).
@@ -72,7 +74,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         if let session {
             route = AgentPaneRemoteRoute(machine: machine, hostID: hostID, approvals: approvals) { [surface, session, endpoint, reconnect] in
                 let client = AgentSessionAttachClient(surface: surface, mode: mode, reconnect: reconnect, endpoint: endpoint)
-                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, host: hostID, linksAlias: linksHost, trust: mode == .attach && servesTrust ? ask : nil)
+                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, host: hostID, linksAlias: linksHost, trust: mode == .attach && servesTrust ? ask : nil, ownerCloud: mode == .attach ? ownerCloud : nil)
             }
         } else if let start, mode == .attach {
             // A new chat: nothing runs on that machine until the page's first send (cx-k21v). The
@@ -88,7 +90,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
                     }
                     let client = AgentSessionAttachClient(surface: started.surface, reconnect: reconnect, endpoint: endpoint)
                     return (AgentTabRemoteClient(client: client, mode: .attach), started.session)
-                }, host: hostID, linksAlias: linksHost, trust: servesTrust ? ask : nil)
+                }, host: hostID, linksAlias: linksHost, trust: servesTrust ? ask : nil, ownerCloud: ownerCloud)
             }
         } else {
             throw AgentRemoteStartRefusal.startUnsupported(machine: machine)
