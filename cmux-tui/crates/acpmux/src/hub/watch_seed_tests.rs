@@ -19,8 +19,13 @@ struct SeedStore {
 }
 
 impl Store for SeedStore {
-    fn list(&self) -> Result<Vec<SessionMeta>> { self.memory.list() }
-    fn load(&self, id: &str) -> Result<Option<SessionMeta>> { self.memory.load(id) }
+    fn list(&self) -> Result<Vec<SessionMeta>> {
+        self.memory.list()
+    }
+
+    fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
+        self.memory.load(id)
+    }
     fn save(&self, meta: &SessionMeta) -> Result<()> {
         if self.faults.save.swap(false, Ordering::SeqCst) {
             anyhow::bail!("injected metadata-save failure");
@@ -42,16 +47,28 @@ impl Store for SeedStore {
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
         self.memory.events(id, after, limit)
     }
-    fn delete(&self, id: &str) -> Result<()> { self.memory.delete(id) }
+    fn delete(&self, id: &str) -> Result<()> {
+        self.memory.delete(id)
+    }
 }
 
 fn persisted_offset(hub: &Hub, session: &Session) -> u64 {
-    hub.store.load(&session.id).unwrap().unwrap().watching.unwrap().offset
+    hub.store
+        .load(&session.id)
+        .unwrap()
+        .unwrap()
+        .watching
+        .unwrap()
+        .offset
 }
 
 fn markers(hub: &Hub, session: &Session) -> usize {
-    hub.store.events(&session.id, 0, usize::MAX).unwrap().iter()
-        .filter(|record| record.kind == "native_history").count()
+    hub.store
+        .events(&session.id, 0, usize::MAX)
+        .unwrap()
+        .iter()
+        .filter(|record| record.kind == "native_history")
+        .count()
 }
 
 /// The marker, its file-system sync and its metadata checkpoint are one ordered
@@ -86,20 +103,20 @@ async fn native_history_seed_survives_append_flush_and_checkpoint_failures() {
 
     // A lost journal append is never followed by a saved nonzero source cursor.
     faults.marker.store(true, Ordering::SeqCst);
-    hub.commit_watch_page(&session, before, mark.clone()).await;
+    assert!(!hub.commit_watch_page(&session, before, mark.clone()).await);
     assert_eq!(session.meta().watching.unwrap().offset, 0);
     assert_eq!(persisted_offset(&hub, &session), 0);
     assert_eq!(markers(&hub, &session), 0);
 
     // The append succeeded but fsync refused: leave the cursor unchanged.
     faults.flush.store(true, Ordering::SeqCst);
-    hub.commit_watch_page(&session, before, mark.clone()).await;
+    assert!(!hub.commit_watch_page(&session, before, mark.clone()).await);
     assert_eq!(persisted_offset(&hub, &session), 0);
     assert_eq!(markers(&hub, &session), 1);
 
     // The marker is already present and sync succeeds, but metadata save fails.
     faults.save.store(true, Ordering::SeqCst);
-    hub.commit_watch_page(&session, before, mark.clone()).await;
+    assert!(!hub.commit_watch_page(&session, before, mark.clone()).await);
     assert_eq!(persisted_offset(&hub, &session), 0);
     assert_eq!(markers(&hub, &session), 1);
 
@@ -107,7 +124,7 @@ async fn native_history_seed_survives_append_flush_and_checkpoint_failures() {
     // The next seed must reuse the existing marker and finish the checkpoint.
     let stored = hub.store.load(&session.id).unwrap().unwrap();
     session.meta.lock().unwrap().watching = stored.watching;
-    hub.commit_watch_page(&session, before, mark).await;
+    assert!(hub.commit_watch_page(&session, before, mark).await);
     assert_eq!(persisted_offset(&hub, &session), before);
     assert_eq!(markers(&hub, &session), 1, "seed marker was duplicated on retry");
     hub.shutdown_all().await;
