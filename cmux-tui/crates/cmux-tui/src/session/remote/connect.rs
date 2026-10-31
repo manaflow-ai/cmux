@@ -185,7 +185,7 @@ impl RemoteSession {
         // how we were installed, so it can translate for us or name our
         // update command when it refuses (server/api_revision_wire.rs).
         if ident.get("api_revision").is_some() {
-            use cmux_tui_core::release::{DISTRIBUTION_VERSION, InstallChannel};
+            use crate::version_report::{DISTRIBUTION_VERSION, InstallChannel};
             client_info.set(
                 "api_revision",
                 json!(
