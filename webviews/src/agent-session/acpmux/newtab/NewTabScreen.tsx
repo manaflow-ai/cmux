@@ -77,7 +77,7 @@ import type { NewTabWeather } from "./ambient";
 import { EnvironmentCard, SuggestionsCard } from "./StageCards";
 import { Icon } from "../icons/Icon";
 import { type NewTabTranslate, useNt } from "./strings";
-import { screenSections, type ScreenTemplate } from "./templates";
+import { DEFAULT_NEW_TAB_TEMPLATE, screenSections, type ScreenTemplate } from "./templates";
 import { type Translate, useT } from "../i18n";
 import { composerPlusSearchExtensions } from "../composerPlusRegistry";
 import { ChromeArea } from "../../../ui/HideableChrome";
@@ -227,7 +227,7 @@ type Props = NewTabScreenActions & {
   /// false: the field does not take the keyboard when the screen appears (Cmd-L gave it to the
   /// omnibar); Cmd-L on the page still focuses it when the page shows no omnibar.
   focusField?: boolean;
-  /// Which screen template draws the page (newtab/templates.ts); "default" when unset.
+  /// Which screen template draws the page (newtab/templates.ts); Minimal when unset.
   template?: ScreenTemplate;
   /// The widget view (Debug Settings `newTab.widgets`): the Projects and Needs you cards.
   widgets?: boolean;
@@ -285,7 +285,9 @@ export function NewTabScreen(props: Props) {
   // What the page shows or opens appears at once; exits keep their fades (noEntryMotion.ts).
   useNoEntryMotion();
   const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now, inputToken } = props;
-  const template = props.template ?? "default";
+  // NewTabPage resolves the host's unset template too, but keep this component safe when mounted
+  // directly (gallery/tests and embedders): the written default is Minimal, not the retired stage.
+  const template: ScreenTemplate = props.template ?? (DEFAULT_NEW_TAB_TEMPLATE as ScreenTemplate);
   const sections = screenSections(template);
   const widgets = props.pageWidgets ?? shownPageWidgets(template);
   // Claude Code desktop's new-session page (templates.ts stage, the Default template): the composer

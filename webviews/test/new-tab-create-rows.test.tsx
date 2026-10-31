@@ -129,6 +129,7 @@ async function render(calls: unknown[][]) {
   await act(async () =>
     root!.render(
       <NewTabScreen
+        template="default"
         snapshot={noChat()}
         omnibar={{ ...EMPTY_OMNIBAR, workspaces: [{ id: "ws", name: "ff-scratch" }] }}
         lastAgent="claude"
