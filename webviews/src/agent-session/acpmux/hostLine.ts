@@ -18,10 +18,12 @@ import type { Translate } from "./i18n";
 const PEER_LINK_REASONS = new Set(["peer_unreachable", "peer_disconnected"]);
 
 /// A peer link state in which the machine is on its way up or merely slow, never gone
-/// (`peer_link.rs` `PeerState`): `degraded` is an open socket whose handshake has not finished or a
-/// ping that went unanswered; `restarting` is a daemon that announced its restart and reconnects at
-/// once. The pane never says anything while a machine is in one of these.
-const SLOW_PEER_STATES = new Set(["degraded", "restarting"]);
+/// (`peer_link.rs` `PeerState`): `connecting` is acpmux's first attempt, still in flight;
+/// `degraded` is an open socket whose handshake has not finished or a ping that went unanswered;
+/// `restarting` is a daemon that announced its restart and reconnects at once. The pane never says
+/// anything while a machine is in one of these. (A first attempt that failed is `offline`, and a
+/// link lost after it was up is `reconnecting`: those are said past the deadline.)
+const SLOW_PEER_STATES = new Set(["connecting", "degraded", "restarting"]);
 
 /// How long a chat's machine may stay unreachable (reconnecting, or never reached yet) before the
 /// pane says so. acpmux never stops reconnecting a peer; two minutes without a link means the machine

@@ -38,11 +38,11 @@ const DAEMON_WORDS = [
 ];
 
 test("a reconnecting, connecting, slow or restarting peer shows no line, however long it lasts", () => {
-  for (const state of ["degraded", "restarting"]) {
+  for (const state of ["connecting", "degraded", "restarting"]) {
     expect(hostErrorShows(unreachable(state), 0)).toBe(false);
     expect(hostErrorShows(unreachable(state), 10 * PEER_LINK_DEADLINE_MS)).toBe(false);
   }
-  for (const state of ["reconnecting", "connecting", "offline"]) {
+  for (const state of ["reconnecting", "offline"]) {
     // Leo's case: 10 s into a reconnect. Not past the old host deadline either.
     expect(hostErrorShows(unreachable(state), 10_000)).toBe(false);
     expect(hostErrorShows(unreachable(state), HOST_ERROR_DEADLINE_MS)).toBe(false);
@@ -55,6 +55,7 @@ test("a reconnecting, connecting, slow or restarting peer shows no line, however
 
 test("a machine still unreachable past the deadline is said, once the person can act", () => {
   expect(hostErrorShows(unreachable("reconnecting"), PEER_LINK_DEADLINE_MS)).toBe(true);
+  expect(hostErrorShows(unreachable("offline"), PEER_LINK_DEADLINE_MS)).toBe(true);
   expect(hostErrorShows(new Error(LEOS), PEER_LINK_DEADLINE_MS)).toBe(true);
 });
 
