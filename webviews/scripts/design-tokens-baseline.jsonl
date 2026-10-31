@@ -178,10 +178,10 @@
 {"file":"agent-session/acpmux/subagents/subagents.css","kind":"spacing","property":"padding","values":{"0 14px":1,"0 10px":1,"0 12px 0 10px":1,"6px":1,"6px 8px 4px":1,"8px 10px":1}}
 {"file":"agent-session/acpmux/subagents/subagents.css","kind":"spacing","property":"padding-right","values":{"48px":1}}
 {"file":"agent-session/acpmux/subagents/subagents.css","kind":"spacing","property":"padding-top","values":{"2px":1}}
-{"file":"agent-session/acpmux/summary/summary.css","kind":"height","property":"height","values":{"26px":6,"6px":1,"22px":2,"14px":1,"18px":1,"40px":1}}
-{"file":"agent-session/acpmux/summary/summary.css","kind":"spacing","property":"gap","values":{"2px":5,"6px":4}}
-{"file":"agent-session/acpmux/summary/summary.css","kind":"spacing","property":"padding","values":{"8px 8px 10px":1,"4px 4px 4px 6px":1,"0 2px 4px 4px":1,"0 6px":1,"0 6px 6px":1,"0 0 6px":1,"2px 4px":1,"0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 6px":2,"6px 8px 0":2,"0 6px 0 9px":1,"10px 36px 10px 12px":1,"0 10px":1,"10px 8px 6px":1}}
-{"file":"agent-session/acpmux/summary/summary.css","kind":"spacing","property":"padding-right","values":{"2px":3}}
+{"file":"agent-session/acpmux/summary/summary.css","kind":"height","property":"height","values":{"26px":5,"6px":1,"22px":2,"14px":1,"18px":1,"40px":1}}
+{"file":"agent-session/acpmux/summary/summary.css","kind":"spacing","property":"gap","values":{"2px":5,"6px":3}}
+{"file":"agent-session/acpmux/summary/summary.css","kind":"spacing","property":"padding","values":{"8px 8px 10px":1,"4px 4px 4px 6px":1,"0 2px 4px 4px":1,"0 6px":1,"0 6px 6px":1,"0 0 6px":1,"2px 4px":1,"0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 6px":1,"6px 8px 0":1,"10px 36px 10px 12px":1,"0 10px":1,"10px 8px 6px":1}}
+{"file":"agent-session/acpmux/summary/summary.css","kind":"spacing","property":"padding-right","values":{"2px":2}}
 {"file":"agent-session/acpmux/summary/WorkflowCard.css","kind":"height","property":"height","values":{"calc(var(--ds-control-icon) + 2px)":1}}
 {"file":"agent-session/acpmux/summary/WorkflowSideTab.css","kind":"height","property":"height","values":{"calc(var(--ds-space-3) + 1px)":1}}
 {"file":"agent-session/acpmux/summary/WorkflowSideTab.css","kind":"height","property":"min-height","values":{"calc(var(--ds-space-2) + var(--ds-space-1) + 2px)":1}}
@@ -298,7 +298,7 @@
 {"file":"pages/settings/refined.css","kind":"height","property":"height","values":{"16px":1}}
 {"file":"pages/settings/refined.css","kind":"height","property":"min-height","values":{"30px":1}}
 {"file":"pages/settings/refined.css","kind":"spacing","property":"padding","values":{"32px clamp(24px, 4vw, 64px) var(--content-pad-end)":1,"2px":1,"3px 10px":1,"10px 12px 8px":1,"20px 12px var(--content-pad-end)":1,"10px":1}}
-{"file":"pages/settings/styles.css","kind":"height","property":"height","values":{"22px":2,"18px":1,"1px":1,"16px":2,"14px":1,"68px":1,"26px":1,"12px":1,"6px":1}}
+{"file":"pages/settings/styles.css","kind":"height","property":"height","values":{"22px":2,"18px":1,"1px":1,"16px":2,"14px":1,"68px":1,"26px":1,"6px":1,"12px":1}}
 {"file":"pages/settings/styles.css","kind":"height","property":"min-height","values":{"72px":1}}
 {"file":"pages/settings/styles.css","kind":"spacing","property":"gap","values":{"10px":4,"1px":2,"6px":12,"2px":2,"3px":1}}
 {"file":"pages/settings/styles.css","kind":"spacing","property":"padding","values":{"14px 10px":1,"5px 6px":2,"9px 8px":1,"6px 0 8px":1,"2px 8px":1,"3px 8px":1,"1px":2,"1px 10px":1,"3px 10px":1,"3px":1,"3px 6px":1,"1px 2px 1px 8px":1,"10px 0 4px 32px":1,"6px 0 0 40px":1,"0 6px":2,"0 7px":1,"2px":1,"6px":1,"2px var(--density-inset) 6px":1}}
