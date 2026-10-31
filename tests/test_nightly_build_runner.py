@@ -35,6 +35,8 @@ DEV = "glaeda-dev-std-xcode-26.6"
 LARGE, SMALL = "blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26"
 DEDICATED = "glaeda-trusted-next-nightly"
 BUILDER = ("glaeda-trusted-light-xcode-26.6", "glaeda-runner-cmux7s-mac-mini-nightly-next", DEDICATED)
+TRUSTED_POOL = "glaeda-trusted-std-xcode-26.6"
+TRUSTED_RUNNER = "glaeda-runner-cmux15-glaeda"
 # Each guarded job and the picker job whose outputs route it.
 GUARDED = {"build-nightly-app": "pick-nightly-build-runner"}
 
@@ -163,6 +165,32 @@ class DedicatedRoute(unittest.TestCase):
         self.assertEqual(rescue.job_pool({"labels": [DEDICATED]}), DEDICATED)
 
 
+class TrustedRoute(unittest.TestCase):
+    def test_trusted_pair_is_selected_with_both_labels(self) -> None:
+        selector, why = picker.trusted_route(
+            TRUSTED_POOL, TRUSTED_RUNNER,
+            [runner(TRUSTED_POOL, TRUSTED_RUNNER)],
+            event="push", ref="refs/heads/nightly-next",
+        )
+        self.assertEqual(selector, f'["{TRUSTED_POOL}","{TRUSTED_RUNNER}"]')
+        self.assertIn("idle", why)
+
+    def test_unread_trusted_pair_stays_on_the_reserved_route(self) -> None:
+        selector, why = picker.trusted_route(
+            TRUSTED_POOL, TRUSTED_RUNNER, None,
+            event="push", ref="refs/heads/nightly-next",
+        )
+        self.assertEqual(selector, f'["{TRUSTED_POOL}","{TRUSTED_RUNNER}"]')
+        self.assertIn("unread", why)
+
+    def test_trusted_pair_never_leaks_to_other_events(self) -> None:
+        selector, _ = picker.trusted_route(
+            TRUSTED_POOL, TRUSTED_RUNNER, None,
+            event="workflow_dispatch", ref="refs/heads/nightly-next",
+        )
+        self.assertEqual(selector, "")
+
+
 class BlacksmithRoute(unittest.TestCase):
     def test_the_moving_label_is_picked(self) -> None:
         self.assertEqual(picker.blacksmith_route(LARGE, snapshot({LARGE: 90}), NOW)[0], SMALL)
@@ -202,7 +230,7 @@ class Main(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "out"
             base = {"GITHUB_REPOSITORY": "o/r", "GITHUB_OUTPUT": str(output), "GITHUB_RUN_ATTEMPT": "1",
-                    "GITHUB_EVENT_NAME": "push",
+                    "GITHUB_EVENT_NAME": "push", "GITHUB_REF": "refs/heads/nightly-next",
                     "ROUTE_TOKEN": "r", "SNAPSHOT_TOKEN": "s", "OWNED_LABELS": f"{DEV} {SIDE}", "CANDIDATE": LARGE}
             clock = Clock()
             self.assertEqual(picker.main({**base, **env}, now=NOW, argv=argv, sleep=clock.sleep, clock=clock,
@@ -211,8 +239,17 @@ class Main(unittest.TestCase):
 
     def test_idle_owned_first(self) -> None:
         out = self.run_main({}, read_runners=lambda t, r: [runner(SIDE)], read_snapshot=lambda t, r: snapshot({}))
-        self.assertEqual(out, {"dedicated": "", "owned": SIDE, "blacksmith": LARGE, "runner": SIDE, "helper": SIDE,
+        self.assertEqual(out, {"dedicated": "", "trusted": "", "owned": SIDE, "blacksmith": LARGE, "runner": SIDE, "helper": SIDE,
                                "attempt": "1"})
+
+    def test_trusted_next_pair_is_emitted_before_shared_owned_pool(self) -> None:
+        out = self.run_main(
+            {"TRUSTED_POOL": TRUSTED_POOL, "TRUSTED_RUNNER": TRUSTED_RUNNER},
+            read_runners=lambda t, r: [runner(TRUSTED_POOL, TRUSTED_RUNNER), runner(SIDE)],
+            read_snapshot=lambda t, r: snapshot({}),
+        )
+        self.assertEqual(out["trusted"], f'["{TRUSTED_POOL}","{TRUSTED_RUNNER}"]')
+        self.assertEqual(out["owned"], SIDE)
 
     def test_a_rerun_picks_like_attempt_one(self) -> None:
         # A re-run that runs the picker again (a full re-run, or one after the picker failed) picks
@@ -221,7 +258,7 @@ class Main(unittest.TestCase):
             with self.subTest(attempt=attempt):
                 out = self.run_main({"GITHUB_RUN_ATTEMPT": attempt}, read_runners=lambda t, r: [runner(SIDE)],
                                     read_snapshot=lambda t, r: snapshot({LARGE: 90}))
-                self.assertEqual(out, {"dedicated": "", "owned": SIDE, "blacksmith": SMALL, "runner": SIDE,
+                self.assertEqual(out, {"dedicated": "", "trusted": "", "owned": SIDE, "blacksmith": SMALL, "runner": SIDE,
                                        "helper": SIDE, "attempt": attempt})
                 out = self.run_main({"GITHUB_RUN_ATTEMPT": attempt, "DEDICATED_LABEL": DEDICATED},
                                     read_runners=lambda t, r: [runner(*BUILDER), runner(SIDE)],
@@ -231,7 +268,7 @@ class Main(unittest.TestCase):
     def test_busy_owned_goes_to_blacksmith(self) -> None:
         out = self.run_main({}, read_runners=lambda t, r: [runner(SIDE, busy=True)],
                             read_snapshot=lambda t, r: snapshot({LARGE: 90}))
-        self.assertEqual(out, {"dedicated": "", "owned": "", "blacksmith": SMALL, "runner": SMALL, "helper": "",
+        self.assertEqual(out, {"dedicated": "", "trusted": "", "owned": "", "blacksmith": SMALL, "runner": SMALL, "helper": "",
                                "attempt": "1"})
 
     def test_failed_reads_never_fail_the_job(self) -> None:
@@ -240,7 +277,7 @@ class Main(unittest.TestCase):
         out = self.run_main({"UNREAD_OWNED_FALLBACK": "1"}, read_runners=broken, read_snapshot=broken)
         # Fleet first: unread runners queue the build on the first watched owned pool, not Blacksmith (run
         # 41203691245, 2026-10-31: a 403 rate limit on /actions/runners sent the tip build to a stalled label).
-        self.assertEqual(out, {"dedicated": "", "owned": SIDE, "blacksmith": LARGE, "runner": SIDE, "helper": SIDE,
+        self.assertEqual(out, {"dedicated": "", "trusted": "", "owned": SIDE, "blacksmith": LARGE, "runner": SIDE, "helper": SIDE,
                                "attempt": "1"})
 
     def test_unread_runners_with_no_watched_owned_label_still_take_blacksmith(self) -> None:
@@ -264,7 +301,7 @@ class Main(unittest.TestCase):
         fleet = [runner(*BUILDER), runner(SIDE)]
         out = self.run_main({"DEDICATED_LABEL": DEDICATED}, read_runners=lambda t, r: fleet,
                             read_snapshot=lambda t, r: snapshot({}))
-        self.assertEqual(out, {"dedicated": DEDICATED, "owned": DEDICATED, "blacksmith": LARGE, "runner": DEDICATED,
+        self.assertEqual(out, {"dedicated": DEDICATED, "trusted": "", "owned": DEDICATED, "blacksmith": LARGE, "runner": DEDICATED,
                                "helper": SIDE, "attempt": "1"})
 
     def test_the_helper_takes_an_idle_owned_mac_while_the_app_build_holds_the_builder(self) -> None:
@@ -292,7 +329,7 @@ class Main(unittest.TestCase):
             with self.subTest(event=event):
                 out = self.run_main({"DEDICATED_LABEL": DEDICATED, "GITHUB_EVENT_NAME": event},
                                     read_runners=lambda t, r: fleet, read_snapshot=lambda t, r: snapshot({}))
-                self.assertEqual(out, {"dedicated": "", "owned": SIDE, "blacksmith": LARGE, "runner": SIDE,
+                self.assertEqual(out, {"dedicated": "", "trusted": "", "owned": SIDE, "blacksmith": LARGE, "runner": SIDE,
                                        "helper": SIDE, "attempt": "1"})
                 out = self.run_main({"DEDICATED_LABEL": DEDICATED, "GITHUB_EVENT_NAME": event}, argv=("dedicated",),
                                     read_runners=lambda t, r: fleet)
@@ -302,7 +339,7 @@ class Main(unittest.TestCase):
         fleet = [runner(*BUILDER, busy=True), runner(SIDE)]
         out = self.run_main({"DEDICATED_LABEL": DEDICATED}, read_runners=lambda t, r: fleet,
                             read_snapshot=lambda t, r: snapshot({}))
-        self.assertEqual(out, {"dedicated": "", "owned": SIDE, "blacksmith": LARGE, "runner": SIDE, "helper": SIDE,
+        self.assertEqual(out, {"dedicated": "", "trusted": "", "owned": SIDE, "blacksmith": LARGE, "runner": SIDE, "helper": SIDE,
                                "attempt": "1"})
         # No idle owned Mac either: Blacksmith.
         out = self.run_main({"DEDICATED_LABEL": DEDICATED}, read_runners=lambda t, r: [runner(*BUILDER, status="offline")],
