@@ -53,7 +53,7 @@ extension AppControl {
     /// The signed-in session and its team, behind the Cloud policy and the Labs gate.
     nonisolated static func vmIssuer(_ services: AppServices) async throws -> VMIssuer {
         let (cloud, baseURL) = try await MainActor.run { () throws -> (CloudService, URL) in
-            if let refusal = Self.policyRefusal("vm.agent_key.create", disabled: services.registry.disabledFeatures) { throw refusal }
+            if let refusal = ControlError.policyRefusal("vm.agent_key.create", disabled: services.registry.disabledFeatures) { throw refusal }
             guard services.settings?.snapshot.previewFeatures == true else {
                 throw ControlError(code: "labs_off", message: Self.vmText(.labsOff))
             }
