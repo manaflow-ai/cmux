@@ -37,10 +37,18 @@ struct CloudStartChatMachineTests {
     @Test func aMachineMarkedForChatsIsTakenFirstEvenWithChatsOpen() {
         let machines = [Self.machine("vm-free", "spare"), Self.machine("vm-chats", "cloud-chats", chats: 4)]
         #expect(CloudStartChat.pick(machines, user: Self.me, used: []) == "vm-chats")
-        #expect(CloudStartChat.isMarkedForChats("Cloud-Chats-2"))
-        #expect(!CloudStartChat.isMarkedForChats("cloud-chats-x"))
+        #expect(AgentPaneCloudStart.isMarkedForChats("Cloud-Chats-2"))
+        #expect(!AgentPaneCloudStart.isMarkedForChats("cloud-chats-x"))
         // A teammate's machine for chats is still theirs.
         #expect(CloudStartChat.pick([Self.machine("vm-c", "cloud-chats", by: Self.teammate)], user: Self.me, used: []) == nil)
+    }
+
+    @Test(arguments: [CloudMachine.Status.pausing, .starting, .deleting], [true, false])
+    func aChangingMachineIsSkippedEvenWhenMarkedForChats(status: CloudMachine.Status, connected: Bool) {
+        let changing = Self.machine("vm-changing", "cloud-chats", status: status, connected: connected)
+        let free = Self.machine("vm-free", "spare")
+        #expect(CloudStartChat.pick([changing, free], user: Self.me, used: []) == "vm-free")
+        #expect(CloudStartChat.pick([changing], user: Self.me, used: []) == nil)
     }
 
     @Test func laneShellVMsAreNeverPicked() {
@@ -50,8 +58,8 @@ struct CloudStartChatMachineTests {
         slugged.slug = "fs-lane-7"
         #expect(CloudStartChat.pick([slugged], user: Self.me, used: []) == nil)
         // Only the pool's numbered names.
-        #expect(!CloudStartChat.isLanePool("fs-lane-notes"))
-        #expect(!CloudStartChat.isLanePool("lane-vm-"))
+        #expect(!AgentPaneCloudStart.isLanePool("fs-lane-notes"))
+        #expect(!AgentPaneCloudStart.isLanePool("lane-vm-"))
     }
 
     @Test func anIdlePausedMachineOfMineIsFreeAndAPersonsPauseIsNot() {
@@ -70,8 +78,8 @@ struct CloudStartChatMachineTests {
     }
 
     @Test func aNewMachineForChatsGetsAFreeName() {
-        #expect(CloudStartChat.newMachineName(taken: ["fs-lane-1"]) == "cloud-chats")
-        #expect(CloudStartChat.newMachineName(taken: ["Cloud-Chats", "cloud-chats-2"]) == "cloud-chats-3")
+        #expect(AgentPaneCloudStart.newMachineName(taken: ["fs-lane-1"]) == "cloud-chats")
+        #expect(AgentPaneCloudStart.newMachineName(taken: ["Cloud-Chats", "cloud-chats-2"]) == "cloud-chats-3")
     }
 
     /// #28845: the first try took vm-a; then vm-a dropped its link and the list's order changed, so
@@ -213,14 +221,14 @@ struct CloudStartChatMachineTests {
     @Test func aPageNamedFolderIsCopiedOnlyAsItsCheckedUploadRoot() throws {
         let folder = try #require(CloudMoveFolder(chat: "/Users/me/src/paint"))
         var start = try #require(AgentPaneCloudStart(params: ["task": "t", "cwd": "/Users/me/src/paint", "key": UUID().uuidString]))
-        #expect(!CloudStartChat.uploads(folder, as: start))
+        #expect(!start.uploads(folder))
         start.uploadRoot = folder.root
-        #expect(CloudStartChat.uploads(folder, as: start))
+        #expect(start.uploads(folder))
         start.uploadRoot = "/Users/me/src/paint/sub"
-        #expect(!CloudStartChat.uploads(folder, as: start))
+        #expect(!start.uploads(folder))
         // The tab's own folder (no `cwd`): only that folder itself, never a working copy above it.
         let tabs = try #require(AgentPaneCloudStart(params: ["task": "t", "key": UUID().uuidString]))
-        #expect(CloudStartChat.uploads(folder, as: tabs))
+        #expect(tabs.uploads(folder))
         let repo = FileManager.default.temporaryDirectory.appendingPathComponent("cn-start-\(UUID().uuidString.prefix(8))")
         defer { try? FileManager.default.removeItem(at: repo) }
         let project = repo.appendingPathComponent("project")
@@ -228,16 +236,16 @@ struct CloudStartChatMachineTests {
         try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
         let inRepo = try #require(CloudMoveFolder(chat: project.path))
         #expect(!inRepo.subpath.isEmpty)
-        #expect(!CloudStartChat.uploads(inRepo, as: tabs))
+        #expect(!tabs.uploads(inRepo))
         let atRoot = try #require(CloudMoveFolder(chat: repo.path))
-        #expect(CloudStartChat.uploads(atRoot, as: tabs))
+        #expect(tabs.uploads(atRoot))
         // Never the home folder or a folder above it (a tab in /Users), whatever `isTooBroad` says.
         let users = try #require(CloudMoveFolder(chat: "/Users"))
-        #expect(!CloudStartChat.uploads(users, as: tabs, home: "/Users/me"))
+        #expect(!tabs.uploads(users, home: "/Users/me"))
         let home = try #require(CloudMoveFolder(chat: "/Users/me"))
-        #expect(!CloudStartChat.uploads(home, as: tabs, home: "/Users/me"))
-        #expect(!CloudStartChat.uploads(try #require(CloudMoveFolder(chat: "/")), as: tabs, home: "/Users/me"))
-        #expect(CloudStartChat.uploads(atRoot, as: tabs, home: "/Users/me"))
+        #expect(!tabs.uploads(home, home: "/Users/me"))
+        #expect(!tabs.uploads(try #require(CloudMoveFolder(chat: "/")), home: "/Users/me"))
+        #expect(tabs.uploads(atRoot, home: "/Users/me"))
     }
 
     /// Router review at 6beb0f2: with no `cwd` the tab's own folder is copied, and its `.git` file
@@ -254,11 +262,11 @@ struct CloudStartChatMachineTests {
         let tabs = try #require(AgentPaneCloudStart(params: ["task": "t", "key": UUID().uuidString]))
         let folder = try #require(CloudMoveFolder(chat: project.path))
         #expect(folder.subpath.isEmpty)
-        #expect(!CloudStartChat.uploads(folder, as: tabs, home: "/Users/nobody"))
+        #expect(!tabs.uploads(folder, home: "/Users/nobody"))
         // A working copy whose git folder is its own `.git` folder is copied.
         try FileManager.default.removeItem(at: project.appendingPathComponent(".git"))
         try FileManager.default.createDirectory(at: project.appendingPathComponent(".git"), withIntermediateDirectories: true)
-        #expect(CloudStartChat.uploads(try #require(CloudMoveFolder(chat: project.path)), as: tabs, home: "/Users/nobody"))
+        #expect(tabs.uploads(try #require(CloudMoveFolder(chat: project.path)), home: "/Users/nobody"))
     }
 
     /// The create's key is the send's, so a retry after a lost create answer never makes a second VM;

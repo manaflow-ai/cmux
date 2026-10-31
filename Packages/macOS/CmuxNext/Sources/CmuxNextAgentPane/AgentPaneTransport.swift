@@ -426,7 +426,7 @@ import CmuxNextCompat
 
     private func arrived(_ id: Int) {
         guard id == current, let socket else { return }
-        pacer.schedule(urgent: socket.pageWaits) { [weak self] in self?.flush() ?? AgentPaneFlush(delivered: false, more: false) }
+        pacer.schedule(urgent: socket.pageWaits, answers: socket.answersWaiting) { [weak self] in self?.flush() ?? AgentPaneFlush(delivered: false, more: false) }
     }
 
     /// Delivers one batch, and says whether it made a call and whether more is waiting.

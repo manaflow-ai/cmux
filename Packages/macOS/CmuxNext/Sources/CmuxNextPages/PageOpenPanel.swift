@@ -14,6 +14,9 @@ public import WebKit
 @MainActor
 public final class PageOpenPanel: NSObject, WKUIDelegate {
     private let openPanel: MadeAheadOpenPanel
+    /// Called with the files the person chose, before the page gets them: a pick in the system
+    /// panel, which page script can't make (the agent pane records where they came from).
+    public var onChosen: (@MainActor ([URL]) -> Void)?
 
     /// - Parameter openPanel: The app's made-ahead panel (`AppServices.openPanel`).
     public init(openPanel: MadeAheadOpenPanel) {
@@ -35,7 +38,10 @@ public final class PageOpenPanel: NSObject, WKUIDelegate {
         // The one file-input path (WebFileInputAnswering), shared with the WebKit browser tab.
         openPanel.answerFileInput(allowsMultipleSelection: parameters.allowsMultipleSelection,
                                   allowsDirectories: parameters.allowsDirectories,
-                                  window: webView.window, completion: completionHandler)
+                                  window: webView.window) { [weak self] urls in
+            if let urls, !urls.isEmpty { self?.onChosen?(urls) }
+            completionHandler(urls)
+        }
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS

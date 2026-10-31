@@ -175,7 +175,7 @@ public struct StatusMapping {
         StatusStack.resolve(tabs.flatMap(reports) + reports(status), honoring: honored)
     }
 
-    /// A workspace's merged status, each tab's own (a listed tab row's mark) and whether any tab has
+    /// A workspace's merged status, each tab's own (a hover card tab row's mark) and whether any tab has
     /// agent work, from one read of each tab's reports: ``summary(tabs:status:)``, ``summary(_:)``
     /// per tab and ``isWorking(tabs:)`` at once (u9696, Lawrence's scratch/a-hover-tabs).
     public func summaries(tabs: [TabModel], status: WorkspaceStatus? = nil)

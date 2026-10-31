@@ -38,7 +38,9 @@ for (const [code, connection] of cases) {
       const bridge = new BridgePageClient(
         {
           async postMessage(body) {
-            const { id } = body as { id: number };
+            const { id, t } = body as { id: number; t: string };
+            // Only auth reads count: the account stream's subscribe (a `sub`) gets no sub id and is dropped.
+            if (t !== "call") return { t: "ok", id, value: {} };
             reads += 1;
             if (reads === 1) throw new Error("daemon restarted");
             if (reads === 2) return { t: "err", id, code, message: "auth refused", retryable };
