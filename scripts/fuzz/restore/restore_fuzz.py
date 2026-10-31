@@ -318,9 +318,11 @@ def log_hosts(label):
     hosts = host_rows()
     listed_answer, _ = cli("terminal", "list")
     terms = sorted({first(t, "id", "terminal_id") for t in listed(listed_answer, "terminals") if isinstance(t, dict)} - {None})
-    unlisted = [h for h in hosts if not any(t in h["argv"] for t in terms)]
+    # A host's argv names its owner and session, not its terminal id, so hosts are compared by count only.
+    shown = sum(len(w["tabs"]) for w in (daemon_state() or {}).values())
     row = {"t": round(time.time() - T0, 2), "label": label, "hosts": len(hosts), "terminals_listed": len(terms),
-           "hosts_not_naming_a_listed_terminal": len(unlisted), "sample_unlisted": unlisted[:3], "terminal_ids": terms[:200]}
+           "hosts_minus_listed": len(hosts) - len(terms), "fz_tabs_shown": shown, "sample_hosts": hosts[:3],
+           "terminal_ids": terms[:200]}
     with open(os.path.join(opts.out, "hosts.jsonl"), "a") as f:
         f.write(json.dumps(row) + "\n")
     HOSTS_MAX[0] = max(HOSTS_MAX[0], len(hosts))
