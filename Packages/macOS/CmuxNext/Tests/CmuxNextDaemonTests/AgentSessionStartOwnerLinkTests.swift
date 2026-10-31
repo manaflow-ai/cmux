@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Testing
 @testable import CmuxNextDaemon
 
@@ -90,6 +91,38 @@ import Testing
         let trusted = try await trust(serving: [DaemonCapability.agentSessionTrustVMKind.rawValue], ownerLink: link(nil, 3, 3, 3))
         #expect(trusted.refusal == nil)
         #expect(trusted.frame?["vm_kind"] as? String == "owner")
+    }
+
+    /// A connection made before the first owner read never carries the owner word: an earlier
+    /// call's connection is retired and a new one made inside the reads. A client with an
+    /// attachment keeps its connection, is refused, and its attachment is not told it ended.
+    @Test func anOwnerWordGoesOnlyOnAConnectionMadeInsideTheReads() async throws {
+        let caps = ["agent-session-attach-v1", "agent-session-start-v1", "agent-session-trust-v1",
+                    DaemonCapability.agentSessionStartVMKind.rawValue]
+        let daemon = try PresenceDaemon(capabilities: caps)
+        defer { daemon.stop() }
+        let client = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
+        _ = try await client.trust(cwd: "/w", level: nil)
+        _ = try? await client.start(cwd: "/w", harness: nil, ownerLink: link(3, 3, 3, 3))
+        await client.close()
+        #expect(daemon.frames.filter { $0["cmd"] as? String == "identify" }.count == 2)
+        let sent = daemon.frames.first { $0["cmd"] as? String == "agent-session-start" }
+        #expect(sent?["vm_kind"] as? String == "owner")
+
+        let attachedDaemon = try PresenceDaemon(capabilities: caps)
+        defer { attachedDaemon.stop() }
+        let attached = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: attachedDaemon.path) }
+        let events = OSAllocatedUnfairLock<[String]>(initialState: [])
+        _ = try await attached.attach(afterSeq: nil, beforeSeq: nil, limit: nil, kinds: nil) { name, _ in
+            events.withLock { $0.append(name) }
+        }
+        await #expect(throws: AgentSessionAttachError.self) {
+            _ = try await attached.start(cwd: "/w", harness: nil, ownerLink: link(nil, 3, 3, 3))
+        }
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(!events.withLock { $0 }.contains("agent-session-closed"))
+        #expect(!attachedDaemon.frames.contains { $0["cmd"] as? String == "agent-session-start" })
+        await attached.close()
     }
 
     /// The connection the owner answer was checked for ends right after the last check: the start
