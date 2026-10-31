@@ -21,8 +21,8 @@ path. The ownership lead owns the crate after its first landing and reviews fiel
   share) through `NewColumnWidth.plan(mode:)`. Each mode only picks the new column's width: since
   2026-10-31 (R3b, Lawrence: "creating new columns must never resize existing columns") no mode
   resizes a column that is there (fixed no longer shrinks a lone full-width column, fitScreen no
-  longer resizes the visible columns), and the daemon's layout reducer refuses a create that would
-  (`resized_columns`).
+  longer resizes the visible columns). The app sends only the new column's width; a daemon check in
+  the layout reducer follows separately (the reducer is an app FFI input).
 - `layout.dockColumnEdge` (nearest: Dock Column's nearest-edge rule; or right, left, top,
   bottom), `layout.dockColumnMode` (docked); when set they are Dock Column's defaults too, `layout.minimumPaneWidth`
   (200 pt), `layout.minimumPaneHeight` (64 pt): Settings window (General > Columns) and cmux.json;

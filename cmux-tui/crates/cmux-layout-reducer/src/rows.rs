@@ -32,15 +32,9 @@ pub struct Row {
 }
 
 impl Column {
-    /// A full-width column of one implicit row (a screen's split tree).
+    /// A column of one implicit row.
     pub fn single(id: ColumnId, panes: Vec<PaneId>) -> Self {
-        Self::sized(id, panes, 1000)
-    }
-
-    /// A column of one implicit row, `width_permille` thousandths of the
-    /// viewport wide.
-    pub fn sized(id: ColumnId, panes: Vec<PaneId>, width_permille: u16) -> Self {
-        Self { id, panes, rows: Vec::new(), width_permille }
+        Self { id, panes, rows: Vec::new() }
     }
 
     /// The index of the row holding pane position `position` (0 for the

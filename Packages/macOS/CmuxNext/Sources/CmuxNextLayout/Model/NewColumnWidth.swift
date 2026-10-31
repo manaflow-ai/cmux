@@ -13,7 +13,7 @@ public nonisolated struct ColumnResize: Hashable, Sendable {
 /// The width of a new column. It is the whole plan: a new column takes new
 /// space and never resizes a column that is there (R3b, Lawrence
 /// 2026-10-31: "creating new columns must never resize existing columns";
-/// the daemon's layout reducer refuses a create that would).
+/// the daemon stores each column's width and no create sends one).
 public nonisolated struct NewColumnPlan: Hashable, Sendable {
     public var width: Double
 

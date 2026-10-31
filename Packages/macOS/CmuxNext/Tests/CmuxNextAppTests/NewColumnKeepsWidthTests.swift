@@ -5,8 +5,8 @@ import Testing
 
 /// R3b (Lawrence 2026-10-31): "creating new columns must never resize existing columns". After any
 /// create that makes a column, every column that was there keeps its width exactly, in points; the
-/// new column is new space and the strip scrolls. The daemon's layout reducer owns the rule
-/// (cmux-layout-reducer `resized_columns`); the app plans only the new column's width and lays a
+/// new column is new space and the strip scrolls. The daemon stores each column's width; the app
+/// plans only the new column's width and sends no other width, and lays a
 /// split-tree screen out as the full-width column it becomes.
 @MainActor
 struct NewColumnKeepsWidthTests {

@@ -123,10 +123,8 @@ impl ResourceMutationPlan {
 
     /// [`Self::stage`] for `operation`, checked when it must conserve tabs:
     /// the layout reducer must accept the plan's op before the live state
-    /// changes, and the live result must keep I1-I3, match the reducer's
-    /// placement and, for an op that creates a column, keep every other
-    /// column's width (R3b), or the previous state is restored and the
-    /// error returned.
+    /// changes, and the live result must keep I1-I3 and match the reducer's
+    /// placement, or the previous state is restored and the error returned.
     /// Returns the replaced state only for a checked operation.
     pub(crate) fn stage_checked(
         &mut self,
@@ -165,14 +163,9 @@ impl ResourceMutationPlan {
             .map(|kind| layout::model_result(operation, &before_model, kind))
             .transpose()?;
         let before = self.stage(state);
-        let result = layout::validate_layout_transition(
-            operation,
-            &before_model,
-            model.as_ref(),
-            self.layout_op.as_ref(),
-            state,
-        )
-        .and_then(|()| docks_kept(operation, state));
+        let result =
+            layout::validate_layout_transition(operation, &before_model, model.as_ref(), state)
+                .and_then(|()| docks_kept(operation, state));
         if let Err(error) = result {
             *state = before;
             return Err(error);
