@@ -207,7 +207,11 @@ nonisolated extension SidebarLayoutOptions {
     func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
         var content = baseRowContent(ws, machine: machine)
         content.detailedStatus = detailedStatus
-        content.machine = machines[ws.machineID].map(SidebarMachineMark.init)
+        // A Cloud machine's rows sit under its header (`keepsHeaderInOneList`), which names it: no mark before the
+        // title (Leo 2026-10-30: "a fuckign ICON ON THE LEFT"). Group by Status mixes computers under one header: it stays.
+        if let machine = machines[ws.machineID], machine.kind != .cloud || grouping.byStatus {
+            content.machine = SidebarMachineMark(machine)
+        }
         // Every mode (compact, minimal, workspaces as tabs, expanded), mark drawn or not: VoiceOver says the
         // computer and its status when it cannot connect, as no line does (review of #28510 at 58ee6d24).
         content.machineLabel = machine.flatMap { $0.isEmpty ? nil : $0 }
