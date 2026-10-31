@@ -338,6 +338,7 @@ extension AgentTabStore {
         wakeStates[key] = nil
         tabStores[key] = nil
         unsentDrafts.set("", for: key)
+        unsentDrafts.abandonIdentity(key)
         launchImages.drop(key)
         seenLive.remove(key)
         forgetUnusedStores()
@@ -362,6 +363,7 @@ extension AgentTabStore {
     /// Follows tab `key` in `store`'s tree, so its view state goes when the tree drops it.
     func track(_ key: String, in store: DaemonStore) {
         tabStores[key] = store
+        if ProvisionalTab.isProvisional(key) { unsentDrafts.expectIdentity(key) }
         if store.liveTreeLists(tab: key) == true { seenLive.insert(key) }
         let id = ObjectIdentifier(store)
         guard watches[id] == nil else { return }

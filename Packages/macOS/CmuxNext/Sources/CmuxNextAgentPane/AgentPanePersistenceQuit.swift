@@ -20,6 +20,7 @@ public struct AgentPanePersistenceQuit {
         // WebKit can keep delivering messages while the lanes drain or CEF stops; those are refused.
         drafts?.finishSaving()
         anchors?.finishSaving()
+        await drafts?.identitiesSettled()
         await work?.shutdown()
     }
 }

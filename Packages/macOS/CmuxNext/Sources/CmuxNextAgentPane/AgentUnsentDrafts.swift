@@ -16,6 +16,8 @@ public final class AgentUnsentDrafts {
     private let store: AgentPaneStateFile?
     private var drafts: [String: String]
     private var finishing = false
+    private var pendingIdentities: Set<String> = []
+    private var identityWaiters: [CheckedContinuation<Void, Never>] = []
 
     /// - Parameters:
     ///   - file: The JSON file; nil keeps nothing.
@@ -69,9 +71,25 @@ public final class AgentUnsentDrafts {
 
     /// The store gave provisional tab `key` its id `real`.
     public func move(_ key: String, to real: String) {
-        guard !finishing, key != real, let text = drafts.removeValue(forKey: key) else { return }
-        drafts[real] = text
-        save()
+        guard key != real, !finishing || pendingIdentities.contains(key) else { return }
+        if let text = drafts.removeValue(forKey: key) {
+            drafts[real] = text
+            save()
+        }
+        settledIdentity(key)
+    }
+
+    /// A tab shown under `key` is still being created. Quit waits for its accepted draft's real id.
+    public func expectIdentity(_ key: String) {
+        guard !finishing else { return }
+        pendingIdentities.insert(key)
+    }
+
+    /// The pending tab closed or failed to be created, so no restored tab can use its draft.
+    public func abandonIdentity(_ key: String) {
+        guard pendingIdentities.contains(key) else { return }
+        if drafts.removeValue(forKey: key) != nil { save() }
+        settledIdentity(key)
     }
 
     /// Returns once every save so far is on disk (tests; the quit awaits the lanes instead).
@@ -79,8 +97,25 @@ public final class AgentUnsentDrafts {
         await writer?.flushed()
     }
 
-    /// Quit's last accepted save: no later model or session callback may queue another write.
-    func finishSaving() { finishing = true }
+    /// Refuses new edits immediately; accepted drafts may still follow an in-flight tab creation.
+    func finishSaving() {
+        finishing = true
+        pendingIdentities.formIntersection(drafts.keys)
+    }
+
+    /// Quit settles accepted drafts' identities before it starts the final lane drain.
+    func identitiesSettled() async {
+        guard !pendingIdentities.isEmpty else { return }
+        await withCheckedContinuation { identityWaiters.append($0) }
+    }
+
+    private func settledIdentity(_ key: String) {
+        pendingIdentities.remove(key)
+        guard pendingIdentities.isEmpty else { return }
+        let waiters = identityWaiters
+        identityWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
 
     /// Hands the drafts to the writer: encoded and written on the files lane, never on the main thread
     /// (a draft holds up to a million characters); an empty set removes the file.

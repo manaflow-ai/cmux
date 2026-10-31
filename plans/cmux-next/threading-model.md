@@ -98,6 +98,9 @@ one (the update rollback clone) can use up the engine-stop deadline before CefSh
 blockShutdown item after shutdown began. A small state file a main-actor owner saves on every change (a new
 chat's unsent drafts, chats' scroll places) goes through StateFileWriter (CmuxNextWakeups): encoded and written on lane
 .files at bestEffort, blockShutdown, latest save wins (at most one write runs and one waits).
+Quit seals new draft and scroll edits in one main-actor turn. An accepted draft whose provisional tab is still
+being created may follow that creation's real id before the final lane drain; a failed or closed creation releases
+that wait. Only those pending identities are awaited, within the same quit deadline, before the lanes shut down.
 
 Donating waits (allowed for a short main-thread wait): os_unfair_lock, OSAllocatedUnfairLock, CmuxNextCompat.Mutex,
 dispatch_sync onto a serial queue (GCD sync QoS override), awaiting a Task value (Swift escalation), BackgroundWork.run

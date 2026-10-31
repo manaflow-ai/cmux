@@ -13,6 +13,12 @@ import Testing
 /// has a session, acpmux keeps its draft and the tab's copy is gone.
 @MainActor
 struct UnsentDraftTests {
+    private static func until(_ ready: () -> Bool) async -> Bool {
+        let clock = ContinuousClock(), deadline = clock.now.advanced(by: .seconds(5))
+        while !ready(), clock.now < deadline { await Task.yield() }
+        return ready()
+    }
+
     static func request(_ method: String, _ params: [String: Any]) -> AgentPaneRequest {
         AgentPaneRequest(body: ["method": method, "params": params])
     }
@@ -69,7 +75,8 @@ struct UnsentDraftTests {
         #expect(await relaunched.seed(for: "tab-1", session: nil)?.take()?.draft == "before engine stop")
     }
 
-    @Test func aPendingTabsAcceptedDraftFollowsItsRealIDDuringQuit() async throws {
+    @Test(arguments: [false, true])
+    func aPendingTabsAcceptedDraftFollowsItsRealIDDuringQuit(abandoned: Bool) async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "unsent-drafts-identity-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -84,23 +91,43 @@ struct UnsentDraftTests {
         defer { tabs.release("tab-real"); tabs.release(provisional) }
         let text = "accepted while the tab was still being created"
         #expect(drafts.set(text, for: provisional))
+        await drafts.flushed()
 
-        let quit = Task { await AgentPanePersistenceQuit(drafts: drafts, anchors: nil, work: work).drain() }
+        var quitFinished = false
+        let quit = Task {
+            await AgentPanePersistenceQuit(drafts: drafts, anchors: nil, work: work).drain()
+            quitFinished = true
+        }
         // Observe the public refusal boundary, without sleeps or a test-only quit hook. Repeating
         // the unchanged text queues no save while the quit task gets its main-actor turn.
-        for _ in 0..<1000 {
-            if !drafts.set(text, for: provisional) { break }
-            await Task.yield()
-        }
-        #expect(!drafts.set(text, for: provisional), "quit did not seal new edits")
+        #expect(await Self.until { !drafts.set(text, for: provisional) }, "quit did not seal new edits")
+        #expect(!quitFinished, "quit must settle an accepted draft's identity before its final drain")
         // The pending create's reply or event echo uses this same rekey path while quit awaits.
-        tabs.rekey(provisional, to: "tab-real")
+        if abandoned { tabs.release(provisional) } else { tabs.rekey(provisional, to: "tab-real") }
         await quit.value
-        await work.shutdown()
 
         let relaunched = AgentUnsentDrafts(file: file, work: nil)
-        #expect(await relaunched.seed(for: "tab-real", session: nil)?.take()?.draft == text)
+        #expect(await relaunched.seed(for: "tab-real", session: nil)?.take()?.draft == (abandoned ? nil : text))
         #expect(relaunched.seed(for: provisional, session: nil) == nil)
+        await work.shutdown() // cleanup happens only after the durability assertions
+    }
+
+    @Test func aPendingTabWithoutADraftDoesNotKeepQuitWaiting() async {
+        let drafts = AgentUnsentDrafts(file: nil, work: nil)
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), environment: [:], showcase: true,
+                                 defaults: UserDefaults())
+        tabs.unsentDrafts = drafts
+        let provisional = ProvisionalTab().id
+        tabs.track(provisional, in: DaemonStore())
+        var quitFinished = false
+        let quit = Task {
+            await AgentPanePersistenceQuit(drafts: drafts, anchors: nil, work: nil).drain()
+            quitFinished = true
+        }
+        let finishedWithoutIdentity = await Self.until { quitFinished }
+        tabs.release(provisional) // also cleans up a broken implementation that waited for an empty draft
+        await quit.value
+        #expect(finishedWithoutIdentity)
     }
 
     /// #25852 (threading item 1, main-thread blocking): a draft holds up to a million characters and is saved
