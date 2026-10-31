@@ -663,19 +663,23 @@ actor APIClient {
     
     func setTokens(accessToken: String?, refreshToken: String?) async {
         let previousRefreshToken = await tokenStore.getStoredRefreshToken()
-        await tokenStore.setTokens(accessToken: accessToken, refreshToken: refreshToken)
+        // Bump the epoch before the write: a refresh for the new token that
+        // starts during the write must not be treated as a stale outcome.
         if previousRefreshToken != refreshToken {
             resetRefreshCooldownState()
         }
+        await tokenStore.setTokens(accessToken: accessToken, refreshToken: refreshToken)
         await refreshCoordinator.tokensDidChange(store: tokenStore, refreshToken: refreshToken)
     }
     
     func setTokens(accessToken: String?, refreshToken: String?, tokenStoreOverride: any TokenStoreProtocol) async {
         let previousRefreshToken = await tokenStoreOverride.getStoredRefreshToken()
-        await tokenStoreOverride.setTokens(accessToken: accessToken, refreshToken: refreshToken)
+        // Bump the epoch before the write: a refresh for the new token that
+        // starts during the write must not be treated as a stale outcome.
         if previousRefreshToken != refreshToken {
             resetRefreshCooldownState()
         }
+        await tokenStoreOverride.setTokens(accessToken: accessToken, refreshToken: refreshToken)
         await refreshCoordinator.tokensDidChange(store: tokenStoreOverride, refreshToken: refreshToken)
     }
     

@@ -191,6 +191,10 @@ actor TokenStorageAvailabilityProbe {
         let userCache = CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user")
         sessionCache.setHasTokens(true)
         try userCache.save(cachedUser)
+        let atomicRead: @Sendable () async -> AuthStoredTokenRead = {
+            let read = await client.readStoredTokens()
+            return AuthStoredTokenRead(accessToken: read.access, refreshToken: read.refresh, isAvailable: read.available)
+        }
         let coordinator = AuthCoordinator(
             client: client,
             sessionCache: sessionCache,
@@ -200,10 +204,7 @@ actor TokenStorageAvailabilityProbe {
             config: .test,
             launch: .plain(),
             isTokenStorageAvailable: { await availability.isAvailable() },
-            readStoredTokens: atomicReads ? {
-                let read = await client.readStoredTokens()
-                return AuthStoredTokenRead(accessToken: read.access, refreshToken: read.refresh, isAvailable: read.available)
-            } : nil
+            readStoredTokens: atomicReads ? atomicRead : nil
         )
         return (coordinator, store)
     }
