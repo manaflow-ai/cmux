@@ -198,13 +198,17 @@ fn client_runtime() -> std::io::Result<tokio::runtime::Runtime> {
     tokio::runtime::Builder::new_multi_thread().enable_all().build()
 }
 
-/// `token create` that the app may mint. With `--config` (an explicit
-/// issuer) or `-h`/`--help`, cmux-vm handles it in process instead.
+/// `token create` that the app may mint. With an explicit issuer or team
+/// (`--config`, `--base-url`, `--team`) or `-h`/`--help`, cmux-vm handles it
+/// in process instead: the app mints only at its own signed-in issuer and team.
 pub(super) fn is_token_create(plan: &[String]) -> bool {
     let words: Vec<&str> =
         plan.iter().map(String::as_str).filter(|word| *word != "--json").collect();
     let in_process = |word: &&str| {
-        matches!(*word, "-h" | "--help" | "--config") || word.starts_with("--config=")
+        matches!(*word, "-h" | "--help")
+            || ["--config", "--base-url", "--team"].iter().any(|flag| {
+                *word == *flag || word.strip_prefix(flag).is_some_and(|rest| rest.starts_with('='))
+            })
     };
     matches!(words.as_slice(), ["token", "create", ..]) && !words.iter().any(in_process)
 }
