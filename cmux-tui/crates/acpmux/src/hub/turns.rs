@@ -802,6 +802,8 @@ impl Hub {
         }
         // Its stalled count starts once its prompt is written (`stalled_turn.rs`).
         Self::hold_stalled_count(session);
+        // A new turn: its own end decides the dot, not an earlier one's (`work_below.rs`).
+        self.clear_deferred_unread(session);
         self.set_status(session, SessionStatus::Running);
         self.watch_silent_turn(session, &turn_id).await;
         // Tests only: a pause right before the write (`full_access_bound::WriteSeam`).
@@ -1349,9 +1351,11 @@ impl Hub {
         // Its harness wrote the turn's spend: read it (`usage_view.rs`).
         self.refresh_usage_stats_of(session);
         self.reset_stream(session);
-        // Nobody showing it: the sidebar dot and `wait --until done` see it.
+        // Nobody showing it: the sidebar dot and `wait --until done` see it. While work it
+        // started still runs (a background subagent, a working sub-session) the task is not
+        // done: the dot waits for that work to end (`work_below.rs`, manaflow-ai/cmux#25563).
         if !self.shown(session) {
-            session.meta.lock().unwrap().unread = true;
+            self.mark_unread_unless_work_below(session);
         }
         if session.status() != SessionStatus::Closed {
             let alive = child.is_alive().await;
