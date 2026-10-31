@@ -106,7 +106,9 @@ test("send retains ID-bound image and video order through a reply before echo", 
       ],
     };
     io.emit(sent.sessionId, { mux: "user_message", msg: record });
-    await settle(() => io.rows().some((row) => row.id.startsWith("user-") && row.text === "before\nbetween\nafter"));
+    await settle(() =>
+      io.rows().some((row) => row.promptId === sent._meta.acpmux.promptId && row.text === "before\nbetween\nafter"),
+    );
     const row = io.rows().find((row) => row.text === "before\nbetween\nafter") as any;
     expect(row.inlineParts[2].companionOf).toBe(row.inlineParts[1].blockIndex);
     expect(row.inlineParts[4].video).toEqual(movie.video);
@@ -185,7 +187,9 @@ test("an inline paste goes exactly once on retry and edits keep whole tokens", a
       mux: "user_message",
       msg: { promptId: sent._meta.acpmux.promptId, text: "a\npasted\nb\nc" },
     });
-    await settle(() => io.rows().some((row) => row.id.startsWith("user-") && row.text === "a\npasted\nb\nc"));
+    await settle(() =>
+      io.rows().some((row) => row.promptId === sent._meta.acpmux.promptId && row.text === "a\npasted\nb\nc"),
+    );
     const row = io.rows().find((row) => row.text === "a\npasted\nb\nc")!;
     const draft = await io.client.resendPrompt(row.id, row.text!);
     await io.client.send(draft.input, draft.attachments);
@@ -328,8 +332,8 @@ test("strip echo Retry and Edit retain local bytes, original path and video", as
         ],
       },
     });
-    await settle(() => io.rows().some((r) => r.id.startsWith("user-") && r.text === "strip"));
-    const row = io.rows().find((r) => r.id.startsWith("user-") && r.text === "strip")!;
+    await settle(() => io.rows().some((r) => r.promptId === sent._meta.acpmux.promptId && r.text === "strip"));
+    const row = io.rows().find((r) => r.promptId === sent._meta.acpmux.promptId && r.text === "strip")!;
     expect(await io.client.resendPrompt(row.id, "strip")).toEqual({ input: "strip", attachments });
     expect(await io.client.resendPrompt(row.id, "edited")).toEqual({ input: "edited", attachments });
   } finally {
@@ -423,7 +427,8 @@ test("a placed prompt marks its attachments placed, through the echo; an unplace
         ],
       },
     });
-    const echoed = () => io.rows().find((row) => row.id.startsWith("user-") && row.text === "look");
+    const echoed = () =>
+      io.rows().find((row) => row.promptId === sent._meta.acpmux.promptId && row.text === "look");
     await settle(() => echoed() !== undefined);
     expect(echoed()!.inlineParts?.[1]).toMatchObject({ placed: true });
 

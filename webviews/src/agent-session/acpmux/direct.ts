@@ -6325,6 +6325,7 @@ export class AcpmuxDirectClient {
         else this.emit();
         throw error;
       }
+      const refusedAtTurn = queued && !String(code ?? "").startsWith("native.");
       // The connection went before acpmux took it (`rejectPending`, a closed client): this client's
       // rows go with it, so the sender gets the prompt back instead of a row nobody will see.
       if (!taken && (this.closed || code === "native.timed_out")) {
@@ -6341,7 +6342,13 @@ export class AcpmuxDirectClient {
         throw error;
       }
       const row = this.rows.get(rowId);
-      if (row) {
+      if (row && taken && !refusedAtTurn) {
+        // The daemon already echoed this prompt. Its durable row intentionally remains mounted, so
+        // a later transport error must not turn an accepted prompt into a failed retry card.
+        this.deliveries.get(promptId)?.timers.forEach(clearTimeout);
+        this.deliveries.delete(promptId);
+        if (error && typeof error === "object") Object.assign(error, { taken: true });
+      } else if (row) {
         // A new row object: the transcript's rows are memoized on identity and version. The
         // bubble says why it got no reply in one plain sentence chosen by the refusal's reason and
         // code (sendFailure.ts); the refuser's own words and code stay for Details.
@@ -6372,7 +6379,6 @@ export class AcpmuxDirectClient {
         // turn's error, a steer's, a dropped connection) is the transcript's, and the prompt never
         // goes back to the composer, where a send would run it twice. A queued prompt refused when
         // its turn came never ran: that refusal is still the sender's to give back.
-        const refusedAtTurn = queued && !String(code ?? "").startsWith("native.");
         if (taken && !refusedAtTurn && error && typeof error === "object") Object.assign(error, { taken: true });
       }
       this.optimisticPromptRows.delete(promptId);
