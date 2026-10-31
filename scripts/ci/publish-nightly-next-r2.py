@@ -9,7 +9,8 @@ follow-up job that never holds the feed.
 
   upload --file F [--file ...]
       Writes each file to <prefix><name>, write-once, all at once (one thread
-      per file), then reads each back from the public base and checks its size.
+      per file), then reads each back from R2 and checks its size and SHA-256
+      against the local file's, and checks the public base serves it at that size.
   rewrite --feed F --name N [--name ...]
       Points every enclosure <github-prefix><N> in F at <public-base>/<N>.
       --if-public rewrites only names the public base serves at the enclosure's
@@ -41,6 +42,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -99,6 +101,27 @@ def public_length(url: str, attempts: int = 5) -> int | None:
     return None
 
 
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def stored_digest(key: str) -> tuple[int, str]:
+    """(size, SHA-256) of the object's bytes as R2 stores them, read back through the S3 API.
+
+    Straight from R2, not the public base: a CDN read can trickle (files.cmux.com served a binary at
+    4-35 KB/s), and upload-r2-object.py --download-to bounds each attempt and retries."""
+    with tempfile.TemporaryDirectory(prefix="nightly-next-r2-readback-") as scratch:
+        copy = Path(scratch) / "object"
+        subprocess.run([sys.executable, str(UPLOADER), "--endpoint-url", env("R2_ENDPOINT"),
+                        "--bucket", env("NIGHTLY_NEXT_R2_BUCKET"), "--key", key, "--download-to", str(copy)],
+                       check=True)
+        return copy.stat().st_size, file_sha256(copy)
+
+
 def upload_one(path: Path) -> str:
     key = env("NIGHTLY_NEXT_R2_PREFIX") + path.name
     guard_key(key)
@@ -109,12 +132,18 @@ def upload_one(path: Path) -> str:
     elif path.suffix == ".txt":
         content_type = "text/plain; charset=utf-8"
     subprocess.run(uploader_args(path, key, IMMUTABLE_CACHE, content_type) + ["--write-once"], check=True)
-    size = path.stat().st_size
+    size, sha256 = path.stat().st_size, file_sha256(path)
+    # The stored bytes, not only a length: an object of the right length with other bytes (stale or
+    # corrupt) must not pass the readback.
+    stored = stored_digest(key)
+    if stored != (size, sha256):
+        raise RuntimeError(f"s3://{env('NIGHTLY_NEXT_R2_BUCKET')}/{key} holds {stored[0]} bytes with SHA-256 "
+                           f"{stored[1]}, expected {size} bytes with SHA-256 {sha256}")
     url = public_base() + path.name
     served = public_length(url)
     if served != size:
         raise RuntimeError(f"{url} serves {served} bytes, expected {size}")
-    return f"{path.name}: {size} bytes in {time.monotonic() - started:.1f} s, live at {url}"
+    return f"{path.name}: {size} bytes, SHA-256 {sha256}, in {time.monotonic() - started:.1f} s, live at {url}"
 
 
 def upload(files: list[Path]) -> int:

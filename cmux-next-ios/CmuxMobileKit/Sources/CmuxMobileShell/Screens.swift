@@ -40,6 +40,7 @@ struct HomeScreen: View {
         @Bindable var shell = shell
         NavigationStack(path: $shell.homePath) {
             ConversationsHome(store: shell.store, macFilter: shell.macFilter,
+                              reconnect: shell.live.map { live in { macID in await live.reconnectFeed(macID: macID) } },
                               selectMac: shell.live.map { live in { live.select(macID: $0) } }, open: { route in
                 if let chief = route.chiefRoute {
                     shell.homePath.append(chief)
@@ -76,6 +77,7 @@ struct WorkspacesScreen: View {
                                isLinkTarget: { live.isLinked(macID: $0) })
                 },
                 refresh: shell.live.map { live in { await live.refreshWorkspaces() } },
+                retryLoad: { await shell.retryWorkspaces() },
                 switchTeam: { shell.switchTeam(to: $0) },
                 openAccount: {
                     shell.tab = .settings
@@ -93,7 +95,7 @@ struct WorkspacesScreen: View {
                     // WorkspacesList owns the title and the Mac chip row.
                     SidebarToolbarItem(sidebar: shell.sidebar)
                 }
-                .cmuxMobileBanner(shell.banner)
+                .cmuxMobileBanner(shell.banner, retry: shell.live.map { live in { live.retryConnection() } })
         }
     }
 }
