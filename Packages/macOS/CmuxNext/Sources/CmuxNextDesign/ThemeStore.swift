@@ -207,6 +207,8 @@ public final class ThemeStore {
         guard follows != accentFollowsArt else { return false }
         accentFollowsArt = follows
         generation += 1
+        // A test's tree (``ThemeScope/init(root:)``) recomputes, as for a theme change (`applyChrome`).
+        if !publishesGlobally { root?.accentSourceDidChange() }
         if publishesGlobally {
             ThemeRepaint.batch {
                 root?.accentSourceDidChange()
