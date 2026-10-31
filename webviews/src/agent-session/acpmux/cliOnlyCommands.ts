@@ -61,9 +61,14 @@ export function cliOnlyCommand(
 export function commandWaitsForTurn(
   prompt: string,
   harness: string | undefined,
-  commands: readonly { name: string }[] | undefined,
+  commands: readonly { name: string; source?: string }[] | undefined,
 ): boolean {
   if (agentKey(harness) !== "claude" || !commands?.length) return false;
   const name = /^\/(\S+)(?:\s|$)/.exec(prompt.trim())?.[1]?.toLowerCase();
-  return name !== undefined && commands.some((command) => command.name.toLowerCase() === name);
+  // cmux's own commands (cmuxCommands.ts) share the menu's list; their passthrough forms
+  // (`/model opus`, `/plan explain`) keep the send they had.
+  return (
+    name !== undefined &&
+    commands.some((command) => command.source !== "cmux" && command.name.toLowerCase() === name)
+  );
 }

@@ -20,6 +20,13 @@ describe("commandWaitsForTurn", () => {
     expect(commandWaitsForTurn("please /loop", "claude", commands)).toBe(false);
   });
 
+  test("cmux's own commands in the same list keep their send", () => {
+    const merged = [...commands, { name: "model", source: "cmux" }, { name: "plan", source: "cmux" }];
+    expect(commandWaitsForTurn("/model opus", "claude", merged)).toBe(false);
+    expect(commandWaitsForTurn("/plan explain", "claude", merged)).toBe(false);
+    expect(commandWaitsForTurn("/loop", "claude", merged)).toBe(true);
+  });
+
   test("other harnesses and a chat with no command list are unchanged", () => {
     expect(commandWaitsForTurn("/loop", "codex", commands)).toBe(false);
     expect(commandWaitsForTurn("/loop", undefined, commands)).toBe(false);
