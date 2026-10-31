@@ -40,7 +40,9 @@ struct ChannelsPageStateTests {
         #expect(prs.first?["number"] as? Int == 42)
         #expect(prs.first?["url"] as? String == "https://github.com/manaflow-ai/cmux/pull/42")
         #expect(builds[0]["compare_url"] as? String == "https://github.com/manaflow-ai/cmux/compare/bbbbbbbb...cccccccc")
-        #expect(builds[0]["health_title"] as? String == "Awaiting Verdict")
+        // No verdict: no badge, not "Awaiting Verdict" on every build.
+        #expect(builds[0]["health"] as? String == "pending")
+        #expect(builds[0]["health_title"] is NSNull)
         // The installed build: You Are Here, promoted, nothing to compare.
         #expect(builds[1]["installed"] as? Bool == true)
         #expect(builds[1]["compare_url"] is NSNull)

@@ -102,6 +102,7 @@ const mockFreestyle = () => {
   const vms = new Map<string, Vm>()
   const snaps = new Map<string, { id: string; sourceVmId: string }>()
   const files = new Map<string, { content: string; mode: number }>()
+  const creates: Array<Record<string, unknown>> = []
   let n = 0
   const vmBy = (x: string) => vms.get(x) ?? [...vms.values()].find((v) => v.slug === x)
   const fetchFn: typeof fetch = async (input, init) => {
@@ -119,6 +120,7 @@ const mockFreestyle = () => {
     })()
     const json = (b: unknown, status = 200) => Response.json(b, { status })
     if (parts[0] === "vms" && parts.length === 1 && req.method === "POST") {
+      creates.push(body)
       if (vmBy(String(body.slug))) return json({ code: "CONFLICT" }, 409)
       const id = `fsvm-${++n}`
       const rules = ((body.tls as { rules?: Array<EdgeTlsRule> } | undefined)?.rules ?? []).map((r) => ({ id: `tls-${++n}`, domain: r.domain, rule: r }))
@@ -178,7 +180,7 @@ const mockFreestyle = () => {
     file: (vmId, path) => files.get(`${vmId}:${path}`) ?? null,
     rule: (vmId, domain) => vms.get(vmId)?.rules.find((r) => r.domain === domain)?.rule ?? null
   }
-  return { fetchFn, seen }
+  return { fetchFn, seen, creates }
 }
 
 describe("CloudProvider contract", () => {
@@ -196,7 +198,10 @@ describe("CloudProvider contract", () => {
   })
 
   it("the Freestyle provider keeps the contract over a mocked transport", async () => {
-    const { fetchFn, seen } = mockFreestyle()
+    const { fetchFn, seen, creates } = mockFreestyle()
     await scenario(new FreestyleCloudProvider("test-only-key", "https://freestyle.test", "cmuxnp-test-vmimg-contract", fetchFn), seen)
+    // Every create names the VM's own team as its Freestyle customer.
+    expect(creates.map((body) => body.customer)).toContainEqual({ customerId: TAG.team })
+    for (const body of creates) expect(body.customer).toEqual({ customerId: (body.metadata as Record<string, unknown>).cmux_next_team })
   })
 })
