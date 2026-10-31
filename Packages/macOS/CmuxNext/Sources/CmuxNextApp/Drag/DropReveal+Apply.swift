@@ -28,14 +28,14 @@ extension AppServices {
         if reveal.makesKey, let controller { windows.bringToFront(controller) }
     }
 
-    /// The window that will show `tab` after a move into `workspaceID` (its
-    /// owner window when open), else the window showing the tab now.
-    func landingWindow(tab: String, workspaceID: String?) -> WindowController? {
+    /// The window that will show a tab after a move into `workspaceID` (its
+    /// owner window when open), else the one showing `tabWorkspace` (the tab's now).
+    func landingWindow(tabWorkspace: String?, workspaceID: String?) -> WindowController? {
         let value = windows.registry.value
         if let workspaceID, let owner = value.owner(of: workspaceID), value.window(owner)?.isOpen == true {
             return windows.controller(for: owner)
         }
-        return self.workspaceID(ofTab: tab).flatMap { value.owner(of: $0) }.flatMap(windows.controller(for:))
+        return tabWorkspace.flatMap { value.owner(of: $0) }.flatMap(windows.controller(for:))
     }
 
     /// The reveal for a move an action started (palette, menu, key, CLI):

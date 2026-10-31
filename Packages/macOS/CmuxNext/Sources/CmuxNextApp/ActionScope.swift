@@ -17,7 +17,7 @@ struct ActionScope {
         if let target = invocation.target ?? invocation["tab"]?.targetValue ?? invocation["pane"]?.targetValue {
             switch target.kind {
             case .tab:
-                guard let (_, pane) = services.locateTab(target.id) else { return notFound(RefusalStrings.noTab(target.id)) }
+                guard let (_, pane) = AppActionContext(services: services).targetTab(target.id, invocation) else { return notFound(RefusalStrings.noTab(target.id)) }
                 // In a hidden or parked workspace: no controller to act on.
                 guard let controller = services.paneController(for: pane) else {
                     services.registry.refuse(RefusalStrings.notShownInAnyWindow(target.description))
