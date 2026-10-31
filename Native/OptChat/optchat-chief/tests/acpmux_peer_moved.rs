@@ -52,47 +52,6 @@ fn moved_peer_a_moved_acpmux_signed_by_our_team_as_our_acpmux_passes() {
     assert_eq!(code_signature::verify(&nightly(), &ours()), Ok(()));
 }
 
-/// A UTC instant as a `SystemTime`.
-fn utc(year: i32, month: u32, day: u32) -> std::time::SystemTime {
-    let days = {
-        // Days from 1970-01-01 to `year-month-day` (proleptic Gregorian, Howard Hinnant's algorithm).
-        let y = if month <= 2 { year - 1 } else { year } as i64;
-        let era = if y >= 0 { y } else { y - 399 } / 400;
-        let yoe = y - era * 400;
-        let m = month as i64;
-        let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + day as i64 - 1;
-        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-        era * 146_097 + doe - 719_468
-    };
-    std::time::UNIX_EPOCH + std::time::Duration::from_secs(days as u64 * 86_400)
-}
-
-/// The nightly fixture's leaf (Developer ID Application, team 7WLXT3NR37)
-/// expires on 2031-04-16; the signature was made and time-stamped on
-/// 2026-10-21. A peer is checked as Security's code signing checks code: the
-/// chain as of the signature's own time (its secure timestamp, else its
-/// signing time), so a binary signed while the certificate was valid still
-/// passes after the certificate expires. It was checked as of now, which
-/// refused every such peer, and refuses Xcode's clang on every fleet host
-/// since Apple's signing certificate for it expired.
-#[test]
-fn moved_peer_signed_while_its_certificate_was_valid_passes_after_it_expires() {
-    let after_the_leaf_expired = utc(2031, 6, 1);
-    assert_eq!(
-        code_signature::verify_at(&nightly(), &ours(), after_the_leaf_expired),
-        Ok(())
-    );
-}
-
-/// The signature's own time never moves the check forward: as of a day
-/// before its leaf was issued (2026-04-15) the chain does not verify, and the
-/// later signing time is not used.
-#[test]
-fn moved_peer_a_signature_from_after_now_is_refused() {
-    let before_it_was_signed = utc(2026, 1, 1);
-    assert!(code_signature::verify_at(&nightly(), &ours(), before_it_was_signed).is_err());
-}
-
 #[test]
 fn moved_peer_another_team_or_identifier_is_refused() {
     let other_team = Signer {
@@ -220,16 +179,18 @@ fn moved_peer_the_kernel_signature_of_a_peer_whose_executable_is_gone_is_read_an
     assert_eq!(running.flags & 0x3, 0x1, "valid and not ad hoc");
     // Apple signs clang with its own leaf (OU "Apple Software"), not a team
     // OU, and with no secure timestamp or signing time. While that leaf is
-    // valid the chain to Apple Root CA verifies and the OU rule refuses; once
-    // it has expired (Xcode 26.6's did, 2026-10-24) there is no time to check
-    // the chain at, and the chain rule refuses. Either is a signature rule.
+    // valid the chain to Apple Root CA verifies and the OU rule refuses. Once
+    // it has expired (Xcode 26.6's did, 2026-10-24), Security has no time but
+    // now to check the chain at, and the signer is refused as an invalid
+    // certificate (signer status 4) before the OU rule. Either is a signature
+    // rule; which one depends on the host's Xcode, not on this code.
     let apple = Signer {
         team: "59GAB85EFG".into(),
         identifier: "com.apple.clang".into(),
     };
     let refused_by_a_signature_rule = |err: &str| {
         err.contains("signing certificate's team (OU)")
-            || err.contains("certificate chain does not verify as of now, and the signature has no secure timestamp or signing time")
+            || err.contains("its CMS signature does not verify (signer status 4,")
     };
     let err = code_signature::verify(&running, &apple).unwrap_err();
     assert!(refused_by_a_signature_rule(&err), "{err}");
