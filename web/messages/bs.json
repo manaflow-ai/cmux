@@ -131,13 +131,13 @@
       "action": "cmux cloud new-machine"
     },
     "goLimit": {
-      "savedMessage": "Go uključuje dvije sačuvane VM, uključujući pokrenutu VM.",
+      "savedMessage": "Plus: Ukupno 1 sačuvana mašina, uključujući pauziranu",
       "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
-      "activeMessage": "Go omogućava jednu pokrenutu VM istovremeno.",
+      "activeMessage": "Plus: 1 Cloud virtuelna mašina",
       "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
-      "hoursMessage": "Go je potrošio 40 VM-sati za ovaj mjesec. Sačuvane VM bit će dostupne u sljedećem obračunskom periodu.",
+      "hoursMessage": "Plus: Bez mjesečnog ograničenja sati",
       "hoursAction": "https://cmux.com/pricing",
-      "shapeMessage": "Go podržava 2 vCPU, 4 GiB RAM-a i 16 GiB diska.",
+      "shapeMessage": "Plus: 2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
       "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
     },
     "planBudget": {
@@ -158,7 +158,7 @@
       "action": "Pauzirajte ili obrišite VM."
     },
     "activeLimit": {
-      "counted": "Trenutno se broje: {machines}. Pauzirane mašine se ne broje.",
+      "counted": "Trenutno se računaju: {machines}. Pauzirane mašine se računaju u ograničenje.",
       "provisioning": "{name} (priprema se)",
       "separator": ", "
     }
@@ -557,7 +557,7 @@
         },
         "names": {
           "free": "Free",
-          "go": "Go",
+          "go": "Plus",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -569,9 +569,10 @@
             "Lokalna historija sesija"
           ],
           "go": [
-            "1 aktivna Cloud VM",
-            "40 VM sati mjesečno",
-            "2 sačuvane VM"
+            "Ukupno 1 sačuvana mašina, uključujući pauziranu",
+            "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+            "Podrška zajednice",
+            "Bez mjesečnog ograničenja sati"
           ],
           "pro": [
             "Cloud agenti na Cloud VMs",
@@ -636,6 +637,12 @@
         "title": "Naplaćuje se putem App Storea",
         "body": "Vaš plan je kupljen u cmux aplikaciji za iPhone i naplaćuje ga Apple. Promijenite ga ili otkažite u svojim App Store pretplatama.",
         "manage": "Upravljajte u App Storeu"
+      },
+      "go": {
+        "name": "cmux Plus",
+        "activeBody": "Vaš Plus plan se obnavlja {date}.",
+        "pendingBody": "Vaš Plus plan završava {date}.",
+        "monthlyPrice": "${amount}/mj."
       }
     },
     "mobileDevices": {
@@ -970,7 +977,7 @@
       },
       "plan": {
         "free": "Besplatno",
-        "go": "Go",
+        "go": "Plus",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -2965,9 +2972,9 @@
       "limitsTitle": "Ograničenja plana",
       "limitsDesc": "Vaše aktivne mašine dijele jedan zajednički skup vCPU-a i memorije. Pokrenite jednu veliku mašinu ili nekoliko malih. Pauzirane mašine ne troše zajednički skup. Disk se određuje za svaku mašinu posebno i nije dio zajedničkog skupa.",
       "limitsFree": "Besplatni računi ne mogu kreirati mašine.",
-      "limitsPaid": "Pro i Founder's Edition računi mogu imati do 5 aktivnih mašina koje dijele 20 vCPU-a i 40 GB memorije. Mašina je aktivna dok radi ili se pokreće.",
-      "limitsTeam": "Timski računi mogu imati do 5 aktivnih mašina po svakom plaćenom mjestu. Svako plaćeno mjesto dodaje 20 vCPU-a i 40 GB memorije u zajednički skup tima.",
-      "limitsMax": "Max računi mogu imati do 5 aktivnih mašina koje dijele 80 vCPU-a i 160 GB memorije. Jedna Max mašina može koristiti do 64 GB i 32 vCPU-a, uključujući veličine 24 GB / 12 vCPU-a i 32 GB / 16 vCPU-a; Pro i Team se zaustavljaju na 16 GB i 8 vCPU-a.",
+      "limitsPaid": "Pro i Founder's Edition računi mogu imati do 5 mašina, uključujući pauzirane koje dijele 20 vCPU-a i 40 GB memorije.",
+      "limitsTeam": "Timski računi mogu imati do 5 mašina, uključujući pauzirane po svakom plaćenom mjestu. Svako plaćeno mjesto dodaje 20 vCPU-a i 40 GB memorije u zajednički skup tima.",
+      "limitsMax": "Max računi mogu imati do 5 mašina, uključujući pauzirane koje dijele 80 vCPU-a i 160 GB memorije. Jedna Max mašina može koristiti do 64 GB i 32 vCPU-a, uključujući veličine 24 GB / 12 vCPU-a i 32 GB / 16 vCPU-a; Pro i Team se zaustavljaju na 16 GB i 8 vCPU-a.",
       "limitsPoolFull": "Ako bi nova, nastavljena, povećana ili forkana mašina premašila zajednički skup, cmux odbija zahtjev i pokazuje koliko je skupa zauzeto. Pauzirajte ili obrišite mašinu da oslobodite resurse ili pređite na Max.",
       "limitsPricing": "Trenutne cijene pogledajte na stranici s cijenama. Nema mjerenja potrošnje ni naplate prekoračenja.",
       "agentUpdatesTitle": "Održavaj agente za kodiranje ažurnim",
@@ -2977,7 +2984,7 @@
       "agentUpdatesToggle": "List New Machine ovo uključuje po defaultu. Da to promijeniš za postojeću mašinu, desnim klikom na mašinu izaberi Keep Agents Up to Date ili pokreni cmux vm agent-updates. cmux vm new zadržava verzije iz slike osim ako proslijediš --agent-updates latest. Isključivanjem ažuriranja zadržavaju se već instalirane verzije.",
       "agentUpdatesNetwork": "Ažuriranja koriste samo github.com, api.github.com, objects.githubusercontent.com i release-assets.githubusercontent.com. cmux dozvoljava ove hostove u svakom mrežnom načinu, uključujući Allowlist i No internet, pa mrežna politika nikad ne blokira ažuriranja.",
       "resizeTitle": "Promjena veličine",
-      "resizeDesc": "Mašinu možete povećati bez gubitka podataka. Kliknite desnim klikom na mašinu i izaberite Resize machine ili koristite cmux vm resize. Veličina se može samo povećati. Disk raste u koracima od 4 GB do 128 GB na Pro i Team, ili 256 GB na Max (Go je ograničen na 16 GB). Memorija raste do 16 GB, a CPU do 8 vCPU na Pro i Team planu, ili do 64 GB i 32 vCPU na Max planu. Veća mašina troši više vašeg zajedničkog skupa. Stvarni maksimum određuje vaš plan.",
+      "resizeDesc": "Mašinu možete povećati bez gubitka podataka. Kliknite desnim klikom na mašinu i izaberite Resize machine ili koristite cmux vm resize. Veličina se može samo povećati. Disk raste u koracima od 4 GB do 128 GB na Pro i Team, ili 256 GB na Max (Plus je ograničen na 128 GB). Memorija raste do 16 GB, a CPU do 8 vCPU na Pro i Team planu, ili do 64 GB i 32 vCPU na Max planu. Veća mašina troši više vašeg zajedničkog skupa. Stvarni maksimum određuje vaš plan.",
       "pauseTitle": "Pauziranje i nastavak",
       "pauseDesc": "cmux vm pause zaustavlja računarske resurse mašine. Disk, radni prostori i historija terminala ostaju. Pokrenuti procesi se zaustavljaju. cmux vm resume ponovo pokreće mašinu. Otvaranje pauzirane mašine ili pokretanje komande na njoj također je pokreće.",
       "pauseIdle": "Mašine se ne pauziraju same kada miruju. Mašina radi dok je ne pauzirate ili obrišete.",
@@ -5257,7 +5264,18 @@
     "billingUnavailable": "Naplata trenutno nije dostupna. Pokušajte ponovo kasnije.",
     "signedOutNotice": "Niste prijavljeni. Prijavite se da vidite trenutni plan ili vratite postojeću kupovinu.",
     "signedOutSignIn": "Prijavite se",
-    "manageInAppStore": "Upravljajte u App Storeu"
+    "manageInAppStore": "Upravljajte u App Storeu",
+    "go": {
+      "name": "Plus",
+      "cta": "Odaberi Plus",
+      "featuresLead": "Uključuje:",
+      "features": [
+        "Ukupno 1 sačuvana mašina, uključujući pauziranu",
+        "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+        "Podrška zajednice",
+        "Bez mjesečnog ograničenja sati"
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

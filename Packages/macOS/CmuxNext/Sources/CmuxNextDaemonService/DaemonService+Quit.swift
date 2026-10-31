@@ -80,7 +80,7 @@ extension DaemonService {
         // The daemon took the restart, then the new shell's launch failed: the tab is dead again.
         if tab.dead, tab.end?.reason == .restartFailed { return false }
         // A parked tab starts when its workspace is shown (`wakeParkedTabs`).
-        if relaunch.onShow { return supports(DaemonCapability.tabRestartKeptLayout.rawValue) }
+        if relaunch.startsOnShow() { return supports(DaemonCapability.tabRestartKeptLayout.rawValue) }
         switch keptTabRestarts {
         case .none: return false
         case .expected: return true

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1228,
+    "entries": 1236,
     "shortcuts": 189
   },
   "sections": [
@@ -68,6 +68,12 @@
           "title": "Close All Windows",
           "shortcut": null,
           "command": "cmux app close-all-windows"
+        },
+        {
+          "id": "home.closeNewMessage",
+          "title": "Close New Message",
+          "shortcut": null,
+          "command": "cmux home close-new-message"
         },
         {
           "id": "window.closeOthers",
@@ -3868,6 +3874,12 @@
           "command": "cmux bookmark edit"
         },
         {
+          "id": "browser.editSource",
+          "title": "Edit Source",
+          "shortcut": null,
+          "command": "cmux browser edit-source"
+        },
+        {
           "id": "fileEditorZoomReset",
           "title": "Editor: Actual Size",
           "shortcut": "⌘0",
@@ -5638,6 +5650,12 @@
           "command": null
         },
         {
+          "id": "chief.screenShare.look",
+          "title": "Chief: Look at Screen Now",
+          "shortcut": null,
+          "command": "cmux chief look-at-screen"
+        },
+        {
           "id": "chief.openMemoryInspector",
           "title": "Chief: Open Memory Inspector",
           "shortcut": null,
@@ -5648,6 +5666,12 @@
           "title": "Chief: Toggle Memory Inspector",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "chief.screenShare.toggle",
+          "title": "Chief: Toggle Screen Sharing",
+          "shortcut": null,
+          "command": "cmux chief toggle-screen-share"
         },
         {
           "id": "agentPane.git.commit",
@@ -6034,6 +6058,12 @@
           "command": "cmux agent set-model"
         },
         {
+          "id": "chief.screenShare.start",
+          "title": "Share Screen with Chief",
+          "shortcut": null,
+          "command": "cmux chief share-screen"
+        },
+        {
           "id": "stats.show",
           "title": "Show Agent Stats",
           "shortcut": null,
@@ -6068,6 +6098,12 @@
           "title": "Stop Reading Aloud",
           "shortcut": null,
           "command": "cmux agent stop-reading-aloud"
+        },
+        {
+          "id": "chief.screenShare.stop",
+          "title": "Stop Sharing Screen with Chief",
+          "shortcut": null,
+          "command": "cmux chief stop-sharing-screen"
         },
         {
           "id": "home.stopChief",
@@ -6862,6 +6898,12 @@
           "command": null
         },
         {
+          "id": "app.install",
+          "title": "Install App…",
+          "shortcut": null,
+          "command": "cmux apps install"
+        },
+        {
           "id": "palette.applyUpdateIfAvailable",
           "title": "Install Available Update",
           "shortcut": null,
@@ -6980,6 +7022,12 @@
           "title": "Reload Configuration",
           "shortcut": "⇧⌘,",
           "command": "cmux settings reload-configuration"
+        },
+        {
+          "id": "app.remove",
+          "title": "Remove App…",
+          "shortcut": null,
+          "command": "cmux apps remove"
         },
         {
           "id": "appearance.reset",

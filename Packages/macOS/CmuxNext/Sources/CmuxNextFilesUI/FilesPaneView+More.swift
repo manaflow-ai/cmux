@@ -85,7 +85,7 @@ extension FilesPaneView {
             } catch {
                 NSSound.beep()
             }
-            self?.sidebar.refreshLocations()
+            await self?.sidebar.refreshLocations()
         }
     }
 
