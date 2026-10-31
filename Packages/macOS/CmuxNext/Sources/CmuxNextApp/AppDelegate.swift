@@ -36,8 +36,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The app's blocking-work lanes and the last quit's pages and composers, read on them since `main`.
     private let launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake)
     /// Set in applicationDidFinishLaunching; nil before it (no IUO).
-    private var services: AppServices?
-    private let openedURLs = OpenedURLDelivery()
+    private(set) var services: AppServices?
+    let openedURLs = OpenedURLDelivery()
     /// A second quit signal's exit (`QuitSignal`): the Home cache's last write, bounded, then the end.
     private lazy var forcedQuitExit = ForcedQuitExit(prepare: { [weak self] in
         self?.services?.crashRecovery.applicationWillTerminate()
@@ -140,12 +140,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppActions.bind(services)
         HandlerCoverage.verify(services.registry)
         services.palette.bindRegistryActions()
-        let ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter)
-        self.ghosttyKeybinds = ghosttyKeybinds
-        ghosttyKeybinds.start()
-        let ghosttyConfigLiveReload = GhosttyConfigLiveReload()
-        self.ghosttyConfigLiveReload = ghosttyConfigLiveReload
-        ghosttyConfigLiveReload.start()
+        ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter)
+        ghosttyKeybinds?.start()
+        ghosttyConfigLiveReload = GhosttyConfigLiveReload()
+        ghosttyConfigLiveReload?.start()
         // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface.
         TerminalHooks(services: services).install()
         DebugTimings.markLaunch("dfl.bind")
@@ -461,53 +459,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// this delegate implements, which AppKit enables when it has no validator.
     @objc(validateUserInterfaceItem:) func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
         item.action != Selector(("commandDispatch:")) && item.action != Selector(("commandDispatchUsingKeyModifiers:"))
-    }
-
-    /// Web, `ssh:` and `x-man-page:` links (cmux as their handler) open as
-    /// tabs; links in this build's scheme (`cmux://tab/…`) run `link.open`;
-    /// `<scheme>://auth-callback` from the browser fallback of sign-in goes
-    /// to Cloud auth.
-    @objc(handleURLEvent:reply:) private func handleURLEvent(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
-        guard let text = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue, let url = URL(string: text) else { return }
-        routeOpenedURL(url)
-    }
-
-    /// Files opened with cmux (every document type in Info.plist) and URLs delivered
-    /// without an Apple event, routed like the Apple event's.
-    func application(_ application: NSApplication, open urls: [URL]) {
-        for url in urls { routeOpenedURL(url) }
-    }
-
-    /// Handoff of a web page (cmux as the default browser, Info.plist
-    /// `NSUserActivityTypes`): it opens as a browser tab, like a link.
-    func application(_ application: NSApplication, willContinueUserActivityWithType userActivityType: String) -> Bool {
-        userActivityType == NSUserActivityTypeBrowsingWeb
-    }
-
-    func application(_ application: NSApplication, continue userActivity: NSUserActivity,
-                     restorationHandler: @escaping ([any NSUserActivityRestoring]) -> Void) -> Bool {
-        services?.input.endRelaunchBehind("handoff")
-        return services?.externalOpen.continueActivity(type: userActivity.activityType, webpageURL: userActivity.webpageURL) ?? false
-    }
-
-    /// One route for every URL macOS hands cmux (`OpenedURLRouting`): the
-    /// sign-in callback to Cloud auth first, in every form auth accepts,
-    /// then `ExternalOpenRouter`.
-    private func routeOpenedURL(_ url: URL) { openedURLs.receive(url) }
-
-    private func routeReadyURL(_ url: URL) {
-        guard let services else { return }
-        // Something the user opened with cmux: an update relaunch's startup ends, so it can come forward.
-        services.input.endRelaunchBehind("external open")
-        let auth = services.cloud.auth
-        let destination = OpenedURLRouting.route(url, isAuthCallback: { auth.isCallback($0) }, open: { services.externalOpen.open($0) })
-        guard destination == .auth else { return }
-        Task {
-            guard await !auth.handleCallback(url) else { return }
-            await auth.awaitRestored()
-            guard auth.signInFailed, !auth.isSignedIn, !auth.isSigningIn else { return }
-            try? services.settingsWindow.show(section: .accounts)
-        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
