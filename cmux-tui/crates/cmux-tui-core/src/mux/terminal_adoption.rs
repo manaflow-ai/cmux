@@ -549,19 +549,7 @@ impl Mux {
     /// from this session and the builder's key: each clone has its own, and a restart of this one
     /// derives the same, so a claim cut short between its two commits finishes on the next start.
     pub(super) fn template_workspace_key(&self, builder_key: &str) -> String {
-        use sha2::{Digest, Sha256};
-        let digest = Sha256::new()
-            .chain_update(self.session_public_id().as_str())
-            .chain_update([0])
-            .chain_update(builder_key)
-            .finalize();
-        // A UUIDv8 (RFC 9562, custom), the lowercase form every workspace key takes.
-        let mut bytes = [0u8; 16];
-        bytes.copy_from_slice(&digest[..16]);
-        bytes[6] = (bytes[6] & 0x0f) | 0x80;
-        bytes[8] = (bytes[8] & 0x3f) | 0x80;
-        let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
-        format!("{}-{}-{}-{}-{}", &hex[0..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..32])
+        derive_template_workspace_key(self.session_public_id().as_str(), builder_key)
     }
 
     /// Whether the warm host may be claimed: this registry has no workspace yet, or only the one an
@@ -1210,5 +1198,49 @@ impl Drop for AdoptionSlot {
     fn drop(&mut self) {
         *ADOPTIONS_IN_FLIGHT.lock().unwrap_or_else(PoisonError::into_inner) -= 1;
         ADOPTION_SLOT_FREED.notify_one();
+    }
+}
+
+/// The template workspace key for session `session_id` and builder key `builder_key`: a UUIDv8
+/// (RFC 9562, custom) from the first 16 bytes of `SHA-256(session_id, 0, builder_key)`, in the
+/// lowercase 8-4-4-4-12 form every workspace key takes. A restart derives the same key, so the
+/// derivation must never change.
+fn derive_template_workspace_key(session_id: &str, builder_key: &str) -> String {
+    use sha2::{Digest, Sha256};
+    use std::fmt::Write as _;
+    let digest = Sha256::new()
+        .chain_update(session_id)
+        .chain_update([0])
+        .chain_update(builder_key)
+        .finalize();
+    let mut bytes = [0u8; 16];
+    for (byte, digest_byte) in bytes.iter_mut().zip(digest.iter()) {
+        *byte = *digest_byte;
+    }
+    bytes[6] = (bytes[6] & 0x0f) | 0x80;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    let mut key = String::with_capacity(36);
+    for (index, byte) in bytes.iter().enumerate() {
+        if matches!(index, 4 | 6 | 8 | 10) {
+            key.push('-');
+        }
+        // Writing to a String cannot fail.
+        let _ = write!(key, "{byte:02x}");
+    }
+    key
+}
+
+#[cfg(test)]
+mod template_workspace_key_tests {
+    use super::derive_template_workspace_key;
+
+    /// The key the first derivation (#27895) gave: a restart of a claim cut short finds its
+    /// workspace by this key, so the derivation's output must stay byte for byte the same.
+    #[test]
+    fn the_template_workspace_key_is_the_same_uuidv8_as_the_first_derivation() {
+        assert_eq!(
+            derive_template_workspace_key("sess-0123", "6b0c1a52-7d3e-4f6a-9b1c-2d3e4f5a6b7c"),
+            "c20bfc16-7d4f-8de7-a6a2-8ec42b62a821"
+        );
     }
 }
