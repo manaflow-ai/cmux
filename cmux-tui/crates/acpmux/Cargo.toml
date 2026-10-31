@@ -85,7 +85,6 @@ schemars = "1"
 # workspace's reqwest and ring rustls provider.
 reqwest.workspace = true
 tar.workspace = true
-flate2.workspace = true
 rustls.workspace = true
 pulldown-cmark = { version = "0.13", default-features = false }
 syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
