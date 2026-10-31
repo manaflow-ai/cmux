@@ -527,10 +527,20 @@ struct SecondCreationKeysTests {
                 "waited for the first terminal's view to be evicted; it is still in the content cache"
             })
             coordinator.resolve(creation, landed: true, in: p.window)
-            // The reader prints the hex of the 4 bytes it got: "ab", Return (0d), Ctrl-C (03), in that order.
-            let inOrder = try await Self.ran("K42x\(nonce)61620d03K", on: p.first.surface, in: p)
-            let first = await Self.screen(p.first.surface, in: p)
-            #expect(inOrder, "the keys held for the evicted terminal did not arrive as typed (61 62 0d 03): \(first.suffix(300))")
+            // The hold ends (app state) before any daemon read: a wait-for sent first on the app's connection would run
+            // before the held keys' send-key and hold it back (the connection runs its requests in order).
+            try await PinnedPageTests.until({ !coordinator.isHolding(in: p.window) }, within: .seconds(5), report: {
+                "waited for the hold to end after the reply; saw end \(String(describing: coordinator.lastHoldEnd(in: p.window)))"
+            })
+            // The reader prints the hex of the 4 bytes it got: "ab", Return (0d), Ctrl-C (03), in that order. Read-screen
+            // returns at once and runs after the sends before it, so poll it.
+            var first = ""
+            let deadline = ContinuousClock.now + .seconds(20)
+            while !first.contains("K42x\(nonce)"), ContinuousClock.now < deadline {
+                first = await Self.screen(p.first.surface, in: p)
+                if !first.contains("K42x\(nonce)") { try await Task.sleep(for: .milliseconds(100)) }
+            }
+            #expect(first.contains("K42x\(nonce)61620d03K"), "the keys held for the evicted terminal did not arrive as typed (61 62 0d 03): \(first.suffix(300))")
         }
     }
 }
