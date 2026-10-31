@@ -83,4 +83,25 @@ import Testing
         }
         #expect(AgentSessionWorkspace.validGroupName("GUI push"))
     }
+
+    /// cmuxterm-hq#4976: `--group "gui push"` or `"GUI push "` made a second "GUI push" group, since names
+    /// matched only exactly. The same label typed another way joins the group; an exact name still wins.
+    @Test func theSameLabelTypedAnotherWayJoinsTheGroup() {
+        let sections = [SidebarSection(kind: .machine(Self.local), nodes: [
+            .group(SidebarGroup(id: GroupID("g1"), name: "GUI push", workspaces: [Self.row("p", title: "pane-motion")])),
+            .workspace(Self.row("n")),
+        ])]
+        for asked in ["gui push", "GUI push ", "  Gui Push\n"] {
+            #expect(AgentSessionWorkspace.group(named: asked, accepting: WorkspaceID("n"), in: sections) == GroupID("g1"), "\(asked)")
+            #expect(AgentSessionWorkspace.predecessor(named: "pane-motion", inGroup: asked, in: sections) == WorkspaceID("p"), "\(asked)")
+        }
+        #expect(AgentSessionWorkspace.group(named: "GUI pushes", accepting: WorkspaceID("n"), in: sections) == nil)
+
+        let both = [SidebarSection(kind: .machine(Self.local), nodes: [
+            .group(SidebarGroup(id: GroupID("upper"), name: "GUI push", workspaces: [Self.row("a")])),
+            .group(SidebarGroup(id: GroupID("lower"), name: "gui push", workspaces: [Self.row("b")])),
+            .workspace(Self.row("n")),
+        ])]
+        #expect(AgentSessionWorkspace.group(named: "gui push", accepting: WorkspaceID("n"), in: both) == GroupID("lower"))
+    }
 }

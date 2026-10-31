@@ -557,9 +557,16 @@ mod tests {
             "workspace_group:42",
             "550e8400-e29b-41d4-a716-446655440000",
         ] {
-            let error = validate_group(group).unwrap_err().to_string();
+            let refused = validate_group(group).unwrap_err();
+            let error = refused.to_string();
             assert!(error.contains("human label"), "{group:?}: {error}");
             assert!(error.contains("omit --group"), "{group:?}: {error}");
+            // A usage error (exit 2) the --json envelope names, before any session is made.
+            let app = crate::cli::errors::classify(&refused);
+            assert_eq!(app.exit_status(), 2, "{group:?}");
+            let envelope = app.envelope();
+            assert_eq!(envelope["error"]["detail"], "group_name", "{envelope}");
+            assert_eq!(envelope["error"]["data"]["reason"], "usage.group_name", "{envelope}");
         }
         assert!(validate_group("GUI push").is_ok());
     }
