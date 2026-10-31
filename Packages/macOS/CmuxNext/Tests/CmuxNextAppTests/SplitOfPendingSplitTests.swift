@@ -11,6 +11,65 @@ import Testing
 /// a second Cmd-D on it, while that reply is pending, must still give a second terminal pane that takes the keys.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct SplitOfPendingSplitTests {
+    /// A person's path (#28436): the line is typed at once after the second Cmd-D, while the creation hold of both
+    /// splits waits. The hold keeps the keys and runs them again, in order, once the focus landed on the second pane;
+    /// they run there. The replay goes to the window typed into, as `NSApp.sendEvent` sends a person's key to the key
+    /// window (a test window is never key).
+    @Test func aLineTypedDuringTheHoldRunsInTheSecondPane() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let content = try #require(services.windows.active?.workspaceContent)
+            let window = try #require(content.layoutView.window)
+            let coordinator = services.keyRouter.creationInputCoordinator
+            coordinator.replay = { [weak window, weak router = services.keyRouter] event in
+                if router?.interceptKeyDown(event, in: window) != true { window?.sendEvent(event) }
+            }
+            var terminal = ActionInvocation(origin: .user)
+            terminal.opensTerminal = true
+            let before = Set(content.panes.keys)
+            let mark = Self.journalMark()
+
+            #expect(services.registry.perform("splitDown", invocation: terminal))
+            let first = try #require(content.panes.first { !before.contains($0.key) }?.value, "the first split shows no pane in its turn")
+            PaneHandlers.focus(first.layoutPaneID, in: content)
+            #expect(services.registry.perform("splitDown", invocation: terminal))
+            let nonce = String(UInt32.random(in: 100_000...999_999))
+            var held = 0
+            for character in "echo p0h\(nonce)h$((6*7))\r" {
+                let text = String(character)
+                let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                                          timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                          context: nil, characters: text, charactersIgnoringModifiers: text,
+                                                          isARepeat: false, keyCode: text == "\r" ? 36 : 0))
+                if coordinator.isHolding(in: window) { held += 1 }
+                if !services.keyRouter.interceptKeyDown(event, in: window) { window.sendEvent(event) }
+            }
+            #expect(held > 0, "no key was typed during the creation hold: the test does not cover it")
+
+            @MainActor func confirmed() -> [PaneController] {
+                content.panes.filter { !before.contains($0.key) }.map(\.value)
+                    .filter { $0.pane.tabs.contains { $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) } }
+            }
+            try await PinnedPageTests.until({ confirmed().count == 2 }, report: { "new confirmed terminal panes \(confirmed().count) of 2" })
+            let second = try #require(confirmed().first { $0 !== first && $0.layoutPaneID != first.layoutPaneID })
+            let surface = try #require(second.pane.tabs.first { $0.kind == .pty }?.surface)
+            let screen: (matched: Bool, text: String)
+            do {
+                let found = try await connection.request(WaitForTextRequest(surface: surface, pattern: "p0h\(nonce)h42", timeoutMs: 20_000),
+                                                         timeout: .seconds(25))
+                screen = (found.matched == true, found.text)
+            } catch {
+                screen = (false, "wait-for failed: \(error)")
+            }
+            if !screen.matched {
+                let report = await Self.missedLineReport(content: content, second: second, window: window, services: services,
+                                                         connection: connection, since: mark)
+                Issue.record("the line typed during the hold (\(held) keys held) did not run in the second pane: \(screen.text.suffix(300))\n\(report)")
+            }
+            #expect(coordinator.lastHoldEnd(in: window) == .focusLanded,
+                    "the creation hold ended by \(String(describing: coordinator.lastHoldEnd(in: window))), not because the focus landed")
+        }
+    }
+
     @Test func aSecondSplitOnAPendingSplitsPaneMakesASecondPane() async throws {
         try await PinnedPageTests.withApp { services, connection in
             let content = try #require(services.windows.active?.workspaceContent)
@@ -52,7 +111,7 @@ struct SplitOfPendingSplitTests {
             let surface = try #require(second.pane.tabs.first { $0.kind == .pty }?.surface)
             // #28436: a key typed while the window's creation hold still waits is replayed later through `NSApp.sendEvent`,
             // which reaches only the key window, and a test window is never key (as in NewTerminalOnPendingSplitTests and
-            // the journeys' `outwait_hold`). In 6 of 8 runs at 9adddb31f2f the hold was still open here and took all 24
+            // the journeys' `outwait_hold`). In 5 of 8 runs at 9adddb31f2f the hold was still open here and took all 24
             // keys; its replay reached no window. Type once the hold of both splits ended, because the focus landed.
             let coordinator = services.keyRouter.creationInputCoordinator
             try await PinnedPageTests.until({ !coordinator.isHolding(in: window) }, report: { "the window's creation hold never ended" })
