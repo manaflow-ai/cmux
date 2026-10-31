@@ -1,11 +1,11 @@
 //! The daemon owns the Native receiving process and its exact remote entry.
 //! Root role completion means the child has exited, not just acknowledged drain.
 
+use cmux_process::{Command, Stdio};
 use std::io;
 use std::os::fd::AsRawFd as _;
 use std::os::unix::net::UnixStream as StdStream;
 use std::path::Path;
-use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 

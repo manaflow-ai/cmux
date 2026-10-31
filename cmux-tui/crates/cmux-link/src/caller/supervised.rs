@@ -1,9 +1,10 @@
 //! Admission tied to a child handle and its kernel process-start identity.
 
+use cmux_process::Child;
 use std::io;
 use std::os::fd::AsRawFd as _;
 use std::os::unix::net::UnixStream;
-use std::process::{Child, ExitStatus};
+use std::process::ExitStatus;
 use std::sync::Mutex;
 
 /// A process spawned by the daemon, retained until its remote entry stops.
