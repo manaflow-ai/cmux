@@ -853,7 +853,10 @@ mod tests {
             Err(std::fs::TryLockError::WouldBlock)
         ));
         drop(held);
-        other.try_lock().unwrap();
+        // Blocking: a process another test forks in this instant briefly
+        // shares the closed descriptor (until its exec), so the lock may
+        // outlive `drop` by that long; a create waits the same way.
+        other.lock().unwrap();
         let _ = std::fs::remove_dir_all(&dir);
     }
 
