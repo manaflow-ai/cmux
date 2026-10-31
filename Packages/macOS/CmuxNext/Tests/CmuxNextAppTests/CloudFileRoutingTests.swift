@@ -70,6 +70,31 @@ struct CloudFileRoutingTests {
         #expect(pages.localFile(key) == nil)
     }
 
+    @Test(arguments: ["docs.rs/serde", "www.example.com", "localhost:3000/docs"])
+    func offlineTerminalWebLinksKeepTheirBrowserFallback(_ text: String) async throws {
+        let fixture = try Self.fixture()
+        defer { fixture.close() }
+        let services = fixture.services
+        let terminal = try #require(fixture.pane.pane.tabs.first)
+        let delegate = TerminalHostDelegate()
+        delegate.services = services
+        let router = LinkRouter.shared
+        let previousOpen = router.openInCmux, previousRouting = router.routing
+        defer { router.openInCmux = previousOpen; router.routing = previousRouting }
+        var opened: [URL] = []
+        router.routing = { .fallback }
+        router.openInCmux = { url, _, _ in opened.append(url) }
+        guard case .url(let expected)? = TerminalLinkResolver.resolve(text, cwd: nil, allowsLocalFiles: false) else {
+            Issue.record("expected a supported web address")
+            return
+        }
+        await delegate.openMachineLink(text, cwd: "/home/cmux/project", on: fixture.pane.daemon,
+            (option: false, other: false, tab: ActionTargetRef(kind: .tab, id: terminal.id)))
+        #expect(opened == [expected])
+        #expect(services.viewers.editorPages.debugTabs.isEmpty)
+        #expect(services.viewers.markdownPages.debugTabs.isEmpty)
+    }
+
     @Test(arguments: ["file.open", "openMarkdownFile"])
     func explicitFileActionsOpenOnThePaneMachine(_ action: String) async throws {
         let fixture = try Self.fixture()
