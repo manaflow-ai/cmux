@@ -130,7 +130,7 @@ struct ChromiumQuestionKeyChannelTests {
         function press(changes = {}) {
           const target = changes.target ?? document.activeElement;
           const path = []; for (let node = target; node; node = node.parentNode) path.push(node);
-          const event = {isTrusted:true, repeat:false, isComposing:false, keyCode:13, key:'Enter',
+          const event = {type:'keydown', isTrusted:true, repeat:false, isComposing:false, keyCode:13, key:'Enter',
             shiftKey:false, ctrlKey:false, altKey:false, target, composedPath:() => path,
             stopped:false, preventDefault() {}, stopImmediatePropagation() { this.stopped = true; }, ...changes};
           window.dispatchEvent(event);

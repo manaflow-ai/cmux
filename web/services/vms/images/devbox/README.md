@@ -21,9 +21,12 @@ Python 3.12, uv, Docker (running from boot), and its own copies of Claude
 Code, Codex and OpenCode. The bake keeps all of that and replaces the agent
 copies with the exact Dockerfile pins (`npm install -g` on the base's npm,
 every agent bin symlinked into `/usr/local/bin` so daemon panes resolve them
-without a login profile), and installs `bubblewrap`, codex's Linux sandbox
-prerequisite, so codex runs on the distro's `bwrap` instead of warning on
-every launch that it is falling back to its bundled copy. A cmux login banner
+without a login profile), and builds checksum-pinned upstream `bubblewrap`
+0.13.1, replacing Ubuntu 24.04's 0.9.0. Muse's `--ro-bind-symlink` option
+belongs to its patched helper and is unsupported by upstream 0.13.1.
+`/usr/bin/bwrap` is diverted so a later apt install preserves the pinned binary. This reaches new machines
+after the next image bake; existing machines retain their baked version.
+Codex uses this `bwrap` instead of warning on every launch that it is falling back to its bundled copy. A cmux login banner
 (`cmux-motd`, rendered by pam_motd on SSH) replaces the stock Ubuntu and
 Freestyle motd text.
 

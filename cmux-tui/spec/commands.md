@@ -586,8 +586,8 @@ reads atomics (and, for `hook_queue`, the small hook queue files) and never
 touches SQLite or the journal, so it is safe to poll.
 
 Params: `{include?: array<string>|null}`. `include` names optional result
-sections: `resource_projection`, `write_path` and `hook_queue`; unknown names
-are ignored.
+sections: `resource_projection`, `write_path`, `locks` and `hook_queue`;
+unknown names are ignored.
 An optional section is absent unless requested, because SDK decoders refuse
 unknown result fields.
 
@@ -626,9 +626,23 @@ object{
     effect_intent_batches:uint64, request_effect_commits:uint64,
     writer_registry_locks:uint64
   },
+  locks?:object{registry:lock_detail, state:lock_detail},
   hook_queue?:object{queued_events:uint64,reset_dropped_events:uint64,undeliverable_events:uint64}
 }
 histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99:uint64}
+lock_detail = object{
+  wait_us:histogram, hold_us:histogram,
+  contended_acquisitions:uint64, stalls:uint64,
+  holder:object{site:string,held_for_us:uint64}|null,
+  last_stall:object{waiter:string,blocker:string|null,waited_us:uint64}|null,
+  sites:uint64,
+  by_hold_total:array<lock_site>, by_hold_p99:array<lock_site>
+}
+lock_site = object{
+  site:string, acquisitions:uint64,
+  hold_total_us:uint64, hold_max_us:uint64, hold_p99_us:uint64,
+  wait_total_us:uint64, wait_max_us:uint64, wait_p99_us:uint64
+}
 ```
 
 `resource_projection` splits the topology projection that every topology
@@ -667,6 +681,15 @@ registry lock, registry connection or mux state lock acquisitions on a
 journal writer thread. It is always `0`: a request thread holds the registry
 lock (and may hold state) while it waits for its writer receipt, so the
 writer never takes either.
+
+`locks` reports the workspace registry lock (`registry`) and the mux state
+lock (`state`) by acquiring site, so a convoy names the code that holds it.
+`by_hold_total` lists at most twenty sites by total hold time and
+`by_hold_p99` at most twenty by 99th percentile hold; `sites` counts every
+distinct site seen. A site's `hold_p99_us` and `wait_p99_us` are power-of-two
+bucket bounds: at most twice the true value and never above its maximum.
+`wait_*` is how long that site waited to acquire the lock. Recording costs
+no allocation after a site's first acquisition.
 
 `hook_queue` shows the agent hook queue. The hook helper keeps each
 agent's hook events in a queue on disk (`hook-spool/` beside the session

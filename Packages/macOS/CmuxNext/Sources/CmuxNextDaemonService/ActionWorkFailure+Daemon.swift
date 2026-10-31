@@ -13,6 +13,14 @@ extension ActionWorkFailure {
             self.init(failure)
             return
         }
+        // A pane verb on a pane still opening was refused before it was sent (rule a): a typed refusal, so the control
+        // socket answers `unavailable` and the HUD shows the text alone, once. `DaemonService.workFailure` puts it in the
+        // person's language; here the English text.
+        if let notReady = error as? PaneNotReady {
+            self.init(refusal: .unavailable, reason: notReady.reason)
+            shown = notReady.shown
+            return
+        }
         let daemonError = error as? DaemonError
         var timedOut = false
         if case .timedOut = daemonError { timedOut = true }

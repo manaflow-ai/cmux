@@ -651,7 +651,6 @@ pub(super) async fn handle_request(
     // peer; every check below reads the route it found (`hub/key_route.rs`).
     if conn.origin == Origin::Local {
         route_bare_key(hub, m, &mut params)?;
-
     }
     // The pane's fork through a turn is a session/fork, checked as one from
     // here on (`fork_through.rs`).
@@ -827,7 +826,7 @@ async fn dispatch_request(
                 method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_KEEP, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT, method::MUX_QUEUE_TEXT,
                 method::MUX_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_GITHUB_APP_LEASE, method::MUX_ATTACHMENT, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_TEAM_SEND, method::MUX_TEAM_INBOX, method::MUX_TEAM_READ, method::MUX_TEAM_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION,
                 method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_TYPING, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE, method::MUX_SIDE,
-                method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_SHUTDOWN, method::MUX_SESSION_AUTH, method::MUX_MESH_CONTROL,
+                method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_NATIVE_HISTORY, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_SHUTDOWN, method::MUX_SESSION_AUTH, method::MUX_MESH_CONTROL,
             ];
             #[allow(unused_mut)]
             let mut reply = json!({
@@ -860,7 +859,7 @@ async fn dispatch_request(
                 // The daemon run decision proofs bind (`hub/person.rs`).
                 "personInstance": hub.person.instance(),
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, SESSION_RESUME_FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, SESSION_RESUME_FEATURE], "trustGate": true}}
             });
             // Only a local client can use the app launcher's bundled CLI.
             if conn.origin == Origin::Local
@@ -1981,12 +1980,22 @@ async fn dispatch_request(
         }
         method::MUX_ATTACH => {
             let s = hub.resolve(session_key(&params)?)?;
+            let hidden = params.get("visible") == Some(&Value::Bool(false));
             // A restart reads the chat logs after its ready line: the queue, turn and status
-            // shown here come from this chat's (`hub/log_load.rs`).
-            hub.session_log(&s).await;
+            // shown here come from this chat's (`hub/log_load.rs`). A chat opened on screen
+            // reads it, and its first page below, ahead of agent work (`qos.rs`).
+            // A visible page asks for the newest records immediately (`waitLogs:false`); waiting
+            // for the full restore here made a restarted long chat blank for tens of seconds.
+            // Callers that need authoritative queue/status details keep the old default.
+            if params.get("waitLogs").and_then(Value::as_bool) != Some(false) {
+                if hidden {
+                    hub.session_log(&s).await;
+                } else {
+                    hub.session_log_on_screen(&s).await;
+                }
+            }
             let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
             let event_stream = params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
-            let hidden = params.get("visible") == Some(&Value::Bool(false));
             // Opening a hibernated chat on screen wakes its agent (`hub/idle.rs`).
             if !hidden {
                 hub.wake_for(&s, super::trust_gate::for_web(conn.origin, &params), "click");
@@ -2013,8 +2022,8 @@ async fn dispatch_request(
             // (`store/superseded.rs`); the live stream is unchanged.
             let page_filter =
                 filter.omitting_superseded(params.get("maxBytes").is_some_and(|b| !b.is_null()));
-            let page = hub
-                .events_page(
+            let read = || {
+                hub.events_page(
                     &s.id,
                     after.unwrap_or(0),
                     before,
@@ -2023,6 +2032,8 @@ async fn dispatch_request(
                     newest,
                     &page_filter,
                 )
+            };
+            let page = if hidden { read() } else { crate::qos::on_screen(read) }
                 .map_err(|e| RpcError::internal(e.to_string()))?;
             // The newest page holds to the log's end; a page of older records, or a forward one
             // with more to read, only to its own last record.
@@ -2253,6 +2264,8 @@ async fn dispatch_request(
         method::MUX_SUBAGENT_TRANSCRIPT => {
             crate::hub::subagent_transcript::handle(hub, &params).await
         }
+        // A chat's older turns, read from its Claude Code transcript (`hub/native_history.rs`).
+        method::MUX_NATIVE_HISTORY => crate::hub::native_history::handle(hub, &params).await,
         method::MUX_SHUTDOWN => {
             // Stopping the daemon ends what runs at the VM boundary too: the owner's call only
             // (`hub/vm_boundary.rs`).
