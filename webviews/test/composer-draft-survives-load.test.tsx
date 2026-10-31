@@ -10,11 +10,7 @@ import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
-import {
-  hydratedDraft,
-  mergedDraft,
-  notifyDraftActionsChanged,
-} from "../src/agent-session/acpmux/composerDraft";
+import { hydratedDraft, mergedDraft, notifyDraftActionsChanged } from "../src/agent-session/acpmux/composerDraft";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -138,14 +134,18 @@ const settle = () =>
 const prompt = () => markdownField()?.value() ?? "";
 const markdownField = () => host.querySelector<MarkdownFieldElement>(".acpmux-md-field")?.acpmuxMarkdownField;
 const page = () =>
-  dom.window as unknown as { cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>> };
+  dom.window as unknown as {
+    cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+  };
 
 /// acpmux's drafts, as `chat.readDraft` / `chat.writeDraft` reach them.
 function daemon(drafts: Record<string, string> = {}) {
   const held = new Map(Object.entries(drafts));
   const writes: { sessionId: string; text: string }[] = [];
   const actions = {
-    "chat.readDraft": async ({ sessionId }: Record<string, unknown>) => ({ draft: held.get(String(sessionId)) ?? null }),
+    "chat.readDraft": async ({ sessionId }: Record<string, unknown>) => ({
+      draft: held.get(String(sessionId)) ?? null,
+    }),
     "chat.writeDraft": async ({ sessionId, text }: Record<string, unknown>) => {
       writes.push({ sessionId: String(sessionId), text: String(text) });
       if (String(text).trim()) held.set(String(sessionId), String(text));
@@ -181,11 +181,13 @@ test("the merge keeps both texts once, the saved draft first", () => {
     write: false,
   });
   // After the page read it, the person's own clear (queued) stands.
-  expect(hydratedDraft({ current: "", restored: "saved", edited: true, pendingWrite: true, firstRead: false })).toEqual({
-    text: "",
-    shown: false,
-    write: false,
-  });
+  expect(hydratedDraft({ current: "", restored: "saved", edited: true, pendingWrite: true, firstRead: false })).toEqual(
+    {
+      text: "",
+      shown: false,
+      write: false,
+    },
+  );
 });
 
 test("(a) text typed before the chat's session attached is still there after it loads", async () => {

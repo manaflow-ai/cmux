@@ -35,7 +35,9 @@ pub(crate) use host_hold::hold;
 pub(crate) use host_lock::unfence;
 pub(crate) use host_lock::{LockLost, lock_to_install, lock_updates};
 use host_migrate::{MIGRATING, REFUSED, migrate, migrate_back};
-pub(crate) use host_update::{CLOUD_VM_MARK, Caller, UpdateOptions, self_update, update};
+pub(crate) use host_update::{
+    CLOUD_VM_MARK, Caller, UpdateOptions, cloud_vm_check, self_update, update,
+};
 
 /// Where `host setup` installs acpmux and what its daemon runs.
 pub(crate) const DAEMON_BIN: &str = "~/.local/bin/acpmux";

@@ -105,10 +105,11 @@ struct UnsentDraftTests {
         drafts.typed("", for: "tab-2")
         #expect(try Data(contentsOf: file) == corrupt)
         drafts.typed("new text", for: "tab-2")
+        // A fresh store reads after the queued save (AgentPaneStateFile), so the move has run too.
+        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-2") == "new text")
         let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
         let aside = try #require(names.first { $0.contains("unreadable") })
         #expect(try Data(contentsOf: directory.appending(path: aside)) == corrupt)
-        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-2") == "new text")
     }
 
     /// The merge keeps both texts once, and leaves a text that already holds the other as it is.

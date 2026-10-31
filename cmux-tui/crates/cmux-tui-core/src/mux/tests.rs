@@ -8,6 +8,7 @@ mod agent_hook_fences;
 mod agent_hook_retry;
 mod agent_presence;
 mod agent_reports;
+mod agent_roster_catch_up;
 mod agent_roster_restore;
 mod cell_pixel_fanout;
 mod cell_pixels;

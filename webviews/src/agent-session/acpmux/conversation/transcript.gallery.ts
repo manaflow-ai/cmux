@@ -284,7 +284,8 @@ const openGroupedShells = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-command").length === 2);
   await ctx.click({ selector: ".cv-command" });
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-shell__command").length === 1);
-  await ctx.click({ selector: ".cv-command:nth-of-type(2)" });
+  // Each command is a step of the opened group (ToolGroupRow.tsx), so the second is the second step.
+  await ctx.click({ selector: ".cv-step:nth-of-type(2) > .cv-command" });
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-shell__command").length === 2);
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__exit")));
 };
@@ -2993,6 +2994,24 @@ export default agentPaneEntry({
           reason:
             "The card leaves the bottom stack, which lies over the transcript's foot (bottomStack.css): the stack's unpainted wrapper (div.acpmux-dock, the only source) shrinks from its top, 0.062 measured; the composer and the rows do not move.",
         },
+      },
+    },
+    "secret-card-unsent": {
+      note: "Play: a secret typed in the card whose send has not gone through stays in the private field, so the person does not retype it.",
+      snapshot: chat([user("Create the Stripe test webhook", 1), assistant("I need your Stripe key for that.", 0.9)], {
+        isWorking: true,
+        secret: {
+          secretId: "gallery-secret",
+          name: "STRIPE_API_KEY",
+          reason: "Create the test webhook",
+        },
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-secret-card-field" });
+        await ctx.type("sk-test-51Hx9", { selector: ".acpmux-secret-card-field" });
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(".acpmux-secret-card-field")?.matches("input:not(:placeholder-shown)"),
+        );
       },
     },
     queued: {

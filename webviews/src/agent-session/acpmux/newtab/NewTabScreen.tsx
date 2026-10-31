@@ -14,6 +14,7 @@ import { OnNewTab } from "../newTabComposer";
 import type { Project } from "../ProjectChooser";
 import { firstProject, isAgentHome, mostRecentProject, projectLabel } from "../sessionList";
 import { WorktreeFailure } from "../startFolder";
+import { errorMessage } from "../transportErrors";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { sandboxFailureKey, type RunModeRows } from "../sandboxRun";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
@@ -76,6 +77,7 @@ import { Icon } from "../icons/Icon";
 import { type NewTabTranslate, useNt } from "./strings";
 import { screenSections, type ScreenTemplate } from "./templates";
 import { type Translate, useT } from "../i18n";
+import { composerPlusSearchExtensions } from "../composerPlusRegistry";
 import { ChromeArea } from "../../../ui/HideableChrome";
 import { Popover } from "../../../ui/Popover";
 import { PromptFocus } from "../promptFocus";
@@ -117,7 +119,7 @@ export type NewTabScreenActions = NewTabCommandActions & {
     noProject?: boolean,
     attachments?: ComposerAttachment[],
     saved?: { peer?: string },
-  ): void;
+  ): unknown;
   onOpen(url: string): void;
   onSearch(text: string): void;
   /// Enter in shell mode (`!` first): the page becomes a chat in its folder that runs `command`.
@@ -136,6 +138,9 @@ export type NewTabScreenActions = NewTabCommandActions & {
   /// One page of All chats from the host (`chats.page`); without it the page shows no All chats list.
   loadChatsPage?: LoadChatsPage;
   onShowAll(): void;
+  /// The + menu's Search chats and Search pages: runs that app action (PLUS_SEARCH_ACTIONS); it
+  /// rejects when the app refused it, and the page says so. Without it the + menu leaves both rows out.
+  onPlusCommand?(id: string): Promise<unknown>;
   onInputReady?(token: string): void;
   /// The first user input reached the page (the host recycles only an untouched page, R81).
   onTouched?(): void;
@@ -172,6 +177,7 @@ export type NewTabScreenActions = NewTabCommandActions & {
   /// The chat view's composer stood in for this page while the host failed before its handshake:
   /// what was typed there, taken once as the page's own draft when the page comes back.
   takeDraft?(): { text: string; attachments: ComposerAttachment[] } | undefined;
+  startNotice?: React.ReactNode;
 };
 
 /// The agent's model, effort and speed chip (App's composer chips), for the agent and project a
@@ -500,6 +506,27 @@ export function NewTabScreen(props: Props) {
   /// A Sandboxed send refused here (attachments, an agent a sandbox can't run): said over the box,
   /// and the prompt stays.
   const [sandboxRefusal, setSandboxRefusal] = useState<string>();
+  const [startError, setStartError] = useState<string>();
+  const asking = useRef(false);
+  const requestChat = (...args: Parameters<NewTabScreenActions["onAsk"]>) => {
+    if (asking.current) return;
+    asking.current = true;
+    setStartError(undefined);
+    const failed = (error: unknown) => {
+      setStartError(errorMessage(error) || t("switch.unknownError"));
+      created.current = false;
+    };
+    try {
+      Promise.resolve(props.onAsk(...args))
+        .catch(failed)
+        .finally(() => {
+          asking.current = false;
+        });
+    } catch (error) {
+      failed(error);
+      asking.current = false;
+    }
+  };
   /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
     if (targetAuthPending || authBlocksSend(targetAuth)) return false;
@@ -511,7 +538,7 @@ export function NewTabScreen(props: Props) {
     }
     if (environment) return askInEnvironment(environment, agent, prompt, model);
     if (machine)
-      return props.onAsk(
+      return requestChat(
         agent,
         prompt,
         machine.folder,
@@ -522,8 +549,8 @@ export function NewTabScreen(props: Props) {
           peer: machine.peer,
         },
       );
-    if (attachments.length > 0) return props.onAsk(agent, prompt, cwd, model, none || undefined, attachments);
-    return none ? props.onAsk(agent, prompt, cwd, model, true) : props.onAsk(agent, prompt, cwd, model);
+    if (attachments.length > 0) return requestChat(agent, prompt, cwd, model, none || undefined, attachments);
+    return none ? requestChat(agent, prompt, cwd, model, true) : requestChat(agent, prompt, cwd, model);
   };
   // The agent Enter asks and the chip's model (newTabStart): the chip's pick, else the last pick.
   const remembered = useLastPick(chatFolder);
@@ -557,6 +584,16 @@ export function NewTabScreen(props: Props) {
     parentSignIn?.authRefresh,
     parentSignIn?.authObservation,
   );
+  const authTarget = JSON.stringify(authQuery ?? null);
+  /// The ask that waits on the harness's sign-in check (askChat refuses while it runs: Return, an
+  /// Ask row or New chat right after Cmd-T, or setup's resume), with the check's target. It runs
+  /// again once the check settles on that target; a sign-in it then finds missing keeps the draft.
+  /// One slot: a later ask replaces it, so one ask goes. An edit drops it, except setup's resume,
+  /// which reads the draft as it is then.
+  const afterAuth = useRef<{ target: string; run: () => void; keepOnEdit?: true }>(undefined);
+  const waitForAuth = (run: () => void, keepOnEdit = false) => {
+    afterAuth.current = { target: authTarget, run, ...(keepOnEdit ? { keepOnEdit } : {}) };
+  };
 
   // The Ask row names the agent Return asks and the model on its chip.
   const ask = useMemo(() => {
@@ -633,9 +670,6 @@ export function NewTabScreen(props: Props) {
   // The model picker uses one footer position in every New Tab template and composer look.
   const look = useComposerLook();
   const split = props.chips !== undefined;
-  // Folder/computer keep their look-specific placement: Claude's one row, Codex's tray. The footer
-  // row exists only with the chips, so without them the strip stays above the box.
-  const locationInFooter = split && plainFooter && look === "claude" && template !== "default";
   // Footer look and template can change while this screen stays mounted.
   useRowFit(foot, `${split}:${plainFooter}:${look}`);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
@@ -833,6 +867,7 @@ export function NewTabScreen(props: Props) {
       case "workspace":
         return props.onJump("workspace", row.id);
       case "ask":
+        if (targetAuthPending) return waitForAuth(() => activateNow.current(row));
         return askChat(row.harness, row.text, project, row.harness === harness ? chipModel : undefined);
       case "create":
         return row.kind === "chat" ? startChat() : create(row.kind);
@@ -840,8 +875,12 @@ export function NewTabScreen(props: Props) {
         return props.onAction?.(row.id);
     }
   };
+  const activateNow = useRef(activate);
+  activateNow.current = activate;
   const edit = (next: string) => {
     touch();
+    // An ask still waiting on the sign-in check was for the draft before this edit.
+    if (!afterAuth.current?.keepOnEdit) afterAuth.current = undefined;
     setTouched(true);
     const entry = composing.current || shell ? undefined : shellEntry(text, next, wholeSelection.current);
     wholeSelection.current = false;
@@ -898,6 +937,7 @@ export function NewTabScreen(props: Props) {
       openSetup();
       return;
     }
+    if (targetAuthPending) return waitForAuth(() => submitNow.current());
     askChat(harness, prompt, project, chipModel);
   };
   submitNow.current = submit;
@@ -922,6 +962,7 @@ export function NewTabScreen(props: Props) {
     if (created.current) return;
     const prompt = shell ? "" : text.trim();
     if (command.intercept(prompt, harness, attachments.length)) return;
+    if (targetAuthPending) return waitForAuth(() => startChatNow.current());
     created.current = true;
     const asked = askChat(
       harness,
@@ -932,9 +973,8 @@ export function NewTabScreen(props: Props) {
     // A Sandboxed New chat that started nothing (no prompt, a refusal) leaves the page's creates open.
     if (asked === false) created.current = false;
   };
-  /// The harness a setup resume waits on while its sign-in check runs, with the check's target.
-  const resumeAfterAuth = useRef<{ agent: string; target: string } | undefined>(undefined);
-  const authTarget = JSON.stringify(authQuery ?? null);
+  const startChatNow = useRef(startChat);
+  startChatNow.current = startChat;
   continueAfterSetup.current = (agent) => {
     // Setup may finish while an attachment is still loading. Resume the same draft only once
     // its files are ready, reading the latest state rather than the setup-opening snapshot.
@@ -942,10 +982,7 @@ export function NewTabScreen(props: Props) {
     // Setup just made the harness ready, so its sign-in check is usually still running, and askChat
     // refuses while it does. Resume once that harness's check settles; a sign-in it then finds
     // missing keeps the draft.
-    if (targetAuthPending && harness === agent) {
-      resumeAfterAuth.current = { agent, target: authTarget };
-      return;
-    }
+    if (targetAuthPending && harness === agent) return waitForAuth(() => continueAfterSetup.current(agent), true);
     created.current = true;
     const prompt = shell ? "" : text.trim();
     const asked = askChat(
@@ -956,16 +993,16 @@ export function NewTabScreen(props: Props) {
     if (asked === false) created.current = false;
   };
   useEffect(() => {
-    const waiting = resumeAfterAuth.current;
+    const waiting = afterAuth.current;
     if (!waiting) return;
     // The person picked another harness or machine meanwhile: send nothing; the draft stays.
     if (waiting.target !== authTarget) {
-      resumeAfterAuth.current = undefined;
+      afterAuth.current = undefined;
       return;
     }
     if (targetAuthPending) return;
-    resumeAfterAuth.current = undefined;
-    continueAfterSetup.current(waiting.agent);
+    afterAuth.current = undefined;
+    waiting.run();
   }, [targetAuthPending, authTarget]);
   const send = () => {
     touch();
@@ -1182,9 +1219,9 @@ export function NewTabScreen(props: Props) {
   function askInEnvironment(picked: SavedEnvironment, agent: string, prompt: string, model?: string) {
     const extra = attachments.length > 0 ? attachments : undefined;
     if (picked.kind === "ssh")
-      return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, { peer: picked.host });
+      return requestChat(agent, prompt, picked.folder, model, undefined, extra, { peer: picked.host });
     if (!picked.worktree || !picked.folder || !props.onNewWorktree)
-      return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, {});
+      return requestChat(agent, prompt, picked.folder, model, undefined, extra, {});
     if (worktreePending.current) return;
     worktreePending.current = true;
     setWorktreeError(undefined);
@@ -1197,7 +1234,7 @@ export function NewTabScreen(props: Props) {
       (folder) => {
         if (!folder) return unstarted();
         worktreePending.current = false;
-        props.onAsk(agent, prompt, folder, model, undefined, extra, {});
+        requestChat(agent, prompt, folder, model, undefined, extra, {});
       },
       (error: unknown) => {
         unstarted();
@@ -1234,6 +1271,18 @@ export function NewTabScreen(props: Props) {
   /// split draws the chat composer's box instead.
   const pill = template === "cards" && !split;
 
+  const onPlusCommand = props.onPlusCommand;
+  const plusSearchRows = useMemo(() => composerPlusSearchExtensions(t), [t]);
+  /// The + search the app refused (turned off, or not for this tab), said over the composer until
+  /// the next pick or the next edit of the prompt.
+  const [plusRefusal, setPlusRefusal] = useState<{ action: string; text: string }>();
+  const plusRefused = plusRefusal && plusRefusal.text === text ? plusRefusal.action : undefined;
+  const runPlusSearch = (id: string) => {
+    setPlusRefusal(undefined);
+    const action = plusSearchRows.find((row) => row.id === id)?.name ?? id;
+    const asked = text;
+    void onPlusCommand?.(id).catch(() => setPlusRefusal({ action, text: asked }));
+  };
   const attachmentPicker = (
     <>
       <input
@@ -1264,6 +1313,22 @@ export function NewTabScreen(props: Props) {
               if (id === "attach") chooser.current?.click();
             },
           },
+          // Search chats and Search pages, as the chat composer's + (the page has no folder to
+          // search files in, so it offers no Search files).
+          ...(onPlusCommand
+            ? [
+                {
+                  title: t("sidebar.searchPlaceholder"),
+                  choices: plusSearchRows.map((row) => ({
+                    id: row.id,
+                    name: row.name,
+                    description: row.description,
+                    icon: <Icon name={row.icon} size={18} />,
+                  })),
+                  onPick: runPlusSearch,
+                },
+              ]
+            : []),
         ]}
       />
     </>
@@ -1289,6 +1354,7 @@ export function NewTabScreen(props: Props) {
         {...(snapshot.peerKinds ? { peerKinds: snapshot.peerKinds } : {})}
         {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
         {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
+        {...(snapshot.peerResources ? { peerResources: snapshot.peerResources } : {})}
         {...(props.onRefreshMachines ? { onRefreshMachines: props.onRefreshMachines } : {})}
         onComputer={(computer) => pickMachine(computer === "local" ? undefined : { peer: computer })}
         {...(props.machineName ? { localName: props.machineName } : {})}
@@ -1454,14 +1520,28 @@ export function NewTabScreen(props: Props) {
             {targetAuthText}
           </p>
         )}
+        {props.startNotice}
+
+        {startError && (
+          <p role="alert" className="acpmux-switch-notice">
+            {startError}
+          </p>
+        )}
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
         {sandboxRefusal && props.runMode?.mode === "sandboxed" && (
           <output className="acpmux-switch-notice">
             <span role="alert">{t(sandboxFailureKey(sandboxRefusal) ?? "sandbox.error.failed")}</span>
           </output>
         )}
-        {/* Above the box: the project strip (Cards draws it under the field). */}
-        {!pill && !locationInFooter && <div className="nt-above">{folderStrip}</div>}
+        {plusRefused && (
+          <output className="acpmux-switch-notice">
+            <span role="alert">{t("composer.offloadNotRun", { action: plusRefused })}</span>
+          </output>
+        )}
+        {/* Above the box: the project and machine strip, in every look (Cards draws it under the
+            field). Leo 2026-10-29: "project and cloudness at the top ... and stop making them take
+            up so much space"; the quiet row under the box keeps the mode and the model. */}
+        {!pill && <div className="nt-above">{folderStrip}</div>}
         <div ref={setBox} className="ui-glass ui-glass-floats nt-box">
           {commandsOpen && (
             <SlashMenu
@@ -1550,12 +1630,11 @@ export function NewTabScreen(props: Props) {
           {command.input}
           {!pill && !split && pickers}
         </div>
-        {/* Claude Code's one quiet row: folder and computer lead the mode, model and effort;
-            the box keeps the prompt, the mic and Send (Leo: "one single row"). */}
+        {/* Claude Code's quiet row: the mode, model and effort; the box keeps the prompt, the mic
+            and Send. Folder and computer head the box (above). */}
         {split && Chips && (
           <div className="nt-foot" onPointerDownCapture={touch}>
             <ComposerFoot ref={foot} plain={plainFooter}>
-              {locationInFooter && folderStrip}
               <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} onAddAgent={openSetup} />
             </ComposerFoot>
           </div>
@@ -1781,10 +1860,10 @@ export function NewTabScreen(props: Props) {
                     aria-selected={index === current}
                     data-type={row.type}
                     className={index === current ? "nt-row is-selected" : "nt-row"}
-                    onMouseMove={() => {
-                      if (index === current) return;
-                      pick(index);
-                    }}
+                    // The pointer only lights the row it rests on (screen.css :hover); Return stays
+                    // the prompt's, or the row the keyboard picked. A hovered row that took Return
+                    // left "helo" unsent (Leo 2026-10-31: "i cant even press enter on that hello
+                    // anymore it doesnt send it to claude"). A press still runs the row it presses.
                     onMouseDown={(event) => {
                       event.preventDefault();
                       activate(row);
@@ -1821,10 +1900,7 @@ export function NewTabScreen(props: Props) {
                         aria-selected={index === current}
                         data-type={row.type}
                         className={index === current ? "nt-create-strip-item is-selected" : "nt-create-strip-item"}
-                        onMouseMove={() => {
-                          if (index === current) return;
-                          pick(index);
-                        }}
+                        // As the rows: hover lights it, only the keyboard makes it Return's.
                         onMouseDown={(event) => {
                           event.preventDefault();
                           activate(row);
