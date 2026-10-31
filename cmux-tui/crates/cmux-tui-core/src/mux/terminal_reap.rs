@@ -156,7 +156,7 @@ impl Mux {
         self.workspace_registry.lock().unwrap().terminal_keep(terminal_id)
     }
 
-    fn wake_terminal_reaper(&self) {
+    pub(super) fn wake_terminal_reaper(&self) {
         if let Some(events) = self.terminal_reaper_events.lock().unwrap().as_ref() {
             events.wake();
         }
@@ -726,12 +726,14 @@ pub fn start_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<TerminalReaper> 
     let mut thread_events = events.lock().unwrap().clone();
     let thread = std::thread::Builder::new().name("mux-terminal-reap".into()).spawn(move || {
         let mut schedule = ReapSchedule::default();
+        let mut reclaim = pty_reclaim::ReclaimClock::default();
         loop {
             if thread_stop.load(Ordering::Acquire) {
                 break;
             }
             let Some(mux) = weak.upgrade() else { break };
             mux.reap_unplaced_terminals(&mut schedule, Instant::now());
+            mux.reclaim_ptys_if_low(&mut reclaim);
             // Never hold the mux across the wait: the thread must not keep
             // the mux alive after its other owners are gone.
             drop(mux);
