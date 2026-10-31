@@ -170,6 +170,26 @@ mark {
   gap: 1px;
 }
 
+/* A titled run of categories (Look and Feel, AI, ...); the space above each header separates the
+   runs, so no divider line is needed. */
+/* Its links keep the list's own rhythm: the section is a column with no gap of its own. */
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-section + .sidebar-section { margin-top: 14px; }
+
+.sidebar-section-title {
+  margin: 0;
+  padding: 0 8px 4px;
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: 600;
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
 .section-link {
   display: flex;
   align-items: center;
