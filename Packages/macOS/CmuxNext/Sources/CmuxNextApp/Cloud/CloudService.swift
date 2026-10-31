@@ -28,6 +28,7 @@ final class CloudService {
     @ObservationIgnored let machineAPI: CloudAPIClient
     /// The machines a `cloud deliver-secrets` runs for now: one delivery per machine at a time.
     @ObservationIgnored var deliveringSecrets: Set<String> = []
+    @ObservationIgnored let networkAccess = CloudNetworkAccessQueue() // one network policy read-then-write per machine
     @ObservationIgnored let paths: CloudPaths
     /// One app-lifetime owner of confirmed, per-account Codex delivery.
     let codexBroker: CloudCodexBrokerAdapter
@@ -80,6 +81,10 @@ final class CloudService {
     private(set) var hasLoadedMachines = false
     /// Whom the loaded list is for (``listAccount`` when it landed).
     @ObservationIgnored private var loadedAccount: [String?]?
+    /// The machines the loaded list named (and machines made since for that account): a session the
+    /// store keeps while an omission waits on a newer read (``reconcile(_:read:connectsAtRead:)``)
+    /// may be another team's, and is not one of them.
+    private(set) var listedMachineIDs: Set<String> = []
     /// Whether the store holds a list the server answered for the user and
     /// team signed in now. A team switch keeps the user signed in, so the
     /// previous team's list stays in the store until the next refresh lands:
@@ -105,6 +110,8 @@ final class CloudService {
     @ObservationIgnored let bringBackRetries = CloudMoveRetries(key: "cmux.cloud.bringBackRetries")
     /// The chats moved from this Mac, for Bring Back Local.
     @ObservationIgnored let movedChats = CloudMovedChats()
+    /// The machine each recent `cloud.startChat` send ran on, so its retry stays there.
+    @ObservationIgnored let startChatDestinations = CloudStartChat.Destinations()
     /// Agents' asks to move their chats, and the cards they raise in chats.
     @ObservationIgnored let moveAsks = CloudMoveAsks()
     @ObservationIgnored let toolCards = AgentToolCards()
@@ -218,6 +225,7 @@ final class CloudService {
             hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: Self.deviceName)
         }
         movedChats.defaults = { [weak self] in self?.move.ledger }
+        startChatDestinations.defaults = { [weak self] in self?.move.ledger }
         moveRetries.defaults = { [weak self] in self?.move.ledger }
         bringBackRetries.defaults = { [weak self] in self?.move.ledger }
         moveAsks.defaults = { [weak self] in self?.move.ledger }
@@ -462,6 +470,7 @@ final class CloudService {
             reconcile(list, read: read, connectsAtRead: connectsAtRead)
             hasLoadedMachines = true
             loadedAccount = account
+            listedMachineIDs = Set(list.filter { $0.status != .destroyed }.map(\.id))
             listLoadedAt = .now
             await startHubForSSHRoutes()
             return true
@@ -687,8 +696,10 @@ final class CloudService {
                                                       gate: { [weak self, weak creation] in creation?.request.wasSent == true ? .allowed : self?.createGate ?? .allowed },
                                                       confirm: { [weak self] in await self?.confirmCreate?($0) ?? false },
                                                       create: { [api, weak creation] in
-                                                          // The first send's team, for every later call about this machine.
-                                                          let team = creation?.request.wasSent == true ? creation?.request.team : await api.currentTeam()
+                                                          // The first send's team, for every later call about this machine; a
+                                                          // caller that fixed the team (`request.team`) sends every try there.
+                                                          let team = await Self.createTeam(sent: creation?.request.wasSent == true ? .some(creation?.request.team) : nil,
+                                                                                           requested: request.team, current: { await api.currentTeam() })
                                                           creation?.markRequestSent(team: team)
                                                           return try await api.pinningTeam(team).createWithKey(name: name, request: request, idlePause: idlePause, onSent: onSent)
                                                       })
@@ -712,9 +723,18 @@ final class CloudService {
         }
         if let existing = machines.session(machine.id) { existing.sizePick = machine.sizePick ?? existing.sizePick; return existing }
         guard let session = addSession(machine) else { throw ActionFailure(message: CloudStrings.noClient) }
+        listedMachineIDs.insert(machine.id)
         // A list in flight was asked before this machine existed.
         listGeneration += 1
         return session
+    }
+
+    /// The team a classic create try goes to: the first send's once one was sent (`sent`), else the
+    /// team the caller fixed (`requested`, ``CloudMachineRequest/team``), else the app's team now.
+    nonisolated static func createTeam(sent: String??, requested: String?, current: () async -> String?) async -> String? {
+        if let sent { return sent }
+        if let requested { return requested }
+        return await current()
     }
 
     func deleteMachine(_ machineID: String) async throws {

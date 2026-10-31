@@ -11,7 +11,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { AgentMark, agentBrand, hasAgentMark, knownMark } from "../shared/AgentMark";
-import { agentName, agentDisplayName } from "./agents";
+import { agentName, agentDisplayName, picksOwnModel } from "./agents";
 import { agentKey } from "../shared/agentKey";
 import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPickers";
@@ -41,7 +41,6 @@ import {
   PickerOptionList,
 } from "../../ui/PickerPrimitives";
 import { ScrollArea } from "../../ui/ScrollArea";
-import { canonicalHarnesses } from "./canonicalHarnesses";
 import { quantizePickerRail } from "./pickerRailGeometry";
 
 type HarnessChoice = {
@@ -299,8 +298,9 @@ function quickRow(family: string, model: ModelChoice): QuickModel {
 /// The rail's Starred tab (never a harness id).
 const STARRED = "\u0000starred";
 
-/// Build launch entries before folding Claude/Codex variants into their canonical harness tab.
-/// Their model catalogs refresh after selection; do not borrow another account's models.
+/// Global launch configurations are distinct harness entries, never a Profile submenu.
+/// One whose own catalog entry lists models shows them, as any harness tab does; only one with
+/// no models of its own launches from its tab. Do not borrow another account's models.
 function railByHarness(
   list: QuickFamily[],
   running: string | undefined,
@@ -308,6 +308,11 @@ function railByHarness(
   signedOut: (id: string) => boolean = () => false,
 ): QuickFamily[] {
   const seen = new Set<string>();
+  const byId = new Map(list.map((family) => [family.id, family]));
+  // Only a row that can be picked starts the entry; one whose probe failed (the harness unavailable,
+  // or every row disabled) keeps its launch tab.
+  const hasModels = (family: QuickFamily | undefined) =>
+    !!family && !family.unavailable && [...family.models, ...family.more].some((model) => !model.disabled);
   return list.flatMap((family) => {
     if (seen.has(family.id)) return [];
     seen.add(family.id);
@@ -323,8 +328,10 @@ function railByHarness(
     );
     const currentName =
       names.find((profile) => profile.id === family.id)?.name ?? launchName(family.name, family.name, family.id);
-    const alternate = launchSuffix(family.id) && family.id !== running;
-    const own = { ...family, name: currentName, ...(alternate ? { launch: true } : {}) };
+    const alternate = launchSuffix(family.id) && family.id !== running && !hasModels(family);
+    // A launch tab starts its harness; it lists no rows (stale ones of a failed probe included), so
+    // reaching it with the arrow keys shows nothing that could start a model.
+    const own = { ...family, name: currentName, ...(alternate ? { launch: true, models: [], more: [] } : {}) };
     return [
       own,
       ...names.flatMap((profile): QuickFamily[] => {
@@ -338,6 +345,8 @@ function railByHarness(
         )
           return [];
         seen.add(profile.id);
+        const entry = byId.get(profile.id);
+        if (hasModels(entry)) return [{ ...entry!, name: profile.name, mark: entry!.mark ?? family.mark }];
         return [
           {
             id: profile.id,
@@ -855,7 +864,9 @@ export function ModelPicker(props: ModelPickerProps) {
         entry.pickable &&
         !blockedProfile(entry) &&
         entry.folder?.state !== "needs-enable" &&
-        loginFor(entry) === undefined,
+        loginFor(entry) === undefined &&
+        // A harness whose probe failed has stale rows: the search finds none of them, unless it runs the chat.
+        (!entry.unavailable || entry.ids.includes(harness ?? "")),
     );
     const found = searchModels(searchable, typed, lang);
     // A model several providers serve is one match, in the place of its best-ranked provider's row.
@@ -903,8 +914,10 @@ export function ModelPicker(props: ModelPickerProps) {
       (entry) => !entry.folder && entry.pickable && !blockedProfile(entry),
     );
     const list: QuickFamily[] = [];
+    // A harness whose probe failed lends no rows to Starred (they are stale), unless it runs the chat.
+    const stale = (entry: HarnessChoice) => !!entry.unavailable && !entry.ids.includes(harness ?? "");
     const starred = startable
-      .filter((entry) => loginFor(entry) === undefined)
+      .filter((entry) => loginFor(entry) === undefined && !stale(entry))
       .flatMap((entry) =>
         groupChoices(
           choicesFor(entry, lang).filter((model) => favorites.has(model.id)),
@@ -923,16 +936,14 @@ export function ModelPicker(props: ModelPickerProps) {
         ...(hasAgentMark(entry.mark ?? entry.id) ? { mark: entry.mark ?? entry.id } : {}),
         models: shown.map((model) => row(entry, model)),
         more: more.map((model) => row(entry, model)),
+        ...(entry.unavailable ? { unavailable: true } : {}),
         ...(signedOutHere ? { note: t("harnesses.signedOut") } : {}),
         ...(signedOutHere && loginFor(entry) && onLogIn
           ? { logIn: () => onLogIn(entry.acpmuxHarness ?? entry.id, loginFor(entry)!) }
           : {}),
       });
     }
-    const rail = canonicalHarnesses(
-      railByHarness(list, harness ?? current?.id, props.profiles, (id) => signedOut?.[id] !== undefined),
-      current?.id,
-    );
+    const rail = railByHarness(list, harness ?? current?.id, props.profiles, (id) => signedOut?.[id] !== undefined);
     if (!harnessFixed) return rail;
     // A started chat (Leo 2026-10-22: "can expose as fork"): another harness's tab is Fork to it,
     // Starred keeps the chat's own models, and another launch profile of any harness forks there.
@@ -943,7 +954,6 @@ export function ModelPicker(props: ModelPickerProps) {
         return models.length ? [{ ...family, models }] : [];
       }
       if (family.id === current?.id || family.note) return [own];
-      if (family.launch) return [{ ...own, models: [], more: [], fork: true }];
       return [{ ...own, models: [], more: [], fork: true }];
     });
   }, [
@@ -1277,6 +1287,7 @@ export function ModelPicker(props: ModelPickerProps) {
                     )
                   : [],
               current: props.model,
+              ...(picksOwnModel(current?.family) ? { ownModel: true } : {}),
               onModel: (id) => {
                 quickPicked.current = true;
                 onLand(id);
@@ -1297,6 +1308,8 @@ export function ModelPicker(props: ModelPickerProps) {
                       ...(harnessFixed && fork
                         ? { onLaunch: pickProfile, onFork: pickProfile, forkReady: fork.ready }
                         : {}),
+                      // Each row's star, the full picker's favourites (the Starred tab lists them).
+                      stars: { has: (model) => favorites.has(model.id), toggle: (model) => toggleFavorite(model.id) },
                     },
                   }
                 : {}),
