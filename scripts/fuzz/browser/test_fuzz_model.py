@@ -302,5 +302,70 @@ class HangPathTests(unittest.TestCase):
         self.assertIn("harness", last)
 
 
+class FinalVerdictTests(unittest.TestCase):
+    """Review of #29662 (BLOCK at 2d9ab261d01): the HANG verdict was followed by the main thread's own verdict, and
+    verdict.py reads the last line, so a hang read as PASS."""
+
+    def run_driver(self, body, timeout=60):
+        script = ("import sys, threading, time, types; sys.path.insert(0, %r)\n"
+                  "import browser_fuzz as b, fuzz_model as m\n"
+                  "class O: op_deadline = 0.2; ops = 150; build_config = 'debug'\n"
+                  "b.WATCH_POLL_S = 0.05\n"
+                  "b.LIVE['watch'] = m.OpWatch(0.2)\n" % HERE) + body
+        return subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=timeout)
+
+    def verdicts(self, out):
+        return [l for l in out.stdout.splitlines() if l.startswith("BROWSER-FUZZ-VERDICT ")]
+
+    def test_the_main_threads_verdict_never_follows_the_hang_verdict(self):
+        # The watchdog's probe takes a while (the app is slow to answer); meanwhile the hung op returns and the main
+        # thread reaches its own end-of-run verdict. The HANG verdict must be the only one, with its exit code.
+        out = self.run_driver(
+            "class S:\n"
+            "    sock = '/nonexistent/cmux-fuzz.sock'\n"
+            "    opts = types.SimpleNamespace(app='/nonexistent/cmux DEV fuzz.app')\n"
+            "    def app_gone(self):\n"
+            "        time.sleep(1.0)\n"
+            "        return False\n"
+            "b.LIVE['session'] = S()\n"
+            "threading.Thread(target=b.watchdog, args=(O,), daemon=True).start()\n"
+            "b.LIVE['watch'].start(368488418, 2, {'op': 'navigate', 'url': 'file:///etc/hosts'}, 'seed 368488418')\n"
+            "time.sleep(0.6)\n"
+            "b.LIVE['watch'].done()\n"
+            "sys.exit(b.final_verdict('PASS replay of x', 0))\n")
+        lines = self.verdicts(out)
+        self.assertEqual(len(lines), 1, out.stdout + out.stderr)
+        self.assertTrue(lines[0].startswith("BROWSER-FUZZ-VERDICT FAIL HANG at op 2 navigate"), lines)
+        self.assertEqual(out.returncode, 1)
+        self.assertIn("BROWSER-FUZZ-FINDING ", out.stdout)
+
+    def test_a_dead_control_socket_is_no_answer(self):
+        import browser_fuzz
+        self.assertEqual(browser_fuzz.answers("/nonexistent/cmux-fuzz.sock", "system.ping", 1)[0], False)
+
+    def test_a_harness_hang_after_a_finding_keeps_the_finding(self):
+        out = self.run_driver(
+            "b.LIVE['findings'].append({'oracle': 'sad_tab', 'seed': 7})\n"
+            "threading.Thread(target=b.watchdog, args=(O,), daemon=True).start()\n"
+            "b.LIVE['watch'].start(8, 3, {'op': 'back'}, 'seed 8')\n"
+            "time.sleep(30)\n")
+        lines = self.verdicts(out)
+        self.assertEqual(len(lines), 1, out.stdout + out.stderr)
+        self.assertTrue(lines[0].startswith("BROWSER-FUZZ-VERDICT FAIL 1 finding(s) before HANG at op 3 back"), lines)
+        self.assertEqual(out.returncode, 1)
+
+    def test_a_hang_during_a_shrink_prints_that_failure_unshrunk(self):
+        out = self.run_driver(
+            "b.LIVE['pending'] = {'oracle': 'lost_tab', 'seed': 9, 'ops': [{'op': 'open'}, {'op': 'close'}]}\n"
+            "threading.Thread(target=b.watchdog, args=(O,), daemon=True).start()\n"
+            "b.LIVE['watch'].start(9, 1, {'op': 'close'}, 'shrink 9')\n"
+            "time.sleep(30)\n")
+        found = [l for l in out.stdout.splitlines() if l.startswith("BROWSER-FUZZ-FINDING ")]
+        self.assertEqual(len(found), 1, out.stdout + out.stderr)
+        self.assertIn('"oracle": "lost_tab"', found[0])
+        self.assertIn("unshrunk", found[0])
+        self.assertTrue(self.verdicts(out)[-1].startswith("BROWSER-FUZZ-VERDICT FAIL 1 finding(s) before HANG"), out.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
