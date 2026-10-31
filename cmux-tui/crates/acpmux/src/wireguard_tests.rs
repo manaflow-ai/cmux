@@ -113,8 +113,8 @@ fn wrong_key_cannot_open_a_stream() {
             tokio::time::timeout(Duration::from_secs(1), a.connect(a.route("b").unwrap())).await;
         assert!(!matches!(result, Ok(Ok(_))), "a wrong-key tunnel opened");
         assert!(tokio::time::timeout(Duration::from_millis(50), target.accept()).await.is_err());
-        a.shutdown().await;
-        b.shutdown().await;
+        a.shutdown(tokio::time::Instant::now()).await;
+        b.shutdown(tokio::time::Instant::now()).await;
     });
 }
 
@@ -214,8 +214,8 @@ fn session_streams_are_multiplexed_and_keep_websocket_authorization() {
         tokio::join!(web_calls, peer_calls);
         web.close(None).await.unwrap();
         peer.close(None).await.unwrap();
-        a.shutdown().await;
-        b.shutdown().await;
+        a.shutdown(tokio::time::Instant::now()).await;
+        b.shutdown(tokio::time::Instant::now()).await;
         server.abort();
         let _ = server.await;
     });
@@ -249,8 +249,8 @@ fn peer_uses_the_shared_mesh_before_its_unreachable_fallback() {
         assert!(peer.request("session/list", json!({})).await.unwrap().is_object());
         peer.stop();
         tokio::time::timeout(BOUND, task).await.unwrap().unwrap();
-        a.shutdown().await;
-        b.shutdown().await;
+        a.shutdown(tokio::time::Instant::now()).await;
+        b.shutdown(tokio::time::Instant::now()).await;
         server.abort();
         let _ = server.await;
     });
@@ -338,7 +338,7 @@ fn loopback_throughput_and_shutdown() {
         assert!(this_process_holds(&a_socket_link), "the transport runs on its UDP socket");
         #[cfg(not(target_os = "linux"))]
         let local = a.local_addr();
-        a.shutdown().await;
+        a.shutdown(tokio::time::Instant::now()).await;
         // Releasing UDP is this process closing its socket. A process another test is spawning
         // holds a copy from its fork until its exec, and the port stays bound until that copy
         // closes too, so a rebind here could fail with nothing of ours left holding it.
@@ -349,7 +349,37 @@ fn loopback_throughput_and_shutdown() {
         let closed = tokio::time::timeout(BOUND, tunneled.next()).await
             .expect("shutdown must resolve a pending stream read");
         assert!(!matches!(closed, Some(Ok(frame)) if !frame.is_close()), "shutdown must end the stream");
-        b.shutdown().await;
+        b.shutdown(tokio::time::Instant::now()).await;
         tokio::time::timeout(BOUND, echo).await.unwrap().unwrap();
+    });
+}
+
+/// What this daemon's listener sent a peer just before the transport stops (a restart's
+/// WebSocket close 1012, sent as the daemon stops) reaches that peer before the tunnel's end.
+/// Before, the stop aborted each bridge before it forwarded those bytes and reset every tunnel
+/// connection, so the peer read a reset or an end with no close frame (full Linux test runs,
+/// jobs 38e8e52e01839ea5d499f49e and dd8687a112bd464b1a8350b0). The order is forced, not
+/// timed: on one thread the stop runs before the bridge reads the listener's last bytes.
+#[test]
+fn a_stop_delivers_what_the_listener_sent_before_the_tunnel_ends() {
+    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let (a, b, _homes) = pair(target.local_addr().unwrap(), false).await;
+        let mut stream =
+            tokio::time::timeout(BOUND, a.connect(a.route("b").unwrap())).await.unwrap().unwrap();
+        stream.write_all(b"hello").await.unwrap();
+        let (mut local, _) = tokio::time::timeout(BOUND, target.accept()).await.unwrap().unwrap();
+        let mut hello = [0; 5];
+        local.read_exact(&mut hello).await.unwrap();
+        // The listener's last words, then its close, as a draining WebSocket listener does.
+        local.write_all(b"last words").await.unwrap();
+        drop(local);
+        b.shutdown(tokio::time::Instant::now() + BOUND).await;
+        let mut got = Vec::new();
+        let read = tokio::time::timeout(BOUND, stream.read_to_end(&mut got)).await.unwrap();
+        assert!(read.is_ok(), "the tunnel was reset: {read:?}, after {got:?}");
+        assert_eq!(got, b"last words");
+        a.shutdown(tokio::time::Instant::now()).await;
     });
 }

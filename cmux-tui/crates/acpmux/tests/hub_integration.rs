@@ -3,9 +3,13 @@
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/). `ACPMUX_UPDATE_FIXTURES=1`
-// rewrites the pane fixtures the tests check (`adopt.rs`).
-const HERMETIC: daemon_env::Process =
-    daemon_env::Process::stand_in().keep(&["ACPMUX_UPDATE_FIXTURES"]);
+// rewrites the pane fixtures the tests check (`adopt.rs`); `LS_LATENCY_SESSIONS` and
+// `LS_LATENCY_RUNS` size the ignored `ls_latency` bench (`usage_stats.rs`).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
+    "ACPMUX_UPDATE_FIXTURES",
+    "LS_LATENCY_SESSIONS",
+    "LS_LATENCY_RUNS",
+]);
 
 use acpmux::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
 use acpmux::hub::Hub;
@@ -63,6 +67,8 @@ mod prompt_provenance;
 mod prompt_supersede;
 #[path = "hub_integration/prompt_withdraw.rs"]
 mod prompt_withdraw;
+#[path = "hub_integration/protected_resume.rs"]
+mod protected_resume;
 #[path = "hub_integration/protocol_serve.rs"]
 mod protocol_serve;
 #[path = "hub_integration/purged_stays_purged.rs"]
@@ -105,6 +111,9 @@ mod tags_rules;
 mod tasks;
 #[path = "hub_integration/xai_requests.rs"]
 mod xai_requests;
+
+#[path = "hub_integration/turn_attestation.rs"]
+mod turn_attestation;
 
 struct TestClient {
     tx: mpsc::Sender<String>,

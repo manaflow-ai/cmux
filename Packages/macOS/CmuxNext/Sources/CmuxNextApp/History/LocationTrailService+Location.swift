@@ -37,8 +37,7 @@ extension LocationTrailService {
     /// Whether the location's tab exists on a connected machine now.
     func isAvailable(_ location: HistoryLocation) -> Bool {
         if let page = location.page { return TopPageRoute(rawValue: page).map(hasPage) ?? false }
-        guard let (_, pane) = services.locateTab(location.key.tab) else { return false }
-        return services.daemon(for: pane).machineID == location.key.machine
+        return services.locateTab(location.key.tab, onMachine: location.key.machine) != nil
     }
 
     func hasPage(_ route: TopPageRoute) -> Bool {

@@ -136,6 +136,25 @@ test("Find skips a command row's verb and the space after it, and counts the com
   expect(container.querySelectorAll(".cv-command .cv-tool__verb")).toHaveLength(2);
 });
 
+test("a group's line reads as words: its count is never pushed out to the verb column", async () => {
+  // Leo, 2026-10-29: "Why is there space between ran and two?"
+  const container = await render(
+    <ToolRows
+      row={turn([
+        call("git status", "execute", { command: "git status" }),
+        call("git diff", "execute", { command: "git diff" }),
+        thought("Then."),
+        call("Searched for cv-tool", "search"),
+      ])}
+    />,
+  );
+  const group = container.querySelector<HTMLButtonElement>("button.cv-tool.is-toggle")!;
+  expect(group.querySelector(".cv-tool__text")!.textContent).toBe("Ran 2 commands");
+  expect(group.querySelector(".cv-tool__verb")).toBeNull();
+  // The calls' own rows keep the column.
+  expect(container.querySelectorAll(".cv-command .cv-tool__verb")).toHaveLength(2);
+});
+
 test("an MCP call's verb joins the column; its plain name on a lone row stays whole", async () => {
   const mcp = () => call("mcp__hub__frobnicate", "other", { inputSummary: JSON.stringify({}) });
   const container = await render(<ToolRows row={turn([mcp(), thought("Then."), call("Read App.tsx", "read")])} />);
@@ -234,7 +253,8 @@ test("an MCP response that scrolls fades its bottom edge until it is scrolled to
       reveal={0}
     />,
   );
-  const box = container.querySelector<HTMLElement>(".cv-mcp-call__body")!;
+  // The response reads in the shared tool output body (ToolOutputBody.tsx), which fades its own edge.
+  const box = container.querySelector<HTMLElement>(".cv-mcp-call .cv-tool-output")!;
   // jsdom lays nothing out: the box is 240px tall over 720px of text.
   Object.defineProperty(box, "clientHeight", { value: 240 });
   Object.defineProperty(box, "scrollHeight", { value: 720 });

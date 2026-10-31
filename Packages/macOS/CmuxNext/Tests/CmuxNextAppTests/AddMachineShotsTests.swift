@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextServer
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -8,7 +9,7 @@ import Testing
 /// no Tailscale, running, ready, failed, Check Machine with Fix) into one contact sheet, so a fleet run
 /// returns the card's look as an artifact: `Packages/macOS/CmuxNext/.build/add-machine-shots.png`.
 /// It also checks that every state draws something at a sane size.
-@MainActor @Suite(.serialized) struct AddMachineShotsTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AddMachineShotsTests {
     @Test func everyStateRendersToTheContactSheet() async throws {
         _ = NSApplication.shared
         var shots: [(String, NSImage)] = []
@@ -91,8 +92,9 @@ enum AddMachineShotState: String, CaseIterable {
             host.live?.yield(Flow.step("install", "fixed", "pushed cmux-tui 5eac889"))
             for _ in 0..<100 where model.checklist.row(.daemon)?.status != .running { await Task.yield() }
         case .ready:
-            host.scripts = [Array(Flow.okSteps.dropLast(2)) + [Flow.step("peer-back", "warn", "huge-blue cannot ssh back", fix: "Add this Mac's key on huge-blue."),
-                                                        Flow.step("identity", "ok"), Flow.report("huge-blue", "huge-blue", ok: true, Flow.okSteps)]]
+            host.scripts = [Array(Flow.okSteps.dropLast(3)) + [Flow.step("peer-back", "warn", "huge-blue cannot ssh back", fix: "Add this Mac's key on huge-blue."),
+                                                        Flow.step("identity", "ok"), Flow.step("approvals", "ok"),
+                                                        Flow.report("huge-blue", "huge-blue", ok: true, Flow.okSteps)]]
             model.begin(destination: "huge-blue")
             model.perform(.add)
             _ = await model.finished()

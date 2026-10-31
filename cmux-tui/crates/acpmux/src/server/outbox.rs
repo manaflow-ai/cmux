@@ -98,8 +98,13 @@ pub(super) async fn handle(
         {
             return super::mesh_send::send(hub, conn, mesh, &request, &target).await;
         }
-        return Err(RpcError::invalid_params(format!("no session: {target}"))
-            .with_data(json!({"reason": "no_session", "session": target})));
+        // The names it nearly matched, so the sender can pick one (`Hub::unknown_session`).
+        let close = hub.unknown_session(&target).data.and_then(|d| d.get("candidates").cloned());
+        let mut data = json!({"reason": "no_session", "session": target});
+        if let Some(close) = close {
+            data.set("candidates", close);
+        }
+        return Err(RpcError::invalid_params(format!("no session: {target}")).with_data(data));
     }
     // Over the caps it is refused now, never kept (`attach.rs`).
     crate::attach::check_wire(&request)?;
@@ -224,7 +229,8 @@ pub(super) async fn remember_forward(
 /// Find a receiver projection across every page, including messages still queued
 /// there. Only a locally recorded intent can name the source journal to repair.
 async fn reconcile_forward(hub: &Arc<Hub>, delivery: &Delivery) -> Result<Value, (String, Next)> {
-    let intent = &delivery.request["_meta"]["acpmux"]["forwardProjection"];
+    let intent =
+        delivery.request.pointer("/_meta/acpmux/forwardProjection").unwrap_or(&Value::Null);
     let caller = delivery.caller.as_deref().unwrap_or_default();
     // A restart resumes the outbox before the saved sessions load (`daemon.rs`): the sender is
     // read on demand, or after the load, before its absence counts.
@@ -275,7 +281,7 @@ async fn reconcile_forward(hub: &Arc<Hub>, delivery: &Delivery) -> Result<Value,
             if event["kind"] == "_acpmux/message"
                 && msg["messageId"] == intent["messageId"]
                 && msg["sessionId"] == target
-                && msg["sender"]["sessionId"] == caller
+                && msg.pointer("/sender/sessionId").and_then(Value::as_str) == Some(caller)
             {
                 if !hub.append_sender_message_event(
                     &source.id,
@@ -450,9 +456,9 @@ async fn relayed_status(
                     }
                 }
             }
-            status["deliveryId"] = json!(delivery.id);
-            status["relayDeliveryId"] = json!(relay);
-            status["target"] = json!(delivery.target);
+            status.set("deliveryId", json!(delivery.id));
+            status.set("relayDeliveryId", json!(relay));
+            status.set("target", json!(delivery.target));
             status
         }
         Err(_) => own,

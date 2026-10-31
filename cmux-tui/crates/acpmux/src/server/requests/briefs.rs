@@ -172,7 +172,7 @@ pub(super) async fn list(
         json!({"briefs":rows.into_iter().take(limit.clamp(1, 500)).collect::<Vec<_>>() });
     if !failed.is_empty() {
         tracing::warn!(peers = ?failed, "briefs left out the peers that did not answer");
-        reply["peersFailed"] = Value::Array(failed);
+        reply.set("peersFailed", Value::Array(failed));
     }
     Ok(reply)
 }

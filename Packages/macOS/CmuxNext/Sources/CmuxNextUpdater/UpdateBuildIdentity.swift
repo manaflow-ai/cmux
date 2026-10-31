@@ -64,7 +64,8 @@ nonisolated public struct UpdateBuildIdentity: Sendable, Equatable {
         if UpdateTrack.isDevelopmentBundle(bundleIdentifier), !isTipBuild { return .development }
         switch UpdateFeedResolver().resolve(infoFeedURL: infoFeedURL).channel {
         case .stable: return .stable
-        case .nightly, .nightlyNext: return .nightly
+        case .nightly: return .nightly
+        case .nightlyNext: return .nightlyNext
         case .rc: return .rc
         }
     }
@@ -83,8 +84,11 @@ nonisolated public struct UpdateBuildIdentity: Sendable, Equatable {
         return nil
     }
 
-    /// The other release app this one can switch to (stable <-> NIGHTLY);
-    /// nil for DEV, staging and RC builds.
+    /// The other release app this one can switch to (stable <-> NIGHTLY), by bundle id;
+    /// nil for DEV, staging and RC builds. cmux NEXT (`com.cmuxterm.app.nightly.cmux-next`)
+    /// and the tip app have none; the legacy NEXT build signed as cmux NIGHTLY
+    /// (`com.cmuxterm.app.nightly`) keeps NIGHTLY's stable counterpart
+    /// (`UpdateTrackMatrixTests` pins each).
     public var channelSwitchTarget: AppChannelSwitchTarget? {
         AppChannelSwitchTarget.counterpart(ofBundleIdentifier: bundleIdentifier)
     }

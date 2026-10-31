@@ -47,6 +47,11 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ("Show coord's state, model, policy and pending requests", "acpmux session info coord"),
             ("Show a session on a peer", "acpmux session info mini-3/review-27"),
             ("Print the details as JSON for a script", "acpmux session info coord --json"),
+            ("Print only coord's session id", "acpmux session info coord --fields sessionId"),
+            (
+                "Print a few fields, nested ones by a dotted path",
+                "acpmux session info review-27 --fields status,turn.activity,stuckReason",
+            ),
         ],
     ),
     (
@@ -64,6 +69,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "acpmux session stop review-27310",
             ),
             ("Stop a session and delete its log", "acpmux session stop review-27310 --purge"),
+            (
+                "Stop it only if it is idle and still at the lastSeq you read (exit 6 if not)",
+                "acpmux session stop review-27310 --if-idle --expect-revision 418",
+            ),
             (
                 "Stop a session by id through the mesh hub",
                 "acpmux session stop 3f2a9c1e-8b4d-4e2a-9f1c-7d6e5b4a3c21 --mesh --id",

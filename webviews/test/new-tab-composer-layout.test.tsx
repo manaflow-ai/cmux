@@ -142,23 +142,27 @@ test("the New Tab card keeps Send in the box and model in the footer", async () 
   expect(composer.querySelector(".acpmux-composer-foot .acpmux-chips")).not.toBeNull();
 });
 
-// Leo: "the claw thing should be one single row". The Claude split keeps the existing
-// mode/model row and moves the folder/computer into it; Codex retains its top tray.
-test("Claude New Tab location and model share the quiet row under the box", async () => {
+// Leo 2026-10-29 (#27956, which takes back #24519's one row): "project and cloudness at the top".
+// The Claude split keeps the mode and model in the quiet row under the box and heads the box with
+// the folder/computer, as Codex does.
+test("Claude New Tab location heads the box and the model keeps the quiet row under it", async () => {
   const { setComposerLook } = await import("../src/agent-session/acpmux/composerLook");
   act(() => setComposerLook("claude", { remember: false }));
   await mount({ template: "cards" });
   const composer = host.querySelector<HTMLElement>(".nt-composer")!;
   const row = composer.querySelector<HTMLElement>(".nt-foot .acpmux-composer-foot")!;
-  expect(row.querySelector(".acpmux-composer-context")?.textContent).toContain("app");
   expect(row.querySelector(".acpmux-chips")).not.toBeNull();
-  expect(composer.querySelector(".nt-above")).toBeNull();
+  expect(row.querySelector(".acpmux-composer-context")).toBeNull();
+  expect(composer.querySelector(".nt-above .acpmux-composer-context")?.textContent).toContain("app");
   expect(composer.querySelectorAll(".acpmux-composer-context")).toHaveLength(1);
 
+  // Codex's look keeps the mode and model in the box's own row (Leo 2026-10-30: "the
+  // bypass/context/model picker stuff should literally be inside the composer box"; "no just codex").
   act(() => setComposerLook("codex", { remember: false }));
   expect(composer.querySelector(".nt-above .acpmux-composer-context")).not.toBeNull();
-  expect(composer.querySelector(".nt-foot .acpmux-chips")).not.toBeNull();
-  expect(composer.querySelector(".nt-foot .acpmux-composer-context")).toBeNull();
+  expect(composer.querySelector(".nt-foot")).toBeNull();
+  expect(composer.querySelector(".nt-box .nt-pickers .acpmux-chips")).not.toBeNull();
+  expect(composer.querySelector(".nt-box .acpmux-composer-context")).toBeNull();
   act(() => setComposerLook("claude", { remember: false }));
 });
 

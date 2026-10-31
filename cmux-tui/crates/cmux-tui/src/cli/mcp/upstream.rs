@@ -339,7 +339,7 @@ impl Upstream {
                 START_TIMEOUT,
             )
             .map_err(Failure::message)?;
-        let given = init["instructions"].as_str().map(str::to_owned);
+        let given = init.get("instructions").and_then(Value::as_str).map(str::to_owned);
         self.instructions = rules(&self.spec, given.as_deref());
         self.notify("notifications/initialized")?;
         let mut tools = Vec::new();

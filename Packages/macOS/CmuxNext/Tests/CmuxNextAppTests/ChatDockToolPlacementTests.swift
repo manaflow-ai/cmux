@@ -74,7 +74,7 @@ import Testing
         #expect(made == [shown.upper.layoutPaneID])
         #expect(moves, "a dock tool must split below the existing pane, not become a tab above")
         #expect(shown.services.linkOpener.target(from: shown.chat, besideChat: true) == .splitBelow(of: shown.upper.layoutPaneID))
-        #expect(!RightColumn.isBusy(beside: shown.chat.layoutPaneID))
+        #expect(!shown.services.linkOpener.turns.isBusy(beside: shown.chat.layoutPaneID))
     }
 
     @Test func twoRightPanesAddATabInTheLowerPane() throws {
@@ -97,12 +97,12 @@ import Testing
         let shown = try Shown(lower: false)
         defer { shown.close() }
         var finish: (@MainActor () -> Void)?
-        RightColumn.serially(beside: shown.chat.layoutPaneID) { finish = $0 }
+        shown.services.linkOpener.turns.serially(beside: shown.chat.layoutPaneID) { finish = $0 }
         var made = false
         #expect(ChatColumnPlacement.openTool(from: shown.chat, services: shown.services) { _, _ in made = true; return false })
         #expect(!made)
         finish?()
         #expect(made)
-        #expect(!RightColumn.isBusy(beside: shown.chat.layoutPaneID))
+        #expect(!shown.services.linkOpener.turns.isBusy(beside: shown.chat.layoutPaneID))
     }
 }

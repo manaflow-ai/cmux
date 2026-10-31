@@ -47,6 +47,7 @@ pub mod process;
 pub mod resolve;
 pub mod retry;
 pub mod run;
+pub(crate) mod select;
 pub(crate) mod send_relay;
 pub mod sender;
 pub mod session_folder;

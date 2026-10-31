@@ -54,7 +54,7 @@ extension NotificationCenterService {
     /// focused tab, found in its own pane (O(1) per window). Only `store`'s
     /// tabs (the local daemon's).
     func viewedTabs(_ store: DaemonStore) -> [TabModel] {
-        guard let services, NSApp.isActive else { return [] }
+        guard let services, services.appActiveSource() else { return [] }
         return services.windows.controllers.compactMap { controller in
             guard controller.focus.state.windowKey, let resolved = Self.shownFocus(controller), let id = Self.contentTab(resolved),
                   let pane = resolved.pane, let model = controller.content?.paneModel(key: pane), store.pane(model.handle) === model else { return nil }

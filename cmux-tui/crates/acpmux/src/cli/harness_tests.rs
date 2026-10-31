@@ -104,3 +104,24 @@ async fn doctor_checks_a_folder_profile_only_when_enabled_and_inside_its_folder(
     assert_eq!(step(&report, "profile").status, StepStatus::Fail);
     assert!(step(&report, "profile").detail.contains("no harness"), "{}", report.text());
 }
+
+/// `cmux harness add --example hermes` (or `hermes-agent`) writes a profile
+/// that loads as an ACP harness running `hermes acp`.
+#[test]
+fn hermes_example_profile_loads_as_an_acp_harness() {
+    let text = example("hermes").expect("a hermes example");
+    assert_eq!(example("hermes-agent"), Some(text));
+    let path = std::path::Path::new("/tmp/hermes.toml");
+    let (id, profile, meta, warnings) = crate::config::profiles::parse_profile_toml(
+        text,
+        path,
+        Some("hermes"),
+        crate::config::ProfileSource::UserFile,
+    )
+    .unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(id, "hermes");
+    assert_eq!(profile.kind, crate::config::HarnessKind::Acp);
+    assert_eq!(profile.argv.last().map(String::as_str), Some("acp"));
+    assert_eq!(meta.display_name.as_deref(), Some("Hermes Agent"));
+}

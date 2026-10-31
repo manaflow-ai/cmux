@@ -184,7 +184,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::Pending => {
             let client = connect(true).await?;
-            let v = client.request(method::MUX_SESSIONS, json!({})).await?;
+            let v = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
             let mut out = Vec::new();
             for s in v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default() {
                 if s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) == 0 {
@@ -659,6 +659,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             class,
             inbox,
             attach,
+            tag,
+            dry_run,
         } => {
             if let Some(delivery) = status {
                 let client = before_deadline(deadline, &delivery, connect(true)).await?;
@@ -669,7 +671,6 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 )
                 .await;
             }
-            let session = session.ok_or_else(|| anyhow!("a session is required"))?;
             let mut prompt_id = PromptId::new(prompt_id);
             prompt_id.from_agent = from.or_else(crate::cli::sender::of_this_process);
             prompt_id.cli_host = crate::cli::sender::person_host(prompt_id.from_agent.is_some());
@@ -681,6 +682,23 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // An agent's send and a message (--no-wait) steer; the person's waiting send queues.
             let agent = crate::cli::sender::from_an_agent(prompt_id.from_agent.is_some());
             let mut steer = send_steers(steer, no_steer, no_wait, agent);
+            if let Some(tag) = tag {
+                if !attach.is_empty() {
+                    return Err(errors::AppError::usage(
+                        "send --tag carries text only, not --attach",
+                    )
+                    .into());
+                }
+                // No SESSION with --tag: clap read the prompt's first word as one.
+                let words: Vec<String> = session.into_iter().chain(prompt).collect();
+                let text = arg_or_stdin(&words)?;
+                let steer = send_steers(false, no_steer, true, agent);
+                return super::fanout::send_to_tag(
+                    &tag, &text, &prompt_id, steer, dry_run, json_out,
+                )
+                .await;
+            }
+            let session = session.ok_or_else(|| anyhow!("a session is required"))?;
             let text = arg_or_stdin(&prompt)?;
             // A team address (`@member/agent`, `@team/role`); a bare `@` is the caller's own
             // session (`orchestrate::expand_session_key`), never the team path.
@@ -965,10 +983,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             orchestrate::tail(connect(true).await?, &session, last, since, follow, suppress_reads)
                 .await
         }
-        Command::Info { session } => {
+        Command::Info { session, fields } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
             let v = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+            if let Some(fields) = fields {
+                return super::fanout::print_info_fields(&v, &fields, json_out);
+            }
             if json_out {
                 print_json(&v);
                 return Ok(());

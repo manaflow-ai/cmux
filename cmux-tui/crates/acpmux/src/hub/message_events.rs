@@ -1,6 +1,7 @@
 //! Durable message projections, repaired from accepted prompt records after a restart.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 #[derive(Clone)]
 pub(super) struct MessageContext {
@@ -257,7 +258,7 @@ pub(super) fn ensure_message_provenance(opts: &mut PromptOptions, target_id: &st
     let Some(id) = sender.get("sessionId").and_then(Value::as_str) else { return };
     let Some(name) = sender.get("name").and_then(Value::as_str) else { return };
     let mut provenance = crate::prompt_provenance::named_sender(name, target_id);
-    provenance["sessionId"] = json!(id);
+    provenance.set("sessionId", json!(id));
     opts.provenance = Some(provenance);
 }
 

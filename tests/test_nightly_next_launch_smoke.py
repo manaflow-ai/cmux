@@ -180,6 +180,29 @@ class EvidenceTests(unittest.TestCase):
         self.assertNotIn("line 50\n", body)
 
 
+class DmgDigestTests(unittest.TestCase):
+    """The smoke checks the downloaded DMG's bytes against the feed item's edSignature
+    (nightly_next_artifact_check.py), not only its byte length."""
+
+    def test_pick_names_the_items_ed_signature(self) -> None:
+        text = feed(300, 200, channel={300: "cmux-next-dev"})
+        self.assertEqual(smoke.pick(text), (200, f"{BASE}/cmux-nightly-next-macos-arm64-200.dmg", "5", "s"))
+        unsigned = text.replace(' sparkle:edSignature="s"', "")
+        self.assertEqual(smoke.pick(unsigned)[3], "")
+
+    def test_the_download_step_verifies_the_bytes(self) -> None:
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        self.assertEqual(jobs["pick"]["outputs"]["ed_signature"], "${{ steps.feed.outputs.ed_signature }}")
+        self.assertEqual(jobs["smoke"]["env"]["DMG_ED_SIGNATURE"], "${{ needs.pick.outputs.ed_signature }}")
+        sparse = jobs["smoke"]["steps"][0]["with"]["sparse-checkout"].split()
+        self.assertIn("scripts/ci/nightly_next_artifact_check.py", sparse)
+        self.assertIn("scripts/ci/release-signer/verify_appcast_item.py", sparse)
+        download = next(step for step in jobs["smoke"]["steps"] if step.get("id") == "dmg")["run"]
+        self.assertIn("nightly_next_artifact_check.py dmg", download)
+        self.assertIn('--ed-signature "$DMG_ED_SIGNATURE"', download)
+        self.assertIn('--length "$DMG_LENGTH"', download)
+
+
 class NothingWaitsOnTheSmokeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
