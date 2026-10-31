@@ -368,7 +368,7 @@ extension SidebarListViewComponents {
             guard let ws = workspaces[id] else { return }
             view.configure(ws, row: row, badgeStyle: model.rowBadgeStyle)
             paintSecondaryFills(view, id)
-            view.isDropTarget = external?.proposal == .intoWorkspace(id) || drag?.target == .ontoWorkspace(id)
+            view.isDropTarget = external?.proposal == .intoWorkspace(id) || drag?.target == .ontoWorkspace(id) || standsForDropGroup(row)
         case let (.item(id), view as SidebarItemListRowView):
             guard let item = listItems[id] else { return }
             view.configure(item, favicon: item.iconAddress.flatMap { SidebarModel.itemFavicon?($0) }, row: row)

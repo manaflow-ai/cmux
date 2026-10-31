@@ -83,6 +83,13 @@ extension SidebarListViewComponents {
         }
     }
 
+    /// Whether `row` is a group's one row (`SidebarLayout+SoleMember`) and a drop goes into its group: the row draws
+    /// the group's drop fill, as its header did, since that group has no header and the drop opens no gap.
+    func standsForDropGroup(_ row: SidebarRow) -> Bool {
+        guard row.standsForGroup, let group = row.group else { return false }
+        return drag?.target == .intoGroup(group) || external?.proposal == .intoGroup(group)
+    }
+
     /// Sets each realized row's selection, multi-selection and drop-target fill from the model and the live drag, as
     /// `configure` would, without configuring the rows (no content, no layout: a click stays cheap, u2455). A row whose
     /// fill a gesture left behind clears here.
@@ -93,6 +100,7 @@ extension SidebarListViewComponents {
             case let (.workspace(id), row as WorkspaceRowView):
                 paintSecondaryFills(row, id)
                 row.isDropTarget = external?.proposal == .intoWorkspace(id) || drag?.target == .ontoWorkspace(id)
+                    || displayed.row(for: key).map(standsForDropGroup) == true
             case let (.group(id), header as GroupHeaderRowView):
                 header.isDropTarget = drag?.target == .intoGroup(id) || external?.proposal == .intoGroup(id)
             default:

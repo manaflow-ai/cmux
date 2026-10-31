@@ -470,7 +470,7 @@ extension SidebarListViewComponents {
             case let (.block(id), block as SidebarBlockRowView):
                 if let content = blockContent(id, includeGap: true) { block.springShow(content, width: bounds.width) }
             case let (.workspace(id), rowView as WorkspaceRowView):
-                rowView.isDropTarget = drag?.target == .ontoWorkspace(id)
+                rowView.isDropTarget = drag?.target == .ontoWorkspace(id) || standsForDropGroup(row)
             case let (.group(id), header as GroupHeaderRowView):
                 header.isDropTarget = drag?.target == .intoGroup(id)
             default:
