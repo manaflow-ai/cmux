@@ -11,7 +11,7 @@ import Testing
 /// File actions keep a Cloud path on its machine, including paths absent from this Mac.
 @MainActor @Suite(.serialized)
 struct CloudFileRoutingTests {
-    private struct Fixture {
+    struct Fixture {
         let services: AppServices
         let controller: WindowController
         let pane: PaneController
@@ -24,7 +24,7 @@ struct CloudFileRoutingTests {
         }
     }
 
-    private static func fixture(localPane: Bool = false) throws -> Fixture {
+    static func fixture(localPane: Bool = false) throws -> Fixture {
         _ = NSApplication.shared
         let root = FileManager.default.temporaryDirectory.appending(path: "cloud-routing-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Why a file page opens a file read only (diff-host.md "Editor page", `readOnlyReason`).
 public nonisolated enum FileReadOnlyReason: String, Sendable, Equatable {

@@ -21,7 +21,7 @@ enum AgentBesidePlacement {
         var failed: @MainActor (ActionWorkFailure?) -> Void
     }
 
-    private enum Outcome {
+    private enum Outcome: Sendable {
         case created(SurfaceID)
         case failed(ActionWorkFailure?)
     }
@@ -35,7 +35,7 @@ enum AgentBesidePlacement {
     /// answers after it, with the tab in its final pane.
     @MainActor static func placed(_ invocation: ActionInvocation, in controller: PaneController,
                                   then: (@MainActor (SurfaceID) -> Void)?) -> @MainActor (SurfaceID) -> Void {
-        opening(invocation, in: controller, then: then).created
+        opening(invocation, pane: controller.pane, controller: controller, services: controller.services, then: then, waitsForExisting: false).created
     }
 
     /// Same for `pane` whether a window shows it or not: a chat in a
@@ -44,7 +44,7 @@ enum AgentBesidePlacement {
     @MainActor static func placed(_ invocation: ActionInvocation, pane anchor: PaneModel, controller: PaneController?,
                                   services: AppServices,
                                   then: (@MainActor (SurfaceID) -> Void)?) -> @MainActor (SurfaceID) -> Void {
-        opening(invocation, pane: anchor, controller: controller, services: services, then: then).created
+        opening(invocation, pane: anchor, controller: controller, services: services, then: then, waitsForExisting: false).created
     }
 
     @MainActor static func opening(_ invocation: ActionInvocation, in controller: PaneController,
@@ -53,7 +53,7 @@ enum AgentBesidePlacement {
     }
 
     @MainActor private static func opening(_ invocation: ActionInvocation, pane anchor: PaneModel, controller: PaneController?,
-                                          services: AppServices, then: (@MainActor (SurfaceID) -> Void)?) -> Opening {
+                                          services: AppServices, then: (@MainActor (SurfaceID) -> Void)?, waitsForExisting: Bool = true) -> Opening {
         // A person's click: the pane they clicked in, which the tab's close focuses again.
         let clicked = invocation.besideTakesFocus ? (controller?.workspace ?? services.paneController(for: anchor)?.workspace) : nil
         let intent = clicked?.beginFocusIntent(), from = clicked?.focusedPane?.layoutPaneID
@@ -76,7 +76,8 @@ enum AgentBesidePlacement {
         let store = services.daemon(for: anchor).store
         let (surfaces, sink) = AsyncStream<Outcome>.makeStream(bufferingPolicy: .bufferingNewest(1))
         var finished = false
-        services.registry.track(Task { @MainActor in
+        if invocation.newColumnBeside || waitsForExisting {
+        let work: ActionWork = Task { @MainActor in
             var moved = false
             defer { outbound?.finish(moved: moved) }
             // The tab's surface, then the store listing it; a bounded wait, so a tab
@@ -107,7 +108,7 @@ enum AgentBesidePlacement {
             guard invocation.newColumnBeside else { return nil }
             // Repeated opens of a still-creating diff share its surface. Place it once, then let
             // the next open reveal its final pane rather than issuing a second concurrent move.
-            let release = await withCheckedContinuation { done in
+            let release: @MainActor () -> Void = await withCheckedContinuation { done in
                 services.linkOpener.turns.serially(beside: ObjectIdentifier(anchor)) { done.resume(returning: $0) }
             }
             defer { release() }
@@ -179,7 +180,9 @@ enum AgentBesidePlacement {
             if let clicked { focus(surface, returningTo: from, awayFrom: away, in: clicked, generation: intent, services: services) }
             await revealMoved(tab.id, from: anchor, services: services)
             return nil
-        })
+        }
+        if waitsForExisting { services.registry.trackRollingBack("openDiffViewer", work) } else { services.registry.track(work) }
+        }
         return Opening(created: { [weak services, weak controller, weak clicked] surface in
             guard !finished else { return }
             finished = true

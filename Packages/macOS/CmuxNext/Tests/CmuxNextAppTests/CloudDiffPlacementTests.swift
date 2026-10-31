@@ -129,4 +129,58 @@ struct CloudDiffPlacementTests {
         for task in work { #expect(await task.value?.message.contains("page-tabs-v1") == true) }
     }
 
+    @Test func legacyExistingColumnPlacementDoesNotAddAnUnfinishableWaiter() async throws {
+        let fixture = try await PalettePickerSourcesTests.fixture()
+        defer { fixture.close() }
+        let pane = try #require(fixture.controller.focusedPane)
+        var invocation = ActionInvocation(origin: .cli)
+        invocation.besideCaller = true
+        let work = fixture.services.registry.capturingWork {
+            _ = AgentBesidePlacement.placed(invocation, in: pane, then: nil)
+        }
+        #expect(work.isEmpty, "legacy callers cannot finish a failure-aware waiter")
+    }
+
+    @Test func nativeChangesReportsAnOfflineMachineWithoutCapturedWork() async throws {
+        let fixture = try CloudFileRoutingTests.fixture()
+        defer { fixture.close() }
+        let services = fixture.services
+        var notices: [String] = []
+        services.registry.remoteFailureObserver = { _, message in notices.append(message) }
+        var invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: fixture.pane.paneKey),
+            arguments: ["path": .string("/home/cmux/project")], origin: .user)
+        invocation.besideCaller = true
+        invocation.besideTakesFocus = true
+        invocation.newColumnBeside = true
+        #expect(services.registry.perform("openDiffViewer", invocation: invocation))
+        try await PasswordManagerRouteTests.until({ !notices.isEmpty })
+        #expect(notices.count == 1)
+        #expect(notices.first?.contains("Move VM") == true)
+        #expect(!notices.contains { $0.contains("new tab did not open") })
+    }
+
+    @Test func nativeCreationFailureReportsOnceAndDoesNotLeaveAHiddenDiff() async throws {
+        let fixture = try CloudFileRoutingTests.fixture()
+        defer { fixture.close() }
+        let services = fixture.services
+        let daemon = fixture.pane.daemon
+        let identity = DaemonIdentity(capabilities: ["page-tabs-v1", "page-tab-route-v1"])
+        daemon.store.noteHandshake(identity)
+        daemon.store.connectionState = .connected(identity)
+        services.pages.createStoreTab = { _, _, _, _, _ in throw DaemonError.notConnected }
+        var notices: [String] = []
+        services.registry.remoteFailureObserver = { _, message in notices.append(message) }
+        var invocation = ActionInvocation(origin: .user)
+        invocation.besideCaller = true
+        invocation.newColumnBeside = true
+        let opening = AgentBesidePlacement.opening(invocation, in: fixture.pane, then: nil)
+        let key = services.viewers.diffPages.open(repository: DiffRepository(root: "/home/cmux/project", branch: nil, base: nil),
+            gitLink: services.agentGit.link(for: daemon), in: fixture.pane, focus: false, on: daemon,
+            created: opening.created, failed: { opening.failed($0.map { ActionWorkFailure("open diff", $0) }) })
+        try await PasswordManagerRouteTests.until({ !notices.isEmpty })
+        #expect(notices.count == 1)
+        #expect(!services.pages.tabIDs(in: fixture.pane.paneKey).contains(key))
+        #expect(fixture.pane.pane.tabs.count == 1)
+    }
+
 }

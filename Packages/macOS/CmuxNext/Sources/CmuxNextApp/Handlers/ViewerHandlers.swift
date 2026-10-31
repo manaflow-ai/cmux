@@ -34,7 +34,7 @@ enum ViewerHandlers {
             // No repository at the pane's folder: the picker asks for one (only when the run may
             // change the view, as a person's click on the chat header's Changes may; an agent or
             // the CLI without focus gets needsFocus).
-            registry.track(Task { @MainActor in
+            registry.trackRollingBack("openDiffViewer", Task { @MainActor in
                 // The folder is the pane's (or one named for it), so it is on the pane's machine.
                 do {
                     try await viewers.openDiff(folder, turn: turn, showTurn: showTurn, in: pane, focus: focus, onPaneMachine: true,

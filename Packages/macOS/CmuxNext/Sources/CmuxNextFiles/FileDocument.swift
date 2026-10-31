@@ -1,6 +1,6 @@
 import CryptoKit
 import Darwin
-import Foundation
+public import Foundation
 
 /// Why a text document cannot be read.
 public nonisolated enum FileOpenFailure: Error, Sendable, Equatable {
