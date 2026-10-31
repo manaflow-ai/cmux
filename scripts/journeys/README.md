@@ -350,11 +350,18 @@ the daemon (`cmux terminal ID screen read`: cols, rows), the topology tab (colum
 (`stty size`); terminal life from the daemon (`cmux terminal ID process show`) and the process table.
 
 **No pass without the resize checks** (cmux-ad 06:38Z): a round passes only when it reached and passed,
-exactly once each, the 2 R3a checks and the 4 R3b checks (`REQUIRED_CHECKS` in smoke-gate.py: their
+exactly once each, the 2 R3a checks and the 5 R3b checks (the first, from the action fuzzer's case:
+Ctrl-Cmd-D as the first new column of a one-column workspace) (`REQUIRED_CHECKS` in smoke-gate.py: their
 exact titles; a renamed or duplicated check never counts). A round whose journey passed without them
 is a FAIL that names the missing checks; a round that failed at an earlier step stays a FAIL; a round
 that did not run (no lease, a known gap, a column width that cannot be read) stays NOT JUDGED. None is
 ever a pass, and the `.pass` file needs every round to pass.
+
+**A check that cannot be judged does not end the round** (lead 10:1xZ): the journey has
+`continue_not_judged`, so an expect step that is not judged (a hidden view whose terminal lives, a
+host prompt) is recorded (`ok` null, `not_judged`) and the journey goes on to every later step; the
+round is then "not run" (never a pass), unless a later step fails. The last step
+(`smoke_no_key_gaps`) makes a round with a key-window gap "not run" also under a plain run.py.
 
 **Typed at once** (`smoke_type_now`): no wait for the creation hold, the case Lawrence reports
 (keys into a terminal while it is created). A capture slot's window is never key

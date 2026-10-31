@@ -48,6 +48,8 @@ OWNER_POOL = "perf-lead"
 # renamed check is missing and a duplicated one counts as not passed, so neither can stand in for another. A round
 # that ends before them is never a pass. test_smoke_gate.py checks that the journey's R3 titles are exactly these.
 REQUIRED_CHECKS = (
+    "R3b: New Column's key (Ctrl-Cmd-D) as the first new column of a one-column workspace keeps the old column's "
+    "exact width",
     "R3a split resize: the right pane is wider, the left narrower; in each, grid == fit(bounds) == PTY == daemon size, "
     "and a long line wraps at the new width",
     "R3a window resize: the window is 160 points narrower and the right pane narrower; grid == fit(bounds) == PTY == "
@@ -213,7 +215,8 @@ def step_results(out):
     except ValueError:
         return []
     return [{"index": st.get("index"), "do": st.get("do"), "title": st.get("title"), "ok": st.get("ok"),
-             "finally": bool(st.get("finally")), "error": (st.get("error") or "")[:300]} for st in steps]
+             "finally": bool(st.get("finally")), "error": (st.get("error") or st.get("not_judged") or "")[:300],
+             "not_judged": bool(st.get("not_judged"))} for st in steps]
 
 
 def frames(out):
@@ -227,9 +230,10 @@ def expect_table(rounds):
         for st in r["steps"]:
             if st["do"] != "expect" or st["finally"]:
                 continue
-            row = table.setdefault(st["title"] or f"step {st['index']}", {"reached": 0, "passed": 0, "failed": 0, "errors": []})
+            row = table.setdefault(st["title"] or f"step {st['index']}",
+                                   {"reached": 0, "passed": 0, "failed": 0, "not_judged": 0, "errors": []})
             row["reached"] += 1
-            row["passed" if st["ok"] else "failed"] += 1
+            row["not_judged" if st.get("not_judged") else "passed" if st["ok"] else "failed"] += 1
             if not st["ok"] and len(row["errors"]) < 3:
                 row["errors"].append(f"round {r['round']}: {st['error'][:200]}")
     return table
@@ -346,7 +350,8 @@ def main(argv=None):
     if opts.diagnostic:
         lines.append("DIAGNOSTIC: no type-at-once where the slot has no key window; no .pass file. Each check:")
         for title, row in summary["expects"].items():
-            lines.append(f"  {row['passed']}/{row['reached']} passed (of {opts.rounds} rounds): {title}"
+            lines.append(f"  {row['passed']}/{row['reached']} passed, {row.get('not_judged', 0)} not judged "
+                         f"(of {opts.rounds} rounds): {title}"
                          + (f" -- {row['errors'][0]}" if row["errors"] else ""))
     for r in rounds:
         detail = r["failing_step"] and f"{r['failing_step']['do']}: {r['failing_step']['error'][:200]}"

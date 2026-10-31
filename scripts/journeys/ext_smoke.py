@@ -1019,7 +1019,16 @@ def cond_smoke_same_widths(j, want, cache):
     return not problems, detail
 
 
-STEPS = {"smoke_ready": step_smoke_ready, "smoke_make_key": step_smoke_make_key, "smoke_type_now": step_smoke_type_now,
+def step_smoke_no_key_gaps(j, step):
+    """The journey's last step: a round whose key-window checks were not judged (a host prompt took the keys) is
+    not run, never a pass, also when run.py runs the journey without smoke-gate.py."""
+    gaps = getattr(j, "smoke_key_gaps", [])
+    if gaps:
+        raise D.NotRun(f"{len(gaps)} key-window checks not judged: " + " | ".join(gaps)[:600])
+    return {"key_gaps": 0}
+
+
+STEPS = {"smoke_no_key_gaps": step_smoke_no_key_gaps, "smoke_ready": step_smoke_ready, "smoke_make_key": step_smoke_make_key, "smoke_type_now": step_smoke_type_now,
          "smoke_remember_workspaces": step_smoke_remember_workspaces, "smoke_close_all": step_smoke_close_all,
          "smoke_snapshot": step_smoke_snapshot, "smoke_adopt_line": step_smoke_adopt_line,
          "smoke_long_line": step_smoke_long_line, "smoke_widths": step_smoke_widths}

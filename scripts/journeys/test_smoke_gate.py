@@ -49,15 +49,16 @@ if status == "pass" and "--journey-option" not in args:
     typed = [] if os.environ.get("SMOKE_LATE") == "none" else [{"index": 7, "do": "smoke_type_now", "ok": True,
                                                                  "result": {"at_once": not late}}]
     r3 = os.environ.get("SMOKE_R3", "all")  # all | none | r3b-failed | one-r3b | renamed | duplicated
-    checks = [(title, not (r3 == "r3b-failed" and i == 4)) for i, title in enumerate(R3)]
+    checks = [(title, not (r3 == "r3b-failed" and title.startswith("R3b: Cmd-D"))) for title in R3]
     if r3 == "none":
         checks = []
     if r3 == "one-r3b":
-        checks = checks[:3]
+        checks = [c for c in checks if not c[0].startswith("R3b: New Column's key (Ctrl-Cmd-D) adds")]
     if r3 == "renamed":
-        checks[5] = ("R3b: Split Down, renamed", True)
+        checks = [("R3b: Split Down, renamed", True) if c[0].startswith("R3b: Cmd-Shift-D") else c for c in checks]
     if r3 == "duplicated":
-        checks[5] = (checks[2][0], True)  # the New Column check twice stands in for Split Down
+        twice = next(c for c in checks if c[0].startswith("R3b: New Column adds"))
+        checks = [twice if c[0].startswith("R3b: Cmd-Shift-D") else c for c in checks]
     typed += [{"do": "expect", "title": title, "ok": ok} for title, ok in checks]
     evidence = ([{"kind": "app", "check": "smoke_key_window", "pass": True,
                   "detail": {"not_checked": "known gap: another app has the key window on this host (UNC)"}}]
@@ -147,7 +148,7 @@ class Verdicts(unittest.TestCase):
             code, summary = gate(["pass"] * 9 + ["fail"], tmp, ("--diagnostic",))
             self.assertEqual((code, summary["verdict"], summary["gate_run"]), (1, "DIAGNOSTIC (NOT JUDGED)", False))
             self.assertEqual(summary["expects"]["Cmd-D twice fast"], {"reached": 10, "passed": 9, "failed": 1,
-                                                                      "errors": ["round 10: no new pane"]})
+                                                                      "not_judged": 0, "errors": ["round 10: no new pane"]})
             with open(os.path.join(tmp, "out", "round-01", "options.txt")) as f:
                 self.assertEqual(f.read(), "smoke_mode=diagnostic")
             self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
@@ -952,6 +953,49 @@ class SettleThroughTheDriver(unittest.TestCase):
                 self.assertTrue(any(e["detail"].get("not_checked") for e in j.evidence if isinstance(e.get("detail"), dict)))
         finally:
             ext_smoke._front_app = front
+
+    def test_a_not_judged_check_does_not_end_the_journey(self):
+        sys.path.insert(0, str(HERE))
+        sys.path.insert(0, str(HERE.parent / "cmux-next"))
+        import driver
+
+        class App:
+            snapshot_window = None
+
+            def rpc(self_, method, params=None):
+                return {}
+
+            def snapshot(self_, path):
+                raise driver.StepError("no frames here")
+
+        calls = []
+        driver.Journey.step_t_mark = lambda self, step: calls.append(step["n"]) or {}
+        orig = dict(driver.EXT_CONDITIONS)
+        driver.EXT_CONDITIONS["t_unjudged"] = lambda j, want, cache: (_ for _ in ()).throw(driver.NotRun("hidden view"))
+        driver.EXT_CONDITIONS["t_fails"] = lambda j, want, cache: (False, {})
+        driver.KIND.setdefault("t_unjudged", "app")
+        driver.KIND.setdefault("t_fails", "app")
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                steps = [{"do": "expect", "title": "R3b x", "timeout": 0.2, "all": [{"t_unjudged": {}}]},
+                         {"do": "t_mark", "n": 2}]
+                spec = {"id": "nj", "continue_not_judged": True, "steps": steps}
+                result = driver.Journey(spec, App(), tmp, driver.now() + 30, 1.0).run()
+                self.assertEqual(result["status"], "not run")
+                self.assertEqual(calls, [2])  # the step after the not-judged check ran
+                self.assertIs(result["steps"][0]["ok"], None)
+                # A later failure still fails the journey.
+                steps.append({"do": "expect", "title": "later", "timeout": 0.2, "all": [{"t_fails": {}}]})
+                result = driver.Journey(dict(spec, id="nj2"), App(), tmp, driver.now() + 30, 1.0).run()
+                self.assertEqual(result["status"], "fail")
+                # Without the option, a not-judged check ends the journey.
+                calls.clear()
+                result = driver.Journey({"id": "nj3", "steps": steps[:2]}, App(), tmp, driver.now() + 30, 1.0).run()
+                self.assertEqual((result["status"], calls), ("not run", []))
+        finally:
+            driver.EXT_CONDITIONS.clear()
+            driver.EXT_CONDITIONS.update(orig)
+            del driver.Journey.step_t_mark
 
     def test_a_frame_never_lost_passes(self):
         result, _driver = self.run_step(None)
