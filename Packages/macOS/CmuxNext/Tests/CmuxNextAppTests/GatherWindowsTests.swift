@@ -86,6 +86,21 @@ struct GatherWindowsTests {
         #expect(here.state.workspaceID == "k3", "the space's last shown workspace was not kept")
     }
 
+    /// A closed window is not "showing" its space: its selection never beats the space's remembered
+    /// workspace.
+    @Test func aClosedWindowsSelectionIsNotTheSpacesLastShown() throws {
+        let services = try Self.services()
+        defer { Self.closeAll(services) }
+        let here = try Self.open(["k0"], services), there = try Self.open(["k2", "k3"], services)
+        services.windows.select("k3", in: there.state)
+        here.state.profileWorkspaces[Self.rooms[1]] = "k2"
+        services.windows.transition { $0.close(there.state.id) }
+        #expect(services.windows.registry.value.window(there.state.id)?.isOpen == false)
+
+        try services.windows.bringSpace(Self.rooms[1], into: here.state)
+        #expect(here.state.workspaceID == "k2", "a closed window's selection won over the remembered workspace")
+    }
+
     /// A CLI or MCP run without focus permission moves the space's workspaces but leaves the
     /// window on its own space and selection.
     @Test func bringingASpaceWithoutFocusPermissionKeepsTheView() throws {
