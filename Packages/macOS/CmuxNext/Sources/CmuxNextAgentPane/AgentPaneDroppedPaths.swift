@@ -43,16 +43,24 @@ public final class AgentPaneDroppedPaths {
     /// page's `chat.attach.source` (``AgentPaneModel/attachSource(_:names:apps:)``): its file URLs,
     /// how many items it held, and the app it says wrote it. Kept apart from ``held``, since each
     /// record answers one ask.
-    private var sourced: [Kind: (urls: [URL], items: Int, claimed: String?, at: TimeInterval)] = [:]
+    private var sourced: [Kind: (urls: [URL], items: Int, claimed: String?, at: TimeInterval, madeAt: TimeInterval)] = [:]
     private let now: @MainActor () -> TimeInterval
+    /// The Mac's own clock (seconds since 1970): what the page's `Date.now()` reads too, so a source
+    /// record and the page's gesture can be put in order (``source(_:names:gestureAt:)``).
+    private let wall: @MainActor () -> TimeInterval
+    /// How far the page's gesture time may read before its record's: the page's clock is read in
+    /// whole milliseconds, after the record was made. Two gestures of one person are never this close.
+    nonisolated static let gestureSlack: TimeInterval = 0.05
     /// Exact copies of the person's recording drops, never their parent folders. These remain
     /// usable by this pane's existing file open/drag actions after the preview path disappears.
     private(set) var retainedPaths: [String] = []
     /// Invalidates async drop work when the pane switches to a different chat.
     private(set) var generation = UUID()
 
-    public init(now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+    public init(now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+                wall: @escaping @MainActor () -> TimeInterval = { Date().timeIntervalSince1970 }) {
         self.now = now
+        self.wall = wall
     }
 
     /// Records the file URLs a drop or paste brought in, in place of the last ones of that kind; none
@@ -84,16 +92,20 @@ public final class AgentPaneDroppedPaths {
     /// (``source(_:names:)``). One with no files and no claim says nothing, and clears the record.
     public func stashSource(_ urls: [URL], items: Int, claimed: String?, kind: Kind) {
         let paths = urls.map { url in (url as NSURL).isFileReferenceURL() ? (url as NSURL).filePathURL ?? url : url }
-        sourced[kind] = paths.isEmpty && claimed == nil ? nil : (paths, max(items, paths.count), claimed, now())
+        sourced[kind] = paths.isEmpty && claimed == nil ? nil : (paths, max(items, paths.count), claimed, now(), wall())
     }
 
     /// What the last drop or paste of `kind` said, for the files `names` names, within ``lifetime``:
     /// the file URLs among them, and its claim. Only an ask for that gesture's own files answers,
     /// and uses the record up: no more files than the pasteboard held items, and every file URL it
     /// held named (a drop of files and pictures names both). Any other ask answers nothing and
-    /// leaves the record for the page's own ask.
-    func source(_ kind: Kind, names: [String]) -> (urls: [URL], claimed: String?)? {
+    /// leaves the record for the page's own ask. `gestureAt` (the page's clock when it took the
+    /// gesture, seconds since 1970): an ask for a gesture taken before the record was made is for an
+    /// older gesture, one that reached the host late, so it answers nothing and leaves the newer
+    /// gesture its record. Nil (an older page) skips that check.
+    func source(_ kind: Kind, names: [String], gestureAt: TimeInterval? = nil) -> (urls: [URL], claimed: String?)? {
         guard let record = sourced[kind] else { return nil }
+        if let gestureAt, gestureAt + Self.gestureSlack < record.madeAt { return nil }
         guard now() - record.at <= Self.lifetime else {
             sourced[kind] = nil
             return nil

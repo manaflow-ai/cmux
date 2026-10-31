@@ -282,7 +282,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         guard canManage(on: macID) else { return [] }
         var out: [(kind: NewTabKind, reason: String)] = []
         if acpmux?.isReady != true {
-            out.append((.agentChat, "Agents on this Mac aren't connected yet. Try again in a moment."))
+            out.append((.agentChat, "Agents on this Mac aren't connected. Try again in a moment."))
         }
         if !Self.streamsBrowser(capabilities(macID)) {
             out.append((.browser, Self.browserUpdateReason))
@@ -301,7 +301,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     /// `models: false` for a start that names no model: the harness list alone decides it.
     func agentCatalog(on macID: String, models withModels: Bool) async throws -> AgentCatalog {
         guard canManage(on: macID), let acpmux, acpmux.isReady else {
-            throw WorkspaceCreationError("Agents on this Mac aren't connected yet. Try again in a moment.", isForPerson: true)
+            throw WorkspaceCreationError("Agents on this Mac aren't connected. Try again in a moment.", isForPerson: true)
         }
         let harnesses: JSONValue
         do {
@@ -326,7 +326,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             throw WorkspaceCreationError("Not connected")
         }
         guard let pane = sync.tree?.panes[workspace.id] else {
-            throw WorkspaceCreationError("The Mac hasn't listed this workspace's panes yet")
+            throw WorkspaceCreationError("The Mac hasn't listed this workspace's panes")
         }
         do {
             let reply: Data
@@ -362,13 +362,13 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     /// agent (or the first one a phone may start); then its model, when one was
     /// chosen, with `session/set_model` as the Mac's New Tab page does.
     private func startAgentSession(_ start: AgentChatStart, in workspace: Workspace) async throws -> (harness: String, session: String) {
-        guard let acpmux, acpmux.isReady else { throw WorkspaceCreationError("Agents on this Mac aren't connected yet. Try again in a moment.", isForPerson: true) }
+        guard let acpmux, acpmux.isReady else { throw WorkspaceCreationError("Agents on this Mac aren't connected. Try again in a moment.", isForPerson: true) }
         let directories = sync.tree?.directories ?? [:]
         guard let cwd = workspace.tabs.lazy.compactMap({ directories[$0.id] }).first else {
-            throw WorkspaceCreationError("This workspace has no folder on the Mac yet. Open a terminal tab first.", isForPerson: true)
+            throw WorkspaceCreationError("This workspace has no folder on the Mac. Open a terminal tab first.", isForPerson: true)
         }
         guard !Self.isHomeOrAbove(cwd) else {
-            throw WorkspaceCreationError("Agent chats start in a project folder. Open this workspace in one (New Workspace › Open Folder… or Recent Directories) or cd into one in its terminal.",
+            throw WorkspaceCreationError("Open this workspace in a project folder, then try again.",
                                          isForPerson: true)
         }
         return try await startAgentSession(start, cwd: cwd, macID: workspace.macID)
@@ -376,7 +376,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
 
     /// The new chat's acpmux session in `cwd` (an absolute folder on the Mac).
     func startAgentSession(_ start: AgentChatStart, cwd: String, macID: String) async throws -> (harness: String, session: String) {
-        guard let acpmux, acpmux.isReady else { throw WorkspaceCreationError("Agents on this Mac aren't connected yet. Try again in a moment.", isForPerson: true) }
+        guard let acpmux, acpmux.isReady else { throw WorkspaceCreationError("Agents on this Mac aren't connected. Try again in a moment.", isForPerson: true) }
         let catalog = try await agentCatalog(on: macID, models: start.model != nil)
         guard let (choice, model) = catalog.resolve(start, folder: cwd) else {
             if let id = start.harness, let reason = catalog.harness(id)?.unavailableReason {
@@ -566,7 +566,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
                 // The Mac's Duplicate Tab on a chat opens a second tab of the same chat
                 // (`PaneController.duplicateAgentTab`), never a copy of the conversation.
                 guard let binding = sync.tree?.agentTabs[tab.id], let session = binding.session else {
-                    throw WorkspaceCreationError("This chat hasn't started yet.", isForPerson: true)
+                    throw WorkspaceCreationError("This chat hasn't started.", isForPerson: true)
                 }
                 reply = try await client.request("new-conversation-tab", params: [
                     "pane": place.pane,
@@ -957,11 +957,11 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     public func forkAgentChat(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
         let (client, _) = try target(tab, in: workspace)
         guard let acpmux, acpmux.isReady else {
-            throw WorkspaceCreationError("Agents on this Mac aren't connected yet. Try again in a moment.", isForPerson: true)
+            throw WorkspaceCreationError("Agents on this Mac aren't connected. Try again in a moment.", isForPerson: true)
         }
         guard let binding = sync.tree?.agentTabs[tab.id], let session = binding.session,
               let place = sync.tree?.tabPlaces[tab.id] else {
-            throw WorkspaceCreationError("This chat hasn't started yet.", isForPerson: true)
+            throw WorkspaceCreationError("This chat hasn't started.", isForPerson: true)
         }
         let forked: String
         do {
@@ -995,10 +995,10 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     public func archiveAgentChat(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
         let (client, surface) = try target(tab, in: workspace)
         guard let acpmux, acpmux.isReady else {
-            throw WorkspaceCreationError("Agents on this Mac aren't connected yet. Try again in a moment.", isForPerson: true)
+            throw WorkspaceCreationError("Agents on this Mac aren't connected. Try again in a moment.", isForPerson: true)
         }
         guard let session = sync.tree?.agentTabs[tab.id]?.session else {
-            throw WorkspaceCreationError("This chat hasn't started yet.", isForPerson: true)
+            throw WorkspaceCreationError("This chat hasn't started.", isForPerson: true)
         }
         do {
             _ = try await acpmux.request("_acpmux/archive", .object(["sessionId": .string(session), "archived": .bool(true)]),

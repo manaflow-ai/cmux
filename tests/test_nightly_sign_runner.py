@@ -274,6 +274,15 @@ class DeadLabel(unittest.TestCase):
         self.assertEqual(picker.dead(snap, NOW), set())
         self.assertEqual(picker.place(LARGE, snap, NOW, 1)[:2], (SMALL, LARGE))
 
+    def test_an_unverified_pick_skips_a_dead_variable_label(self) -> None:
+        """pick() is the overflow pick of dev_landing_place.py (OVERFLOW_LABEL, 12 vCPU) and nightly_build_runner.py:
+        a snapshot too old for the stall rule still shows the label dead."""
+        label, why = picker.pick(LARGE, observed(age_minutes=38), NOW)
+        self.assertEqual(label, SMALL, why)
+        self.assertIn("is dead", why)
+        self.assertEqual(picker.pick(LARGE, None, NOW)[0], LARGE)
+        self.assertEqual(picker.pick(LARGE, dict(observed(age_minutes=38), truncated=True), NOW)[0], LARGE)
+
     def test_no_label_showing_life_or_an_older_janitor_changes_nothing(self) -> None:
         both = observed(**{SMALL: {"running": 0}})
         both["label_started"] = {}

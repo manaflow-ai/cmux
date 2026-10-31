@@ -19,6 +19,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// with an owner): that daemon stops, keeping its sessions, and the page's next handshake
     /// starts this app's own. Only with a real gesture; answers `{stopped}`.
     case restartAcpmux
+    /// `acpmux.restartStuck {}`: the waiting line's "Restart agent service", while the page's
+    /// handshake waits for this app's own acpmux (``AgentPaneHostProviding/restartStuckAcpmux(sessionId:)``):
+    /// that daemon stops, keeping its sessions, and the page's next handshake starts a new one.
+    /// Only with a real gesture; answers `{stopped}`.
+    case restartStuckAcpmux
     /// The page switched to or created `sessionId`; the host keeps it so a
     /// reload or relaunch of the pane shows the same session.
     case persistSession(String)
@@ -112,7 +117,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case attachDropped(AgentPaneDroppedPaths.Kind, names: [String])
     /// `chat.attach.source {kind, names}`: which app each file of the person's drop or paste came
     /// from (``AttachmentSource``), for its chip's corner icon. The names are never logged.
-    case attachSource(AgentPaneDroppedPaths.Kind, names: [String])
+    case attachSource(AgentPaneDroppedPaths.Kind, names: [String], gestureAt: TimeInterval? = nil)
     /// `attachment.sourceIcon {bundleId}`: an attachment source's app icon, as a small data URL.
     case attachmentSourceIcon(String)
     /// Returns bounded recent project paths for the new-tab picker.

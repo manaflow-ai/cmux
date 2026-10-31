@@ -17,6 +17,9 @@ mod context_window;
 // The account's plan usage limits a Claude chat reports, which share these helpers too.
 #[path = "usage_limits.rs"]
 mod usage_limits;
+// What a Claude chat spent and holds, read from its transcript, which shares these helpers too.
+#[path = "usage_stats.rs"]
+mod usage_stats;
 // Claude's todo list as an ACP plan, which shares these helpers too.
 #[path = "todo_plan.rs"]
 mod todo_plan;

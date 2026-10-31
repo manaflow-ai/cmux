@@ -1092,8 +1092,6 @@ impl Hub {
         // This turn's number, before taking it lets the next one start (`lane_reports.rs`).
         let turn = session.meta().turn_count;
         // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
-        // A turn its agent runs on with steers it read after this one ended takes its place
-        // (`carried_turn.rs`).
         let in_place = next.map(|n| n.next.clone());
         let detached =
             self.take_turn(session, turn_id, in_place).is_none_or(|t| t.turn_id != turn_id);
@@ -1106,13 +1104,10 @@ impl Hub {
             *session.stopping.lock().unwrap_or_else(|e| e.into_inner()) =
                 Some(n.next.turn_id.clone());
         }
-        // A Stop ended the process of an agent that worked on through it (`cancel.rs`): the
-        // prompt that failed as that process ended answers as the forced cancel.
         if take_if_turn(&session.stop_restart, turn_id) && result.is_err() {
             result = Ok(super::cancel::forced_answer(true));
         }
         let carries_on = carried_next.is_some();
-        // Read as the turn result is written: a Web steer may raise the next turn meanwhile.
         let carried_to = || {
             carried_next.map(|n| {
                 let live = session.turn().filter(|t| t.turn_id == n.next.turn_id);
@@ -1155,7 +1150,7 @@ impl Hub {
         {
             let tail: Vec<String> = session.stderr_tail.lock().unwrap().iter().cloned().collect();
             // The last stderr line that says why: not a stack frame, a wrapper tag or a wrapper exit line.
-            if let Some(last) = tail.iter().rev().map(|l| l.trim()).find(|l| explains_exit(l)) {
+            if let Some(last) = tail.iter().rev().find(|line| explains_exit(line)).cloned() {
                 let agent = session.meta().harness;
                 e.message = format!("{} ({agent}): {last}", e.message);
             }
@@ -1298,6 +1293,8 @@ impl Hub {
                 self.write_turn_result(session, msg, git);
             }
         }
+        // Its harness wrote the turn's spend: read it (`usage_view.rs`).
+        self.refresh_usage_stats_of(session);
         self.reset_stream(session);
         // Nobody showing it: the sidebar dot and `wait --until done` see it.
         if !self.shown(session) {
@@ -1555,8 +1552,7 @@ impl Hub {
                 if e.message == "agent process closed" {
                     let tail: Vec<String> =
                         session.stderr_tail.lock().unwrap().iter().cloned().collect();
-                    if let Some(last) =
-                        tail.iter().rev().map(|l| l.trim()).find(|l| explains_exit(l))
+                    if let Some(last) = tail.iter().rev().find(|line| explains_exit(line)).cloned()
                     {
                         e.message =
                             format!("agent process closed ({}): {last}", session.meta().harness);
@@ -1806,7 +1802,18 @@ impl Hub {
     /// Stop the child. The log stays. `purge` also deletes the log.
     pub async fn kill(&self, session: &Arc<Session>, purge: bool) -> Result<(), RpcError> {
         // An idle pass under way ends first; none starts while this stop runs (`idle.rs`).
-        let _using = session.harness_use.read().await;
+        let using = session.harness_use.read().await;
+        self.kill_held(session, purge, using).await
+    }
+
+    /// `kill`, with `_using`, a lease of `harness_use` (shared, or exclusive for a conditional
+    /// stop, `stop_if_idle.rs`), held until the session is closed.
+    pub(super) async fn kill_held(
+        &self,
+        session: &Arc<Session>,
+        purge: bool,
+        _using: impl Send,
+    ) -> Result<(), RpcError> {
         // Counted first: a start for a request from before this stop ends (`ensure_child`).
         session.stops.fetch_add(1, Ordering::SeqCst);
         session.closing.store(true, Ordering::SeqCst);

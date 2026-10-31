@@ -201,7 +201,8 @@ export type ComposerHandle = {
   attach(attachment: ComposerAttachment): void;
   /// Adds a chip the host is still making (a long dictation recording it sends to the chat's
   /// machine): a pending tile a send waits for, which becomes the chip `make` answers, or fails with
-  /// `failure` and Retry (composer/attachmentIntake.tsx attachLater). Its × runs `stop`.
+  /// `failure` and Retry; the send keeps waiting until Retry makes it or its × takes it out
+  /// (composer/attachmentIntake.tsx attachLater). Its × runs `stop`.
   attachLater(
     name: string,
     make: () => Promise<ComposerAttachment | undefined>,
@@ -2054,7 +2055,7 @@ export function Composer({
                                   ? t("sidebar.sessions")
                                   : section === "tabs"
                                     ? (t as unknown as (key: string) => string)("newTab.openTabs")
-                                    : t("files.search"),
+                                    : t("sidebar.searchPlaceholder"),
                           choices: entries.map((entry): Choice => ({
                             id: entry.id,
                             name: entry.name,

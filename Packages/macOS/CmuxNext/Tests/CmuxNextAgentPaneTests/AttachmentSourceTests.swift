@@ -115,6 +115,36 @@ struct AttachmentSourceTests {
         #expect(record.source(.drop, names: ["image.png"]) == nil)
     }
 
+    /// An ask that reaches the host late, for a gesture taken before the record it finds, answers
+    /// nothing and leaves that newer gesture its own record (two quick pastes of a file of one name).
+    @Test func aLateAskForAnOlderGestureNeverTakesTheNewerRecord() {
+        final class Clocks { var uptime: TimeInterval = 100; var wall: TimeInterval = 1_793_000_000 }
+        let clocks = Clocks()
+        let record = AgentPaneDroppedPaths(now: { clocks.uptime }, wall: { clocks.wall })
+        let first = clocks.wall
+        record.stashSource([URL(fileURLWithPath: "/tmp/one/shot.png")], items: 1, claimed: nil, kind: .paste)
+        // The page took the first paste, and its ask is held up. A second paste of a file of the same
+        // name replaces the record a second later.
+        clocks.uptime += 1
+        clocks.wall += 1
+        let second = clocks.wall
+        record.stashSource([URL(fileURLWithPath: "/tmp/two/shot.png")], items: 1, claimed: "com.apple.finder", kind: .paste)
+        // The first paste's ask arrives now: it is older than the record, so it gets nothing.
+        #expect(record.source(.paste, names: ["shot.png"], gestureAt: first) == nil)
+        // The second paste's own ask still finds its record.
+        let taken = record.source(.paste, names: ["shot.png"], gestureAt: second)
+        #expect(taken?.urls == [URL(fileURLWithPath: "/tmp/two/shot.png")] && taken?.claimed == "com.apple.finder")
+        // The page reads its clock in whole milliseconds after the record was made: that answers.
+        record.stashSource([URL(fileURLWithPath: "/tmp/three.png")], items: 1, claimed: nil, kind: .drop)
+        #expect(record.source(.drop, names: ["three.png"], gestureAt: clocks.wall - 0.0009) != nil)
+    }
+
+    @Test func theAskCarriesTheGesturesTime() {
+        let request = AgentPaneRequest(body: ["method": "chat.attach.source",
+                                              "params": ["kind": "paste", "names": ["a.png"], "gestureAt": 1_793_000_000_500]])
+        #expect(request == .attachSource(.paste, names: ["a.png"], gestureAt: 1_793_000_000.5))
+    }
+
     @Test func onlyAnAppThisMacNamedAsASourceHasAnIcon() throws {
         let suite = "attachment-source-icons-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
