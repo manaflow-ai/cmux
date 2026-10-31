@@ -4696,6 +4696,12 @@
           "command": null
         },
         {
+          "id": "browser.showCookieImportBanner",
+          "title": "Show Import Cookies Banner",
+          "shortcut": null,
+          "command": "cmux browser show-cookie-banner"
+        },
+        {
           "id": "showBrowserJavaScriptConsole",
           "title": "Show JavaScript Console",
           "shortcut": "⌥⌘J",
@@ -5312,12 +5318,6 @@
           "title": "Show Spaces",
           "shortcut": null,
           "command": "cmux sidebar show-spaces"
-        },
-        {
-          "id": "sidebar.workspaceTabs.toggle",
-          "title": "Show Tabs Under Workspaces",
-          "shortcut": null,
-          "command": null
         },
         {
           "id": "switchRightSidebarToSessions",

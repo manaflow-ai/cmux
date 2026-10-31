@@ -48,11 +48,17 @@ export class FreestyleCloudProvider implements CloudProvider {
     }
   }
 
-  private fail(status: number, json: Record<string, unknown>, what: string): never {
-    const final = status === 400 || status === 401 || status === 403 || status === 422
+  /**
+   * `vmCall`: the call addresses one VM by id (pause, start, resize, write file, snapshot), so a 404
+   * means that VM is gone: a final `vm_missing`, never a retryable `unavailable` that keeps a deleted
+   * machine looking live (cmux-platform#176). Other calls' 404s (a TLS rule, an identity) keep their meaning.
+   */
+  private fail(status: number, json: Record<string, unknown>, what: string, vmCall = false): never {
+    const missing = vmCall && status === 404
+    const final = missing || status === 400 || status === 401 || status === 403 || status === 422
     const code = typeof json.code === "string" ? json.code.slice(0, 40) : ""
     const reason = status === 0 && typeof json.reason === "string" ? ` (${json.reason})` : ""
-    throw new DriverError(final ? "cloud.provider.refused" : "cloud.provider.unavailable", `${what}: ${status || "no answer"}${code ? ` ${code}` : ""}${reason}`, final)
+    throw new DriverError(missing ? "cloud.provider.vm_missing" : final ? "cloud.provider.refused" : "cloud.provider.unavailable", `${what}: ${status || "no answer"}${code ? ` ${code}` : ""}${reason}`, final)
   }
 
   private vm(json: Record<string, unknown>) {
@@ -94,7 +100,7 @@ export class FreestyleCloudProvider implements CloudProvider {
       status = 0
     }
     // Never echo the body (it holds the bind token): only the step and status.
-    if (status < 200 || status >= 300) this.fail(status, {}, "write bind file")
+    if (status < 200 || status >= 300) this.fail(status, {}, "write bind file", true)
   }
 
   async list(filter: string, offset: number) {
@@ -185,13 +191,13 @@ export class FreestyleCloudProvider implements CloudProvider {
   async pause(id: string) {
     const r = await this.call("POST", `/v5/vms/${encodeURIComponent(id)}/pause`)
     if (r.status >= 200 && r.status < 300) return
-    this.fail(r.status, r.json, "pause VM")
+    this.fail(r.status, r.json, "pause VM", true)
   }
 
   async start(id: string) {
     const r = await this.call("POST", `/v5/vms/${encodeURIComponent(id)}/start`)
     if (r.status >= 200 && r.status < 300) return
-    this.fail(r.status, r.json, "start VM")
+    this.fail(r.status, r.json, "start VM", true)
   }
 
   async state(id: string) {
@@ -214,7 +220,7 @@ export class FreestyleCloudProvider implements CloudProvider {
     // A lost answer: the snapshot under the slug, if any, is the answer.
     const found = await this.findSnapshot(slug)
     if (found && found.sourceVmId === vmId) return { id: found.id }
-    this.fail(r.status, r.json, "create snapshot")
+    this.fail(r.status, r.json, "create snapshot", true)
   }
 
   async deleteSnapshot(id: string) {
@@ -226,7 +232,7 @@ export class FreestyleCloudProvider implements CloudProvider {
   async resize(id: string, size: VmResources) {
     const r = await this.call("POST", `/v5/vms/${encodeURIComponent(id)}/resize`, { cpu: size.cpu, memory: size.memory, storage: size.storage })
     if (r.status >= 200 && r.status < 300) return
-    this.fail(r.status, r.json, "resize VM")
+    this.fail(r.status, r.json, "resize VM", true)
   }
 
   async resources(id: string) {
