@@ -1092,8 +1092,6 @@ impl Hub {
         // This turn's number, before taking it lets the next one start (`lane_reports.rs`).
         let turn = session.meta().turn_count;
         // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
-        // A turn its agent runs on with steers it read after this one ended takes its place
-        // (`carried_turn.rs`).
         let in_place = next.map(|n| n.next.clone());
         let detached =
             self.take_turn(session, turn_id, in_place).is_none_or(|t| t.turn_id != turn_id);
@@ -1106,13 +1104,10 @@ impl Hub {
             *session.stopping.lock().unwrap_or_else(|e| e.into_inner()) =
                 Some(n.next.turn_id.clone());
         }
-        // A Stop ended the process of an agent that worked on through it (`cancel.rs`): the
-        // prompt that failed as that process ended answers as the forced cancel.
         if take_if_turn(&session.stop_restart, turn_id) && result.is_err() {
             result = Ok(super::cancel::forced_answer(true));
         }
         let carries_on = carried_next.is_some();
-        // Read as the turn result is written: a Web steer may raise the next turn meanwhile.
         let carried_to = || {
             carried_next.map(|n| {
                 let live = session.turn().filter(|t| t.turn_id == n.next.turn_id);

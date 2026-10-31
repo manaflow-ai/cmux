@@ -182,6 +182,16 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 mainMenu: .file,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
+            // The New Message draft's x (shown on its list row while the pointer is over it, as in
+            // Messages), Escape in an empty To: field, the palette, `cmux home close-new-message`
+            // and MCP: one path that discards the draft, its page and its row.
+            ActionDescriptor(
+                id: "home.closeNewMessage", title: t("action.home.closeNewMessage", "Close New Message"),
+                keywords: ["home", "message", "new message", "draft", "close", "discard", "cancel", "compose"],
+                category: .window, symbol: "xmark.circle", surfaces: [.palette, .keyboard],
+                cliName: "home close-new-message",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
             ActionDescriptor(
                 id: "home.invite", title: t("action.home.invite", "Invite to cmux-next…"),
                 keywords: ["home", "invite", "email", "people", "team", "message", "join"],

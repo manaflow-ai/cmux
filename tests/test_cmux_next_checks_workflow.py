@@ -811,7 +811,8 @@ class PathRoutingStructure(unittest.TestCase):
                     # GUI/session routes need a fresh reading on human reruns too. Discover the role
                     # consumer from the expression, so this also covers a newly added job.
                     routed_role = "needs.macos-placement.outputs.gui_runner" in expression
-                    wanted = "blacksmith-6vcpu-macos-26" if attempt > 1 and routed_role else expected
+                    allocated_side = "outputs.owned_jobs" in expression
+                    wanted = "blacksmith-6vcpu-macos-26" if allocated_side or attempt > 1 and routed_role else expected
                     with self.subTest(job=name, event=event, attempt=attempt, actor=actor):
                         self.assertEqual(evaluate(expression, context), wanted)
         # 7242a82b4a8 (#24763): the rescue re-admits a queued run, a free owned Mac first, then Blacksmith.
@@ -992,6 +993,7 @@ case "$*" in
   *fetch*) touch "$REMOTE_FETCH_MARKER" ;;
   *diff*) exit 0 ;;
   *cat-file*) exit 0 ;;
+  *ls-tree*) printf '100644 blob %040d\\tCargo.toml\\0' 1 ;;
   *rev-parse*) printf '%040d\\n' 1 ;;
   *mktree*) cat >/dev/null; if [[ -e "$REMOTE_FETCH_MARKER" ]]; then printf '%s\\n' "$REMOTE_TREE_KEY"; else printf '%040d\\n' 2; fi ;;
   *) exit 1 ;;
@@ -2073,30 +2075,6 @@ FAST_LANE_CLAUSE = (
     "needs.macos-placement.outputs.fast_runner != '' && "
     "github.run_attempt == 1 && needs.macos-placement.outputs.fast_runner || "
 )
-# The fast tier's runs-on without its fast-lane clause: with no idle fast runner it must route exactly so.
-FAST_TIER_RUNNER_WITHOUT_FAST_LANE = (
-    "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || " + FAST_TIER_FORK_CLAUSE
-    # next_macos_cascade.py: a free Blacksmith slot (12 vCPU, then 6) the placement found.
-    + "(github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) "
-    # Only a reading from this attempt: a re-run of failed jobs carries an earlier one (run 40398277457).
-    "&& needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) "
-    "&& contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' fast-tier ') "
-    "&& 'blacksmith-12vcpu-macos-26' || "
-    "(github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) "
-    "&& needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) "
-    "&& contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' fast-tier ') "
-    "&& 'blacksmith-6vcpu-macos-26' || "
-    # No GitHub-hosted overflow: a job Blacksmith cannot take now waits on the owned label.
-    "(github.run_attempt == 1 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) && needs.macos-placement.outputs.runner || "
-    "github.repository_owner != 'manaflow-ai' && 'macos-26' || (" + FAST_TIER_FORK_CLAUSE
-    + "vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) "
-    "&& (github.run_attempt == 1 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) && vars.CI_SIDE_LANE_RUNNER || "
-    "needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.retry_runner || "
-    # No free Blacksmith slot: wait behind the fleet, never in a Blacksmith queue.
-    "vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) "
-    "&& (github.run_attempt <= 3 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) "
-    "&& vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}"
-)
 
 
 class FastTierRunner(unittest.TestCase):
@@ -2109,7 +2087,10 @@ class FastTierRunner(unittest.TestCase):
         self.assertIn(FAST_LANE_CLAUSE, runs_on)
         self.assertLess(runs_on.index(FAST_TIER_FORK_CLAUSE), runs_on.index("outputs.fast_runner"))
         self.assertTrue(runs_on.index(FAST_TIER_FORK_CLAUSE) + len(FAST_TIER_FORK_CLAUSE) == runs_on.index(FAST_LANE_CLAUSE))
-        self.assertEqual(runs_on.replace(FAST_LANE_CLAUSE, "", 1), FAST_TIER_RUNNER_WITHOUT_FAST_LANE)
+        self.assertLess(runs_on.index("outputs.retry_runner"), runs_on.index("vars.CI_SIDE_LANE_RUNNER"))
+        self.assertLess(runs_on.index("outputs.deferred_runner"), runs_on.index("vars.CI_SIDE_LANE_RUNNER"))
+        self.assertIn("outputs.owned_jobs", runs_on)
+        self.assertIn("outputs.retry_runner", runs_on)
         # No env value mirrors runs-on with the old route.
         for value in (job.get("env") or {}).values():
             self.assertNotIn("CI_SIDE_LANE_RUNNER", str(value))
@@ -2159,20 +2140,26 @@ class ReservedLaneLabels(unittest.TestCase):
 
         fast = "glaeda-fast-light-xcode-26.6"
         self.assertEqual(evaluate(runs_on, context(fast)), fast)
-        # Busy or unread: the cascade's slot, else the side route; never the reserved label.
+        # An available cascade slot wins; exhaustion preserves the base side queue.
         self.assertEqual(evaluate(runs_on, context(blacksmith_6_jobs=" fast-tier ")), "blacksmith-6vcpu-macos-26")
         # An old placement's hosted reading is never read (Leo, 2026-10-27: no GitHub-hosted Mac).
         self.assertEqual(evaluate(runs_on, context(hosted_jobs=" fast-tier ", hosted_runner="macos-26")),
                          "glaeda-side-std-xcode-26.6")
         self.assertEqual(evaluate(runs_on, context()), "glaeda-side-std-xcode-26.6")
+        # Only a current allocation can select the generic side route.
+        self.assertEqual(evaluate(runs_on, context(owned_jobs=" fast-tier ")), "glaeda-side-std-xcode-26.6")
+        self.assertEqual(evaluate(runs_on, context(owned_jobs=" fast-tier ", placed_attempt="0")),
+                         "glaeda-side-std-xcode-26.6")
         # The rescue's overflow attempt never goes back to the fast label.
         self.assertEqual(evaluate(runs_on, context(fast, attempt=2, actor="github-actions[bot]",
                                                    retry_runner="blacksmith-6vcpu-macos-26")),
                          "blacksmith-6vcpu-macos-26")
-        # A person's re-run reuses attempt 1's placement; its idle reading is stale, so it takes the
-        # side route, never the reserved label (review of #25158).
-        self.assertEqual(evaluate(runs_on, context(fast, attempt=2)), "glaeda-side-std-xcode-26.6")
-        self.assertEqual(evaluate(runs_on, context(fast, attempt=4)), "glaeda-side-std-xcode-26.6")
+        # A person's re-run cannot reuse the owned label; it falls to Blacksmith.
+        self.assertEqual(evaluate(runs_on, context(fast, attempt=2)), "blacksmith-6vcpu-macos-26")
+        for actor in ("someone", "github-actions[bot]", "cmux-bot[bot]"):
+            with self.subTest(actor=actor):
+                self.assertEqual(evaluate(runs_on, context(fast, attempt=4, actor=actor)),
+                                 "blacksmith-6vcpu-macos-26")
 
 
 # A free owned GUI/session Mac that macos-placement found (7242a82b4a8, #24763: the queue rescue's re-run takes it

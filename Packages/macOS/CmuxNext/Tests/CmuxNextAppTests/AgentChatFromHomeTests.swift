@@ -68,4 +68,30 @@ struct AgentChatFromHomeTests {
             #expect(window.state.workspaceID == home.id && window.state.page == nil, "the window stays on Home")
         }
     }
+
+    /// A top-page transition publishes its page before parking the old content. The action must
+    /// follow the page route during that interval instead of opening in the stale focused pane.
+    @Test func duringTopPageTransitionTheChatOpensANewWorkspace() async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            let window = try #require(services.windows.active)
+            let oldContent = try #require(window.content)
+            let oldWorkspace = oldContent.workspace
+            let before = Set(services.daemon.store.workspaces.map(\.id))
+
+            window.state.page = .page(.history)
+            #expect(window.focusedPane != nil, "the transition keeps the old pane mounted briefly")
+            #expect(services.registry.perform(
+                "palette.newAgentChat",
+                invocation: ActionInvocation(origin: .cli)
+            ))
+
+            try await PasswordManagerRouteTests.until {
+                services.daemon.store.workspaces.contains { !before.contains($0.id) }
+            }
+            let created = try #require(services.daemon.store.workspaces.first { !before.contains($0.id) })
+            #expect(created.id != oldWorkspace.id, "a top-page invocation must not use the stale pane")
+            // A CLI invocation does not request focus, so the top page may remain shown while
+            // the new workspace is created. Placement is established by the new workspace itself.
+        }
+    }
 }
