@@ -80,7 +80,7 @@ public struct PersonInputCheck: Sendable {
 
     private let sources: EventSourceProcesses
 
-    /// A check that reads the posting processes' paths from `sources` (`AppServices.eventSources`).
+    /// A check that reads the posting processes' paths from `sources` (`AppServices.personInput.sources`).
     public nonisolated init(sources: EventSourceProcesses) { self.sources = sources }
 
     /// Whether `event` is the person's own input from the HID system.
@@ -111,16 +111,19 @@ public struct PersonInputCheck: Sendable {
     /// The latest input: its `timestamp` (system uptime) and whether it was the person's.
     public private(set) var last: (uptime: TimeInterval, person: Bool)?
     private let check: @MainActor (NSEvent) -> Bool
-    private let sources: EventSourceProcesses?
+    /// The app's one table of the processes that post input, which the priming events fill. The composition
+    /// root builds it with the ledger (`AppServices.personInput`) and hands it to every other person check
+    /// (``PersonInputCheck``, each agent pane through ``AgentPaneShared``).
+    public let sources: EventSourceProcesses
     private var monitor: Any?
 
-    /// `sources`: the table the priming events fill; nil, none.
-    public init(check: @escaping @MainActor (NSEvent) -> Bool, sources: EventSourceProcesses? = nil) {
+    /// `sources`: the table the priming events fill (tests that pass none get their own).
+    public init(check: @escaping @MainActor (NSEvent) -> Bool, sources: EventSourceProcesses = EventSourceProcesses()) {
         self.check = check
         self.sources = sources
     }
 
-    /// The ledger of ``PersonInputCheck`` over `sources` (`AppServices.eventSources`).
+    /// The ledger of ``PersonInputCheck`` over `sources` (`AppServices.personInput`).
     public convenience init(sources: EventSourceProcesses) {
         let check = PersonInputCheck(sources: sources)
         self.init(check: { check.isPerson($0) }, sources: sources)
@@ -147,7 +150,7 @@ public struct PersonInputCheck: Sendable {
     public func observe(_ event: NSEvent) { // perf-hot: 2us key-dispatch (every key and mouse event of the app, mouse moves included)
         if Self.types.contains(NSEvent.EventTypeMask(type: event.type)) {
             record(event)
-        } else if let sources, let pid = AgentPanePersonInput.postingPID(event) {
+        } else if let pid = AgentPanePersonInput.postingPID(event) {
             sources.prime(pid)
         }
     }

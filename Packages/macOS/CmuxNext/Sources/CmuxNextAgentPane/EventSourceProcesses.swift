@@ -38,7 +38,7 @@ nonisolated struct EventSourceProcess: Equatable, Sendable {
 /// Bound: one entry and one kernel exit watch per live process that posted an event to the app; each
 /// leaves with its process (R9: no constant cap; the bound is the live processes).
 ///
-/// One table per app, built in the composition root (`AppServices.eventSources`) and passed through `init`;
+/// One table per app, built in the composition root (`AppServices.personInput.sources`) and passed through `init`;
 /// tests build their own.
 public nonisolated final class EventSourceProcesses: Sendable {
     /// Reads the process `pid` names now; nil when there is none. A system call: never on the main thread.
@@ -160,7 +160,6 @@ public nonisolated final class EventSourceProcesses: Sendable {
     private static func startTime(_ pid: pid_t) -> UInt64? {
         var info = proc_bsdinfo()
         let size = Int32(MemoryLayout<proc_bsdinfo>.size)
-        // blocking-allow: runs only in the table's read, on its own serial queue (com.cmuxterm.next.event-source-processes), never on main; CmuxNextCompat has no system-call seam
         guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
         return info.pbi_start_tvsec &* 1_000_000 &+ info.pbi_start_tvusec
     }

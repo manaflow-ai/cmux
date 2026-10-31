@@ -157,12 +157,9 @@ final class AppServices {
     })
     /// This Mac's one-line join consent (Settings > Devices' switches, the one-time sheet), behind labs.machineJoin.
     private(set) lazy var joinConsent = JoinConsentModel.app(self)
-    /// The processes that post key and mouse events to the app, each read once off the main thread: the
-    /// person-input checks read it, never a system call per event.
-    let eventSources = EventSourceProcesses()
-    /// The app's latest key or mouse input and whether it was the person's (HID system): backs a consent
-    /// grant made in a page. Started at launch.
-    private(set) lazy var personInput = PersonInputLedger(sources: eventSources)
+    /// The app's latest key or mouse input and whether it was the person's (HID system), over the app's one
+    /// table of posting processes (`personInput.sources`): backs a consent grant made in a page. Started at launch.
+    let personInput = PersonInputLedger(sources: EventSourceProcesses())
     /// Process-wide widening-switch gate shared by every Settings window.
     let wideningGate = PageWideningGate()
     /// Settings > Machines' "Dedicated agent machine" switch on each Cloud machine (acpmux vmHost).
