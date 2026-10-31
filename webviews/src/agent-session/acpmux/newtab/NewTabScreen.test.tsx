@@ -439,6 +439,8 @@ test("cancelling a New Tab project confirmation allows another chat attempt with
   await act(async () => create().click());
   expect(asks.length).toBe(2);
   expect(asks[1]?.[1]).toBe("Review this synthetic project");
+  // A late duplicate Cancel from the first request cannot release the newer request.
+  await act(async () => (cancel as () => void)());
   // A second click during the same pending confirmation remains one-shot.
   await act(async () => create().click());
   expect(asks.length).toBe(2);
