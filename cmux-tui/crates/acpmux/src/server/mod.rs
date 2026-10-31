@@ -2066,6 +2066,10 @@ mod request_admission_tests {
 mod acp_list_tests;
 
 #[cfg(test)]
+#[path = "list_fit_tests.rs"]
+mod list_fit_tests;
+
+#[cfg(test)]
 #[path = "session_list_pages_tests.rs"]
 mod session_list_pages_tests;
 
