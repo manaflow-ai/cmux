@@ -14,7 +14,7 @@ import { forwardHeaders, handleWireTicket, spendTicketAtEntry, wireCredential, w
 /** The owner each wire scope reaches (principalForOwner). */
 const WIRE_OWNER: Readonly<Record<string, string>> = { team: "cloud:TeamDO", feed: "cloud:FeedDO", cloud: "cloud:CloudDO", conv: "cloud:ConversationDO", mux: "cloud:MuxDO" }
 import { handleInviteCard, handleInvitePreview } from "./home-routes.ts"
-import { handleAttachmentCommit, handleAttachmentDownload, handleAttachmentIntent, handleAttachmentDerived, handleAttachmentMultipartComplete, handleAttachmentMultipartPart, handleAttachmentUpload, handleAttachmentUrl } from "./home-attachments.ts"
+import { handleAttachmentCommit, handleAttachmentDownload, handleAttachmentIntent, handleAttachmentDerived, handleAttachmentDirectPart, handleAttachmentMultipartComplete, handleAttachmentMultipartPart, handleAttachmentUpload, handleAttachmentUrl } from "./home-attachments.ts"
 import { CARD_PATH, handleContactCard, handleSendblueHook } from "./home-text.ts"
 import { GROUP_PAGE_ANY, GROUP_PAGE_PATH, groupLinkPage } from "./group-link-page.ts"
 import { handleOutboxReplay } from "./admin-outbox.ts"
@@ -269,6 +269,7 @@ export default {
     if (upload && request.method === "PUT") return handleAttachmentUpload(request, env, upload[1]!, upload[2]!)
     const multipart = url.pathname.match(/^\/v1\/home\/attachments\/multipart\/(conv_(?:dm_)?[0-9A-HJKMNP-TV-Z]{26})\/([A-Za-z0-9_.-]{1,256})$/)
     if (multipart && request.method === "PUT") return handleAttachmentMultipartPart(request, env, multipart[1]!, multipart[2]!)
+    if (multipart && request.method === "POST") return handleAttachmentDirectPart(request, env, multipart[1]!, multipart[2]!)
     const derivedPut = url.pathname.match(/^\/v1\/home\/attachments\/(poster|preview)\/(conv_(?:dm_)?[0-9A-HJKMNP-TV-Z]{26})\/([A-Za-z0-9_.-]{1,256})$/)
     if (derivedPut && request.method === "PUT") return handleAttachmentDerived(request, env, derivedPut[1] as "poster" | "preview", derivedPut[2]!, derivedPut[3]!)
     const file = url.pathname.match(/^\/v1\/home\/attachments\/(conv_(?:dm_)?[0-9A-HJKMNP-TV-Z]{26})\/([0-9a-f]{32})$/)

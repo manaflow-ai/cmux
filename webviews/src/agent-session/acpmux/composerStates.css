@@ -274,7 +274,7 @@
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
   white-space: nowrap;
-  cursor: pointer;
+  cursor: default;
   letter-spacing: var(--text-control--letter-spacing);
 }
 .acpmux-steer:hover {

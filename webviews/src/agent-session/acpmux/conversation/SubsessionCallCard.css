@@ -49,7 +49,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  cursor: pointer;
+  cursor: default;
   color: var(--cv-text-muted);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
@@ -69,7 +69,7 @@
 /* The target of a sent message, when its chat is listed: opens it beside this one. */
 .cv-sent__target {
   all: unset;
-  cursor: pointer;
+  cursor: default;
   color: var(--cv-text);
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);

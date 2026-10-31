@@ -72,6 +72,8 @@ final class WindowManager {
     var pendingPlacements: [String: PendingPlacement] = [:]
     /// Registration order survives a daemon snapshot that reports several creates together.
     var pendingPlacementOrder: [String] = []
+    /// Retries the placements whose wait for the window's current row ran out (`applyPendingPlacements`).
+    let anchorRetry = DemandTimer(owner: "WindowManager.anchorRetry")
     /// Windows none of whose workspaces a machine reports yet (just created,
     /// or saved with workspaces that are gone or on a Cloud machine still
     /// connecting): kept off screen until their content is installed, so no
