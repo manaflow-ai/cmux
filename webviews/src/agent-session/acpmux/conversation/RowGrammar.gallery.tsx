@@ -130,7 +130,7 @@ export default componentEntry<Props>({
   variants: {
     chip: {
       props: { recipient: "chip" },
-      note: 'Shipped. Both sends read "Sent to" with the recipient as the one chip, the first line muted and cut with one ellipsis; each chevron follows its label inline, and status ("Queued") or duration ("2m 28s") sits at the row's right edge, never in the sentence.',
+      note: `Shipped. Both sends read "Sent to" with the recipient as the one chip, the first line muted and cut with one ellipsis; each chevron follows its label inline, and status ("Queued") or duration ("2m 28s") sits at the row's right edge, never in the sentence.`,
     },
     link: {
       props: { recipient: "link" },

@@ -792,7 +792,8 @@ button.cv-subagent > :last-child {
   content: "";
   position: absolute;
   inset: 0;
-  z-index: -1;
+  /* Under the row's words, inside the row's own stacking context (isolation: isolate). */
+  z-index: calc(var(--layer-base) - 1);
 }
 .cv-subagent-done-row > .cv-subagent-done__trail {
   pointer-events: none;

@@ -156,7 +156,10 @@ test("a send reads Sent to <recipient>, the recipient one chip, its status in th
     const status = trail?.textContent?.toLowerCase();
     expect({ kind, status }).toEqual({ kind, status: "queued" });
     if (kind === "acpmux-send") expect(trail!.querySelector(".cv-row-status")).not.toBeNull();
-    const sentence = [...row.childNodes].filter((node) => node !== trail).map((node) => node.textContent).join("");
+    const sentence = [...row.childNodes]
+      .filter((node) => node !== trail)
+      .map((node) => node.textContent)
+      .join("");
     expect(sentence.toLowerCase()).not.toContain("queued");
   }
   expect(rows["send-message"]!.querySelector(".cv-recipient")!.textContent).toBe("Organize the sidebar");
@@ -235,7 +238,7 @@ test("a subagent done line is one control: its chevron only draws and opens noth
   // pointer role and no handler of its own.
   const chevron = row.querySelector<SVGElement>(".cv-tool__chevron")!;
   expect(chevron.getAttribute("aria-hidden")).toBe("true");
-  expect(chevron.closest("button")).toBe(controls[0]!);
+  expect(chevron.closest<HTMLElement>("button")).toBe(controls[0]!);
   expect(chevron.hasAttribute("tabindex")).toBe(false);
   expect(chevron.hasAttribute("data-interactive")).toBe(false);
   // The button is what opens it.

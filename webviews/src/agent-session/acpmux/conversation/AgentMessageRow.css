@@ -120,7 +120,8 @@ button.cv-agentmsg__name:focus-visible {
   content: "";
   position: absolute;
   inset: 0;
-  z-index: -1;
+  /* Under the row's words, inside the row's own stacking context (isolation: isolate). */
+  z-index: calc(var(--layer-base) - 1);
 }
 .cv-agentmsg__line > .cv-tool__trail {
   pointer-events: none;
