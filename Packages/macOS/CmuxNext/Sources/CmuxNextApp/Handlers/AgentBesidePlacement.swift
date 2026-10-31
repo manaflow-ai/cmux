@@ -115,6 +115,16 @@ enum AgentBesidePlacement {
             guard let tab = store.tab(surface: surface) else {
                 return "beside-caller: the new tab did not open"
             }
+            if let chat, let home = services.locateTab(model: chat)?.1, home !== anchor,
+               services.locateTab(model: tab)?.1 === anchor {
+                // A preceding open already docked this lone chat and left this very diff on its right.
+                moved = true
+                if let right = services.paneController(for: anchor), !(personActed() && right.workspace?.focusedPane === right) {
+                    right.selectWhenReportedKeepingFocus(surface: surface)
+                }
+                if let clicked { focus(surface, returningTo: LayoutPaneID(home.id), in: clicked, generation: intent, services: services) }
+                return nil
+            }
             if let chat, services.locateTab(model: chat)?.1 === anchor, let content = lone?.workspace {
                 // The new tab is in the chat's pane, unselected: the chat docks, the tab stays. The
                 // chat stays where it shows; only the tab's pane comes in, from the right.

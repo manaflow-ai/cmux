@@ -183,4 +183,62 @@ struct CloudDiffPlacementTests {
         #expect(fixture.pane.pane.tabs.count == 1)
     }
 
+    @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+    func simultaneousChangesOpensKeepOneDiffBesideTheDockedChat() async throws {
+        try await PasswordManagerRouteTests.withApp { services, connection in
+            let store = services.daemon.store
+            let source = try #require(services.windows.active?.focusedPane)
+            let content = try #require(source.workspace)
+            let terminals = source.pane.tabs.map(\.surface)
+            let chatReply = try await connection.request(NewConversationTabRequest(
+                agentSession: AgentSessionRef(host: "install:test", session: "chat", harness: "codex"), pane: source.pane.handle))
+            try await PasswordManagerRouteTests.until({ store.tab(surface: chatReply.surface) != nil })
+            for terminal in terminals { try await connection.closeTab(terminal) }
+            try await PasswordManagerRouteTests.until({ source.pane.tabs.count == 1 })
+            let chat = try #require(store.tab(surface: chatReply.surface))
+            PaneHandlers.focus(source.layoutPaneID, in: content)
+            let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let machine = CloudMoveTests.machine(services, cli: URL(fileURLWithPath: "/usr/bin/false"), root: root)
+            services.machines.add(machine)
+            let create = services.pages.createStoreTab
+            var release: CheckedContinuation<Void, Never>?
+            var creates = 0
+            services.pages.createStoreTab = { pane, daemon, page, route, transaction in
+                creates += 1
+                await withCheckedContinuation { release = $0 }
+                return try await create(pane, daemon, page, route, transaction)
+            }
+            defer { services.pages.createStoreTab = create; release?.resume() }
+            var invocation = ActionInvocation(origin: .user)
+            invocation.besideCaller = true
+            invocation.besideTakesFocus = true
+            invocation.newColumnBeside = true
+            let pages = services.viewers.diffPages
+            let work = services.registry.capturingWork {
+                for _ in 0..<2 {
+                    let opening = AgentBesidePlacement.opening(invocation, in: source, then: nil)
+                    pages.open(repository: DiffRepository(root: "/home/cmux/project", branch: nil, base: nil),
+                        gitLink: services.agentGit.link(for: machine.daemon), in: source, focus: false, on: machine.daemon,
+                        created: opening.created, failed: { opening.failed($0.map { ActionWorkFailure("open diff", $0) }) })
+                }
+            }
+            try await PasswordManagerRouteTests.until({ release != nil })
+            let reply = release
+            release = nil
+            reply?.resume()
+            for task in work { #expect(await task.value == nil) }
+            #expect(creates == 1)
+            let chatPane = try #require(services.locateTab(model: chat).flatMap { services.paneController(for: $0.1) })
+            let diffs = store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).filter { $0.page == "diff" }
+            #expect(diffs.count == 1)
+            let diff = try #require(diffs.first)
+            let right = try #require(services.locateTab(model: diff).flatMap { services.paneController(for: $0.1) })
+            #expect(right.pane === source.pane)
+            #expect(chatPane !== right)
+            try await PasswordManagerRouteTests.until({ content.focusedPane === right })
+            #expect(services.linkOpener.returnPane(closing: .init(diff.id), in: right, emptiesPane: true) === chatPane)
+        }
+    }
+
 }
