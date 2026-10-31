@@ -75,10 +75,6 @@ private final class BrowserEventsDemoFixture {
         installBackdrop(in: page)
         if scene == "context" {
             presentContextMenu(on: page)
-        } else if scene == "page-menu" {
-            var visited = Set<ObjectIdentifier>()
-            let activated = activatePageMenu(in: window, visited: &visited)
-            print("browser-events-demo: Page Menu activated: \(activated)")
         }
     }
 
@@ -137,47 +133,5 @@ private final class BrowserEventsDemoFixture {
                                               CGPoint(x: page.bounds.midX, y: page.bounds.midY))
     }
 
-    private func activatePageMenu(in object: NSObject, visited: inout Set<ObjectIdentifier>) -> Bool {
-        guard visited.insert(ObjectIdentifier(object)).inserted else { return false }
-        if object.accessibilityLabel == "Page Menu" {
-            if object.accessibilityActivate() { return true }
-            if let control = object as? UIControl {
-                if control.allControlEvents.contains(.primaryActionTriggered) {
-                    control.sendActions(for: .primaryActionTriggered)
-                    return true
-                }
-                if control.allControlEvents.contains(.touchUpInside) {
-                    control.sendActions(for: .touchUpInside)
-                    return true
-                }
-            }
-        }
-        var children: [Any] = []
-        if let view = object as? UIView {
-            children.append(contentsOf: view.accessibilityElements ?? [])
-            children.append(contentsOf: view.subviews)
-        }
-        // SwiftUI exposes virtual accessibility containers as NSObject subclasses.
-        // Ask only objects implementing the public container selectors for children.
-        let countSelector = NSSelectorFromString("accessibilityElementCount")
-        let elementSelector = NSSelectorFromString("accessibilityElementAtIndex:")
-        if object.responds(to: countSelector), object.responds(to: elementSelector),
-           let countMethod = object.method(for: countSelector),
-           let elementMethod = object.method(for: elementSelector) {
-            typealias Count = @convention(c) (AnyObject, Selector) -> Int
-            typealias Element = @convention(c) (AnyObject, Selector, Int) -> AnyObject?
-            let count = unsafeBitCast(countMethod, to: Count.self)(object, countSelector)
-            let element = unsafeBitCast(elementMethod, to: Element.self)
-            if count > 0, count < 512 {
-                for index in 0..<count {
-                    if let child = element(object, elementSelector, index) { children.append(child) }
-                }
-            }
-        }
-        for case let child as NSObject in children {
-            if activatePageMenu(in: child, visited: &visited) { return true }
-        }
-        return false
-    }
 }
 #endif

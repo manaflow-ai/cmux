@@ -300,6 +300,16 @@ struct TabsScreen<Source: TabsDataSource>: View {
                 }
             }
         }
+        #if DEBUG
+        // Screenshot harness: use the same action and menu as a toolbar tap.
+        // The single delay is bounded and cancelled when this screen disappears.
+        .task {
+            guard ProcessInfo.processInfo.arguments.contains("-tabs-kit-demo-page-menu") else { return }
+            do { try await Task.sleep(for: .milliseconds(1_500)) } catch { return }
+            guard !Task.isCancelled, activeTab?.features.contains(.pageMenu) == true else { return }
+            openMenu()
+        }
+        #endif
         .onChange(of: isShowingOverview?.wrappedValue, initial: true) { _, wanted in
             guard let wanted, wanted != zoomState.headingToOverview else { return }
             if wanted { openOverview() } else { closeOverview(selecting: activeID) }
