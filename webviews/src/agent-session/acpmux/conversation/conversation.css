@@ -2883,6 +2883,27 @@ a.cv-sha:focus-visible {
   white-space: pre-wrap;
   word-break: break-word;
 }
+/* An opened cmux script (McpCallRows.tsx CmuxExecDetails): its script and result as code in the
+   text color, their tokens colored by role (jsHighlight.ts, valueTree.ts); the tools it called one a
+   line under a small head, in the same mono type; "Raw" (the call as it came) last, quiet. */
+.cv-cmux-exec__code {
+  color: var(--cv-text);
+  white-space: pre-wrap;
+  tab-size: 2;
+}
+.cv-cmux-exec__calls {
+  display: grid;
+  margin: 0 0 0 2px;
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+  line-height: 17px;
+}
+.cv-cmux-exec__call code {
+  font-family: var(--cv-mono);
+}
+.cv-cmux-exec__raw {
+  margin: 2px 0 0 2px;
+}
 /* The card's box holds the fill and ring, so the output's fades (below) cut the text, not them. */
 .cv-tool-output__box {
   position: relative;

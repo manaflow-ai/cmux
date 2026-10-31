@@ -7,6 +7,7 @@
 import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { commandFolder } from "./commandFolder";
+import { execParts, execText, execView, isCmuxExec } from "./cmuxExec";
 import { cleanText, mcpCall, prettyOutput, prettyValue } from "./mcpCalls";
 import { plainText } from "./messageMenu";
 import { drawnThought } from "./thoughts";
@@ -49,6 +50,11 @@ function drawnText(item: AcpmuxActivity): string {
   const call = mcpCall(tool);
   // A finished call's envelope images show in its strip, not its text (toolImages.ts).
   const strip = stripsEnvelopeImages(tool);
+  // A cmux script draws its script, calls, result and logs (McpCallRows.tsx CmuxExecDetails).
+  if (call && isCmuxExec(call)) {
+    const parts = execParts(execView(tool, call.args), cleanText);
+    return execText(parts, parts.rawResponse ? prettyOutput(tool.output, strip) : undefined);
+  }
   if (call) return [prettyValue(call.args), prettyOutput(tool.output, strip)].filter(Boolean).join("\n");
   const shell = tool.kind === "execute" && Boolean(tool.command);
   // A shell draws its output without Claude Code's leading "Exit code N" line (toolFailure.ts), which
