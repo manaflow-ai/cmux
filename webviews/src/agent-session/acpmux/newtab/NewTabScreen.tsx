@@ -577,6 +577,15 @@ export function NewTabScreen(props: Props) {
     parentSignIn?.authRefresh,
     parentSignIn?.authObservation,
   );
+  const authTarget = JSON.stringify(authQuery ?? null);
+  /// The sign-in check target a Return waits on: Return right after Cmd-T, while the check still
+  /// runs, is replayed once it settles (askChat refuses while it runs).
+  const submitAfterAuth = useRef<string | undefined>(undefined);
+  /// The harness's sign-in check still runs, so askChat would refuse this Return: it goes again
+  /// once the check settles on the same target (a sign-in it finds missing keeps the draft).
+  const waitForAuth = () => {
+    submitAfterAuth.current = authTarget;
+  };
 
   // The Ask row names the agent Return asks and the model on its chip.
   const ask = useMemo(() => {
@@ -859,6 +868,8 @@ export function NewTabScreen(props: Props) {
   };
   const edit = (next: string) => {
     touch();
+    // A Return still waiting on the sign-in check was for the draft before this edit.
+    submitAfterAuth.current = undefined;
     setTouched(true);
     const entry = composing.current || shell ? undefined : shellEntry(text, next, wholeSelection.current);
     wholeSelection.current = false;
@@ -900,7 +911,10 @@ export function NewTabScreen(props: Props) {
       openSetup();
       return;
     }
-    if (row && keeps) return activate(row);
+    if (row && keeps) {
+      if (row.type === "ask" && targetAuthPending) return waitForAuth();
+      return activate(row);
+    }
     // Pasted or dropped attachments alone are a prompt, as in a chat's composer.
     if (attachments.length === 0 && (!prompt || isAddress(prompt, home))) {
       // A fresh install has no harness to ask yet. Return on the empty composer should take the
@@ -915,6 +929,7 @@ export function NewTabScreen(props: Props) {
       openSetup();
       return;
     }
+    if (targetAuthPending) return waitForAuth();
     askChat(harness, prompt, project, chipModel);
   };
   submitNow.current = submit;
@@ -951,7 +966,6 @@ export function NewTabScreen(props: Props) {
   };
   /// The harness a setup resume waits on while its sign-in check runs, with the check's target.
   const resumeAfterAuth = useRef<{ agent: string; target: string } | undefined>(undefined);
-  const authTarget = JSON.stringify(authQuery ?? null);
   continueAfterSetup.current = (agent) => {
     // Setup may finish while an attachment is still loading. Resume the same draft only once
     // its files are ready, reading the latest state rather than the setup-opening snapshot.
@@ -983,6 +997,18 @@ export function NewTabScreen(props: Props) {
     if (targetAuthPending) return;
     resumeAfterAuth.current = undefined;
     continueAfterSetup.current(waiting.agent);
+  }, [targetAuthPending, authTarget]);
+  useEffect(() => {
+    const waiting = submitAfterAuth.current;
+    if (!waiting) return;
+    // The person picked another harness or machine meanwhile: send nothing; the draft stays.
+    if (waiting !== authTarget) {
+      submitAfterAuth.current = undefined;
+      return;
+    }
+    if (targetAuthPending) return;
+    submitAfterAuth.current = undefined;
+    submitNow.current();
   }, [targetAuthPending, authTarget]);
   const send = () => {
     touch();
