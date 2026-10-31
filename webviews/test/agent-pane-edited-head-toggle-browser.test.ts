@@ -182,7 +182,10 @@ await requireBrowserLane("agent-pane-edited-head-toggle-browser.test.ts", async 
       ["the icon", ({ icon }) => ({ x: (icon.left + icon.right) / 2, y: (icon.top + icon.bottom) / 2 })],
       ["the counts", ({ counts }) => ({ x: (counts.left + counts.right) / 2, y: (counts.top + counts.bottom) / 2 })],
       // Between the title's words and View changes: the header's empty middle.
-      ["the empty space after the title", ({ counts, view }) => ({ x: (counts.right + view.left) / 2, y: middle(view) })],
+      [
+        "the empty space after the title",
+        ({ counts, view }) => ({ x: (counts.right + view.left) / 2, y: middle(view) }),
+      ],
       ["the right end, past the chevron", ({ head }) => ({ x: head.right - 2, y: middle(head) })],
       ["the top inset", ({ head, title }) => ({ x: (title.left + title.right) / 2, y: head.top + 1.5 })],
       ["the bottom inset", ({ head, title }) => ({ x: (title.left + title.right) / 2, y: head.bottom - 1.5 })],
@@ -191,7 +194,10 @@ await requireBrowserLane("agent-pane-edited-head-toggle-browser.test.ts", async 
     let open = start === "true";
     for (const [where, at] of points) {
       const point = at(await boxes(page));
-      const hit = await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest(".acpmux-edited-head") !== null, point);
+      const hit = await page.evaluate(
+        ({ x, y }) => document.elementFromPoint(x, y)?.closest(".acpmux-edited-head") !== null,
+        point,
+      );
       expect({ where, inHeader: hit }).toEqual({ where, inHeader: true });
       await page.mouse.click(point.x, point.y);
       open = !open;
@@ -215,8 +221,7 @@ await requireBrowserLane("agent-pane-edited-head-toggle-browser.test.ts", async 
     await page.goto(url(CHAT));
     await page.getByText("Notes updated.").waitFor();
     await page.locator(TOGGLE).waitFor();
-    const background = () =>
-      page.locator(HEAD).evaluate((node) => getComputedStyle(node).backgroundColor);
+    const background = () => page.locator(HEAD).evaluate((node) => getComputedStyle(node).backgroundColor);
     const rest = await background();
     const { head, view } = await boxes(page);
     await page.mouse.move(head.left + 3, middle(head));

@@ -25,7 +25,8 @@ export function togglesHeader(header: Element, target: EventTarget | null): bool
   const control = element.closest(HEADER_INNER_CONTROL);
   if (control && control !== header && header.contains(control)) return false;
   const selection = header.ownerDocument.defaultView?.getSelection();
-  if (selection && !selection.isCollapsed && selection.anchorNode && header.contains(selection.anchorNode)) return false;
+  if (selection && !selection.isCollapsed && selection.anchorNode && header.contains(selection.anchorNode))
+    return false;
   return true;
 }
 
