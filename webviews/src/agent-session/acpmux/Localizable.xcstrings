@@ -206933,127 +206933,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "حفظ"
+            "value": "حفظ البيئة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sačuvaj"
+            "value": "Sačuvaj okruženje"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gem"
+            "value": "Gem miljø"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sichern"
+            "value": "Umgebung speichern"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Save"
+            "value": "Save environment"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Guardar"
+            "value": "Guardar entorno"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enregistrer"
+            "value": "Enregistrer l’environnement"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Salva"
+            "value": "Salva ambiente"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "保存"
+            "value": "環境を保存"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "រក្សាទុក"
+            "value": "រក្សាទុកបរិស្ថាន"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "저장"
+            "value": "환경 저장"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lagre"
+            "value": "Lagre miljø"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zapisz"
+            "value": "Zapisz środowisko"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Salvar"
+            "value": "Salvar ambiente"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Сохранить"
+            "value": "Сохранить окружение"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "บันทึก"
+            "value": "บันทึกสภาพแวดล้อม"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kaydet"
+            "value": "Ortamı kaydet"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Зберегти"
+            "value": "Зберегти середовище"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lưu"
+            "value": "Lưu môi trường"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "存储"
+            "value": "保存环境"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "儲存"
+            "value": "儲存環境"
           }
         }
       }
