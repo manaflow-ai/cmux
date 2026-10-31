@@ -780,7 +780,13 @@ test("lane report without metadata remains a normal incoming message", () => {
     incomingPrompt("[builder] turn 3 ended, idle", { _meta: { provenance: { kind: "lane_report", from: "builder" } } }),
   ).toMatchObject({
     kind: "message",
-    message: { name: "builder", report: true, text: "turn 3 ended, idle", raw: "[builder] turn 3 ended, idle" },
+    message: {
+      name: "builder",
+      sessionId: "builder",
+      report: true,
+      text: "[builder] turn 3 ended, idle",
+      raw: "[builder] turn 3 ended, idle",
+    },
   });
 });
 

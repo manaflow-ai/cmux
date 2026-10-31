@@ -170,6 +170,7 @@ test("a single report shows its verdict; its full P2 remains readable and metada
   await click(".cv-received__more");
   expect(host.querySelector(".cv-received__details pre")?.textContent).toContain("secret-session-single-block");
   expect(host.querySelector(".cv-received__details pre")?.textContent).toContain(SHA);
+  expect(host.querySelectorAll(".cv-received__details pre")).toHaveLength(1);
 });
 
 test("Find opens the batch and only the member holding its match", async () => {
