@@ -83,7 +83,7 @@ class AppCrateLicenseGate(unittest.TestCase):
         self.assertFalse(gate.license_allowed("MIT AND GPL-2.0"))
         self.assertFalse(gate.license_allowed(None))
 
-    def test_the_first_party_gpl_crates_are_named_exactly(self):
+    def test_the_ten_first_party_gpl_crates_are_named_exactly(self):
         self.assertEqual(
             sorted(gate.FIRST_PARTY_GPL),
             sorted(
@@ -98,8 +98,6 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-focus-core",
                     "cmux-tasks-core",
                     "cmux-palette-ranker",
-                    # 5a6a9c108b18 (cmux-app-ffi links the chat index mirror) named it in the gate.
-                    "cmux-chats-mirror",
                     "cmux-remote-browser",
                 ]
             ),
