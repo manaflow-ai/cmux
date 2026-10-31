@@ -80,10 +80,8 @@ final class CloudService {
     private(set) var hasLoadedMachines = false
     /// Whom the loaded list is for (``listAccount`` when it landed).
     @ObservationIgnored private var loadedAccount: [String?]?
-    /// Whether the store holds a list the server answered for the user and
-    /// team signed in now. A team switch keeps the user signed in, so the
-    /// previous team's list stays in the store until the next refresh lands:
-    /// it is not this team's answer (``CloudMachineListFacts`` owns the rule).
+    /// Whether the store holds a list the server answered for the user and team signed in now
+    /// (``CloudMachineListFacts/hasLoadedCurrentMachines`` owns the rule and why a team switch matters).
     var hasLoadedCurrentMachines: Bool { listFacts.hasLoadedCurrentMachines }
     /// The sign-in and list state that decides whether a saved Cloud workspace is gone (`WindowManager.isDead`).
     var listFacts: CloudMachineListFacts {
