@@ -349,15 +349,24 @@ fn push_inner(
 
     // Deletes first, so a file that became a folder (or the reverse) is out
     // of the way. Only a file still as this push left it goes; one the
-    // machine changed since stays.
+    // machine changed since stays, and keeps the last push's record so a
+    // pull names the delete here against the edit there.
+    let mut spared: Vec<(String, Pushed)> = Vec::new();
     for (relative, pushed) in &previous.files {
         if set.files.contains_key(relative) {
             continue;
         }
         let target = format!("{remote_root}/{relative}");
-        if listings.revision(&mut remote, &target)?.as_deref() == Some(pushed.revision.as_str()) {
-            remote.delete(std::slice::from_ref(&target))?;
-            summary.deleted += 1;
+        match listings.revision(&mut remote, &target)? {
+            Some(revision) if revision == pushed.revision => {
+                remote.delete(std::slice::from_ref(&target))?;
+                summary.deleted += 1;
+            }
+            Some(_) => {
+                summary.kept += 1;
+                spared.push((relative.clone(), pushed.clone()));
+            }
+            None => {}
         }
         let (parent, name) = remote::split(&target)?;
         remote.delete(&[format!("{parent}/.{name}.cmux-sync-part")])?;
@@ -365,7 +374,7 @@ fn push_inner(
     listings.clear();
 
     let mut made: BTreeSet<String> = BTreeSet::new();
-    let mut next = Manifest { version: 1, files: BTreeMap::new(), git };
+    let mut next = Manifest { version: 1, files: spared.into_iter().collect(), git };
     for (relative, file) in &set.files {
         let target = format!("{remote_root}/{relative}");
         let (parent, _) = remote::split(&target)?;
