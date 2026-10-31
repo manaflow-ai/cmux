@@ -509,5 +509,12 @@ setup_swift
 lane_commit "lane edits another type" Packages/a/B.swift "public struct B {}"
 if run > "$tmp/out" 2>&1; then fail "a namespace rewrite whose inputs moved passed the run"; fi
 [[ "$(remote_show Packages/a/A.swift)" == "public enum A {}" ]] || fail "a namespace rewrite made for an older Packages/ landed"
+# A reviewed exemption added to either baseline on the tip holds the rewrite too (#29577).
+for baseline in scripts/lint-namespace-types-baseline.txt scripts/lint-ios-package-conventions-baseline.txt; do
+  setup_swift
+  lane_commit "lane exempts A" "$baseline" "Packages/a/A.swift:A"
+  if run > "$tmp/out" 2>&1; then fail "a namespace rewrite passed past a $baseline move"; fi
+  [[ "$(remote_show Packages/a/A.swift)" == "public enum A {}" ]] || fail "a namespace rewrite landed past a $baseline move"
+done
 
 echo "PASS: base autofix lands its repair on a moved feat-cmux-next; files whose inputs moved or that a newer commit wrote wait; the settings exports are regenerated on the newest tip, or wait"
