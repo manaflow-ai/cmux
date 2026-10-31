@@ -157,7 +157,14 @@ enum AgentHandlers {
             }
         })
         gatePointerInspectorMenuRows(in: registry)
-        registry.bind(.fileOpen, run: { try openFile($0, context: context) })
+        registry.bindEffect(.fileOpen, effect: { invocation in
+            do {
+                try openFile(invocation, context: context)
+                return .done
+            } catch {
+                return .refused(ViewerService.reason(error))
+            }
+        })
         // The composer's mic (CmuxNextAgentPane). Held from the keyboard, it
         // is push-to-talk. Outside an agent chat it stops a session still
         // running in one.
@@ -470,18 +477,29 @@ enum AgentHandlers {
         // an in-app caller that passes another place is refused, not ignored.
         let place = invocation["where"]?.stringValue ?? AgentPaneFileTarget.tab.rawValue
         guard let target = AgentPaneFileTarget(rawValue: place) else { throw ActionFailure(message: MiscHandlerStrings.invalidPlace(place)) }
+        // A path named in a Cloud pane belongs to that machine, including an absolute path
+        // that also exists here. Refuse local editor apps before resolving anything on this Mac.
+        guard let pane = context.paneController(invocation) else { return }
+        // Open as Text applies on the file's machine, including Cloud Markdown.
+        let asText = invocation["asText"]?.boolValue ?? (invocation["asText"]?.stringValue == "true")
+        if !pane.daemon.isLocal {
+            guard path.hasPrefix("/"), !path.contains("\u{0}") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
+            let url = URL(fileURLWithPath: path)
+            guard target == .tab else { throw ActionFailure(message: FilePageStrings.remotePreview(url.lastPathComponent)) }
+            if let reason = context.services.viewers.openFile(url, on: pane.daemon, in: pane, userChose: invocation.origin == .user, asText: asText) {
+                throw ActionFailure(message: reason)
+            }
+            return
+        }
         // A tab is the file pages (diff-host S6, S7) or, for HTML and SVG, a browser tab that
         // renders the page (u18051); Open as Text and Edit Source show its source.
         if target == .tab {
             guard path.hasPrefix("/") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
             guard let url = AgentPaneFileOpen.resolve(path) else { throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path)) }
-            guard let pane = context.paneController(invocation) else { return }
             // `cmux open` run from an agent chat: a quote from the file's viewer goes back to that chat.
             if let session = invocation.callerAgentSession, let chat = context.services.agentTabs.tab(showing: session) {
                 context.services.chatQuoteOpeners.noteOpened(url, byAgentTab: chat)
             }
-            // `asText` (`cmux open --as-text`, MCP, u18462): HTML, SVG or Markdown opens as its source, as Open as Text does.
-            let asText = invocation["asText"]?.boolValue ?? (invocation["asText"]?.stringValue == "true")
             if let reason = context.services.viewers.openFile(url, in: pane, userChose: invocation.origin == .user, asText: asText) { throw ActionFailure(message: reason) }
             return
         }

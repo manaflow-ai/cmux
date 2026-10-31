@@ -1,16 +1,18 @@
+public import CmuxNextFiles
 import CmuxNextSettings
 import Darwin
-import Foundation
+public import Foundation
 
 /// Watches a file page's file (kernel vnode events through ``ConfigFileWatcher``, which follows
 /// in-place writes, atomic renames and delete-and-recreate) and reports its new content once per
 /// burst: each event restarts a debounce on the injected clock, then the file is read off the main
 /// actor and reported when its hash differs from ``knownHash`` (nil: deleted). The page's own
 /// saves are reported too; the page recognizes them by hash.
-final class FileChangeWatch {
-    let url: URL
+public final class FileChangeWatch {
+    /// The watched file.
+    public let url: URL
     /// The hash last reported (or read at open); a read with the same hash reports nothing.
-    var knownHash: String?
+    public var knownHash: String?
     private let inWorkspace: () -> Bool
     private let clock: any Clock<Duration>
     private let debounce: Duration
@@ -29,7 +31,8 @@ final class FileChangeWatch {
         let modified: Int64
     }
 
-    init(url: URL, inWorkspace: @escaping () -> Bool, clock: any Clock<Duration>, debounce: Duration = .milliseconds(100),
+    /// Watches `url`; `debounce` is the quiet time after an event before the file is read.
+    public init(url: URL, inWorkspace: @escaping () -> Bool, clock: any Clock<Duration>, debounce: Duration = .milliseconds(100),
          onChange: @escaping (FileSnapshot?) -> Void) {
         self.url = url
         self.inWorkspace = inWorkspace
@@ -39,17 +42,18 @@ final class FileChangeWatch {
     }
 
     /// Debounces in flight.
-    var pendingCount: Int { pending == nil ? 0 : 1 }
+    public var pendingCount: Int { pending == nil ? 0 : 1 }
 
     /// Returns once no debounce or read is in flight (tests await it instead of wall time).
-    func settled() async {
+    public func settled() async {
         while let task = pending {
             await task.value
             if pending == task { pending = nil }
         }
     }
 
-    func start() {
+    /// Begins watching until stopped.
+    public func start() {
         guard watcher == nil else { return }
         let watcher = ConfigFileWatcher(url: url) { [weak self] in
             // task-owner: hops one kernel event to the main actor; the debounce owns the work
@@ -59,7 +63,8 @@ final class FileChangeWatch {
         watcher.start()
     }
 
-    func stop() {
+    /// Cancels pending work and releases the watcher.
+    public func stop() {
         watcher?.stop()
         watcher = nil
         pending?.cancel()
@@ -68,7 +73,7 @@ final class FileChangeWatch {
 
     /// One kernel event for the file (the watcher calls it; tests call it to drive the debounce
     /// without the kernel): restarts the debounce.
-    func noteEvent() {
+    public func noteEvent() {
         pending?.cancel()
         generation += 1
         let generation = generation
@@ -97,6 +102,6 @@ final class FileChangeWatch {
         let stamp = Stamp(device: Int64(info.st_dev), inode: UInt64(info.st_ino), size: Int64(info.st_size),
                           modified: Int64(info.st_mtimespec.tv_sec) * 1_000_000_000 + Int64(info.st_mtimespec.tv_nsec))
         guard stamp != previous else { return (stamp, nil) }
-        return (stamp, FileDocument.current(url, inWorkspace: inWorkspace))
+        return (stamp, FileDocument().current(url, inWorkspace: inWorkspace))
     }
 }

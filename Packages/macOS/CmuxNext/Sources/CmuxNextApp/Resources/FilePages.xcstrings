@@ -3275,6 +3275,137 @@
           }
         }
       }
+    },
+    "filePages.remote.preview": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‏„%@“ موجود على جهاز آخر. يفتح cmux الملفات النصية من هناك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@“ je na drugoj mašini. cmux odatle otvara tekstualne datoteke."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” ligger på en anden maskine. cmux åbner tekstfiler derfra."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@“ liegt auf einem anderen Gerät. cmux öffnet von dort Textdateien."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” is on another machine. cmux opens text files from there."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» está en otra máquina. cmux abre archivos de texto desde allí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "« %@ » se trouve sur une autre machine. cmux ouvre les fichiers texte depuis celle-ci."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” si trova su un’altra macchina. cmux apre da lì i file di testo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」は別のマシンにあります。cmux はそこからテキストファイルを開きます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” នៅលើម៉ាស៊ីនផ្សេង។ cmux បើកឯកសារអត្ថបទពីទីនោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‘%@’은(는) 다른 기기에 있습니다. cmux는 그곳의 텍스트 파일을 엽니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» ligger på en annen maskin. cmux åpner tekstfiler derfra."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@” jest na innej maszynie. cmux otwiera stamtąd pliki tekstowe."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” está em outra máquina. O cmux abre arquivos de texto de lá."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» находится на другой машине. cmux открывает оттуда текстовые файлы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” อยู่บนเครื่องอื่น cmux เปิดไฟล์ข้อความจากที่นั่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” başka bir makinede. cmux oradan metin dosyalarını açar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» розташовано на іншій машині. cmux відкриває звідти текстові файли."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” nằm trên máy khác. cmux mở tệp văn bản từ đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”位于另一台机器上。cmux 可从那里打开文本文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」位於另一部機器上。cmux 可從那裡開啟文字檔案。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

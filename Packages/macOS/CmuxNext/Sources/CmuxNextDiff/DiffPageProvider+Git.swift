@@ -78,7 +78,7 @@ extension DiffPageProvider {
             default: break
             }
         } catch {
-            throw Self.pageError(error)
+            throw remote ? remoteError(error) : Self.pageError(error)
         }
         guard context.userGesture else {
             throw PageError(code: "transport.gesture_required", message: AgentPaneGitStage.needsGestureMessage)
