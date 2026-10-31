@@ -26,7 +26,7 @@ import type { AcpmuxSendCallPart, SendState } from "./acpmuxSends";
 import { messagePreview } from "./AgentMessageRow";
 import { messageDelivery } from "./agentMessages";
 import { useFindReveal } from "./chatFind";
-import { AlertCircle, ChevronRight, Envelope, Spinner } from "./icons";
+import { AlertCircle, ChevronRight, Envelope } from "./icons";
 import { AgentMessageBody } from "./AgentMessageBody";
 import { SentActions } from "./MessageActions";
 import { acpmuxMcpSendCall } from "./acpmuxMcpSends";
@@ -185,8 +185,7 @@ export function SentMessageLine({
     );
   const more = others === 1 ? t("send.moreOne") : others > 1 ? t("send.more", { n: others }) : undefined;
   const toggle = () => setOpen((value) => !value);
-  const icon =
-    state === "sending" ? <Spinner size={16} loading /> : state === "failed" ? <AlertCircle /> : <Envelope />;
+  const icon = state === "failed" ? <AlertCircle /> : <Envelope />;
   return (
     <>
       {/* A div, not a button: the target inside it is a button of its own. */}

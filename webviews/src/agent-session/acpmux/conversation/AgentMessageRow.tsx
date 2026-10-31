@@ -10,6 +10,7 @@
 import { useId, type ReactNode } from "react";
 import { ChevronRight } from "./icons";
 import { clipMessagePreview } from "./clipMessagePreview";
+import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "./headerToggle";
 import "./AgentMessageRow.css";
 
 /// The message's first line of text as it reads, its spaces collapsed and its Markdown marks (a
@@ -90,13 +91,19 @@ export function AgentMessageRow({
           sentence (verb, the recipient chip, the muted first line) cut with one ellipsis, then the
           trailing column, status then the chevron, so the chevron sits on the same line whether or
           not the row has a status. */}
-      <div className={`cv-tool cv-agentmsg__line${live ? " is-live" : " is-strong"}`}>
+      {/* The entire header toggles except its own buttons; preserve the shared selection guard. */}
+      {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+      <div
+        className={`cv-tool cv-agentmsg__line${live ? " is-live" : " is-strong"}`}
+        {...{ [HEADER_TOGGLE_ATTRIBUTE]: "" }}
+        onClick={headerToggleClick(onToggle)}
+      >
         <span className="cv-tool__icon cv-agentmsg__icon">{icon}</span>
         <span className="cv-agentmsg__sentence">
           {/* The words toggle too, for the pointer; the toggle button is the control, and its label
               reads the line. */}
           {before.trim() && (
-            <span className="cv-agentmsg__words" data-interactive="" aria-hidden onClick={onToggle}>
+            <span className="cv-agentmsg__words" aria-hidden>
               {before.trim()}
             </span>
           )}
@@ -111,18 +118,12 @@ export function AgentMessageRow({
               {name}
             </button>
           ) : (
-            <span
-              className="cv-agentmsg__name cv-recipient is-plain"
-              data-interactive=""
-              aria-hidden
-              title={nameTitle}
-              onClick={onToggle}
-            >
+            <span className="cv-agentmsg__name cv-recipient is-plain" aria-hidden title={nameTitle}>
               {name}
             </span>
           )}
           {after.trim() && (
-            <span className="cv-agentmsg__words" data-interactive="" aria-hidden onClick={onToggle}>
+            <span className="cv-agentmsg__words" aria-hidden>
               {after.trim()}
             </span>
           )}
@@ -141,7 +142,7 @@ export function AgentMessageRow({
           {actions}
         </span>
         {meta && <span className="cv-tool__trail">{meta}</span>}
-        <span className="cv-tool__chevron cv-agentmsg__chevron" data-interactive="" aria-hidden onClick={onToggle}>
+        <span className="cv-tool__chevron cv-agentmsg__chevron" aria-hidden>
           <ChevronRight size={14} strokeWidth={1.2} className={`cv-rotor${open ? " is-open" : ""}`} />
         </span>
       </div>
