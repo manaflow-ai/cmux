@@ -13298,134 +13298,266 @@
         }
       }
     },
-    "home.chief.welcome": {
-      "comment": "Chief's first message on a fresh install: a welcome and what Chief can do. Keep the line breaks.",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مرحبًا بك في cmux! 👋 أنا Chief.\nيمكنني إنشاء مساحات عمل جديدة، وتشغيل الوكلاء لك، وإعداد cmux أو تخصيصه كما تحب.\nأخبرني فقط بما تريد إنجازه."
+    "home.chief.welcomeAbout" : {
+      "comment" : "Chief's second message on a fresh install, right after its greeting: what Chief can do. Keep the line break.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يمكنني إنشاء مساحات عمل جديدة، وتشغيل الوكلاء لك، وإعداد cmux أو تخصيصه كما تحب.\nأخبرني فقط بما تريد إنجازه."
           }
         },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dobro došli u cmux! 👋 Ja sam Chief.\nMogu napraviti nove radne prostore, pokrenuti agente za vas i podesiti ili prilagoditi cmux kako želite.\nSamo mi recite šta želite uraditi."
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mogu napraviti nove radne prostore, pokrenuti agente za vas i podesiti ili prilagoditi cmux kako želite.\nSamo mi recite šta želite uraditi."
           }
         },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Velkommen til cmux! 👋 Jeg er Chief.\nJeg kan oprette nye arbejdsområder, starte agenter for dig og sætte cmux op eller tilpasse det, som du vil.\nSig bare, hvad du vil have gjort."
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jeg kan oprette nye arbejdsområder, starte agenter for dig og sætte cmux op eller tilpasse det, som du vil.\nSig bare, hvad du vil have gjort."
           }
         },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Willkommen bei cmux! 👋 Ich bin Chief.\nIch kann neue Arbeitsbereiche anlegen, Agenten für dich starten und cmux ganz nach deinem Geschmack einrichten und anpassen.\nSag mir einfach, was erledigt werden soll."
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ich kann neue Arbeitsbereiche anlegen, Agenten für dich starten und cmux ganz nach deinem Geschmack einrichten und anpassen.\nSag mir einfach, was erledigt werden soll."
           }
         },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Welcome to cmux! 👋 I'm Chief.\nI can make new workspaces, start agents for you, and set up or customize cmux however you like.\nJust tell me what you want done."
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I can make new workspaces, start agents for you, and set up or customize cmux however you like.\nJust tell me what you want done."
           }
         },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "¡Te damos la bienvenida a cmux! 👋 Soy Chief.\nPuedo crear espacios de trabajo, iniciar agentes por ti y configurar o personalizar cmux a tu gusto.\nSolo dime qué quieres hacer."
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Puedo crear espacios de trabajo, iniciar agentes por ti y configurar o personalizar cmux a tu gusto.\nSolo dime qué quieres hacer."
           }
         },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bienvenue dans cmux ! 👋 Je suis Chief.\nJe peux créer des espaces de travail, lancer des agents pour vous et configurer ou personnaliser cmux comme vous le souhaitez.\nDites-moi simplement ce que vous voulez faire."
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Je peux créer des espaces de travail, lancer des agents pour vous et configurer ou personnaliser cmux comme vous le souhaitez.\nDites-moi simplement ce que vous voulez faire."
           }
         },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Benvenuto in cmux! 👋 Sono Chief.\nPosso creare nuovi spazi di lavoro, avviare agenti per te e configurare o personalizzare cmux come preferisci.\nDimmi solo cosa vuoi fare."
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Posso creare nuovi spazi di lavoro, avviare agenti per te e configurare o personalizzare cmux come preferisci.\nDimmi solo cosa vuoi fare."
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux へようこそ！👋 Chief です。\n新しいワークスペースを作ったり、エージェントを起動したり、cmux を好きなように設定・カスタマイズしたりできます。\nやりたいことを気軽に話しかけてください。"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しいワークスペースを作ったり、エージェントを起動したり、cmux を好きなように設定・カスタマイズしたりできます。\nやりたいことを気軽に話しかけてください。"
           }
         },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "សូមស្វាគមន៍មកកាន់ cmux! 👋 ខ្ញុំគឺ Chief។\nខ្ញុំអាចបង្កើតកន្លែងធ្វើការថ្មី ចាប់ផ្តើមភ្នាក់ងារឱ្យអ្នក និងរៀបចំ ឬប្ដូរ cmux តាមចិត្តអ្នក។\nគ្រាន់តែប្រាប់ខ្ញុំពីអ្វីដែលអ្នកចង់ធ្វើ។"
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ខ្ញុំអាចបង្កើតកន្លែងធ្វើការថ្មី ចាប់ផ្តើមភ្នាក់ងារឱ្យអ្នក និងរៀបចំ ឬប្ដូរ cmux តាមចិត្តអ្នក។\nគ្រាន់តែប្រាប់ខ្ញុំពីអ្វីដែលអ្នកចង់ធ្វើ។"
           }
         },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux에 오신 것을 환영합니다! 👋 저는 Chief예요.\n새 워크스페이스를 만들고, 에이전트를 시작하고, cmux를 원하는 대로 설정하거나 꾸며 드릴 수 있어요.\n하고 싶은 일을 말씀만 해 주세요."
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "새 워크스페이스를 만들고, 에이전트를 시작하고, cmux를 원하는 대로 설정하거나 꾸며 드릴 수 있어요.\n하고 싶은 일을 말씀만 해 주세요."
           }
         },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Velkommen til cmux! 👋 Jeg er Chief.\nJeg kan lage nye arbeidsområder, starte agenter for deg og sette opp eller tilpasse cmux slik du vil.\nBare si hva du vil ha gjort."
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jeg kan lage nye arbeidsområder, starte agenter for deg og sette opp eller tilpasse cmux slik du vil.\nBare si hva du vil ha gjort."
           }
         },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Witaj w cmux! 👋 Jestem Chief.\nMogę tworzyć nowe obszary robocze, uruchamiać dla Ciebie agentów oraz konfigurować i dostosowywać cmux tak, jak lubisz.\nPo prostu powiedz, co chcesz zrobić."
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mogę tworzyć nowe obszary robocze, uruchamiać dla Ciebie agentów oraz konfigurować i dostosowywać cmux tak, jak lubisz.\nPo prostu powiedz, co chcesz zrobić."
           }
         },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Boas-vindas ao cmux! 👋 Eu sou o Chief.\nPosso criar novos espaços de trabalho, iniciar agentes para você e configurar ou personalizar o cmux do seu jeito.\nÉ só me dizer o que você quer fazer."
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Posso criar novos espaços de trabalho, iniciar agentes para você e configurar ou personalizar o cmux do seu jeito.\nÉ só me dizer o que você quer fazer."
           }
         },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Добро пожаловать в cmux! 👋 Я Chief.\nЯ могу создавать новые рабочие пространства, запускать агентов и настраивать cmux так, как вам нравится.\nПросто скажите, что нужно сделать."
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Я могу создавать новые рабочие пространства, запускать агентов и настраивать cmux так, как вам нравится.\nПросто скажите, что нужно сделать."
           }
         },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ยินดีต้อนรับสู่ cmux! 👋 ฉันคือ Chief\nฉันสร้างเวิร์กสเปซใหม่ เริ่มเอเจนต์ให้คุณ และตั้งค่าหรือปรับแต่ง cmux ได้ตามที่คุณชอบ\nแค่บอกฉันว่าคุณอยากทำอะไร"
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ฉันสร้างเวิร์กสเปซใหม่ เริ่มเอเจนต์ให้คุณ และตั้งค่าหรือปรับแต่ง cmux ได้ตามที่คุณชอบ\nแค่บอกฉันว่าคุณอยากทำอะไร"
           }
         },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux'a hoş geldiniz! 👋 Ben Chief.\nYeni çalışma alanları oluşturabilir, sizin için ajanlar başlatabilir ve cmux'u istediğiniz gibi ayarlayıp özelleştirebilirim.\nNe yapmak istediğinizi söylemeniz yeterli."
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni çalışma alanları oluşturabilir, sizin için ajanlar başlatabilir ve cmux'u istediğiniz gibi ayarlayıp özelleştirebilirim.\nNe yapmak istediğinizi söylemeniz yeterli."
           }
         },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ласкаво просимо до cmux! 👋 Я Chief.\nЯ можу створювати нові робочі простори, запускати агентів і налаштовувати cmux так, як вам подобається.\nПросто скажіть, що потрібно зробити."
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Я можу створювати нові робочі простори, запускати агентів і налаштовувати cmux так, як вам подобається.\nПросто скажіть, що потрібно зробити."
           }
         },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chào mừng bạn đến với cmux! 👋 Mình là Chief.\nMình có thể tạo không gian làm việc mới, khởi chạy agent cho bạn và thiết lập hoặc tùy biến cmux theo ý bạn.\nCứ nói mình biết bạn muốn làm gì."
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mình có thể tạo không gian làm việc mới, khởi chạy agent cho bạn và thiết lập hoặc tùy biến cmux theo ý bạn.\nCứ nói mình biết bạn muốn làm gì."
           }
         },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "欢迎使用 cmux！👋 我是 Chief。\n我可以新建工作区、为你启动智能体，还能按你的喜好设置和自定义 cmux。\n告诉我你想做什么就好。"
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "我可以新建工作区、为你启动智能体，还能按你的喜好设置和自定义 cmux。\n告诉我你想做什么就好。"
           }
         },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "歡迎使用 cmux！👋 我是 Chief。\n我可以建立新的工作區、幫你啟動代理，還能依你的喜好設定和自訂 cmux。\n告訴我你想做什麼就好。"
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "我可以建立新的工作區、幫你啟動代理，還能依你的喜好設定和自訂 cmux。\n告訴我你想做什麼就好。"
+          }
+        }
+      }
+    },
+    "home.chief.welcomeHello" : {
+      "comment" : "Chief's first message on a fresh install: a short greeting. Chief's next message says what it can do.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "مرحبًا بك في cmux! 👋 أنا Chief."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dobro došli u cmux! 👋 Ja sam Chief."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Velkommen til cmux! 👋 Jeg er Chief."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Willkommen bei cmux! 👋 Ich bin Chief."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Welcome to cmux! 👋 I'm Chief."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "¡Te damos la bienvenida a cmux! 👋 Soy Chief."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bienvenue dans cmux ! 👋 Je suis Chief."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Benvenuto in cmux! 👋 Sono Chief."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux へようこそ！👋 Chief です。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "សូមស្វាគមន៍មកកាន់ cmux! 👋 ខ្ញុំគឺ Chief។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux에 오신 것을 환영합니다! 👋 저는 Chief예요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Velkommen til cmux! 👋 Jeg er Chief."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Witaj w cmux! 👋 Jestem Chief."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Boas-vindas ao cmux! 👋 Eu sou o Chief."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Добро пожаловать в cmux! 👋 Я Chief."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ยินดีต้อนรับสู่ cmux! 👋 ฉันคือ Chief"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux'a hoş geldiniz! 👋 Ben Chief."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ласкаво просимо до cmux! 👋 Я Chief."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chào mừng bạn đến với cmux! 👋 Mình là Chief."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "欢迎使用 cmux！👋 我是 Chief。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "歡迎使用 cmux！👋 我是 Chief。"
           }
         }
       }

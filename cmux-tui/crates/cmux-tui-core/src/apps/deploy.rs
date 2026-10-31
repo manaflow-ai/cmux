@@ -37,6 +37,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use super::supervisor::{ApiError, Out, Supervisor, now_ms};
+use crate::panic_free::{JsonFields as _, RecoverPoison as _};
 
 /// Where an app's container runs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -118,7 +119,7 @@ pub struct ServerSpec {
 
 impl ServerSpec {
     pub fn from_manifest(manifest: &Value) -> Result<Self, ApiError> {
-        let server = &manifest["deploy"]["server"];
+        let server = manifest.field("deploy").field("server");
         let bad = |what: &str| {
             ApiError::new("deploy.invalid", format!("deploy.server.{what} is invalid"))
         };
@@ -382,7 +383,7 @@ impl Supervisor {
         request: &DeployRequest,
     ) -> Result<(Target, ServerSpec), ApiError> {
         let manifest = {
-            let inner = self.inner.lock().unwrap();
+            let inner = self.inner.lock().recover_poison();
             inner.catalog.packages.get(app).map(|p| p.manifest.clone())
         }
         .ok_or_else(|| ApiError::new("apps.unknown", "no such app"))?;
@@ -390,7 +391,9 @@ impl Supervisor {
             return Err(ApiError::new("deploy.none", "this app has nothing to deploy"));
         }
         let target = Target::parse(&request.target)?;
-        let allowed = manifest["deploy"]["targets"]
+        let allowed = manifest
+            .field("deploy")
+            .field("targets")
             .as_array()
             .is_some_and(|targets| targets.iter().any(|t| t == target.kind()));
         if !allowed {
@@ -449,7 +452,7 @@ impl Supervisor {
         match result {
             Ok(url) => {
                 let current = {
-                    let instances = self.deployments.instances.lock().unwrap();
+                    let instances = self.deployments.instances.lock().recover_poison();
                     instances.get(app).cloned()
                 };
                 // The app was removed while it deployed: its uninstall stops the container.
@@ -493,12 +496,14 @@ impl Supervisor {
     /// On uninstall: drops the instance and removes its container off the request.
     pub(super) fn deploy_remove(&self, app: &str) {
         let removed = {
-            let mut instances = self.deployments.instances.lock().unwrap();
+            let mut instances = self.deployments.instances.lock().recover_poison();
             instances.remove(app)
         };
         let Some(instance) = removed else { return };
-        self.deployments
-            .save(self.config.state_dir.as_deref(), &self.deployments.instances.lock().unwrap());
+        self.deployments.save(
+            self.config.state_dir.as_deref(),
+            &self.deployments.instances.lock().recover_poison(),
+        );
         self.instance_changed(app, "removed");
         let app = app.to_string();
         let _ = std::thread::Builder::new().name("cmux-app-undeploy".into()).spawn(move || {
@@ -510,7 +515,7 @@ impl Supervisor {
 
     fn instance_set(&self, app: &str, instance: Option<Instance>, why: &str) {
         {
-            let mut instances = self.deployments.instances.lock().unwrap();
+            let mut instances = self.deployments.instances.lock().recover_poison();
             match instance {
                 Some(instance) => instances.insert(app.to_string(), instance),
                 None => instances.remove(app),
@@ -521,7 +526,7 @@ impl Supervisor {
     }
 
     fn instance_changed(&self, app: &str, why: &str) {
-        let revision = self.inner.lock().unwrap().mirror.revision;
+        let revision = self.inner.lock().recover_poison().mirror.revision;
         self.emit(vec![Out::Broadcast(json!({
             "event": "apps-changed",
             "revision": revision,
@@ -532,7 +537,7 @@ impl Supervisor {
 
     fn app_log(&self, app: &str, level: &str, message: String) {
         let outs = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().recover_poison();
             self.log_locked(&mut inner, app, level, message)
         };
         self.emit(outs);
