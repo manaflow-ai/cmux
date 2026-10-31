@@ -113,8 +113,8 @@ def discover(root: Path) -> list[Path]:
     return sorted(paths)
 
 
-def load_metadata(name: str) -> dict:
-    with (ROOT / "scripts" / name).open(encoding="utf-8") as handle:
+def load_metadata(name: str, root: Path | None = None) -> dict:
+    with ((root or ROOT) / "scripts" / name).open(encoding="utf-8") as handle:
         try:
             return json.load(handle, object_pairs_hook=unique_object)
         except ValueError as error:
@@ -683,9 +683,20 @@ def main() -> int:
         base_baseline = load_debt_baseline(args.base_baseline) or {}
         changed = [name for name in RULE_FILES if not (args.base_root / "scripts" / name).is_file()
                    or (args.base_root / "scripts" / name).read_bytes() != (ROOT / "scripts" / name).read_bytes()]
-        if changed:
-            print(f"note: this change changes {', '.join(changed)}, so debt the base has is not excused")
-        base_debt = {} if changed else debt_counts(debt_findings(args.base_root, locales, omissions, counts))
+        # Changed metadata is read from the base tree, so the base's debt is what its own push
+        # counted: an omission the change adds can't shrink it, and one the change removes
+        # leaves the strings it newly flags to the change. A changed checker gets no excuse.
+        unreadable = [name for name in changed
+                      if name == "localization_catalog.py" or not (args.base_root / "scripts" / name).is_file()]
+        if unreadable:
+            print(f"note: this change changes {', '.join(unreadable)}, so debt the base has is not excused")
+            base_debt = {}
+        else:
+            base_omissions, base_counts = (
+                load_metadata(name, args.base_root) if name in changed else current
+                for name, current in (("localization-allowed-omissions.json", omissions),
+                                      ("localization-plurals.json", counts)))
+            base_debt = debt_counts(debt_findings(args.base_root, locales, base_omissions, base_counts))
         for line in debt_raises(base_debt, base_baseline, DEBT_ENFORCED):
             print(f"warning: the base is already over its baseline, not this change: {line}")
         allowed = {catalog: {kind: baseline.get(catalog, {}).get(kind, 0)

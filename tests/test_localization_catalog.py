@@ -581,20 +581,50 @@ class LocalizationDebtRatchetTests(unittest.TestCase):
         self.assertIn("identical 1 -> 2", output)
         self.assertNotIn("warning", output)
 
-    def test_a_change_to_the_rules_gets_no_allowance_for_base_debt(self):
-        # Base debt is counted with the pull request's rules; if they differ from the base's
-        # (an omission record removed, a check tightened), newly flagged strings would look
-        # like the base's debt and the next push would go red.
+    def write_base_omissions(self, edit):
+        path = self.root / "base" / "scripts" / "localization-allowed-omissions.json"
+        records = json.loads(path.read_text(encoding="utf-8"))
+        edit(records)
+        path.write_text(json.dumps(records, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    def test_an_omission_the_change_adds_keeps_the_allowance_for_base_debt(self):
+        # #25437 listed two brand labels it adds and went red for debt the base already had.
+        self.write({"open": self.copied("Open")})
+        self.check("--write-baseline")
+        self.write({"open": self.copied("Open"), "close": self.copied("Close"),
+                    "cloud.workspaceSetup.setupClaude": self.copied("Claude")})
+        base_arguments = self.write_base({"open": self.copied("Open"), "close": self.copied("Close")})
+        self.write_base_omissions(lambda records: records.pop("cloud.workspaceSetup.setupClaude"))
+        status, output = self.check(*base_arguments)
+        self.assertEqual(status, 0, output)
+        self.assertIn("warning: the base is already over its baseline", output)
+
+    def test_strings_a_removed_omission_flags_are_the_changes_debt(self):
+        # The base counts its debt with its own omissions, so strings the change newly
+        # flags don't look like the base's and the next push stays green.
         self.write({"open": self.copied("Open")})
         self.check("--write-baseline")
         self.write({"open": self.copied("Open"), "close": self.copied("Close")})
         base_arguments = self.write_base({"open": self.copied("Open"), "close": self.copied("Close")})
-        omissions = self.root / "base" / "scripts" / "localization-allowed-omissions.json"
-        omissions.write_bytes(omissions.read_bytes() + b"\n")
+        self.write_base_omissions(lambda records: records.update(close={"class": "brand", "source": "Close"}))
         status, output = self.check(*base_arguments)
         self.assertEqual(status, 1, output)
         self.assertIn("identical 1 -> 2", output)
-        self.assertIn("changes localization-allowed-omissions.json", output)
+        self.assertNotIn("warning", output)
+
+    def test_a_change_to_the_checker_gets_no_allowance_for_base_debt(self):
+        # The change's own checker counts the base's debt, so a changed checker could
+        # count it however it likes.
+        self.write({"open": self.copied("Open")})
+        self.check("--write-baseline")
+        self.write({"open": self.copied("Open"), "close": self.copied("Close")})
+        base_arguments = self.write_base({"open": self.copied("Open"), "close": self.copied("Close")})
+        checker = self.root / "base" / "scripts" / "localization_catalog.py"
+        checker.write_bytes(checker.read_bytes() + b"\n")
+        status, output = self.check(*base_arguments)
+        self.assertEqual(status, 1, output)
+        self.assertIn("identical 1 -> 2", output)
+        self.assertIn("changes localization_catalog.py", output)
         self.assertNotIn("warning", output)
 
     def test_the_base_tree_needs_the_bases_baseline(self):
