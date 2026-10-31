@@ -66,7 +66,12 @@ extension RenderMotionHitTestTests {
             let fixture = Screen(Self.overlaid, focused: "p2", columnGap: 12)
             defer { fixture.close() }
             try #require(fixture.window.screen != nil, "the window is on no screen: nothing animates")
+            // Focusing p2 scrolls the strip: let that motion land first, so the dock arrives with every spring at rest
+            // (a camera still moving keeps the arrival off the render server).
+            _ = fixture.stepToRest()
+            try #require(await fixture.renderSpringsDrained(), "the strip's scroll to p2 did not land")
             try #require(fixture.screen.scroll.value > 1, "the strip does not scroll to show p2, so no strip pane is under the overlay")
+            try #require(abs(fixture.screen.scroll.value - fixture.screen.scroll.target) < 0.5, "the strip camera still moves before the dock arrives")
             let clock = try #require(fixture.root.layer)
             Render.freeze(clock)
             fixture.apply(Self.overlaidAndDocked)
