@@ -172,7 +172,7 @@ impl Hub {
         }
         // Watchers hear it as `_acpmux/session_changed` kind `tools`.
         self.append(session, "mux", "tools", json!({"id": id, "enabled": enabled}));
-        self.save_meta(session);
+        self.save_meta_answered(session)?;
         // The route switch's restart: the process ends, and a new one resumes
         // the same conversation (`route_switch.rs`). Holding the turn lock, no
         // prompt starts on the process being stopped; a turn that holds it
