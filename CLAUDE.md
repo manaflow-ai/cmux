@@ -218,6 +218,10 @@ https://github.com/manaflow-ai/cmux/issues/13742 with a recommendation first.
 Read these before working in their scope; nested files may not load automatically:
 
 - `ios/` or `Packages/iOS/`: [ios/AGENTS.md](ios/AGENTS.md).
+- Cloud backend code (control plane, VM API routes, provider drivers, billing,
+  entitlements, the NEXT Worker): new code goes to the private
+  manaflow-ai/cmux-platform repository, not here. Read
+  [skills/cmux-backend/SKILL.md](skills/cmux-backend/SKILL.md) first.
 - `web/` or any cmux Cloud database work: [web/AGENTS.md](web/AGENTS.md).
 - `cmux-tui/`: [cmux-tui/AGENTS.md](cmux-tui/AGENTS.md).
 - `cmux-next-ios/`: [cmux-next-ios/SECURITY.md](cmux-next-ios/SECURITY.md) and the parity rule above.
@@ -288,7 +292,7 @@ enforces this.
   tailnet URL that shows each gallery state your change reaches at the merge-base and at your branch, side
   by side (no Swift build).
   Mac captures (the `cmux-next media` tours) are only for native/AppKit UI or real end-to-end flows.
-- A native UI change shows a real capture in its description (`pr-capture-check` fails it otherwise):
+- A native UI change shows a real capture in its description (`pr-capture-check` warns otherwise; a missing capture never blocks a land, since Leo tries the build himself):
   `cmux-ci capture <head sha> --state scene:NAME|tour:NAME --pr N [--video]` builds that commit, drives the
   real app on a capture mini, takes light and dark stills, refuses any that show private text, and prints
   the Markdown to paste. Or add the `media-tour` label, or write `No capture: <why>`. Never mock stills.
@@ -408,16 +412,3 @@ execution, access to unowned objects and local-state exposure, and include the
 required policy tests and ID scoping. Unsafe local effects must be redesigned.
 Never allowlist terminal spawn/respawn without live verification that it executes
 on the remote host. An allowlist addition without this analysis blocks review.
-
-## Hand the person something to try
-
-End every implementation with something the person can run or see, not only a diff or a summary:
-
-- App changes: a tagged dev build named after the task ([tagged builds](skills/cmux-dev-workflow/references/tagged-builds.md);
-  team agents build it on the fleet, see the hq link at the top), with its tag and how to open it
-  (`CMUX_TAG=<tag> scripts/cmux-debug-cli.sh`, or the team's Tag Opener link). Never a raw `.app` path or `file://` URL.
-- Web or webview changes: a preview URL. Visual changes: screenshots or a video.
-- Anything else: the test or run command that exercises the change.
-
-Say where it is and how to try it, with the exact steps and what the person should see. Check it works before
-handing off. If none could be produced, say why. Documentation-only changes need no build.
