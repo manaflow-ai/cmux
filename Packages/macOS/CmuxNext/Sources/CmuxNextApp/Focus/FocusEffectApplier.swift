@@ -142,7 +142,7 @@ final class FocusEffectApplier: FocusEffectApplying {
             if !responder(of: window, isInside: view) { window.makeFirstResponder(view.focusTarget) }
         case .conversation(let pane, let tab):
             // Home's primary input, its message box (spec/app-screens.md 3).
-            blurChildWindowPage()
+            if !Self.pageKeepsKeysUntilShown(resolved) { blurChildWindowPage() }
             guard case .conversation(let view)? = presented(pane: pane, tab: tab) else {
                 // No Home view yet: the previous content must not keep keys.
                 resignPaneResponder(in: window)
@@ -326,6 +326,15 @@ final class FocusEffectApplier: FocusEffectApplying {
     /// key. An owned window that may be main (a sheet) settles main itself.
     nonisolated static func ownerTakesMain(ownedCanBecomeMain: Bool, ownerIsMain: Bool, ownerCanBecomeMain: Bool) -> Bool {
         !ownedCanBecomeMain && !ownerIsMain && ownerCanBecomeMain
+    }
+
+    /// Whether a Chromium page keeps the keys while `resolved` is the target and its content does not show yet: only a target
+    /// that is itself a page; a terminal or Home conversation in this window takes them at once (smoke TIP RED 1910).
+    nonisolated static func pageKeepsKeysUntilShown(_ resolved: FocusState.Resolved) -> Bool {
+        switch resolved {
+        case .conversation: false
+        default: true
+        }
     }
 
     /// The bubble dismisses when it loses the keys.
