@@ -26,7 +26,7 @@ extension AppControl {
                 ]))
             },
             .mainActor("cloud.machines") { _ in
-                if let refusal = Self.policyRefusal("cloud.machines", disabled: services.registry.disabledFeatures) { throw refusal }
+                if let refusal = ControlError.policyRefusal("cloud.machines", disabled: services.registry.disabledFeatures) { throw refusal }
                 let rows: [JSONValue] = services.machines.cloud.map { .object(Self.cloudMachineRow($0, services.machines)) }
                 return .value(.object(["machines": .array(rows), "loaded": .bool(services.cloud.hasLoadedCurrentMachines),
                                        "creations": .array(services.cloud.creations.controlRows),
@@ -34,7 +34,7 @@ extension AppControl {
             },
             // `cmux automation --target cloud`: one Cloud automation op as the signed-in user (CloudAutomationRelay).
             .async("cloud.automation") { [relay = CloudAutomationRelay.signedIn(services.cloud.auth), registry = services.registry] call in
-                if let refusal = await MainActor.run(body: { Self.policyRefusal("cloud.automation", disabled: registry.disabledFeatures) }) { throw refusal }
+                if let refusal = await MainActor.run(body: { ControlError.policyRefusal("cloud.automation", disabled: registry.disabledFeatures) }) { throw refusal }
                 let reply = await relay.forward(try JSONSerialization.data(withJSONObject: JSONValue.object(call.params).foundationObject))
                 return JSONValue(foundation: try JSONSerialization.jsonObject(with: reply)) ?? .null
             }.withDeadline(.fixed(.seconds(30))),
@@ -50,7 +50,7 @@ extension AppControl {
             .async("debug.cloud.link_ensure") { [weak services] _ in
                 let found = await MainActor.run { () -> (CloudService?, ControlError?) in
                     guard let services else { return (nil, nil) }
-                    return (services.cloud, Self.policyRefusal("debug.cloud.link_ensure", disabled: services.registry.disabledFeatures))
+                    return (services.cloud, ControlError.policyRefusal("debug.cloud.link_ensure", disabled: services.registry.disabledFeatures))
                 }
                 if let refusal = found.1 { throw refusal }
                 guard let cloud = found.0 else { return .null }
@@ -158,7 +158,7 @@ extension AppControl {
     /// mid-run never strands a billable VM without its receipt or its cancel.
     nonisolated private static func runsAPI(_ services: AppServices, newRun: Bool) async throws -> CloudAPIClient {
         try await MainActor.run {
-            if newRun, let refusal = Self.policyRefusal("runs.sandbox.create", disabled: services.registry.disabledFeatures) { throw refusal }
+            if newRun, let refusal = ControlError.policyRefusal("runs.sandbox.create", disabled: services.registry.disabledFeatures) { throw refusal }
             guard !newRun || services.settings?.snapshot.previewFeatures == true else {
                 throw ControlError(code: "labs_off", message: String(localized: "runs.error.labsOff", defaultValue: "Sandboxed runs are a preview. Turn on Settings > Advanced > Labs > Show Preview Features.", table: "Runs", bundle: .module))
             }
