@@ -10,9 +10,11 @@
 // stop button. An agent another one spawned sits right under it.
 //
 // One item is its line alone. Several get a header first, as the Codex and Claude desktop apps
-// head their running agents: the shared spinner while anything under it runs, "2 subagents running ·
-// 1 command", the time since the first started as quiet meta right after the counts (never a column
-// of its own far from them), and the chevron in the trailing column every line's chevron ends in; between turns it says "Running in background · 2 subagents · 1 command". The
+// head their running agents: a still running-work mark (never the spinner, which stays on each
+// working line, #27103), "2 subagents running · 1 command", the time since the first started as
+// quiet meta right after the counts (never a column of its own far from them), and the chevron in
+// the trailing column every line's chevron ends in; between turns it says "Running in background ·
+// 2 subagents · 1 command". The
 // header counts exactly the lines under it: what runs or waits on the person. The chat's subagents
 // and the chats its agent started are all "subagents" (Leo 2026-10-21: "SHOULDN'T THIS SAY
 // SUBAGENTS?"). What ended stays as compact status cards after them, never counted. A command is
@@ -51,7 +53,6 @@ import { experimentArm } from "../../../experiments/experiment";
 import { foldMotion, useFold } from "../conversation/fold";
 import { entranceAllowed } from "../../shared/pageReveal";
 import { formatDuration } from "../conversation/turns";
-import { Spinner } from "../conversation/icons";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -280,7 +281,7 @@ export const SubagentTray = memo(function SubagentTray({
       </li>
     )),
   ];
-  // The header's spinner is a running line's: it turns while anything under it runs.
+  // The header's mark is in the accent while anything under it runs.
   const runs = running > 0 || commands > 0;
   // View all sits under the list, outside its scroller, so it never scrolls away either.
   const more = finished.length > TRAY_OPEN_MAX && (
@@ -319,11 +320,7 @@ export const SubagentTray = memo(function SubagentTray({
         >
           {head !== "bare" && (
             <span className="acpmux-lineage__icon" data-state={runs ? "running" : "done"}>
-              {head === "spinner" && runs ? (
-                <Spinner size={ROW_ICON} loading />
-              ) : (
-                <Icon name={HEAD_ICON} size={ROW_ICON} row />
-              )}
+              <Icon name={head === "session" ? "agent.session" : HEAD_ICON} size={ROW_ICON} row />
             </span>
           )}
           <Tick className="acpmux-summary-text acpmux-running-tray__title" text={title} />
@@ -469,8 +466,8 @@ export const SubagentTray = memo(function SubagentTray({
 /// A subagent's mark before its name, in place of the word: a branch off this chat, never the
 /// chat bubble a session's own icon is (Leo, 2026-10-28: "Shouldn't the subagent icon be different?").
 const SUBAGENT_ICON = "agent.fork";
-/// The header's still mark for background work (trayHead.experiment.ts): a running ring, never the
-/// chat bubble, which reads as a message.
+/// The header's fixed mark for background work (trayHead.experiment.ts): a running ring, never the
+/// chat bubble, which reads as a message, and never the spinner, which each working line keeps.
 const HEAD_ICON = "app.sample.runningagents";
 const NO_ITEMS: readonly TrayItem[] = [];
 const NO_ARRIVALS: ReadonlySet<string> = new Set();
