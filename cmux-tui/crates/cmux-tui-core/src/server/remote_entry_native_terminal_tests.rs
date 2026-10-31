@@ -164,6 +164,33 @@ fn native_terminal_keeps_foreign_leases_browser_and_other_client_controls_denied
     ] {
         assert_eq!(call(&mut second, &mut second_reader, frame)["ok"], json!(false));
     }
+    for policy in [
+        Value::Null,
+        json!({}),
+        json!({"mode":"smallest"}),
+        json!({"mode":"largest"}),
+        json!({"mode":"priority", "priority":["another-participant"]}),
+        json!({"mode":"fixed", "fixed":{"cols":2, "rows":2}}),
+        json!({"mode":"latest", "priority":["another-participant"]}),
+        json!({"mode":"latest", "fixed":{"cols":2, "rows":2}}),
+        json!({"mode":"latest", "participant":"another-participant"}),
+        json!({"mode":"latest", "client":1}),
+        json!({"mode":"latest", "candidates":["another-participant"]}),
+    ] {
+        let frame = json!({"cmd":"set-size-policy", "surface":surface, "policy":policy});
+        assert_eq!(
+            call(&mut second, &mut second_reader, frame)["error_code"],
+            json!(REMOTE_DENIED)
+        );
+    }
+    assert_eq!(
+        call(
+            &mut second,
+            &mut second_reader,
+            json!({"cmd":"set-size-policy", "surface":surface, "client":1, "policy":{"mode":"latest"}})
+        )["error_code"],
+        json!(REMOTE_DENIED)
+    );
     // An actual agent browser surface is not a terminal attachment target.
     let tab = crate::server::agent_session_attach_tests::agent_tab(&entry.mux, None);
     assert_eq!(

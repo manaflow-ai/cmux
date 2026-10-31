@@ -93,7 +93,10 @@ const CAPABILITIES: &[&str] = &[
 pub(super) fn admits(frame: &str) -> bool {
     let Ok(Value::Object(fields)) = serde_json::from_str::<Value>(frame) else { return false };
     !fields.contains_key("protocol")
-        && fields.get("cmd").and_then(Value::as_str).is_some_and(|cmd| COMMANDS.contains(&cmd))
+        && fields.get("cmd").and_then(Value::as_str).is_some_and(|cmd| {
+            COMMANDS.contains(&cmd)
+                && (cmd != "set-size-policy" || terminal::latest_policy_frame(&fields))
+        })
 }
 
 impl Mux {
