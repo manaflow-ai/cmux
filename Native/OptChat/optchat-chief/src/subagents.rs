@@ -736,7 +736,7 @@ impl Spawner {
             },
             // No workspace is assigned until the user opens the subagent's
             // Chief link, so there is no per-session workspace env here.
-            env: Vec::new(),
+            env: BTreeMap::new(),
             fast: false,
             peer: peer.clone(),
         };
