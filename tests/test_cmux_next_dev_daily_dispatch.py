@@ -116,6 +116,70 @@ check("has no current Release app artifact; retry the handoff" in publish_text,
       "a missing source artifact must fail publication so the dispatcher retries")
 
 
+# "Resolve the source run" runs while the source run is still in progress:
+# cmux-next.yml's request-cmux-next-dev-publish job dispatches this publisher
+# from inside the source run, before its trailing jobs (crash ends the app,
+# push attribution) finish. On 2026-10-30 every handoff from 17:52Z to 20:23Z
+# failed with "is not a finished cmux NEXT DEV daily run" (publisher runs
+# 41102066086, 41104689600, 41112384084, 41122647270): each source run's app
+# compile had succeeded and its status turned completed 10-90 s later. The
+# app-producing job gate (the next step) is what proves the app exists.
+def resolve_step_script(text):
+    match = re.search(r"^      - name: Resolve the source run\n(?:        .*\n)*?        run: \|\n((?:          .*\n|\n)+)",
+                      text, re.MULTILINE)
+    return "\n".join(line[10:] for line in match.group(1).splitlines()) if match else ""
+
+
+resolve_script = resolve_step_script(publish_text)
+check(bool(resolve_script), "the publisher must have a Resolve the source run step")
+if resolve_script and shutil.which("bash") and shutil.which("jq"):
+    source_sha = "0198387c12c98dd2bc224fd2ac0cc51e89ae8177"
+
+    def source_run(status, **overrides):
+        run = {"id": 41121021077, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+               "path": ".github/workflows/cmux-next.yml", "status": status,
+               "conclusion": "success" if status == "completed" else None,
+               "head_sha": source_sha, "head_repository": {"full_name": "manaflow-ai/cmux"},
+               "name": f"cmux NEXT DEV daily · {source_sha}",
+               "display_title": f"cmux NEXT DEV daily · {source_sha}"}
+        run.update(overrides)
+        return run
+
+    def resolve(run):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "run.json").write_text(json.dumps(run))
+            stub = Path(tmp) / "gh"
+            # gh api PATH --jq FILTER: answer the three reads the step makes.
+            stub.write_text(
+                "#!/bin/bash\n"
+                "path=\"$2\"; filter=\"$4\"\n"
+                "case \"$path\" in\n"
+                "  */actions/runs/*) jq -r \"$filter\" \"$STUB_DIR/run.json\" ;;\n"
+                "  */git/ref/heads/feat-cmux-next) echo " + "e" * 40 + " ;;\n"
+                "  */compare/*) echo ahead ;;\n"
+                "  *) echo \"unexpected gh $*\" >&2; exit 2 ;;\n"
+                "esac\n")
+            stub.chmod(0o755)
+            env_file = Path(tmp) / "env"
+            env = {"PATH": f"{tmp}:/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", "STUB_DIR": tmp,
+                   "SOURCE_RUN_ID": str(run["id"]), "GH_REPO": "manaflow-ai/cmux", "GITHUB_ENV": str(env_file)}
+            result = subprocess.run(["bash", "-c", resolve_script], capture_output=True, text=True, env=env, timeout=60)
+            return result.returncode, env_file.read_text() if env_file.exists() else "", result.stderr
+
+    for status in ("completed", "in_progress"):
+        rc, env_out, err = resolve(source_run(status))
+        check(rc == 0 and f"SOURCE_SHA={source_sha}" in env_out,
+              f"a source run whose status is {status} must resolve (the app gate decides): rc={rc} {err.strip()}")
+    for label, run in (("a push run", source_run("in_progress", event="push")),
+                       ("another workflow", source_run("in_progress", path=".github/workflows/ci.yml")),
+                       ("a fork", source_run("in_progress", head_repository={"full_name": "someone/cmux"})),
+                       ("a run named for another SHA", source_run("in_progress", name="cmux NEXT DEV daily · " + "1" * 40,
+                                                                 display_title="cmux NEXT DEV daily · " + "1" * 40)),
+                       ("a queued run", source_run("queued"))):
+        rc, env_out, _ = resolve(run)
+        check(rc != 0 and "SOURCE_SHA=" not in env_out, f"{label} must not resolve as a DEV source run")
+
+
 def script_body():
     text = WORKFLOW.read_text()
     match = re.search(r"^        with:\n          script: \|\n((?:^            .*\n|^\s*\n)+)", text, re.MULTILINE)
