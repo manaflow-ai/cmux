@@ -63,6 +63,9 @@ enum WorkspaceCreation {
         repair: EmptyWorkspaceRepair,
         terminal: (WorkspaceKey) async throws -> T
     ) async throws -> T {
+        // A workspace with a terminal is a new terminal (Cmd-N, R3): its create waits through late replies under its
+        // mutation id, so only the daemon's answer or the connection's end can take it back, never a clock. The first
+        // terminal is the caller's (`createTerminalWaitingForStart`); a later step of `terminal` is the caller's own work.
         var completed = false
         defer { if !completed { ledger?.forget(key.rawValue) } }
         let sent = await NewWorkspacePlacements.sending(rule, key: key, on: connection, ledger: ledger)
