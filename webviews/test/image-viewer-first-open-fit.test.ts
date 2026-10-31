@@ -125,7 +125,17 @@ await requireBrowserLane("image-viewer-first-open-fit.test.ts", async () => {
     const thumbnail = page.getByRole("button", { name: "Screenshot" });
     if (how === "dblclick") await thumbnail.dblclick();
     else await thumbnail.click();
-    return page.evaluate(async () => {
+    const motion = await page.evaluate(() => {
+      const viewer = document.querySelector<HTMLElement>(".acpmux-image-viewer");
+      const backdrop = document.querySelector<HTMLElement>(".acpmux-image-viewer-backdrop");
+      const image = document.querySelector<HTMLImageElement>(".acpmux-image-viewer-image");
+      return {
+        viewerTransition: viewer ? getComputedStyle(viewer).transitionDuration : "",
+        backdropTransition: backdrop ? getComputedStyle(backdrop).transitionDuration : "",
+        imageAnimation: image ? getComputedStyle(image).animationName : "",
+      };
+    });
+    return page.evaluate(async (motion) => {
       const frames: string[] = [];
       const spills: string[] = [];
       let last = "";
@@ -161,8 +171,8 @@ await requireBrowserLane("image-viewer-first-open-fit.test.ts", async () => {
         held = shown && now === last ? held + 1 : 0;
         last = now;
       }
-      return { frames, spills };
-    });
+      return { frames, spills, motion };
+    }, motion);
   }
 
   for (const [name] of engines)
@@ -173,6 +183,7 @@ await requireBrowserLane("image-viewer-first-open-fit.test.ts", async () => {
         try {
           const first = await openAndRead(page, "dblclick");
           console.log(`${name} first open:\n${first.frames.join("\n")}`);
+          expect(first.motion).toEqual({ viewerTransition: "0s, 0s", backdropTransition: "0s", imageAnimation: "none" });
           expect(first.frames.length).toBeGreaterThan(0);
           expect({ open: "first", spills: first.spills, last: first.frames.at(-1) }).toEqual({
             open: "first",
