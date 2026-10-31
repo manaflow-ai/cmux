@@ -30,6 +30,37 @@ const footer = (id: string) => ({
 const prompt = (id: string) => ({ id, version: 1, at: 0, kind: "user", text: "Next" });
 const heightsOf = (rows: unknown[]) => [...layoutConversation(rows as never, 720).heights];
 
+test("an attachment-only prompt reserves its action footer", () => {
+  const row = { id: "image", version: 1, at: 0, kind: "user", images: [{ id: "i", mimeType: "image/png" }] };
+  const [height] = heightsOf([row]);
+  expect(height).toBeGreaterThan(128 + 16 + 28);
+});
+
+test("an inline attachment-only prompt reserves its attachment strip and footer", () => {
+  const row = {
+    id: "inline-image",
+    version: 1,
+    at: 0,
+    kind: "user",
+    inlineParts: [{ kind: "image", id: "i", mimeType: "image/png" }],
+  };
+  const [height] = heightsOf([row]);
+  expect(height).toBeGreaterThan(128 + 16 + 28);
+});
+
+test("an attachment-only send reserves its delivery anchor", () => {
+  const row = {
+    id: "sending-image",
+    version: 1,
+    at: 0,
+    kind: "user",
+    delivery: { state: "sending", promptId: "p", sessionId: "s", sentAt: 0 },
+    inlineParts: [{ kind: "image", id: "i", mimeType: "image/png" }],
+  };
+  const [height] = heightsOf([row]);
+  expect(height).toBeGreaterThan(180);
+});
+
 test("a reply over its footer is its text and the 4px meta gap, with no 34px floor", () => {
   const long = "A longer answer that wraps. ".repeat(40);
   const [alone] = heightsOf([reply("a", long)]);
@@ -298,6 +329,18 @@ test("a Chief's waiting steer keeps Send now in its existing action row", () => 
   const [landed] = heightsOf([steer("landed")]);
   const [waiting] = heightsOf([steer("waiting")]);
   expect(waiting!).toBe(landed!);
+});
+
+test("an attachment-only waiting steer shares the delivered prompt's single footer slot", () => {
+  for (const attachment of [
+    { images: [{ id: "image", mimeType: "image/png" }] },
+    { inlineParts: [{ kind: "file", name: "notes.txt" }] },
+  ]) {
+    const row = { id: "attachment-steer", version: 1, at: 0, kind: "user", ...attachment };
+    const [waiting] = heightsOf([{ ...row, steer: "waiting" }]);
+    const [landed] = heightsOf([{ ...row, steer: "landed" }]);
+    expect(waiting).toBe(landed!);
+  }
 });
 
 // A long prompt opens collapsed (conversation/UserBubble.tsx, promptCollapse.ts): its first ten
