@@ -6,10 +6,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const css = readFileSync(
-  join(import.meta.dir, "../src/agent-session/acpmux/inspector/inspector.css"),
-  "utf8",
-);
+const css = readFileSync(join(import.meta.dir, "../src/agent-session/acpmux/inspector/inspector.css"), "utf8");
 
 function block(selector: string): string {
   const at = css.indexOf(`${selector} {`);
@@ -24,15 +21,9 @@ test("a grant's Revoke is transparent at rest, with no fade", () => {
 });
 
 test("only the hovered or focused grant row shows its own Revoke", () => {
-  const shown = block(
-    ".acpmux-chat-inspector-row--grant:is(:hover, :focus-within) > .acpmux-chat-inspector-link",
-  );
+  const shown = block(".acpmux-chat-inspector-row--grant:is(:hover, :focus-within) > .acpmux-chat-inspector-link");
   expect(shown).toMatch(/opacity:\s*1;/);
   // No other rule lights every grant's Revoke at once (a list-wide :hover, or the list itself).
-  const lit = [...css.matchAll(/([^{}]*row--grant[^{}]*)\{[^}]*opacity:\s*1/g)].map((m) =>
-    m[1].trim(),
-  );
-  expect(lit).toEqual([
-    ".acpmux-chat-inspector-row--grant:is(:hover, :focus-within) > .acpmux-chat-inspector-link",
-  ]);
+  const lit = [...css.matchAll(/([^{}]*row--grant[^{}]*)\{[^}]*opacity:\s*1/g)].map((m) => m[1].trim());
+  expect(lit).toEqual([".acpmux-chat-inspector-row--grant:is(:hover, :focus-within) > .acpmux-chat-inspector-link"]);
 });
