@@ -15,6 +15,13 @@ import Foundation
 /// title.activity  // .working
 /// ```
 public struct TerminalTitle: Equatable, Sendable {
+    /// Shell names a terminal reports while idle; they carry no information
+    /// about the work, so callers may use the terminal's working directory.
+    public static func isBareShell(_ title: String) -> Bool {
+        let title = title.hasPrefix("-") ? String(title.dropFirst()) : title
+        return ["zsh", "bash", "fish", "sh", "nu", "dash", "ksh", "tcsh", "pwsh", "login", "~"].contains(title)
+    }
+
     /// What a leading status glyph says about the program.
     public enum Activity: Equatable, Sendable {
         /// A spinner frame (Braille dots, a turning circle): the program works.
