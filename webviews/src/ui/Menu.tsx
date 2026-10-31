@@ -190,6 +190,8 @@ export interface MenuButtonProps {
   "data-menu"?: string;
   /** Also holds the button, for a caller that anchors other UI to it. */
   buttonRef?: RefObject<HTMLButtonElement | null>;
+  /** A field-like trigger (a select, a host field): its menu opens as wide as it (`matchTrigger`). */
+  fieldTrigger?: boolean;
   children: ReactNode;
 }
 
@@ -202,6 +204,7 @@ export function MenuButton({
   "aria-labelledby": ariaLabelledBy,
   "data-menu": dataMenu,
   buttonRef,
+  fieldTrigger,
   children,
 }: MenuButtonProps) {
   const context = use(MenuContext);
@@ -217,6 +220,7 @@ export function MenuButton({
       aria-labelledby={ariaLabelledBy}
       aria-haspopup={ariaHasPopup}
       data-menu={dataMenu}
+      data-field-trigger={fieldTrigger ? "" : undefined}
       disabled={disabled}
       onKeyUp={(event) => {
         if (event.key !== " ") return;
@@ -286,6 +290,12 @@ export interface MenuPopupProps {
    * its own. It then fits by its own max height.
    */
   escapes?: boolean;
+  /**
+   * The menu starts at its trigger's leading edge and is at least as wide (Base UI's
+   * `--anchor-width`): for a field-like trigger, a select or a host field, whose menu reads as its
+   * drop-down (leo-workspace design/menus.md). The trigger says so with `data-field-trigger`.
+   */
+  matchTrigger?: boolean;
   children: ReactNode;
 }
 
@@ -309,6 +319,7 @@ export function MenuPopup({
   onKeyDown,
   boundary,
   escapes = true,
+  matchTrigger = false,
   children,
 }: MenuPopupProps) {
   const container = usePortalContainer();
@@ -365,7 +376,7 @@ export function MenuPopup({
           ref={attachPopup}
           id={id}
           aria-label={label}
-          className={cx("ui-popup ui-glass ui-menu", className)}
+          className={cx("ui-popup ui-glass ui-menu", matchTrigger && "ui-menu-match-trigger", className)}
           finalFocus={
             finalFocus ?? (nested ? undefined : (closeType) => focusAfterClose(closeType, menu, popupNode.current))
           }

@@ -13,6 +13,7 @@ button.acpmux-diff-scope:hover,button.acpmux-diff-scope[aria-expanded="true"]{ba
 button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px}
 .acpmux-scope-chevron{margin-left:-4px;color:var(--agent-muted)}
 .acpmux-scope-list{left:0;right:auto;min-width:200px}
+/* menu-gutter-allow: the scope and chat filter lists put their check at the trailing edge; not changed by the menu grid (#28611) */
 .acpmux-scope-list .acpmux-file-menu-item{justify-content:flex-start;gap:12px}
 .acpmux-scope-list .acpmux-file-menu-item .ui-menu-check{order:2;margin-inline-start:auto}
 .acpmux-scope-list .ui-separator{flex:none;height:1px;margin:4px 8px;background:var(--agent-border)}

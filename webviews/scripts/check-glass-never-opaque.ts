@@ -35,7 +35,9 @@ const HOST_SOLID = /^--cmux-(?:.*solid.*|popup-surface)$/;
 // A tooltip or hover card: `.ui-tooltip`, `.ui-title-tooltip`, `.ui-hint`, `.ui-card`, `.cu-tooltip`,
 // `.x-hover-card`, `[role="tooltip"]`.
 const TOOLTIP = /tooltip|\.ui-hint\b|\.ui-card\b|hover-?card|\[role=["']?tooltip/i;
-const REQUIRED_GLASS_CLASSES = new Set(["acpmux-omni"]);
+// The History page menu (pages/shared/PageMenu.tsx) drew the solid popup surface under a border
+// (Leo 2026-10-21: "STOP DOING SOLID. WE HAVE GLASS, SO JUST USE GLASS.").
+const REQUIRED_GLASS_CLASSES = new Set(["acpmux-omni", "page-menu"]);
 // Tooltip rules whose solid fill never paints, keyed `file selector`, with the reason. Prefer an
 // inline `glass-opaque-allow`; this list holds only fills in a file another open pull request is
 // editing, and each entry goes when that file is free.

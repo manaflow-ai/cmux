@@ -131,7 +131,7 @@
 
 /* Menus (shared ui Menu): emoji and symbol glyphs before the label, counts as the shortcut. */
 .icon-menu-emoji {
-  width: 18px;
+  width: var(--cmux-menu-icon-size, 14px);
   font-family: "Apple Color Emoji", "Noto Color Emoji", sans-serif;
   font-size: 14px;
   line-height: 1;
