@@ -39,6 +39,8 @@ pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 #[cfg(test)]
 mod first_work_tests;
 mod fork;
+#[cfg(test)]
+mod shutdown_tests;
 pub(crate) use fork::offers_fork;
 mod fork_at;
 mod fork_transcript_auth;
@@ -95,6 +97,7 @@ mod pool;
 pub(crate) mod prompt_images;
 mod prompt_ledger;
 mod prompt_line;
+mod protected_hold;
 mod queue;
 mod queue_edit;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender};
@@ -547,9 +550,12 @@ pub struct Hub {
     /// What the coming shutdown does with hosted agents, decided once:
     /// `_acpmux/shutdown endAgents` sets it until the shutdown takes it.
     pub(super) shutdown_plan: StdMutex<shutdown::ShutdownPlan>,
-    /// Turns a shutdown with `endAgents` settled as cancelled: their prompt
-    /// futures must not write a second result when the agent ends.
+    /// Turns a shutdown settled as cancelled (`endAgents`) or handed to the next daemon: their
+    /// prompt futures write no result of their own when the agent ends.
     pub(super) settled_by_shutdown: StdMutex<std::collections::HashSet<String>>,
+    /// A turn's end under way (`Session::ending`) landed or went: a shutdown waiting for those
+    /// ends looks again (`shutdown.rs` `settle_ends`).
+    pub(super) ends_moved: Notify,
     /// `npx -y PACKAGE` launches resolved to their bin: (npx, package) to path.
     pub(super) launchers: StdMutex<HashMap<(String, String), String>>,
     /// Harnesses whose last model probe failed, with the reason; reported in
@@ -614,6 +620,12 @@ pub struct Hub {
     /// Tests only: pause a chat's first work once it holds it (`inbox.rs`), before its turn.
     #[cfg(test)]
     pub(super) first_work_seam: full_access_bound::WriteSeam,
+    /// Tests only: pause a turn's end once its turn is taken (`finish_turn`), before it writes.
+    #[cfg(test)]
+    pub(super) finish_seam: full_access_bound::WriteSeam,
+    /// Tests only: pause a retry's task before it sets its wait (`auto_resume.rs`).
+    #[cfg(test)]
+    pub(super) retry_seam: full_access_bound::WriteSeam,
     /// Tests only: delay a Stop before its notification reaches the child writer.
     #[cfg(test)]
     pub(super) cancel_write_seam: Arc<full_access_bound::WriteSeam>,
@@ -783,6 +795,7 @@ impl Hub {
             agent_hosts: AtomicBool::new(false),
             shutdown_plan: StdMutex::new(shutdown::ShutdownPlan::default()),
             settled_by_shutdown: StdMutex::new(Default::default()),
+            ends_moved: Notify::new(),
             launchers: StdMutex::new(HashMap::new()),
             probe_errors: StdMutex::new(HashMap::new()),
             clock: StdMutex::new(crate::clock::TokioClock::new()),
@@ -820,6 +833,10 @@ impl Hub {
             prompt_start_seam: Default::default(),
             #[cfg(test)]
             first_work_seam: Default::default(),
+            #[cfg(test)]
+            finish_seam: Default::default(),
+            #[cfg(test)]
+            retry_seam: Default::default(),
             harness_watch: Default::default(),
             settings_watch: Default::default(),
             git_watch: Default::default(),
@@ -1123,6 +1140,7 @@ impl Hub {
             log_load: StdMutex::new(true),
             log_loaded: AtomicBool::new(true),
             auto_resume_restored: AtomicBool::new(false),
+            protected_hold: AtomicBool::new(false),
             auto_resume: Default::default(),
             turn_lock: Mutex::new(()),
             input_handoff: std::sync::Arc::new(Mutex::new(())),
@@ -1149,6 +1167,8 @@ impl Hub {
             launched_with_tools: std::sync::atomic::AtomicU8::new(0),
             launch_env: StdMutex::new(None),
             route_switch: AtomicBool::new(false),
+            ending: StdMutex::new(None),
+            detaching: AtomicBool::new(false),
             inbound_tx,
             inbound_rx: Mutex::new(Some(inbound_rx)),
             steering: AtomicBool::new(steering),

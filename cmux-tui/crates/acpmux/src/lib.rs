@@ -52,6 +52,7 @@ pub mod daemon;
 pub mod deliver;
 pub mod forum;
 pub mod forum_mcp;
+pub mod frame_compress;
 pub mod git_state;
 pub mod github_app_token;
 pub mod github_broker;
@@ -142,6 +143,7 @@ pub mod turn_attestation;
 pub mod usage_stats;
 pub mod user_settings;
 pub mod web_modes;
+pub mod wire_size;
 pub mod wireguard;
 pub mod worktree_sessions;
 
