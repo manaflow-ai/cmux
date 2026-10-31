@@ -188,7 +188,7 @@ nonisolated extension ActionSurfaceCatalog {
             "switchRightSidebarToMachines", "showNotifications", "feed.show", "palette.openTerminalChatView",
             "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording",
             "palette.cloud.tools", "cloudOpenMachine", "openTeamPicker",
-            "palette.openCmuxSettingsFile", "palette.openGhosttySettings", "ghostty.showDiagnostics", "palette.searchShortcuts", "agentPane.searchChats",
+            "palette.openCmuxSettingsFile", "palette.openGhosttySettings", "settings.customizeMenus", "ghostty.showDiagnostics", "palette.searchShortcuts", "agentPane.searchChats",
             "palette.pro.upgrade", "sendFeedback", "help.featureFlags",
             "help.documentation", "recentlyFocused", "recentlyClosed", "history.commands", "browserShowHistory",
             "history.search", "bookmark.toggleBar", "bookmark.manager", "browserLinkHints", "browserLinkHintsNewSplit",

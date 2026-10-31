@@ -19,6 +19,8 @@ dependencies = [
  "cmux-local-auth",
  "cmux-panic-log",
  "cmux-sdk",
+ "cmux-server",
+ "cmux-server-core",
  "cmux-tailnet",
  "cmux-unix-socket",
  "cmux-wg",
@@ -962,6 +964,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-automations"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cmux-browser-host"
 version = "1.0.0"
 dependencies = [
@@ -992,6 +1004,14 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "cmux-chats-mirror"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1352,6 +1372,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-rd-link"
+version = "0.1.0"
+dependencies = [
+ "cmux-transport",
+ "libc",
+ "snow",
+]
+
+[[package]]
 name = "cmux-rd-proto"
 version = "0.1.0"
 dependencies = [
@@ -1616,6 +1645,7 @@ dependencies = [
  "bytes",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
+ "cmux-automations",
  "cmux-build-identity",
  "cmux-chat-index",
  "cmux-config",

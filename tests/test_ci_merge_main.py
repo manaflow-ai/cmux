@@ -234,6 +234,62 @@ class MergeTests(TempRepoCase):
         self.assertIn(red[:11], output)
         self.assertIn("Merge main", git(self.repo, "log", "-1", "--format=%s"))
 
+    def test_a_feat_cmux_next_pr_merges_feat_cmux_next_not_main(self) -> None:
+        # 2026-10-29: merge-main.sh could merge only main, so a pull request into feat-cmux-next (#27454) was
+        # brought current with a raw `git merge origin/feat-cmux-next`. feat-cmux-next pushes run no CI fast
+        # guards and its base reds never hold a merge, so --base feat-cmux-next merges that branch's tip
+        # without reading any verdict.
+        git(self.remote, "checkout", "-q", "-b", "feat-cmux-next")
+        feat = commit(self.remote, "feat work", {"feat.txt": "feat\n"})
+        git(self.remote, "checkout", "-q", "main")
+        on_main = self.main_commit("main only", {"main.txt": "main\n"})
+        commit(self.repo, "branch work", {"feature.txt": "feature\n"})
+
+        def no_verdicts(shas: list[str]) -> dict[str, str]:
+            raise AssertionError(f"a feat-cmux-next merge read guard verdicts for {shas}")
+        opts = merge_main.Options(repo=self.repo, remote="origin", guards=False, base="feat-cmux-next")
+        lines: list[str] = []
+        code = merge_main.merge_main(opts, source=no_verdicts, output=lines.append, stamps=self.scratch / "stamps")
+        output = "\n".join(lines)
+        self.assertEqual(code, 0, output)
+        self.assertEqual(git(self.repo, "rev-parse", "HEAD^2"), feat)
+        self.assertTrue((self.repo / "feat.txt").exists())
+        self.assertFalse((self.repo / "main.txt").exists(), "main must not come with a feat-cmux-next merge")
+        self.assertNotEqual(git(self.repo, "rev-parse", "HEAD^2"), on_main)
+        self.assertIn("Merge feat-cmux-next", git(self.repo, "log", "-1", "--format=%s"))
+        # Run again: already current, nothing merged.
+        head = git(self.repo, "rev-parse", "HEAD")
+        lines.clear()
+        self.assertEqual(merge_main.merge_main(opts, source=no_verdicts, output=lines.append), 0)
+        self.assertEqual(git(self.repo, "rev-parse", "HEAD"), head)
+        self.assertIn("already contains feat-cmux-next's tip", "\n".join(lines))
+
+    def test_a_feat_cmux_next_merge_never_reports_mains_guards_passed(self) -> None:
+        # Review of #27543: the tip of a base with no CI fast guards verdict must read as "missing", or the guard
+        # report says "main's CI fast guards passed on that commit" about a feat-cmux-next commit.
+        git(self.remote, "checkout", "-q", "-b", "feat-cmux-next")
+        feat = commit(self.remote, "feat work", {"feat.txt": "feat\n"})
+        git(self.remote, "checkout", "-q", "main")
+        seen = []
+        with mock.patch.object(merge_main.merge_main_resolver, "merge_and_resolve",
+                               lambda *a, **k: mock.Mock(status="merged", head_after=feat, resolved=[], blocking=[])), \
+                mock.patch.object(merge_main, "run_guards", lambda *a, **k: mock.Mock(failures=[], introduced=False,
+                                                                                         complete=True)), \
+                mock.patch.object(merge_main, "classify", lambda *a, **k: None), \
+                mock.patch.object(merge_main, "guard_report", lambda run, base, verdict: seen.append(verdict) or []):
+            opts = merge_main.Options(repo=self.repo, remote="origin", base="feat-cmux-next")
+            self.assertEqual(merge_main.merge_main(opts, source=lambda shas: {}, guard_command=["true"],
+                                                   output=lambda line: None), 0)
+        self.assertEqual(seen, ["missing"])
+
+    def test_the_default_base_stays_main(self) -> None:
+        self.assertEqual(merge_main.Options(repo=self.repo).base, "main")
+        seen = []
+        with mock.patch.object(merge_main, "merge_main", lambda options: seen.append(options) or 0):
+            self.assertEqual(merge_main.main(["--repo", str(self.repo)]), 0)
+            self.assertEqual(merge_main.main(["--repo", str(self.repo), "--base", "feat-cmux-next"]), 0)
+        self.assertEqual([o.base for o in seen], ["main", "feat-cmux-next"])
+
     def test_tip_flag_merges_the_red_tip(self) -> None:
         self.main_commit("green", {"green.txt": "green\n"})
         red = self.main_commit("red", {"red.txt": "red\n"})
