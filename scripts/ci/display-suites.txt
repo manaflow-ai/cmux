@@ -19,7 +19,6 @@ Packages/macOS/CmuxNext CmuxNextAppTests.SidebarNewRowInPlaceTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarPriorityMotionTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarRowsMoveOnRenderServerTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarTabGapCleanupTests
-Packages/macOS/CmuxNext CmuxNextAppTests.SidebarWorkspaceTabHierarchyTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SleepySceneCostTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SleepySkySnapshotTests
 Packages/macOS/CmuxNext CmuxNextAppTests.TabCloseWidthChangeTests

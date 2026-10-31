@@ -395,7 +395,7 @@ final class WindowManager {
         let controller = WindowController(state: state, services: services, frame: frame)
         controller.sidebar.restore(width: state.sidebarWidth, hidden: state.sidebarHidden)
         if registry.value.isIncognito(window.id) { controller.showIncognitoBadge() }
-        SidebarTabRowHandoff.install(on: controller, session: services.dragSession)
+        services.dragSession.installWorkspaceHandoff(on: controller)
         controllers.append(controller)
         // Its content goes in before it is ordered in (the launch snapshot's workspace, else the
         // connecting state), so its first frame on screen draws it, never the backdrop alone; the
