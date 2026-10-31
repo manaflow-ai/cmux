@@ -8,7 +8,6 @@ import QuartzCore
 /// alone shown as a small dot; a browser workspace's page icon, untinted;
 /// else nothing. It has no kind glyph or agent brand fallback: workspace rows
 /// are text only by default (WORKSPACE-ROWS-NO-DEFAULT-ICON, Lawrence 2026-10-14).
-/// Tab rows draw their own kind and brand marks.
 final class SidebarIconView: NSView {
     private let imageView = DecorativeImageView()
     private let swatch = CALayer()
