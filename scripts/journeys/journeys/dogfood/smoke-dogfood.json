@@ -130,7 +130,7 @@
        {"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "equals": "addressBar"}},
        {"app_rpc": {"method": "debug.omnibar", "path": "field_text", "equals": "example.com"}},
        {"app_rpc": {"method": "debug.omnibar", "path": "field_selection", "equals": [11, 0]}},
-       {"frame_text": "ample.com"}
+       {"smoke_omnibar_drawn": {"host": "example.com", "min_suffix": 6}}
      ]},
     {"do": "smoke_key", "key": "return", "modifiers": [], "mark": "loaded"},
     {"do": "expect", "title": "the browser tab loads the page", "since": "loaded", "timeout": 45,

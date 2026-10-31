@@ -368,6 +368,47 @@ def step_smoke_snapshot(j, step):
     return {"terminals": len(snap["terms"]), "panes": len(snap["panes"]), "focused_pane": snap["focused_pane"]}
 
 
+def cond_smoke_omnibar_drawn(j, want, cache):
+    """The address bar DRAWS the typed address (coordinator 14:0xZ: a gate step asserts what the person sees): text
+    recognition of the address field's own frame, cropped from a fresh window snapshot (kept as check-NN.png), shows
+    a suffix of HOST of at least MIN_SUFFIX (default 6) characters, or HOST itself. A narrow field scrolls to the end
+    of its text and draws only its tail ("‹ample.com"). The field's frame is debug.omnibar's editor.screen_rect
+    (global top-left screen points), placed in the snapshot by the window's frame (debug.layers, bottom-left screen
+    points; single-display minis) and the snapshot's scale."""
+    import ext_window
+    host, least = want["host"], int(want.get("min_suffix", 6))
+    bar = j.app.rpc("debug.omnibar") or {}
+    rect_text = ((bar.get("editor") or {}).get("screen_rect")) if isinstance(bar, dict) else None
+    if not rect_text:
+        return False, {"error": f"debug.omnibar has no field frame (no active field editor): {json.dumps(bar)[:200]}"}
+    fx, fy, fw, fh = (float(v) for v in str(rect_text).split(","))
+    wins = ext_window.windows(j)
+    wid = getattr(j, "key_window", None)
+    win = wins.get(wid) if wid in wins else next(iter(wins.values()), None)
+    if not win or not win.get("frame") or not win.get("screen"):
+        return False, {"error": f"no window frame in debug.layers ({list(wins)[:3]})"}
+    wx, wy, ww, wh = win["frame"]
+    sx, sy, sw, sh = win["screen"]
+    win_top = (sy + sh) - (wy + wh)  # the window's top edge in top-left screen points
+    j.checks += 1
+    image = j.app.snapshot(j.out / f"check-{j.checks:02d}.png")
+    width, height = ext_window.png_size(image)
+    scale = width / float(ww)
+    pad = 3
+    box = [round((fx - wx - pad) * scale), round((fy - win_top - pad) * scale),
+           round((fw + 2 * pad) * scale), round((fh + 2 * pad) * scale)]
+    x, y = max(0, box[0]), max(0, box[1])
+    box = [x, y, min(box[2], width - x), min(box[3], height - y)]
+    if box[2] <= 0 or box[3] <= 0:
+        return False, {"image": image.name, "error": f"the field frame {rect_text} is outside the window snapshot",
+                       "window": win["frame"]}
+    lines = ext_window.crop_read(j, image, box, 3)
+    suffixes = [host[i:] for i in range(0, len(host) - least + 1)]
+    hit = next((t for t in suffixes if D.ocr_contains(lines, t)), None)
+    return hit is not None, {"image": image.name, "field_rect": rect_text, "crop_px": box, "scale": round(scale, 3),
+                             "text": lines[-6:], "matched": hit}
+
+
 def cond_smoke_tabs(j, want, cache):
     """The topology has NEW more tabs (all panes, all workspaces) than at the smoke_snapshot SINCE (NEW may be 0:
     back to that count, e.g. after Cmd-T then Cmd-W)."""
@@ -1425,7 +1466,7 @@ STEPS = {"smoke_key": step_smoke_key, "smoke_type": step_smoke_type, "smoke_burs
          "smoke_remember_workspaces": step_smoke_remember_workspaces, "smoke_close_all": step_smoke_close_all,
          "smoke_snapshot": step_smoke_snapshot, "smoke_adopt_line": step_smoke_adopt_line,
          "smoke_long_line": step_smoke_long_line, "smoke_widths": step_smoke_widths}
-CONDITIONS = {"smoke_tabs": ("app", cond_smoke_tabs), "smoke_workspaces": ("app", cond_smoke_workspaces), "smoke_key_window": ("app", cond_smoke_key_window),
+CONDITIONS = {"smoke_omnibar_drawn": ("frame", cond_smoke_omnibar_drawn), "smoke_tabs": ("app", cond_smoke_tabs), "smoke_workspaces": ("app", cond_smoke_workspaces), "smoke_key_window": ("app", cond_smoke_key_window),
               "smoke_app_lines": ("app", cond_smoke_app_lines), "smoke_daemon_lines": ("daemon", cond_smoke_daemon_lines),
               "smoke_new_terminals": ("daemon", cond_smoke_new_terminals), "smoke_frame": ("frame", cond_smoke_frame),
               "smoke_panes": ("app", cond_smoke_panes), "smoke_r3": ("daemon", cond_smoke_r3),

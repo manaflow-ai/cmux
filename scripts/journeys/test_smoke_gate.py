@@ -461,6 +461,59 @@ class RealKeySteps(unittest.TestCase):
             self.ext.step_smoke_key(self.journey("real"), {"key": "d", "modifiers": ["cmd"]})
 
 
+class OmnibarDrawn(unittest.TestCase):
+    """The typed address must be DRAWN in the address bar (coordinator 14:0xZ), read from the bar's own frame."""
+
+    def setUp(self):
+        sys.path.insert(0, str(HERE))
+        import ext_smoke
+        import ext_window
+
+        class StepError(Exception):
+            pass
+
+        class NotRun(Exception):
+            pass
+        D = type("D", (), {"StepError": StepError, "NotRun": NotRun, "now": staticmethod(time.monotonic),
+                           "ocr_contains": staticmethod(lambda lines, t: any(t in l for l in lines))})
+        ext_smoke.install(D)
+        ext_window.install(D)
+        self.ext, self.win = ext_smoke, ext_window
+        self.saved = (ext_window.windows, ext_window.png_size, ext_window.crop_read)
+        self.crops = []
+
+    def tearDown(self):
+        self.win.windows, self.win.png_size, self.win.crop_read = self.saved
+
+    def check(self, lines, rect="1100,560,100,22"):
+        crops = self.crops
+        self.win.windows = lambda j: {"W": {"frame": [500, 100, 940, 720], "screen": [0, 0, 1920, 1080]}}
+        self.win.png_size = lambda path: (1880, 1440)  # a 2x snapshot of the 940x720 window
+        self.win.crop_read = lambda j, image, box, up: crops.append(box) or lines
+        j = type("J", (), {})()
+        j.key_window, j.checks, j.out = "W", 0, Path("/tmp")
+        j.app = type("A", (), {"rpc": staticmethod(lambda m, p=None: {"editor": {"screen_rect": rect}}),
+                               "snapshot": staticmethod(lambda path: Path(path))})()
+        return self.ext.cond_smoke_omnibar_drawn(j, {"host": "example.com", "min_suffix": 6}, {})
+
+    def test_the_bars_tail_counts_and_the_crop_is_the_bars_frame(self):
+        ok, detail = self.check(["‹ample.com"])
+        self.assertTrue(ok)
+        self.assertEqual(detail["matched"], "ample.com")
+        # window top = 1080 - (100 + 720) = 260; field at (1100-500, 560-260) points, 2x, 3 points of padding
+        self.assertEqual(self.crops[0], [1194, 594, 212, 56])
+
+    def test_less_than_six_characters_or_another_text_is_not_drawn(self):
+        self.assertFalse(self.check([".com"])[0])
+        self.assertFalse(self.check(["Import cookies from Safari"])[0])
+        self.assertTrue(self.check(["example.com"])[0])
+
+    def test_no_field_frame_fails(self):
+        ok, detail = self.check(["example.com"], rect=None)
+        self.assertFalse(ok)
+        self.assertIn("no field frame", detail["error"])
+
+
 class OpenP0(unittest.TestCase):
     """A .pass needs every open P0 journey passed, and never failed, on the exact build (cmux-ad 12:35Z)."""
 
