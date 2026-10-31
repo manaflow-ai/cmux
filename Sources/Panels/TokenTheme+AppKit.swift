@@ -2,10 +2,34 @@ import AppKit
 import CmuxSyntaxHighlighting
 
 extension TokenTheme {
-    /// Resolves light/dark token palettes from the view's effective appearance.
-    init(appearance: NSAppearance?) {
+    /// Resolves token colors from the view appearance and Ghostty palette.
+    init(
+        appearance: NSAppearance?,
+        terminalPalette: [Int: NSColor] = [:],
+        terminalForegroundColor: NSColor? = nil
+    ) {
         let resolved = appearance?.bestMatch(from: [.darkAqua, .aqua]) ?? NSAppearance.Name.aqua
-        self = resolved == .darkAqua ? .dark : .light
+        let base = resolved == .darkAqua ? TokenTheme.dark : TokenTheme.light
+        guard !terminalPalette.isEmpty else {
+            self = base
+            return
+        }
+
+        let ansiPalette = terminalPalette.reduce(into: [Int: TokenColor]()) { result, entry in
+            if let color = Self.tokenColor(from: entry.value) {
+                result[entry.key] = color
+            }
+        }
+        let foreground = terminalForegroundColor.flatMap(Self.tokenColor(from:))
+            ?? base.palette.foreground
+        self = TokenTheme(
+            base: base,
+            palette: TokenPalette(
+                ansiPalette: ansiPalette,
+                foreground: foreground,
+                fallback: base.palette
+            )
+        )
     }
 
     /// Product-blue wash behind the caret line.
@@ -34,6 +58,15 @@ extension TokenTheme {
             green: CGFloat(color.green) / 255.0,
             blue: CGFloat(color.blue) / 255.0,
             alpha: alpha
+        )
+    }
+
+    private static func tokenColor(from color: NSColor) -> TokenColor? {
+        guard let rgb = color.usingColorSpace(.sRGB) else { return nil }
+        return TokenColor(
+            red: UInt8((rgb.redComponent * 255).rounded()),
+            green: UInt8((rgb.greenComponent * 255).rounded()),
+            blue: UInt8((rgb.blueComponent * 255).rounded())
         )
     }
 }
