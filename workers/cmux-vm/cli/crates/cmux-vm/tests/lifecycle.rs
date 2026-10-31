@@ -2716,7 +2716,7 @@ async fn a_kept_run_removes_a_sync_archive_that_failed_to_unpack() {
     assert_ne!(out.code, 0, "{}", out.stderr);
     assert!(!out.stderr.contains("could not remove"), "{}", out.stderr);
     server.verify().await;
-    // The unpack itself removes the archive on any exit, failure included.
+    // The unpack itself removes the archive once tar ends, failure included.
     let requests = server.received_requests().await.unwrap();
     let unpack = requests
         .iter()
@@ -2724,7 +2724,7 @@ async fn a_kept_run_removes_a_sync_archive_that_failed_to_unpack() {
         .find(|body| body.contains("tar -xzf /tmp/cmux-run.tgz"))
         .unwrap();
     assert!(
-        unpack.contains("trap 'rm -f /tmp/cmux-run.tgz' EXIT"),
+        unpack.contains("r=$?; rm -f /tmp/cmux-run.tgz; [ $r -eq 0 ]"),
         "{unpack}"
     );
     let _ = std::fs::remove_dir_all(&dir);

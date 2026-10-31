@@ -517,9 +517,9 @@ async fn prepare(client: &Client, vm_id: &str, archive: Option<&[u8]>) -> Result
             exec_stdin(client, vm_id, &script, chunk).await?;
         }
     }
-    // The archive goes when the script exits, whether tar succeeded or not.
+    // The archive goes once tar ends, whether it succeeded or not.
     let unpack = if archive.is_some() {
-        "trap 'rm -f /tmp/cmux-run.tgz' EXIT; tar -xzf /tmp/cmux-run.tgz -C \"$W\""
+        "tar -xzf /tmp/cmux-run.tgz -C \"$W\"; r=$?; rm -f /tmp/cmux-run.tgz; [ $r -eq 0 ]"
     } else {
         "true"
     };
@@ -528,6 +528,13 @@ async fn prepare(client: &Client, vm_id: &str, archive: Option<&[u8]>) -> Result
          if sudo -n mkdir -p \"$W\" 2>/dev/null && sudo -n chown \"$(id -u):$(id -g)\" \"$W\"; then :; \
          else W=\"$HOME/work\"; mkdir -p \"$W\"; fi; fi; {unpack} && printf %s \"$W\""
     );
+    // Unpacking reads the archive: a registered reader, which the cleanup
+    // stops before it removes the archive.
+    let script = if archive.is_some() {
+        fenced(STAGING_GUARD, &script)
+    } else {
+        script
+    };
     let result = exec(client, vm_id, &script, &[], 120_000).await?;
     if result.code != Some(0) {
         return Err(CliError::unexpected(format!(
@@ -642,17 +649,19 @@ const PULL_ARCHIVE: &str = "/tmp/cmux-pull.tgz";
 
 /// The guard against writers outliving the run's cleanup, as a path prefix:
 /// `<guard>.fence` exists once the cleanup has begun, and `<guard>.writers/`
-/// holds one file per upload or pull in progress, named for its process
-/// group. A writer registers, then checks the fence; the cleanup makes the
+/// holds one file per guest command in progress that writes or reads an
+/// archive (upload, unpack, pull pack and reads), named for its process
+/// group. Each registers, then checks the fence; the cleanup makes the
 /// fence, then stops every registered group. Whichever comes second sees
-/// the other, so no writer opens an archive after the cleanup, not even one
+/// the other, so no writer or reader holds an archive after the cleanup
+/// (an open file keeps its bytes even unlinked), not even one
 /// whose exec was still on its way when the run was interrupted.
 const STAGING_GUARD: &str = "/tmp/cmux-run";
 
 /// Every archive a run may leave on the guest.
 const ARCHIVES: [&str; 3] = [SYNC_ARCHIVE, PULL_ARCHIVE, "/tmp/cmux-pull.tgz.rc"];
 
-/// `script` as a registered writer under `guard`: in its own process group
+/// `script` as a registered writer (or reader) of an archive under `guard`: in its own process group
 /// (so the cleanup can stop all of it), refused with status 4 once the
 /// cleanup has begun.
 fn fenced(guard: &str, script: &str) -> String {
@@ -763,9 +772,12 @@ async fn pull_archive(
     let size = size.unwrap_or_default();
     let mut bytes = Vec::with_capacity(usize::try_from(size.min(MAX_PULL_BYTES)).unwrap_or(0));
     while (bytes.len() as u64) < size {
-        let read = format!(
-            "tail -c +{} {PULL_ARCHIVE} | head -c {CHUNK_BYTES} | base64 -w0",
-            bytes.len() + 1
+        let read = fenced(
+            STAGING_GUARD,
+            &format!(
+                "tail -c +{} {PULL_ARCHIVE} | head -c {CHUNK_BYTES} | base64 -w0",
+                bytes.len() + 1
+            ),
         );
         let chunk = decode(
             String::from_utf8_lossy(&exec(client, vm_id, &read, &[], 60_000).await?.stdout).trim(),
