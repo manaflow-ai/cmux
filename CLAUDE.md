@@ -288,7 +288,7 @@ enforces this.
   tailnet URL that shows each gallery state your change reaches at the merge-base and at your branch, side
   by side (no Swift build).
   Mac captures (the `cmux-next media` tours) are only for native/AppKit UI or real end-to-end flows.
-- A native UI change shows a real capture in its description (`pr-capture-check` fails it otherwise):
+- A native UI change shows a real capture in its description (`pr-capture-check` warns otherwise; a missing capture never blocks a land, since Leo tries the build himself):
   `cmux-ci capture <head sha> --state scene:NAME|tour:NAME --pr N [--video]` builds that commit, drives the
   real app on a capture mini, takes light and dark stills, refuses any that show private text, and prints
   the Markdown to paste. Or add the `media-tour` label, or write `No capture: <why>`. Never mock stills.
