@@ -662,6 +662,8 @@ private let tinyPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAA
 }
 
 #if os(iOS)
+import UIKit
+
 @Suite @MainActor struct ChiefDirectoryTests {
     func directory() -> ChiefDirectory {
         let chief = ChiefDirectory.recipients(store: AppStore(teams: [], activeTeamID: "", workspaces: [], feed: []), identity: .standard, place: .mac)
@@ -760,6 +762,50 @@ private let tinyPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAA
         #expect(prompt.attachments[0].name.hasSuffix(".png"))
         #expect(prompt.attachments[1].name.hasSuffix(".jpg"))
         #expect(Set(prompt.attachments.map(\.id)).count == 2)
+    }
+
+    @Test func encodedImageBytesOverrideDeclaredMimeType() throws {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2))
+        let validPNG = renderer.pngData { context in
+            UIColor.red.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+        }
+        let image = ConversationComposeImage(data: validPNG, width: 2, height: 2, mimeType: "image/heic")
+        let attachment = try #require(ChiefComposer.attachments([image]).first)
+        #expect(attachment.name.hasSuffix(".png"))
+        #expect(attachment.imageMIMEType == "image/png")
+        #expect(attachment.data == validPNG)
+    }
+
+    @Test func imageBytesWinOverTheDeclaredMimeType() throws {
+        let image = ConversationComposeImage(data: Self.png, width: 1, height: 1, mimeType: "image/heic")
+        let attachment = try #require(ChiefComposer.attachments([image]).first)
+        #expect(attachment.kind == .image)
+        #expect(attachment.name.hasSuffix(".png"))
+        #expect(attachment.imageMIMEType == "image/png")
+    }
+
+    @Test func unsupportedDecodedImageIsConvertedToJpeg() throws {
+        // A complete 1x1, 24-bit BMP (red pixel, padded four-byte row).
+        let bmp = try #require(Data(base64Encoded: "Qk06AAAAAAAAADYAAAAoAAAAAQAAAAEAAAABABgAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAD/AA=="))
+        try #require(UIImage(data: bmp) != nil)
+        #expect(AgentAttachment(kind: .image, name: "source", data: bmp).imageMIMEType == nil)
+        let attachment = try #require(ChiefComposer.attachments([
+            ConversationComposeImage(data: bmp, width: 1, height: 1, mimeType: "image/jpeg")
+        ]).first)
+        #expect(attachment.kind == .image)
+        #expect(attachment.name.hasSuffix(".jpg"))
+        #expect(attachment.imageMIMEType == "image/jpeg")
+        #expect(attachment.data != bmp)
+        let jpeg = try #require(attachment.data)
+        #expect(UIImage(data: jpeg) != nil)
+    }
+
+    @Test func undecodableImageIsSentAsAFile() throws {
+        let image = ConversationComposeImage(data: Data([0x01, 0x02, 0x03]), width: 1, height: 1, mimeType: "image/png")
+        let attachment = try #require(ChiefComposer.attachments([image]).first)
+        #expect(attachment.kind == .file)
+        #expect(attachment.imageMIMEType == nil)
     }
 
     @Test func anImageOnlyMessageStillSends() throws {
