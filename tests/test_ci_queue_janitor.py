@@ -2794,6 +2794,26 @@ class EveryUnfinishedJobLostInAFailedRunTests(unittest.TestCase):
         results, failures = janitor.cancel_plan(fake, [decision.candidate], jobs)
         self.assertEqual((results[run["id"]], failures), ("cancelled", 0))
 
+    def test_the_cancel_is_refused_when_a_sibling_appeared_or_started_since(self):
+        # #29405: between the plan and the cancel, a job created or started since the inventory is not lost.
+        run, other, jobs, prs = self.world()
+        candidate = decision_for(self.plan([run, other], jobs, prs), run).candidate
+        self.assertIsNone(candidate.rerun_job)
+        last = jobs[run["id"]][-1]
+        cases = {
+            "new sibling": dict(last, id=5, name="new sibling", status="in_progress", conclusion=None,
+                                completed_at=None, runner_id=9, runner_name="runner-9"),
+            "queued sibling": dict(last, id=6, name="queued sibling", status="queued", conclusion=None,
+                                   completed_at=None, runner_id=0, runner_name=None),
+        }
+        for case, extra in cases.items():
+            with self.subTest(case=case):
+                now_jobs = [dict(job) for job in jobs[run["id"]]] + [extra]
+                fake = FakeGitHub({run["id"]: dict(run)}, {run["id"]: now_jobs})
+                results, failures = janitor.cancel_plan(fake, [candidate], jobs)
+                self.assertIn("unfinished beside the lost jobs", results[run["id"]])
+                self.assertEqual((failures, fake.posts()), (0, []))
+
     def test_an_unfinished_job_that_is_not_lost_keeps_the_red_rule(self):
         # A third unfinished job, running, would be killed by the cancel.
         run, other, jobs, prs = self.world()
