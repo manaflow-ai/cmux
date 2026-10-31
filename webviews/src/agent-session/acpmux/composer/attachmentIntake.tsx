@@ -682,7 +682,9 @@ export function useSendWhenOriginals(
 ): (awaits: boolean, send: () => void) => boolean {
   const wait = useSendWhenAttached(uploading, scope);
   const [hold] = useState(() => (awaits: boolean, send: () => void) => {
-    return awaits && wait(send);
+    if (awaits && wait(send)) return true;
+    wait.cancel();
+    return false;
   });
   return hold;
 }
