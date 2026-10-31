@@ -54,7 +54,7 @@
 /* Keep status text out of sizing: long translations and error details never move the tools. */
 .acpmux-header-status-slot{--acpmux-header-control-height:26px;position:relative;flex:1 1 0;min-width:0;height:26px}
 .acpmux-header-status-content{display:flex;align-items:center;gap:4px;min-width:0;height:var(--acpmux-header-control-height)}
-.acpmux-thread-title-trigger{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:min(44vw,360px);height:var(--acpmux-header-control-height);padding:0 4px;border:0;border-radius:6px;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-control);font-weight:var(--weight-emphasis);cursor:default;white-space:nowrap;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-thread-title-trigger{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:min(44vw,360px);height:var(--acpmux-header-control-height);padding:0 4px;border:0;border-radius:6px;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-control);font-weight:var(--weight-emphasis);white-space:nowrap;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-thread-title-trigger:hover,.acpmux-thread-title-trigger[data-popup-open]{background:var(--acpmux-menu-hover);color:var(--agent-text)}
 .acpmux-thread-title-trigger:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1px}
 .acpmux-thread-title-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
