@@ -5,11 +5,11 @@ import MessagesLabSidebar
 
 /// The Home page's left column: MessagesLab's conversation list
 /// (`CmuxSidebarView`, vendored byte-identical) drawing a `HomeSidebarModel`
-/// over one translucent scrim of the window's background
-/// (`Palette.legibilityScrim`): the window's material or background image
-/// shows through, as behind the transcript, and the labels keep a calmer
-/// base over a light image. No vibrancy material (it drew a solid gray
-/// panel) and no opaque fill. It owns no data: the page gives it the model
+/// on the chat's own fill (Home's one veil: `Palette.fill(for: .home)`, clear over a
+/// translucent window), so the workspace sidebar, this list and the chat read as one
+/// colour over the window's tint or background image (the user, 2026-10-31: "chief
+/// sidebar bg and chief header bg needs to be same as rest of the bgs"; a 35% scrim of
+/// its own made it a third grey). No vibrancy material (it drew a solid gray panel). It owns no data: the page gives it the model
 /// after every change and handles the choices.
 public final class HomeSidebarView: NSView {
     public var onSelect: (ConversationID) -> Void = { _ in }
@@ -280,8 +280,8 @@ public final class HomeSidebarView: NSView {
 
     /// The unread dot is the notification blue, as in Messages and on the unread rings (or the
     /// user's `unreadDotColor`), never the theme accent: the default theme's accent is a grey, and
-    /// the dot read as missing (the user, 2026-10-21). The column lays the theme's legibility
-    /// scrim; the selection is the theme's translucent selection tint, never the system blue.
+    /// the dot read as missing (the user, 2026-10-21). The column paints Home's one veil, the
+    /// chat's fill; the selection is the theme's translucent selection tint, never the system blue.
     func applyColors() {
         list.unreadColor = unreadDotColor ?? performWithTheme { Palette.notificationBlue }
         noteLabel.textColor = performWithTheme { Palette.textSecondary }
@@ -289,7 +289,7 @@ public final class HomeSidebarView: NSView {
         // The menu ring: the label colour, not the system accent.
         list.selectionColor = .labelColor
         list.neutralSelectionFill = performWithTheme { Palette.selectionFill }
-        layer?.backgroundColor = performWithTheme { Palette.legibilityScrim.cgColor }
+        layer?.backgroundColor = performWithTheme { Palette.fill(for: .home, default: Palette.paneFill).cgColor }
         for button in [compose, unreadToggle] { button.applyTint() }
         applySearchColors()
     }

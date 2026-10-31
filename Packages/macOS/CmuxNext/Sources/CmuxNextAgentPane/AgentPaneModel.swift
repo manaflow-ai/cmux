@@ -534,8 +534,9 @@ public final class AgentPaneModel {
         case .computerUsePreview(let action): return AgentPaneComputerUsePreview.respond(action, in: self)
         case .upload(let files): return await AgentPaneUpload.respond(files, in: self)
         case .uploadStage(let stage):
-            // A chat with no session yet stages too: the App's stager decides (a chat on this Mac
-            // saves under its root; a Cloud or peer stager refuses a nil session itself).
+            // A chat with no session yet (a new chat, the New Tab page) stages too: its stager says
+            // whether it can take one. Refusing it as unsupported told the page this host is too old
+            // to stream, so a recording over the one-frame size failed with Retry (#28647).
             guard let stager = onUploadStage?() else { return Self.unsupported("chat.upload.stage") }
             if case .begin(_, _, let batchToken, _) = stage, batchToken == nil, !transport.gestures.consume() { return Self.transportFailure(.gestureRequired) }
             return await stager(stage, sessionId)
