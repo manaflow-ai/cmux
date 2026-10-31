@@ -1,0 +1,29 @@
+use super::{QueueLimits, bytes};
+use crate::config::Config;
+use serde_json::json;
+
+#[test]
+fn limits_default_and_zero_is_no_limit() {
+    let mut cfg = Config::default();
+    assert_eq!(
+        QueueLimits::of(&cfg),
+        QueueLimits {
+            prompts: Some(QueueLimits::DEFAULT_PROMPTS),
+            bytes: Some(QueueLimits::DEFAULT_BYTES)
+        }
+    );
+    cfg.queue_max_prompts = Some(0);
+    cfg.queue_max_bytes = Some(5);
+    assert_eq!(QueueLimits::of(&cfg), QueueLimits { prompts: None, bytes: Some(5) });
+}
+
+#[test]
+fn bytes_follow_the_json_size() {
+    let image = "A".repeat(1 << 20);
+    let block = json!({"type": "image", "mimeType": "image/png", "data": image});
+    let json_len = block.to_string().len() as u64;
+    let counted = bytes(&block);
+    assert!(counted >= json_len, "{counted} < {json_len}");
+    assert!(counted < json_len + 64, "{counted} vs {json_len}");
+    assert!(bytes(&json!([1, true, null])) > 0);
+}

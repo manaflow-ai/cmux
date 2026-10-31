@@ -96,6 +96,7 @@ pub(crate) mod prompt_images;
 mod prompt_ledger;
 mod prompt_line;
 mod queue;
+mod queue_admission;
 mod queue_edit;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender};
 pub use queue::{QueuedPrompt, Withdrawn, supersede::key as supersede_key};
