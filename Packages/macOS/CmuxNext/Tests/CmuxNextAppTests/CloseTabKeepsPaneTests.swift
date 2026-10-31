@@ -137,8 +137,11 @@ struct CloseTabKeepsPaneTests {
             let made = try #require(content.panes.keys.first { !before.contains($0) }, "the split showed no pane")
             try await Self.nextCommit()
             try await Task.sleep(for: dispatchDelay)
-            // Well inside the old quick-press window of the emptying press.
-            let pressedAt = ProcessInfo.processInfo.systemUptime
+            // The person pressed it 0.3 s after the emptying press, well inside the old quick-press window
+            // (0.5 s), whenever AppKit dispatches it: the key event's own time, the clock Close Tab reads
+            // (`TabCloseGuard.press`). The test's waits above, on the wall clock, are not that time.
+            let dispatchedAt = ProcessInfo.processInfo.systemUptime
+            let pressedAt = min(dispatchedAt, emptiedAt + 0.3)
             #expect(pressedAt - emptiedAt < 0.5)
             #expect(Self.press(services, .key(repeat: false, at: pressedAt)))
             try await PinnedPageTests.until({ content.panes[made] == nil },
