@@ -232,6 +232,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// the file input (`choose`), which the host asks only where its files came from.
   const [attach] = useState(() => async (given: (File | MadeFile)[], uploads = false, kind?: SourceKind) => {
     if (given.length === 0) return;
+    // When the page took the gesture: the host answers its source only from a record made before
+    // it (composer/attachmentSources.ts).
+    const gestureAt = Date.now();
     const files = given;
     const dropped: DroppedKind | undefined = kind === "choose" ? undefined : kind;
     const { options: current } = live.current;
@@ -270,6 +273,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       : attachSources(
           kind!,
           asked.map(({ file }) => file),
+          undefined,
+          gestureAt,
         ).then((sources) => {
           sources.forEach((source, at) => {
             if (!source) return;

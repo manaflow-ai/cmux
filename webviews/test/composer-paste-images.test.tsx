@@ -371,7 +371,9 @@ test("a file chosen in + > Attach files asks the host where it came from, and it
     });
     await until(() => (composer.current!.wakeState().attachments ?? []).length > 0, "the chosen screenshot's chip");
     // Asked as a pick, never as a drop or paste: the host answers from the panel's own record.
-    expect(asked).toEqual([{ kind: "choose", names: ["Screenshot 2026-10-29 at 10.14.02.png"] }]);
+    expect(asked).toEqual([
+      { kind: "choose", names: ["Screenshot 2026-10-29 at 10.14.02.png"], gestureAt: expect.any(Number) },
+    ]);
     expect(composer.current!.wakeState().attachments?.map((chip) => chip.source)).toEqual([shot]);
   } finally {
     delete actions.cmuxAcpmuxActions;
