@@ -56,7 +56,10 @@ enum AgentPaneHandshakeReply {
             if model.sessionId == nil, let folderNeeded = model.seed?.folderNeeded { handshake.folderNeeded = AgentPaneHandshake.FolderNeeded(reason: folderNeeded.reason) }
             handshake.linkScheme = model.linkScheme
             // A chat on another machine names that machine (its host set it), never this Mac.
-            if handshake.machineName == nil { handshake.machineName = await AgentPaneModel.localMachineName?.value }
+            let localName = await AgentPaneModel.localMachineName?.value
+            if handshake.machineName == nil { handshake.machineName = localName }
+            // This Mac's own name for the picker's This Mac row, which a seeded chat's machine never replaces.
+            handshake.localMachineName = localName
             // A pane attaches only to the exact session its tab recorded: a session the
             // daemon lacks (gone, or a recreated daemon's) shows "This chat isn't
             // available", never another chat (P1 2026-10-09).
