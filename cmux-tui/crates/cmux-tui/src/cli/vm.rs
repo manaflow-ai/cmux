@@ -83,13 +83,21 @@ pub(super) fn plan(rest: &[String], output: OutputMode) -> Result<Vec<String>, U
 /// [`plan`] with the global options `cmux-vm` needs back. `parse_globals` takes a
 /// `--idempotency-key` wherever it stands before `--` (it is also the daemon
 /// mutations' global), so without this a retried `cmux vm new --idempotency-key K`
-/// reached `cmux-vm` with no key, which then made a fresh one and a second VM.
-fn plan_with_globals(rest: &[String], global: &super::GlobalArgs) -> Result<Vec<String>, UsageError> {
+/// reached `cmux-vm` with no key, which then made a fresh one and a second VM. Only
+/// the verbs that take a key get it (`create`, `fork`, `snapshot create`); for any
+/// other verb it is dropped, as before, rather than refused as an unknown option.
+fn plan_with_globals(
+    rest: &[String],
+    global: &super::GlobalArgs,
+) -> Result<Vec<String>, UsageError> {
     let mut plan = plan(rest, global.output)?;
     if let Some(key) = global.idempotency_key.as_deref() {
-        // After the verb's own words (`snapshot create` takes it, not `snapshot`), before any `--`.
-        let at = plan.iter().position(|word| word == "--").unwrap_or(plan.len());
-        plan.splice(at..at, ["--idempotency-key".to_owned(), key.to_owned()]);
+        let words: Vec<&str> = plan.iter().map(String::as_str).filter(|w| *w != "--json").collect();
+        if matches!(words.as_slice(), ["create" | "fork", ..] | ["snapshot", "create", ..]) {
+            // After the verb's own words, before any `--`.
+            let at = plan.iter().position(|word| word == "--").unwrap_or(plan.len());
+            plan.splice(at..at, ["--idempotency-key".to_owned(), key.to_owned()]);
+        }
     }
     Ok(plan)
 }

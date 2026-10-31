@@ -91,7 +91,8 @@ fn workspace_new_points_at_the_app_action() {
 
 /// The words `run_if_requested` hands `cmux-vm` for a whole `cmux …` command line.
 fn forwarded(words: &[&str]) -> Vec<String> {
-    let (global, command) = super::super::parse_globals(&args(words)).ok().expect("globals parse");
+    let (global, command) = super::super::parse_globals(&args(words))
+        .unwrap_or_else(|(error, _)| panic!("globals parse: {}", error.0));
     plan_with_globals(split(&command).expect("a vm command"), &global).expect("a plan")
 }
 
@@ -114,4 +115,16 @@ fn a_forwarded_key_stays_before_the_double_dash_and_words_after_it_are_the_comma
         args(&["exec", "vm_1", "--", "tool", "--idempotency-key", "x"])
     );
     assert_eq!(forwarded(&["vm", "ls"]), args(&["list"]));
+}
+
+#[test]
+fn a_key_on_a_verb_that_takes_none_is_dropped_as_before() {
+    assert_eq!(
+        forwarded(&["vm", "pause", "vm_1", "--idempotency-key", "k"]),
+        args(&["pause", "vm_1"])
+    );
+    assert_eq!(
+        forwarded(&["vm", "fork", "vm_1", "--idempotency-key", "k"]),
+        args(&["fork", "vm_1", "--idempotency-key", "k"])
+    );
 }
