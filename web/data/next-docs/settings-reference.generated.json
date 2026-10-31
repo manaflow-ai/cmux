@@ -1435,7 +1435,7 @@
           "title": "Idle Workspaces",
           "help": "What cmux does with workspaces you have not used for a while. Archived workspaces stay in their group, dimmed and last, and come back when you open them.",
           "kind": "choice",
-          "default": "suggest",
+          "default": "manual",
           "group": "Auto-Archive",
           "values": [
             "suggest",
