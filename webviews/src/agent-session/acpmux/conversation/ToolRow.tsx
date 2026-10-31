@@ -23,7 +23,7 @@ import { toolResult } from "./toolResult";
 import { ToolOutput } from "./ToolOutputBody";
 import { WriteLabel, writeCall } from "./WriteLabel";
 import { ToolLabel } from "./ToolVerb";
-import { rowFailed, toolFailure } from "./toolFailure";
+import { callOutput, rowFailed, toolFailure } from "./toolFailure";
 import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { Check, ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
 
@@ -104,14 +104,16 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
   // rendered result so the disclosure and its body agree, including image-only envelopes.
   // A finished call's envelope images show in its strip instead of its text (toolImages.ts).
   const strip = stripsEnvelopeImages(tool);
+  // A hook's block shows the hook's words, without the harness's "PreToolUse:… hook error:" envelope.
+  const source = callOutput(tool, failure);
   const result = useMemo(() => {
-    if (shell || !tool.output) return undefined;
-    return toolResult(tool.output, cleanText, strip, {
+    if (shell || !source) return undefined;
+    return toolResult(source, cleanText, strip, {
       kind: tool.kind,
       title: tool.title,
       description: tool.description,
     });
-  }, [shell, tool.description, tool.kind, tool.output, tool.title, strip]);
+  }, [shell, tool.description, tool.kind, source, tool.title, strip]);
   const body = shell ? tool.output?.replace(/\n$/, "") : result?.text;
   const hasDetails = shell || hasDiff || Boolean(result?.text.trim());
   const labelRef = useRef<HTMLSpanElement>(null);
