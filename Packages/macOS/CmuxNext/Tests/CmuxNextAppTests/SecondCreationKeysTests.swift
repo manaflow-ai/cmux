@@ -456,7 +456,10 @@ struct SecondCreationKeysTests {
             try #require(held.allSatisfy { $0 }, "the test needs the keys held for the first creation: \(held)")
 
             // The first terminal's view leaves the window (a remount); the focus model still names it.
-            guard case .terminal(let entry)? = p.first.pane.currentContent else { return Issue.record("the first pane shows no terminal") }
+            guard case .terminal(let entry)? = p.first.pane.currentContent else {
+                Issue.record("the first pane shows no terminal")
+                return
+            }
             let surface = entry.session.surfaceView
             let parent = try #require(surface.superview, "the terminal's view is not in a view")
             surface.removeFromSuperview()
