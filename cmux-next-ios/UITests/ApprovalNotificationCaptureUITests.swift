@@ -69,17 +69,23 @@ final class ApprovalNotificationCaptureUITests: XCTestCase {
             app.launch()
             let match = NSPredicate(format: "label CONTAINS[c] %@", "Claude Code")
             let banner = springboard.descendants(matching: .any).matching(identifier: "NotificationShortLookView").matching(match).firstMatch
-            if banner.waitForExistence(timeout: 20) {
-                let from = banner.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-                let to = banner.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 6.0))
-                from.press(forDuration: 0.2, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.5)
-                sleep(4)
-                attach(XCUIScreen.main.screenshot(), "longlook-\(name)")
-                note(springboard, "longlook-\(name)")
-            } else {
+            guard banner.waitForExistence(timeout: 20) else {
                 attach(XCUIScreen.main.screenshot(), "no-banner-\(name)")
                 note(springboard, "no-banner-\(name)")
+                XCTFail("the permission banner shows while the app is in front\n\(springboard.debugDescription)")
+                return
             }
+            let from = banner.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            let to = banner.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 6.0))
+            from.press(forDuration: 0.2, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.5)
+            // The long look is the approval card (ApprovalCardView), not the plain view.
+            let card = springboard.descendants(matching: .any).matching(identifier: "cmux.push.approval")
+                .matching(NSPredicate(format: "label CONTAINS %@", "wants to act on Mac mini")).firstMatch
+            let opened = card.waitForExistence(timeout: 10)
+            sleep(2)
+            attach(XCUIScreen.main.screenshot(), "longlook-\(name)")
+            note(springboard, "longlook-\(name)")
+            XCTAssertTrue(opened, "the long look shows the approval card\n\(springboard.debugDescription)")
             XCUIDevice.shared.press(.home)
             sleep(2)
         }
