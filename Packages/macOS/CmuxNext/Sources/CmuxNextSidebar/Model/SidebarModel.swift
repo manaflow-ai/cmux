@@ -212,7 +212,9 @@ public final class SidebarModel {
     public var updatedCard: SidebarUpdatedCard?
     /// The Now Playing card (cx-ouoxo), shown only while ``updateCard`` is nil.
     public var nowPlaying: SidebarNowPlaying?
-    /// Whether each workspace expands to show its intra-workspace tabs.
+    /// Whether each workspace lists its tabs under it. No setting turns it on: every sidebar is the
+    /// plain workspace list (Lawrence 2026-10-30, "i dont want to see tabs expanded inside of sidebar";
+    /// `sidebar.showWorkspaceTabs` is retired). Tests still set it to cover the tab-row code.
     public var showWorkspaceTabs = false
     /// The workspaces whose disclosure hid their tabs: window view state.
     public var collapsedWorkspaces: Set<WorkspaceID> = []
@@ -552,8 +554,6 @@ public final class SidebarModel {
 
     /// The `sidebar.*` settings that shape the workspace list.
     func applyListPreferences(_ preferences: SidebarSectionsPreferences) {
-        // Minimal mode lists no tab rows under a workspace.
-        showWorkspaceTabs = preferences.showWorkspaceTabs && !preferences.minimal
         workspaceRow = preferences.workspaceRow
         (minimal, expanded) = (preferences.minimal, preferences.density == .expanded)
         detailedStatus = preferences.detailedStatusIcons
