@@ -47,6 +47,7 @@ nonisolated enum AddMachineStrings {
         case .peer: s("addMachine.step.peer", "Add it as a peer here")
         case .peerBack: s("addMachine.step.peerBack", "Add this Mac as its peer")
         case .identity: s("addMachine.step.identity", "Name the machine")
+        case .approvals: s("addMachine.step.approvals", "Let this Mac allow its prompts")
         default: joinStep(step) ?? step.rawValue
         }
     }
