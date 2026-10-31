@@ -13,6 +13,9 @@ final class SidebarTreeRollUpView: NSView {
     }
 
     private let chips = [SidebarAgentState.blocked, .failed, .running, .finishedUnread].map { Chip(state: $0) }
+    // Match the row's agent-working status treatment, including Reduce Motion and occlusion.
+    // Only the running chip uses this mark; the other three states keep their quiet dots.
+    private let runningIndicator = StatusIndicatorView(frame: .zero)
     private(set) var rollUp: SidebarTreeRollUp?
 
     override init(frame: NSRect) {
@@ -23,6 +26,10 @@ final class SidebarTreeRollUpView: NSView {
             layer?.addSublayer(chip.dot)
             addSubview(chip.count)
         }
+        runningIndicator.ignoresScaleSetting = true
+        runningIndicator.tracksWindowOcclusion = true
+        runningIndicator.setAccessibilityElement(false) // the parent row already announces the counts
+        addSubview(runningIndicator)
         setAccessibilityElement(false) // the row's label says it (`Strings.rollUp`)
         isHidden = true
     }
@@ -33,17 +40,38 @@ final class SidebarTreeRollUpView: NSView {
     func configure(_ rollUp: SidebarTreeRollUp?) {
         self.rollUp = rollUp
         isHidden = rollUp == nil
-        guard let rollUp else { return }
+        guard let rollUp else {
+            refreshRunningIndicator()
+            return
+        }
         for chip in chips {
             let n = Self.count(chip.state, in: rollUp)
             chip.count.setString(n > 0 ? String(n) : "")
             chip.count.isHidden = n == 0
-            chip.dot.isHidden = n == 0
+            chip.dot.isHidden = n == 0 || chip.state == .running
             chip.fill.isHidden = n == 0
         }
+        refreshRunningIndicator()
         tint()
         invalidateIntrinsicContentSize()
         needsLayout = true
+    }
+
+    // A pooled/hidden parent must not keep a working animation alive while its row is invisible.
+    // The shared indicator handles window occlusion and Reduce Motion; the parent supplies visibility.
+    private func refreshRunningIndicator() {
+        let visibleWork = (rollUp?.running ?? 0) > 0 && !isHiddenOrHasHiddenAncestor
+        runningIndicator.configure(visibleWork ? .working : .idle)
+    }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        refreshRunningIndicator()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        refreshRunningIndicator()
     }
 
     static func count(_ state: SidebarAgentState, in rollUp: SidebarTreeRollUp) -> Int {
@@ -105,6 +133,7 @@ final class SidebarTreeRollUpView: NSView {
             let side = Self.dotSide
             chip.dot.frame = CGRect(x: x + Self.pad, y: (h - side) / 2, width: side, height: side)
             chip.dot.cornerRadius = side / 2
+            if chip.state == .running { runningIndicator.frame = chip.dot.frame }
             // The text box sits `space1` after the dot; the frame adds the label's padding around
             // it (a frame the size of the text alone clipped the digits).
             let text = chip.count.intrinsicContentSize
