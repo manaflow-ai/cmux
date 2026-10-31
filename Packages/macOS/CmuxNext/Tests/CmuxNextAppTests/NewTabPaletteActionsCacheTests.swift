@@ -8,9 +8,9 @@ import Testing
 
 /// Every Cmd-T built the New Tab dropdown's copy of the Commands palette again on the frame
 /// after the page showed (`NewTabPage.fillPaletteActions` -> `PaletteController.commandEntries`
-/// -> `RegistryPaletteProvider.makeItems`): 19.1 ms p50, 28.7 ms p95, 51.3 ms max of main-thread
-/// time per Cmd-T, 13 stalls over 8 ms and 517 ms in all over 128 presses (instant-new-surfaces,
-/// fleet job 585b71fb06b5e033c183573c, feat 038bf00cc91, bench build). The list changes only when
+/// -> `RegistryPaletteProvider.makeItems`). In the STRESS session Cmd-T took 83.5 ms p95 to its
+/// committed frame, and its longest main-thread stall (131 ms) was this build (every-action sweep,
+/// fleet job 59b1063a51893f653d11cfc6, feat 038bf00cc91, bench build). The list changes only when
 /// what it reads changes (the registry's bindings, catalog, shortcuts, context), so it is built
 /// once per change and every page takes the same list.
 @MainActor

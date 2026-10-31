@@ -8,8 +8,9 @@ import Observation
 /// that was already built.
 ///
 /// A build walks every catalog action through the palette's own provider. On the New Tab page it ran for
-/// every Cmd-T, on the frame after the page showed: 19.1 ms p50, 28.7 ms p95, 51.3 ms max of main-thread
-/// time per Cmd-T (fleet job 585b71fb06b5e033c183573c).
+/// every Cmd-T, on the frame after the page showed. In the STRESS session Cmd-T took 83.5 ms p95 to its
+/// committed frame, and its longest main-thread stall (131 ms) was this build (every-action sweep, fleet
+/// job 59b1063a51893f653d11cfc6, feat 038bf00cc91, bench build).
 ///
 /// A kept list must never offer a row that cannot run, so it is dropped on the first change of anything
 /// its build read:
