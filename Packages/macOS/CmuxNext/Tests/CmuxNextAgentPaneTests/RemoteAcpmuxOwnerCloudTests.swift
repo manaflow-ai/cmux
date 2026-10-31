@@ -10,12 +10,10 @@ import Testing
 struct RemoteAcpmuxOwnerCloudTests {
     /// The wire's first `initialize` answer, as the page reads it.
     private func initialized(_ wire: RemoteAcpmuxWire) async throws -> [String: Any] {
-        let frames = Mutex<[String]>([])
         let text: String = await withCheckedContinuation { done in
             let once = Mutex(false)
             Task {
                 try await wire.open(onFrame: { frame in
-                    frames.withLock { $0.append(frame) }
                     guard frame.contains("\"protocolVersion\""), once.withLock({ was in defer { was = true }; return !was }) else { return }
                     done.resume(returning: frame)
                 }, onClose: { _, _ in })
