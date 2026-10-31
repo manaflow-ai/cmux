@@ -20,6 +20,24 @@ import Testing
         #expect(daemon.refusals == 0)
         #expect(daemon.attaches == 2)
     }
+
+    /// An attach cancelled while it waits for an earlier one is never sent, and throws (#29387).
+    @Test func anAttachCancelledWhileItWaitsIsNeverSent() async throws {
+        let daemon = try ReservingAttachDaemon()
+        defer { daemon.stop() }
+        let client = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
+        let first = Task { try await client.attach(afterSeq: nil, beforeSeq: nil, limit: 1, kinds: nil) { _, _ in } }
+        try await Task.sleep(for: .milliseconds(50))
+        let waiting = Task { try await client.attach(afterSeq: nil, beforeSeq: nil, limit: 400, kinds: nil) { _, _ in } }
+        try await Task.sleep(for: .milliseconds(50))
+        waiting.cancel()
+        _ = try await first.value
+        await #expect(throws: CancellationError.self) { _ = try await waiting.value }
+        // Room for a stale attach to reach the daemon after the first one answered.
+        try await Task.sleep(for: .milliseconds(300))
+        await client.close()
+        #expect(daemon.attaches + daemon.refusals == 1)
+    }
 }
 
 /// A unix socket that answers `identify` and `set-client-info` at once and holds each
