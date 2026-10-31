@@ -123,7 +123,12 @@ pub(crate) fn start_for_owner(mux: &Arc<cmux_tui_core::Mux>, socket: &Path) -> O
     }
     let session = mux.session.clone();
     let (wake, events) = match watch::Wake::new().and_then(|wake| {
-        let events = watch::Events::start(&wake, &dirs)?;
+        let events = match watch::Events::start(&wake, &dirs) {
+            Ok(events) => events,
+            // A folder removed before its watch began is the loss itself.
+            Err(_) if reachable.lost().is_some() => watch::Events::none(),
+            Err(error) => return Err(error),
+        };
         Ok((wake, events))
     }) {
         Ok(started) => started,
@@ -161,6 +166,7 @@ fn run(
     session: &str,
 ) {
     let mut lost: Option<String> = None;
+    let mut watching_files = true;
     loop {
         if shared.stopping.load(Ordering::SeqCst) {
             return;
@@ -172,6 +178,7 @@ fn run(
                 // watches also means a removed or revoked vnode can never
                 // wake this thread again.
                 events = watch::Events::none();
+                watching_files = false;
             }
         }
         if let Some(why) = &lost {
@@ -189,9 +196,15 @@ fn run(
             }
         }
         if !events.wait(&shared.wake) {
+            if !watching_files {
+                // The wake itself failed, and would fail again at once: end
+                // the watch rather than retry without blocking.
+                return;
+            }
             // The file watch failed: client arrivals and departures still
-            // wake it, so a loss already seen is still acted on.
+            // wake the thread, so a loss already seen is still acted on.
             events = watch::Events::none();
+            watching_files = false;
         }
     }
 }
