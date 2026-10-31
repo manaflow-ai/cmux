@@ -912,6 +912,22 @@
       "title" : "Density",
       "type" : "string"
     },
+    "appearance.displayBackgroundRotations" : {
+      "description" : "Map stable display identifiers to 15m, hourly, or daily. Unset displays use the global rotation.",
+      "properties" : {
+
+      },
+      "title" : "Per-display Background Rotation",
+      "type" : "object"
+    },
+    "appearance.displayBackgrounds" : {
+      "description" : "Map stable display identifiers to daily, folder:<absolute path>, desktop, a fixed background, or none.",
+      "properties" : {
+
+      },
+      "title" : "Per-display Backgrounds",
+      "type" : "object"
+    },
     "appearance.experimentalControls" : {
       "default" : false,
       "description" : "Applies Hue and Saturation to the window's tint. Off, they have no effect.",

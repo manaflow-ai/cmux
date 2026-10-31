@@ -109,6 +109,20 @@ nonisolated enum AppearanceSettingsSchema {
                 default: .string(BackdropRotation.defaultRotation.rawValue),
                 keywords: ["shuffle", "rotate", "rotating", "wallpaper", "interval", "change picture", "background"]
             ),
+            SettingDescriptor(
+                ["appearance", "displayBackgrounds"], section: .appearance, group: window,
+                title: SettingsText.keyed("settings.appearance.displayBackgrounds", "Per-display Backgrounds"),
+                help: SettingsText.keyed("settings.appearance.displayBackgrounds.help", "Map stable display identifiers to daily, folder:<absolute path>, desktop, a fixed background, or none."),
+                kind: .stringMap, default: nil,
+                keywords: ["display", "screen", "wallpaper", "background", "folder", "none"]
+            ),
+            SettingDescriptor(
+                ["appearance", "displayBackgroundRotations"], section: .appearance, group: window,
+                title: SettingsText.keyed("settings.appearance.displayBackgroundRotations", "Per-display Background Rotation"),
+                help: SettingsText.keyed("settings.appearance.displayBackgroundRotations.help", "Map stable display identifiers to 15m, hourly, or daily. Unset displays use the global rotation."),
+                kind: .stringMap, default: nil,
+                keywords: ["display", "screen", "wallpaper", "rotation", "cadence", "hourly"]
+            ),
             PaneBackgroundsSetting.descriptor(group: window),
             ReducedBackgroundsSetting.descriptor(group: window),
             SettingDescriptor(

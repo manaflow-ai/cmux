@@ -10,6 +10,7 @@ import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
+import CmuxNextSettings
 import Observation
 
 /// One window: sidebar, titlebar, and the content of the workspace it shows.
@@ -47,6 +48,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// it (with the color transition).
     let themeScope = ThemeScope(level: .room)
     private var roomObservation: Task<Void, Never>?
+    private var displayBackdropObservation: Task<Void, Never>?
+    private var displayBackdrop: DisplayBackdropBinding?
     private var roomBrowserProfileObservation: Task<Void, Never>?
     /// Shown while the window has no workspace (first connect, or failure).
     private(set) var connectingView: DaemonConnectingView?
@@ -112,6 +115,20 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // contentRect grows by the titlebar; restore the saved frame exactly.
         if let frame { window.setFrame(frame, display: false) } else { window.center() }
         window.delegate = self
+        let displayBackdrop = DisplayBackdropBinding(window: window, scope: themeScope,
+                                                      displayID: { [weak window] in
+                                                          window?.screen.flatMap(WindowPlacementFallback.displayID(of:))
+                                                      })
+        self.displayBackdrop = displayBackdrop
+        if let settings = services.settings {
+            displayBackdrop.apply(settings.snapshot.root)
+            displayBackdropObservation = Task { [weak self, weak settings] in
+                guard let settings else { return }
+                for await root in ObservationStream({ settings.applied.root }) {
+                    self?.displayBackdrop?.apply(root)
+                }
+            }
+        }
         window.focus = focus
         focus.applier = focusApplier
         focus.window = window
@@ -138,6 +155,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         startupObservation?.cancel()
         previewFeaturesObservation?.cancel()
         roomObservation?.cancel()
+        displayBackdropObservation?.cancel()
+        displayBackdrop?.stop()
+        displayBackdrop = nil
         roomBrowserProfileObservation?.cancel()
         state.roomBrowserProfileOf = nil
         content?.teardown()

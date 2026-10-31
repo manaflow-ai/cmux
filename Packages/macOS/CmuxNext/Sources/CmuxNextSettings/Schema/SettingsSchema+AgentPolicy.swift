@@ -112,6 +112,7 @@ extension SettingsSchema {
         "appearance.wallpaperTint",
         "appearance.background",
         "appearance.backgroundRotation",
+        "appearance.displayBackgrounds", "appearance.displayBackgroundRotations", // per-display background and cadence (looks only)
         "appearance.paneBackgrounds",
         "ui.reducedBackgrounds",
         "appearance.experimentalControls",

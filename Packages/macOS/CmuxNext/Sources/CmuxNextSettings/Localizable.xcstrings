@@ -53788,6 +53788,530 @@
         }
       }
     },
+    "settings.appearance.displayBackgrounds": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per-display Backgrounds"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hintergründe pro Bildschirm"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fonds par écran"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خلفيات لكل شاشة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fondos por pantalla"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各顯示器背景"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各显示器背景"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "디스플레이별 배경"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスプレイごとの背景"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozadine po ekranu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baggrunde pr. skærm"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sfondi per schermo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទៃខាងក្រោយតាមអេក្រង់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bakgrunner per skjerm"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tła dla poszczególnych ekranów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fundos por tela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фоны для каждого экрана"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นหลังแยกตามจอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekran başına arka planlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фони для кожного екрана"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hình nền theo từng màn hình"
+          }
+        }
+      }
+    },
+    "settings.appearance.displayBackgrounds.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Map stable display identifiers to daily, folder:<absolute path>, desktop, a fixed background, or none."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordnet stabilen Bildschirmkennungen daily, folder:<absolute path>, desktop, einen festen Hintergrund oder none zu."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Associe des identifiants d’écran stables à daily, folder:<absolute path>, desktop, un fond fixe ou none."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يربط معرّفات الشاشات الثابتة بـ daily أو folder:<absolute path> أو desktop أو خلفية ثابتة أو none."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Asigna identificadores de pantalla estables a daily, folder:<absolute path>, desktop, un fondo fijo o none."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將固定的顯示器識別碼對應到 daily、folder:<absolute path>、desktop、固定背景或 none。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将固定的显示器标识符映射到 daily、folder:<absolute path>、desktop、固定背景或 none。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "고정 디스플레이 식별자를 daily, folder:<absolute path>, desktop, 고정 배경 또는 none에 연결합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定のディスプレイ識別子を daily、folder:<absolute path>、desktop、固定の背景、または none に対応付けます。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povezuje stalne identifikatore ekrana s daily, folder:<absolute path>, desktop, fiksnom pozadinom ili none."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Knytter faste skærm-id'er til daily, folder:<absolute path>, desktop, en fast baggrund eller none."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Associa identificatori stabili degli schermi a daily, folder:<absolute path>, desktop, uno sfondo fisso o none."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្ជាប់លេខសម្គាល់អេក្រង់ថេរទៅ daily, folder:<absolute path>, desktop, ផ្ទៃខាងក្រោយថេរ ឬ none។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Knytter faste skjerm-ID-er til daily, folder:<absolute path>, desktop, en fast bakgrunn eller none."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przypisuje stałym identyfikatorom ekranów daily, folder:<absolute path>, desktop, stałe tło lub none."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Associa identificadores de tela estáveis a daily, folder:<absolute path>, desktop, um fundo fixo ou none."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сопоставляет постоянные идентификаторы экранов с daily, folder:<absolute path>, desktop, фиксированным фоном или none."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จับคู่ตัวระบุจอที่คงที่กับ daily, folder:<absolute path>, desktop, พื้นหลังคงที่ หรือ none"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sabit ekran kimliklerini daily, folder:<absolute path>, desktop, sabit bir arka plan veya none ile eşler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зіставляє сталі ідентифікатори екранів із daily, folder:<absolute path>, desktop, фіксованим фоном або none."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gán mã định danh cố định của màn hình cho daily, folder:<absolute path>, desktop, một hình nền cố định hoặc none."
+          }
+        }
+      }
+    },
+    "settings.appearance.displayBackgroundRotations": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per-display Background Rotation"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hintergrundwechsel pro Bildschirm"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rotation du fond par écran"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبديل الخلفية لكل شاشة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rotación del fondo por pantalla"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各顯示器背景輪換"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各显示器背景轮换"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "디스플레이별 배경 회전"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスプレイごとの背景の切り替え"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rotacija pozadine po ekranu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baggrundsskift pr. skærm"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rotazione dello sfondo per schermo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប្ដូរផ្ទៃខាងក្រោយតាមអេក្រង់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bakgrunnsbytte per skjerm"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zmiana tła dla poszczególnych ekranów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rotação do fundo por tela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Смена фона для каждого экрана"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเปลี่ยนพื้นหลังแยกตามจอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekran başına arka plan değişimi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зміна фону для кожного екрана"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xoay vòng hình nền theo từng màn hình"
+          }
+        }
+      }
+    },
+    "settings.appearance.displayBackgroundRotations.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Map stable display identifiers to 15m, hourly, or daily. Unset displays use the global rotation."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordnet stabilen Bildschirmkennungen 15m, hourly oder daily zu. Bildschirme ohne Eintrag nutzen den globalen Wechsel."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Associe des identifiants d’écran stables à 15m, hourly ou daily. Les écrans sans valeur utilisent la rotation globale."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يربط معرّفات الشاشات الثابتة بـ 15m أو hourly أو daily. الشاشات غير المحددة تستخدم التبديل العام."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Asigna identificadores de pantalla estables a 15m, hourly o daily. Las pantallas sin valor usan la rotación global."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將固定的顯示器識別碼對應到 15m、hourly 或 daily。未設定的顯示器使用全域輪換。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将固定的显示器标识符映射到 15m、hourly 或 daily。未设置的显示器使用全局轮换。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "고정 디스플레이 식별자를 15m, hourly 또는 daily에 연결합니다. 설정하지 않은 디스플레이는 전역 회전을 사용합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定のディスプレイ識別子を 15m、hourly、または daily に対応付けます。未設定のディスプレイは全体の切り替えを使います。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povezuje stalne identifikatore ekrana s 15m, hourly ili daily. Ekrani bez unosa koriste globalnu rotaciju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Knytter faste skærm-id'er til 15m, hourly eller daily. Skærme uden værdi bruger det globale skift."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Associa identificatori stabili degli schermi a 15m, hourly o daily. Gli schermi senza valore usano la rotazione globale."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្ជាប់លេខសម្គាល់អេក្រង់ថេរទៅ 15m, hourly ឬ daily។ អេក្រង់ដែលមិនបានកំណត់ប្រើការប្ដូរសកល។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Knytter faste skjerm-ID-er til 15m, hourly eller daily. Skjermer uten verdi bruker det globale byttet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przypisuje stałym identyfikatorom ekranów 15m, hourly lub daily. Ekrany bez wpisu używają globalnej zmiany."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Associa identificadores de tela estáveis a 15m, hourly ou daily. Telas sem valor usam a rotação global."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сопоставляет постоянные идентификаторы экранов с 15m, hourly или daily. Экраны без значения используют общую смену."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จับคู่ตัวระบุจอที่คงที่กับ 15m, hourly หรือ daily จอที่ไม่ได้ตั้งค่าจะใช้การเปลี่ยนแบบทั้งระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sabit ekran kimliklerini 15m, hourly veya daily ile eşler. Değer verilmeyen ekranlar genel değişimi kullanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зіставляє сталі ідентифікатори екранів із 15m, hourly або daily. Екрани без значення використовують загальну зміну."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gán mã định danh cố định của màn hình cho 15m, hourly hoặc daily. Màn hình chưa đặt dùng chế độ xoay vòng chung."
+          }
+        }
+      }
+    },
     "settings.choice.shuffleDaily": {
       "extractionState": "manual",
       "localizations": {
