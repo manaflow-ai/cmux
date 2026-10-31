@@ -290,7 +290,7 @@
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Normal"
+            "value": "Standard"
           }
         },
         "en": {
@@ -302,13 +302,13 @@
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Normal"
+            "value": "Estándar"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Normal"
+            "value": "Normale"
           }
         },
         "it": {
