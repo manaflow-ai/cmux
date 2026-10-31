@@ -131,6 +131,15 @@ export const inboxRefusalFor = (state: UserState, entity: string, principal: Pri
 }
 
 /** True when the principal's install exists and is not revoked. */
+/** Active install grant with expiry and op classes; callers must bind the exact grant. */
+export const liveInstallGrant = (state: UserState, p: Principal, now: number) => {
+  if (p.kind !== "install" || !p.install || !p.grant) return undefined
+  const inst = state.installs[p.install], grant = state.grants[p.grant]
+  if (!inst || !grant || inst.revoked_at !== null || inst.grant !== p.grant || grant.grantee !== p.install || grant.revoked_at !== null
+    || (grant.expires_at !== null && grant.expires_at <= now) || p.install_authority !== undefined) return undefined
+  return grant
+}
+
 export const installActive = (state: UserState, p: Principal) => {
   if (p.kind === "session") return true
   const inst = p.install ? state.installs[p.install] : undefined

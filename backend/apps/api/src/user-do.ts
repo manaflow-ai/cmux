@@ -9,7 +9,7 @@ import { emailDomainOf, verifyInstallSignature, type InstallClaims } from "./aut
 import { verifyAttestation, type AttestedKey } from "./app-attest.ts"
 import { isCompanyEmail } from "./domains/cloud-plan.ts"
 import { admit } from "./domains/common.ts"
-import { chiefActive, grantFor, inboxRefusalFor, installActive, grantMigrationsDue, userPathAllowed, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
+import { chiefActive, grantFor, inboxRefusalFor, installActive, liveInstallGrant, grantMigrationsDue, userPathAllowed, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
 import { appIdHashFor, confirmRead } from "./domains/user-confirm.ts"
 import { CHIEF_AGENT_CLASS, chiefList, placedChiefClasses } from "./domains/user-chief.ts"
 import { avatarRpc, type AvatarCall } from "./user-avatars.ts"
@@ -22,6 +22,7 @@ import { SecondaryStream } from "./secondary-stream.ts"
 import { pullLargeRows, readInboxOp } from "./user-inbox.ts"
 import { checkPresenceKey, type PresenceKeyBody } from "./user-presence-key.ts"
 import { homeRateTakeSql, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
+import { installAuthorityVersion, withInstallAuthority } from "./domains/user-authority.ts"
 
 const CHALLENGE_TTL_MS = 2 * 60_000
 
@@ -47,7 +48,7 @@ export class UserDO extends OwnerDO<UserState> {
   protected homePushSender = apnsHomePushSender(this.env)
 
   constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env, makeUserDomain(appIdHashFor(env.IOS_APP_ID)), "user")
+    super(ctx, env, withInstallAuthority(makeUserDomain(appIdHashFor(env.IOS_APP_ID))), "user")
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS auth_challenges (nonce TEXT PRIMARY KEY, install TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS auth_team_challenges (nonce TEXT PRIMARY KEY, install TEXT NOT NULL, team TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
     this.homePush = new HomePushQueue(this.sqlStore)
@@ -502,6 +503,31 @@ export class UserDO extends OwnerDO<UserState> {
     const op_classes = agent === undefined ? g.op_classes : await placedChiefClasses(state, inst, install, agent, g.op_classes, (team, host) => this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)).serverPlacementActive(team, host, install), () => engine.currentState)
     if (!op_classes) return { ok: false } // unknown or archived chief, or a placed server TeamDO no longer confirms (G8, revoke race)
     return { ok: true, op_classes, kind: inst.kind, email: state.user?.email ?? null, email_verified: state.user?.email_verified === true, ...(inst.bound_machine ? { bound_machine: inst.bound_machine } : {}), ...(inst.sso_team ? { sso_team: inst.sso_team } : {}) }
+  }
+
+  /** Internal identity projection pinned to the caller's live grant and authority incarnation. */
+  async networkIdentity(entity: string, install: string, grant: string, team: string): Promise<{ key: JsonWebKey; kind: string; expires_at: number | null; authority_version: string; op_classes: ReadonlyArray<string> } | null> {
+    const engine = this.existing()
+    if (!engine || engine.stream !== `user:${entity}`) return null
+    const state = engine.currentState, inst = state.installs[install]
+    const held = liveInstallGrant(state, { identity: install, kind: "install", user: entity, install, grant, team }, Date.now())
+    if (!state.user || !inst || !held || !["daemon", "mac", "ios", "cli"].includes(inst.kind)
+      || (inst.kind === "daemon" && inst.bound_team !== team) || !held.op_classes.includes("read") || !held.op_classes.includes("mutate-own")) return null
+    return { key: inst.public_jwk as JsonWebKey, kind: inst.kind, expires_at: held.expires_at, authority_version: installAuthorityVersion(state, install), op_classes: held.op_classes }
+  }
+
+  async networkIdentities(entity: string, entries: ReadonlyArray<{ install: string; grant: string }>, team: string) {
+    if (!Array.isArray(entries) || entries.length > 128 || entries.some((v) => !v || typeof v.install !== "string" || typeof v.grant !== "string" || v.install.length > 128 || v.grant.length > 128)) return []
+    return Promise.all(entries.map((v) => this.networkIdentity(entity, v.install, v.grant, team)))
+  }
+
+  async vmNetworkIdentity(entity: string, install: string, grant: string, team: string, machine: string) {
+    const engine = this.existing()
+    if (!engine || engine.stream !== `user:${entity}`) return null
+    const state = engine.currentState, inst = state.installs[install]
+    const held = liveInstallGrant(state, { identity: install, kind: "install", user: entity, install, grant, team }, Date.now())
+    if (state.user?.id !== entity || !inst || inst.kind !== "vm" || inst.bound_team !== team || inst.bound_machine !== machine || !held || !held.op_classes.includes("vm-self")) return null
+    return { key: inst.public_jwk as JsonWebKey, kind: inst.kind, expires_at: held.expires_at, authority_version: installAuthorityVersion(state, install), op_classes: held.op_classes }
   }
 
   async challenge(entity: string, install: string, team?: string): Promise<{ ok: true; nonce: string; expires_at: number } | { ok: false; message: string }> {
