@@ -109,11 +109,13 @@ public final class ScreenshotsView: NSView {
     /// Runs when the person clicks Show Screenshots (the app remembers the tab and starts the folder detection).
     public var onShowScreenshots: (() -> Void)?
 
-    /// Focuses the grid (the tab got focus).
-    public func focus() { grid.focus() }
+    /// Focuses the grid, or Show Screenshots while the prompt is up (the tab got focus); Space presses the button.
+    public func focus() {
+        if showsPrompt { window?.makeFirstResponder(promptButton) } else { grid.focus() }
+    }
 
     /// The view that takes the keyboard when the tab is focused.
-    public var focusTarget: NSView { grid }
+    public var focusTarget: NSView { showsPrompt ? promptButton : grid }
 
     /// Whether the Show Screenshots prompt is up (the page has listed nothing yet).
     public var showsPrompt: Bool { !prompt.isHidden }

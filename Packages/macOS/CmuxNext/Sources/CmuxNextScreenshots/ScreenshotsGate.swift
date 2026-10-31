@@ -11,14 +11,17 @@ public final class ScreenshotsGate {
     public init() {}
 
     /// Whether the person unlocked the tab `key`.
-    public func isUnlocked(_ key: String) -> Bool { true }
+    public func isUnlocked(_ key: String) -> Bool { unlocked.contains(key) }
 
     /// Whether any tab is unlocked: only then may the folders be detected.
-    public var mayDetect: Bool { true }
+    public var mayDetect: Bool { !unlocked.isEmpty }
 
     /// The person clicked Show Screenshots in the tab `key`.
     public func unlock(_ key: String) { unlocked.insert(key) }
 
     /// The tab `key` closed for good.
     public func forget(_ key: String) { unlocked.remove(key) }
+
+    /// A model for the tab `key`'s page: listing at once when the person unlocked the tab before.
+    public func model(for key: String) -> ScreenshotsModel { ScreenshotsModel(listsAtOnce: isUnlocked(key)) }
 }

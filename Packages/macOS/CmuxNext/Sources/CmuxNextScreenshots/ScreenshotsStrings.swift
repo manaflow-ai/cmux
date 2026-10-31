@@ -19,6 +19,9 @@ nonisolated struct ScreenshotsStrings {
         t("screenshots.prompt.body", "Your screenshots are saved on your Desktop or in another folder that macOS protects. cmux reads them only after you click.")
     }
     static var promptButton: String { t("screenshots.prompt.button", "Show Screenshots") }
+    static var existingNeedsClick: String {
+        t("screenshots.open.existing", "Screenshots is already open. It shows your screenshots only after you click Show Screenshots in it.")
+    }
     static var openedInBackground: String {
         t("screenshots.open.background", "Opened Screenshots in the background. It shows your screenshots only after you click Show Screenshots in it.")
     }

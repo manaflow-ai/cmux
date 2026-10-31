@@ -9,8 +9,17 @@ public nonisolated struct ScreenshotsOpen: Sendable, Equatable {
     public let selects: Bool
     /// What the caller is told, nil for the person's own run.
     public let note: String?
-    /// The run's answer to a capturing caller (`action.run` `result`): nil for the person's own run.
-    public var result: [String: String]? { note.map { ["opened": "background", "note": $0] } }
+    /// The run's answer to a capturing caller (`action.run` `result`), nil for the person's own run: a new tab
+    /// opened in the background, or the tab already open, with whether it lists (the person clicked in it).
+    ///
+    /// - Parameters:
+    ///   - existing: the window already had a Screenshots tab.
+    ///   - listing: that tab lists its folders.
+    public func result(existing: Bool, listing: Bool) -> (opened: String, listing: Bool, note: String?)? {
+        guard let note else { return nil }
+        guard existing else { return ("background", false, note) }
+        return ("existing", listing, listing ? nil : ScreenshotsStrings.existingNeedsClick)
+    }
 
     /// The decision for one run; whether it asked for focus (`--focus`) does not change it.
     ///

@@ -15,7 +15,7 @@ final class ScreenshotsPageService {
     private weak var services: AppServices?
     /// One cache for every Screenshots page (and, later, the Finder pane's grids).
     let thumbnails = ThumbnailCache()
-    private let workspace = AppScreenshotsWorkspace()
+    private let workspace = SystemScreenshotsWorkspace()
     /// Drops, renames and trashes go through the Files pane's operations.
     private let files = FileOperator()
     private let detector: ScreenshotSourceDetector
@@ -36,30 +36,36 @@ final class ScreenshotsPageService {
     func open(_ invocation: ActionInvocation) -> ActionEffect {
         let run = ScreenshotsOpen(personsRun: invocation.isPersonsOwnRun)
         guard let window = services?.windows.active else { return .refused(RefusalStrings.noWindowOpen) }
-        let said = run.result.map { fields in ActionEffect.applied(result: { .success(fields.mapValues(ActionResultValue.string)) }) } ?? .done
+        func said(_ tab: String?) -> ActionEffect {
+            guard let said = run.result(existing: tab != nil, listing: tab.map(gate.isUnlocked) ?? false) else { return .done }
+            return .applied(result: { .success(["opened": .string(said.opened), "listing": .bool(said.listing)].merging(said.note.map { ["note": .string($0)] } ?? [:]) { $1 }) })
+        }
         for pane in window.content?.panes.values.map({ $0 }) ?? [] {
             if let tab = pane.pane.tabs.first(where: { ScreenshotsPageAddress.matches($0.url.flatMap(URL.init(string:))) }) {
                 if run.selects { pane.select(StripTabID(tab.id)) }
-                return said
+                return said(tab.id)
             }
         }
-        return window.focusedPane?.newBrowserTab(url: ScreenshotsPageAddress.url, background: !run.selects) == true ? said : .done
+        return window.focusedPane?.newBrowserTab(url: ScreenshotsPageAddress.url, background: !run.selects) == true ? said(nil) : .done
     }
 
     func makePage(key: String, engine: BrowserEngineKind, profile: BrowserProfileID) -> ScreenshotsPageTab {
-        let model = ScreenshotsModel(listsAtOnce: false) // lists after the person's click (ScreenshotsView's prompt)
+        let model = gate.model(for: key) // lists after the person's click in the tab (ScreenshotsView's prompt)
         let page = ScreenshotsPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, model: model,
                                       cache: thumbnails, workspace: workspace, files: files)
         page.onClose = { [weak self] in self?.pages.removeValue(forKey: key) }
+        page.view.onShowScreenshots = { [weak self] in self?.unlock(key) }
         pages[key] = page
+        if gate.mayDetect { offer(to: model) }
+        return page
+    }
+
+    private func unlock(_ key: String) { gate.unlock(key); pages[key].map { offer(to: $0.model) } } // the person's click
+
+    private func offer(to model: ScreenshotsModel) { // the folders for the current settings, found first when needed
         followSettings()
         let settings = settings()
-        if let detected, detected.settings == settings {
-            model.setSources(detected.sources)
-        } else {
-            detect(settings)
-        }
-        return page
+        if let detected, detected.settings == settings { model.setSources(detected.sources) } else { detect(settings) }
     }
 
     private func settings() -> ScreenshotsSettings {
@@ -79,7 +85,7 @@ final class ScreenshotsPageService {
                 followsSettings = false
                 followSettings()
                 let settings = self.settings()
-                if detected?.settings != settings { detect(settings) }
+                if gate.mayDetect, detected?.settings != settings { detect(settings) }
             }
         }
     }

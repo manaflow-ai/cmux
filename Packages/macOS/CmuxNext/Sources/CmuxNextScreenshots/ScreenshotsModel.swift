@@ -50,10 +50,10 @@ public final class ScreenshotsModel {
     /// - Parameters:
     ///   - reader: reads folders (default: the disk through CmuxNextFiles).
     ///   - watcher: reports changes (default: CmuxNextFiles' FSEvents ``FolderWatcher``).
-    ///   - listsAtOnce: read and watch the folders as soon as they are set; off, nothing is read or watched
-    ///     until ``startListing()`` (the app's page: macOS guards ~/Desktop, its default screenshot folder).
+    ///   - listsAtOnce: read and watch the folders as soon as they are set; off (the default), nothing is read
+    ///     or watched until ``startListing()`` (macOS guards ~/Desktop, the default screenshot folder).
     public init(reader: ScreenshotFolderReader = ScreenshotFolderReader(), watcher: any FolderWatching = FolderWatcher(),
-                listsAtOnce: Bool = true) {
+                listsAtOnce: Bool = false) {
         self.reader = reader
         self.watcher = watcher
         isListing = listsAtOnce

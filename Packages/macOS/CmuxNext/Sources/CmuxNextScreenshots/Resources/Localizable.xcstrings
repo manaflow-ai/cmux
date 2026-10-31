@@ -656,6 +656,137 @@
         }
       }
     },
+    "screenshots.open.existing" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Screenshots is already open. It shows your screenshots only after you click Show Screenshots in it."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لقطات الشاشة مفتوحة بالفعل. لا تظهر لقطات الشاشة إلا بعد أن تنقر على «عرض لقطات الشاشة» فيها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Snimci ekrana su već otvoreni. Snimci se prikazuju tek kada u njima kliknete „Prikaži snimke ekrana“."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skærmbilleder er allerede åben. Dine skærmbilleder vises først, når du klikker på “Vis skærmbilleder” i den."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bildschirmfotos ist bereits geöffnet. Deine Bildschirmfotos erscheinen erst, nachdem du darin auf „Bildschirmfotos anzeigen“ klickst."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Capturas de pantalla ya está abierta. Solo muestra tus capturas después de que hagas clic en «Mostrar capturas de pantalla» en ella."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Captures d’écran est déjà ouvert. Vos captures ne s’affichent qu’après un clic sur « Afficher les captures d’écran » dans l’onglet."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Istantanee schermo è già aperto. Le istantanee compaiono solo dopo che fai clic su “Mostra istantanee schermo” al suo interno."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スクリーンショットはすでに開いています。その中の「スクリーンショットを表示」をクリックするまで、スクリーンショットは表示されません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "រូបថតអេក្រង់បានបើករួចហើយ។ វាបង្ហាញរូបថតអេក្រង់របស់អ្នកតែបន្ទាប់ពីអ្នកចុច «បង្ហាញរូបថតអេក្រង់» នៅក្នុងវាប៉ុណ្ណោះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "스크린샷이 이미 열려 있습니다. 그 안에서 ‘스크린샷 표시’를 클릭해야 스크린샷이 표시됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skjermbilder er allerede åpen. Skjermbildene dine vises først når du klikker på «Vis skjermbilder» i den."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zrzuty ekranu są już otwarte. Zrzuty pojawią się dopiero po kliknięciu w nich „Pokaż zrzuty ekranu”."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Capturas de Tela já está aberto. Ele só mostra suas capturas depois que você clica em “Mostrar Capturas de Tela” nele."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Снимки экрана уже открыты. Снимки появятся только после того, как вы нажмёте в них «Показать снимки экрана»."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ภาพหน้าจอเปิดอยู่แล้ว ภาพหน้าจอของคุณจะแสดงหลังจากที่คุณคลิก “แสดงภาพหน้าจอ” ในแท็บนั้นเท่านั้น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ekran Görüntüleri zaten açık. Ekran görüntüleriniz yalnızca içinde “Ekran Görüntülerini Göster”e tıkladıktan sonra görünür."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Знімки екрана вже відкрито. Знімки з’являться лише після того, як ви натиснете в них «Показати знімки екрана»."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ảnh chụp màn hình đã được mở. Ảnh chỉ hiển thị sau khi bạn bấm “Hiển thị ảnh chụp màn hình” trong đó."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "截屏已经打开。只有在其中点按“显示截屏”后，才会显示你的截屏。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "截圖已經開啟。只有在其中按一下「顯示截圖」後，才會顯示你的截圖。"
+          }
+        }
+      }
+    },
     "screenshots.prompt.body" : {
       "extractionState" : "manual",
       "localizations" : {
