@@ -8,7 +8,6 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
-from fractions import Fraction
 import shutil
 import sys
 import subprocess
@@ -246,14 +245,20 @@ class MakeVideoTests(unittest.TestCase):
 
             def probe(path):
                 result = subprocess.run([
-                    "ffprobe", "-v", "error", "-select_streams", "v:0",
-                    "-show_entries", "stream=avg_frame_rate,duration", "-of", "json", str(path),
+                    "ffprobe", "-v", "error", "-select_streams", "v:0", "-count_frames",
+                    "-show_entries", "stream=nb_read_frames,duration", "-of", "json", str(path),
                 ], capture_output=True, text=True, check=True)
                 stream = json.loads(result.stdout)["streams"][0]
-                return Fraction(stream["avg_frame_rate"]), float(stream["duration"])
+                # GIF delays use hundredths of a second: 15 fps alternates 6/7 cs.
+                # The demuxer's avg_frame_rate can report 50/3 for that cadence;
+                # measure decoded frames over the complete playback duration.
+                duration = float(stream["duration"])
+                return int(stream["nb_read_frames"]) / duration, duration
 
             mp4_rate, mp4_duration = probe(mp4)
             gif_rate, gif_duration = probe(gif)
+            print(f"Encoded capture: MP4 {mp4_rate:.3f} fps / {mp4_duration:.3f}s; "
+                  f"GIF {gif_rate:.3f} fps / {gif_duration:.3f}s", flush=True)
             self.assertGreaterEqual(float(mp4_rate), 30)
             self.assertAlmostEqual(mp4_duration, 2, delta=0.1)
             self.assertGreaterEqual(float(gif_rate), 12)
