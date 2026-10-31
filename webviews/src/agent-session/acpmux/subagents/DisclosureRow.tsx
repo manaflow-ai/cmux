@@ -111,6 +111,8 @@ export function DisclosureRow({
       {/* The line summarizes indexed content in the panel; it adds no Find occurrences. */}
       <TranscriptActivityRowShell
         className={`cv-disclosure__line${lineClassName ? ` ${lineClassName}` : ""}`}
+        attributes={{ "data-find-skip": "" }}
+        headerRef={onOpen ? collapse.headerRef : undefined}
       >
         {leading}
         {onOpen ? (

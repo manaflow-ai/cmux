@@ -81,9 +81,21 @@ export function TranscriptActivityRow({
 export function TranscriptActivityRowShell({
   children,
   className,
+  attributes,
+  headerRef,
 }: {
   children: ReactNode;
   className?: string;
+  attributes?: Record<string, string | undefined>;
+  headerRef?: Ref<HTMLDivElement>;
 }) {
-  return <div className={`cv-agent-activity-row${className ? ` ${className}` : ""}`}>{children}</div>;
+  return (
+    <div
+      className={`cv-agent-activity-row${className ? ` ${className}` : ""}`}
+      ref={headerRef}
+      {...attributes}
+    >
+      {children}
+    </div>
+  );
 }
