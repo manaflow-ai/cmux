@@ -1085,6 +1085,67 @@ class SettleThroughTheDriver(unittest.TestCase):
             self.run_step(0.3)
 
 
+
+class Burst(unittest.TestCase):
+    """smoke_burst: one debug.key sequence of real key events (TIP RED 1193's hold path, cmux-ad 11:05Z)."""
+
+    def setUp(self):
+        sys.path.insert(0, str(HERE))
+        import ext_smoke
+
+        class StepError(Exception):
+            pass
+
+        class NotRun(Exception):
+            pass
+
+        ext_smoke.install(type("D", (), {"StepError": StepError, "NotRun": NotRun, "now": staticmethod(lambda: 0.0)}))
+        self.ext, self.NotRun = ext_smoke, NotRun
+
+    def test_a_line_becomes_key_codes_with_shift_for_the_shifted_characters(self):
+        steps = self.ext._seq_text("echo $(", 0)
+        downs = [(st["key_code"], st["down"]) for st in steps]
+        self.assertEqual(downs[:2], [(14, True), (14, False)])  # e
+        self.assertIn((56, True), downs)  # shift for $ and (
+        self.assertEqual(downs[-4:], [(56, True), (25, True), (25, False), (56, False)])  # ( = shift 9
+        cmd_d = self.ext._seq_key(2, ("cmd",))
+        self.assertEqual([(st["key_code"], st["down"]) for st in cmd_d], [(55, True), (2, True), (2, False), (55, False)])
+
+    def test_the_burst_is_one_sequence_in_order_and_needs_the_key_window(self):
+        sent = []
+
+        class App:
+            def rpc(self_, method, params=None):
+                if method == "debug.key":
+                    sent.append(params)
+                    return {"scheduled": len(params["sequence"]), "duration_ms": 0}
+                if method == "debug.input":
+                    return {"holds": [{"path": "creation", "stage": {"count": len(sent) * 5}}]}
+                return {}
+
+        class J:
+            app, vars, marks, key_window, smoke_key_ok = App(), {}, {}, "W1", True
+
+            def sub(self_, x):
+                return x
+        sleep = self.ext.time.sleep
+        self.ext.time.sleep = lambda s: None
+        try:
+            result = self.ext.step_smoke_burst(J(), {"burst": [{"key": "d", "modifiers": ["cmd"], "mark": "m"},
+                                                                {"text": "ab"}]})
+        finally:
+            self.ext.time.sleep = sleep
+        self.assertEqual(len(sent), 1)
+        codes = [(st["key_code"], st["down"]) for st in sent[0]["sequence"]]
+        self.assertEqual(codes[:4], [(55, True), (2, True), (2, False), (55, False)])
+        self.assertEqual(codes[-2:], [(36, True), (36, False)])  # Return after the line
+        self.assertEqual(result["held_keys"], {"creation": 5})
+        j = J()
+        j.smoke_key_ok = False
+        with self.assertRaises(self.NotRun):
+            self.ext.step_smoke_burst(j, {"burst": [{"text": "a"}]})
+
+
 class Loads(unittest.TestCase):
     def test_the_smoke_journey_and_its_steps_load(self):
         done = subprocess.run([sys.executable, str(HERE / "run.py"), "--check"], capture_output=True, text=True, timeout=120)

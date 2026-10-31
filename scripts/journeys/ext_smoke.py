@@ -1054,7 +1054,91 @@ def step_smoke_no_key_gaps(j, step):
     return {"key_gaps": 0}
 
 
-STEPS = {"smoke_no_key_gaps": step_smoke_no_key_gaps, "smoke_ready": step_smoke_ready, "smoke_make_key": step_smoke_make_key, "smoke_type_now": step_smoke_type_now,
+# ---- TIP RED 1193: keys posted in the same event-queue drain as the key that makes the terminal ------------------
+
+# US ANSI virtual key codes (Carbon kVK_*): the keys a line of the journeys uses.
+_KEYCODES = {**{c: k for c, k in zip("asdfhgzxcvbqweryt", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17])},
+             "1": 18, "2": 19, "3": 20, "4": 21, "6": 22, "5": 23, "=": 24, "9": 25, "7": 26, "-": 27, "8": 28, "0": 29,
+             "]": 30, "o": 31, "u": 32, "[": 33, "i": 34, "p": 35, "l": 37, "j": 38, "'": 39, "k": 40, ";": 41,
+             "\\": 42, ",": 43, "/": 44, "n": 45, "m": 46, ".": 47, " ": 49, "`": 50}
+_SHIFTED = {"$": "4", "(": "9", ")": "0", "*": "8", "!": "1", "@": "2", "#": "3", "%": "5", "^": "6", "&": "7",
+            "_": "-", "+": "=", "{": "[", "}": "]", "|": "\\", ":": ";", '"': "'", "<": ",", ">": ".", "?": "/", "~": "`"}
+_MODS = {"cmd": 55, "shift": 56, "option": 58, "control": 59}
+_RETURN = 36
+
+
+def _seq_key(code, mods=(), gap=0.0):
+    """Key-down and key-up of CODE with MODS held: the steps of a debug.key sequence."""
+    steps = [{"key_code": _MODS[m], "down": True, "after_ms": gap if i == 0 else 0} for i, m in enumerate(mods)]
+    steps += [{"key_code": code, "down": True, "after_ms": 0 if mods else gap}, {"key_code": code, "down": False}]
+    steps += [{"key_code": _MODS[m], "down": False} for m in reversed(mods)]
+    return steps
+
+
+def _seq_text(text, gap):
+    steps = []
+    for ch in text:
+        if ch in _SHIFTED:
+            steps += _seq_key(_KEYCODES[_SHIFTED[ch]], ("shift",), gap)
+        elif ch.lower() in _KEYCODES and ch.isupper():
+            steps += _seq_key(_KEYCODES[ch.lower()], ("shift",), gap)
+        elif ch in _KEYCODES:
+            steps += _seq_key(_KEYCODES[ch], (), gap)
+        else:
+            raise D.StepError(f"smoke_burst: no key code for {ch!r}")
+    return steps
+
+
+def _holds(j):
+    """{hold path: keys it held since launch} (debug.input late_keys `holds`), or None on a build without it."""
+    try:
+        reply = j.app.rpc("debug.input", {"action": "late_keys", "since_launch": True}) or {}
+    except D.StepError:
+        return None
+    holds = reply.get("holds") if isinstance(reply, dict) else None
+    if not isinstance(holds, list):
+        return None
+    out = {}
+    for h in holds:
+        stage = h.get("stage") if isinstance(h.get("stage"), dict) else {}
+        out[str(h.get("path"))] = int(stage.get("count") or 0)
+    return out
+
+
+def step_smoke_burst(j, step):
+    """Plays BURST (a list of {key, modifiers} and {text, enter?}) as ONE `debug.key {sequence}`: real key events posted
+    to the app's queue (its sendEvent, key router, hold and replay paths, as hardware keys), GAP_MS (default 0) apart.
+    The keys after a key that makes a terminal (Cmd-D, Ctrl-`) are in the queue before that terminal exists, so the
+    app must hold them for it and replay them there: the hold path, every time, without changing the app's timing.
+    Needs the journey's window key (smoke_make_key; a whole-host lease): the sequence goes to the key window. Records
+    the hold paths' counts before and after (debug.input late_keys holds, on builds that have it)."""
+    if not getattr(j, "smoke_key_ok", False):
+        raise D.NotRun(GAP + " (smoke_burst posts real key events to the key window)")
+    gap = float(step.get("gap_ms", 0))
+    steps = []
+    for item in step["burst"]:
+        if "text" in item:
+            steps += _seq_text(j.sub(item["text"]), gap)
+            if item.get("enter", True):
+                steps += _seq_key(_RETURN, (), gap)
+        else:
+            key = item["key"]
+            code = _RETURN if key == "return" else _KEYCODES[key]
+            steps += _seq_key(code, tuple(item.get("modifiers", [])), gap)
+        if item.get("mark"):
+            j.marks[item["mark"]] = D.now()
+    before = _holds(j)
+    reply = j.app.rpc("debug.key", {"sequence": steps, "key_window": "shell", "window": j.key_window or _journey_window(j)}) or {}
+    if not isinstance(reply, dict) or reply.get("error"):
+        raise D.StepError(f"debug.key sequence refused: {json.dumps(reply)[:300]}")
+    time.sleep(float(reply.get("duration_ms") or 0) / 1000 + 1.0)  # until the last event was posted and dispatched
+    after = _holds(j)
+    held = None if before is None or after is None else {k: after.get(k, 0) - before.get(k, 0) for k in after}
+    j.smoke_burst_holds = held
+    return {"steps": len(steps), "reply": reply, "held_keys": held}
+
+
+STEPS = {"smoke_burst": step_smoke_burst, "smoke_no_key_gaps": step_smoke_no_key_gaps, "smoke_ready": step_smoke_ready, "smoke_make_key": step_smoke_make_key, "smoke_type_now": step_smoke_type_now,
          "smoke_remember_workspaces": step_smoke_remember_workspaces, "smoke_close_all": step_smoke_close_all,
          "smoke_snapshot": step_smoke_snapshot, "smoke_adopt_line": step_smoke_adopt_line,
          "smoke_long_line": step_smoke_long_line, "smoke_widths": step_smoke_widths}
