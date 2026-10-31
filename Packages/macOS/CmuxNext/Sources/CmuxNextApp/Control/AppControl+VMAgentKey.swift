@@ -53,7 +53,7 @@ extension AppControl {
     /// The signed-in session and its team, behind the Cloud policy (not Labs, Leo 2026-10-30).
     nonisolated static func vmIssuer(_ services: AppServices) async throws -> VMIssuer {
         let (cloud, baseURL) = try await MainActor.run { () throws -> (CloudService, URL) in
-            if let refusal = Self.policyRefusal("vm.agent_key.create", disabled: services.registry.disabledFeatures) { throw refusal }
+            if let refusal = ControlError.policyRefusal("vm.agent_key.create", disabled: services.registry.disabledFeatures) { throw refusal }
             guard services.cloud.isSignedIn else { throw ControlError(code: "not_signed_in", message: Self.vmText(.notSignedIn)) }
             guard let baseURL = Self.vmBaseURL(services.cloud.configuration.backend) else {
                 throw ControlError(code: "internal", message: "the cmux VM API address is invalid")
