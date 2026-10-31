@@ -16,6 +16,8 @@
   --find-pill-count-min: 52px;
   --find-pill-padding-start: 12px;
   --find-pill-padding-end: 5px;
+  /* The shared icon set's glyphs in the buttons (Octicons are drawn on a 16px grid). */
+  --find-pill-icon: 16px;
 }
 
 .find-pill {
@@ -176,4 +178,21 @@
 .find-pill__toggle {
   margin-left: -6px;
   margin-right: 2px;
+}
+
+/* The shared icon set (icons.tsx `Icon`, `data-icon`): stroke glyphs on its 20px grid, Octicons
+   filled. The diff page styles them in its own sheet; a page without it (the markdown and code
+   editor pages) drew them with no stroke, so the chevrons and the close button were blank. */
+.find-pill__button svg[data-icon] {
+  width: var(--find-pill-icon);
+  height: var(--find-pill-icon);
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.find-pill__button svg[data-icon][data-icon-fill] {
+  fill: currentcolor;
+  stroke: none;
 }

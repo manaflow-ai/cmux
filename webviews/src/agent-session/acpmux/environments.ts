@@ -6,11 +6,19 @@ export type EnvironmentKind = "local" | "ssh" | "cloud";
 /// `connected`: what acpmux last said of an SSH or Cloud machine it lists; absent when it said nothing.
 /// `state`: its link state as acpmux says it (`connecting`, `connected`, `degraded`, `reconnecting`,
 /// `offline`; acpmux peer_link.rs `PeerState`), absent from an older daemon or relay.
-export type Environment = { id: string; label: string; kind: EnvironmentKind; connected?: boolean; state?: string };
+/// `loadWarning`: a ready machine's load warning (machineResources.ts), as the composer words it.
+export type Environment = {
+  id: string;
+  label: string;
+  kind: EnvironmentKind;
+  connected?: boolean;
+  state?: string;
+  loadWarning?: string;
+};
 
 /// The location row's connect choices and the app action each runs (the agent pane allows exactly
 /// these; AgentPaneModel.connectActions): SSH… connects a machine, New Cloud Machine creates one on
-/// the plan's default size, and Open Cloud… opens the Cloud page, whose storefront lists
+/// the plan's default size, Sign in for Cloud (signed out) only signs in and creates nothing, and Open Cloud… opens the Cloud page, whose storefront lists
 /// the plan's sizes (the pane knows no plan), Connect Phone… opens the Mobile Pairing page (cmux
 /// on iPhone reaches this Mac), and Add Machine… opens the Add Device card: a computer on the
 /// tailnet or in ~/.ssh/config (the app installs its agent daemon and keeps it current), or a new
@@ -19,6 +27,7 @@ export type Environment = { id: string; label: string; kind: EnvironmentKind; co
 export const CONNECT_ACTIONS = {
   ssh: "remote.connect",
   cloud: "newCloudMachine",
+  cloudSignIn: "palette.auth.signIn",
   cloudPage: "palette.openCloudPane",
   addMachine: "device.add",
   move: "cloudMove",
@@ -81,6 +90,21 @@ export function environmentReady(environment: Environment): boolean {
   if (environment.kind === "local") return true;
   if (environment.state !== undefined) return environment.state === "connected";
   return environment.connected !== false;
+}
+
+/// The name the picker's This Mac row shows. The host sends this Mac's own name as
+/// `localMachineName`; its `machineName` names a seeded chat's machine (a peer or a Cloud machine)
+/// when there is one, so an older host's `machineName` counts only when it is not the chat's machine.
+/// A Cloud machine's name never titles This Mac (Leo, 2026-10-30: "the ui is so ass in general for this tho").
+export function thisMacName(
+  localMachineName: string | undefined,
+  machineName: string | undefined,
+  chat?: { peer?: string; hostKind?: string; host?: string },
+): string | undefined {
+  if (localMachineName) return localMachineName;
+  if (!machineName) return undefined;
+  const chatMachine = chat?.peer || (chat?.hostKind === "cloud" ? chat.host : undefined);
+  return machineName === chatMachine ? undefined : machineName;
 }
 
 /// The picker's sections: this Mac; the person's own machines; Cloud machines and VM pools. acpmux

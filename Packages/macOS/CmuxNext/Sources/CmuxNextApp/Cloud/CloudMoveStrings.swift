@@ -25,6 +25,18 @@ enum CloudMoveStrings {
         String(localized: "cloud.move.homeFolder", defaultValue: "Move to Cloud copies a project folder, never your home folder. Start the chat in a project folder first.",
                table: "Cloud", bundle: .module)
     }
+    /// `cloud.startChat`: the account or team changed while the send started (``CloudStartChat/checkAccount(_:now:listCurrent:)``).
+    static var startChatAccountChanged: String {
+        String(localized: "cloud.startChat.accountChanged",
+               defaultValue: "Your Cloud account or team changed while this chat was starting, so nothing was copied. Send it again in the account you want it in.",
+               table: "Cloud", bundle: .module)
+    }
+    /// `cloud.startChat`: the machine list of the account signed in now could not be read.
+    static var startChatListUnread: String {
+        String(localized: "cloud.startChat.listUnread",
+               defaultValue: "Couldn't read the Cloud machines of the account signed in now, so this chat stays on this Mac. Try again in a moment.",
+               table: "Cloud", bundle: .module)
+    }
     static func relativePath(_ path: String) -> String {
         String(format: String(localized: "cloud.move.relativePath", defaultValue: "Move to Cloud needs a full folder path, not %@.", table: "Cloud", bundle: .module),
                path)
