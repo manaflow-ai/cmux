@@ -80,7 +80,7 @@ await requireBrowserLane("background-activity-gallery-width-browser.test.ts", as
                     row: rect(row).width,
                     output: rect(output).width,
                     controls: controls.length,
-                    lines: [...lines].length,
+                    lines: lines.size,
                   };
                 });
                 const board = document.querySelector("[data-bg-gallery]")!;
