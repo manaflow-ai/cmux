@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "build": "4120932117101",
+  "notes": "notes/4120932117101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 28387,
+      "title": "fix(ios): build the signed-in shell's model once",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29365,
+      "title": "base red: a Cloud machine's link answers and the team-machine code move out of CmuxNextApp (app_lines +24, #29271)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28942,
+      "title": "cmux-next: a hidden chat pane gets replies to its own requests at once (chat open ~280 ms)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27236,
+      "title": "cmux-next: enforce window cleanup trait coverage",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28559,
+      "title": "Agent pane: one DOM insertion no longer restyles the whole pane (pane-level :has() rules to state attributes)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29375,
+      "title": "base red: Session Info's Remote Control is injected, not a singleton (#28981 stateful_singletons, assume_isolated)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29412,
+      "title": "test(ios): NativeBrowserTabTests forwarding test gets a really free port and a launched WebKit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28660,
+      "title": "ci(tooling-tests): run the selector check's step wrapper test (base red: unrun linux-guard test)",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29400,
+      "title": "api: platform forwarder behind PLATFORM_SURFACES (port plan 1d), default off",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27973,
+      "title": "fix(agent-pane): show Cloud sign-in in signed-out picker",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27959,
+      "title": "cmux NEXT: Share Chat with Guest as one op (palette, tab menu, CLI, MCP) (carries #26861)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29033,
+      "title": "ci(web): react-apps-check shards run on Blacksmith 16 vCPU, failing over to 32",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29251,
+      "title": "ci: accept exact cmux-bot defaults receipts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29349,
+      "title": "fix(cmux-tui): a headless owner whose socket or state directory is gone stops",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
