@@ -88,6 +88,19 @@ test("old section routes and focused keys open the category that holds the row",
   expect(parseLocation("/settings/nope").section).toBe("general");
 });
 
+test.each(["/settings/%", "/settings/%ZZ", "/settings/%E0%A4%A"])(
+  "a malformed deep-link section falls back to General without breaking Settings (%s)",
+  (href) => {
+    expect(parseLocation(href).section).toBe(defaultCategory);
+    // A real focused key still resolves to its home even when the section slug is corrupt.
+    expect(parseLocation(`${href}?focus=history.terminalCommands`).section).toBe("privacy");
+  },
+);
+
+test("a valid percent-encoded Settings category still opens normally", () => {
+  expect(parseLocation("/settings/%61ppearance").section).toBe("appearance");
+});
+
 test("every category and group title is in all locales", () => {
   const catalog = strings as Record<string, Record<string, string>>;
   const keys = categories.flatMap((category) => [
