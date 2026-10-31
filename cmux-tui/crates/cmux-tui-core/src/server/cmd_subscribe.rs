@@ -283,6 +283,9 @@ pub(super) fn subscribe_command(
                         .supports_capability(client, OPEN_DEVICE_KINDS_CAPABILITY);
                     size_state_event_json(*surface, *runtime, state, Some((client, open)))
                 }
+                // Apps clients already hear it on their own sink; only a page
+                // relay (whose page names it) gets it from the event stream.
+                MuxEvent::AppsChanged(_) if page_events.is_none() => continue,
                 _ => subscribed_event_json(&event),
             };
             if let Some(events) = page_events
@@ -542,6 +545,7 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
         MuxEvent::PairingResolved { request } => {
             json!({"event": "pairing-resolved", "request": request})
         }
+        MuxEvent::AppsChanged(payload) => payload.as_ref().clone(),
         MuxEvent::Empty => json!({"event": "empty"}),
     }
 }

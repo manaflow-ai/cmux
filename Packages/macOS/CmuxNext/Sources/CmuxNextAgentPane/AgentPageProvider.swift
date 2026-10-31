@@ -41,6 +41,8 @@ public nonisolated struct AgentPageOps {
             "dictation.toggle", "dictation.start", "dictation.stop", "dictation.cancel", "dictation.openSettings", "dictation.audio", "dictation.recording.upload", "dictation.recording.cancel",
             "transport.open", "transport.send", "transport.close", "transport.gesture", "transport.gesture.release",
             "chat.missing", "uiPointer.report", "acpmux.restart", "acpmux.restartStuck", "sandbox.run", "sandbox.state",
+            // The composer streams every upload (cloudUploads.ts); without these the page fell back to one frame, which refuses a file over 24 MiB (#28647).
+            "chat.upload.begin", "chat.upload.chunk", "chat.upload.finish", "chat.upload.cancel",
         ].map { ($0, $0) })
         for method in AgentPaneReplyRequest.methods.union(AgentPaneEnvironmentRequest.methods).union(AgentPaneCloudMachineRequest.methods)
             .union([AgentPaneCloudCredentialTransferRequest.method]) { methods[method] = method }
@@ -217,6 +219,14 @@ public final class AgentPageProvider: PageProvider {
     }
 
     public var hasSubscribers: Bool { !listeners.isEmpty }
+
+    /// The provider's buffers for `debug.agent_pane pacer`: whether host pushes reach the page or
+    /// wait here (no subscriber, a replay still draining, an overflow).
+    public var debugState: [String: Any] {
+        ["listeners": listeners.count, "buffered": bufferedEvents.count,
+         "pending": pendingEvents.values.reduce(0) { $0 + $1.events.count - $1.next },
+         "overflowed": deliveryOverflowed, "transportConnection": transportConnection ?? -1]
+    }
 
     public func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                           onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
