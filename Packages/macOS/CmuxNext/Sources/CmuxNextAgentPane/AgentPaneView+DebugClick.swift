@@ -81,13 +81,11 @@ extension AgentPaneView {
     /// (``PageWebView/debugSetFiles(selector:paths:)``); nil when it did, else why not. On WebKit the next
     /// file input the page opens (a click on + then Attach files) takes them instead of the panel.
     public func debugSetFiles(selector: String, paths: [String]) async -> String? {
-        guard debugShowsChromium else {
-            let files = paths.map { URL(fileURLWithPath: $0) }
-            fileChooser?.debugAnswer = files
-            page?.debugQueueFiles(files)
-            return nil
-        }
-        return await page?.debugSetFiles(selector: selector, paths: paths) ?? "the chat does not show in Chromium"
+        if let page, page.showsChromium { return await page.debugSetFiles(selector: selector, paths: paths) }
+        let files = paths.map { URL(fileURLWithPath: $0) }
+        fileChooser?.debugAnswer = files
+        page?.debugQueueFiles(files)
+        return nil
     }
 
     /// The screen point of `x`,`y` (CSS pixels) on the chat's Chromium page, nil on WebKit. Chromium draws the
