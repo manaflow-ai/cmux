@@ -226,8 +226,8 @@ struct GatherWindowsTests {
         #expect(there.state.workspaceID == "k2")
     }
 
-    /// A pane id the receiving window already keeps tabs under (another machine on an older daemon)
-    /// is never mixed into: those tabs stay as they are.
+    /// A pane id the receiving window already keeps tabs under (another machine on an older daemon):
+    /// the move is refused and nothing changes, so neither window's tabs mix or get lost.
     @Test func carriedBrowserTabsNeverMixIntoACollidingPane() throws {
         let services = try Self.services()
         defer { Self.closeAll(services) }
@@ -237,8 +237,11 @@ struct GatherWindowsTests {
         here.state.localBrowserTabs[pane] = [mine]
         there.state.localBrowserTabs[pane] = [theirs]
 
-        try services.windows.bringSpace(Self.rooms[1], into: here.state)
+        #expect(throws: ActionFailure.self) { try services.windows.bringSpace(Self.rooms[1], into: here.state) }
+        #expect(throws: ActionFailure.self) { try services.windows.mergeWindows(into: here.state) }
         #expect(here.state.localBrowserTabs[pane] == [mine], "another machine's pane took the moved pane's tabs")
+        #expect(there.state.localBrowserTabs[pane] == [theirs], "the moved pane's tabs were lost")
+        #expect(services.windows.registry.value.window(there.state.id)?.workspaceIDs == ["k2"])
     }
 
     /// A window known incognito only by its space (`incognitoSpaces`, before the registry flag) is
