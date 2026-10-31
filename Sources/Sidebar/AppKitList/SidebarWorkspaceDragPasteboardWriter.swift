@@ -32,6 +32,7 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem, NSTableViewD
     private var controller: SidebarWorkspaceTableController?
     private var actions: SidebarWorkspaceTableActions?
     private var provisionalSession: NSDraggingSession?
+    private var nativeDragBeganAt: TimeInterval?
     private weak var previousTableDelegate: NSTableViewDelegate?
 
     init(
@@ -209,6 +210,7 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem, NSTableViewD
         }
         guard provisionalSession == nil || provisionalSession === session else { return }
         provisionalSession = session
+        nativeDragBeganAt = ProcessInfo.processInfo.systemUptime
         actions?.beginWorkspaceDrag(workspaceId)
         if let sessionId = actions?.nativeWorkspaceDragLifecycle?.currentSessionId() {
             bind(to: sessionId)
@@ -242,6 +244,9 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem, NSTableViewD
                 tabId: workspaceId,
                 sessionId: boundSessionId
             ).pasteboardValue
+            if let beganAt = nativeDragBeganAt, (actions?.movingWorkspaceCount?(workspaceId) ?? 1) == 1 {
+                actions?.completeWorkspaceDrag?(boundSessionId, capabilityValue, screenPoint, operation, beganAt)
+            }
             lifecycle.finish(boundSessionId, capabilityValue)
         } else if actions?.nativeWorkspaceDragLifecycle == nil,
                   sessionId == nil {
