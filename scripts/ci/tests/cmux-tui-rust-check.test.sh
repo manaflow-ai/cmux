@@ -44,12 +44,18 @@ grep -q 'cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh
 ARGS=(all 'cmux_link::')
 (umask 077; run CMUX_CI_STEP_KEY=k) >/dev/null || fail "fleet step refused"
 grep -q '^0022 .*/.build/cmux-tui-rust-target fmt --all --check$' "$TMP/calls" || fail "fmt: $(cat "$TMP/calls")"
-grep -q '^0022 .*/.build/cmux-tui-rust-target clippy --workspace --exclude cmux-holder-v3 --all-targets --locked -- -D warnings$' "$TMP/calls" || fail "clippy: $(cat "$TMP/calls")"
+# --keep-going: a red crate does not hide the crates after it (one fleet round finds every clippy error).
+grep -q '^0022 .*/.build/cmux-tui-rust-target clippy --workspace --exclude cmux-holder-v3 --all-targets --locked --keep-going -- -D warnings$' "$TMP/calls" || fail "clippy: $(cat "$TMP/calls")"
 grep -q '^0022 .*/.build/cmux-tui-rust-target nextest run --workspace --locked --profile ci --no-tests=fail cmux_link::$' "$TMP/calls" || fail "test: $(cat "$TMP/calls")"
 ! grep -q ' --doc' "$TMP/calls" || fail "doc tests ran with a filter: $(cat "$TMP/calls")"
 # cmux-tailnet's build script runs Go: its caches stay in the checkout's .build, and
 # its module cache is writable, so the step's cleanup can remove it.
 ! grep -v -q '^-modcacherw .*/work/.build/go-path/pkg/mod .*/work/.build/go-cache$' "$TMP/goenv" || fail "go env: $(cat "$TMP/goenv")"
+rm -f "$TMP/calls" "$TMP/goenv"
+# CMUX_RUST_CHECK_FAIL_FAST=1 stops clippy at its first red crate too.
+ARGS=(clippy)
+run CMUX_CI_STEP_KEY=k CMUX_RUST_CHECK_FAIL_FAST=1 >/dev/null || fail "fail-fast clippy refused"
+grep -q '^0022 .*/.build/cmux-tui-rust-target clippy --workspace --exclude cmux-holder-v3 --all-targets --locked -- -D warnings$' "$TMP/calls" || fail "fail-fast clippy: $(cat "$TMP/calls")"
 rm -f "$TMP/calls" "$TMP/goenv"
 # terminal: only the terminal stack's crates (ghostty-vt's VT, tmux regress and
 # kitty suites, the PTY, sizing, encode and client crates), no fmt, clippy or doc tests.

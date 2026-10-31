@@ -39,6 +39,27 @@ struct FileOpenAsTextTests {
         #expect(FilePageOpener.route(for: Self.url(name), userChose: true, asText: true) == asText)
     }
 
+    /// u18051 (Oct 30): "some html was just opened as html, feel like maybe it should've been opened
+    /// as a webpage". An agent's or a script's open (`file.open`, `cmux file open`, MCP, a page's
+    /// link to a local file) renders a web page in a browser tab, as the person's own open does;
+    /// its source stays one click away (Open as Text, Edit Source).
+    @Test(arguments: ["index.html", "page.htm", "logo.svg", "doc.xhtml"])
+    func anAgentsOpenOfAWebPageRendersIt(name: String) {
+        #expect(FilePageOpener.route(for: Self.url(name), userChose: false) == .renderedPage)
+        #expect(FilePageOpener.route(for: Self.url(name), userChose: false, asText: true) == .editor)
+    }
+
+    /// Edit Source (`browser.editSource`): a tab rendering a local web page names the file whose
+    /// source opens in the code editor; a web site, an image preview or a Markdown file has none.
+    @Test func editSourceFindsTheLocalPageATabRenders() {
+        #expect(FileOpenKind.sourceFile(ofPage: "file:///tmp/site/index.html")?.path == "/tmp/site/index.html")
+        #expect(FileOpenKind.sourceFile(ofPage: "file:///tmp/my%20site/logo.SVG")?.path == "/tmp/my site/logo.SVG")
+        #expect(FileOpenKind.sourceFile(ofPage: "https://example.com/index.html") == nil)
+        #expect(FileOpenKind.sourceFile(ofPage: "file:///tmp/site/shot.png") == nil)
+        #expect(FileOpenKind.sourceFile(ofPage: "file:///tmp/site/README.md") == nil)
+        #expect(FileOpenKind.sourceFile(ofPage: nil) == nil)
+    }
+
     @Test(arguments: ["sidebar-clean-cmux.png", "wide.jpg", "poster.webp", "document.pdf"])
     func localImageAndPDFPreviewsUseTheScopedWebKitReader(name: String) {
         #expect(FilePageOpener.tabEngine(for: Self.url(name)) == BrowserEngineTag.webkit.rawValue)
