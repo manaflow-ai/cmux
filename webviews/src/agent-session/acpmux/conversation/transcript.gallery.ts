@@ -2859,6 +2859,33 @@ export default agentPaneEntry({
         );
       },
     },
+    "failed-send-too-large": {
+      note: 'A prompt larger than one message (message.too_large): acpmux refuses it the same way at every Retry, so the card names the attachment to take out and offers Edit, Remove and Details, never Retry (Leo, 2026-10-31: "this is completely hardlocked bc of message size").',
+      snapshot: chat([
+        user(prompt, 6),
+        assistant("Added retries with backoff.", 5.5),
+        summary(5.5, { status: "completed" }),
+        user("Why does the dashboard look like this on the staging build?", 1, {
+          failed: true,
+          error:
+            "Not sent: this message is too large to send at once. Take out dashboard-recording.png with Edit, or send it in a message of its own.",
+          delivery: {
+            state: "failed",
+            promptId: "p1",
+            sessionId: "s",
+            sentAt: 0,
+            failedAt: 900,
+            hop: "acpmux",
+            code: "-32000",
+            reason: "message.too_large",
+            error: "message too large to send: 16907300 bytes, the limit is 15728640",
+          },
+        }),
+      ]),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector('[data-failure-cause="too-large"]'));
+      },
+    },
     "edited-files": {
       note: "A turn that edited three files: the edited-files card with Undo.",
       snapshot: chat([...workedTurnRows(minutesAgo(15)), summary(14, { status: "completed", toolCount: 3 })]),
