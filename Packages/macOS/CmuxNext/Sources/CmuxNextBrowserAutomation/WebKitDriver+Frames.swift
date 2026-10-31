@@ -67,12 +67,12 @@ extension WebKitDriver {
     private func evaluateFrameSource(_ source: String, world: String, handles: [String], args: [Any], frame: WKFrameInfo?, tab: WebKitTab,
                                      origin: String?) async throws(DriverError) -> DriverJSON {
         if world == "agent" {
-            return try await runInAgent("return await (this.eval('(' + __source + '\\n)'))(...__handlesThenArgs(__handles, __args));",
-                                        handles: handles, args: args, frame: frame, tab: tab, origin: origin, source: source)
+            return try await runInAgent("return await (\(source)\n)(...__handlesThenArgs(__handles, __args));",
+                                        handles: handles, args: args, frame: frame, tab: tab, origin: origin, validateSyntax: true)
         }
         guard !handles.isEmpty else {
-            return try await run("return await (this.eval('(' + __source + '\\n)'))(...__args);",
-                                 ["__args": args, "__source": source], frame, .page, tab, origin: origin)
+            return try await run("return await (\(source)\n)(...__args);",
+                                 ["__args": args], frame, .page, tab, origin: origin, validateSyntax: true)
         }
         return try await evaluateInPage(source: source, handles: handles, args: args, frame: frame, tab: tab, origin: origin)
     }
@@ -108,9 +108,9 @@ extension WebKitDriver {
         const entry = globalThis.__cmuxHandoff.get(token);
         globalThis.__cmuxHandoff.delete(token);
         removeEventListener(token, entry.on, { capture: true });
-        if (!stale && entry.list.length === count) return await (this.eval('(' + __source + '\\n)'))(...entry.list, ...__args);
+        if (!stale && entry.list.length === count) return await (\(source)\n)(...entry.list, ...__args);
         return { __cmuxStale: true };
-        """, ["token": token, "__args": args, "__source": source, "stale": dispatched != .bool(true), "count": handles.count], frame, .page, tab, origin: origin)
+        """, ["token": token, "__args": args, "stale": dispatched != .bool(true), "count": handles.count], frame, .page, tab, origin: origin, validateSyntax: true)
         if case .object(let object) = result, object["__cmuxStale"] == .bool(true) {
             throw DriverError(.stale, "Element is not attached to the DOM")
         }
@@ -120,13 +120,13 @@ extension WebKitDriver {
     /// `body` in the agent world of `frame`, with `__handlesThenArgs`,
     /// `__handles` and `__args`; installs the page agent on a miss.
     func runInAgent(_ body: String, handles: [String], args: [Any] = [], frame: WKFrameInfo?, tab: WebKitTab,
-                    origin: String? = nil, source: String? = nil) async throws(DriverError) -> DriverJSON {
+                    origin: String? = nil, validateSyntax: Bool = false) async throws(DriverError) -> DriverJSON {
         let call = Self.withHandles("if (!\(Self.agentKey)) return \"\(Self.needsAgent)\"; \(body)")
-        let arguments: [String: Any] = ["__handles": handles, "__args": args, "__source": source ?? ""]
-        let first = try await run(call, arguments, frame, AgentWorld.world, tab, origin: origin)
+        let arguments: [String: Any] = ["__handles": handles, "__args": args]
+        let first = try await run(call, arguments, frame, AgentWorld.world, tab, origin: origin, validateSyntax: validateSyntax)
         guard first == .string(Self.needsAgent) else { return first }
         try await installAgent(frame: frame, tab: tab, origin: origin)
-        return try await run(call, arguments, frame, AgentWorld.world, tab, origin: origin)
+        return try await run(call, arguments, frame, AgentWorld.world, tab, origin: origin, validateSyntax: validateSyntax)
     }
 
     private static func withHandles(_ body: String) -> String {
@@ -155,8 +155,11 @@ extension WebKitDriver {
     }
 
     func run(_ body: String, _ arguments: [String: Any], _ frame: WKFrameInfo?, _ world: WKContentWorld, _ tab: WebKitTab,
-             origin: String? = nil) async throws(DriverError) -> DriverJSON {
+             origin: String? = nil, validateSyntax: Bool = false) async throws(DriverError) -> DriverJSON {
         let body = try Self.pinFrameCode(body, origin: origin)
+        if validateSyntax, !(await frameScriptSyntax.isValid(body, arguments: arguments.keys.sorted())) {
+            throw DriverError(.evaluation, "frame.evaluate: invalid function body", errorName: "SyntaxError")
+        }
         do {
             let value = try await tab.webView.callAsyncJavaScript(body, arguments: arguments, in: frame, contentWorld: world)
             return DriverJSON(foundation: value)

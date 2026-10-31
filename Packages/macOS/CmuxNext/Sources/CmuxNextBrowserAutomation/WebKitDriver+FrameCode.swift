@@ -41,15 +41,16 @@ extension WebKitDriver {
         return origin.string
     }
 
-    /// Each WebKit stage checks in the same JS call that executes its code. Source is an argument,
-    /// never interpolated into this body: it cannot escape WebKit's generated async function and
-    /// run while WebKit compiles it, before this check. `this` is WebKit's WindowProxy receiver,
-    /// unaffected by declarations or globals named location/globalThis in agent source.
+    /// Each WebKit stage checks in the same JS call that executes its code. Bodies containing
+    /// agent source are parsed as complete async function bodies before WebKit sees them, so
+    /// source cannot escape its generated function. `this` is WebKit's WindowProxy receiver,
+    /// unaffected by declarations or globals named location/globalThis in agent source. Throw
+    /// a literal: source may hoist a declaration named Error before this guard executes.
     static func pinFrameCode(_ body: String, origin: String?) throws(DriverError) -> String {
         guard let origin else { return body }
         guard let data = try? JSONEncoder().encode(origin), let encoded = String(data: data, encoding: .utf8) else {
             throw DriverError(.invalid, "frame.evaluate: invalid origin")
         }
-        return "if (this.location.origin !== \(encoded)) throw new Error('frame.evaluate: the frame navigated');\n" + body
+        return "if (this.location.origin !== \(encoded)) throw 'frame.evaluate: the frame navigated';\n" + body
     }
 }

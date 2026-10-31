@@ -36,6 +36,8 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
     @ObservationIgnored public let inspectorWatch = WebKitInspectorWatch()
     /// Files an agent offered this page's next file chooser (`runOpenPanelWith` takes them first).
     @ObservationIgnored public let agentFiles = BrowserAgentFiles()
+    /// Parse untrusted async bodies away from the UI thread before WebKit wraps them.
+    @ObservationIgnored let functionBodySyntax = WebKitFunctionBodySyntax()
 
     private var machine = BrowserTabStateMachine()
     @ObservationIgnored private(set) weak var engine: WebKitEngine?
