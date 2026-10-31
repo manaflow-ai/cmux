@@ -144,6 +144,13 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.setRemoteControl":
+            // Session Info's Remote Control switch: one Bool, nothing else.
+            if let on = params?["on"] as? Bool, Set((params ?? [:]).keys) == ["on"] {
+                self = .remoteControl(on: on)
+            } else {
+                self = .unsupported(method)
+            }
         case "tips.state":
             // `{}` reads the records, `{id, state}` keeps one, `{claim, feature?}` asks to show a tip.
             if let tips = AgentPaneFeatureTipRequest(params) {

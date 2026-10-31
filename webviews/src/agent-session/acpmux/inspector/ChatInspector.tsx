@@ -271,6 +271,7 @@ export function useChatInspector({
   beside,
   wide = false,
   onReconnectMcp,
+  remoteControl,
 }: {
   snapshot: AcpmuxSnapshot;
   /// A view has the pane in the chat's place (App.tsx: a turn's diff in place, the event Inspector):
@@ -332,6 +333,8 @@ export function useChatInspector({
   subagent?: SubagentScope;
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
   onReconnectMcp?: (server: string) => Promise<unknown>;
+  /// Environment's Remote Control switch (App.tsx, remoteControl.ts): absent, no row.
+  remoteControl?: { on: boolean; set: (on: boolean) => void };
 }): {
   on: boolean;
   /// The panel shows (on, open, not stepped aside): a card under it keeps no room of its own beside
@@ -464,6 +467,7 @@ export function useChatInspector({
         onOpenFolder={onOpenFolder}
         onSaveEnvironment={onSaveEnvironment}
         onReconnectMcp={onReconnectMcp}
+        remoteControl={remoteControl}
         onOpenDocument={onOpenDocument}
         onShowCall={onShowCall}
         scope={subagent}
@@ -513,6 +517,7 @@ function InspectorPresence({
   onOpenFolder,
   onSaveEnvironment,
   onReconnectMcp,
+  remoteControl,
   onOpenDocument,
   onShowCall,
   scope,
@@ -558,6 +563,7 @@ function InspectorPresence({
   onOpenFolder?: (path: string) => void;
   onSaveEnvironment?: () => Promise<unknown>;
   onReconnectMcp?: (server: string) => Promise<unknown>;
+  remoteControl?: { on: boolean; set: (on: boolean) => void };
   onOpenDocument?: (artifact: Artifact) => void;
   onShowCall?: (toolCallId: string) => boolean;
   /// The subagent it lists, while the pane shows one's own view.
@@ -733,6 +739,7 @@ function InspectorPresence({
         // Save keeps the chat's machine and folder, not a subagent's.
         onSaveEnvironment={scope ? undefined : onSaveEnvironment}
         onReconnectMcp={onReconnectMcp}
+        remoteControl={scope ? undefined : remoteControl}
         onOpenDocument={onOpenDocument}
         onShowCall={onShowCall}
       />
