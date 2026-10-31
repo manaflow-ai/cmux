@@ -88,6 +88,9 @@ export async function uploadToMachine(
   files: File[],
   host: Call,
   cancelled: (index: number) => boolean = () => false,
+  /// The person's Send these files go with (sendUploads.ts): each begin holds its ticket instead of
+  /// a gesture, and an older host's one-frame upload, which needs the gesture, is not tried.
+  send?: { sessionId: string; promptId: string; ticket: string },
 ): Promise<UploadResult> {
   const call = callWithin(host);
   if (!files.length || files.some((file) => !file.name)) return undefined;
@@ -106,9 +109,10 @@ export async function uploadToMachine(
         size: file.size,
         ...(index === 0 && files.length > 1 ? { batch: manifest } : {}),
         ...(batchToken ? { batchToken } : {}),
+        ...send,
       });
     } catch (error) {
-      if (!begun && notTaken(error)) {
+      if (!begun && notTaken(error) && !send) {
         // An old host can only accept one complete JSON frame. Refuse oversized files
         // explicitly instead of rebuilding the removed composer cap as a connection reset.
         if (files.some((entry, at) => !cancelled(at) && entry.size > LEGACY_FRAME_SAFE_BYTES))
