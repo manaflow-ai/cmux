@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon

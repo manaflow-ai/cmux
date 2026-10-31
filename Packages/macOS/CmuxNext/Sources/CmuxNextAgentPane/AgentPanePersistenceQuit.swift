@@ -16,10 +16,6 @@ public struct AgentPanePersistenceQuit {
 
     /// Drains accepted saves under the caller's existing quit deadline.
     public func drain() async {
-        // Both owners are main-actor isolated: seal them in this turn, before the first suspension.
-        // WebKit can keep delivering messages while the lanes drain or CEF stops; those are refused.
-        drafts?.finishSaving()
-        anchors?.finishSaving()
         await work?.shutdown()
     }
 }
