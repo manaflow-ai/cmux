@@ -11,7 +11,7 @@ import { execParts, execText, execView, isCmuxExec } from "./cmuxExec";
 import { cleanText, mcpCall, mcpOutputResult, prettyOutput, prettyValue } from "./mcpCalls";
 import { plainText } from "./messageMenu";
 import { drawnThought } from "./thoughts";
-import { shellOutput } from "./toolFailure";
+import { callOutput, shellOutput } from "./toolFailure";
 import { toolResult } from "./toolResult";
 import { stripsEnvelopeImages } from "../toolImages";
 
@@ -65,11 +65,12 @@ function drawnText(item: AcpmuxActivity): string {
   // its Shell block says once, at its end. Other output reads as ToolRow draws it: out of its envelope,
   // without injected context (toolResult.ts), and Markdown as its words, without the marks
   // (messageMenu.ts plainText).
-  const result = shell || !tool.output ? undefined : toolResult(tool.output, cleanText, strip, tool);
+  const raw = shell ? undefined : callOutput(tool);
+  const result = shell || !raw ? undefined : toolResult(raw, cleanText, strip, tool);
   const output = shell
     ? shellOutput(tool)
     : !result
-      ? tool.output
+      ? raw
       : result.lang === "markdown"
         ? plainText(result.text)
         : result.text;
