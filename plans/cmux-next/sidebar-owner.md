@@ -137,6 +137,19 @@
   Nothing else about the header changes. Leo 2026-10-29: "a whole lot of this cloud stuff ought to get better...".
   Regression: `CloudLinkEndedHeaderTests`.
 
+- 2026-10-29: in one list each Cloud machine with workspaces keeps its machine header (name, status dot, fold), as a
+  remote group does (its rows keep the machine and status on their second line); a Cloud machine with no workspace
+  lists nothing, as before. As the only machine it keeps its own name, icon and status, not the "Projects" title.
+  Other computers' sections stay headerless. Leo: "why is there all this weird stuff at the
+  bottom of the sidebar", "a whole lot of this cloud stuff ought to get better...". Regression:
+  `SidebarCloudMachineHeaderTests`.
+- 2026-10-30: a Cloud machine's section draws like every other group: its header is the name, chevron and +, with no
+  status dot while connected (a down machine keeps its mark and words: Disconnected, Paused, Failed to start), and its
+  rows are one line, their title, with no machine mark before it (the header names the machine; Group by Status, which
+  mixes computers, keeps the mark). An unnamed Cloud workspace whose shell idles at the machine's home reads
+  "Terminal", never "cmux" or the machine's name. This Mac and SSH computers are unchanged. Leo: "JUST DEPICT IT
+  SIMILARLY TO EVERYTHING ELSE". Regression: `SidebarCloudRowLookTests`.
+
 - 2026-10-29 (https://github.com/manaflow-ai/cmux/issues/27701): Shift-click, Cmd-click and Cmd-Shift-click select
   pinned workspaces as list rows, as classic: the range runs over the drawn order, pinned tiles and rows alike. A pinned
   tile in the multi-selection draws the list's secondary selection fill (`Palette.secondarySelectionFill`); the shown
