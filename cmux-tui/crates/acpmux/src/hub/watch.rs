@@ -411,14 +411,21 @@ mod tests {
         let (lines, after_large) = read_lines_with_limits(&file, 0, 64, 20).unwrap();
         assert!(lines.is_empty());
         assert!(after_large > window_start, "stalled at the overlong line");
-        let (lines, done) = read_lines_with_limits(&file, after_large, 64, 20).unwrap();
-        assert_eq!(lines, ["{\"next\":true}"]);
-        assert_eq!(done, content.len() as u64);
+        let (mut at, mut received) = (after_large, Vec::new());
+        for _ in 0..12 {
+            let (lines, next) = read_lines_with_limits(&file, at, 64, 20).unwrap();
+            assert!(next > at);
+            received.extend(lines);
+            at = next;
+            if at == content.len() as u64 { break; }
+        }
+        assert_eq!(received, ["{\"next\":true}"]);
+        assert_eq!(at, content.len() as u64);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// The source may still be writing its oversized first JSONL entry. Retain the
-    /// checkpoint until a newline exists, then skip the entry and deliver later rows.
+    /// The source may still be writing its oversized first JSONL entry. Skip its
+    /// unfinished chunks across polls, then deliver complete rows after its newline.
     #[test]
     fn oversized_incomplete_window_line_resumes_when_terminated() {
         let dir = std::env::temp_dir().join(format!("acpmux-watch-partial-{}", uuid::Uuid::now_v7()));
@@ -426,20 +433,26 @@ mod tests {
         let file = dir.join("partial.jsonl");
         let unfinished = format!("{{\"large\":\"{}", "x".repeat(160));
         std::fs::write(&file, unfinished.as_bytes()).unwrap();
-        let (lines, start) = read_lines_with_limits(&file, 0, 64, 20).unwrap();
-        assert!(lines.is_empty());
-        assert_eq!(start, unfinished.len() as u64 - 64);
+        let mut at = 0;
+        for _ in 0..12 {
+            let (lines, next) = read_lines_with_limits(&file, at, 64, 20).unwrap();
+            assert!(lines.is_empty());
+            assert!(next > at);
+            at = next;
+            if at == unfinished.len() as u64 { break; }
+        }
+        assert_eq!(at, unfinished.len() as u64);
+        // A larger source file continues the same unfinished line; the byte
+        // before the saved checkpoint still identifies it as a partial line.
         std::fs::OpenOptions::new()
             .append(true)
             .open(&file)
             .unwrap()
             .write_all(b"\"}\n{\"next\":1}\n")
             .unwrap();
-        let (lines, after_large) = read_lines_with_limits(&file, 0, 64, 20).unwrap();
-        assert!(lines.is_empty());
-        assert!(after_large > start);
-        let (lines, _) = read_lines_with_limits(&file, after_large, 64, 20).unwrap();
+        let (lines, done) = read_lines_with_limits(&file, at, 64, 20).unwrap();
         assert_eq!(lines, ["{\"next\":1}"]);
+        assert_eq!(done, unfinished.len() as u64 + b"\"}\n{\"next\":1}\n".len() as u64);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
