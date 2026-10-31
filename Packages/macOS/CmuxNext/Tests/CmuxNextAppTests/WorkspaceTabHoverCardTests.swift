@@ -187,6 +187,38 @@ struct WorkspaceTabHoverCardTests {
         #expect(card.acceptsHoverCardMouse(at: window.convertPoint(toScreen: point), in: window))
     }
 
+    /// `NSView.hitTest(_:)` takes a point in the receiver's superview space, so the tab list (below
+    /// the title in the card's stack) converts the click into its superview. A one-tab card's only
+    /// row and the details toggle take the click; the title above them does not.
+    @Test func hostedOneTabCardAcceptsItsRowAndToggleButNotItsTitle() throws {
+        let card = WorkspaceHoverCardView()
+        card.configure(WorkspaceHoverCardContent(title: "Project", icon: .terminal,
+                                                 facts: [.init(icon: .folder, text: "docs", kind: "folder")]))
+        card.tabList.configure(title: "project", tabs: [SidebarTab(id: TabID("only"), title: "shell", folder: "~")])
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 360, height: 300), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        window.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 360, height: 300))
+        card.frame = NSRect(x: 18, y: 24, width: 280, height: 240)
+        window.contentView?.addSubview(card)
+        card.layoutSubtreeIfNeeded()
+        card.tabList.layoutSubtreeIfNeeded()
+        func screenPoint(of view: NSView) -> CGPoint {
+            window.convertPoint(toScreen: view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil))
+        }
+
+        let row = try #require(Self.descendants(of: card.tabList).compactMap { $0 as? WorkspaceTabHoverCardRow }
+            .first { !$0.isHidden })
+        #expect(card.acceptsHoverCardMouse(at: screenPoint(of: row), in: window))
+        #expect(!card.detailsToggle.isHidden)
+        #expect(card.acceptsHoverCardMouse(at: screenPoint(of: card.detailsToggle), in: window))
+        let stack = try #require(card.tabList.superview as? NSStackView)
+        let title = try #require(stack.arrangedSubviews.first { !$0.isHidden })
+        #expect(title !== card.tabList)
+        #expect(!card.acceptsHoverCardMouse(at: screenPoint(of: title), in: window))
+    }
+
     @Test func rowsReportTabDetailsAndReturnFocusesTheSelectedTab() throws {
         let view = WorkspaceTabHoverCardView()
         var selected: TabID?
