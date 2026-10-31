@@ -56,7 +56,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # The shared launch helper's socket paths and session check (bench_launch.py). Not its bench env: this bench times
 # the launch itself, with the agent pane's real handshake and the account's Chief, as a person's launch runs.
-from bench_launch import finder_limits, limits_line, require_gui_session, socket_candidates  # noqa: E402
+from bench_launch import account_home, finder_limits, limits_line, require_gui_session, socket_candidates  # noqa: E402
 
 DERIVED = os.path.expanduser("~/Library/Developer/Xcode/DerivedData")
 FINAL_MARK = "first_terminal_frame"
@@ -289,11 +289,20 @@ SEED_CHAT_PANE = "last"
 HANG_THRESHOLD_MS = None
 
 
+def app_support_tag(tag):
+    """The tag's folder under Application Support, where the app keeps its saved session and its daemon's state
+    (BuildIdentity: CMUX_TUI_STATE_DIR = <this>/tui). The app resolves it from the password database's home
+    (FileManager.homeDirectoryForCurrentUser), not from $HOME, which a fleet step points at its own folder; the same
+    root as bench_launch.BenchApp.state_root (BENCH_LAUNCH_STATE_BASE overrides both)."""
+    base = os.environ.get("BENCH_LAUNCH_STATE_BASE") or os.path.join(account_home(), "Library/Application Support/cmux")
+    return os.path.join(base, "tags", tag)
+
+
 def state_directories(tag):
     """Where a tagged build keeps its sessions: daemon state and the sidebar
     snapshot, agent sessions (acpmux), Home's memory."""
     home = os.path.expanduser("~")
-    return [os.path.join(home, "Library/Application Support/cmux/tags", tag),
+    return [app_support_tag(tag),
             os.path.join(home, ".acpmux/builds", "com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", tag.lower()).strip(".")),
             # a copy of an untagged build named "cmux DEV <tag>.app" (its tag comes from the name)
             os.path.join(home, ".acpmux/builds", "com.cmuxterm.app.debug--" + re.sub(r"[^a-z0-9]+", "-", tag.lower()).strip("-")), os.path.join(home, ".cmux/mux/tags", tag)]
@@ -527,7 +536,7 @@ def daemon_side(tag, runs):
     if app_pids(tag):
         raise SystemExit(f"tag {tag} has an app running; quit it first")
     tmp = subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True).stdout.strip()
-    state = os.path.expanduser(f"~/Library/Application Support/cmux/tags/{tag}/tui")
+    state = os.path.join(app_support_tag(tag), "tui")
 
     def env(state_dir):
         return {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
