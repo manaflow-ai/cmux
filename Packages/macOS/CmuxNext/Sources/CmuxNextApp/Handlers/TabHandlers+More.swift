@@ -57,20 +57,38 @@ extension TabHandlers {
             guard let room = try ctx.optionalRoom(invocation["space"]) else {
                 return .refused(RoomStrings.roomArgumentRequired)
             }
-            guard let workspace = ctx.services.workspaceID(ofTab: tab.id),
-                  let qualified = WindowProfiles.qualified(workspace, machines: ctx.services.machines) else {
-                return .done
-            }
-            let key = qualified.key, session = qualified.session
-            let daemon = ctx.services.machines.local
-            return .applied(ActionConfirmation(send: {
-                await daemon.failure("pin-workspace") {
-                    try await $0.pinWorkspace(session: session, key: key, to: room.id)
-                }
-            }))
+            return moveToSpace(ctx, tab: tab, room: room.id)
         })
         registry.bind("palette.moveTabToNewWorkspace", invoke: { moveToNewWorkspace(ctx, $0, newWindow: false) })
         registry.bind("tab.moveToNewWindow", invoke: { moveToNewWorkspace(ctx, $0, newWindow: true) })
+    }
+
+    /// Move Tab to Space: only the tab goes. A tab alone in its workspace takes that workspace along (a
+    /// pin in the home session, as Move Workspace to Space makes); a tab with siblings moves into a new
+    /// workspace pinned to the space, so the siblings stay in their workspace and space.
+    private static func moveToSpace(_ ctx: AppActionContext, tab: TabModel, room: ProfileID) -> ActionEffect {
+        let services = ctx.services, home = services.machines.local
+        guard let workspaceID = services.workspaceID(ofTab: tab.id), let workspace = services.workspace(id: workspaceID),
+              let qualified = WindowProfiles.qualified(workspaceID, machines: services.machines) else {
+            return .refused(RefusalStrings.noWorkspaceToActOn)
+        }
+        if WindowProfiles.membership(services.machines)?.pins[qualified] == room {
+            return .refused(RoomStrings.alreadyInRoom)
+        }
+        let session = qualified.session
+        if workspace.screens.flatMap(\.panes).flatMap(\.tabs).count == 1 {
+            let key = WorkspaceKey(rawValue: qualified.key)
+            return .applied(ActionConfirmation(send: {
+                await home.failure("pin-workspace") { try await $0.pinWorkspace(session: session, key: key, to: room) }
+            }))
+        }
+        if let reason = TabPromotion.refusal(tab: tab.id, services: services) { return .refused(reason) }
+        return .applied(ActionConfirmation(send: {
+            guard let key = await TabMoves.toNewWorkspace(tab, services: services) else {
+                return "move-tab-to-new-workspace failed (see the app log)"
+            }
+            return await home.failure("pin-workspace") { try await $0.pinWorkspace(session: session, key: key, to: room) }
+        }))
     }
 
     /// Move Tab to New Workspace, or to a New Window that shows the new workspace. On one of several
