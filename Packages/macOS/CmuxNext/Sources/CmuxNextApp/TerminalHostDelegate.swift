@@ -6,6 +6,8 @@ import CmuxNextDaemonService
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextTerminal
+import struct CmuxNextBrowser.TerminalLinkResolver
+import enum CmuxNextBrowser.TerminalLinkTarget
 
 /// Handles terminal requests that need the app: Ghostty keybinds for splits,
 /// tabs, and windows, the right-click menu, and links. OSC 9/777/99
@@ -44,7 +46,7 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
         let target = target(of: session, in: services)
         let canOpenLocalFiles = allowsLocalFiles(session, services: services)
         // main-actor-ok: a right-click resolves one path (a few stat calls), as the click does.
-        switch (text ?? session.model.hoveredLink).flatMap({ TerminalLinkResolver.resolve($0, cwd: cwd(of: session), allowsLocalFiles: canOpenLocalFiles) }) {
+        switch (text ?? session.model.hoveredLink).flatMap({ TerminalLinkResolver().resolve($0, cwd: cwd(of: session), allowsLocalFiles: canOpenLocalFiles) }) {
         case .url(let link)?:
             let menu = LinkMenu { [weak services] url in
                 services?.registry.perform("browser.link.openInNewTab", invocation: ActionInvocation(target: target, arguments: ["url": .string(url.absoluteString)]))
@@ -64,7 +66,7 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// click returns: a browser tab or an app launch never stalls the
     /// terminal's output and drawing.
     func terminalSession(_ session: TerminalSession, open url: URL) -> Bool {
-        guard case .url(let safeURL)? = TerminalLinkResolver.resolve(url.absoluteString, cwd: nil, allowsLocalFiles: false) else { return false }
+        guard case .url(let safeURL)? = TerminalLinkResolver().resolve(url.absoluteString, cwd: nil, allowsLocalFiles: false) else { return false }
         let request = linkRequest(session)
         Task { @MainActor [weak self] in self?.openWeb(safeURL, request) }
         return true
@@ -84,14 +86,14 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
         let canOpenLocalFiles = services.map { self.allowsLocalFiles(session, services: $0) } ?? false
         Task { @MainActor [weak self] in
             let target = await Task.detached(priority: .userInitiated) {
-                TerminalLinkResolver.resolve(text, cwd: cwd, allowsLocalFiles: canOpenLocalFiles)
+                TerminalLinkResolver().resolve(text, cwd: cwd, allowsLocalFiles: canOpenLocalFiles)
             }.value
             switch target {
             case .url(let url)?: self?.openWeb(url, request)
             case .file(let url, isDirectory: true)?: LinkRouter.shared.showInFinder(url)
             case .file(let url, isDirectory: false)?:
                 // `src/app.ts:3:5` opens the editor at line 3, column 5.
-                let position = TerminalLinkResolver.location(text).map { FilePosition(line: $0.line, column: $0.column ?? 1) }
+                let position = TerminalLinkResolver().location(text).map { FilePosition(line: $0.line, column: $0.column ?? 1) }
                 LinkRouter.shared.record("file:\(url.path)" + (position.map { ":\($0.pageText)" } ?? ""))
                 guard let services = self?.services else { return }
                 services.linkOpener.openFile(url, from: services.linkOpener.source(tab: request.tab?.id), at: position)
@@ -109,20 +111,20 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
                                  _ request: (option: Bool, other: Bool, tab: ActionTargetRef?)) async {
         guard let services else { return }
         let files = services.agentGit.link(for: machine)
-        for path in TerminalLinkResolver.remoteCandidates(text, cwd: cwd) {
+        for path in TerminalLinkResolver().remoteCandidates(text, cwd: cwd) {
             do {
                 let stat = try await files.stat(path)
                 guard stat.kind == "file" || stat.kind == "symlink" else { return }
             } catch {
-                if RemoteFilePageFiles.code(of: error) == "fs.not_found" || TerminalLinkResolver.resolve(text, cwd: nil, allowsLocalFiles: false) != nil { continue }
+                if RemoteFilePageFiles.code(of: error) == "fs.not_found" || TerminalLinkResolver().resolve(text, cwd: nil, allowsLocalFiles: false) != nil { continue }
                 // The remote page names offline, unsupported and denied machines; never drop the click.
             }
-            let position = TerminalLinkResolver.location(text).map { FilePosition(line: $0.line, column: $0.column ?? 1) }
+            let position = TerminalLinkResolver().location(text).map { FilePosition(line: $0.line, column: $0.column ?? 1) }
             services.linkOpener.openFile(URL(fileURLWithPath: path), on: machine, from: services.linkOpener.source(tab: request.tab?.id),
                                          at: position)
             return
         }
-        if case .url(let url)? = TerminalLinkResolver.resolve(text, cwd: nil, allowsLocalFiles: false) { openWeb(url, request) }
+        if case .url(let url)? = TerminalLinkResolver().resolve(text, cwd: nil, allowsLocalFiles: false) { openWeb(url, request) }
     }
 
     /// The daemon of the machine whose files `session`'s output names, when that is not this Mac: a
@@ -149,11 +151,11 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
         // text may name there is underlined, and the click asks the machine (``openMachineLink``).
         if let services, fileMachine(session, services: services) != nil {
             return { text, cwd in
-                !TerminalLinkResolver.remoteCandidates(text, cwd: cwd ?? start).isEmpty
-                    || TerminalLinkResolver.resolve(text, cwd: nil, allowsLocalFiles: false) != nil
+                !TerminalLinkResolver().remoteCandidates(text, cwd: cwd ?? start).isEmpty
+                    || TerminalLinkResolver().resolve(text, cwd: nil, allowsLocalFiles: false) != nil
             }
         }
-        return { text, cwd in TerminalLinkResolver.resolve(text, cwd: cwd ?? start, allowsLocalFiles: canOpenLocalFiles) != nil }
+        return { text, cwd in TerminalLinkResolver().resolve(text, cwd: cwd ?? start, allowsLocalFiles: canOpenLocalFiles) != nil }
     }
 
     /// A local path belongs to this Mac only for a local PTY tab, never a remote-terminal projection.

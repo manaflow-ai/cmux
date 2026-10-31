@@ -7,6 +7,8 @@ import Foundation
 import Testing
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import struct CmuxNextBrowser.TerminalLinkResolver
+import enum CmuxNextBrowser.TerminalLinkTarget
 
 /// File actions keep a Cloud path on its machine, including paths absent from this Mac.
 @MainActor @Suite(.serialized)
@@ -84,7 +86,7 @@ struct CloudFileRoutingTests {
         var opened: [URL] = []
         router.routing = { .fallback }
         router.openInCmux = { url, _, _ in opened.append(url) }
-        guard case .url(let expected)? = TerminalLinkResolver.resolve(text, cwd: nil, allowsLocalFiles: false) else {
+        guard case .url(let expected)? = TerminalLinkResolver().resolve(text, cwd: nil, allowsLocalFiles: false) else {
             Issue.record("expected a supported web address")
             return
         }

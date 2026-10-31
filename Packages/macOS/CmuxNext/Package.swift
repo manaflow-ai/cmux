@@ -616,13 +616,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: uiSwiftSettings
         ),
         // Daemon service (moved out of CmuxNextApp): one machine's cmux-tui daemon
-        // connection and its command funnels, the frame batcher, and the Refusals and
-        // Cloud strings it shows. No AppServices; the App sets `DaemonService.launchMark`.
+        // connection and its command funnels, the frame batcher, the Refusals and
+        // Cloud strings it shows, and a machine's files for a file page (RemoteFilePageFiles,
+        // over CmuxNextFiles' FilePageFiles). No AppServices; the App sets `DaemonService.launchMark`.
         .target(
             name: "CmuxNextDaemonService",
             dependencies: [
                 "CmuxNextActions", "CmuxNextAgentPane", "CmuxNextApps", "CmuxNextBridge", "CmuxNextCompat", "CmuxNextControl",
-                "CmuxNextDaemon", "CmuxNextLayout", "CmuxNextWakeups",
+                "CmuxNextDaemon", "CmuxNextFiles", "CmuxNextLayout", "CmuxNextWakeups",
                 .product(name: "CmuxUpdater", package: "CmuxUpdater"),
             ],
             resources: [

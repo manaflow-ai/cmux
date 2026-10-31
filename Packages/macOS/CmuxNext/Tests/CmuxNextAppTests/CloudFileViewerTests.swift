@@ -5,11 +5,15 @@ import enum CmuxNextDaemon.DaemonError
 import struct CmuxNextDaemon.FileSystemReadRequest
 import struct CmuxNextDaemon.FileSystemReplaceRequest
 import struct CmuxNextDaemon.FileSystemStatRequest
+import class CmuxNextDaemonService.RemoteFileChangeWatch
+import protocol CmuxNextDaemonService.RemoteFileClient
+import class CmuxNextDaemonService.RemoteFilePageFiles
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
 import Testing
+import struct CmuxNextBrowser.TerminalLinkResolver
 
 /// The file viewer in a Cloud workspace (#25581): a markdown or editor tab of a file on another
 /// machine reads, saves and watches that machine's file through its daemon (`fs-v1`), never a
@@ -224,7 +228,7 @@ struct CloudFileViewerTests {
             Issue.record("a machine without fs-v1 opened a file")
         } catch let error as PageError {
             #expect(error.code == "cmux.editor.unavailable")
-            #expect(error.message == FilePageStrings.remoteNoFiles(Self.machine))
+            #expect(error.message == RemoteFilePageFiles.remoteNoFiles(Self.machine))
         }
         provider.close()
     }
@@ -309,17 +313,17 @@ struct CloudFileViewerTests {
             _ = try await files.save("longer\n", to: URL(fileURLWithPath: path), baseHash: snapshot.hash, inWorkspace: true)
             Issue.record("a write over the cap saved")
         } catch {
-            #expect(error == .failed(FilePageStrings.remoteTooLargeToSave(Self.machine)))
+            #expect(error == .failed(RemoteFilePageFiles.remoteTooLargeToSave(Self.machine)))
         }
     }
 
     @Test func aCloudTerminalsPathNamesTheMachinesFile() {
-        #expect(TerminalLinkResolver.remoteCandidates("/home/cmux/app/README.md:12", cwd: "/tmp") == ["/home/cmux/app/README.md"])
-        #expect(TerminalLinkResolver.remoteCandidates("“src/main.rs:3:5”,", cwd: "/home/cmux/app") == ["/home/cmux/app/src/main.rs"])
-        #expect(TerminalLinkResolver.remoteCandidates("../notes.md", cwd: "file://vm/home/cmux/app") == ["/home/cmux/notes.md"])
+        #expect(TerminalLinkResolver().remoteCandidates("/home/cmux/app/README.md:12", cwd: "/tmp") == ["/home/cmux/app/README.md"])
+        #expect(TerminalLinkResolver().remoteCandidates("“src/main.rs:3:5”,", cwd: "/home/cmux/app") == ["/home/cmux/app/src/main.rs"])
+        #expect(TerminalLinkResolver().remoteCandidates("../notes.md", cwd: "file://vm/home/cmux/app") == ["/home/cmux/notes.md"])
         // A URL keeps its own route; `~` is that machine's home, unknown here; no folder, no path.
-        #expect(TerminalLinkResolver.remoteCandidates("https://example.com/a.md", cwd: "/home/cmux").isEmpty)
-        #expect(TerminalLinkResolver.remoteCandidates("~/notes.md", cwd: "/home/cmux").isEmpty)
-        #expect(TerminalLinkResolver.remoteCandidates("notes.md", cwd: nil).isEmpty)
+        #expect(TerminalLinkResolver().remoteCandidates("https://example.com/a.md", cwd: "/home/cmux").isEmpty)
+        #expect(TerminalLinkResolver().remoteCandidates("~/notes.md", cwd: "/home/cmux").isEmpty)
+        #expect(TerminalLinkResolver().remoteCandidates("notes.md", cwd: nil).isEmpty)
     }
 }

@@ -1,12 +1,14 @@
-import CmuxNextFiles
-import CmuxNextDaemon
-import CmuxNextDaemonService
-import Foundation
+public import CmuxNextDaemon
+public import CmuxNextFiles
+public import Foundation
 
 /// A machine's `fs-v1` ops, on its daemon's read link; tests pass a fake.
-protocol RemoteFileClient: AnyObject {
+public protocol RemoteFileClient: AnyObject {
+    /// `fs.stat` of `path`: its kind, size and revision.
     func stat(_ path: String) async throws -> FileSystemStatRequest.Response
+    /// `fs.read` of `path`, at most `maxBytes`.
     func read(_ path: String, maxBytes: Int) async throws -> FileSystemReadRequest.Response
+    /// `fs.replace` of `path` with `text`, only at revision `expected`.
     func replace(_ path: String, text: String, expected: String) async throws -> FileSystemReplaceRequest.Response
 }
 
@@ -16,15 +18,15 @@ extension AgentPaneGitLink: RemoteFileClient {
     /// A read or write moves up to 16 MiB over the link.
     static let fileTransferTimeout: Duration = .seconds(30)
 
-    func stat(_ path: String) async throws -> FileSystemStatRequest.Response {
+    public func stat(_ path: String) async throws -> FileSystemStatRequest.Response {
         try await request(FileSystemStatRequest(path: path), timeout: Self.fileStatTimeout)
     }
 
-    func read(_ path: String, maxBytes: Int) async throws -> FileSystemReadRequest.Response {
+    public func read(_ path: String, maxBytes: Int) async throws -> FileSystemReadRequest.Response {
         try await request(FileSystemReadRequest(path: path, maxBytes: maxBytes), timeout: Self.fileTransferTimeout)
     }
 
-    func replace(_ path: String, text: String, expected: String) async throws -> FileSystemReplaceRequest.Response {
+    public func replace(_ path: String, text: String, expected: String) async throws -> FileSystemReplaceRequest.Response {
         try await request(FileSystemReplaceRequest(path: path, text: text, expected: expected), timeout: Self.fileTransferTimeout)
     }
 }
@@ -33,34 +35,36 @@ extension AgentPaneGitLink: RemoteFileClient {
 /// daemon (`fs-v1`, served by Cloud VMs over their home folder), so a tab in a Cloud workspace
 /// shows the VM's file. A save replaces the file only at the revision the page's text was read
 /// at; the watch polls the file's revision (the daemon has no file events).
-final class RemoteFilePageFiles: FilePageFiles {
+public final class RemoteFilePageFiles: FilePageFiles {
     /// The largest file a page opens from a machine: the daemon's single-read cap.
-    static let maximumBytes = FileSystemReadRequest.maximumBytes
+    public static let maximumBytes = FileSystemReadRequest.maximumBytes
     /// Reads of a file that changes during each one before its revision counts as unknown.
     static let readAttempts = 3
 
-    let client: any RemoteFileClient
+    /// The machine's `fs-v1` ops.
+    public let client: any RemoteFileClient
     /// The machine's name, for the page's messages.
-    let machine: String
+    public let machine: String
 
-    init(client: any RemoteFileClient, machine: String) {
+    /// The files of the machine named `machine`, through `client`.
+    public init(client: any RemoteFileClient, machine: String) {
         self.client = client
         self.machine = machine
     }
 
-    var isLocal: Bool { false }
+    public var isLocal: Bool { false }
 
     /// No symlink of this Mac is followed: the path is the machine's.
-    func canonical(_ url: URL) -> URL { url.standardizedFileURL }
+    public func canonical(_ url: URL) -> URL { url.standardizedFileURL }
 
-    func read(_ url: URL, inWorkspace: Bool) async throws(FileOpenFailure) -> FileSnapshot {
+    public func read(_ url: URL, inWorkspace: Bool) async throws(FileOpenFailure) -> FileSnapshot {
         try await load(url, inWorkspace: inWorkspace).snapshot
     }
 
     /// The file and the revision its bytes were read at, or nil when that is unknown: the path is
     /// a symlink (a stat answers the link's own revision, a write checks its target's), or the
     /// file kept changing while it was read. A save then asks the target's revision first.
-    func load(_ url: URL, inWorkspace: Bool) async throws(FileOpenFailure) -> (snapshot: FileSnapshot, revision: String?) {
+    public func load(_ url: URL, inWorkspace: Bool) async throws(FileOpenFailure) -> (snapshot: FileSnapshot, revision: String?) {
         let path = canonical(url).path
         for attempt in 1...Self.readAttempts {
             let before = try await stat(path)
@@ -114,7 +118,7 @@ final class RemoteFilePageFiles: FilePageFiles {
         return FileSnapshot(url: url, text: text, hash: FileDocument().hash(bytes), size: bytes.count, readOnlyReason: reason)
     }
 
-    func save(_ text: String, to url: URL, baseHash: String?, inWorkspace: Bool) async throws(FileSaveFailure) -> FileSaveResult {
+    public func save(_ text: String, to url: URL, baseHash: String?, inWorkspace: Bool) async throws(FileSaveFailure) -> FileSaveResult {
         let current: (snapshot: FileSnapshot, revision: String?)
         do {
             current = try await load(url, inWorkspace: inWorkspace)
@@ -187,7 +191,7 @@ final class RemoteFilePageFiles: FilePageFiles {
         switch openFailure(error) {
         case .unavailable(let reason): return .failed(reason)
         case .notFound: return .deleted
-        case .tooLarge: return .failed(FilePageStrings.remoteTooLargeToSave(machine))
+        case .tooLarge: return .failed(Self.remoteTooLargeToSave(machine))
         case .notFile: return .readOnly
         }
     }
@@ -196,41 +200,41 @@ final class RemoteFilePageFiles: FilePageFiles {
         FileDocument().hash(Data(text.utf8))
     }
 
-    func watch(_ url: URL, inWorkspace: @escaping () -> Bool, clock: any Clock<Duration>,
-               onChange: @escaping (FileSnapshot?) -> Void, onUnavailable: @escaping (String?) -> Void) -> any FilePageWatching {
+    public func watch(_ url: URL, inWorkspace: @escaping () -> Bool, clock: any Clock<Duration>,
+                      onChange: @escaping (FileSnapshot?) -> Void, onUnavailable: @escaping (String?) -> Void) -> any FilePageWatching {
         RemoteFileChangeWatch(url: canonical(url), files: self, inWorkspace: inWorkspace, clock: clock,
                               onChange: onChange, onUnavailable: onUnavailable)
     }
 
     /// The page's failure for an error of an `fs.*` request.
-    func openFailure(_ error: any Error) -> FileOpenFailure {
+    public func openFailure(_ error: any Error) -> FileOpenFailure {
         switch error {
         case let failure as FileOpenFailure:
             return failure
         case DaemonError.missingCapabilities:
-            return .unavailable(FilePageStrings.remoteNoFiles(machine))
+            return .unavailable(Self.remoteNoFiles(machine))
         case DaemonError.notConnected, DaemonError.timedOut, DaemonError.connectionClosed, DaemonError.daemonShutdown:
-            return .unavailable(FilePageStrings.remoteOffline(machine))
+            return .unavailable(Self.remoteOffline(machine))
         default:
             switch Self.code(of: error) {
             case "fs.not_found"?: return .notFound
             case "fs.not_a_file"?, "fs.not_a_directory"?: return .notFile
             case "fs.too_large"?: return .tooLarge
-            case "fs.permission_denied"?: return .unavailable(FilePageStrings.remoteDenied(machine))
-            case "fs.unavailable"?: return .unavailable(FilePageStrings.remoteNoFiles(machine))
-            default: return .unavailable(FilePageStrings.remoteOffline(machine))
+            case "fs.permission_denied"?: return .unavailable(Self.remoteDenied(machine))
+            case "fs.unavailable"?: return .unavailable(Self.remoteNoFiles(machine))
+            default: return .unavailable(Self.remoteOffline(machine))
             }
         }
     }
 
     /// The daemon's `error_code` of a refused command.
-    static func code(of error: any Error) -> String? {
+    public static func code(of error: any Error) -> String? {
         if case DaemonError.command(_, _, let code, _, _) = error { return code }
         return nil
     }
 
     /// The revision an `fs.revision_mismatch` found (its `details.current`); nil when the file is gone.
-    static func currentRevision(of error: any Error) -> String? {
+    public static func currentRevision(of error: any Error) -> String? {
         if case DaemonError.command(_, _, _, let details, _) = error { return details?["current"]?.stringValue }
         return nil
     }
@@ -241,11 +245,14 @@ final class RemoteFilePageFiles: FilePageFiles {
 /// revision does not move when its target is written), and reports content whose hash differs
 /// from ``knownHash`` (nil: deleted). A machine that stops answering is reported once through
 /// `onUnavailable` with the reason, and once more (nil) when it answers again.
-final class RemoteFileChangeWatch: FilePageWatching {
-    static let interval: Duration = .seconds(2)
+public final class RemoteFileChangeWatch: FilePageWatching {
+    /// How often the file's revision is asked.
+    public static let interval: Duration = .seconds(2)
 
-    let url: URL
-    var knownHash: String?
+    /// The watched file on the machine.
+    public let url: URL
+    /// The hash last reported (or read at open); a read with the same hash reports nothing.
+    public var knownHash: String?
     private let files: RemoteFilePageFiles
     private let inWorkspace: () -> Bool
     private let clock: any Clock<Duration>
@@ -253,7 +260,8 @@ final class RemoteFileChangeWatch: FilePageWatching {
     private let onUnavailable: (String?) -> Void
     private var poll: Task<Void, Never>?
     private var revision: String?
-    private(set) var unavailable: String?
+    /// Why the machine does not answer now (as the page shows it); nil while it does.
+    public private(set) var unavailable: String?
 
     init(url: URL, files: RemoteFilePageFiles, inWorkspace: @escaping () -> Bool, clock: any Clock<Duration>,
          onChange: @escaping (FileSnapshot?) -> Void, onUnavailable: @escaping (String?) -> Void) {
@@ -265,7 +273,7 @@ final class RemoteFileChangeWatch: FilePageWatching {
         self.onUnavailable = onUnavailable
     }
 
-    func start() {
+    public func start() {
         guard poll == nil else { return }
         schedule()
     }
@@ -287,13 +295,13 @@ final class RemoteFileChangeWatch: FilePageWatching {
         }
     }
 
-    func stop() {
+    public func stop() {
         poll?.cancel()
         poll = nil
     }
 
     /// One poll: the file's revision, then its content when that moved (tests call it directly).
-    func check() async {
+    public func check() async {
         let path = url.path
         let stat: FileSystemStatRequest.Response
         do {
