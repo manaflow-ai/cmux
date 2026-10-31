@@ -64,20 +64,18 @@ extension DaemonStore {
         }
     }
 
-    /// An intent left the log: a Cmd-N create that was not refused keeps its stand-in pane resolvable to the daemon's
-    /// workspace, for a create pressed on that stand-in that reaches the store after the hand-over (a window that
-    /// still shows the stand-in for a frame). Bounded: stand-in handles are never reused, so only the newest few
-    /// can still be named.
+    /// An intent left the log: the workspace of a Cmd-N create that was not refused records the stand-in pane it took
+    /// over and its first tab's daemon surface (``WorkspaceModel/tookOverStandIn``), for a create pressed on that
+    /// stand-in that is sent after the hand-over (a window that still shows the stand-in for a frame).
     func noteIntentLeft(_ entry: PendingIntent, rejected: Bool) {
-        guard !rejected, case .createWorkspace(let provisional, _) = entry.kind else { return }
-        adoptedStandIns.append((provisional.pane, provisional.key))
-        if adoptedStandIns.count > Self.adoptedStandInLimit { adoptedStandIns.removeFirst(adoptedStandIns.count - Self.adoptedStandInLimit) }
+        guard !rejected, case .createWorkspace(let provisional, _) = entry.kind,
+              let workspace = workspacesByKey[provisional.key], !workspace.isProvisional else { return }
+        workspace.tookOverStandIn = (provisional.pane, entry.createdConfirmed ? entry.createdSurface : nil)
     }
 
-    /// The Cmd-N workspace whose create succeeded and whose stand-in pane was `handle`.
+    /// The Cmd-N workspace whose create succeeded and whose stand-in pane was `handle`. A walk of the workspaces, only
+    /// for a stand-in handle no pending intent names (rare: a create sent after its stand-in's hand-over).
     func adoptedStandIn(_ handle: PaneID) -> WorkspaceKey? {
-        adoptedStandIns.last { $0.pane == handle }?.key
+        workspaces.first { $0.tookOverStandIn?.pane == handle }?.key
     }
-
-    static let adoptedStandInLimit = 32
 }
