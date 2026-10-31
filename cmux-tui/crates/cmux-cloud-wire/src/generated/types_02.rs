@@ -585,6 +585,110 @@ wire_enum! {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostNetworkPeer {
+    pub host: HostId,
+    pub user: UserId,
+    pub install: InstallId,
+    pub device: NativeDeviceId,
+    pub wg_public_key: WgPublicKey,
+    pub install_public_key: String,
+    pub authority_version: String,
+    pub inbound: Vec<HostNetworkPeerInboundItem>,
+    pub outbound: Vec<HostNetworkPeerOutboundItem>,
+}
+
+wire_enum! {
+    HostNetworkPeerInboundItemVariant1Protocol {
+        Tcp = "tcp",
+        Udp = "udp",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostNetworkPeerInboundItemVariant1 {
+    pub protocol: HostNetworkPeerInboundItemVariant1Protocol,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<i64>,
+}
+
+wire_enum! {
+    HostNetworkPeerInboundItemVariant2Protocol {
+        Any = "any",
+        Icmp = "icmp",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostNetworkPeerInboundItemVariant2 {
+    pub protocol: HostNetworkPeerInboundItemVariant2Protocol,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum HostNetworkPeerInboundItem {
+    Variant1(HostNetworkPeerInboundItemVariant1),
+    Variant2(HostNetworkPeerInboundItemVariant2),
+    /// A member this build does not know (a newer backend), kept verbatim.
+    Unknown(Value),
+}
+
+wire_enum! {
+    HostNetworkPeerOutboundItemVariant1Protocol {
+        Tcp = "tcp",
+        Udp = "udp",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostNetworkPeerOutboundItemVariant1 {
+    pub protocol: HostNetworkPeerOutboundItemVariant1Protocol,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<i64>,
+}
+
+wire_enum! {
+    HostNetworkPeerOutboundItemVariant2Protocol {
+        Any = "any",
+        Icmp = "icmp",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostNetworkPeerOutboundItemVariant2 {
+    pub protocol: HostNetworkPeerOutboundItemVariant2Protocol,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum HostNetworkPeerOutboundItem {
+    Variant1(HostNetworkPeerOutboundItemVariant1),
+    Variant2(HostNetworkPeerOutboundItemVariant2),
+    /// A member this build does not know (a newer backend), kept verbatim.
+    Unknown(Value),
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostNetworkPolicyView {
+    pub schema_version: IntLit<1>,
+    pub host: HostId,
+    pub user: UserId,
+    pub install: InstallId,
+    pub team: TeamId,
+    pub origin: String,
+    pub tenant: NativeTenantId,
+    pub mesh: NativeMeshId,
+    pub device: NativeDeviceId,
+    pub wg_public_key: WgPublicKey,
+    pub install_public_key: String,
+    pub authority_version: String,
+    pub checked_at: i64,
+    pub expires_at: i64,
+    pub acl_version: i64,
+    pub policy_digest: String,
+    pub peers: Vec<HostNetworkPeer>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Install {
     pub id: InstallId,
     pub device: DeviceId,
@@ -792,109 +896,4 @@ pub struct PublicJwk {
     pub crv: LitP256,
     pub x: String,
     pub y: String,
-}
-
-/// One device's APNs registration.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct PushTarget {
-    pub token: PushToken,
-    pub topic: String,
-    pub environment: PushTargetEnvironment,
-    pub install: String,
-    pub device_name: String,
-    pub registered_at: i64,
-}
-
-wire_enum! {
-    PushTargetEnvironment {
-        Development = "development",
-        Production = "production",
-    }
-}
-
-/// An APNs device token (hex).
-pub type PushToken = String;
-
-pub type RepoPattern = String;
-
-/// Decimal per-object revision (the owner's event sequence).
-pub type Revision = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct Run {
-    pub id: RunId,
-    pub automation: AutomationId,
-    pub automation_version: i64,
-    pub owner: TeamId,
-    pub trigger: RunTrigger,
-    pub state: RunState,
-    pub step: i64,
-    pub created_at: i64,
-    pub started_at: Option<i64>,
-    pub finished_at: Option<i64>,
-    pub error: Option<RunError>,
-    pub outcome: Option<RunOutcome>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RunTrigger {
-    pub id: Option<TriggerId>,
-    pub r#type: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scheduled_at: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub delivery_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub parent_run: Option<RunId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub root_run: Option<RunId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub depth: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RunOutcome {
-    pub goal_met: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub summary: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RunError {
-    pub code: String,
-    pub message: String,
-}
-
-/// One automation run; also its Workflow instance id.
-pub type RunId = String;
-
-wire_enum! {
-    RunState {
-        Queued = "queued",
-        Running = "running",
-        Sleeping = "sleeping",
-        Waiting = "waiting",
-        Succeeded = "succeeded",
-        Failed = "failed",
-        Cancelled = "cancelled",
-        Skipped = "skipped",
-        Dead = "dead",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RunWithBody {
-    pub id: RunId,
-    pub automation: AutomationId,
-    pub automation_version: i64,
-    pub owner: TeamId,
-    pub trigger: RunWithBodyTrigger,
-    pub state: RunState,
-    pub step: i64,
-    pub created_at: i64,
-    pub started_at: Option<i64>,
-    pub finished_at: Option<i64>,
-    pub error: Option<RunError>,
-    pub outcome: Option<RunWithBodyOutcome>,
-    pub body: Body,
 }
