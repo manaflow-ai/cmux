@@ -447,6 +447,8 @@ async function runSample(testCase, surface, index) {
     sample.base = HARNESS === "generic" ? buildGenericBase(surface, session) : buildBase(surface, session);
     sample.tools = [...sample.base.tools];
     const before = normalize(await capture(session.cmux));
+    // From the prompt to the agent's last word: the time a person waits for the task.
+    sample.started = Date.now();
     if (CLI_AGENT) {
       await runCliAgent(sample, testCase, surface);
       return await finishSample(sample, testCase, surface, index, before, name, [], "cli", sample.steps + 1);
@@ -492,6 +494,7 @@ async function runSample(testCase, surface, index) {
 /** Grades a finished sample and writes its row and transcript. */
 async function finishSample(sample, testCase, surface, index, before, name, transcript, stop, steps) {
   const { dir, session } = sample;
+  const seconds = sample.started ? Math.round((Date.now() - sample.started) / 100) / 10 : null;
   await new Promise((r) => setTimeout(r, 1500)); // commands the agent started print
   const beforeTabs = new Set(before.tabs.map((t) => t.id));
   const after = normalize(await capture(session.cmux, { textFor: (t) => !beforeTabs.has(t.id) }));
@@ -505,6 +508,9 @@ async function finishSample(sample, testCase, surface, index, before, name, tran
     case: testCase.id, surface, sample: index, model: MODEL, ...verdict(checks), checks,
     steps, stop, ops: sample.ops.length, op_errors: sample.ops.filter((o) => !o.ok).length,
     docs_calls: sample.docsCalls, first_input_tokens: sample.firstInput, usage: sample.usage, cost_usd: cost(sample.usage),
+    // Every token the model read (cached or not) and wrote over the task, and its wall time.
+    tokens: (sample.usage.input ?? 0) + (sample.usage.cacheRead ?? 0) + (sample.usage.cacheWrite ?? 0) + (sample.usage.output ?? 0),
+    seconds,
     // The CLI itself failed (no output, a crash): not a cmux result.
     ...(sample.agentError ? { pass: false, category: "agent_error", detail: sample.agentError } : {}),
   };
@@ -582,11 +588,13 @@ function summarize(cases, rows, baseline) {
     const passed = byCase.filter((x) => x.v.pass).length;
     const total = mine.reduce((s, r) => s + (r.cost_usd ?? 0), 0);
     const med = (k) => { const v = mine.map((r) => r[k]).filter((x) => x != null).sort((a, b) => a - b); return v[Math.floor(v.length / 2)] ?? "-"; };
-    lines.push(`## ${surface}: ${passed}/${byCase.length} cases pass, $${total.toFixed(2)}, median first-request input ${med("first_input_tokens")} tokens, median steps ${med("steps")}, median docs calls ${med("docs_calls")}`, "");
-    lines.push("| case | kind | result | baseline | failed check |", "| --- | --- | --- | --- | --- |");
+    const sum = (k) => mine.reduce((acc, r) => acc + (r[k] ?? 0), 0);
+    lines.push(`## ${surface}: ${passed}/${byCase.length} cases pass, $${total.toFixed(2)}, median first-request input ${med("first_input_tokens")} tokens, median steps ${med("steps")}, median docs calls ${med("docs_calls")}, median tokens ${med("tokens")}, median seconds ${med("seconds")}, total tokens ${sum("tokens")}, total seconds ${Math.round(sum("seconds"))}`, "");
+    lines.push("| case | kind | result | baseline | failed check | median tokens | median s |", "| --- | --- | --- | --- | --- | --- | --- |");
     for (const { c, v, s, b } of byCase) {
       const failed = s.filter((r) => !r.pass).map((r) => r.failed ?? r.category).filter(Boolean);
-      lines.push(`| ${c.id} | ${c.kind} | ${v.pass ? "pass" : "FAIL"} ${v.samples - v.fails}/${v.samples} | ${b ? `${b.pass ? "pass" : "FAIL"} ${b.samples - b.fails}/${b.samples}` : ""} | ${[...new Set(failed)].join("; ").replaceAll("|", "\\|").slice(0, 160)} |`);
+      const caseMed = (k) => { const x = s.map((r) => r[k]).filter((n) => n != null).sort((p, q) => p - q); return x[Math.floor(x.length / 2)] ?? "-"; };
+      lines.push(`| ${c.id} | ${c.kind} | ${v.pass ? "pass" : "FAIL"} ${v.samples - v.fails}/${v.samples} | ${b ? `${b.pass ? "pass" : "FAIL"} ${b.samples - b.fails}/${b.samples}` : ""} | ${[...new Set(failed)].join("; ").replaceAll("|", "\\|").slice(0, 160)} | ${caseMed("tokens")} | ${caseMed("seconds")} |`);
     }
     lines.push("");
   }

@@ -174,6 +174,8 @@ on:
       - scripts/cmux-next/check-single-omnibar.py
       - scripts/cmux-next/check-no-swiftui.py
       - scripts/cmux-next/no-swiftui-allowlist.txt
+      - scripts/cmux-next/check-default-cursor.py
+      - scripts/cmux-next/pointer-cursor-allowlist.txt
       - scripts/cmux-next/check-perf-source-guard.py
       - scripts/cmux-next/check-overlay-glass.py
       - tests/test_cmux_next_perf_source_guard.py
@@ -449,6 +451,8 @@ on:
       - scripts/cmux-next/check-single-omnibar.py
       - scripts/cmux-next/check-no-swiftui.py
       - scripts/cmux-next/no-swiftui-allowlist.txt
+      - scripts/cmux-next/check-default-cursor.py
+      - scripts/cmux-next/pointer-cursor-allowlist.txt
       - scripts/cmux-next/check-perf-source-guard.py
       - scripts/cmux-next/check-overlay-glass.py
       - tests/test_cmux_next_perf_source_guard.py
@@ -1633,6 +1637,13 @@ jobs:
         continue-on-error: true
         run: python3 -I scripts/cmux-next/check-no-process-scan.py "$GITHUB_WORKSPACE"
 
+      # The user (2026-10-30): "change all pointers back to cursor-default". App UI shows the
+      # arrow; only web page and terminal content may show the pointing hand (allowlist).
+      - name: Default cursor (no pointing hand in app UI)
+        id: default-cursor
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/check-default-cursor.py "$GITHUB_WORKSPACE"
+
       - name: No literal state roots (per-build isolation S7, cx-is1kf.8)
         id: state-roots
         continue-on-error: true
@@ -1894,6 +1905,7 @@ jobs:
             # Version skew: the capability-text lint.
             bash scripts/cmux-next/tests/capability-text.test.sh
             bash scripts/cmux-next/tests/release-compile-derived-data.test.sh
+            bash scripts/cmux-next/tests/release-compile-fleet-cas.test.sh
             bash scripts/cmux-next/tests/scheme-compile-derived-data.test.sh
             bash scripts/cmux-next/tests/scheme-compile-browser-import.test.sh
             bash scripts/cmux-next/tests/dev-account-guard.test.sh
@@ -1906,6 +1918,7 @@ jobs:
             bash scripts/cmux-next/tests/check-no-process-scan.test.sh
           bash scripts/cmux-next/tests/check-single-omnibar.test.sh
             bash scripts/cmux-next/tests/check-no-swiftui.test.sh
+            bash scripts/cmux-next/tests/check-default-cursor.test.sh
             bash scripts/cmux-next/tests/check-state-roots.test.sh
             bash scripts/cmux-next/tests/check-dialog-key-hints.test.sh
             bash scripts/cmux-next/tests/check-switch-fetches.test.sh
@@ -1935,6 +1948,8 @@ jobs:
             bash scripts/cmux-next/tests/rust-daemon-miss-builds.test.sh
             bash scripts/cmux-next/tests/build-cmux-tui-client.test.sh
             bash scripts/cmux-next/tests/cef-manifest-r2.test.sh
+            # The Chromium staleness guard (cmux-next-chromium-staleness.yml) fails a pin 2+ stable majors behind.
+            python3 -I tests/test_chromium_staleness.py
             # The herdr-derived agent plugin's vendored manifests match their pin.
             python3 -I scripts/cmux-next/herdr-sync.py check
             python3 -I scripts/cmux-next/tests/test_herdr_sync.py
@@ -2274,6 +2289,7 @@ jobs:
             ${{ steps.single-omnibar.outcome }}|One omnibar (popups, New Tab and tabs share AddressBarView)
             ${{ steps.no-swiftui.outcome }}|No new SwiftUI (macOS UI is AppKit)
             ${{ steps.no-process-scan.outcome }}|No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
+            ${{ steps.default-cursor.outcome }}|Default cursor (no pointing hand in app UI)
             ${{ steps.state-roots.outcome }}|No literal state roots (per-build isolation S7, cx-is1kf.8)
             ${{ steps.dialog-key-hints.outcome }}|Dialog buttons show their keys (u2647)
             ${{ steps.concurrency.outcome }}|Main-thread concurrency
@@ -4858,15 +4874,22 @@ jobs:
           echo "::notice title=cmux-next Release compile (Xcode 26) reused::$RUN_URL passed on the same inputs (${SHA:0:12})"
           echo "Reused $RUN_URL: it passed on \`${SHA:0:12}\` with the same inputs (\`$KEY\`)." >> "$GITHUB_STEP_SUMMARY"
 
+      # On a mini, the compile reads the fleet's shared compile cache (glaeda fleet-cas, the store
+      # on cmux-lawrence's SSD) from the host's canonical root, read-only: only the trusted
+      # writer fills it (scripts/cmux-next/release-compile-fleet-cas.sh). A node that does not
+      # answer or a root another compile holds builds per runner as before, at once.
+      # vars.CMUX_NEXT_RELEASE_FLEET_CAS=off turns it off.
       - name: Release compile
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         env:
           CMUX_BUILD_METRICS_DIR: ${{ runner.temp }}/cmux-next-build-metrics/release
           CMUX_BUILD_METRICS_OUTPUT: ${{ runner.temp }}/cmux-next-build-metrics/release/metrics.json
           CMUX_BUILD_METRICS_SUMMARY: ${{ runner.temp }}/cmux-next-build-metrics/release/summary.md
+          CMUX_NEXT_RELEASE_FLEET_CAS: ${{ vars.CMUX_NEXT_RELEASE_FLEET_CAS == 'off' && 'off' || 'read' }}
         run: |
           derived_data="$(scripts/cmux-next/release-derived-data-path.sh release-compile Release)"
-          scripts/cmux-next/check-release-compile.sh "$derived_data"
+          [[ "$CMUX_NEXT_RUNNER" == glaeda-* ]] || export CMUX_NEXT_RELEASE_FLEET_CAS=off
+          scripts/cmux-next/release-compile-fleet-cas.sh "$derived_data"
 
       # Early advisory for a newly bundled binary. The signed nightly check
       # remains authoritative, but this names an unmapped file during review.
@@ -4875,7 +4898,9 @@ jobs:
         continue-on-error: true
         run: |
           set -uo pipefail
-          derived_data="$(scripts/cmux-next/release-derived-data-path.sh release-compile Release)"
+          # The compile's DerivedData: the canonical root's on a fleet-cache build (until another
+          # compile takes the root), else this runner's.
+          derived_data="${CMUX_NEXT_RELEASE_DERIVED_DATA:-$(scripts/cmux-next/release-derived-data-path.sh release-compile Release)}"
           app="$(find "$derived_data/Build/Products/Release" -maxdepth 2 -type d -name '*.app' -print -quit 2>/dev/null || true)"
           if [[ -z "$app" ]]; then
             echo "::warning title=Release bundle notices::no Release .app product was found for the advisory notice scan"
