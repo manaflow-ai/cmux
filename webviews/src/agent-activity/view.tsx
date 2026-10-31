@@ -92,7 +92,15 @@ function EventList({ state, dispatch }: { state: ActivityState; dispatch: (a: an
     </div>
   );
 }
-function Split({ state, dispatch, groups }: { state: ActivityState; dispatch: (a: any) => void; groups: ActivityGroup[] }) {
+function Split({
+  state,
+  dispatch,
+  groups,
+}: {
+  state: ActivityState;
+  dispatch: (a: any) => void;
+  groups: ActivityGroup[];
+}) {
   const selected = Object.values(state.sessionsByMachine)
     .flat()
     .find((s) => s.id === state.selectedSessionID);
@@ -148,7 +156,15 @@ function Split({ state, dispatch, groups }: { state: ActivityState; dispatch: (a
     </div>
   );
 }
-function Timeline({ state, dispatch, groups }: { state: ActivityState; dispatch: (a: any) => void; groups: ActivityGroup[] }) {
+function Timeline({
+  state,
+  dispatch,
+  groups,
+}: {
+  state: ActivityState;
+  dispatch: (a: any) => void;
+  groups: ActivityGroup[];
+}) {
   const sessions = groups.flatMap((g) => g.sessions);
   return (
     <div className="timeline">
@@ -181,7 +197,15 @@ function Timeline({ state, dispatch, groups }: { state: ActivityState; dispatch:
     </div>
   );
 }
-function Grid({ state, dispatch, groups }: { state: ActivityState; dispatch: (a: any) => void; groups: ActivityGroup[] }) {
+function Grid({
+  state,
+  dispatch,
+  groups,
+}: {
+  state: ActivityState;
+  dispatch: (a: any) => void;
+  groups: ActivityGroup[];
+}) {
   return (
     <div className="grid">
       {groups

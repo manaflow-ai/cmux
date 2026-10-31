@@ -24,9 +24,7 @@ function App() {
       ? state.selectedSessionID
         ? [state.selectedSessionID]
         : []
-      : projectedGroups
-          .flatMap((group) => group.sessions)
-          .map((session) => session.id);
+      : projectedGroups.flatMap((group) => group.sessions).map((session) => session.id);
   const followKey = followIDs.join(",");
   useEffect(() => {
     const ids = followKey ? followKey.split(",") : [];
