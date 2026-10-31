@@ -139,7 +139,7 @@ public final class ScreenshotsModel {
     ///   - change: what CmuxNextFiles' watcher reported.
     ///   - folder: the watched folder.
     public func apply(_ change: FolderChange, in folder: URL) async {
-        guard let source = source(containing: folder.path) else { return }
+        guard isListing, let source = source(containing: folder.path) else { return }
         guard case .items(let names) = change, names.count <= rescanThreshold else { return scheduleRescan(source) }
         let known = Set(foldersBySource[source.id] ?? [])
         let depth = Self.depth(of: folder.path, below: source.folder.path)

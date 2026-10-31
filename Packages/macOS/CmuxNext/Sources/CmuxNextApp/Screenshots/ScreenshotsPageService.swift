@@ -32,23 +32,22 @@ final class ScreenshotsPageService {
         self.services = services
     }
 
-    /// Selects the active window's Screenshots tab, else opens one beside the focused tab: in front only for
-    /// `focus` (the person's own run), else in the background, where it lists no folder until the person shows it.
-    func open(focus: Bool) {
-        guard let services else { return }
-        guard let window = services.windows.active else { return services.registry.refuse(RefusalStrings.noWindowOpen) }
+    /// Selects or opens the Screenshots tab, in front only for the person's own run; any other is told (``ScreenshotsOpen``).
+    func open(_ invocation: ActionInvocation) -> ActionEffect {
+        let run = ScreenshotsOpen(personsRun: invocation.isPersonsOwnRun)
+        guard let window = services?.windows.active else { return .refused(RefusalStrings.noWindowOpen) }
+        let said = run.result.map { fields in ActionEffect.applied(result: { .success(fields.mapValues(ActionResultValue.string)) }) } ?? .done
         for pane in window.content?.panes.values.map({ $0 }) ?? [] {
             if let tab = pane.pane.tabs.first(where: { ScreenshotsPageAddress.matches($0.url.flatMap(URL.init(string:))) }) {
-                if focus { pane.select(StripTabID(tab.id)) }
-                return
+                if run.selects { pane.select(StripTabID(tab.id)) }
+                return said
             }
         }
-        guard let pane = window.focusedPane else { return }
-        pane.newBrowserTab(url: ScreenshotsPageAddress.url, background: !focus)
+        return window.focusedPane?.newBrowserTab(url: ScreenshotsPageAddress.url, background: !run.selects) == true ? said : .done
     }
 
     func makePage(key: String, engine: BrowserEngineKind, profile: BrowserProfileID) -> ScreenshotsPageTab {
-        let model = ScreenshotsModel(listsAtOnce: false) // macOS guards ~/Desktop: lists once on screen
+        let model = ScreenshotsModel(listsAtOnce: false) // lists after the person's click (ScreenshotsView's prompt)
         let page = ScreenshotsPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, model: model,
                                       cache: thumbnails, workspace: workspace, files: files)
         page.onClose = { [weak self] in self?.pages.removeValue(forKey: key) }

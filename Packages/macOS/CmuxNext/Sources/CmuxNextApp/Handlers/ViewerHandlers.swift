@@ -46,8 +46,8 @@ enum ViewerHandlers {
                 return nil
             })
         })
-        // The Screenshots pane: selected when open, else a new tab, in front only for the person's own run (it lists ~/Desktop).
-        registry.bind("screenshots.open", run: { invocation in services.screenshotsPage.open(focus: invocation.isPersonsOwnRun) })
+        // The Screenshots pane: in front only for the person's own run (it lists ~/Desktop); any other run is told it opened behind.
+        registry.bindEffect("screenshots.open", effect: { services.screenshotsPage.open($0) })
         registry.bind("palette.openDirectoryDiffViewer", run: { invocation in
             guard let pane = context.paneController(invocation) else { return }
             try showPicker(viewers.diffPickerPage(for: pane), context, invocation)
