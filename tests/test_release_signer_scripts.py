@@ -66,6 +66,19 @@ elif cmd == "encode-app-store-connect-api-key":
     out = opt("-o")
     json.dump({"issuer_id": issuer, "key_id": key_id, "private_key": open(p8).read()}, open(out, "w"))
 elif cmd == "notary-submit":
+    # FAKE_NOTARY_ANSWERS: one answer per submit, consumed in order (502, 401, invalid; anything else accepts).
+    answers = os.environ.get("FAKE_NOTARY_ANSWERS", "").split()
+    tries = len([l for l in open(os.environ["FAKE_LOG"]) if json.loads(l)["argv"][0] == "notary-submit"])
+    answer = answers[tries - 1] if tries <= len(answers) else "accept"
+    if answer == "502":
+        sys.exit("Error: appstore connect error:\nPOST https://appstoreconnect.apple.com/notary/v2/submissions\n"
+                 "<html><head><title>502 Bad Gateway</title></head><body>502 Bad Gateway</body></html>")
+    if answer == "401":
+        sys.exit("Error: appstore connect error:\nPOST https://appstoreconnect.apple.com/notary/v2/submissions\n"
+                 '{"errors": [{"status": "401", "code": "NOT_AUTHORIZED", "title": "Authentication credentials are missing or invalid."}]}')
+    if answer == "invalid":
+        print("created submission ID: 0f1e2d3c-4b5a-6978-8a9b-acbdcedfe0f1")
+        sys.exit("Error: notarization package is invalid")
     key = json.load(open(opt("--api-key-file")))
     ssl("pkey", "-noout", stdin=key["private_key"].encode())
     assert b"\nSIGNED:" in open(argv[-1], "rb").read(), "submitted unsigned"
@@ -170,6 +183,35 @@ class NotarizeDmgTests(unittest.TestCase):
         result = run(["bash", NOTARIZE_DMG, self.dmg], dict(self.env, APPLE_SIGNING_IDENTITY="Someone Else"))
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(self.log.exists() and "sign" in [c["argv"][0] for c in self.calls()])
+
+    def submits(self):
+        return [c for c in self.calls() if c["argv"][0] == "notary-submit"]
+
+    def test_retries_a_submit_that_apple_answers_with_a_5xx(self):
+        # Run 41109803857: Apple answered POST /notary/v2/submissions with 502 Bad Gateway and the DMG never shipped.
+        result = run(["bash", NOTARIZE_DMG, self.dmg],
+                     dict(self.env, FAKE_NOTARY_ANSWERS="502 502", NOTARY_RETRY_DELAYS="0 0"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.submits()), 3)
+        self.assertTrue(self.dmg.read_bytes().endswith(b"\nSTAPLED"))
+        self.assertIn("Bad Gateway", result.stderr)
+        self.assertEqual(sorted(p.name for p in self.tmp.glob("cmux-dmg-signer.*")), [])
+
+    def test_gives_up_after_three_tries(self):
+        result = run(["bash", NOTARIZE_DMG, self.dmg],
+                     dict(self.env, FAKE_NOTARY_ANSWERS="502 502 502", NOTARY_RETRY_DELAYS="0 0"))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(len(self.submits()), 3)
+        self.assertFalse(self.dmg.read_bytes().endswith(b"\nSTAPLED"))
+
+    def test_never_retries_a_4xx_or_an_invalid_verdict(self):
+        for answer in ("401", "invalid"):
+            with self.subTest(answer=answer):
+                self.log.unlink(missing_ok=True)
+                result = run(["bash", NOTARIZE_DMG, self.dmg],
+                             dict(self.env, FAKE_NOTARY_ANSWERS=answer, NOTARY_RETRY_DELAYS="0 0"))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(len(self.submits()), 1)
 
     def test_needs_the_signer_variable(self):
         env = dict(self.env)

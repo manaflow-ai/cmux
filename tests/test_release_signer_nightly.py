@@ -34,6 +34,13 @@ if argv[0] == "encode-app-store-connect-api-key":
 elif argv[0] == "notary-submit":
     key = json.load(open(argv[argv.index("--api-key-file") + 1]))
     subprocess.run(["openssl", "pkey", "-noout"], input=key["private_key"].encode(), check=True)
+    answers = os.environ.get("FAKE_NOTARY_ANSWERS", "").split()
+    tries = len([l for l in open(os.environ["FAKE_LOG"]) if json.loads(l)["argv"][0] == "notary-submit"])
+    answer = answers[tries - 1] if tries <= len(answers) else "accept"
+    if answer in ("502", "503", "403"):
+        print("Error: appstore connect error:\nPOST https://appstoreconnect.apple.com/notary/v2/submissions")
+        print('{"errors": [{"status": "%s", "title": "%s"}]}' % (answer, "Forbidden" if answer == "403" else "Service Unavailable"))
+        sys.exit(1)
     if os.environ["FAKE_SUBMISSION"]:
         print("created submission ID: %s" % os.environ["FAKE_SUBMISSION"])
     status = os.environ.get("FAKE_STATUS", "Accepted")
@@ -161,6 +168,24 @@ class NotarizeAppTests(unittest.TestCase):
         self.assertIn(f"submission_id={SUBMISSION}", result.stdout)
         self.assertIn("was not notarized", result.stderr)
         self.assertFalse((self.app / "Contents/CodeResources").exists())
+
+    def submits(self):
+        return [c for c in self.calls() if c["argv"][0] == "notary-submit"]
+
+    def test_retries_a_submit_that_apple_answers_with_a_5xx(self):
+        result = self.run_script(FAKE_NOTARY_ANSWERS="502 503", NOTARY_RETRY_DELAYS="0 0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, f"submission_id={SUBMISSION}\n")
+        self.assertEqual(len(self.submits()), 3)
+        self.assertTrue((self.app / "Contents/CodeResources").is_file())
+
+    def test_never_retries_a_4xx_or_an_invalid_verdict(self):
+        for env in ({"FAKE_NOTARY_ANSWERS": "403"}, {"FAKE_STATUS": "Invalid"}):
+            with self.subTest(env=env):
+                self.log.unlink(missing_ok=True)
+                result = self.run_script(NOTARY_RETRY_DELAYS="0 0", **env)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(len(self.submits()), 1)
 
     def test_fails_when_the_log_names_no_submission(self):
         result = self.run_script(FAKE_SUBMISSION="")
