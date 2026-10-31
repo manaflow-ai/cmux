@@ -1536,6 +1536,11 @@ impl Config {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn pick_auto_default_for_tests(&mut self) {
+        self.pick_auto_default();
+    }
+
     /// A capture fixture's harnesses join as discovered ones would
     /// (`harness_fixture.rs`); configured entries still win.
     pub fn join_fixture(&mut self, fixture: &crate::harness_fixture::Fixture) {
