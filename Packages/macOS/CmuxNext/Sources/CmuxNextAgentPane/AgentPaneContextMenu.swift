@@ -91,6 +91,8 @@ enum AgentPaneContextMenu {
         var fork: (Int) -> Void
         var retry: (String) -> Void = { _ in }
         var edit: (String) -> Void = { _ in }
+        /// Quote in Reply: the Markdown quote goes after the composer's draft, which it keeps.
+        var quoteReply: (String) -> Void = { _ in }
         var open: (URL) -> Void = { _ in }
         /// A link part's rows (``LinkMenu``): Open in cmux Browser, ..., Copy Link; nil: Open Link and Copy Link.
         var linkItems: ((URL) -> [NSMenuItem])? = nil
@@ -180,7 +182,7 @@ enum AgentPaneContextMenu {
             // Selected text gets the selection menu alone (macOS adds Services last).
             let quote = Self.quote(selection)
             let selected = edits + [
-                AgentPaneMenuAction.item(AgentPaneMenuStrings.quoteInReply, symbol: "text.quote") { actions.edit(quote) },
+                AgentPaneMenuAction.item(AgentPaneMenuStrings.quoteInReply, symbol: "text.quote") { actions.quoteReply(quote) },
                 AgentPaneMenuAction.item(AgentPaneMenuStrings.askAboutThis, symbol: "questionmark.bubble") { actions.edit(quote + AgentPaneMenuStrings.askAboutThisPrompt) },
             ]
             let find = [AgentPaneMenuAction.item(AgentPaneMenuStrings.searchTheWeb, symbol: "magnifyingglass") { actions.search(selection) }] + (lookUp.map { [$0] } ?? [])

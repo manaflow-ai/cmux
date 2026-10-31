@@ -8936,6 +8936,11 @@ function AcpmuxPane() {
             restorePrompt(String(text ?? ""), []);
             composerHandle.current?.focus();
           },
+          // Quote in Reply (the transcript selection menu): the Markdown quote goes after the
+          // draft, which stays as typed, and the caret waits in an empty paragraph below it.
+          "chat.quoteReply": async ({ markdown }) => {
+            composerHandle.current?.quoteReply(String(markdown ?? ""));
+          },
           "chat.history": () => client.loadOlder(),
           // Find in Chat (the app's Find commands on an agent pane).
           "chat.find": async ({ text }) => findRef.current?.show(typeof text === "string" ? text : undefined),
