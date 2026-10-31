@@ -56,3 +56,14 @@ test("the start's answer: an opened chat clears the card, a failure keeps it wit
   expect(cloudStartEnded(begun(), "k-2", { ok: true })).toEqual(begun());
   expect(cloudStartEnded(undefined, "k-1", { ok: true })).toBeUndefined();
 });
+
+test("a start with no project carries home, and the agent's name for the opening step", () => {
+  expect(cloudStartBegun("k", "hi", undefined, "Claude Code", true)).toEqual({
+    key: "k",
+    task: "hi",
+    state: "starting",
+    agent: "Claude Code",
+    home: true,
+  });
+  expect(cloudStartBegun("k", "hi", "/Users/me/paint").home).toBeUndefined();
+});

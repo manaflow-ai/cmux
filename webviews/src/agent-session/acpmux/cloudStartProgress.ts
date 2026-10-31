@@ -37,6 +37,8 @@ export type CloudStartProgress = {
   message?: string;
   /// The agent the chat starts, by name ("Claude Code"), for the opening step.
   agent?: string;
+  /// No project: nothing is copied, so the card shows no copy step.
+  home?: boolean;
 };
 
 /// The start the page just sent: the message, and the folder by its name.
@@ -45,9 +47,17 @@ export function cloudStartBegun(
   task: string,
   cwd: string | undefined,
   agent?: string,
+  home?: boolean,
 ): CloudStartProgress {
   const folder = cwd?.replace(/\/+$/, "").split("/").pop();
-  return { key, task, state: "starting", ...(folder ? { folder } : {}), ...(agent ? { agent } : {}) };
+  return {
+    key,
+    task,
+    state: "starting",
+    ...(folder ? { folder } : {}),
+    ...(agent ? { agent } : {}),
+    ...(home ? { home: true } : {}),
+  };
 }
 
 /// Text the card shows from the host: one line, at most `max` characters.

@@ -65,7 +65,7 @@ export function CloudStartView({ start, bubble = true }: { start: CloudStartProg
         {!failed && <Spinner size={14} loading />}
         <span>{status}</span>
       </output>
-      {arm === "steps" && !failed && <StepList step={start.step} agent={start.agent} t={t} />}
+      {arm === "steps" && !failed && <StepList step={start.step} agent={start.agent} home={start.home} t={t} />}
       {known.length > 0 &&
         (arm === "rows" ? (
           <dl className="acpmux-cloud-start__rows">
@@ -95,11 +95,23 @@ export function CloudStartView({ start, bubble = true }: { start: CloudStartProg
 }
 
 /// The `steps` arm: each step done (a check), current (a spinner) or still to come.
-function StepList({ step, agent, t }: { step: CloudStartStep | undefined; agent?: string; t: Translate }) {
-  const current = step ? CLOUD_START_STEPS.indexOf(step) : -1;
+function StepList({
+  step,
+  agent,
+  home,
+  t,
+}: {
+  step: CloudStartStep | undefined;
+  agent?: string;
+  home?: boolean;
+  t: Translate;
+}) {
+  // No project: nothing is copied, so there is no copy step.
+  const steps = home ? CLOUD_START_STEPS.filter((name) => name !== "folder") : CLOUD_START_STEPS;
+  const current = step ? steps.indexOf(step) : -1;
   return (
     <ol className="acpmux-cloud-start__steps">
-      {CLOUD_START_STEPS.map((name, index) => {
+      {steps.map((name, index) => {
         const state = index < current ? "done" : index === current ? "current" : "next";
         return (
           <li key={name} data-step={state}>

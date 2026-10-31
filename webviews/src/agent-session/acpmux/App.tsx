@@ -6968,7 +6968,7 @@ function AcpmuxPane() {
   /// The tab's run is its result while no chat started here: the chat view shows it, with no
   /// composer, so nothing here can start a chat over it or send a second.
   const sandboxHoldsChat = !snapshot.sessionId && sandboxView !== undefined && !sandboxRetryable(sandboxView);
-  const sandboxing = sandboxOffered && !sandbox.spent() && sandbox.mode === "sandboxed";
+  const sandboxing = sandboxOffered && preview && !sandbox.spent() && sandbox.mode === "sandboxed";
   /// Sandboxed is picked but can't run now (Labs went off, a chat is starting or being opened, the
   /// tab's one send is used): a send then is refused, never sent as a Persistent chat instead.
   const sandboxPickedNotOffered = sandbox.mode === "sandboxed" && !snapshot.sessionId && !sandboxing;
@@ -6985,6 +6985,8 @@ function AcpmuxPane() {
   const [cloudStartsEnded, setCloudStartsEnded] = useState(0);
   const sandboxModeRows = {
     mode: sandbox.mode,
+    // Sandboxed stays a Labs feature; Cloud alone is offered when only the setting turns it on.
+    ...(preview ? {} : { cloudOnly: true }),
     onMode: (mode: RunMode) => {
       runModePicked.current = true;
       sandbox.setMode(mode);
@@ -7013,7 +7015,9 @@ function AcpmuxPane() {
     // Another Return while a start waits starts nothing, and the card keeps that start.
     if (!started) return false;
     cloudStartPending.current = true;
-    setCloudStart(cloudStartBegun(key, text, start.cwd, start.harness ? harnessLabel(start.harness) : undefined));
+    setCloudStart(
+      cloudStartBegun(key, text, start.cwd, start.harness ? harnessLabel(start.harness) : undefined, start.home),
+    );
     void started.then((answer) => {
       cloudStartPending.current = false;
       setCloudStartsEnded((count) => count + 1);
