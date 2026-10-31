@@ -415,6 +415,20 @@ typed after the creation hold, every other check runs and is counted per round; 
 must be a new folder. Writes `summary.json` and `summary.txt`. Test:
 `python3 scripts/journeys/test_smoke_gate.py`.
 
+### Real HID keys in the gate (`key_path=real`)
+
+`debug.key` enters the app's key router directly: it skips the window server, AppKit, the menu's key equivalents
+and the responder chain, so a bug there (with the command palette open, a real Ctrl-` made no terminal, STATUS
+1456) cannot fail the gate. So each gate run types at least 2 of its 10 rounds (rounds 1 and 6) with REAL key
+events: `--journey-option key_path=real` makes the smoke journey's `smoke_key`, `smoke_type` and `smoke_type_now`
+steps send each key through one CuaDriver MCP session (`press_key` / `hotkey`, `delivery_mode` foreground: a
+genuine HID key transition to the app's main window), Cmd-N, Ctrl-`, Cmd-D, Cmd-T, Cmd-W and every typed line
+included. Real keys need a whole-host lease (`--whole-host`); without one a run has no real-key rounds and is a
+trial. Each step's `key_path` in result.json says which path its keys took (`real_hid` or `debug.key`; relaunch's
+Cmd-Q stays `debug.key`). A real-key round whose basic keys did not all take `real_hid` is not run; a .pass needs
+the real-key rounds to pass. A key CuaDriver refuses is not run, never a red of the build. `--real-key-rounds N`
+asks for more.
+
 ### Open P0 journeys block the .pass
 
 A build with an open P0 that the smoke journey does not test would pass by omission (cmux-ad 12:35Z). So after
