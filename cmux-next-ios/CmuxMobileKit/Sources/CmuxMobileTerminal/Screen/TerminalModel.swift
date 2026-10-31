@@ -4,7 +4,10 @@ import CmuxMobileDesign
 import CmuxMobileTransport
 import Foundation
 import Observation
+import OSLog
 import UIKit
+
+private let modelLog = Logger(subsystem: "dev.cmux.mobile", category: "terminal")
 
 /// The terminal screen's state, shared by the UIKit controller (surface,
 /// scrolling, keyboard tracking) and the SwiftUI chrome (toolbar, composer,
@@ -317,6 +320,46 @@ public final class TerminalModel {
     /// Ctrl-<letter> to the program (`c` interrupts, `l` clears).
     public func sendControl(_ letter: Character) {
         keyBar(.chord(letter))
+    }
+
+    /// Clear Screen and Scrollback can run now: on a Mac terminal while it is attached
+    /// (as on the Mac, a full-screen app is left as it is), else as Ctrl-L.
+    public var canClearScreenAndScrollback: Bool {
+        session.clearsHistory ? connectionState.isAttached : true
+    }
+
+    /// The Mac's Clear Screen and Scrollback (Cmd-K): the Mac's daemon clears the terminal,
+    /// so its scrollback goes on the Mac and on every phone (`clear-history`). A session
+    /// with no Mac behind it gets Ctrl-L.
+    public func clearScreenAndScrollback() {
+        guard session.clearsHistory else { return sendControl("l") }
+        let session = session
+        Task { @MainActor in
+            do {
+                try await session.clearHistory()
+            } catch {
+                // Nothing changed on the Mac (an inline program's input reaches into the
+                // history, the link dropped): the person feels it did not clear.
+                modelLog.error("clear-history failed: \(String(describing: error), privacy: .public)")
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+            }
+        }
+    }
+
+    /// A web link tapped in the terminal: a cmux browser tab beside it in the workspace
+    /// (the page sets it, like the Mac's Cmd-click); without one, Safari. Not observed: the
+    /// page sets it while SwiftUI builds it.
+    @ObservationIgnored public var linkOpener: (@MainActor (URL) -> Void)?
+
+    /// Opens a web link the person tapped: a cmux browser tab, or (`external`) Safari.
+    public func openLink(_ url: URL, external: Bool = false) {
+        if !external, let linkOpener { return linkOpener(url) }
+        UIApplication.shared.open(url)
+    }
+
+    /// Find… (the page menu, Cmd-F): the find bar over the terminal's rows.
+    public func showFind() {
+        controller?.presentFind()
     }
 
     #if DEBUG

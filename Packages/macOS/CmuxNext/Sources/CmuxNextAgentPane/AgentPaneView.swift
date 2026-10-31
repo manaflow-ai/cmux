@@ -49,6 +49,13 @@ public final class AgentPaneView: NSView {
     var crashNotice: NSView?
     /// The page crashed and the notice waits for the person's Reload (nothing rebuilds it meanwhile).
     public var showsCrashNotice: Bool { crashNotice != nil }
+    /// The last WebContent pid seen at a finished load (old host): WebKit may report 0 for a
+    /// process that already ended.
+    var knownWebContentPid: Int32 = 0
+    /// Reloads the person asked for with a crash notice's Reload (this pane's or a sibling's).
+    var crashReloadCount = 0
+    /// The page ends of the app's agent panes, grouped by the termination that ended them.
+    let terminations: AgentPageTerminations
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
     var otherInstallNotice: ChromeLabel?
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
@@ -62,7 +69,7 @@ public final class AgentPaneView: NSView {
     /// The app's made-ahead open panel (Add Files, Attach, a page's file input); nil: no file picker (tests).
     private let openPanel: MadeAheadOpenPanel?
     /// The page's file chooser over ``openPanel`` (the web view holds its UI delegate weakly).
-    private let fileChooser: PageOpenPanel?
+    let fileChooser: PageOpenPanel?
     /// On the shared page host (`cmux-page://cmux.agent/`, the `agent.pageHost` tunable): the page
     /// view and the provider that answers its calls and carries the host's pushes. Nil on the old
     /// host (`cmux-agent://pane`, deleted with P5 of the agent pane move).
@@ -93,6 +100,12 @@ public final class AgentPaneView: NSView {
     /// Records the user's real key and mouse events in this pane (``AgentPaneUserGestures``).
     private var gestureMonitor: Any?
     var transportPacer: AgentPaneFramePacer?
+    struct QuestionKeyBinding: Equatable {
+        let connection: Int
+        let session: String
+        let contexts: [String: AcpmuxDecisionContexts.Context]
+    }
+    var questionKeyBinding: QuestionKeyBinding?
     /// The page's menu shown past the window's edge (AgentPaneView+Popup).
     var popupHostStorage: WebPopupHost?
     /// The message and the selected transcript text the page reported under the pointer for the
@@ -134,13 +147,17 @@ public final class AgentPaneView: NSView {
     ///     do on a loaded machine (#16471).
     ///   - pageHost: Host the page on the shared page host (``PageWebView``) instead of this
     ///     view's own WebKit host. Only a bundled page can move; a dev-server page stays.
+    ///   - testRoot: The bundled page is a test's own fixture, which the page host serves (DEBUG only; ``PageWebView``).
     ///   - chromium: Makes the page host's Chromium view when the chat shows in Chromium (the app's
     ///     ``PageWebView/chromiumHosting`` by default; tests pass a fake).
+    ///   - terminations: The record of agent page ends (``AgentPageTerminations``), shared by the
+    ///     panes so one Reload reaches every chat that ended with it; nil: ``processGroups``' (tests pass their own).
     ///   - openPanel: The app's made-ahead open panel (`AppServices.openPanel`) for Add Files, Attach and a page's
     ///     file input, warmed when the pane reaches a window; nil (tests) shows no file picker and warms none.
     public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
-                 pageHost: Bool = false, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
-                 openPanel: MadeAheadOpenPanel? = nil) {
+                 pageHost: Bool = false, testRoot: Bool = false, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
+                 openPanel: MadeAheadOpenPanel? = nil, terminations: AgentPageTerminations? = nil) {
+        self.terminations = terminations ?? Self.processGroups.terminations
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         self.openPanel = openPanel
         fileChooser = openPanel.map { PageOpenPanel(openPanel: $0) }
@@ -153,7 +170,7 @@ public final class AgentPaneView: NSView {
             let provider = AgentPageProvider { [weak model] _ in model }
             // Needs you reads the pane's own acpmux (a Chief chat's is the Chief home's), never another.
             provider.pendingAsksSocket = { [weak model] in model?.pendingAsksSocket }
-            guard let page = AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), provider: provider, renderRate: renderRate,
+            guard let page = AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), testRoot: testRoot, provider: provider, renderRate: renderRate,
                                                                  chromium: chromium)
             else { return nil }
             self.page = page
@@ -344,9 +361,10 @@ public final class AgentPaneView: NSView {
             page.additionalZoom = zoom
             return
         }
-        webView.pageZoom = Double(DesignSettings.shared.uiScale) * zoom
+        let pageZoom = Double(DesignSettings.shared.uiScale) * zoom
+        webView.evaluateJavaScript(DesignSettings.shared.interfaceScaleScript(pageZoom: pageZoom), completionHandler: nil)
+        webView.pageZoom = pageZoom
         glassFeed.refresh() // the zoom moves the art's rect in CSS px
-        webView.evaluateJavaScript(DesignSettings.shared.interfaceScaleScript, completionHandler: nil)
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -401,6 +419,8 @@ public final class AgentPaneView: NSView {
     public func close() {
         // A closed page must not notify the pane that used to host it after it leaves.
         onNativeToolOwnerChange = nil
+        // A closed chat leaves its crash group: a sibling's Reload must not reload it.
+        terminations.forget(self)
         popupHostStorage?.hide()
         rateReapply?.cancel()
         motionObservation?.cancel()
@@ -420,6 +440,10 @@ public final class AgentPaneView: NSView {
         model.transport.onOtherInstall = nil
         model.transport.onRemoteApprovalsOff = nil
         model.transport.onPeerApprovalsOff = nil
+        model.transport.onQuestionStateChanged = nil
+        model.onQuestionKeySessionChange = nil
+        questionKeyBinding = nil
+        page?.onVisibilityChanged = nil
         hideRemoteApprovalsOff()
         transportPacer?.stop()
         removeContextMenu()

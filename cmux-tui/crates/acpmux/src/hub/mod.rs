@@ -36,7 +36,11 @@ mod digest;
 pub(crate) mod dispatch;
 pub(crate) mod file_uploads;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
+#[cfg(test)]
+mod first_work_tests;
 mod fork;
+#[cfg(test)]
+mod shutdown_tests;
 pub(crate) use fork::offers_fork;
 mod fork_at;
 mod fork_transcript_auth;
@@ -49,6 +53,9 @@ mod health_view;
 pub(super) mod idle;
 mod idle_census;
 pub(crate) use idle_census::LaunchServers;
+pub use idle_census::Sidecar;
+#[cfg(unix)]
+pub(crate) use idle_census::host_census;
 mod launch_roots;
 mod launchers;
 pub mod lineage;
@@ -58,15 +65,18 @@ mod locate;
 pub mod media_handles;
 pub mod media_read;
 mod mesh_rows;
+pub(crate) mod native_history;
 pub(crate) mod subagent_transcript;
 mod team_information;
 mod team_sent;
 pub(crate) mod workflow_index;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 pub use media_read::FEATURE as MEDIA_READ_FEATURE;
+pub use native_history::FEATURE as NATIVE_HISTORY_FEATURE;
 pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
 mod hosts;
 mod lifecycle;
+mod log_deferral;
 mod log_load;
 mod retention;
 pub use retention::RetentionRequest;
@@ -87,6 +97,7 @@ mod pool;
 pub(crate) mod prompt_images;
 mod prompt_ledger;
 mod prompt_line;
+mod protected_hold;
 mod queue;
 mod queue_edit;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender};
@@ -182,6 +193,7 @@ pub use subsession_send::Delivery;
 mod drafts;
 pub(crate) mod outbox;
 pub mod rules;
+pub(crate) mod stop_if_idle;
 #[cfg(test)]
 mod stop_settles_tests;
 mod transcript;
@@ -192,11 +204,17 @@ mod transfer_in;
 mod transfer_out;
 mod transfer_watch;
 mod trust_wait;
+mod turn_attestation;
 mod turn_git;
 mod turn_usage;
+mod usage_view;
+pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
 mod turns;
 #[cfg(test)]
 mod turns_copy_stop_tests;
+pub(crate) mod usage_warnings;
+#[cfg(test)]
+mod usage_warnings_tests;
 pub(crate) mod views;
 mod warm;
 mod watch_events;
@@ -319,7 +337,7 @@ pub struct TurnInfo {
     /// allowance: each eligible permission in it still asks.
     pub control: Control,
     /// What the turn does right now: its latest tool call's title and its
-    /// plan's step in progress, raw and masked (`activity.rs`).
+    /// plan's step in progress, masked (`activity.rs`).
     pub doing: activity::TurnActivity,
 }
 
@@ -450,6 +468,8 @@ pub struct Hub {
     pub(super) events: list_guard::Events,
     /// The shared, paced full session list (`list_guard.rs`).
     pub(crate) list_guard: list_guard::ListGuard,
+    /// Each chat's spend and context as its harness recorded them (`usage_view.rs`).
+    pub(crate) usage_stats: usage_view::UsageCache,
     /// `_acpmux/models` replies now asking peers for theirs
     /// (`server/models_fanout.rs`): a remote asker meanwhile gets this
     /// daemon's own catalog, so mutual peers cannot ping-pong.
@@ -472,6 +492,10 @@ pub struct Hub {
     /// Moves on with each `peer_add` (under the config lock): a reload whose file read began
     /// before one leaves the saved peers' boundaries and GitHub lending as that add left them.
     pub(super) peer_config_gen: std::sync::atomic::AtomicU64,
+    /// The config's `usageWarnings` thresholds, set at start and on each reload
+    /// (`catalog_reload.rs`): a summary reads them here, so a writer holding the config lock never
+    /// swaps the configured rules for the defaults (`usage_warnings.rs`).
+    pub(super) usage_limits: StdMutex<crate::config::UsageLimits>,
     /// The links of Macs that lend this machine their GitHub login (`github_owner.rs`).
     pub(super) github_owners: github_owner::Owners,
     /// The cmux sign-in the app lends for App tokens (`github_app_token.rs`).
@@ -496,6 +520,9 @@ pub struct Hub {
     /// launcher checks) in the background. Session creation and agent
     /// spawns wait for it; every other request is answered at once.
     pub(super) startup_ready: tokio::sync::watch::Sender<bool>,
+    /// False while the daemon's startup task runs (`daemon.rs`: logs, adoption,
+    /// `finish_startup`, the chat index's start). `_acpmux/status` `loading.startupDone`.
+    pub(super) startup_work_done: tokio::sync::watch::Sender<bool>,
     store_load: store_load::StoreLoad,
     /// False from a deferred start (`Hub::new_deferred`) until `load_logs` read every
     /// chat log. A request for one chat waits for that chat's log only (`session_log`).
@@ -523,9 +550,12 @@ pub struct Hub {
     /// What the coming shutdown does with hosted agents, decided once:
     /// `_acpmux/shutdown endAgents` sets it until the shutdown takes it.
     pub(super) shutdown_plan: StdMutex<shutdown::ShutdownPlan>,
-    /// Turns a shutdown with `endAgents` settled as cancelled: their prompt
-    /// futures must not write a second result when the agent ends.
+    /// Turns a shutdown settled as cancelled (`endAgents`) or handed to the next daemon: their
+    /// prompt futures write no result of their own when the agent ends.
     pub(super) settled_by_shutdown: StdMutex<std::collections::HashSet<String>>,
+    /// A turn's end under way (`Session::ending`) landed or went: a shutdown waiting for those
+    /// ends looks again (`shutdown.rs` `settle_ends`).
+    pub(super) ends_moved: Notify,
     /// `npx -y PACKAGE` launches resolved to their bin: (npx, package) to path.
     pub(super) launchers: StdMutex<HashMap<(String, String), String>>,
     /// Harnesses whose last model probe failed, with the reason; reported in
@@ -587,6 +617,15 @@ pub struct Hub {
     /// Tests only: pause an admitted prompt before its logical turn is installed.
     #[cfg(test)]
     pub(super) prompt_start_seam: full_access_bound::WriteSeam,
+    /// Tests only: pause a chat's first work once it holds it (`inbox.rs`), before its turn.
+    #[cfg(test)]
+    pub(super) first_work_seam: full_access_bound::WriteSeam,
+    /// Tests only: pause a turn's end once its turn is taken (`finish_turn`), before it writes.
+    #[cfg(test)]
+    pub(super) finish_seam: full_access_bound::WriteSeam,
+    /// Tests only: pause a retry's task before it sets its wait (`auto_resume.rs`).
+    #[cfg(test)]
+    pub(super) retry_seam: full_access_bound::WriteSeam,
     /// Tests only: delay a Stop before its notification reaches the child writer.
     #[cfg(test)]
     pub(super) cancel_write_seam: Arc<full_access_bound::WriteSeam>,
@@ -621,8 +660,6 @@ pub struct Hub {
     /// `_acpmux/wait` requests subscribed and not yet answered (`server/wait.rs`), shown
     /// as `_acpmux/status` `openWaits`.
     pub(crate) open_waits: std::sync::atomic::AtomicUsize,
-    /// Automatic continuations waiting to fire, by chat (`auto_resume.rs`).
-    pub(super) auto_resumes: auto_resume::Pending,
     /// Failed subagents waiting to be resumed, by chat (`subagent_retry.rs`).
     pub(super) subagent_retries: subagent_retry::Retries,
     /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
@@ -703,8 +740,10 @@ impl Hub {
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
+        let usage_limits = StdMutex::new(config.usage_warnings.limits());
         let hub = Arc::new(Self {
             config: RwLock::new(config),
+            usage_limits,
             wireguard,
             store,
             mailbox,
@@ -717,6 +756,7 @@ impl Hub {
             inline_btw: StdMutex::new(HashMap::new()),
             events,
             list_guard: Default::default(),
+            usage_stats: Default::default(),
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
             shutdown: Notify::new(),
             ws_shutdown: Default::default(),
@@ -737,6 +777,7 @@ impl Hub {
             live_models: StdMutex::new(HashMap::new()),
             refused_models: StdMutex::new(HashMap::new()),
             startup_ready: tokio::sync::watch::channel(true).0,
+            startup_work_done: tokio::sync::watch::channel(true).0,
             store_load: store_load::StoreLoad::new(loading),
             logs_ready: tokio::sync::watch::channel(true).0,
             load_plan: Default::default(),
@@ -751,6 +792,7 @@ impl Hub {
             agent_hosts: AtomicBool::new(false),
             shutdown_plan: StdMutex::new(shutdown::ShutdownPlan::default()),
             settled_by_shutdown: StdMutex::new(Default::default()),
+            ends_moved: Notify::new(),
             launchers: StdMutex::new(HashMap::new()),
             probe_errors: StdMutex::new(HashMap::new()),
             clock: StdMutex::new(crate::clock::TokioClock::new()),
@@ -784,6 +826,12 @@ impl Hub {
             cancel_write_seam: Arc::new(Default::default()),
             #[cfg(test)]
             prompt_start_seam: Default::default(),
+            #[cfg(test)]
+            first_work_seam: Default::default(),
+            #[cfg(test)]
+            finish_seam: Default::default(),
+            #[cfg(test)]
+            retry_seam: Default::default(),
             harness_watch: Default::default(),
             settings_watch: Default::default(),
             git_watch: Default::default(),
@@ -801,7 +849,6 @@ impl Hub {
             admitting: Default::default(),
             subsession_runs: Default::default(),
             open_waits: Default::default(),
-            auto_resumes: Default::default(),
             subagent_retries: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
@@ -1081,11 +1128,15 @@ impl Hub {
             idle_refusal_logged: AtomicU64::new(0),
             append_lock: StdMutex::new(()),
             message_ids: StdMutex::new(None),
+            log_deferral: StdMutex::new(Default::default()),
             loading: AtomicBool::new(false),
             replaying: StdMutex::new(Vec::new()),
             caught_up: AtomicBool::new(true),
             log_load: StdMutex::new(true),
             log_loaded: AtomicBool::new(true),
+            auto_resume_restored: AtomicBool::new(false),
+            protected_hold: AtomicBool::new(false),
+            auto_resume: Default::default(),
             turn_lock: Mutex::new(()),
             input_handoff: std::sync::Arc::new(Mutex::new(())),
             turn: StdMutex::new(None),
@@ -1111,6 +1162,8 @@ impl Hub {
             launched_with_tools: std::sync::atomic::AtomicU8::new(0),
             launch_env: StdMutex::new(None),
             route_switch: AtomicBool::new(false),
+            ending: StdMutex::new(None),
+            detaching: AtomicBool::new(false),
             inbound_tx,
             inbound_rx: Mutex::new(Some(inbound_rx)),
             steering: AtomicBool::new(steering),
@@ -1141,6 +1194,7 @@ impl Hub {
             attached: std::sync::atomic::AtomicUsize::new(0),
             hidden: std::sync::atomic::AtomicUsize::new(0),
             stderr_tail: StdMutex::new(std::collections::VecDeque::new()),
+            stderr_stream: StdMutex::new(session::SessionStderr::default()),
             prompts: StdMutex::new(std::collections::VecDeque::new()),
             append_errors: AtomicU64::new(0),
             last_progress: AtomicU64::new(0),
@@ -1535,10 +1589,11 @@ impl Hub {
         self.append_at_locked(session, dir, kind, msg, host_seq, at, false)
     }
 
-    /// `stored_only`: a record the store refused is neither counted nor published (its caller
-    /// appends it again), so no client or peer hears a copy the journal does not hold.
+    /// [`Hub::append_at_locked`] of one record. `stored_only`: a record the store refused is
+    /// neither counted nor published (its caller appends it again), so no client or peer hears a
+    /// copy the journal does not hold. `kept`: what the log stores for it.
     #[allow(clippy::too_many_arguments)]
-    fn append_at_locked(
+    fn append_record_locked(
         &self,
         session: &Session,
         dir: &str,
@@ -1547,6 +1602,7 @@ impl Hub {
         host_seq: Option<u64>,
         at: Option<u64>,
         stored_only: bool,
+        kept: log_deferral::Kept,
     ) -> (EventRecord, bool) {
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let at = at.unwrap_or_else(now_ms);
@@ -1574,8 +1630,20 @@ impl Hub {
         if session.purged.load(Ordering::SeqCst) {
             return (record, true);
         }
-        self.touch(session);
-        let stored = match self.store.append(&session.id, &record) {
+        // What its harness spent, read after a turn (`usage_view.rs`), is bookkeeping: it never
+        // keeps the chat's agent awake.
+        if !(dir == "mux" && kind == usage_view::RECORD_KIND) {
+            self.touch(session);
+        }
+        let appended = match kept {
+            // A fenced record keeps its receipt.
+            log_deferral::Kept::Stub(msg) if !fenced => self.store.append(
+                &session.id,
+                &EventRecord { msg, dir: record.dir.clone(), kind: record.kind.clone(), ..record },
+            ),
+            _ => self.store.append(&session.id, &record),
+        };
+        let stored = match appended {
             Ok(()) => true,
             Err(e) => {
                 session.append_errors.fetch_add(1, Ordering::SeqCst);
@@ -1622,6 +1690,7 @@ impl Hub {
                 | "dequeued"
                 | "queue_removed"
                 | "queue_order"
+                | "queue_restored"
                 | "queue_paused"
                 | "queue_resumed"
                 | "created"

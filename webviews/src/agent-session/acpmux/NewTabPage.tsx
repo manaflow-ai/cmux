@@ -56,6 +56,7 @@ import {
 import { reordered } from "./composer/stripReorder";
 import { DropOverlay } from "./composer/DropOverlay";
 import { useHarnessesListed } from "./catalog";
+import { ageWithDate } from "./timeLabels";
 import { useNewTabCommand, type NewTabCommandActions } from "./newtab/useNewTabCommand";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
@@ -264,12 +265,17 @@ export function recentSessions(
 
 /// "now", "5m", "3h", "2d": the card's age, as compact as the sidebar's.
 export function ageLabel(updatedAt: number | undefined, now = Date.now(), t: Translate = translate): string {
-  if (!updatedAt) return "";
-  const minutes = Math.max(0, Math.round((now - updatedAt) / 60_000));
-  if (minutes < 1) return t("age.now");
-  if (minutes < 60) return t("age.minutes", { n: minutes });
-  const hours = Math.round(minutes / 60);
-  return hours < 24 ? t("age.hours", { n: hours }) : t("age.days", { n: Math.round(hours / 24) });
+  return ageWithDate(
+    updatedAt,
+    now,
+    (minutes, translate) => {
+      if (minutes < 1) return translate("age.now");
+      if (minutes < 60) return translate("age.minutes", { n: minutes });
+      const hours = Math.round(minutes / 60);
+      return hours < 24 ? translate("age.hours", { n: hours }) : translate("age.days", { n: Math.round(hours / 24) });
+    },
+    t,
+  );
 }
 
 type Props = NewTabCommandActions & {
@@ -829,7 +835,8 @@ export function NewTabPage({
                 tabIndex={-1}
                 aria-selected={index === selected}
                 className={index === selected ? "acpmux-omni-row is-selected" : "acpmux-omni-row"}
-                onMouseMove={() => index !== selected && setSelected(index)}
+                // Hover only lights the row (styles.css); Return stays the keyboard's row, as on
+                // the New Tab screen (newtab/NewTabScreen.tsx). A press still runs the row.
                 onMouseDown={(event) => {
                   event.preventDefault();
                   activate(row);

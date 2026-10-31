@@ -31,6 +31,7 @@ import type { MockOptions } from "../pages/settings/mockProvider";
 import type {
   AccountsState,
   AgentsState,
+  CloudEnvironmentsState,
   DevicesState,
   HarnessesState,
   HostLists,
@@ -52,6 +53,8 @@ export type SettingsPageVariant = VariantBase & {
   options?: MockOptions;
   host?: Partial<HostLists>;
   accounts?: AccountsState;
+  /** Settings > Accounts > Cloud Environments fixture state. */
+  environments?: CloudEnvironmentsState;
   /** Settings > Agents over the mock's harness list (`manages: false`: an older acpmux). */
   agents?: Partial<AgentsState>;
   /** Settings > Agents > Harnesses; default the mock's four. */
