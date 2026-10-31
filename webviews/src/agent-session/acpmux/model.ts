@@ -16,6 +16,7 @@ import type { IncomingMessage, IncomingPrompt } from "./conversation/incomingMes
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
+import type { SubagentRetryNotice } from "./subagents/retryState";
 import {
   isRunGroup,
   SUBAGENT_DONE,
@@ -157,6 +158,9 @@ export type QueuedPrompt = {
   /// A teammate's prompt in a shared chat (its `person_message` provenance): its row names them,
   /// and only they may change it (acpmux refuses another author's edit with `queue.not_author`).
   author?: Participant;
+  /// acpmux's ask to resume a failed subagent (subagents/retryState.ts `subagentRetryNotice`): its
+  /// row names the subagent instead of drawing the prompt's text.
+  retry?: SubagentRetryNotice;
   /// Another agent's message the person's Stop holds (acpmux `queue_paused` with `reason: "stop"`,
   /// hub/cancel.rs): it waits until the person's next turn completes or the queue is resumed, not
   /// for the turn to end, and its card says so (conversation/QueuedMessageCard.tsx).
@@ -308,8 +312,13 @@ export type AcpmuxRow = {
   /// A turn summary whose turn draws a "Worked for" line (conversation/turns.ts), so its
   /// footer need not repeat the time and count.
   folded?: boolean;
+  /// A Worked-for row's actual open state, including a provisional key from paged history.
+  foldOpen?: boolean;
   /// Work shown inside an open "Worked for": its turn has ended.
   settled?: boolean;
+  /// A reply to the person (not a short note) shown inside an open "Worked for": settled, yet it
+  /// keeps its own action row (hasReplyActions; conversation/turns.ts shapeTurn).
+  foldedReply?: boolean;
   /// A run of finished tool calls folded under one summary line (Debug toggle
   /// `agentPane.debug.codexToolRuns`, on by default; conversation/turns.ts `codexRuns`,
   /// conversation/toolRunSummary.ts).
@@ -535,6 +544,8 @@ export type AcpmuxPermission = {
   kind?: string;
   /// The tool call it asks about: a subagent's own call when a subagent asks (summary/SubagentStatusList.tsx).
   toolCallId?: string;
+  /// Proposed changes from this ask only; these have not been applied to the workspace.
+  diffs?: AcpmuxFileDiff[];
   pending: boolean;
   options: {
     id: string;
@@ -742,6 +753,12 @@ export type AcpmuxSnapshot = {
   /// wire to a chat on another machine lists `acp.trust.set` (cx-1bhjj); acpmux never lists it,
   /// so a remote browser still cannot answer.
   answersTrust?: boolean;
+  /// The connection is the app's wire to a chat on the person's OWN Cloud machine: the Cloud API
+  /// said the signed-in caller owns it (`vmKind: "owner"`), and that machine's daemon checks the
+  /// same answer again at each start. A disposable VM of the person's own is its own boundary, so
+  /// Codex and opencode chats send there (remoteEditing.ts). Never set for a team machine,
+  /// another person's computer or a remote browser.
+  ownerCloud?: boolean;
   /// acpmux reconnects a Claude Code chat's failed MCP server for this connection: its `initialize`
   /// lists `_acpmux/mcp/reconnect` (an older acpmux does not), so the Inspector's Connectors offer
   /// Reconnect.
@@ -850,7 +867,14 @@ export type AcpmuxSnapshot = {
   commands?: SlashCommand[];
   /** A harness switch the pane draws ahead of acpmux (harnessSwitch.ts): starting, applying to
    * the next turn while one streams (deferred), or failed with acpmux's reason. */
-  switching?: { harness: string; name: string; phase: "starting" | "deferred" | "failed"; error?: string };
+  switching?: {
+    harness: string;
+    name: string;
+    phase: "starting" | "deferred" | "failed";
+    error?: string;
+    /// The start refusal's code, for the failed card's one-click way out (startRefusal.ts).
+    code?: string;
+  };
   /** A `cmux://session/<id>` link named this session and the daemon has none: the pane says so
    * instead of showing another chat. Unset once a session is selected. */
   missingSession?: string;
@@ -1101,7 +1125,7 @@ export const hasReplyActions = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   next !== undefined &&
   !isBeforeFooter(row, next) &&
   row.streaming !== true &&
-  row.settled !== true &&
+  (row.settled !== true || row.foldedReply === true) &&
   (row.text ?? "").trim().length > 0;
 export const isBeforeFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   row.kind === "assistant" &&

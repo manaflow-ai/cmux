@@ -49,9 +49,9 @@
 }
 /* With the Inspector open (either place), directly under its card: the layout's 8px gap, right-aligned
    with it (the Codex app's preview under its summary panel). The Inspector publishes the place on the
-   shell (inspector/underInspector.ts, once per resize of the panel), and the column keeps no room of
-   its own: the Inspector's shift or push keeps the chat clear of both. Closed, the card is back at the
-   top right. */
+   shell (inspector/underInspector.ts, once per resize of the panel). Floating, the column keeps its
+   room (data-cu-preview stays), so opening or closing the panel never reflows the chat; Push always's
+   column keeps the chat clear of both instead. Closed, the card is back at the top right. */
 .acpmux-shell[data-inspector-chat-placement] .acpmux-cu-preview {
   top: var(--acpmux-inspector-under-top, calc(var(--acpmux-header-height, 44px) + 8px));
   right: var(--acpmux-inspector-under-right, 12px);

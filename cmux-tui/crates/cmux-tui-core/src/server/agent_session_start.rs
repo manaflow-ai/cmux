@@ -34,6 +34,13 @@
 //! because this daemon reaches acpmux over its unix socket, where acpmux's
 //! own remote guard does not run.
 //!
+//! Except on the caller's own Cloud VM ([`AgentStartHost::OwnerCloud`] or
+//! [`AgentStartHost::UnknownCloud`] with the caller's `vm_kind: "owner"`,
+//! the Cloud API's answer for it): that machine is a disposable sandbox the
+//! person owns, so any agent starts there, Codex and opencode included, in
+//! its own default mode (still with policy `ask`). A Mac, an SSH host and a
+//! team VM keep the rule above ([`AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY`]).
+//!
 //! acpmux runs on demand: when nothing listens on the socket, the daemon
 //! starts it once through the binary's starter (`cmux acp daemon start`,
 //! as `cmux acp` does) and connects again; otherwise
@@ -65,13 +72,20 @@ pub const AGENT_SESSION_START_KEYED_REASON_CAPABILITY: &str = "agent-session-sta
 pub const AGENT_SESSION_START_VM_KIND_CAPABILITY: &str = "agent-session-start-vm-kind-v1";
 /// `model` on `agent-session-start` is relayed to acpmux's first `session/new`.
 pub const AGENT_SESSION_START_MODEL_CAPABILITY: &str = "agent-session-start-model-v1";
+/// On a Cloud VM with the caller's `vm_kind: "owner"`, `agent-session-start`
+/// starts any agent (Codex and opencode too) without the asking-mode rule.
+/// Advertised only where this machine reads as a Cloud VM with no team
+/// evidence (never a Mac, an SSH host or a team VM):
+/// the person's own disposable VM is the boundary (Leo, 2026-10-30, on
+/// ChatGPT's "Where should this chat run?": "we should just have it").
+pub const AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY: &str = "agent-session-start-owner-cloud-v1";
 
 /// Starts the binary's acpmux daemon (blocking; acpmux bounds its own start).
 pub type AcpmuxStarter = Arc<dyn Fn() -> Result<(), String> + Send + Sync>;
 
 /// What kind of machine this daemon runs on, as the binary reads it from the
 /// machine's own identity at each start. A remote start is served on
-/// [`AgentStartHost::Allowed`], and on a Cloud VM with no team evidence only
+/// [`AgentStartHost::Allowed`], and on any Cloud VM (a team VM included) only
 /// when the caller says the Cloud API answered `vmKind: "owner"` for it
 /// (`vm_kind`); a daemon that was never told refuses (fail closed).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -85,8 +99,10 @@ pub enum AgentStartHost {
     OwnerCloud,
     /// A Cloud VM whose kind the daemon cannot tell: as [`Self::OwnerCloud`].
     UnknownCloud,
-    /// A team VM: shared by a team, so no remote start (hq-84 rule until the
-    /// team policy for local-control sessions exists).
+    /// A team VM: shared by a team. A remote start goes on only on the
+    /// caller's `vm_kind: "owner"`, which the Cloud API gives the machine's
+    /// creator alone; anyone else is refused (hq-84 rule for teammates until
+    /// the team's chat grants exist).
     TeamVm,
 }
 
@@ -125,17 +141,34 @@ impl AgentSessionStarts {
     /// lands after the daemon started counts at once. `caller_owns_vm`: the
     /// call's `vm_kind` is exactly `owner` (the Cloud API's answer for the
     /// caller on its link). A Cloud VM goes on only on that word, never on
-    /// its own record, and team evidence refuses even with it.
+    /// its own record. On a team VM the same word lets the caller in: the
+    /// Cloud API answers `owner` per caller, for the machine's creator only
+    /// (web vmKindForCaller since #28788), so a teammate who did not create
+    /// it still gets [`Refusal::TeamVmBlocked`] (Leo, 2026-10-31: "we can't
+    /// simply block always").
     fn host_gate(&self, caller_owns_vm: bool) -> Result<(), Refusal> {
         let source = self.host.lock().unwrap_or_else(|e| e.into_inner()).clone();
         match source.map(|read| read()) {
             Some(AgentStartHost::Allowed) => Ok(()),
+            Some(
+                AgentStartHost::OwnerCloud | AgentStartHost::UnknownCloud | AgentStartHost::TeamVm,
+            ) if caller_owns_vm => Ok(()),
             Some(AgentStartHost::TeamVm) => Err(Refusal::TeamVmBlocked),
-            Some(AgentStartHost::OwnerCloud | AgentStartHost::UnknownCloud) if caller_owns_vm => {
-                Ok(())
-            }
             _ => Err(Refusal::HostUnverified),
         }
+    }
+
+    /// Whether a start runs on the caller's own Cloud VM: this machine is a
+    /// Cloud VM with no team evidence and the caller's `vm_kind` is exactly
+    /// `owner`. Never a Mac or an SSH host (not a disposable sandbox of the
+    /// person's), never a team VM. Read again at each start.
+    pub(super) fn owner_cloud(&self, caller_owns_vm: bool) -> bool {
+        let source = self.host.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        caller_owns_vm
+            && matches!(
+                source.map(|read| read()),
+                Some(AgentStartHost::OwnerCloud | AgentStartHost::UnknownCloud)
+            )
     }
 
     fn starter(&self) -> Option<AcpmuxStarter> {
@@ -420,15 +453,20 @@ fn start_and_bind(
     link: &AcpmuxLink,
     params: &StartParams,
 ) -> Result<Value, Refusal> {
+    let owner_cloud = mux
+        .control_clients
+        .agent_sessions
+        .starts
+        .owner_cloud(vm_word(&params.vm_kind) == Some("owner"));
     let table = link.call("_acpmux/web_modes", json!({}), CALL_TIMEOUT).map_err(Refusal::of)?;
     // The family the start resolves to, from acpmux's own catalog, before
     // any agent process exists: a Codex alias or a default harness of a
-    // refused family never starts.
+    // refused family never starts (but on the caller's own Cloud VM).
     let catalog = link
         .call("_acpmux/harnesses", json!({"cwd": params.cwd}), CALL_TIMEOUT)
         .map_err(Refusal::of)?;
     let family = catalog_family(&catalog, params.harness.as_deref()).ok_or(Refusal::NotAsking)?;
-    if refused_family(&table, &family) {
+    if !owner_cloud && refused_family(&table, &family) {
         return Err(Refusal::NotAsking);
     }
     // The folder must be trusted before an agent starts there (an agent can
@@ -469,7 +507,11 @@ fn start_and_bind(
             link.call("_acpmux/kill", json!({"sessionId": session, "purge": true}), CALL_TIMEOUT);
         refusal
     };
-    let family = settle_asking_mode(link, &session).map_err(end)?;
+    let family = if owner_cloud {
+        session_family(link, &session).map_err(end)?
+    } else {
+        settle_asking_mode(link, &session).map_err(end)?
+    };
     // The trust answer for the family the session actually runs.
     if !folder_trusted(&trust, Some(&family)) {
         return Err(end(Refusal::UntrustedFolder));
@@ -535,6 +577,20 @@ fn refused_family(table: &Value, family: &str) -> bool {
         .get("refusedFamilies")
         .and_then(Value::as_array)
         .is_some_and(|refused| refused.iter().any(|name| name.as_str() == Some(family)))
+}
+
+/// The family acpmux reports for `session` (`_acpmux/web_modes`), with no
+/// mode rule: a start on the caller's own Cloud VM. None is refused.
+fn session_family(link: &AcpmuxLink, session: &str) -> Result<String, Refusal> {
+    let table = link
+        .call("_acpmux/web_modes", json!({"sessionId": session}), CALL_TIMEOUT)
+        .map_err(Refusal::of)?;
+    table
+        .pointer("/session/family")
+        .and_then(Value::as_str)
+        .filter(|family| !family.is_empty())
+        .map(str::to_owned)
+        .ok_or(Refusal::Refused)
 }
 
 /// acpmux's remote rule for a new session: its family is not refused and
@@ -607,7 +663,8 @@ mod tests {
 
     /// A call on a Cloud VM (a start, a chat move in, folder trust) runs only
     /// on the caller's `vm_kind: "owner"`; the VM's own `owner` record never
-    /// allows it, and team evidence refuses even then.
+    /// allows it. On a team VM that word (the creator's, from the Cloud API)
+    /// lets the call in too; without it a team VM still says so.
     #[test]
     fn a_call_on_a_cloud_vm_needs_the_callers_owner_word() {
         use AgentStartHost::{Allowed, OwnerCloud, TeamVm, UnknownCloud};
@@ -619,12 +676,28 @@ mod tests {
             (Allowed, Ok(()), Ok(())),
             (OwnerCloud, Ok(()), unverified),
             (UnknownCloud, Ok(()), unverified),
-            (TeamVm, team, team),
+            (TeamVm, Ok(()), team),
         ];
         for (host, owner_word, no_word) in cases {
             starts.set_host(Arc::new(move || host));
             assert_eq!(starts.host_gate(true), owner_word, "{host:?}");
             assert_eq!(starts.host_gate(false), no_word, "{host:?}");
+        }
+    }
+
+    /// Only a Cloud VM with no team evidence, and only on the caller's owner
+    /// word, lifts the asking-mode rule; a Mac or SSH host and a team VM never.
+    #[test]
+    fn only_the_callers_own_cloud_vm_starts_any_agent() {
+        use AgentStartHost::{Allowed, OwnerCloud, TeamVm, UnknownCloud};
+        let starts = AgentSessionStarts::default();
+        assert!(!starts.owner_cloud(true));
+        for (host, any_agent) in
+            [(Allowed, false), (OwnerCloud, true), (UnknownCloud, true), (TeamVm, false)]
+        {
+            starts.set_host(Arc::new(move || host));
+            assert_eq!(starts.owner_cloud(true), any_agent, "{host:?}");
+            assert!(!starts.owner_cloud(false), "{host:?}");
         }
     }
 }

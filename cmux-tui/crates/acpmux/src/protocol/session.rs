@@ -46,6 +46,12 @@ pub struct SessionSummary {
     #[schemars(default)]
     pub stuck_error: Option<String>,
     pub agent_session_id: Option<String>,
+    /// The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):
+    /// a Codex chat's earlier roots, which its older records still name, so a client folding
+    /// them never reads one as a subagent. Absent when none, and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(default)]
+    pub retired_agent_session_ids: Vec<String>,
     pub created_at: u64,
     pub updated_at: u64,
     pub last_seq: u64,
@@ -462,6 +468,26 @@ pub struct QueuedPromptSummary {
     /// name and offers none of its own actions on it (only they change it, `queue.not_author`).
     /// Kept across a restart and by their own edit.
     pub author: Option<QueuedAuthor>,
+    /// acpmux's own ask that the chat's agent resume a subagent that failed on a transient error
+    /// (`_meta.provenance` `subagent_retry`, `hub/subagent_retry.rs`): an app draws it as that
+    /// subagent's resume, not as the person's prompt. Null for any other prompt, and once edited
+    /// (an edit drops the provenance).
+    #[serde(default)]
+    #[schemars(default)]
+    pub subagent_retry: Option<QueuedSubagentRetry>,
+}
+
+/// The subagent a queued resume asks the agent to resume (`QueuedPromptSummary.subagentRetry`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(transform = require_all)]
+pub struct QueuedSubagentRetry {
+    /// The Agent tool's id for it, which the agent resumes it by.
+    pub agent_id: String,
+    /// Its task or name, when acpmux knew one.
+    pub name: Option<String>,
+    /// The transient error it failed on.
+    pub error: Option<String>,
 }
 
 /// The person who queued a prompt in a shared chat.

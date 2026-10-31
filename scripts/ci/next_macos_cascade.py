@@ -361,7 +361,8 @@ class Seen:
     owned_full_known: Mapping[str, bool] = dataclasses.field(default_factory=dict)
     snapshot: Mapping[str, Any] | None = dataclasses.field(default=None, compare=False)
     observed_at: dt.datetime | None = dataclasses.field(default=None, compare=False)
-    # Stale snapshots preserve only freshness reservations (#28341).
+    # Stale snapshots preserve freshness reservations (#28341) and the waits they saw, without their age
+    # (late_waits()): a queue already stalled then still keeps jobs off it.
     stale: bool = False
     # The LABELS the snapshot, fresh or not, shows dead (dead()).
     dead: frozenset[str] = frozenset()
@@ -462,6 +463,33 @@ def _field(pools: Mapping[str, Any], label: str, key: str) -> int:
         return 0
 
 
+def late_waits(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> dict[str, float]:
+    """Each LABEL's oldest queued wait as a snapshot too old for the counts saw it, from one at most
+    RESERVED_SNAPSHOT_MINUTES old ({} for none, an older one, or a fresh one: seen() reads that).
+
+    The janitor's snapshot lands every 12 to 25 minutes, so a placement often finds none under
+    QUEUE_SNAPSHOT_MINUTES. It then read no wait at all and sent jobs to Blacksmith 6 vCPU blind: on 2026-10-31
+    from about 04:00Z every cmux-next placement logged "no pool snapshot under 15 min old" and put swift test,
+    daemon tests, the fast tier and the Release compile on blacksmith-6vcpu-macos-26 (run 41175923956), while
+    the 06:17Z snapshot showed it with 166 queued and its oldest job waiting 179 min; about 100 PR jobs queued
+    there in two hours. The figure is the snapshot's own, without its age added (seen() adds it to a fresh
+    one): on a 30-minute-old snapshot the age alone would call every queue stalled, so only a queue that was
+    already stalled when the snapshot was made reads stalled here. Only a label with a queue gets a wait."""
+    if not isinstance(snapshot, Mapping) or _fresh(snapshot, now) is not None:
+        return {}
+    try:
+        generated = dt.datetime.fromisoformat(str(snapshot.get("generated_at") or "").replace("Z", "+00:00"))
+    except ValueError:
+        return {}
+    pools = snapshot.get("pools")
+    if generated.tzinfo is None or not isinstance(pools, Mapping):
+        return {}
+    if not -5 <= (now - generated).total_seconds() / 60 <= RESERVED_SNAPSHOT_MINUTES:
+        return {}
+    return {label: float(_field(pools, label, "oldest_queued_minutes")) for label in LABELS
+            if _field(pools, label, "queued")}
+
+
 def dead(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> frozenset[str]:
     """The LABELS the snapshot (fresh or not) shows dead (simple_pool_picker.dead_macos_26(), blacksmith_dead():
     nothing running and no job started on it for an hour, from a snapshot up to six hours old), or none when it
@@ -521,6 +549,8 @@ def seen(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
     if fresh is None:
         stale_reservations = reserved_from(snapshot, now)
         reserved = stale_reservations.reserved if stale_reservations is not None else {}
+        # Too old for the counts, still read for a queue that was already stalled (late_waits()).
+        waits = late_waits(snapshot, now)
     return Seen(waits=waits, age=age, reserved={k: v for k, v in reserved.items() if v}, owned=owned,
                 owned_queued=owned_queued, owned_full=full, owned_full_known=known, snapshot=snapshot,
                 observed_at=now, stale=fresh is None, dead=dead(snapshot, now))
@@ -553,16 +583,17 @@ def reserved_from(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen 
     reserved = {label: count for label, count in reserved.items() if count}
     if not reserved:
         return None
-    return Seen(waits={}, age=max(0.0, age), reserved=reserved, observed_at=now, stale=True, dead=dead(snapshot, now))
+    return Seen(waits=late_waits(snapshot, now), age=max(0.0, age), reserved=reserved, observed_at=now, stale=True,
+                dead=dead(snapshot, now))
 
 
 def stale_seen(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
-    """seen(), else reserved_from(), else a stale Seen carrying only dead labels."""
+    """seen(), else reserved_from(), else a stale Seen carrying only dead labels and late waits (late_waits())."""
     found = seen(snapshot, now) or reserved_from(snapshot, now)
     if found is not None:
         return found
-    gone = dead(snapshot, now)
-    return Seen(waits={}, stale=True, dead=gone) if gone else None
+    gone, waits = dead(snapshot, now), late_waits(snapshot, now)
+    return Seen(waits=waits, stale=True, dead=gone) if gone or waits else None
 
 
 def stalled(live: Mapping[str, int], waiting: Mapping[str, int], waits: Mapping[str, float],
