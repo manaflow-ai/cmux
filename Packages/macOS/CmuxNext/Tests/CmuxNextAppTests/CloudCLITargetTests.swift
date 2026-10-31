@@ -256,6 +256,37 @@ struct CloudCLITargetTests {
         #expect(report.details.contains("9c1d2e3f4a5b"), "the ghostty commit is in the copied text")
     }
 
+    /// A Cloud machine daemon's handshake with every required capability and `extra`.
+    static func cloudHandshake(_ store: DaemonStore, extra: [String]) throws {
+        let list = (DaemonCapability.required + extra).map { "\"\($0)\"" }.joined(separator: ",")
+        let json = #"{"app":"cmux-tui","protocol":12,"session":"cloud","generation":"g1","capabilities":["# + list + "]}"
+        let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
+        store.noteHandshake(identity)
+        store.connectionState = .connected(identity)
+    }
+
+    /// A Cloud machine whose daemon does not serve `fs-v1` (no model plane identity on a fresh
+    /// VM) cannot take Move to Cloud's or a Cloud chat's first sync: its row says so, and its
+    /// compatibility is not `current`, before any sync fails on `fs.unavailable`.
+    @Test func aCloudMachineWithoutFileOpsIsReportedBeforeTheSync() throws {
+        let unknown = Self.fixture()
+        #expect(AppControl.cloudMachineRow(unknown.session, unknown.services.machines)["file_ops"] == .null,
+                "unknown before the daemon answers")
+
+        let without = Self.fixture()
+        try Self.cloudHandshake(without.session.daemon.store, extra: DaemonCapability.optional.filter { $0 != "fs-v1" })
+        let row = AppControl.cloudMachineRow(without.session, without.services.machines)
+        #expect(row["file_ops"] == .bool(false))
+        #expect(row["compatibility"] == .string("limited"))
+        #expect(row["missing_features"]?.arrayValue?.contains(.string("fs-v1")) == true)
+
+        let with = Self.fixture()
+        try Self.cloudHandshake(with.session.daemon.store, extra: DaemonCapability.optional + ["fs-v1"])
+        let served = AppControl.cloudMachineRow(with.session, with.services.machines)
+        #expect(served["file_ops"] == .bool(true))
+        #expect(served["missing_features"]?.arrayValue?.contains(.string("fs-v1")) != true)
+    }
+
     /// A field added to `identify` must reach the details too: every stored property of
     /// `DaemonIdentity` (but the lookup set it derives) has a wire key in the fixture above.
     @Test func everyStoredFieldOfTheHandshakeIsInTheDetails() {

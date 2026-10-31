@@ -58,7 +58,10 @@ def target_folder(check, text: str, target: str) -> str:
 
 def offender(repo: Path, head: str, folder: str, module: str) -> tuple[str, str] | None:
     """(sha, subject) of the newest commit at or before HEAD that added an `import MODULE` line under FOLDER."""
-    pattern = rf"^\s*(@\w+(\([^)]*\))?\s+)*((public|package|internal|private|fileprivate)\s+)?import\s+{module}\b"
+    # POSIX classes, not \s, \w or \b: git -G uses the platform's regex, and macOS's (a mini runs this
+    # check now) has none of those GNU extensions, so the pattern matched nothing there.
+    pattern = (rf"^[[:space:]]*(@[[:alnum:]_]+(\([^)]*\))?[[:space:]]+)*"
+               rf"((public|package|internal|private|fileprivate)[[:space:]]+)?import[[:space:]]+{module}([^[:alnum:]_]|$)")
     out = git(repo, "log", "-1", "--format=%H%x09%s", "-G", pattern, head, "--", folder).strip()
     if not out:
         return None

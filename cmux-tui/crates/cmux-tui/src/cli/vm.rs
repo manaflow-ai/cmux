@@ -80,6 +80,28 @@ pub(super) fn plan(rest: &[String], output: OutputMode) -> Result<Vec<String>, U
     Ok(plan)
 }
 
+/// [`plan`] with the global options `cmux-vm` needs back. `parse_globals` takes a
+/// `--idempotency-key` wherever it stands before `--` (it is also the daemon
+/// mutations' global), so without this a retried `cmux vm new --idempotency-key K`
+/// reached `cmux-vm` with no key, which then made a fresh one and a second VM. Only
+/// the verbs that take a key get it (`create`, `fork`, `snapshot create`); for any
+/// other verb it is dropped, as before, rather than refused as an unknown option.
+fn plan_with_globals(
+    rest: &[String],
+    global: &super::GlobalArgs,
+) -> Result<Vec<String>, UsageError> {
+    let mut plan = plan(rest, global.output)?;
+    if let Some(key) = global.idempotency_key.as_deref() {
+        let words: Vec<&str> = plan.iter().map(String::as_str).filter(|w| *w != "--json").collect();
+        if matches!(words.as_slice(), ["create" | "fork", ..] | ["snapshot", "create", ..]) {
+            // After the verb's own words, before any `--`.
+            let at = plan.iter().position(|word| word == "--").unwrap_or(plan.len());
+            plan.splice(at..at, ["--idempotency-key".to_owned(), key.to_owned()]);
+        }
+    }
+    Ok(plan)
+}
+
 fn binary() -> OsString {
     if let Some(path) = std::env::var_os(BIN_ENV).filter(|value| !value.is_empty()) {
         return path;
@@ -106,7 +128,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         println!("{VM_HELP}");
         return Some(0);
     }
-    let plan = match plan(rest, global.output) {
+    let plan = match plan_with_globals(rest, &global) {
         Ok(plan) => plan,
         Err(error) => {
             return Some(super::app::failure(

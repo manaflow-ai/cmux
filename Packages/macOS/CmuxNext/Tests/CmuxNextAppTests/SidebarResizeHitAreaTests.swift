@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// The sidebar's resize edge is easy to grab (Lawrence 2026-10-19, u2255: "right now there isn't
@@ -10,7 +11,7 @@ import Testing
 /// cursor and hover only reached the 3.5 pt inside the sidebar, and the 6 pt gutter beside it did
 /// nothing. The band now reaches across the gutter and a few points into the sidebar, over its
 /// neighbors, and moves no frame.
-@MainActor @Suite(.serialized) struct SidebarResizeHitAreaTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarResizeHitAreaTests {
     func root(sidebarHidden: Bool = false) -> (NSWindow, WindowRootView) {
         _ = NSApplication.shared
         let model = SidebarModel()
