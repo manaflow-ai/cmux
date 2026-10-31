@@ -38,7 +38,6 @@ import { tickRanges } from "./tickWindow";
 import { useThreadMinimapArm } from "../chatDisplay";
 import {
   CARD_DELAY,
-  cardOffset,
   JUMP_CURVE,
   jumpDuration,
   LANDING_OFFSET,
@@ -260,7 +259,6 @@ export function ThreadMinimap({
   const keyed = useRef<{ focused?: KeyedRow; hovered?: KeyedRow; card?: KeyedRow }>({});
   /// The prompt key of the tick the page's focus is on, if one is.
   const [domFocus, setDomFocus] = useState<{ sessionId?: string; key: string } | undefined>(undefined);
-  const [cardHeight, setCardHeight] = useState(0);
   const rail = useRef<HTMLElement>(null);
   const list = useRef<HTMLOListElement>(null);
   const card = useRef<HTMLDivElement>(null);
@@ -457,13 +455,15 @@ export function ThreadMinimap({
           return box.top - node.getBoundingClientRect().top - LANDING_OFFSET;
         },
         SETTLE_FRAMES,
+        { explicit: true },
       );
     if (how === "scrub" || how === "click" || !row || reducedMotion()) {
       stopScroll(node);
       node.scrollTop = to;
       if (how !== "scrub") settle();
-    } else if (how === "step") animateScroll(node, target, STEP_MS, STEP_CURVE, settle);
-    else animateScroll(node, target, jumpDuration(to - node.scrollTop), JUMP_CURVE, settle);
+    } else if (how === "step") animateScroll(node, target, STEP_MS, STEP_CURVE, settle, undefined, { explicit: true });
+    else
+      animateScroll(node, target, jumpDuration(to - node.scrollTop), JUMP_CURVE, settle, undefined, { explicit: true });
     if (how === "click" || how === "bookmark") {
       if (row) highlightBubble(bubbleOf(row));
       // An unmounted row mounts once the transcript draws its new place.
@@ -535,10 +535,6 @@ export function ThreadMinimap({
   // A card closed with focus in it (Escape, a click elsewhere) takes no blur: it starts unfocused.
   if (!showCard && cardFocus) setCardFocus(false);
   useEscapeCloses(showCard && cardFocus, dismiss);
-  useLayoutEffect(() => {
-    const node = card.current;
-    if (showCard && node) setCardHeight(node.offsetHeight);
-  }, [showCard, cardTurn]);
 
   // Older turns that load above the reader (the transcript pages them in as it nears the top) add
   // rows above the band and would move it on screen in one frame: 150 px for a 30-turn page. The
@@ -839,10 +835,8 @@ export function ThreadMinimap({
   // reveal the rail over the text only while the strip, rail, card or keyboard focus holds it open.
   const magnified = hovered;
   const cardMarked = cardTurn ? marks.has(cardTurn) : false;
-  const cardTop =
-    cardRow === undefined
-      ? 0
-      : cardOffset(railTop + cardRow * ROW_PITCH + ROW_PITCH / 2 - listTop, cardHeight, viewportHeight);
+  /// The card centers itself on its row and keeps inside the view (PreviewCard `place`).
+  const cardCenter = cardRow === undefined ? 0 : railTop + cardRow * ROW_PITCH + ROW_PITCH / 2 - listTop;
   return (
     <div className="acpmux-minimap" style={{ "--acpmux-rail-left": `${placement.left}px` } as React.CSSProperties}>
       {/* Right-clicking the rail (or its narrow-pane strip) moves it to the other edge. */}
@@ -1028,13 +1022,13 @@ export function ThreadMinimap({
           // card.right == rail.left on the right.
           x={edge + railWidth}
           railLeft={placement.left}
-          y={cardTop}
+          center={cardCenter}
+          viewportHeight={viewportHeight}
           // Out of the scroller: its edge mask would keep the card's blur from the rows (PreviewCard.tsx).
           scroller={scroller.current}
           prompt={cardTurn.prompt}
           reply={cardTurn.reply}
           metadata={cardTurn.metadata}
-          onSizeChange={() => setCardHeight(card.current?.offsetHeight ?? 0)}
           bookmark={marks.can(cardTurn) ? { marked: cardMarked, toggle: () => marks.toggle(cardTurn) } : undefined}
           onPointerLeave={(event) => {
             // Back onto the rail keeps it (its row takes over); anywhere else it goes.

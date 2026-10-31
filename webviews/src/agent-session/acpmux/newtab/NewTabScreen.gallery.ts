@@ -357,6 +357,27 @@ export default agentPaneEntry({
     "ui/VirtualList.tsx#VirtualList",
   ],
   variants: withAllChats({
+    "start-refused": {
+      note: "A refused new chat keeps the typed prompt and SSH machine, with the host's reason inline.",
+      ready: newTab({ template: "minimal", pageWidgets: [] }),
+      snapshot: noChat([], { peers: ["devbox"], peerKinds: { devbox: "ssh" } }),
+      native: { "chat.new": { nativeError: { code: "agent.start_failed", userMessage: "devbox: agent unavailable" } } },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        await ctx.click({ selector: '.nt-location .acpmux-location-picker[data-kind="computer"] button' });
+        await ctx.click({ role: "option", name: /devbox/ });
+        await ctx.type("Inspect the failed build and suggest a fix.", { selector: ".nt-field" });
+        await ctx.press("Enter");
+        await ctx.waitFor(() => galleryNativeCalls(ctx.document).some((call) => call.method === "chat.new"));
+        // Also ends on the unpatched base, so the comparison records its lost draft rather than
+        // waiting for a reason that the old action swallowed.
+        await ctx.waitFor(
+          () =>
+            !ctx.document.querySelector(".nt-field") ||
+            !!ctx.document.querySelector('[role="alert"]')?.textContent?.includes("agent unavailable"),
+        );
+      },
+    },
     empty: {
       note: "No chats yet. A harness is installed, so the chip names its model and nothing on the page offers Add harness.",
       ready: newTab({ pageWidgets: ["chats"] }),
@@ -1116,6 +1137,31 @@ export default agentPaneEntry({
         await ctx.type("fix the flaky upload test", { selector: ".nt-field" });
       },
     },
+    "typed-hover": {
+      note: 'Leo 2026-10-31 ("i cant even press enter on that hello anymore it doesnt send it to claude"): "helo" typed, the pointer resting on New browser tab. The hovered item is only lit (a neutral fill); Ask Claude Code keeps Return\'s highlight and its ↵, so Return sends the prompt.',
+      ready: newTab({ projects: [CWD] }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.type("helo", { selector: ".nt-field" });
+        await ctx.hover({ role: "option", name: "New browser tab" });
+      },
+    },
+    "typed-hover-return": {
+      note: 'The same, then Return: the page asks Claude Code with "helo" (chat.new), never opens the hovered browser tab.',
+      ready: newTab({ projects: [CWD] }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.type("helo", { selector: ".nt-field" });
+        await ctx.hover({ role: "option", name: "New browser tab" });
+        await ctx.press("Enter");
+        // Ends on the unpatched base too (it opens the browser tab, and the state fails there).
+        await ctx.waitFor(() =>
+          galleryNativeCalls(ctx.document).some((call) => call.method === "chat.new" || call.method === "tab.open"),
+        );
+        if (galleryNativeCalls(ctx.document).some((call) => call.method === "tab.open"))
+          throw new Error("Return opened the hovered row instead of asking the agent");
+      },
+    },
     "typed-keywords": {
       note: 'Leo 2026-10-20 (no Search | Ask switch) and 2026-10-24 ("Search the web. Do you really want that first?"): plain keywords. Ask Claude Code leads (Return\'s, highlighted), the web search is the last row.',
       ready: newTab({ projects: [CWD] }),
@@ -1436,9 +1482,18 @@ export default agentPaneEntry({
       },
     },
     "template-composer": {
-      note: "Composer template (tabs.newTabTemplate): one large prompt, no chats.",
+      note: "Legacy Composer template id: saved input is migrated to Minimal, whose shared composer remains the one visible style.",
       ready: newTab({ template: "composer" }),
       snapshot: noChat(manySessions(4)),
+      play: async (ctx: PlayContext) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        if (ctx.document.querySelector('.nt-screen[data-template="composer"]'))
+          throw new Error("legacy Composer id still renders the retired template");
+        if (!ctx.document.querySelector('.nt-screen[data-template="minimal"]'))
+          throw new Error("legacy Composer id did not migrate to Minimal");
+        if (ctx.document.querySelector('[data-style="composer"]'))
+          throw new Error("legacy Composer id is still selectable");
+      },
     },
     "composer-holds-its-place": {
       note: "After typing, a pasted image and Now Playing: the composer and the typed text are where the empty page drew them; the image sits under the text (Leo 2026-10-19: the composer kept moving).",
@@ -1447,7 +1502,7 @@ export default agentPaneEntry({
       play: holdsItsPlace,
     },
     "composer-template-holds-its-place": {
-      note: "Composer template after typing, a pasted image and Now Playing: the card stays where the empty page drew it, about the middle, instead of re-centering on what grew under it.",
+      note: "Legacy Composer input after typing, a pasted image and Now Playing: migration keeps the shared Minimal composer in place.",
       ready: newTab({ template: "composer", projects: [CWD] }),
       snapshot: noChat(manySessions(4)),
       play: holdsItsPlace,
