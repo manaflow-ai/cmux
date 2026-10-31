@@ -11,6 +11,8 @@ const rows = Array.from({ length: 18 }, (_, index) => [
   summary(199.6 - index * 2, { status: "completed" }),
 ]).flat();
 
+const rightEdge = { "agentPane.display.rail.side": "right" };
+
 // Three widths show the actual product geometry: wide inset, compressed rail, and an occluded rail
 // with a permanent hover strip. No gallery code changes the rail's measured origin or visibility.
 export default agentPaneEntry({
@@ -36,10 +38,30 @@ export default agentPaneEntry({
       },
     },
     focused: {
-      note: "Keyboard focus reveals the same rail at every width without a pointer gesture.",
+      note: "With eighteen real prompts, Tab and ArrowDown put keyboard focus on the third tick. The base has no outline; the fix shows its inset focus ring at every width.",
       snapshot: chat(rows, { title: "Prompt rail revealed by keyboard" }),
       play: async (ctx) => {
         await ctx.focus({ selector: '[data-tick="0"]' });
+        await ctx.press("Tab");
+        await ctx.waitFor(() => ctx.document.activeElement?.matches('[data-tick="1"]'));
+        await ctx.press("ArrowDown");
+        await ctx.waitFor(() => ctx.document.activeElement?.matches('[data-tick="2"]:focus-visible'));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card"));
+      },
+    },
+    // Settings > Agent Chat > Prompt Rail Side, or the rail's right-click menu (railSide.ts).
+    "right-resting": {
+      note: "Moved to the right edge: the same pane-edge inset from that edge, ticks growing toward the text, and the narrow pane's live strip at the right edge.",
+      snapshot: chat(rows, { title: "Prompt rail on the right edge" }),
+      display: rightEdge,
+    },
+    "right-hovered": {
+      note: "On the right edge the preview card opens on the rail's left: card.right == rail.left.",
+      snapshot: chat(rows, { title: "Prompt rail on the right, hovered" }),
+      display: rightEdge,
+      play: async (ctx) => {
+        await ctx.hover({ selector: ".acpmux-minimap__strip" });
+        await ctx.hover({ selector: '[data-tick="0"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card"));
       },
     },

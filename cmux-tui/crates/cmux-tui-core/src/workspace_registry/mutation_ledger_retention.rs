@@ -55,10 +55,12 @@ pub(crate) const MUTATION_LEDGERS: [MutationLedger; 3] = [
         capacity: RESOURCE_MUTATION_REPLAY_CAPACITY,
         batch: 512,
     },
-    // A projection result holds the whole stored projection, up to 1 MiB and
-    // about 60 KB on average for `cmux-history`, so this ledger keeps fewer
-    // rows and frees fewer per batch: with secure_delete every freed byte is
-    // rewritten under the registry lock.
+    // A projection row written before the digest ledger holds the whole
+    // projection twice (fingerprint and result, up to 1 MiB each then), so
+    // this ledger keeps fewer rows and frees fewer per batch: with
+    // secure_delete every freed byte is rewritten under the registry lock.
+    // New rows hold a digest and a result without the body (a few hundred
+    // bytes).
     MutationLedger { table: "projection_mutations", capacity: 1024, batch: 16 },
 ];
 

@@ -44,6 +44,8 @@ export interface ChatDisplay {
   /// lies over the transcript's text (Leo, 2026-10-21); `push` always moves the chat aside. Not a
   /// look: the Text & Width popover's Reset leaves it.
   inspector: "push" | "overlay";
+  /// The prompt rail edge; its context menu writes the same saved setting.
+  railSide: "left" | "right";
   /// cmux's Minimal Mode (`sidebar.minimal`, the palette's Enable Minimal Mode), which the chat
   /// follows: another agent's message reads as one line until opened (IncomingMessageCard.tsx; Leo
   /// 2026-10-24: "in minimal mode ... one line is kind of enough sometimes for the ... preview of the
@@ -56,6 +58,7 @@ export interface ChatDisplay {
 
 /// Settings > Agent Chat > Inspector (Swift AgentPaneDisplaySettingsSchema has the same row).
 export const INSPECTOR_PLACEMENT_KEY = "agentPane.display.inspector.placement";
+export const RAIL_SIDE_KEY = "agentPane.display.rail.side";
 /// Settings > Agent Chat: the machine · folder chip's placement below the tab row.
 export const ENVIRONMENT_PLACEMENT_KEY = "agentPane.display.environment.placement";
 /// cmux's Minimal Mode, which the host sends with the chat's keys (Swift AgentPaneDisplaySetting).
@@ -65,6 +68,9 @@ export const MINIMAL_MODE_KEY = "sidebar.minimal";
 export const CHAT_MINIMAP_KEY = "agentPane.display.vscodeMinimap";
 /// Settings > Agent Chat > Chat Minimap (Swift AgentPaneDisplaySettingsSchema has the same row).
 export const MINIMAP_KEY = "agentPane.display.minimap";
+/// Settings > Updates > Show Feature Tips (featureTips.tsx), on unless set false. The host sends it
+/// with the chat's keys (Swift AgentPaneDisplaySetting.followedAppPaths). Not part of ChatDisplay.
+export const FEATURE_TIPS_KEY = "updates.showFeatureTips";
 
 /// Each option: its cmux.json key, its range and default. The Swift schema has the same rows
 /// (AgentPaneDisplaySettingsSchema).
@@ -95,6 +101,7 @@ export const DEFAULT_CHAT_DISPLAY: ChatDisplay = {
   codeFamily: null,
   codeScale: null,
   inspector: "overlay",
+  railSide: "left",
   minimal: false,
   environmentPlacement: "left",
 };
@@ -157,6 +164,7 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
       number(values[CHAT_DISPLAY.codeScale.key], CHAT_DISPLAY.codeScale) ??
       number(values[MARKDOWN_FOLLOWED.codeScale], CHAT_DISPLAY.codeScale),
     inspector: values[INSPECTOR_PLACEMENT_KEY] === "push" ? "push" : "overlay",
+    railSide: values[RAIL_SIDE_KEY] === "right" ? "right" : "left",
     minimal: values[MINIMAL_MODE_KEY] === true,
     environmentPlacement: isEnvironmentPlacement(values[ENVIRONMENT_PLACEMENT_KEY])
       ? values[ENVIRONMENT_PLACEMENT_KEY]
@@ -214,7 +222,7 @@ export function chatDisplayVariables(display: ChatDisplay): Record<string, strin
       ? null
       : display.fullWidth
         ? "100%"
-        : `clamp(${Math.min(720, display.width)}px, 100%, ${display.width}px)`,
+        : `clamp(calc(${Math.min(720, display.width)}px / var(--cmux-ui-scale, 1)), 100%, calc(${display.width}px / var(--cmux-ui-scale, 1)))`,
   };
 }
 
@@ -225,6 +233,7 @@ let current = DEFAULT_CHAT_DISPLAY;
 let raw: Values = {};
 let minimapOn = false;
 let threadMinimapArm: ThreadMinimapArm | null = null;
+let featureTipsOn = true;
 const listeners = new Set<() => void>();
 
 /// Sets the variables on `root` (the document's root in the page).
@@ -241,10 +250,12 @@ export function setChatDisplay(value: unknown): void {
   const next = resolveChatDisplay(raw);
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
   const threadMinimap = resolveThreadMinimapArm(raw);
+  const tips = raw[FEATURE_TIPS_KEY] !== false;
   const same = JSON.stringify(next) === JSON.stringify(current);
-  if (same && minimap === minimapOn && threadMinimap === threadMinimapArm) return;
+  if (same && minimap === minimapOn && threadMinimap === threadMinimapArm && tips === featureTipsOn) return;
   minimapOn = minimap;
   threadMinimapArm = threadMinimap;
+  featureTipsOn = tips;
   if (same) {
     for (const listener of listeners) listener();
     return;
@@ -304,10 +315,14 @@ const subscribe = (listener: () => void) => {
 const snapshot = () => current;
 const minimapSnapshot = () => minimapOn;
 const threadMinimapSnapshot = () => threadMinimapArm;
+const featureTipsSnapshot = () => featureTipsOn;
 /// Whether the chat minimap is on (CHAT_MINIMAP_KEY).
 export const useChatMinimap = (): boolean => useSyncExternalStore(subscribe, minimapSnapshot, minimapSnapshot);
 /// The rail's arm, separate from the measured chat look so switching it remeasures no transcript row.
 export const useThreadMinimapArm = (): ThreadMinimapArm | null =>
   useSyncExternalStore(subscribe, threadMinimapSnapshot, threadMinimapSnapshot);
+/// Whether feature tips may show (FEATURE_TIPS_KEY).
+export const useFeatureTipsOn = (): boolean =>
+  useSyncExternalStore(subscribe, featureTipsSnapshot, featureTipsSnapshot);
 /// The live look, so layouts measured at the old metrics are measured again.
 export const useChatDisplay = (): ChatDisplay => useSyncExternalStore(subscribe, snapshot, snapshot);

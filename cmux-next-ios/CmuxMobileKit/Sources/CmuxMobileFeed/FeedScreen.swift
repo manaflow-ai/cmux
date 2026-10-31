@@ -86,7 +86,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                       let tab = workspace.tabs.first(where: { $0.id == item.tabID }) else {
                     // A chat with no tab in a workspace on the Mac (one the Mac started on its own):
                     // the reply was never sent, so it must not read as sent.
-                    return .failed("This chat isn't in a workspace tab on the Mac, so it can't be answered from here. Open it in cmux on the Mac.")
+                    return .failed("Open this chat in cmux on the Mac to answer it.")
                 }
                 let mac = appStore.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name ?? "Mac"
                 let chat = AgentSessionDirectory.shared.store(workspace: workspace, tab: tab, macName: mac)
@@ -214,6 +214,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             }
             .buttonStyle(.plain)
             .glassEffect(.regular.interactive(), in: .capsule)
+            .accessibilityIdentifier("feed.newPill")
             .padding(.top, 8)
             .transition(.offset(y: -12).combined(with: .opacity))
         }
@@ -236,7 +237,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             Image(systemName: store.filter == .all ? "bubble.left.and.text.bubble.right" : "line.3.horizontal.decrease")
                 .font(.system(size: 28))
                 .padding(.bottom, 10)
-            Text(store.filter == .all ? "Nothing yet" : "No matching events").font(.headline)
+            Text(store.filter == .all ? "No events" : "No matching events").font(.headline)
             Text(store.filter == .all ? "Agent updates, questions and finished tasks show up here." : "Try another filter.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)

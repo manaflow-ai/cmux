@@ -27,8 +27,14 @@
 //! ([`Hub::person_stop`]): they stay queued, held, until the person's next turn completes or the
 //! queue is resumed, so they do not start a turn the moment the stopped one ends. The person's
 //! own queued prompts run next as before.
+//!
+//! A stopped turn always ends as stopped (`cancelled`), so clients offer Continue on it: also one
+//! whose adapter answers the cancel `end_turn` (`turns.rs` `finish_turn`), and one a Stop reached
+//! while the chat had no agent (it started, or a failover's fallback did): that Stop is taken, the
+//! turn reads `stopping`, and its prompt never reaches the agent that comes (`turns.rs`).
 
 use super::*;
+use cmux_json::JsonSet as _;
 use std::sync::atomic::AtomicU64;
 
 /// Listed in `initialize`'s features by a daemon that takes a peer's person's Stop as its own
@@ -47,7 +53,7 @@ const INTERRUPT_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
 pub(super) fn forced_answer(restarted: bool) -> Value {
     let mut mux = json!({"cancelForced": true});
     if restarted {
-        mux["restarted"] = json!(true);
+        mux.set("restarted", json!(true));
     }
     json!({"stopReason": "cancelled", "_meta": {"acpmux": mux}})
 }
@@ -102,9 +108,11 @@ impl Hub {
             // Begun under the queue lock, where a release checks and ends it (`digest.rs`).
             let mut queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
             session.stop_hold.store(HOLDS.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
+            // Named with those a failed turn held already: the Stop holds them too, and a pane
+            // shows each as held by it (`views.rs` `held_by_stop`).
             queue
                 .iter_mut()
-                .filter(|q| !q.held && q.run.agent.is_some())
+                .filter(|q| q.run.agent.is_some())
                 .map(|q| {
                     // One sent now waits too: the Stop came after it.
                     (q.held, q.sent_now) = (true, false);
@@ -288,12 +296,20 @@ impl Hub {
         // arriving while Claude is compacting must not retarget a queued or
         // auto-resumed next turn after the first one settles.
         let turn = session.turn();
-        let child = session
-            .child
-            .lock()
-            .await
-            .clone()
-            .ok_or_else(|| RpcError::invalid_params("session has no live agent"))?;
+        let Some(child) = session.child.lock().await.clone() else {
+            // No agent runs the turn right now: it starts, or a failover's fallback does
+            // (`turns.rs`). The Stop counted above keeps the turn's prompt from that agent, and the
+            // turn then ends as cancelled; until then it reads `stopping`, so the Stop shows.
+            // With no turn there is nothing it reached: a turn a restart still recovers may be
+            // about to run, and the client keeps its Stop for it.
+            return match turn.and_then(|turn| Self::carried_on(session, &turn)) {
+                Some(turn) => {
+                    self.mark_stopping(session, &turn);
+                    Ok(())
+                }
+                None => Err(RpcError::invalid_params("session has no live agent")),
+            };
+        };
         let compacting = session.compacting.load(std::sync::atomic::Ordering::SeqCst)
             || child.translator.as_ref().is_some_and(|t| t.is_compacting());
         let sid = session

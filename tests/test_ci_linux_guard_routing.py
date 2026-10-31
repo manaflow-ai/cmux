@@ -47,6 +47,12 @@ REUSABLE_GUARDS = {
 }
 
 
+# ci.yml skips label events for labels it does not read (tests/test_ci_label_events_skip_full_ci.py).
+LABEL_EVENT_GUARD = (
+    "!(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('[\"full-ci\",\"dev-build\"]'), github.event.label.name))"
+)
+
+
 def route_decision(paths, event="pull_request", macos="false"):
     with tempfile.TemporaryDirectory(prefix="cmux-linux-routes-") as temp:
         path = Path(temp) / "changed.txt"
@@ -305,7 +311,8 @@ class LinuxGuardRoutingTests(unittest.TestCase):
     def test_linux_preflight_skips_when_macos_route_is_false(self):
         block = workflow_job_block("linux-preflight")
         self.assertIn(
-            "if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') && needs.changes.outputs.next_line != 'true' && needs.changes.outputs.macos != 'false' }}",
+            "if: ${{ (!cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') && needs.changes.outputs.next_line != 'true' && needs.changes.outputs.macos != 'false') && "
+            + LABEL_EVENT_GUARD + " }}",
             block,
         )
 

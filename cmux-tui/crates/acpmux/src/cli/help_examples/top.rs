@@ -207,6 +207,14 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "Send a screenshot with the message",
                 "acpmux send fix-27310 --attach ~/notes/before.png \"The caret jumps after paste\"",
             ),
+            (
+                "Message every live session tagged area=acpmux, on every host",
+                "acpmux send --tag area=acpmux \"base is green again; update your PRs\"",
+            ),
+            (
+                "List who a tagged send would reach, and send nothing",
+                "acpmux send --tag area=acpmux --dry-run \"hello\"",
+            ),
         ],
     ),
     (

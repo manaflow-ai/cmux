@@ -440,7 +440,12 @@ final class PaneController: SurfacePresenter, PresentablePane {
         DebugTabSwitch.mark(self, "view")
         // Terminals come in on their first frame (`LaunchSettle`), or at once with their frame from the last
         // quit (`TerminalLaunchFrames`); other content (a page, an agent) is ready once shown.
-        if case .terminal(let terminal) = content, let key { if terminal.session.showLaunchFrame(key, beside: services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), in: view.contentHost) { DebugTimings.markLaunch("terminal.launch_frame_shown") } } else if content != nil { LaunchReveal.shared.markReady(.pane) }
+        if case .terminal(let terminal) = content, let key { if terminal.session.showLaunchFrame(key, beside: services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), in: view.contentHost) { DebugTimings.markLaunch("terminal.launch_frame_shown") } } else if content != nil {
+            LaunchReveal.shared.markReady(.pane)
+            // The page may have attached while the pane was alpha-held for launch. AppKit's
+            // alpha transition does not reach Chromium's separate child window.
+            view.refreshChromiumVisibility()
+        }
         // The content view exists now: the coordinator re-applies focus if
         // this pane has it (content is shown a frame after selection).
         if workspace?.isParked == false { BenchSpans.measure("switch.focus") { workspace?.focus.send(.contentPresented(pane: paneKey)) } }
@@ -520,6 +525,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         guard let key = stripModel.selectedID?.rawValue else { return true }
         return (key == currentTabKey && view.hostsContent) || services.cache.hasContent(for: key)
             || services.agentTabs.existingView(key) != nil || services.pages.existingView(key) != nil
+            || services.newTabSpares.hasNativeAdoption(key)
     }
 
     /// The layout reported this pane on screen, in the keep-alive band, or away.
@@ -574,7 +580,7 @@ extension PaneController {
     /// draw (a daemon-rendered or app browser tab) lists no mirror.
     var liveMirrors: [(id: String, tab: TabModel)] {
         services.tabMirrors[paneKey].compactMap { id in
-            guard let (tab, holder) = services.locateTab(id), holder !== pane, Self.mirrorable(tab) else { return nil }
+            guard let (tab, holder) = services.locateTab(id, onMachine: services.machines.daemon(forPane: pane).machineID), holder !== pane, Self.mirrorable(tab) else { return nil }
             return (id, tab)
         }
     }
@@ -610,7 +616,7 @@ extension PaneController {
     /// pane and move the page view each frame. It shows the page again on its next show once that
     /// pane stops drawing it (its workspace parked).
     func mirroredContent(for key: String) -> TabContent? {
-        guard services.tabMirrors.mirrors(key, in: paneKey), let (tab, holder) = services.locateTab(key), holder !== pane,
+        guard services.tabMirrors.mirrors(key, in: paneKey), let (tab, holder) = services.locateTab(key, onMachine: services.machines.daemon(forPane: pane).machineID), holder !== pane,
               Self.mirrorable(tab) else { return nil }
         if let owner = services.cache.presenter(of: key), owner !== self, services.cache.isRendering(key) { return nil }
         return services.cache.browser(for: tab).map(TabContent.browser)

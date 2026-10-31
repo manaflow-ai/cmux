@@ -12,7 +12,7 @@
 // A reply's own images (`thumb`) draw in a glass thumbnail of a fixed shape whatever their state
 // (waiting, Load image, unavailable, shown), so an image that loads never moves the reply; a click
 // opens it whole in the image viewer.
-import { useContext, useState, type ReactNode } from "react";
+import { useContext, useEffect, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { ImageIcon, Lock } from "../conversation/icons";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
@@ -62,6 +62,18 @@ const loaded = new DataUrlCache(IMAGE_CACHE_MAX_ENTRIES, IMAGE_CACHE_MAX_CHARS, 
 /// click (the host spends a gesture on each), so forgetting it would leave its placeholder.
 const clicked = new Map<string, string>();
 
+/// Instances waiting on a load another instance of the same source started (the transcript's tile and
+/// the Gallery's, say): they hear when it ends, since `started` keeps them from asking the host again.
+const waiting = new Map<string, Set<() => void>>();
+const loadEnded = (src: string) => {
+  // Waiters stay until they unmount or show the image: one that wakes to a failed load may find
+  // another instance already retrying, and must hear that retry end too.
+  waiting.get(src)?.forEach((wake) => wake());
+};
+
+/// The data URL a local or web image already loaded to, if it has (the image viewer steps to it).
+export const loadedImageSrc = (src: string): string | undefined => clicked.get(src) ?? loaded.get(src);
+
 /// `auto`: load without a click. `clickFree`: that load is one the host may refuse (the image is
 /// not one it calls click-free after all); the page tells it so (`auto: true`), so a refusal spends
 /// no gesture, and the image then waits for its Load image instead of drawing as unavailable.
@@ -86,8 +98,27 @@ function useImageLoad(src: string, auto: boolean, clickFree = false) {
         started.delete(src);
         setState({ kind: "failed" });
       }
+      loadEnded(src);
     });
   };
+  // An instance whose source another one is loading shows what it loaded; if that load failed, this
+  // one asks the host itself (the render below, as `started` is cleared).
+  const waits = auto && state.kind === "idle" && started.has(src);
+  useEffect(() => {
+    if (!waits) return;
+    const wake = () => {
+      const known = clicked.get(src) ?? loaded.get(src);
+      setState(known ? { kind: "shown", src: known } : { kind: "idle" });
+    };
+    // The load may have ended before this effect ran (a fast host answers before the commit): hear it now.
+    if (clicked.has(src) || loaded.get(src) !== undefined || !started.has(src)) return wake();
+    const set = waiting.get(src) ?? new Set<() => void>();
+    waiting.set(src, set.add(wake));
+    return () => {
+      set.delete(wake);
+      if (!set.size && waiting.get(src) === set) waiting.delete(src);
+    };
+  }, [waits, src]);
   if (auto && state.kind === "idle" && !started.has(src)) {
     started.add(src);
     queueMicrotask(() => load(false));

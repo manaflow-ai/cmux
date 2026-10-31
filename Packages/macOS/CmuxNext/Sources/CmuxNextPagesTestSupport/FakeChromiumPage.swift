@@ -33,6 +33,8 @@ public final class FakeChromiumPage: PageChromiumPage {
     public private(set) var zoom: Double?
     /// Whether the host closed the page.
     public private(set) var closed = false
+    /// Every visibility value requested by the host.
+    public private(set) var visibility: [Bool] = []
     /// The last ``setSeeThrough(_:)``; nil before any.
     public private(set) var seeThrough: Bool?
     /// ``seeThrough`` when the first document loaded.
@@ -56,6 +58,7 @@ public final class FakeChromiumPage: PageChromiumPage {
         calls.append((method, params))
         defer { onCall?() }
         if let answered = answer?(method, params) { return answered }
+        if method == "Page.addScriptToEvaluateOnNewDocument" { return #"{"identifier":"test-script"}"# }
         if method == "Runtime.evaluate", params["expression"] as? String == "[location.href, window === window.top]" {
             return #"{"result":{"type":"object","value":["\#(senderURL)",\#(senderIsTop)]}}"#
         }
@@ -76,10 +79,12 @@ public final class FakeChromiumPage: PageChromiumPage {
     public func reload() { reloads += 1 }
     /// Records the value in ``zoom``.
     public func setZoom(_ zoom: Double) { self.zoom = zoom }
+    /// Every focus ask, in order.
+    public private(set) var focusAsks: [Bool] = []
+    /// Records the ask in ``focusAsks``.
+    public func setFocused(_ focused: Bool) { focusAsks.append(focused) }
     /// Does nothing.
-    public func setFocused(_ focused: Bool) {}
-    /// Does nothing.
-    public func setVisible(_ visible: Bool) {}
+    public func setVisible(_ visible: Bool) { visibility.append(visible) }
 
     /// Sets ``closed`` and runs ``onClose``.
     public func close() {

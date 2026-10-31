@@ -1,7 +1,7 @@
 // The pieces every changelog design shares (cx-urd.61): release meta, the hero, the grouped
 // change rows and the folded commit list by area. Colors are theme tokens, sizes the type scale
 // (styles.css); nothing here knows which design it sits in.
-import { useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Dialog } from "../../ui/Dialog";
 import { DialogButton } from "../../ui/DialogButton";
 import type { Strings } from "../shared/i18n";
@@ -43,12 +43,12 @@ export function Media({ media, className, strings }: { media: MediaRef; classNam
   const src = scheme === "dark" ? media.dark : media.light;
   const [open, setOpen] = useState(false);
   const picture = media.video ? (
-    <video key={src} src={src} aria-label={media.alt} muted loop playsInline autoPlay preload="none" />
+    <LazyVideo key={src} src={src} alt={media.alt} />
   ) : (
     <img key={src} src={src} alt={media.alt} loading="lazy" decoding="async" />
   );
   return (
-    <figure className={`cl-media${className ? ` ${className}` : ""}`}>
+    <figure className={`cl-media ui-glass${className ? ` ${className}` : ""}`}>
       {strings ? (
         <button
           type="button"
@@ -65,6 +65,42 @@ export function Media({ media, className, strings }: { media: MediaRef; classNam
       )}
       {strings && open && <MediaLightbox media={media} src={src} strings={strings} onClose={() => setOpen(false)} />}
     </figure>
+  );
+}
+
+/** Autoplay overrides preload in browsers, so withhold the source until the clip is nearby. */
+function LazyVideo({ src, alt }: { src: string; alt: string }) {
+  const player = useRef<HTMLVideoElement>(null);
+  const [near, setNear] = useState(false);
+  useEffect(() => {
+    const element = player.current;
+    if (!element) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setNear(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        observer.disconnect();
+        setNear(true);
+      },
+      { rootMargin: "200px 0px" },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  return (
+    <video
+      ref={player}
+      src={near ? src : undefined}
+      aria-label={alt}
+      muted
+      loop
+      playsInline
+      autoPlay={near}
+      preload="none"
+    />
   );
 }
 
@@ -172,9 +208,13 @@ export function Hero({
   return (
     <>
       {titled ? (
-        <Heading className="cl-headline">{item.title}</Heading>
+        <Heading className="cl-headline">
+          {item.pr ? <ChangePullRequest pr={item.pr} title={item.title} /> : item.title}
+        </Heading>
       ) : (
-        <h3 className="cl-row-title cll-lead">{item.title}</h3>
+        <h3 className="cl-row-title cll-lead">
+          {item.pr ? <ChangePullRequest pr={item.pr} title={item.title} /> : item.title}
+        </h3>
       )}
       {item.summary
         .split(/\n{2,}/)
@@ -217,7 +257,11 @@ function Group({ category, items, ctx }: { category: WhatsNewCategory; items: Re
           ) : (
             <li key={`${item.id}-${index}`}>
               <span className="cl-row-text">
-                <span className="cl-row-title">{item.title}</span>
+                {item.pr ? (
+                  <ChangePullRequest pr={item.pr} title={item.title} />
+                ) : (
+                  <span className="cl-row-title">{item.title}</span>
+                )}
                 {item.summary && <span className="cl-row-summary"> {item.summary.split(/\n{2,}/)[0]}</span>}
               </span>
               <RowActions item={item} ctx={ctx} />
@@ -243,7 +287,11 @@ function WideRow({ item, ctx }: { item: ReleaseItem; ctx: PartsContext }) {
   return (
     <li className={item.media ? "cl-wide-row cl-has-media" : "cl-wide-row"}>
       <div className="cl-row-text">
-        <span className="cl-row-title">{item.title}</span>
+        {item.pr ? (
+          <ChangePullRequest pr={item.pr} title={item.title} />
+        ) : (
+          <span className="cl-row-title">{item.title}</span>
+        )}
         {paragraphs.length === 0 && actions}
         {paragraphs.map((p, i) => (
           <p key={i} className="cl-row-summary">

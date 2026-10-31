@@ -50,12 +50,8 @@ enum TabGroupMoves {
         guard let daemon = owner(of: group, target: pane, services: services),
               !refusesIncognitoCrossing(group, to: pane, services: services) else { return completion(false) }
         let target = pane.handle
-        let spawn = services.newColumnWidth(nextTo: pane)
-        let width = spawn.width
-        run("move-tab-group-to-column", daemon: daemon, completion: { ok in
-            if ok { spawn.commit() }
-            completion(ok)
-        }) { connection in
+        let width = services.newColumnWidth(nextTo: pane)
+        run("move-tab-group-to-column", daemon: daemon, completion: completion) { connection in
             _ = try await connection.moveTabGroupToColumn(group, target: .pane(target), afterColumn: afterColumn, width: width,
                                                           transaction: transaction)
         }

@@ -235,7 +235,7 @@ pub fn marked(mut record: Value, provenance: Option<&Value>) -> Value {
         let messages = take_message_meta(&mut p);
         let mut meta = json!({"provenance": p});
         if let Some(messages) = messages {
-            meta[MESSAGE_META] = messages;
+            meta.set(MESSAGE_META, messages);
         }
         fields.insert("_meta".to_owned(), meta);
     }

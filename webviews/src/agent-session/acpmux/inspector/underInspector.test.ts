@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { transcriptColumn } from "../model";
-import { FLOAT_MARGIN, inspectorChatShift } from "./ChatInspector";
+import { FLOAT_MARGIN, inspectorOverChat } from "./ChatInspector";
 import { INSPECTOR_WIDTH } from "./inspectorState";
 import { INSPECTOR_STACK_GAP, underInspector, underInspectorRoom } from "./underInspector";
 
@@ -31,19 +31,15 @@ describe("underInspector", () => {
     expect(underInspectorRoom(0)).toBe(INSPECTOR_STACK_GAP);
   });
 
-  test("the card lies inside the panel's band, so the chat's shift for the panel clears it too", () => {
+  test("the card lies inside the panel's band, so where the gutter holds the panel it holds the card", () => {
     // The narrowest panel is wider than the card: right-aligned with it, the card never reaches past
     // its left edge.
     expect(INSPECTOR_WIDTH.min).toBeGreaterThanOrEqual(CARD_WIDTH);
-    for (const pane of [900, 1000, 1100, 1200, 1400]) {
+    for (const pane of [900, 1000, 1100, 1200, 1400, 1600]) {
       for (const width of [INSPECTOR_WIDTH.min, INSPECTOR_WIDTH.fallback, 400]) {
-        const shift = inspectorChatShift(pane, width, column);
-        const { inset } = transcriptColumn(pane, column);
-        // Where the gutter holds the panel or the column moves left for it, the column's end is
-        // clear of the card's left edge.
-        if (shift > 0 || inset >= width + 2 * FLOAT_MARGIN) {
-          expect(inset + shift).toBeGreaterThanOrEqual(FLOAT_MARGIN + CARD_WIDTH);
-        }
+        if (inspectorOverChat(pane, width, column)) continue;
+        // The column's end is clear of the card's left edge.
+        expect(transcriptColumn(pane, column).inset).toBeGreaterThanOrEqual(FLOAT_MARGIN + CARD_WIDTH);
       }
     }
   });

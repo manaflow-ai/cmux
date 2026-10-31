@@ -1,9 +1,10 @@
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBrowser
-import CmuxNextRemoteLocalhost
+@testable import CmuxNextRemoteLocalhost
 @testable import CmuxNextRemoteLocalhostService
 import CmuxNextRemoteView
+import CmuxNextTestSupport
 import Darwin
 import Foundation
 import Testing
@@ -14,6 +15,30 @@ import Testing
 /// stand-in hub on a Unix socket checks the bytes and the token, and echoes the stream.
 @Suite(.serialized)
 struct CloudHubLoopbackTests {
+    /// The hub names its socket; a path that does not fit a Unix socket address (`sun_path`) is
+    /// refused as an unavailable tunnel, never handed to the Network framework, which traps on one
+    /// (issue #28492). The open runs in an exit test's child, so a trap fails this test with its
+    /// frames (``ChildCrashFrames``) and no other test.
+    @Test func aHubSocketPathPastTheUnixLimitIsRefusedNotATrap() async {
+        await #expect(processExitsWith: .success) {
+            ChildCrashFrames.printOnFatalSignal("hub-opener-sun-path")
+            let socket = "/" + String(repeating: "h", count: 200) + "/hub.sock"
+            guard let opener = HubLoopbackOpener(hub: { .init(socket: socket, token: "t") }, address: "10.0.0.2") else {
+                ChildCrashFrames.fail("no opener for 10.0.0.2")
+            }
+            do {
+                _ = try await opener.openTunnel(host: "127.0.0.1", port: 8080)
+                ChildCrashFrames.fail("the tunnel opened")
+            } catch {
+                // The guard's own refusal, before any connection: not a caught trap, not a failed connect.
+                guard (error as? LoopbackTunnelFailure) == .unavailable(HubLoopbackOpener.socketPathTooLong) else {
+                    ChildCrashFrames.fail("refused with \(error)")
+                }
+            }
+        }
+        ChildCrashFrames.record("hub-opener-sun-path")
+    }
+
     /// One connection's SOCKS5 server: greeting, the token `cmux-hub-token`, then CONNECT, answered
     /// `reply`; after a success it echoes. A wrong token is answered with an auth failure.
     /// Nonisolated: this target defaults to the main actor, and its accept loop runs on its own thread.
