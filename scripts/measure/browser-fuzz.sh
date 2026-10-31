@@ -33,7 +33,7 @@ account_home="$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | a
 for tool_dir in "$account_home/.bun/bin" "$account_home/.local/node/bin"; do
   [ -n "$account_home" ] && [ -d "$tool_dir" ] && export PATH="$tool_dir:$PATH"
 done
-CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" --no-global-cli-links ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log"
+CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" --no-global-cli-links ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log" || true  # a failed build falls to the app-path check below (NOVERDICT)
 app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
 if [[ -z "$app" || ! -d "$app" ]]; then
   echo "browser-fuzz: the tagged reload printed no app path" >&2

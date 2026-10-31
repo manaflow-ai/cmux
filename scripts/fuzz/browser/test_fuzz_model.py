@@ -100,6 +100,19 @@ class OracleTests(unittest.TestCase):
             self.assertIn("unsafe", model.download_violation({"destination": os.path.join(folder, "a‮gnp.exe")}, folder))
             self.assertIsNone(model.download_violation({}, folder))
 
+    def test_stall_signature_drops_addresses_and_offsets(self):
+        a = {"frames": ["CmuxNextApp 0x1000a3f0 + 1234 cmux.Foo.bar()", "AppKit 0x1 -[NSView display]"]}
+        b = {"frames": ["CmuxNextApp 0x2000beef +0x4d2 cmux.Foo.bar()", "AppKit 0x2 -[NSView display]"]}
+        self.assertEqual(model.stall_signature(a), model.stall_signature(b))
+        self.assertNotIn("0x", model.stall_signature(b))
+
+    def test_touches_external(self):
+        self.assertTrue(model.touches_external("mailto:x@example.test"))
+        self.assertTrue(model.touches_external("cmux://history"))
+        self.assertTrue(model.touches_external("{origin}/redirect?n=1&to=mailto%3Afuzz%40example.test"))
+        self.assertFalse(model.touches_external("{origin}/redirect?n=1&to=chrome%3A%2F%2Fsettings"))
+        self.assertFalse(model.touches_external("https://example.com/"))
+
     def test_tab_count(self):
         self.assertIsNone(model.tab_count_violation(4, 4))
         self.assertIsNone(model.tab_count_violation(4, 5))

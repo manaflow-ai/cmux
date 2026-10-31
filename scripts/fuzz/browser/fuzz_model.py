@@ -198,11 +198,25 @@ def stall_summary(record: dict, frames: int = 6) -> str:
         " < ".join((keep or record.get("frames") or [])[:frames])
 
 
+EXTERNAL_SCHEMES = {"mailto", "tel", "sms", "facetime", "x-apple.systempreferences", "itms-apps", "intent", "cmux"}
+
+
+def touches_external(url: str) -> bool:
+    """Whether a navigation to `url` could open another app: an external scheme, or a page of the run's server that
+    sends the tab to one (a redirect, meta refresh or script to an encoded external URL)."""
+    scheme = scheme_of(url)
+    if scheme in EXTERNAL_SCHEMES or scheme.startswith("cmux-no-handler"):
+        return True
+    decoded = urllib.parse.unquote(url)
+    return any(f"to={s}:" in decoded for s in EXTERNAL_SCHEMES)
+
+
 def stall_signature(record: dict, depth: int = 3) -> str:
     """A stall's identity across runs: its top app frames without addresses or offsets."""
     import re
     frames = [f for f in record.get("frames") or [] if "cmux" in f or "CmuxNext" in f or "CEF" in f or "cef_" in f]
-    names = [re.sub(r"0x[0-9a-f]+|\+ ?\d+|\s+", " ", f).strip() for f in (frames or record.get("frames") or [])]
+    names = [re.sub(r"\s+", " ", re.sub(r"\+ ?(0x[0-9a-f]+|\d+)|0x[0-9a-f]+", " ", f)).strip()
+             for f in (frames or record.get("frames") or [])]
     return " < ".join(names[:depth]) or "(no frames)"
 
 

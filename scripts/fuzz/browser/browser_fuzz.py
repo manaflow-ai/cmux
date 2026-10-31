@@ -15,7 +15,9 @@ by the person, a page that runs out of memory).
 Oracles, after every op (fuzz_model has the pure parts):
   app_crash        the app process still runs and answers its socket;
   no_answer        every socket call answers within --answer-timeout (a typed error is an answer);
-  stall            no main-thread stall over 100 ms (debug.hangs records since the op began);
+  stall            no main-thread stall over 100 ms (debug.hangs records since the op began). In a Debug build
+                   (the default) a stall is only printed ("BROWSER-FUZZ-STALL {json}") for the stall owners:
+                   not shrunk, not in the verdict. With --build-config bench each stall signature is a finding;
   sad_tab          a renderer that died shows the crashed-page view (debug.browser.page_status gone=1);
   url_policy       no javascript:/data: payload runs, no tab commits one, an agent-driven tab never shows a page
                    AgentURLPolicy refuses, and no web page takes a tab to file:, data:, javascript: or chrome://;
@@ -53,7 +55,8 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "..", "cmux-next"))
 import fuzz_model as model  # noqa: E402
 
-DEVTOOLS_OWNER = "agent a1d30deace5b79a18 (DevTools main-thread stalls)"
+# The DevTools stall owner named in handoff/fuzz-catalog.md row k; a DevTools stall finding names it.
+DEVTOOLS_OWNER = "the DevTools main-thread stall owner (fuzz catalog row k)"
 
 
 class Failure(Exception):
@@ -206,7 +209,8 @@ class Session:
         self.notes: list[str] = []
         self.stalls: dict[str, Failure] = {}
         self.download_tokens: set[str] = {run_token}
-        self.counts = {"ops": 0, "renderer_kills": 0, "sad_tabs": 0, "downloads": 0, "devtools": 0, "refused": 0, "no_renderer": 0}
+        self.script_nav_tabs: set[str] = set()  # tabs that loaded /script-nav: the page runs its own script
+        self.counts = {"ops": 0, "renderer_kills": 0, "sad_tabs": 0, "downloads": 0, "devtools": 0, "refused": 0, "no_renderer": 0, "no_verdict": 0}
 
     # -- plumbing
 
@@ -219,7 +223,7 @@ class Session:
         return result
 
     def action(self, action: str, *, index: int, target: str | None = None, args: dict | None = None, focus: bool = False) -> dict:
-        params = {"action": action, "args": args or {}, "wait": True, "origin": "script", "confirm": True,
+        params = {"action": action, "args": args or {}, "wait": True, "origin": "script",
                   "idempotency_key": f"mutation_{uuid.uuid4().hex}"}
         if target:
             params["target"] = target
@@ -275,7 +279,7 @@ class Session:
         real = pwd.getpwuid(os.getuid()).pw_dir
         for folder in (os.path.join(real, "Downloads"), os.path.join(self.home, "Downloads")):
             for token in self.download_tokens:
-                for path in glob.glob(os.path.join(folder, f"*{glob.escape(token)}*")):
+                for path in glob.glob(os.path.join(folder, f"{glob.escape(token)}-*")):
                     try:
                         os.remove(path)
                     except OSError:
@@ -297,9 +301,9 @@ class Session:
 
     def open_tab(self, url: str, index: int, focus: bool = True) -> dict:
         reply = self.action("openBrowser.chromium", index=index, args={"url": url}, focus=focus)
-        for tab in reply.get("created") or []:
-            if isinstance(tab, str):
-                self.tabs.append(tab)
+        # `created` lists every object the run made (a pane or workspace too); only tabs are the run's tabs.
+        reply["created"] = [t for t in reply.get("created") or [] if isinstance(t, str) and t.startswith("tab_")]
+        self.tabs.extend(reply["created"])
         return reply
 
     def topology_tabs(self) -> dict[str, str] | None:
@@ -394,8 +398,11 @@ class Session:
             state = self.state(tab, index)
             if "error" in state:
                 return
-            # A page may run its own script (location = "javascript:..." from /script-nav): its title is no finding.
-            title = "" if "/script-nav" in url else state.get("title") or ""
+            # A page may run its own script (location = "javascript:..." from /script-nav), also again on a later
+            # reload, Back or Forward: its title is no finding in a tab that ever loaded /script-nav.
+            if "/script-nav" in url or "/script-nav" in (state.get("url") or ""):
+                self.script_nav_tabs.add(tab)
+            title = "" if tab in self.script_nav_tabs else state.get("title") or ""
             problem = model.committed_url_violation(state.get("url") or "", title, agent_op=agent and answered_ok, via_web=via_web)
             if not problem:
                 return
@@ -429,6 +436,10 @@ class Session:
 
     def run_op(self, op: dict, index: int):
         name = op["op"]
+        if not self.has["debug.browser.external_opens"] and model.touches_external(op.get("url") or ""):
+            # Without the recording build (bench), a product bug here would open a real app: skip the op.
+            self.notes.append(f"op {index}: skipped {name} to an external scheme (this build does not record external opens)")
+            return
         self.counts["ops"] += 1
         opens_before = len(self.call("debug.browser.external_opens", {}, index=index).get("urls") or []) if self.has["debug.browser.external_opens"] else 0
         url_tab, answered_ok = None, True
@@ -583,6 +594,7 @@ class Session:
         name = op.get("name") or f"{self.run}-fuzz.bin"
         url = self.site.origin + f"/download?kb={int(op.get('kb', 1))}&name={urllib.parse.quote(name, safe='')}"
         self.call("browser.page.navigate", {"tab": tab, "url": url}, index=index)
+        # The ops name each download "<run token>-<n>-..." (fuzz_model.generate); cleanup deletes only that prefix.
         token = name.split("-")[0] + "-" + name.split("-")[1] if name.count("-") >= 2 else self.run
         self.download_tokens.add(token)
         deadline = time.monotonic() + 30
@@ -629,6 +641,7 @@ class Session:
         status = self.wait_gone(tab, index, seconds)
         if not status and self.page_answers(tab):
             # The page still runs: no renderer of this tab ended (a spare renderer was killed, or the URL did not crash).
+            self.counts["no_verdict"] += 1
             self.notes.append(f"op {index}: after {why} the page still answers: no crash of this tab's renderer (no verdict)")
             return
         if not status:
@@ -648,8 +661,9 @@ class Session:
         raise Failure("sad_tab", f"after {why}, Reload on the crashed-page view did not bring the page back in 30 s", index)
 
     def crash_page(self, index: int):
-        """A person types chrome://crash into a new tab's omnibar (a tab no agent op drove, so the agent URL policy
-        does not apply): its renderer crashes and the tab must show the crashed-page view."""
+        """chrome://crash typed into a new tab's omnibar (the person's path): its renderer crashes and the tab must
+        show the crashed-page view. The tab was opened by a script, so it is agent-driven, and the agent URL guard may
+        refuse the page: then the page still answers and the op counts as no verdict (counts.no_verdict)."""
         reply = self.open_tab(self.site.origin + "/page?id=crash", index, focus=True)
         created = [t for t in reply.get("created") or [] if isinstance(t, str)]
         if not created:
@@ -673,13 +687,21 @@ class Session:
             self.notes.append(f"op {index}: openBrowser.chromium made no tab to crash ({reply.get('error')})")
             return
         tab = created[0]
-        deadline = time.monotonic() + 15
-        fresh: set[int] = set()
-        while time.monotonic() < deadline and not fresh:
-            fresh = children(self.pid, "renderer") - before
+        # The page must load first: a renderer that starts before it may be Chromium's next spare.
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            result, _, _ = rpc(self.sock, "browser.page.eval", {"tab": tab, "script": "document.title"}, 8)
+            if result.get("value") == "fuzz page kill":
+                break
             time.sleep(0.25)
+        else:
+            self.counts["no_verdict"] += 1
+            self.notes.append(f"op {index}: the tab to crash did not load in 30 s; no kill")
+            return
+        fresh = children(self.pid, "renderer") - before
         if not fresh:
             self.counts["no_renderer"] += 1
+            self.counts["no_verdict"] += 1
             self.notes.append(f"op {index}: the new tab got no renderer process of its own (shared); no kill")
             return
         for pid in fresh:
@@ -770,6 +792,20 @@ def main() -> int:
     attempts, harness_errors, total_ops, totals = 0, 0, 0, {}
     seen: set[str] = set()
 
+    advisory: dict[str, dict] = {}
+    stalls_judged = opts.build_config != "debug"
+
+    def note_stall(failure: Failure, seed: int):
+        """Debug build: a stall is printed for the stall owners, never shrunk, never part of the verdict (Debug code
+        is slower; stall evidence needs --config=bench)."""
+        signature = failure.extra.get("signature")
+        if signature in advisory:
+            advisory[signature]["seen"] += 1
+            return
+        advisory[signature] = {"seed": seed, "op_index": failure.op_index, "detail": failure.detail[:600],
+                               "stack": failure.extra.get("stack"), "owner": failure.extra.get("owner"), "seen": 1}
+        print("BROWSER-FUZZ-STALL " + json.dumps(dict(advisory[signature], signature=signature)), flush=True)
+
     def report(failure: Failure, seed: int, ops: list[dict]):
         """Shrinks one failure (fresh launches, within the budget and the deadline) and prints its finding."""
         key = failure.oracle + ":" + (failure.extra.get("signature") or failure.detail[:60])
@@ -837,18 +873,23 @@ def main() -> int:
             print(f"browser-fuzz: seed {seed} FAIL at op {failure.op_index}: {failure.oracle}: {failure.detail[:600]}", flush=True)
             report(failure, seed, ops)
         for stall in stalls.values():
-            report(stall, seed, ops)
+            if stalls_judged:
+                report(stall, seed, ops)
+            else:
+                note_stall(stall, seed)
         seed += 1
 
-    summary = f"seeds {attempts}, ops {total_ops}, harness errors {harness_errors}, config {opts.build_config}, counts {json.dumps(totals)}"
+    summary = (f"seeds {attempts}, ops {total_ops}, harness errors {harness_errors}, config {opts.build_config}, "
+               f"advisory debug stalls {len(advisory)}, counts {json.dumps(totals)}")
     if findings:
         kinds = ", ".join(sorted({f["oracle"] for f in findings}))
         print(f"BROWSER-FUZZ-VERDICT FAIL {len(findings)} finding(s) ({kinds}); {summary}", flush=True)
         return 1
-    if total_ops == 0:
-        print(f"BROWSER-FUZZ-VERDICT NOVERDICT no op ran; {summary}", flush=True)
+    if total_ops == 0 or harness_errors * 2 >= attempts:
+        print(f"BROWSER-FUZZ-VERDICT NOVERDICT {harness_errors} of {attempts} seeds ended in a harness error; {summary}", flush=True)
         return 2
-    print(f"BROWSER-FUZZ-VERDICT PASS {summary}", flush=True)
+    caveat = f"(harness errors {harness_errors}) " if harness_errors else ""
+    print(f"BROWSER-FUZZ-VERDICT PASS {caveat}{summary}", flush=True)
     return 0
 
 
