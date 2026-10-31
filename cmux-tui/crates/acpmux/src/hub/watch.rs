@@ -73,7 +73,10 @@ pub(super) fn read_lines(file: &Path, offset: u64) -> std::io::Result<(Vec<Strin
     if skip_partial {
         match buf.iter().position(|&b| b == b'\n') {
             Some(i) => from = i + 1,
-            None => return Ok((Vec::new(), start)),
+            // The newest-64-MiB window started in a record longer than one
+            // read chunk. Skip the incomplete chunk, then keep looking for
+            // complete records; holding this offset would reread it forever.
+            None => return Ok((Vec::new(), start + buf.len() as u64)),
         }
     }
     // Only complete lines: the app may be halfway through writing the last one.
