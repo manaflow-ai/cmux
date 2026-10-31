@@ -417,5 +417,58 @@ class EndPhaseTests(unittest.TestCase):
         self.assertTrue(verdicts[0].startswith("BROWSER-FUZZ-VERDICT NOVERDICT HANG in end:kill"), verdicts)
 
 
+class EndPhaseFindingTests(unittest.TestCase):
+    """Review of #29662 (BLOCK at 28023dced16): an end-probe no_answer kept a 1-op repro, and a hang in an end step
+    after a Failure lost that Failure."""
+
+    STANDIN = ("import sys, threading, time; sys.path.insert(0, %r)\n"
+               "import browser_fuzz as b, fuzz_model as m\n"
+               "class O: op_deadline = 5; end_deadline = 0.3; ops = 3; build_config = 'debug'; app = '/nonexistent/x.app'\n"
+               "b.WATCH_POLL_S = 0.05\n"
+               "b.LIVE['watch'] = m.OpWatch(5)\n"
+               "class S:\n"
+               "    sock = '/nonexistent/cmux-fuzz.sock'; pid = 0; counts = {}; notes = []; stalls = {}\n"
+               "    opts = O\n"
+               "    def __init__(self, *a): b.LIVE['session'] = self\n"
+               "    def settle_launch(self): pass\n"
+               "    def end_probe(self): pass\n"
+               "    def quit_app(self): pass\n"
+               "    def kill_app(self): pass\n"
+               "    def cleanup(self): pass\n"
+               "    def app_gone(self): return False\n")
+
+    def run_standin(self, body):
+        script = (self.STANDIN % HERE) + body
+        return subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=60)
+
+    def test_an_end_probe_no_answer_keeps_every_op_that_ran(self):
+        out = self.run_standin(
+            "S.run_op = lambda self, op, index: None\n"
+            "def probe(self): raise b.Failure('no_answer', 'system.ping gave no answer in 30 s', -2)\n"
+            "S.end_probe = probe\n"
+            "b.Session = S\n"
+            "failure, counts, stalls = b.run_ops(O, None, [{'op': 'open'}, {'op': 'back'}, {'op': 'close'}], 'fz', lambda l: None,"
+            " 'seed 5', seed=5)\n"
+            "print('RESULT', failure.oracle, failure.op_index, failure.extra.get('phase'))\n")
+        self.assertIn("RESULT no_answer 2 end:probe", out.stdout, out.stdout + out.stderr)
+
+    def test_a_hang_in_an_end_step_after_a_failure_keeps_that_failure(self):
+        out = self.run_standin(
+            "def op(self, op, index):\n"
+            "    raise b.Failure('app_crash', 'the app process 1 ended', index)\n"
+            "S.run_op = op\n"
+            "S.kill_app = lambda self: time.sleep(60)\n"
+            "b.Session = S\n"
+            "threading.Thread(target=b.watchdog, args=(O,), daemon=True).start()\n"
+            "b.run_ops(O, None, [{'op': 'open'}, {'op': 'back'}], 'fz', lambda l: None, 'seed 6', seed=6)\n"
+            "print('NOT REACHED')\n")
+        found = [l for l in out.stdout.splitlines() if l.startswith("BROWSER-FUZZ-FINDING ")]
+        self.assertEqual(len(found), 1, out.stdout + out.stderr)
+        self.assertIn('"oracle": "app_crash"', found[0])
+        verdicts = [l for l in out.stdout.splitlines() if l.startswith("BROWSER-FUZZ-VERDICT ")]
+        self.assertEqual(len(verdicts), 1, out.stdout + out.stderr)
+        self.assertTrue(verdicts[0].startswith("BROWSER-FUZZ-VERDICT FAIL 1 finding(s) before HANG in end:kill"), verdicts)
+
+
 if __name__ == "__main__":
     unittest.main()
