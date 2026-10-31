@@ -171,7 +171,10 @@ async fn lane_report_transcript_reply_read_consumes_its_ended_turn_not_state_onl
         .expect("the report queued behind its busy parent");
         let mut reader = Client::as_session(&hub, &parent).await;
         reader
-            .ok(method, json!({"sessionId": lane, "limit": 5000, "kinds": ["turn_result"]}))
+            .ok(
+                "_acpmux/events",
+                json!({"sessionId": lane, "limit": 5000, "kinds": ["turn_result"]}),
+            )
             .await;
         assert_eq!(hub.session_summary(&hub.resolve(&parent).unwrap())["queued"], 1);
         reader.ok(method, json!({"sessionId": lane, "limit": 5000, "kinds": ["transcript"]})).await;

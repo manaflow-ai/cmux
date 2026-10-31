@@ -50,7 +50,7 @@ const laneVerdictSnapshot = chat([
   }),
 ]);
 const openLaneDetails: Play = async (ctx) => {
-  await ctx.click({ selector: RECEIVED_LINE });
+  ctx.document.querySelector<HTMLButtonElement>(RECEIVED_LINE)?.click();
   await ctx.waitFor(() => ctx.document.querySelector(".cv-received__details .cv-received__more"));
   ctx.document.querySelector<HTMLButtonElement>(".cv-received__details .cv-received__more")?.click();
   await ctx.waitFor(() => ctx.document.querySelector("[data-lane-report-details]") !== null);
