@@ -5,6 +5,7 @@ import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextBridge
+import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextLayout
 import CmuxNextWakeups
@@ -90,6 +91,9 @@ final class WindowManager {
     /// Machine each workspace was last seen on, to tell "gone" from "its
     /// machine is still connecting".
     var seenMachine: [String: String] = [:]
+    /// What `isDead` reads of the Cloud's sign-in and machine list: `CloudService.listFacts`; a test
+    /// gives its own account state, which it cannot sign in to reach.
+    var cloudList: (CloudService) -> CloudMachineListFacts = \.listFacts
     /// Windows being closed by the registry (not by the user).
     var programmaticCloses: Set<String> = []
     private(set) var restored = false
@@ -496,15 +500,25 @@ final class WindowManager {
         userClosed(id)
     }
 
-    /// Flushes state and stops saving (quit).
+    /// Flushes state and stops saving (quit). The records go first: they
+    /// never hold an incognito window, and a slow daemon close of an
+    /// incognito workspace must not keep them past the quit step's limit.
     func prepareForTermination() async {
         loadObservation?.cancel()
         recordSaver.geometryTimer.cancel()
+        await recordSaver.flushSaves()
         await closeIncognitoWindowsForTermination()
         await recordSaver.flushSaves()
+        stopSavingForTermination()
+        // Chromium stops later, as the last quit step (QuitSteps).
+    }
+
+    /// Stops saving for the quit at once: also when ``prepareForTermination()``
+    /// passed its quit-step limit and still runs (`QuitSaveSteps`).
+    func stopSavingForTermination() {
+        recordSaver.geometryTimer.cancel()
         isTerminating = true
         membershipObservation?.cancel()
-        // Chromium stops later, as the last quit step (QuitCompletion).
     }
 
     /// Copies each open window's frame and display into the registry.
