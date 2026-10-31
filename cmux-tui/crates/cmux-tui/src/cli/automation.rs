@@ -943,9 +943,9 @@ fn cloud_schedule(a: &Args) -> Result<Option<CloudSchedule>, Failure> {
 
 /// Prints a Cloud answer; refusals go through `print_refusal`.
 fn cloud_out(
-    answer: Result<Answer, serde_json::Value>,
+    answer: Result<Answer, Value>,
     output: OutputMode,
-    human: impl FnOnce(&serde_json::Value),
+    human: impl FnOnce(&Value),
 ) -> Outcome {
     match answer {
         Ok(Answer::Value(v)) => {
@@ -961,19 +961,19 @@ fn cloud_out(
     }
 }
 
-fn cloud_row(v: &serde_json::Value) -> String {
-    let s = |k: &str| v.get(k).and_then(serde_json::Value::as_str).unwrap_or("-").to_string();
+fn cloud_row(v: &Value) -> String {
+    let s = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("-").to_string();
     let schedule = v
         .get("triggers")
-        .and_then(serde_json::Value::as_array)
+        .and_then(Value::as_array)
         .and_then(|t| {
             t.iter().find_map(|t| {
                 let spec = t.get("spec").unwrap_or(t);
-                match spec.get("type").and_then(serde_json::Value::as_str) {
+                match spec.get("type").and_then(Value::as_str) {
                     Some("cron") => Some(format!(
                         "cron {} ({})",
-                        spec.get("expr").and_then(serde_json::Value::as_str).unwrap_or(""),
-                        spec.get("tz").and_then(serde_json::Value::as_str).unwrap_or("")
+                        spec.get("expr").and_then(Value::as_str).unwrap_or(""),
+                        spec.get("tz").and_then(Value::as_str).unwrap_or("")
                     )),
                     Some("webhook") => Some("webhook".to_string()),
                     _ => None,
@@ -981,14 +981,14 @@ fn cloud_row(v: &serde_json::Value) -> String {
             })
         })
         .unwrap_or_else(|| messages().manual_only.to_string());
-    let status = if v.get("enabled").and_then(serde_json::Value::as_bool) == Some(true) {
+    let status = if v.get("enabled").and_then(Value::as_bool) == Some(true) {
         messages().active
     } else {
         messages().paused
     };
     let next = v
         .get("next_run_at")
-        .and_then(serde_json::Value::as_i64)
+        .and_then(Value::as_i64)
         .map(|ms| when(ms / 1000))
         .unwrap_or_else(|| "-".into());
     format!(
@@ -1007,19 +1007,19 @@ fn cloud_find(global: &super::GlobalArgs, word: &str) -> Result<Result<String, O
     if word.starts_with("auto_") && word.len() == 25 {
         return Ok(Ok(word.to_string()));
     }
-    match cloud::call(global, "automation.list", serde_json::json!({"limit": 100}), None) {
+    match cloud::call(global, "automation.list", json!({"limit": 100}), None) {
         Ok(Answer::Value(v)) => {
             let found = v
                 .get("automations")
-                .and_then(serde_json::Value::as_array)
+                .and_then(Value::as_array)
                 .and_then(|all| {
                     all.iter().find(|a| {
                         a.get("name")
-                            .and_then(serde_json::Value::as_str)
+                            .and_then(Value::as_str)
                             .is_some_and(|n| n.eq_ignore_ascii_case(word))
                     })
                 })
-                .and_then(|a| a.get("id").and_then(serde_json::Value::as_str))
+                .and_then(|a| a.get("id").and_then(Value::as_str))
                 .map(str::to_string);
             match found {
                 Some(id) => Ok(Ok(id)),
@@ -1058,7 +1058,7 @@ fn cloud_dispatch(args: &[String], global: &super::GlobalArgs) -> Outcome {
                 a.value("prompt").ok_or_else(|| Failure::Usage(messages().need_body.into()))?;
             let schedule = cloud_schedule(&a)?
                 .ok_or_else(|| Failure::Usage(messages().need_schedule.into()))?;
-            let chief = match cloud::call(global, "chief.list", serde_json::json!({}), None) {
+            let chief = match cloud::call(global, "chief.list", json!({}), None) {
                 Ok(Answer::Value(v)) => cloud::default_chief(&v)
                     .ok_or_else(|| Failure::Usage(messages().cloud_no_chief.into()))?,
                 other => return cloud_out(other, output, |_| {}),
@@ -1075,24 +1075,21 @@ fn cloud_dispatch(args: &[String], global: &super::GlobalArgs) -> Outcome {
                 |v| {
                     println!(
                         "{}",
-                        messages().cloud_created.replace("{name}", &name).replace(
-                            "{id}",
-                            v.get("id").and_then(serde_json::Value::as_str).unwrap_or("?")
-                        )
+                        messages()
+                            .cloud_created
+                            .replace("{name}", &name)
+                            .replace("{id}", v.get("id").and_then(Value::as_str).unwrap_or("?"))
                     );
                     println!("{}", cloud_row(v));
                 },
             )
         }
         "list" | "ls" => cloud_out(
-            cloud::call(global, "automation.list", serde_json::json!({"limit": 100}), None),
+            cloud::call(global, "automation.list", json!({"limit": 100}), None),
             output,
             |v| {
-                let all = v
-                    .get("automations")
-                    .and_then(serde_json::Value::as_array)
-                    .cloned()
-                    .unwrap_or_default();
+                let all =
+                    v.get("automations").and_then(Value::as_array).cloned().unwrap_or_default();
                 if all.is_empty() {
                     println!("{}", messages().none_yet);
                 }
@@ -1103,7 +1100,7 @@ fn cloud_dispatch(args: &[String], global: &super::GlobalArgs) -> Outcome {
         ),
         "show" | "get" => match target(&a)? {
             Ok(id) => cloud_out(
-                cloud::call(global, "automation.get", serde_json::json!({"automation": id}), None),
+                cloud::call(global, "automation.get", json!({"automation": id}), None),
                 output,
                 |v| println!("{}", cloud_row(v.get("automation").unwrap_or(v))),
             ),
@@ -1114,7 +1111,7 @@ fn cloud_dispatch(args: &[String], global: &super::GlobalArgs) -> Outcome {
                 cloud::call(
                     global,
                     "automation.run",
-                    serde_json::json!({"automation": id}),
+                    json!({"automation": id}),
                     Some(
                         a.value("key")
                             .map(str::to_string)
@@ -1126,7 +1123,7 @@ fn cloud_dispatch(args: &[String], global: &super::GlobalArgs) -> Outcome {
                     let run = v
                         .get("id")
                         .or_else(|| v.get("run").and_then(|r| r.get("id")))
-                        .and_then(serde_json::Value::as_str)
+                        .and_then(Value::as_str)
                         .unwrap_or("?");
                     println!("{}", messages().cloud_run_started.replace("{run}", run));
                 },
@@ -1140,12 +1137,12 @@ fn cloud_dispatch(args: &[String], global: &super::GlobalArgs) -> Outcome {
                     cloud::call(
                         global,
                         "automation.update",
-                        serde_json::json!({"automation": id, "enabled": enabled}),
+                        json!({"automation": id, "enabled": enabled}),
                         Some(cloud::key(global, verb)),
                     ),
                     output,
                     |v| {
-                        let name = v.get("name").and_then(serde_json::Value::as_str).unwrap_or(&id);
+                        let name = v.get("name").and_then(Value::as_str).unwrap_or(&id);
                         println!(
                             "{}",
                             (if enabled { messages().resumed } else { messages().paused_done })
@@ -1161,32 +1158,27 @@ fn cloud_dispatch(args: &[String], global: &super::GlobalArgs) -> Outcome {
                 cloud::call(
                     global,
                     "automation.runs.list",
-                    serde_json::json!({"automation": id, "limit": 50}),
+                    json!({"automation": id, "limit": 50}),
                     None,
                 ),
                 output,
                 |v| {
-                    let runs = v
-                        .get("runs")
-                        .and_then(serde_json::Value::as_array)
-                        .cloned()
-                        .unwrap_or_default();
+                    let runs = v.get("runs").and_then(Value::as_array).cloned().unwrap_or_default();
                     if runs.is_empty() {
                         println!("{}", messages().no_runs);
                     }
                     for r in &runs {
-                        let s = |k: &str| {
-                            r.get(k).and_then(serde_json::Value::as_str).unwrap_or("-").to_string()
-                        };
+                        let s =
+                            |k: &str| r.get(k).and_then(Value::as_str).unwrap_or("-").to_string();
                         let at = r
                             .get("created_at")
-                            .and_then(serde_json::Value::as_i64)
+                            .and_then(Value::as_i64)
                             .map(|ms| when(ms / 1000))
                             .unwrap_or_default();
                         let reason = r
                             .get("error")
                             .and_then(|e| e.get("code"))
-                            .and_then(serde_json::Value::as_str)
+                            .and_then(Value::as_str)
                             .map(|c| format!(" ({c})"))
                             .unwrap_or_default();
                         println!("{}  {at}  {}{reason}", s("id"), s("state"));
@@ -1200,7 +1192,7 @@ fn cloud_dispatch(args: &[String], global: &super::GlobalArgs) -> Outcome {
                 cloud::call(
                     global,
                     "automation.delete",
-                    serde_json::json!({"automation": id}),
+                    json!({"automation": id}),
                     Some(cloud::key(global, "delete")),
                 ),
                 output,
