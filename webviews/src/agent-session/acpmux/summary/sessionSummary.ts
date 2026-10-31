@@ -236,7 +236,7 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
   return [...seen.values()].sort((a, b) => a.order - b.order || a.sequence - b.sequence).map(({ source }) => source);
 }
 
-/// The pull requests the chat opened (the composer's PR bars, PullRequestDock.tsx).
+/// The pull requests the chat opened.
 export const sessionPullRequests = (rows: readonly AcpmuxRow[]) =>
   transcriptPullRequests(rows).filter((pr) => pr.opened && pr.kind !== "issue");
 
