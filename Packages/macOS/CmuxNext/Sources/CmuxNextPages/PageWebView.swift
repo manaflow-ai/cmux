@@ -56,6 +56,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var chromiumDragFile: (url: URL, at: Date)?
     /// Shows the Chromium page's context menu at a point of this view (tests capture it).
     var chromiumMenuPresenter: @MainActor (NSMenu, NSPoint, NSView) -> Void = { menu, point, view in
+        // A view in no window cannot anchor a menu (AppKit raises): the page closed meanwhile.
+        guard view.window != nil else { return }
         menu.popUp(positioning: nil, at: point, in: view)
     }
     /// Making the Chromium page (cancelled when the view closes or falls back).
@@ -71,7 +73,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// ``chromiumHosting`` (its composition root). Nil: a file input does nothing (tests).
     public static var openPanel: MadeAheadOpenPanel?
     /// This page's file chooser (its web view holds the UI delegate weakly).
-    private var fileChooser: PageOpenPanel?
+    private(set) var fileChooser: PageOpenPanel?
     var loaded = false
     /// The tab closed (``close()``): its web view is retired and never loads again.
     var isClosed = false
