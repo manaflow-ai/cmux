@@ -175,6 +175,8 @@ pub struct Peer {
     link_epoch: AtomicU64,
     /// Whether the peer serves `_acpmux/subagent_transcript` (`hub/subagent_transcript.rs`).
     subagent_transcript: AtomicBool,
+    /// Whether the peer serves `_acpmux/native_history` (`hub/native_history.rs`).
+    native_history: AtomicBool,
     /// Whether the peer saves a message's attachments (`attach.rs`).
     send_attach: AtomicBool,
     /// The peer lists `promptUploads` (`prompt_uploads.rs`).
@@ -275,6 +277,7 @@ impl Peer {
             media_read: AtomicBool::new(false),
             link_epoch: AtomicU64::new(0),
             subagent_transcript: AtomicBool::new(false),
+            native_history: AtomicBool::new(false),
             send_attach: AtomicBool::new(false),
             prompt_uploads: AtomicBool::new(false),
             upload_resume: AtomicBool::new(false),
@@ -1219,6 +1222,7 @@ impl Peer {
             set(&me.file_put_chunks, crate::hub::file_uploads::CHUNKS_FEATURE);
             set(&me.media_read, crate::hub::MEDIA_READ_FEATURE);
             set(&me.subagent_transcript, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE);
+            set(&me.native_history, crate::hub::NATIVE_HISTORY_FEATURE);
             set(&me.send_attach, crate::attach::FEATURE);
             set(&me.prompt_uploads, crate::prompt_uploads::FEATURE);
             set(&me.upload_resume, crate::hub::file_uploads::RESUME_FEATURE);
