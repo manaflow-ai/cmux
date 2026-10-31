@@ -119,7 +119,9 @@ export default componentEntry<Props>({
   widths: { narrow: 360, normal: 560, wide: 760 },
   anchors: [{ selector: ".acpmux-harnesses-head" }],
   covers: ["agent-session/acpmux/harnesses/HarnessesScreen.tsx#HarnessesScreen"],
-  styles: () => import("../styles.css"),
+  // The agent pane's cascade: App.tsx loads the Session status card's sheet beside this page's
+  // (HarnessStatusCard.tsx), so the stage does too, and a class the two share shows here as in the app.
+  styles: () => Promise.all([import("../styles.css"), import("../harnessStatus.css")]),
   checks: {
     layoutShiftMax: {
       value: 0,
