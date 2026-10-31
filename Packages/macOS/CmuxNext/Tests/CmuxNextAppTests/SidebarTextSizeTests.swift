@@ -96,7 +96,7 @@ import Testing
             #expect(m.titlePoints == 14, "ChatGPT's sidebar titles are 14 pt; got \(m.titlePoints)")
             #expect(m.rowPitch == 31, "ChatGPT's rows are 31 pt apart; got \(m.rowPitch)")
             #expect(m.rowHeight == 29)
-            #expect(m.iconBox > Self.measureIcon(.small), "ChatGPT's leading icons are about 14 pt")
+            #expect(try m.iconBox > Self.measureIcon(.small), "ChatGPT's leading icons are about 14 pt")
         }
     }
 

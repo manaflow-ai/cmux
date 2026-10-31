@@ -76,7 +76,7 @@ import Testing
             }
             // A realized workspace row draws its title in that font.
             let row = try #require(Self.sidebar().list.rowViews[.workspace(Self.first)] as? WorkspaceRowView)
-            #expect(row.title.font?.pointSize == 13)
+            #expect(row.title.font.pointSize == 13)
         }
     }
 
@@ -157,12 +157,17 @@ import Testing
     /// reads it: it neither moves the sidebar list's rows nor makes a detail row shorter than a one-line row.
     @Test func theAppRowDebugOverrideLeavesSidebarRows() {
         let store = TunableStore.shared
-        let saved = (store.override(MetricTunables.sidebarRowHeight.key), store.override(SidebarTunables.evenRowText.key))
-        store.set(MetricTunables.sidebarRowHeight.key, .number(40))
+        store.activate(file: nil)
+        store.register(MetricTunables.metrics.map(\.descriptor))
+        store.register(SidebarTunables.all)
+        let rowKey = MetricTunables.sidebarRowHeight.tunable.key
+        let saved = (store.override(rowKey), store.override(SidebarTunables.evenRowText.key))
+        store.set(rowKey, .number(40))
         store.set(SidebarTunables.evenRowText.key, .bool(false))
         defer {
-            store.set(MetricTunables.sidebarRowHeight.key, saved.0)
+            store.set(rowKey, saved.0)
             store.set(SidebarTunables.evenRowText.key, saved.1)
+            SidebarTunablesWatch.shared.changed()
         }
         Self.at {
             #expect(Metrics.sidebarRowHeight == 40)
