@@ -91,7 +91,9 @@ import Testing
             view.layout()
             #expect(view.window == nil)
             let hasLeadingMark = c.kind == .workspace || c.kind == .item
-            let text: CGFloat = hasLeadingMark ? Self.text(c.comfortable) : Self.lead(c.comfortable)
+            // A workspace's tab sits one grid indent (16) in, under its workspace.
+            let child: CGFloat = c.kind == .tab ? 16 : 0
+            let text: CGFloat = (hasLeadingMark ? Self.text(c.comfortable) : Self.lead(c.comfortable)) + child
             if let workspace = view as? WorkspaceRowView {
                 #expect(abs(origin + workspace.title.frame.minX - text - CGFloat(c.depth * 7)) <= 0.5)
                 let font = workspace.title.font

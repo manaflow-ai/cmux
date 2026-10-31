@@ -137,7 +137,9 @@ final class SidebarTabRowView: SidebarRowView {
         super.layout()
         let b = layoutBounds
         // A grouped tab row keeps an ungrouped one's left edge (SidebarListView.frame(for:)).
-        let columns = SidebarStyle.columns(rowWidth: b.width)
+        // A workspace's tab is one level below it: one grid indent (grid.md, +16 per depth), so the
+        // tabs read as its children rather than as rows of their own.
+        let columns = SidebarStyle.columns(rowWidth: b.width, depth: 1)
         let iconSide = SidebarStyle.tabIconSize
         let iconX = columns.lead + (columns.iconBox - iconSide) / 2
         icon.frame = NSRect(x: iconX, y: (b.height - iconSide) / 2, width: iconSide, height: iconSide)

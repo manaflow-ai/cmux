@@ -479,8 +479,12 @@ class SidebarItemRowView: NSView {
 
     /// The glyph drawn now (tests).
     var glyphImage: NSImage? { icon.image }
-    /// The caption's frame (tests).
-    var titleFrame: CGRect { title.isHidden ? .zero : title.frame }
+    /// Where the caption's text draws (tests): its alignment rect, without the label cell's 2 pt side
+    /// padding, so it compares with a workspace title (a marquee label, which draws at its frame's edge).
+    var titleFrame: CGRect {
+        guard !title.isHidden else { return .zero }
+        return title.frame.width > 0 ? title.alignmentRect(forFrame: title.frame) : title.frame
+    }
     /// The drawn title or caption (tests).
     var titleText: String { title.stringValue }
 
