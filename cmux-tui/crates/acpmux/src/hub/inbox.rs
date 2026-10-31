@@ -14,6 +14,14 @@
 //! (the cmux daemon delivers and tracks it) and the prompts acpmux makes itself (lane reports,
 //! task cards, a paused pair's release) still queue.
 //!
+//! Those still steer into a running turn, but never while one of the person's prompts waits
+//! behind it ([`persons_prompt_waits`]; `turns.rs`, checked again as the steer is written,
+//! `steer_end.rs`), as no notice does. Then the message queues behind that prompt, one sent with
+//! `interrupt` stops nothing, and a steer-only one is refused (`promptWaits`). Another agent's
+//! steer kept a turn going past the person's queued prompt; Leo, 2026-10-29: "but even if im
+//! just queueing, your turn should still be ending". The person's own steer, the queue's Send
+//! now, and an inbox digest its drain asked to steer (`inbox_digest.rs`) still go in.
+//!
 //! A chat's first work is no inbox item either ([`first_work`]): the first message another agent
 //! sends a chat that never ran a turn, with none running and nothing waiting (`lane-place
 //! --prompt-file`, `acpmux new` with a prompt), runs as that prompt, and its sender is the chat's
@@ -346,6 +354,15 @@ pub(super) fn review_box_steer_refused() -> RpcError {
     .with_data(json!({"reason": "steer.unavailable", "turnCap": false, "reviewBox": true}))
 }
 
+/// The refusal of another agent's steer-only prompt while one of the person's prompts waits
+/// behind the running turn (module docs).
+pub(super) fn prompt_waits_steer_refused() -> RpcError {
+    RpcError::invalid_params(
+        "steer.unavailable: a prompt waits behind the running turn; another agent's message goes in after it, so send without steer-only to queue",
+    )
+    .with_data(json!({"reason": "steer.unavailable", "turnCap": false, "promptWaits": true}))
+}
+
 /// Whether a prompt's provenance is a notice's.
 pub(crate) fn is_notice(provenance: Option<&Value>) -> bool {
     provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) == Some(NOTICE_KIND)
@@ -533,6 +550,14 @@ fn wakes(meta: &SessionMeta, item: &Item) -> bool {
 /// turn then, so it is never held up behind them.
 fn prompt_waits(session: &Session) -> bool {
     session.queue.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|q| !q.held)
+}
+
+/// Whether one of the person's prompts waits in the queue (not held, no agent's message): no other
+/// agent's steer goes into the running turn then (`turns.rs`), so the turn can end for it.
+/// Other agents' messages waiting do not hold one: they never held each other up.
+pub(super) fn persons_prompt_waits(session: &Session) -> bool {
+    let queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
+    queue.iter().any(|q| !q.held && q.run.agent.is_none())
 }
 
 /// Whether a chat's first work waits in its queue ([`FIRST_WORK`] on its provenance), as one a
