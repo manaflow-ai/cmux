@@ -437,11 +437,21 @@ const showLessAtEnd = async (ctx: PlayContext) => {
   const more = { selector: ".cv-shell .cv-output-more" };
   await ctx.click(more);
   await ctx.waitFor(() => ctx.find(more).getAttribute("aria-expanded") === "true");
+  // The opened output lands first: its fold plays and the rows under it place by their drawn
+  // heights, so the content stops growing (three frames at one height, nothing animating).
+  const scroller = ctx.find({ selector: ".acpmux-scroll" }) as HTMLElement;
+  let height = -1;
+  let still = 0;
+  await ctx.waitFor(() => {
+    still = scroller.scrollHeight === height ? still + 1 : 0;
+    height = scroller.scrollHeight;
+    return still >= 3 && scroller.getAnimations({ subtree: true }).every((a) => a.playState !== "running");
+  });
   // The reader scrolls down to Show less, under the opened output, at the view's foot. A reader's
   // scroll is a wheel, which lets go of the hold Show all's click started (App.tsx `release`); an
-  // offset set alone, inside that hold, is put back where the click held the row.
-  const scroller = ctx.find({ selector: ".acpmux-scroll" }) as HTMLElement;
-  scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: 120, bubbles: true, cancelable: true }));
+  // offset set alone, inside that hold, is put back where the click held the row. The wheel is a
+  // pixel, so its own glide moves nothing that matters.
+  scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: 1, bubbles: true, cancelable: true }));
   (ctx.find(more) as HTMLElement).scrollIntoView({ block: "end" });
   scroller.dispatchEvent(new Event("scroll"));
   const view = () => scroller.getBoundingClientRect();
