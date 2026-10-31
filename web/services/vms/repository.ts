@@ -18,6 +18,7 @@ import {
   cloudVmObservedDestroyCleanups,
   cloudVmAccessGrants,
   cloudVmAccessGrantSessions,
+  cloudVmChatGrants,
   cloudVmSessions,
   cloudVmTunnels,
   cloudVmTunnelEnrollmentLocks,
@@ -112,6 +113,7 @@ export type CloudVmAccessLeaseRow = CloudVmLeaseRow & {
   readonly providerVmId: string;
 };
 export type CloudVmSessionRow = typeof cloudVmSessions.$inferSelect;
+export type CloudVmChatGrantRow = typeof cloudVmChatGrants.$inferSelect;
 export type CloudVmNetworkRow = typeof cloudVmNetworks.$inferSelect;
 export type CloudVmAccessGrantRow = typeof cloudVmAccessGrants.$inferSelect;
 export type CloudVmAccessGrantSessionRow = typeof cloudVmAccessGrantSessions.$inferSelect;
@@ -888,6 +890,24 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
     readonly userId: string;
     readonly vmId: string;
   }) => Effect.Effect<CloudVmSessionRow[], VmDatabaseError>;
+  /** Whether `userId` holds a chat grant on machine `vmId` (services/vms/chatGrants.ts). */
+  readonly hasVmChatGrant?: (input: {
+    readonly vmId: string;
+    readonly userId: string;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
+  /** A machine's chat grants, oldest first. */
+  readonly listVmChatGrants?: (vmId: string) => Effect.Effect<CloudVmChatGrantRow[], VmDatabaseError>;
+  /** Grant chat starts on a machine; an existing grant is kept as it was. */
+  readonly putVmChatGrant?: (input: {
+    readonly vmId: string;
+    readonly userId: string;
+    readonly grantedBy: string;
+  }) => Effect.Effect<CloudVmChatGrantRow, VmDatabaseError>;
+  /** Remove a chat grant; false when there was none. */
+  readonly deleteVmChatGrant?: (input: {
+    readonly vmId: string;
+    readonly userId: string;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
   readonly upsertVmSession: (input: {
     readonly vmId: string;
     readonly userId: string;
@@ -4600,6 +4620,51 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           ne(cloudVmSessions.status, "closed"),
         ))
         .orderBy(desc(cloudVmSessions.updatedAt));
+    }),
+
+  hasVmChatGrant: (input) =>
+    dbEffect("hasVmChatGrant", async () => {
+      const rows = await cloudDb()
+        .select({ userId: cloudVmChatGrants.userId })
+        .from(cloudVmChatGrants)
+        .where(and(eq(cloudVmChatGrants.vmId, input.vmId), eq(cloudVmChatGrants.userId, input.userId)))
+        .limit(1);
+      return rows.length > 0;
+    }),
+
+  listVmChatGrants: (vmId) =>
+    dbEffect("listVmChatGrants", async () =>
+      await cloudDb()
+        .select()
+        .from(cloudVmChatGrants)
+        .where(eq(cloudVmChatGrants.vmId, vmId))
+        .orderBy(asc(cloudVmChatGrants.createdAt), asc(cloudVmChatGrants.userId))),
+
+  putVmChatGrant: (input) =>
+    dbEffect("putVmChatGrant", async () => {
+      const db = cloudDb();
+      const [inserted] = await db
+        .insert(cloudVmChatGrants)
+        .values({ vmId: input.vmId, userId: input.userId, grantedBy: input.grantedBy })
+        .onConflictDoNothing({ target: [cloudVmChatGrants.vmId, cloudVmChatGrants.userId] })
+        .returning();
+      if (inserted) return inserted;
+      const [existing] = await db
+        .select()
+        .from(cloudVmChatGrants)
+        .where(and(eq(cloudVmChatGrants.vmId, input.vmId), eq(cloudVmChatGrants.userId, input.userId)))
+        .limit(1);
+      if (!existing) throw new Error("chat grant vanished between insert and read");
+      return existing;
+    }),
+
+  deleteVmChatGrant: (input) =>
+    dbEffect("deleteVmChatGrant", async () => {
+      const deleted = await cloudDb()
+        .delete(cloudVmChatGrants)
+        .where(and(eq(cloudVmChatGrants.vmId, input.vmId), eq(cloudVmChatGrants.userId, input.userId)))
+        .returning({ userId: cloudVmChatGrants.userId });
+      return deleted.length > 0;
     }),
 
   upsertVmSession: (input) =>
