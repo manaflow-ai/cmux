@@ -8,8 +8,8 @@ public import CoreGraphics
 /// The material itself (Liquid Glass, vibrancy before macOS 26, opaque under Reduce Transparency)
 /// stays `OverlayMaterial`'s decision; this style only sets the tint, rim, radius and shadow.
 ///
-/// Motion is not here: it lives in `MotionTunables` only. Popups open on the `popover` spring from
-/// `Motion.popupOpenScale` and close on `popoverClose` to `Motion.popupCloseScale`; toasts rise on
+/// Motion is not here: it lives in `MotionTunables` only. Popups open at once and close on
+/// `popoverClose` to `Motion.popupCloseScale`; toasts rise on
 /// `appear` and fade with `fadeIn`/`fadeOut`. Every one of them fades the card's layer, never the
 /// window's `alphaValue` (a glass card ignores window alpha), and the rim fades with the card
 /// because it sits inside it.

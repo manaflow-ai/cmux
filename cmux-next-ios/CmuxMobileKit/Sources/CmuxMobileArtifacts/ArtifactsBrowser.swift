@@ -100,7 +100,7 @@ public struct ArtifactsBrowser: View {
             }
             .overlay {
                 if shown.isEmpty {
-                    ContentUnavailableView("Nothing referenced yet", systemImage: "doc.text.magnifyingglass",
+                    ContentUnavailableView("Nothing referenced", systemImage: "doc.text.magnifyingglass",
                                            description: Text(emptyMessage))
                 }
             }

@@ -297,8 +297,12 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         !shownStatus.isChanging && (status.isLive || (status == .paused && pauseReason == .idle))
     }
 
-    /// Sidebar and menu title: the user's name, else the slug, else the id.
-    public var title: String { displayName?.nonEmpty ?? slug?.nonEmpty ?? id }
+    /// The machine's name wherever cmux shows one (the sidebar, menus, the Cloud page): the
+    /// user's name, else the generated slug (`kind-aqua-sandpiper`); nil when it has neither.
+    public var shownName: String? { displayName?.nonEmpty ?? slug?.nonEmpty }
+
+    /// Sidebar and menu title: ``shownName``, else the id.
+    public var title: String { shownName ?? id }
 
     enum CodingKeys: String, CodingKey {
         case id, provider, status, displayName, slug, kind, image, imageVersion, createdAt, createdBy, createdByUserId, address, size, capabilities
