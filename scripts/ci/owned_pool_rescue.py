@@ -3333,15 +3333,20 @@ def nightly_compile_red(api: Any, target: "Target", sleep: Callable[[float], Non
     concurrency`) was re-run to attempt 4 by this rescue, each attempt rebuilding the broken commit. The fix is a
     newer commit, which the nightly-next tick promotes (its rolling rule) once it lands.
 
-    Attempts are read from the newest down: one whose build was skipped, cancelled or not yet created says nothing,
-    so the next older one is read; the first build that succeeded or failed decides. Any read error is "": a failed
+    Attempts are read from the newest down: one whose build was skipped, not finished, cancelled before a runner took
+    it or not yet created says nothing, so the next older one is read; the first build that ran decides, and only a
+    failure that compile_error() classifies makes the head compile-red (a timeout or a started cancel stays
+    retryable). Any read error is "": a failed
     read never stops a re-run (the classification is conservative)."""
     if not target.nightly:
         return ""
     try:
         for attempt in range(target.attempt, 0, -1):
             builds = nightly_build_jobs(read(lambda: api.jobs(target.run_id, attempt), sleep, log))
-            ran = [job for job in builds if job.get("conclusion") in ("success", "failure")]
+            # A build that ran in any way decides (a timeout, or a cancel after a runner took it, is retryable); only
+            # one that never ran (skipped, not yet finished, cancelled before any runner) falls through.
+            ran = [job for job in builds if job.get("conclusion") in ("success", "failure", "timed_out")
+                   or job.get("conclusion") == "cancelled" and job.get("runner_name")]
             if not ran:
                 continue
             for job in ran:

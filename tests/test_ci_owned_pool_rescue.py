@@ -5837,6 +5837,25 @@ class NightlyCompileRed(unittest.TestCase):
         self.assertEqual(rescue.nightly_compile_red(api, self.target(2), clock.sleep, lambda text: None), "")
         self.assertNotIn("jobs:1", api.calls)
 
+    def test_a_newer_build_that_timed_out_or_was_cancelled_running_decides(self):
+        # Retryable outcomes on the newest attempt are never hidden by an older attempt's compile error.
+        timed_out = dict(failed_build(job_id=8), conclusion="timed_out")
+        cancelled_running = dict(failed_build(job_id=8), conclusion="cancelled")
+        for newest in (timed_out, cancelled_running):
+            with self.subTest(conclusion=newest["conclusion"]):
+                clock = Clock()
+                api = CompileRedAPI(clock, lambda seconds: [], attempts={2: [newest], 1: [failed_build()]},
+                                    notes={2: COMPILE_ANNOTATIONS, 8: COMPILE_ANNOTATIONS})
+                self.assertEqual(rescue.nightly_compile_red(api, self.target(2), clock.sleep, lambda text: None), "")
+                self.assertNotIn("jobs:1", api.calls)
+        # Cancelled before any runner took it: says nothing, so attempt 1 decides.
+        unstarted = dict(failed_build(job_id=8), conclusion="cancelled", runner_name="")
+        clock = Clock()
+        api = CompileRedAPI(clock, lambda seconds: [], attempts={2: [unstarted], 1: [failed_build()]},
+                            notes={2: COMPILE_ANNOTATIONS})
+        self.assertIn("failed to compile", rescue.nightly_compile_red(api, self.target(2), clock.sleep,
+                                                                       lambda text: None))
+
     def test_a_read_error_is_retryable(self):
         clock = Clock()
         lines = []
