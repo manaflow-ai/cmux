@@ -1,5 +1,15 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-31: archived workspaces fold into one "Archived (N)" row per list, and the Tidy Up card's Always is a
+  switch. Lawrence 18470: "we need better ui for archived stuff instead of just greying them out ... it takes up too
+  much vertical space rn"; from the archived-variations gallery Chief picked V2 (one fold row per group, chevron) and
+  T3 (Archive plus an inline Always switch). Archived rows leave their place for an "Archived (N)" row at the end of
+  their group or loose list, after "Done (N)", drawn by the Done fold's row view with the same chevron, click and
+  VoiceOver press (`SidebarDoneFoldID.kind` `.archived`, `SidebarLayoutOptions.foldsArchived`, on); open, they list
+  below it, still dimmed. The active workspace keeps its place; a filter and the session tree list rows in place; a
+  drag of an archived row unfolds both folds as a Done drag did. The card's second action is
+  `SidebarNoticeCard.Action.isSwitch`: a mini switch with its title on the button row's trailing edge
+  (`SidebarCardSwitch`). Regression: `SidebarArchivedFoldTests`, `SidebarNoticeCardSwitchTests`.
 - 2026-10-30: the sidebar is a linear list by default: no titlebar dropdown. Lawrence (message 18548): "by default
   i dont want to have workspace titlebar dropdowns at all, i just want to have linear list of workspaces (with
   groups ofc)". The chevron beside the titlebar's + (a879's split-button segment, 631d310) now shows only with
