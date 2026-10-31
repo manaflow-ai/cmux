@@ -1,4 +1,5 @@
 import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
+import { parseJsonObjectFrame } from "../../protocol/jsonFrame";
 import { isRetryContinuation } from "./subagents/retryState";
 import { isModelRouterKind } from "./routerKinds";
 import type { SwitchPort } from "./harnessSwitch";
@@ -366,10 +367,16 @@ function strayedFrom(watch: AttachWatch, replyOf?: unknown): boolean {
           (typeof replyOf === "number" && seen.createdAt !== replyOf))),
   );
 }
-/// Pages one older read takes at most (about 2 MB, more when a single record is larger).
-const OLDER_PAGES_PER_ASK = 8;
-/// Publish a bounded batch of older pages together so each prepend does not redraw the bottom stack.
-/// This keeps the reader responsive while preserving the eight-page cap for large turns.
+/// Pages one older read takes at most while none of them has started a turn older than the first
+/// prompt drawn (about 32 MB, more when a single record is larger). An open that lands in the middle
+/// of a long turn, as after a restart, draws that turn's prompt first, and nothing can show above it
+/// until the turn's start is read: a read capped at a few pages left the reader asking again and
+/// again with nothing new at the top, each ask replaying the whole transcript (Leo 2026-10-29: "I
+/// can't fucking scroll up past the current fucking turn after restarting"). The bound keeps one
+/// read from walking a whole log when a single turn is larger than this.
+const OLDER_PAGES_PER_ASK = 128;
+/// Pages one older read takes at least, published together so each prepend does not redraw the
+/// bottom stack; once one of them starts a turn older than the first prompt drawn, the read stops here.
 const OLDER_MIN_PAGES_PER_ASK = 4;
 /// A chat adopted or watched from Claude Code has older turns in its transcript, past the newest
 /// page its log was seeded with: acpmux logs a `native_history` record (its `before` cursor, a byte
@@ -2123,6 +2130,7 @@ export class AcpmuxDirectClient {
 
   /** Drops everything that belongs to the previously selected session, before another one attaches. */
   private resetSessionState(): void {
+    this.cancelTrustStart?.();
     // Typing and presence stop with the chat at once, not when the next attach lands: a keystroke
     // meanwhile never reaches the chat before.
     this.presence.detached();
@@ -2578,12 +2586,9 @@ export class AcpmuxDirectClient {
 
   private receive(raw: string): void {
     this.wire.received(raw);
-    let message: Reply | Notification;
-    try {
-      message = JSON.parse(raw) as Reply | Notification;
-    } catch {
-      return;
-    }
+    // A frame that is not a JSON object is dropped like one that is not JSON (`null` would throw at `in`).
+    const message = parseJsonObjectFrame(raw) as Reply | Notification | null;
+    if (!message) return;
     if ("id" in message && typeof message.id === "number") {
       const request = this.pending.get(message.id);
       if (!request) return;
@@ -5581,6 +5586,7 @@ export class AcpmuxDirectClient {
   /** A new chat starting (`create`): a Send meanwhile waits for it and goes to the new chat, not to
    *  the session still on screen (a harness pick), and a Send with no session joins it. */
   private creating?: Promise<string | undefined>;
+
   /// Opens a chat's Cloud hand-off turn before a prompt that starts one (cloudHandoffTurn.ts); set
   /// by the page only for a chat on a Cloud machine whose app opens them.
   handoffTurn?: (sessionId: string) => Promise<number | undefined>;
@@ -5589,6 +5595,9 @@ export class AcpmuxDirectClient {
   /// The newest hand-off turn each chat sent a prompt under: the store may still say it is `starting`
   /// (the machine's reports go on their own time), and another prompt never names it.
   private handoffTurnsSent = new Map<string, number>();
+  /// A New Tab start suspended for Trust settles when its selection or client goes away.
+  private cancelTrustStart?: () => void;
+
   async ensureSession(): Promise<string | undefined> {
     // This send belongs to the requested chat. A refused or empty start must not send it to
     // the previous chat, or start the default harness instead of the one the person picked.
@@ -6873,7 +6882,7 @@ export class AcpmuxDirectClient {
     const waiting = this.waitingTrust;
     this.waitingTrust = undefined;
     if (route && waiting && !this.closed && waiting.generation === this.selectionGeneration)
-      route(waiting.refusal, waiting.again);
+      route(waiting.refusal, waiting.again, waiting.declined);
   }
   private trustRoute?: TrustRoute;
   private trustCancellation = 0;
@@ -6883,47 +6892,98 @@ export class AcpmuxDirectClient {
     this.trustCancellation += 1;
     this.waitingTrust = undefined;
   }
-  private waitingTrust?: { refusal: TrustRefusal; again?: () => void; generation: number };
+  private waitingTrust?: { refusal: TrustRefusal; again?: () => void; declined?: () => void; generation: number };
+
   /// True when `error` is a trust refusal, which then went to the route.
-  routeTrustRefusal(error: unknown, again?: () => void): boolean {
+  routeTrustRefusal(error: unknown, again?: () => void, declined?: () => void): boolean {
     const refusal = trustRefusal(error);
     if (!refusal) return false;
     if (this.closed) return true;
-    if (this.trustRoute) this.trustRoute(refusal, again);
-    else this.waitingTrust = { refusal, again, generation: this.selectionGeneration };
+    if (this.trustRoute) this.trustRoute(refusal, again, declined);
+    else this.waitingTrust = { refusal, again, declined, generation: this.selectionGeneration };
     return true;
   }
   /// `session/new` for every caller: a trust refusal goes to the one route, then rejects as before.
-  private async newSession(params: Record<string, unknown>, again?: () => void): Promise<any> {
+  private async newSession(params: Record<string, unknown>, again?: () => void, declined?: () => void): Promise<any> {
     const generation = this.selectionGeneration;
     const trustCancellation = this.trustCancellation;
     try {
-      return await this.request("session/new", params);
+      const result = await this.request("session/new", params);
+      // A canceled start owns neither the next Trust question nor one-shot startup defaults.
+      if (generation !== this.selectionGeneration || trustCancellation !== this.trustCancellation) return undefined;
+      return result;
     } catch (error) {
       if (generation === this.selectionGeneration && trustCancellation === this.trustCancellation)
-        this.routeTrustRefusal(error, again);
+        this.routeTrustRefusal(error, again, declined);
+
       throw error;
     }
   }
   /// A new session, in `cwd` when given; otherwise in the inherited cwd, then where acpmux defaults.
   /// `noProject` starts it in no project: the host's agent-home folder, never the inherited cwd.
   /// `model`: the model to start on (a chat on another machine starts on the one the page showed).
+  /// `waitForTrust`: New Tab still owns the first prompt; keep this start pending through its Trust answer
+  /// only when this connection can record one. Other origins reject so the retained draft can retry later.
   create(
     harness: string | undefined = this.host.harness,
     cwd?: string,
     peer?: string,
     noProject = false,
     model: string | undefined = this.host.model,
+    waitForTrust = false,
   ): Promise<string | undefined> {
+    this.cancelTrustStart?.();
+    const generation = this.selectionGeneration;
     const started = (async () => {
-      const sessionId = await this.startSession(
-        harness,
-        cwd,
-        peer,
-        () => void this.create(harness, cwd, peer, noProject, model).catch(() => undefined),
-        noProject,
-        model,
-      );
+      // The New Tab request still owns its draft, attachments and machine. Trust resumes this
+      // same promise, so its sender runs once and never targets an unmounted chat composer.
+      const canAnswerTrust = this.origin !== "remote" || this.extensions.includes("acp.trust.set");
+      const sessionId =
+        waitForTrust && canAnswerTrust
+          ? await new Promise<string | undefined>((resolve, reject) => {
+              let settled = false;
+              let running = false;
+              const finish = (id?: string, error?: unknown) => {
+                if (settled) return;
+                settled = true;
+                if (this.cancelTrustStart === cancel) this.cancelTrustStart = undefined;
+                if (error) reject(error);
+                else resolve(id);
+              };
+              const cancel = () => {
+                if (settled) return;
+                // The request can still reply after this promise settles. Fence its refusal
+                // before a newer start installs the retry it would otherwise overwrite.
+                this.cancelTrustRefusals();
+                finish();
+              };
+              this.cancelTrustStart = cancel;
+              const run = () => {
+                if (this.closed || generation !== this.selectionGeneration) return cancel();
+                if (settled || running) return;
+                running = true;
+                void this.startSession(harness, cwd, peer, run, noProject, model, () =>
+                  finish(undefined, new Error(translate("switch.cancelled"))),
+                ).then(
+                  (id) => finish(id),
+                  (error: unknown) => {
+                    running = false;
+                    if (!isTrustRefusal(error)) finish(undefined, error);
+                  },
+                );
+              };
+              run();
+            })
+          : await this.startSession(
+              harness,
+              cwd,
+              peer,
+              () => void this.create(harness, cwd, peer, noProject, model).catch(() => undefined),
+              noProject,
+              model,
+            );
+      // A user who opened another chat while session/new was out owns that selection.
+      if (this.closed || generation !== this.selectionGeneration) return undefined;
       return sessionId ? this.select(sessionId) : undefined;
     })();
     const tracked = started.finally(() => {
@@ -6944,10 +7004,12 @@ export class AcpmuxDirectClient {
     again?: () => void,
     noProject = false,
     model?: string,
+    declined?: () => void,
   ): Promise<string | undefined> {
     const result = await this.newSession(
       newSessionParams(newSessionHost(this.host, cwd, peer, noProject), harness, noProject, model),
       again,
+      declined,
     );
     // Startup picks handed to this new-chat page are one-shot defaults: consume them only after
     // session/new succeeds, so a failed start can retry with the same picks. The inherited cwd
@@ -7640,15 +7702,18 @@ export class AcpmuxDirectClient {
     // The prompt drawn first: the open turn's opener when the held events start mid-turn.
     const drawnFrom = this.turnOpener?.seq ?? this.firstSeq;
     const opensOlderTurn = (event: EventRecord) => startsTurn(event) && event.seq < drawnFrom;
-    let older: EventRecord[] = [];
+    // Newest page first; joined once at the end, so a long read copies its records once.
+    const read: EventRecord[][] = [];
     let more = true;
+    let found = false;
     // A page can draw nothing above the first row: a prompt queued with a big paste or image is a
-    // page of its own, and a page that ends in the opener already drawn adds no turn. Read on until
-    // a turn older than the first row starts, at most OLDER_PAGES_PER_ASK pages; a capped read
-    // still moves `historyFrom`, which makes the transcript ask again.
+    // page of its own, a page that ends in the opener already drawn adds no turn, and every page of
+    // a long turn the open landed in is that turn's. Read on until a turn older than the first row
+    // starts, at most OLDER_PAGES_PER_ASK pages; a capped read still moves `historyFrom`, which
+    // makes the transcript ask again.
     for (
       let before = this.firstSeq, pages = 0;
-      more && pages < OLDER_PAGES_PER_ASK && (pages < OLDER_MIN_PAGES_PER_ASK || !older.some(opensOlderTurn));
+      more && pages < OLDER_PAGES_PER_ASK && (pages < OLDER_MIN_PAGES_PER_ASK || !found);
       pages++
     ) {
       const result = await this.typed("_acpmux/events", {
@@ -7664,10 +7729,12 @@ export class AcpmuxDirectClient {
       // ask brings nothing, and the transcript asks again (App.tsx checkOlder).
       if (epoch !== this.historyEpoch) return;
       const page = records(result?.events);
-      older = [...page, ...older];
+      read.push(page);
+      found ||= page.some(opensOlderTurn);
       more = result?.hasMore === true && page.length > 0 && page[0]!.seq < before;
       if (page.length > 0) before = Math.min(before, page[0]!.seq);
     }
+    let older = read.reverse().flat();
     // Records before the oldest turn start finish a turn further back: the next read takes them, so
     // what lands holds whole turns.
     const start = more ? older.findIndex(opensOlderTurn) : 0;
@@ -7943,9 +8010,12 @@ export class AcpmuxDirectClient {
     this.rememberCurrentTail(false);
     this.replayMode = false;
     this.closed = true;
+
     clearTimeout(this.hiddenDraw);
     this.frameRequest?.cancel?.();
     this.frameRequest = undefined;
+    this.cancelTrustStart?.();
+
     for (const gone of this.resendWaits.keys()) gone();
     const hold = this.snapshotHold;
     if (hold) clearTimeout(hold.timer);
@@ -8008,7 +8078,7 @@ export function isTrustRefusal(error: unknown): boolean {
 /// What a trust refusal names: its reason and the folder acpmux asks about.
 export type TrustRefusal = { reason: "trust.pending" | "trust.untrusted"; cwd?: string };
 /// The pane's handler of every trust refusal (`AcpmuxDirectClient.onTrustRefused`).
-export type TrustRoute = (refusal: TrustRefusal, again?: () => void) => void;
+export type TrustRoute = (refusal: TrustRefusal, again?: () => void, declined?: () => void) => void;
 
 export function trustRefusal(error: unknown): TrustRefusal | undefined {
   if (!isTrustRefusal(error)) return undefined;

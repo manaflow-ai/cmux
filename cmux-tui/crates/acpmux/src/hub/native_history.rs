@@ -386,8 +386,7 @@ fn fit_reply(mut reply: Value) -> Value {
         event_object.insert("msg".to_owned(), json!({
             "_meta": {"acpmux": {"omitted": {"bytes": original_msg_bytes, "reason": "too_large"}}}
         }));
-        let replacement =
-            serde_json::to_string(event).map_or(usize::MAX, |text| text.len());
+        let replacement = serde_json::to_string(event).map_or(usize::MAX, |text| text.len());
         let Some(event_size) = event_sizes.get_mut(index) else { break };
         *event_size = replacement;
         let Some(event_omitted) = omitted.get_mut(index) else { break };
