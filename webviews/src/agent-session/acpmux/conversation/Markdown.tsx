@@ -1,3 +1,4 @@
+import { BlockTail, InlineTail } from "./InlineTail";
 // Ported from the agent-pane reference prototype (src/conversation/Markdown.tsx).
 // A small GFM-subset Markdown renderer for assistant messages. It produces the same
 // DOM shape for every transcript: headings, paragraphs (single newlines are line
@@ -40,6 +41,8 @@ import { StartedSessionChip, useStartedMentions, type StartedMentions } from "..
 import { splitMentions } from "../started/startedSessions";
 import { entranceAllowed } from "../../shared/pageReveal";
 import { isAgentMotionOff } from "../../shared/motion";
+import { animateScroll } from "../threadMinimap/scrollMotion";
+import { JUMP_CURVE, jumpDuration } from "../threadMinimap/model";
 import { decorateTimes, splitTimeTokens, TimeHover } from "./timeHover";
 
 export type Align = "left" | "center" | "right" | null;
@@ -650,13 +653,7 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
         const anchor = opts.notes.anchor(id);
         out.push(
           <sup key={k++} className="cv-fnref">
-            <button
-              type="button"
-              aria-describedby={anchor}
-              onClick={() =>
-                document.getElementById(anchor)?.scrollIntoView({ block: "nearest", behavior: noteScroll() })
-              }
-            >
+            <button type="button" aria-describedby={anchor} onClick={() => scrollNote(document.getElementById(anchor))}>
               {number}
             </button>
           </sup>,
@@ -667,6 +664,54 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
   }
   if (last < text.length) out.push(...proseText(text.slice(last), `t${k++}`, opts));
   return out;
+}
+
+// Native smooth scroll can paint one queued compositor step after cancellation. Transcript
+// footnotes use the shared runner so manual input stops them before the next painted frame.
+// A note inside its own scrolling panel (a capped tool result) is first brought into view
+// there, at once, as scrollIntoView would; then the transcript rides to it.
+function scrollNote(note: HTMLElement | null) {
+  if (!note) return;
+  const node = note.closest<HTMLElement>(".acpmux-scroll");
+  if (!node) return note.scrollIntoView({ block: "nearest", behavior: noteScroll() });
+  for (let inner = note.parentElement; inner && inner !== node; inner = inner.parentElement) {
+    if (inner.scrollHeight <= inner.clientHeight) continue;
+    const overflow = inner.ownerDocument.defaultView?.getComputedStyle(inner).overflowY;
+    if (overflow !== "auto" && overflow !== "scroll") continue;
+    inner.scrollTop = revealedTop(note, inner);
+  }
+  const target = () => revealedTop(note, node);
+  animateScroll(
+    node,
+    target,
+    noteScroll() === "auto" ? 0 : jumpDuration(target() - node.scrollTop),
+    JUMP_CURVE,
+    undefined,
+    undefined,
+    { explicit: true },
+  );
+}
+
+/// Where `scroller` shows `note` by scrollIntoView's "nearest" rule, inside its scroll range.
+function revealedTop(note: HTMLElement, scroller: HTMLElement): number {
+  const end = scroller.scrollHeight - scroller.clientHeight;
+  return Math.max(0, Math.min(end, scroller.scrollTop + nearest(note, scroller)));
+}
+
+/// How far `scroller` must move to show `note`, by scrollIntoView's "nearest" rule.
+function nearest(note: HTMLElement, scroller: HTMLElement): number {
+  const box = note.getBoundingClientRect();
+  const top = scroller.getBoundingClientRect().top + scroller.clientTop;
+  const paddingBottom =
+    Number.parseFloat(scroller.ownerDocument.defaultView?.getComputedStyle(scroller).scrollPaddingBottom ?? "0") || 0;
+  const bottom = top + scroller.clientHeight - paddingBottom;
+  const visibleHeight = Math.max(0, bottom - top);
+  const above = box.top < top;
+  const below = box.bottom > bottom;
+  if (above && below) return 0;
+  if (above) return box.height <= visibleHeight ? box.top - top : box.bottom - bottom;
+  if (below) return box.height <= visibleHeight ? box.bottom - bottom : box.top - top;
+  return 0;
 }
 
 /// How a footnote reference scrolls to its note: a glide, or with cmux's animations off
@@ -775,6 +820,7 @@ function Block({
   enter = false,
   code = "final",
   tail,
+  trailing,
 }: {
   block: MdBlock;
   opts: InlineOptions;
@@ -786,9 +832,12 @@ function Block({
   code?: "open" | "handoff" | "final" | "plain";
   /** The reply's newest characters, which fade in at the end of this, its last block. */
   tail?: FreshTail;
+  trailing?: ReactNode;
 }): ReactNode {
   const motion = enter ? " cv-enter" : "";
-  const inline = (text: string) => (tail ? renderFresh(text, tail, opts) : renderInline(text, opts));
+  const inline = (text: string) => (
+    <InlineTail trailing={trailing}>{tail ? renderFresh(text, tail, opts) : renderInline(text, opts)}</InlineTail>
+  );
   switch (block.type) {
     case "heading": {
       // h5 and h6 draw as h4, the smallest heading the column has.
@@ -801,7 +850,9 @@ function Block({
       if (!tail && !/\s/.test(link) && isRemoteMedia(link))
         return (
           <p className={`cv-p${motion}`}>
-            <RemoteMedia url={link} alt="" fallback={inline(block.text)} />
+            <InlineTail trailing={trailing}>
+              <RemoteMedia url={link} alt="" fallback={renderInline(block.text, opts)} />
+            </InlineTail>
           </p>
         );
       // Only images (a before/after pair, a screenshot alone on its line): a row of thumbnails, once
@@ -810,7 +861,9 @@ function Block({
       if (images)
         return (
           <p className={`cv-p cv-p--images${motion}`}>
-            <Thumbs items={images} opts={opts} />
+            <InlineTail trailing={trailing}>
+              <Thumbs items={images} opts={opts} />
+            </InlineTail>
           </p>
         );
       // An image path in a sentence stays its chip there; its thumbnail draws under the paragraph,
@@ -828,11 +881,21 @@ function Block({
       );
     }
     case "hr":
-      return <hr className={`cv-hr${motion}`} />;
+      return (
+        <BlockTail trailing={trailing}>
+          <hr className={`cv-hr${motion}`} />
+        </BlockTail>
+      );
     case "blockquote":
       return (
         <blockquote className={`cv-quote${motion}`}>
-          <Blocks blocks={block.children} opts={quoted(opts)} depth={depth} plain={code === "plain"} />
+          <Blocks
+            blocks={block.children}
+            opts={quoted(opts)}
+            depth={depth}
+            plain={code === "plain"}
+            trailing={trailing}
+          />
         </blockquote>
       );
     case "list": {
@@ -854,7 +917,13 @@ function Block({
               </span>
               <ItemThumbs text={it.text} opts={opts} streaming={Boolean(tail) && i === block.items.length - 1} />
               {it.children.length > 0 && (
-                <Blocks blocks={it.children} opts={opts} depth={depth + 1} plain={code === "plain"} />
+                <Blocks
+                  blocks={it.children}
+                  opts={opts}
+                  depth={depth + 1}
+                  plain={code === "plain"}
+                  trailing={i === block.items.length - 1 ? trailing : undefined}
+                />
               )}
             </li>
           ))}
@@ -862,21 +931,29 @@ function Block({
       );
     }
     case "table":
-      return <TableBlock table={block} cell={(text) => renderInline(text, opts)} className={motion} />;
+      return (
+        <BlockTail trailing={trailing}>
+          <TableBlock table={block} cell={(text) => renderInline(text, opts)} className={motion} />
+        </BlockTail>
+      );
     case "code": {
-      if (code === "open") return <PlainCode code={block.code} lang={block.lang} open />;
-      if (code === "plain") return <PlainCode code={block.code} lang={block.lang} />;
+      if (code === "open") return <PlainCode code={block.code} lang={block.lang} open actions={trailing} />;
+      if (code === "plain") return <PlainCode code={block.code} lang={block.lang} actions={trailing} />;
       // A diagram draws once its fence closes; a Mermaid source still streaming stays code.
       if (isChart(block.lang, block.code) && !(block.open && block.lang.toLowerCase() === "mermaid"))
-        return <DiagramBlock lang={block.lang} code={block.code} />;
+        return <DiagramBlock lang={block.lang} code={block.code} actions={trailing} />;
       // A page in a closed ```cmux-render fence runs in the render frame; the dev server has none.
       const render = canRender() && !block.open ? renderFence(block.lang, block.code) : undefined;
-      if (render) return <RenderCard call={render} />;
-      if (code === "handoff") return <CodeHandoff code={block.code} lang={block.lang} />;
-      return <CodeBlock code={block.code} lang={block.lang} />;
+      if (render) return <RenderCard call={render} actions={trailing} />;
+      if (code === "handoff") return <CodeHandoff code={block.code} lang={block.lang} actions={trailing} />;
+      return <CodeBlock code={block.code} lang={block.lang} actions={trailing} />;
     }
     case "math":
-      return <MathDisplay tex={block.tex} />;
+      return (
+        <BlockTail trailing={trailing}>
+          <MathDisplay tex={block.tex} />
+        </BlockTail>
+      );
     case "footnote": {
       const number = opts.notes?.numbers.get(block.id);
       return (
@@ -914,17 +991,25 @@ function Blocks({
   opts,
   depth,
   plain = false,
+  trailing,
 }: {
   blocks: MdBlock[];
   opts: InlineOptions;
   depth: number;
   plain?: boolean;
+  trailing?: ReactNode;
 }) {
   return (
     <>
       {blocks.map((b, i) => (
         <Fragment key={i}>
-          <Block block={b} opts={opts} depth={depth} code={plain ? "plain" : undefined} />
+          <Block
+            block={b}
+            opts={opts}
+            depth={depth}
+            code={plain ? "plain" : undefined}
+            trailing={i === blocks.length - 1 ? trailing : undefined}
+          />
         </Fragment>
       ))}
     </>
@@ -965,6 +1050,7 @@ export type MarkdownProps = InlineOptions & {
   /** Markdown source. */
   children: string;
   className?: string;
+  trailing?: ReactNode;
   /** The reply is streaming: blocks that appear from now on enter with the shared motion. */
   streaming?: boolean;
   /** The newest revealed steps (RevealedMarkdown), which fade in at the end of the last block. */
@@ -993,6 +1079,7 @@ export function Markdown({
   commits,
   thumbnails,
   messageAt,
+  trailing,
 }: MarkdownProps) {
   const parser = useRef<IncrementalMarkdown | null>(null);
   parser.current ??= new IncrementalMarkdown();
@@ -1056,6 +1143,7 @@ export function Markdown({
         enter={streaming && live && !awayBlocks.current.has(entry.key)}
         code={open ? "open" : plainCode ? "plain" : live || streamedFences.current.has(entry.key) ? "handoff" : "final"}
         tail={index === blocks.length - 1 ? freshTail : undefined}
+        trailing={index === trailingIndex ? trailing : undefined}
       />
     );
   };
@@ -1065,6 +1153,8 @@ export function Markdown({
     .map((entry, index) => ({ entry, index }))
     .filter(({ entry }) => entry.block.type === "footnote")
     .sort((a, b) => noteRank(a.entry.block, opts) - noteRank(b.entry.block, opts));
+  // Notes are displayed in reference order, which may differ from their source order.
+  const trailingIndex = notes.at(-1)?.index ?? blocks.length - 1;
   return (
     <div className={`cv-md selectable ${className}`}>
       {blocks.map((entry, index) => (entry.block.type === "footnote" ? null : draw(entry, index)))}

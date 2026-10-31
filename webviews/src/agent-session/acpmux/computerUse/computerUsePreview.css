@@ -49,9 +49,9 @@
 }
 /* With the Inspector open (either place), directly under its card: the layout's 8px gap, right-aligned
    with it (the Codex app's preview under its summary panel). The Inspector publishes the place on the
-   shell (inspector/underInspector.ts, once per resize of the panel), and the column keeps no room of
-   its own: the Inspector's shift or push keeps the chat clear of both. Closed, the card is back at the
-   top right. */
+   shell (inspector/underInspector.ts, once per resize of the panel). Floating, the column keeps its
+   room (data-cu-preview stays), so opening or closing the panel never reflows the chat; Push always's
+   column keeps the chat clear of both instead. Closed, the card is back at the top right. */
 .acpmux-shell[data-inspector-chat-placement] .acpmux-cu-preview {
   top: var(--acpmux-inspector-under-top, calc(var(--acpmux-header-height, 44px) + 8px));
   right: var(--acpmux-inspector-under-right, 12px);
@@ -229,15 +229,15 @@
     }
   }
   /* The cursor glides to each new point as the helper's own cursor does (cmux-cua --glide-ms 150),
-     and each click's ripple grows and fades. */
+     and each click's ripple grows and fades on the motion scale's large step once the glide lands. */
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview__arrow,
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview__ripple {
-    transition:
+    transition: /* motion-allow: mirrors the helper's own cursor glide (cmux-cua --glide-ms 150) */
       left 150ms var(--agent-ease-out, ease-out),
       top 150ms var(--agent-ease-out, ease-out);
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview__ripple {
-    animation: acpmux-cu-preview-click 360ms var(--agent-ease-out, ease-out) 150ms both;
+    animation: acpmux-cu-preview-click var(--cmux-motion-large, 240ms) var(--agent-ease-out, ease-out) 150ms both;
   }
   @keyframes acpmux-cu-preview-click {
     from {

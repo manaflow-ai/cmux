@@ -2,6 +2,7 @@ import { env, exports } from "cloudflare:workers"
 import { createExecutionContext, runInDurableObject } from "cloudflare:test"
 import { describe, expect, it } from "vitest"
 import { PlatformMachines } from "../src/platform-machines.ts"
+import { ledgerKey, LEDGER_KEEP_MS, TABLE_LEDGER, TABLE_SNAPSHOT } from "../src/domains/cloud.ts"
 import { personalTeamIdFor } from "../src/domains/user.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 import { bindBody, bindFile, cloudStub, frame, reply, SIZE } from "./cloud-bind-support.ts"
@@ -15,6 +16,7 @@ interface Rpc {
   exec(c: unknown, machine: string, command: string, stdin: string | null, timeoutMs: number): Promise<Reply>
   snapshot(c: unknown, machine: string, name: string): Promise<Reply>
   destroy(c: unknown, machine: string): Promise<Reply>
+  deleteSnapshot(c: unknown, snapshot: string): Promise<Reply>
 }
 const rpc = (exports as unknown as { PlatformMachines: Rpc }).PlatformMachines
 const inDO = runInDurableObject as unknown as <T>(stub: unknown, cb: (instance: any) => Promise<T>) => Promise<T>
@@ -128,6 +130,131 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect((await stub.readOp(c.team, owner, "cloud.machine.get", { machine })).ok).toBe(false)
   })
 
+  it("deletes only its own platform snapshot and retries idempotently", async () => {
+    const c = caller()
+    const { machine, stub } = await bootAndBind(c)
+    const saved = await rpc.snapshot(c, machine, nameOf())
+    expect(saved).toMatchObject({ ok: true, value: { id: expect.stringMatching(/^snap_[a-z0-9]{20}$/) } })
+    const id = saved.value.id as string
+    expect(await rpc.deleteSnapshot(c, id)).toEqual({ ok: true, value: { deleted: true } })
+    expect(await rpc.deleteSnapshot(c, id)).toEqual({ ok: true, value: { deleted: true } })
+    expect(((await stub.fakeControl({})) as any).snapshot_deletes).toBe(1)
+
+    const other = caller()
+    const beforeRefused = (await stub.fakeControl({})) as any
+    expect(await rpc.deleteSnapshot(other, id)).toMatchObject({ ok: false, code: "cloud.snapshot.not_found" })
+    expect(((await stub.fakeControl({})) as any).snapshot_deletes).toBe(beforeRefused.snapshot_deletes)
+    expect(await rpc.deleteSnapshot(c, "snap_bad")).toMatchObject({ ok: false, code: "validation.invalid" })
+  })
+
+  it.each([false, true])("deletes a platform snapshot after its creation ledger is pruned (legacy=%s)", async (legacy) => {
+    const c = caller()
+    const { machine, stub } = await bootAndBind(c)
+    const name = nameOf()
+    const saved = await rpc.snapshot(c, machine, name)
+    expect(saved).toMatchObject({ ok: true })
+    const id = saved.value.id as string
+    const owner = { identity: `user:${c.user}`, kind: "session" as const, user: c.user, team: c.team }
+    const listed = await stub.readOp(c.team, owner, "cloud.snapshot.list", {})
+    expect(listed.value.snapshots[0].platform).toBeUndefined()
+    expect(await rpc.destroy(c, machine)).toMatchObject({ ok: true })
+    await inDO(stub, async (instance) => {
+      const rows = instance.boundEngine.rows
+      const key = ledgerKey(`platform:${c.user}`, `platform-env:snapshot:${name}`)
+      if (legacy) {
+        const stored = rows.get(TABLE_SNAPSHOT, id)
+        const { platform: _platform, ...row } = stored.row
+        rows.apply([{ table: TABLE_SNAPSHOT, op: "upsert", key: id, n: stored.n, row }])
+      }
+      const created = rows.get(TABLE_LEDGER, key).row
+      expect(created.state).toBe("done")
+      const now = created.updated_at + LEDGER_KEEP_MS + 1
+      expect(reply(instance.submitSystem("cloud.prune", { now }, `prune:${now}`))).toMatchObject({ t: "result" })
+      expect(rows.get(TABLE_LEDGER, key)).toBeUndefined()
+      expect(rows.get(TABLE_SNAPSHOT, id).row.status).toBe("ready")
+    })
+    expect(await rpc.deleteSnapshot(c, id)).toEqual({ ok: true, value: { deleted: true } })
+    const ctl = (await stub.fakeControl({})) as any
+    expect(ctl.snapshot_deletes).toBe(1)
+    expect(ctl.snapshots).toHaveLength(0)
+  })
+
+  it("retries a platform snapshot deletion after a terminal provider refusal", async () => {
+    const c = caller()
+    const { machine, stub } = await bootAndBind(c)
+    const saved = await rpc.snapshot(c, machine, nameOf())
+    expect(saved).toMatchObject({ ok: true })
+    const id = saved.value.id as string
+    await stub.fakeControl({ snapshot_delete_refuse: 1 } as never)
+    expect(await rpc.deleteSnapshot(c, id)).toMatchObject({ ok: false, code: "cloud.provider.unavailable", retryable: true })
+    await inDO(stub, async (instance) => {
+      expect(instance.boundEngine.rows.get(TABLE_SNAPSHOT, id).row.status).toBe("ready")
+      const deletes = instance.boundEngine.rows.range(TABLE_LEDGER, { limit: 100 }).filter((l: any) => l.row.op === "snapshot_delete")
+      expect(deletes).toHaveLength(1)
+      expect(deletes[0].row.state).toBe("failed")
+    })
+    // The provider now accepts deletion; the failed intent must not trap cleanup forever.
+    expect(await rpc.deleteSnapshot(c, id)).toEqual({ ok: true, value: { deleted: true } })
+    const ctl = (await stub.fakeControl({})) as any
+    expect(ctl.snapshot_deletes).toBe(1)
+    expect(ctl.snapshots).toHaveLength(0)
+  })
+
+  it("lets a departed creator clean up its platform snapshot", async () => {
+    const c = { user: caller().user, team: SHARED_TEAM }
+    const stub = cloudStub(SHARED_TEAM)
+    await inDO(stub, async (instance) => {
+      instance.creatorIsMember = async () => true
+    })
+    const { machine } = await bootAndBind(c)
+    const saved = await rpc.snapshot(c, machine, nameOf())
+    expect(saved).toMatchObject({ ok: true, value: { id: expect.any(String) } })
+    const id = saved.value.id as string
+    await inDO(stub, async (instance) => {
+      instance.creatorIsMember = async () => false
+    })
+    expect(await rpc.deleteSnapshot(c, id)).toEqual({ ok: true, value: { deleted: true } })
+    expect(((await stub.fakeControl({})) as any).snapshot_deletes).toBe(1)
+  })
+
+  it("does not claim an old unmarked snapshot is gone when its creation ledger is absent", async () => {
+    const c = caller()
+    const { machine, stub } = await bootAndBind(c)
+    const saved = await rpc.snapshot(c, machine, nameOf())
+    expect(saved).toMatchObject({ ok: true, value: { id: expect.any(String) } })
+    const id = saved.value.id as string
+    await inDO(stub, async (instance) => {
+      const rows = instance.boundEngine.rows
+      const snap = rows.get(TABLE_SNAPSHOT, id)
+      const { platform: _platform, ...unmarked } = snap.row
+      const created = rows.range(TABLE_LEDGER, { limit: 1000 }).find((entry: any) => entry.row.op === "snapshot" && entry.row.snapshot === id)
+      expect(created).toBeDefined()
+      rows.apply([
+        { table: TABLE_SNAPSHOT, op: "upsert", key: id, n: snap.n, row: unmarked },
+        { table: TABLE_LEDGER, op: "delete", key: created.key },
+      ])
+      expect(rows.get(TABLE_SNAPSHOT, id).row.platform).toBeUndefined()
+      expect(rows.get(TABLE_LEDGER, created.key)).toBeUndefined()
+    })
+    const before = (await stub.fakeControl({})) as any
+    expect(before.snapshots).toHaveLength(1)
+    expect(await rpc.deleteSnapshot(c, id)).toMatchObject({ ok: false, code: "cloud.snapshot.ownership_unknown", retryable: true })
+    const after = (await stub.fakeControl({})) as any
+    expect(after.snapshot_deletes).toBe(before.snapshot_deletes)
+    expect(after.snapshots).toEqual(before.snapshots)
+  })
+
+  it("refuses a non-platform snapshot without calling its provider", async () => {
+    const c = caller()
+    const { machine, stub } = await bootAndBind(c)
+    const ordinary = reply(await stub.submit(c.team, { identity: `user:${c.user}`, kind: "session", user: c.user, team: c.team }, frame("cloud.snapshot.create", { machine, name: "ordinary" })))
+    // The machine must be running before the regular snapshot can be created.
+    expect(ordinary).toMatchObject({ t: "result", value: { snapshot: { id: expect.any(String) } } })
+    const before = (await stub.fakeControl({})) as any
+    expect(await rpc.deleteSnapshot(c, ordinary.value.snapshot.id)).toMatchObject({ ok: false, code: "cloud.snapshot.not_found" })
+    expect(((await stub.fakeControl({})) as any).snapshot_deletes).toBe(before.snapshot_deletes)
+  })
+
   it("a user who left the team can no longer boot, exec or snapshot, but its cleanup still deletes the builder", async () => {
     const c = { user: caller().user, team: SHARED_TEAM }
     const stub = cloudStub(SHARED_TEAM)
@@ -176,6 +303,7 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     const c = caller()
     expect(await off.boot(c, nameOf())).toMatchObject({ ok: false, code: "platform.machines_off", retryable: false })
     expect(await off.destroy(c, `vm_${"a".repeat(20)}`)).toMatchObject({ ok: false, code: "platform.machines_off" })
+    expect(await off.deleteSnapshot(c, `snap_${"a".repeat(20)}`)).toMatchObject({ ok: false, code: "platform.machines_off" })
   })
 
   it("is not reachable over HTTP", async () => {

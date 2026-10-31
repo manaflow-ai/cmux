@@ -220,7 +220,7 @@ def load_baseline():
 def write_baseline(crates):
     data = {
         "_doc": "Per-crate clippy hit counts of production code (scripts/cmux-next/rust_panic_ratchet.py). "
-                "Counts only go down. A crate with every deny lint at 0 is at deny.",
+                "Counts normally only go down; reviewed rollout rebaselines require authoritative Linux provenance. A crate with every deny lint at 0 is at deny.",
         "lints": LINTS,
         "deny_lints": DENY_LINTS,
         "crates": {crate: {lint: crates[crate].get(lint, 0) for lint in LINTS} for crate in sorted(crates)},

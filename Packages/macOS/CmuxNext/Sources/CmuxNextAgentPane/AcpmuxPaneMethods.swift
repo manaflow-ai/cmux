@@ -97,6 +97,10 @@ nonisolated enum AcpmuxPaneMethods {
         // for that child (claude_stdio/workflows.rs). It stops work like `_acpmux/kill`, so no
         // gesture; caller params never reach Claude.
         "_acpmux/subagent_stop", "_acpmux/subagent_transcript",
+        // Page a chat's older turns in from its Claude Code transcript, past the newest page its log
+        // was seeded with (direct.ts fetchNativeOlder; acpmux hub/native_history.rs). A read of the
+        // pane's own chat: `before` is a byte cursor acpmux gave, never a path.
+        "_acpmux/native_history",
         // Resume a paused agent pair of a chat in the pane's scope (the pause row's Resume; acpmux
         // hub/agent_pairs.rs): delivers the messages the two agents already sent and the guard held.
         // `peerSessionId` only picks one of that chat's paused pairs; acpmux resumes no pair the
@@ -234,7 +238,7 @@ nonisolated enum AcpmuxPaneMethods {
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
-        "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/agent_pair_resume", "_acpmux/app_reply",
+        "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/app_reply",
         "_acpmux/watch_take_over",
         "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
         "_acpmux/mcp/reconnect", "_acpmux/subsession/limits",
@@ -361,24 +365,25 @@ nonisolated enum AcpmuxPaneMethods {
     /// Where a frame carries the ticket of a gesture reserved at its pick (`params._meta.cmuxGesture`).
     public static let gestureTicketKey = "cmuxGesture"
 
-    /// A session/prompt with every `_meta` inside its prompt blocks removed, at any depth (a block's
-    /// own, a nested resource's, annotations'); nil when there is none (the frame goes unchanged).
-    /// The request's own `params._meta` stays. Adapters read no block `_meta` today; a future one
-    /// could, and the relay cannot check what it would do with it.
+    /// Strip untrusted block metadata at every depth, retaining only a top-level upload reference.
+    /// The daemon validates that the finished upload belongs to this chat. Request params._meta
+    /// stays; nil means the frame is unchanged.
     static func strippingPromptMeta(_ object: [String: Any]?) -> [String: Any]? {
         guard var object, object["method"] as? String == "session/prompt", var params = object["params"] as? [String: Any],
               let prompt = params["prompt"] as? [Any] else { return nil }
         var stripped = false
-        func strip(_ value: Any) -> Any {
+        func strip(_ value: Any, acceptsUpload: Bool = false) -> Any {
             if var dictionary = value as? [String: Any] {
+                let upload = acceptsUpload ? promptUploadMeta(dictionary) : nil
                 if dictionary.removeValue(forKey: "_meta") != nil { stripped = true }
                 for (key, child) in dictionary where child is [String: Any] || child is [Any] { dictionary[key] = strip(child) }
+                if let upload { dictionary["_meta"] = upload }
                 return dictionary
             }
-            if let list = value as? [Any] { return list.map(strip) }
+            if let list = value as? [Any] { return list.map { strip($0) } }
             return value
         }
-        let blocks = prompt.map(strip)
+        let blocks = prompt.map { strip($0, acceptsUpload: true) }
         guard stripped else { return nil }
         params["prompt"] = blocks
         object["params"] = params
