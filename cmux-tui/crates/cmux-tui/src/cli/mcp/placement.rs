@@ -210,6 +210,94 @@ impl<B: Backend> Server<B> {
         Ok(())
     }
 
+    /// A `tab_move` that names its destination pane but not that pane's screen and
+    /// workspace, or no index, gets them: a pane is in one screen of one workspace, and a
+    /// moved tab goes after the pane's last tab. Agents looked the move up in the docs and
+    /// then the pane's parents before every move (tests/tool-evals r13d: 2 to 3 steps).
+    /// Only the destination workspace named: its focused pane.
+    pub(super) fn tab_move_destination<'a>(
+        &self,
+        tool: &v2_tools::V2Tool,
+        arguments: &'a Map<String, Value>,
+    ) -> Result<Cow<'a, Map<String, Value>>, Value> {
+        let keys = ["destination_workspace", "destination_screen", "destination_pane", "index"];
+        if tool.wire != "tab.move" || keys.iter().all(|key| arguments.contains_key(*key)) {
+            return Ok(Cow::Borrowed(arguments));
+        }
+        let mut filled = arguments.clone();
+        let scope = |id: &str, value: &Value| {
+            let mut lookup = Map::new();
+            if let Some(session) = arguments.get("session") {
+                lookup.insert("session".into(), session.clone());
+            }
+            lookup.insert(id.into(), value.clone());
+            lookup
+        };
+        if !filled.contains_key("destination_pane") {
+            let Some(workspace) = filled.get("destination_workspace").cloned() else {
+                return Ok(Cow::Borrowed(arguments));
+            };
+            let mut list = scope("workspace", &workspace);
+            list.insert("limit".into(), json!(500));
+            let panes = self.read(v2_tools::find("pane_list"), &list)?;
+            let items = panes.get("items").and_then(Value::as_array).cloned().unwrap_or_default();
+            let pane = items
+                .iter()
+                .find(|pane| pane.get("focused").and_then(Value::as_bool) == Some(true))
+                .or_else(|| items.first())
+                .and_then(|pane| pane.get("id").cloned());
+            let Some(pane) = pane else { return Ok(Cow::Borrowed(arguments)) };
+            filled.insert("destination_pane".into(), pane);
+        }
+        let pane = filled.get("destination_pane").cloned().unwrap_or(Value::Null);
+        if !filled.contains_key("destination_screen")
+            || !filled.contains_key("destination_workspace")
+        {
+            let record = self.read(v2_tools::find("pane_get"), &scope("pane", &pane))?;
+            let Some(screen) = record.get("screen_id").cloned() else {
+                return Ok(Cow::Borrowed(arguments));
+            };
+            if !filled.contains_key("destination_workspace") {
+                let record = self.read(v2_tools::find("screen_get"), &scope("screen", &screen))?;
+                let Some(workspace) = record.get("workspace_id").cloned() else {
+                    return Ok(Cow::Borrowed(arguments));
+                };
+                filled.insert("destination_workspace".into(), workspace);
+            }
+            filled.entry("destination_screen").or_insert(screen);
+        }
+        if !filled.contains_key("index") {
+            let mut list = scope("pane", &pane);
+            list.insert("limit".into(), json!(500));
+            let tabs = self.read(v2_tools::find("tab_list"), &list)?;
+            let count = tabs.get("items").and_then(Value::as_array).map_or(0, Vec::len);
+            filled.insert("index".into(), json!(count));
+        }
+        Ok(Cow::Owned(filled))
+    }
+
+    /// One read through the same path as a direct call (`current`, prefixes and the
+    /// `<session>:` qualifier resolve as there): its record, or the failed call's answer.
+    fn read(
+        &self,
+        tool: Option<&v2_tools::V2Tool>,
+        arguments: &Map<String, Value>,
+    ) -> Result<Value, Value> {
+        let Some(tool) = tool else {
+            return Err(tool_error(envelope(
+                v2_tools::invalid("a lookup tool is unavailable"),
+                "not_run",
+                None,
+            )));
+        };
+        let answer = self.call_v2(tool, arguments);
+        if answer.get("isError").and_then(Value::as_bool) == Some(true) {
+            return Err(answer);
+        }
+        let record = answer.get("structuredContent").cloned().unwrap_or(Value::Null);
+        Ok(record.get("value").cloned().unwrap_or(record))
+    }
+
     /// The app's `system.identify` answer built from the session daemon
     /// alone, for a session no app owns: the caller ([`Self::daemon_caller`])
     /// and, as `beside`, the pane right of the caller's. A terminal with no

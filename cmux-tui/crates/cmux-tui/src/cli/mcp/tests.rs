@@ -1861,6 +1861,32 @@ fn a_record_works_where_its_id_goes() {
     assert_eq!(add["request"]["params"]["device"], device, "{add}");
 }
 
+/// A tab moved to a pane needs only the pane: its screen and workspace are looked up and
+/// the tab goes last, where the daemon refused the move without all four (tests/tool-evals
+/// r13d: a docs lookup and two reads before each move).
+#[test]
+fn a_tab_moves_to_a_pane_named_alone() {
+    let pane = "pane_00000000000000000000000000000007";
+    let screen = "screen_00000000000000000000000000000008";
+    let workspace = "ws_00000000000000000000000000000009";
+    let record =
+        json!({"id": pane, "screen_id": screen, "workspace_id": workspace, "focused": true});
+    let fake = Fake { resource_result: Some(record), ..Fake::default() };
+    let mut server = Server::new(fake, None);
+    let tab = "tab_00000000000000000000000000000001";
+    let result = server
+        .call(&json!({"name": "tab_move", "arguments": {"tab": tab, "destination_pane": pane}}))
+        .expect("a tool result");
+    assert_ne!(result["isError"], true, "{result}");
+    let sent = server.backend.sent.borrow();
+    let moved = sent.iter().find(|s| s["request"]["operation"] == "tab.move");
+    let moved = moved.unwrap_or_else(|| panic!("{sent:?}"));
+    let params = &moved["request"]["params"];
+    assert_eq!(params["destination_screen"], screen, "{moved}");
+    assert_eq!(params["destination_workspace"], workspace, "{moved}");
+    assert_eq!(params["index"], 1, "after the pane's one tab: {moved}");
+}
+
 /// A history read answers the scrollback as lines of plain text, unstyled, where the
 /// daemon's rows of styled runs were 88k characters for 300 lines (tests/tool-evals
 /// r13a). Asked for `styled`, it answers the rows as the daemon sends them.
