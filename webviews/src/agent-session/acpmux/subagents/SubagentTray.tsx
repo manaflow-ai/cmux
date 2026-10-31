@@ -177,11 +177,20 @@ export const SubagentTray = memo(function SubagentTray({
   // page-reveal gate (shared/pageReveal.ts), read only when the fold changes.
   const fold = useFold(open, entranceMayRun, false);
   // A fold the person did not ask for (a lone line gaining a header) makes the list inert under a
-  // focused line or Stop: focus moves to the header that folded it, never to the page's body.
+  // focused line or Stop: focus moves to the header that folded it, never to the page's body. With no
+  // motion the fold leaves in the same commit and takes the focused line with it, so whether focus
+  // was in the list is kept as it moves (onFocus/onBlur below), not read after the commit.
   const head = useRef<HTMLButtonElement | null>(null);
+  const focusInList = useRef(false);
   useLayoutEffect(() => {
-    const focused = trayNode.current?.ownerDocument.activeElement;
-    if (!open && focused && focused !== head.current && trayNode.current?.contains(focused)) head.current?.focus();
+    if (open || !focusInList.current) return;
+    focusInList.current = false;
+    const tray = trayNode.current;
+    const focused = tray?.ownerDocument.activeElement;
+    // Fell to the page (the line left with the fold), or still in the tray (an inert line): only
+    // then. Focus the person put elsewhere since stays where it is.
+    const fell = !focused || focused === tray?.ownerDocument.body;
+    if ((fell || tray?.contains(focused)) && focused !== head.current) head.current?.focus();
   }, [open]);
   // A line that joins the open list rises in (ui/popupSurface.css `data-enter`); the lines it was
   // drawn with, and lines a fold or View all brings back, are simply there. With no motion (Reduce
@@ -349,6 +358,16 @@ export const SubagentTray = memo(function SubagentTray({
           className="acpmux-running-tray__fold"
           inert={!open || undefined}
           aria-hidden={!open || undefined}
+          onFocus={() => {
+            focusInList.current = true;
+          }}
+          onBlur={(event) => {
+            // Only focus that moves to another control leaves the list. A blur to nothing (the
+            // focused line removed or made inert by the fold, the window losing focus) keeps it,
+            // for the effect above to read against where focus is then.
+            const to = event.relatedTarget as Node | null;
+            if (to && !event.currentTarget.contains(to)) focusInList.current = false;
+          }}
         >
           <ul id={listId} className="acpmux-running-tray__list">
             {cards}
