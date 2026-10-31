@@ -35,6 +35,9 @@ const KEEP: &[&str] = &[
     "cwd",
     "updatedAt",
     "name",
+    // With `sessionId` and `harness`, what a peer's reply masks a summary by (`peer_text.rs`):
+    // a trimmed row without it would go to a peer unmasked.
+    "lastSeq",
 ];
 
 fn size(value: &Value) -> usize {
@@ -91,7 +94,7 @@ pub(crate) fn fit_object(object: &mut Value, budget: usize) -> bool {
     let room = budget.saturating_sub(MARK_BYTES);
     let trimmed = shrink_largest(object, before, room, pointers, |part, _| {
         *part = match part {
-            Value::String(text) => Value::String(preview(text).to_owned()),
+            Value::String(text) => Value::String(preview(text)),
             _ => Value::Null,
         };
     });
@@ -126,12 +129,23 @@ pub(crate) fn fit_reply_object(object: &mut Value) {
     *object = Value::Object(stub);
 }
 
-/// The start of `text`, at most [`PREVIEW_BYTES`], ending on a character boundary.
-fn preview(text: &str) -> &str {
+/// The start of `text`, at most [`PREVIEW_BYTES`], masked (`secret_scan.rs`) before it is cut,
+/// over [`SCAN_SLACK_BYTES`] more, as a lane's title is (`views.rs` `masked_cut`): a secret the
+/// cut would split is masked whole, never left as a head a peer's masking no longer knows.
+fn preview(text: &str) -> String {
+    let head = prefix(text, PREVIEW_BYTES.saturating_add(SCAN_SLACK_BYTES));
+    prefix(&crate::secret_scan::mask(head), PREVIEW_BYTES).to_owned()
+}
+
+/// How far past the cut a preview is scanned for secrets.
+const SCAN_SLACK_BYTES: usize = 4 << 10;
+
+/// The start of `text`, at most `max` bytes, ending on a character boundary.
+fn prefix(text: &str, max: usize) -> &str {
     let end = text
         .char_indices()
         .map(|(at, c)| at.saturating_add(c.len_utf8()))
-        .take_while(|end| *end <= PREVIEW_BYTES)
+        .take_while(|end| *end <= max)
         .last()
         .unwrap_or(0);
     text.get(..end).unwrap_or("")
