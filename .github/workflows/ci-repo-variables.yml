@@ -44,7 +44,8 @@ jobs:
   check:
     name: Check repository variables
     if: ${{ github.repository == 'manaflow-ai/cmux' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # The linux pool, not LINUX_RUNNER: this job checks LINUX_RUNNER, so it must not wait on it.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -107,11 +108,15 @@ jobs:
         run: bash scripts/ci/python-with-yaml.sh scripts/ci/check_repo_variables.py
 
       # RUNNER_POOLS, the one routing source (scripts/ci/runner_pools.py): every pool set, each to
-      # one of its declared members. A missing pool fails every job that reads it.
+      # one of its declared members. A missing pool fails every job that reads it. LINUX_RUNNER,
+      # which most Linux runs-on still read, must name a member of the linux pool unless the
+      # overflow switch's record is set (runner_pools.MIRRORS).
       - name: Check the runner pools
         if: ${{ !cancelled() }}
         env:
           RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
+          LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}
+          CI_CLOUD_OVERFLOW_SAVED: ${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
         run: python3 scripts/ci/runner_pools.py --check
 
       # No runs-on waits on one machine through a variable's value
