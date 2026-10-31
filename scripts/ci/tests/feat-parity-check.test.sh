@@ -201,6 +201,28 @@ run CMUX_CI_STEP_KEY=k >/dev/null || fail "web refused"
 [[ "$(calls)" == "$(printf '%s\n' 'bun web install --frozen-lockfile' 'bun web tools/generate-managed-iroh-relay-catalog.ts --check' 'bun web run typecheck' 'bun web run lint:complexity' 'run-tests ')" ]] || fail "web: $(calls)"
 rm -f "$TMP/calls"
 
+# notices: cmux-next-guards.yml rust-notices-tree's "Generate the Rust notices from this tree (as the nightly does)", the
+# same command and environment (cargo writes the cargo trees) with cmux-tui's pinned cargo first on PATH, and its
+# cache and trees in the step's .build.
+cat >"$W/scripts/cmux-next/generate-third-party-notices.sh" <<STUB
+#!/bin/bash
+echo "notices \$(basename "\$PWD") allow=\${CMUX_NOTICES_ALLOW_CARGO:-unset} cache=\${CMUX_NOTICES_CACHE#\$PWD/} \${*//\$PWD\//}" >> "$TMP/calls"
+[[ -z "\${NOTICES_RED:-}" ]] || { echo "error: no license mapping for crate red-crate 1.0.0" >&2; exit 1; }
+STUB
+chmod +x "$W/scripts/cmux-next/generate-third-party-notices.sh"
+ARGS=(notices)
+out=$(run CMUX_CI_STEP_KEY=k) || fail "notices refused: $out"
+[[ "$(calls)" == "$(printf '%s\n' 'rustup cmux-tui component add clippy rustfmt' 'rustup cmux-tui which cargo' 'notices work allow=1 cache=.build/notices/cache --tui-source tree --cargo-trees .build/notices/cargo-trees --write-cargo-trees')" ]] || fail "notices: $(calls)"
+grep -q 'feat-parity-check: green' <<<"$out" || fail "no green summary for notices: $out"
+rm -f "$TMP/calls"
+out=$(run CMUX_CI_STEP_KEY=k NOTICES_RED=1) && fail "a red notices generation passed"
+grep -q '^notices from the tree *FAIL (exit 1)' <<<"$out" || fail "the summary does not name the red notices step: $out"
+grep -q 'error: no license mapping for crate red-crate' <<<"$out" || fail "the generator's error is not in the step log: $out"
+rm -f "$TMP/calls"
+ARGS=(notices extra)
+run CMUX_CI_STEP_KEY=k >/dev/null && fail "notices accepted an argument"
+[[ -z "$(calls)" ]] || fail "the generator ran for a refused request: $(calls)"
+
 ARGS=(web extra)
 run CMUX_CI_STEP_KEY=k >/dev/null && fail "web accepted an argument"
 ARGS=(deploy)

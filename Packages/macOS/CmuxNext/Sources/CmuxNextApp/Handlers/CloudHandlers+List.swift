@@ -102,6 +102,7 @@ extension CloudHandlers {
             "title": .string(session.machine.title),
             "status": .string(listedStatus(session)),
             "owner": .string(owner),
+            "created_by": session.machine.createdBy.map(ActionResultValue.string) ?? .null,
             "created_at": session.machine.createdAt.map { .string($0.formatted(.iso8601)) } ?? .null,
         ])
     }

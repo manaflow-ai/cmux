@@ -315,6 +315,15 @@ impl Hub {
         .with_data(json!({"reason": "inbox_digest.other_agent"}))
     }
 
+    /// The refusal of a drain of a review box: its agent messages each wait as their own prompt
+    /// behind the review (`inbox.rs`), never one digest.
+    pub fn inbox_digest_review_box() -> RpcError {
+        RpcError::invalid_params(
+            "inbox_digest.review_box: a review box's agent messages run each as its own prompt after the review",
+        )
+        .with_data(json!({"reason": "inbox_digest.review_box"}))
+    }
+
     /// The refusal of a drain from a connection whose caller token this daemon run did not issue.
     pub fn inbox_digest_caller_not_proven() -> RpcError {
         RpcError::invalid_params(
@@ -341,6 +350,9 @@ impl Hub {
         }
         if session.meta().watching.is_some() {
             return Err(super::super::watch::read_only());
+        }
+        if super::super::inbox::review_box(session) {
+            return Err(Self::inbox_digest_review_box());
         }
         // Read before the queue's lock. A turn that ends before the steer reaches it leaves the
         // digest next among the agent messages (`steer_turn`'s fallback, `queue.rs` `enqueue`).
@@ -400,6 +412,9 @@ impl Hub {
             class: None,
             supersede: None,
             full_access_device: None,
+            // The digest is no session's message: the messages it took kept theirs.
+            message_id: None,
+            message_sender: None,
         };
         queue.insert(
             at,

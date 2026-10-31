@@ -1,0 +1,15 @@
+[package]
+name = "cmux-rd-link"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cmux remote desktop secure link: Noise_XX handshake bound to the session, sealed datagrams with a replay window, an ordered reliable control channel and path probes (pure, injected clock, no I/O)"
+
+[lints]
+workspace = true
+
+[dependencies]
+snow.workspace = true
+cmux-transport = { path = "../cmux-transport" }
