@@ -261,20 +261,27 @@ pub(super) fn docs(tools: &[Value], arguments: &Map<String, Value>) -> Result<Va
     // 8 schemas (11k characters) in front of the model for one name (tests/tool-evals r13a).
     let mut words: Vec<&str> = query.split([' ', ',']).filter(|w| !w.is_empty()).collect();
     words.dedup();
-    let exact: Vec<&Value> =
-        words.iter().filter_map(|word| tools.iter().find(|tool| tool["name"] == *word)).collect();
+    let exact: Vec<&Value> = words
+        .iter()
+        .filter_map(|word| {
+            tools.iter().find(|tool| tool.get("name").and_then(Value::as_str) == Some(*word))
+        })
+        .collect();
     if !exact.is_empty() && exact.len() == words.len() && exact.len() <= DOCS_MAX_LIMIT {
         let mut answer = search(tools, &query, limit);
-        let named: Vec<&str> = exact.iter().filter_map(|tool| tool["name"].as_str()).collect();
-        let rest = answer["tools"]
-            .as_array()
+        let named: Vec<&str> =
+            exact.iter().filter_map(|tool| tool.get("name").and_then(Value::as_str)).collect();
+        let rest = answer
+            .get("tools")
+            .and_then(Value::as_array)
             .into_iter()
             .flatten()
-            .filter_map(|tool| tool["name"].as_str())
+            .filter_map(|tool| tool.get("name").and_then(Value::as_str))
             .filter(|name| !named.contains(name))
             .map(|name| json!(name));
-        let more: Vec<Value> =
-            rest.chain(answer["more"].as_array().into_iter().flatten().cloned()).collect();
+        let more: Vec<Value> = rest
+            .chain(answer.get("more").and_then(Value::as_array).into_iter().flatten().cloned())
+            .collect();
         answer.set("tools", Value::Array(exact.into_iter().map(compact).collect()));
         answer.set("more", Value::Array(more));
         return Ok(answer);

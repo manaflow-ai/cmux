@@ -490,11 +490,11 @@ fn history_text(mut value: Value) -> Value {
     let text = rows
         .iter()
         .map(|row| {
-            row["runs"]
-                .as_array()
+            row.get("runs")
+                .and_then(Value::as_array)
                 .into_iter()
                 .flatten()
-                .filter_map(|run| run["text"].as_str())
+                .filter_map(|run| run.get("text").and_then(Value::as_str))
                 .collect::<String>()
         })
         .collect::<Vec<_>>()
