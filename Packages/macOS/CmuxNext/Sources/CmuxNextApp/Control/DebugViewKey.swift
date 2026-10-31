@@ -41,6 +41,7 @@ enum DebugViewKey {
     static func register(_ name: String, _ view: @escaping Resolver) { views[name] = view }
 
     static func send(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+        if let refusal = DebugDialog.userOnlyInputRefusal { return refusal }
         guard let controller = controller(params, services: services), let window = controller.window else {
             return .object(["error": .string("no window")])
         }

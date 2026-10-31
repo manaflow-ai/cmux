@@ -28,6 +28,7 @@ import CmuxNextSettings
 /// the sum of the gaps) and the key window. A new sequence cancels the one playing.
 extension DebugKey {
     @MainActor static func sendSequence(_ params: [String: JSONValue], services: AppServices, player: DebugKeySequencePlayer) -> JSONValue {
+        if let refusal = DebugDialog.userOnlyInputRefusal { return refusal }
         guard let steps = params["sequence"]?.arrayValue, let sequence = DebugKeySequence(steps) else {
             return .object(["error": .string("each step needs key_code and down")])
         }

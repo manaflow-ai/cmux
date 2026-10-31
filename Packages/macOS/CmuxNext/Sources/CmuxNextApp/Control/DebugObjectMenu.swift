@@ -22,6 +22,7 @@ import CmuxNextTabs
 @MainActor
 enum DebugObjectMenu {
     static func run(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+        if let refusal = DebugDialog.userOnlyInputRefusal { return refusal }
         let windowID = params["window"]?.stringValue
         guard let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID }),
               let window = controller.window else { return failure("no window") }

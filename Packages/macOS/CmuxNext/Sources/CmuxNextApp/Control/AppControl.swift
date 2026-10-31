@@ -330,9 +330,6 @@ final class AppControl {
             // An injected key is input: it runs ahead of queued requests and batches yield to it (MainWorkClass.input).
             .mainActor("debug.key") { [weak services, player = keySequencePlayer] call in
                 guard let services else { return .value(.null) }
-                // A dialog only the person answers takes no synthetic key, typed or in a sequence.
-                let query = call.params["last"]?.boolValue == true && call.params["sequence"] == nil
-                if !query, let refusal = DebugDialog.userOnlyInputRefusal { return .value(refusal) }
                 if call.params["sequence"] != nil { return .value(DebugKey.sendSequence(call.params, services: services, player: player)) }
                 return .value(DebugKey.send(call.params, services: services))
             }.injectingInput(),
@@ -598,7 +595,6 @@ final class AppControl {
             // named view made first responder; `debug.focus_ring`: the sidebar's ring (cx-tupd).
             .mainActor("debug.view_key") { [weak services] call in
                 guard let services else { return .value(.null) }
-                if let refusal = DebugDialog.userOnlyInputRefusal { return .value(refusal) }
                 return .value(DebugViewKey.send(call.params, services: services))
             }.injectingInput(),
             .mainActor("debug.focus_ring") { [weak services] call in

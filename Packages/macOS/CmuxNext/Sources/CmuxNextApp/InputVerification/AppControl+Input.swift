@@ -40,8 +40,6 @@ extension AppControl {
             },
             .mainActor("debug.mouse") { [weak services] call in
                 guard let services else { return .value(.null) }
-                // A scripted click could press a dialog only the person answers (the vault's Allow).
-                if let refusal = DebugDialog.userOnlyInputRefusal { return .value(refusal) }
                 return .value(DebugMouse.send(call.params, services: services))
             },
             // The Home data path (homeRouter) from the socket (DebugHomeAPI).
