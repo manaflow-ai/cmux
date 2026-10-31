@@ -1801,8 +1801,8 @@ impl Hub {
         let record = crate::agent_host::program_wait::spawn(launcher, spec)
             .await
             .map_err(|error| HostStartFailed { error, started: None })?;
-        // Not at a background class another process set (`cpu_class.rs`, item 1); its host,
-        // this daemon's child, holds it unreaped while it starts.
+        // Not at a background class another process set (`cpu_class.rs`, item 1). Its host reaps
+        // it: a harness that already ended leaves the pid to a process of this user at most.
         if let Some(pid) = record.harness_pid {
             crate::cpu_class::clear_running(pid);
         }

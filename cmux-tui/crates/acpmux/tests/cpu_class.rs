@@ -61,6 +61,13 @@ fn base_priority(pid: i32) -> u32 {
     })
 }
 
+/// The class part of `pid`'s priority: the lowest of a few reads. The kernel raises a thread's
+/// priority for a moment while it holds what a higher thread waits for (a host read 46 once,
+/// under a background class, on a loaded fleet Mac), never lowers it below its class.
+fn class_priority(pid: i32) -> u32 {
+    (0..5).map(|_| base_priority(pid)).min().unwrap_or(u32::MAX)
+}
+
 /// These checks compare a harness's class with its starter's: a runner at background class
 /// (set on it by another process, which a child cannot clear) makes them meaningless.
 fn runs_above_background() {
@@ -195,9 +202,9 @@ async fn cpu_class_a_session_starts_at_normal_class_and_runs_at_background_once_
     let (_hub, mut c) = daemon(logged(&dir, &[])).await;
     let id = c.new_session(&dir, "bg").await.unwrap();
     let [(harness, at_start)] = class_log(&dir)[..] else { panic!("{:?}", class_log(&dir)) };
-    let running = base_priority(harness);
+    let running = class_priority(harness);
     let tool = c.probe_tool(&id, &dir).await;
-    let tool_pri = base_priority(tool);
+    let tool_pri = class_priority(tool);
     kill(tool);
     assert!(at_start > BACKGROUND_PRI, "the harness answered session/new at background class");
     assert_eq!(running, BACKGROUND_PRI, "the started session's harness runs at the GUI's class");
@@ -318,7 +325,7 @@ async fn cpu_class_a_hosted_harness_starts_at_normal_under_a_background_host_the
     .unwrap();
     let launcher = HostLauncher { exe: daemon_env::bin().into(), prefix: Vec::new() };
     let record = link::spawn(&launcher, &spec).await.expect("spawn the host");
-    let host_pri = base_priority(record.host_pid as i32);
+    let host_pri = class_priority(record.host_pid as i32);
     let line = tokio::time::timeout(
         Duration::from_secs(20),
         tokio::task::spawn_blocking(move || std::fs::read_to_string(fifo).unwrap()),
@@ -347,16 +354,18 @@ async fn cpu_class_a_hosted_harness_starts_at_normal_under_a_background_host_the
     // The start is over (as `ensure_child` ends it).
     agent.set_run_class(CpuClass::Background);
     assert!(agent.enter_run_class().await, "the running harness was not lowered");
-    let running = base_priority(harness);
+    let running = class_priority(harness);
     let out = dir.join("tool.json");
     let text = format!("class-probe: {}", out.display());
     let prompt = json!({"sessionId": sid, "prompt": [{"type": "text", "text": text}]});
     agent.request(method::SESSION_PROMPT, prompt).await.unwrap();
     let tool = read_json(&out)["sleeper"].as_i64().unwrap() as i32;
-    let tool_pri = base_priority(tool);
+    let tool_pri = class_priority(tool);
     kill(tool);
     // SAFETY: signals the process group the harness leads.
     unsafe { libc::killpg(harness, libc::SIGKILL) };
+    drop(agent);
+    kill(record.host_pid as i32);
     assert_eq!(host_pri, BACKGROUND_PRI, "the host did not run at background class");
     assert!(at_start > BACKGROUND_PRI, "the hosted harness started at background class");
     assert!(starter_tool_pri > BACKGROUND_PRI, "a tool its start ran is at background class");
@@ -376,7 +385,7 @@ impl RealDaemon {
     fn start(tag: &str, env: &BTreeMap<String, String>) -> Self {
         runs_above_background();
         let root = scratch(tag);
-        for sub in ["amx", "work"] {
+        for sub in ["home", "amx", "work"] {
             std::fs::create_dir_all(root.join(sub)).unwrap();
         }
         let config = json!({
@@ -447,13 +456,13 @@ fn cpu_class_a_daemon_runs_a_hosted_harness_at_background_once_its_start_is_over
     let ran = daemon.cmd().args(["run", "--timeout", "60", &probe]).output().expect("run acpmux");
     assert!(ran.status.success(), "acpmux run failed: {}", String::from_utf8_lossy(&ran.stderr));
     let tool = read_json(&out)["sleeper"].as_i64().unwrap() as i32;
-    let tool_pri = base_priority(tool);
+    let tool_pri = class_priority(tool);
     // The chat's harness is the tool's parent; a pooled harness may have logged too.
     let harness = parent(tool);
     let log = class_log(&dir);
     let at_start = log.iter().find(|(pid, _)| *pid == harness).map(|(_, pri)| *pri);
     let at_start = at_start.unwrap_or_else(|| panic!("harness {harness} is not in {log:?}"));
-    let running = base_priority(harness);
+    let running = class_priority(harness);
     kill(tool);
     drop(daemon);
     assert!(
