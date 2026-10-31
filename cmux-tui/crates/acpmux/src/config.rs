@@ -1024,8 +1024,8 @@ pub struct SessionResourceConfig {
     /// kernel's `threads-max`, between 16384 and 262144.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sessions_tasks_max: Option<u64>,
-    /// `cpuClass`: the CPU class a macOS session's harness starts at,
-    /// `background` or `normal` (`cpu_class.rs`). Env `ACPMUX_SESSION_CPU_CLASS`
+    /// `cpuClass`: the CPU class a macOS session's harness runs at once its
+    /// start is over (it starts at normal), `background` or `normal` (`cpu_class.rs`). Env `ACPMUX_SESSION_CPU_CLASS`
     /// overrides it, a profile's env overrides both. Unset: `background`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpu_class: Option<crate::cpu_class::CpuClass>,
@@ -1524,16 +1524,26 @@ impl Config {
     }
 
     /// Without a configured default, the first harness that runs an ACP
-    /// session (a terminal harness, an installed `muse` say, never does).
+    /// session (a terminal harness, an installed `muse` say, never does), and
+    /// never the Chief harness: a new chat is a coding agent unless the person
+    /// picks their Chief.
     fn pick_auto_default(&mut self) {
         if self.default_harness.is_none() {
             self.auto_default = true;
             self.default_harness = self
                 .harnesses
                 .iter()
-                .find(|(_, profile)| profile.kind != HarnessKind::Terminal)
+                .find(|(_, profile)| {
+                    profile.kind != HarnessKind::Terminal
+                        && profile.family.as_deref() != Some(CHIEF_FAMILY)
+                })
                 .map(|(name, _)| name.clone());
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pick_auto_default_for_tests(&mut self) {
+        self.pick_auto_default();
     }
 
     /// A capture fixture's harnesses join as discovered ones would

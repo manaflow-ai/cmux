@@ -75,6 +75,9 @@
 .acpmux-summary-dot[data-state=running]{box-shadow:0 0 0 1px var(--agent-accent)}
 /* The Subagents tab (SubagentsTab.tsx): the Subagents title opens it; the card's head then shows a Summary tab and a closable Subagents tab. Its rows are the transcript's subagent rows (SubagentGroup.tsx), compact and unbordered here. */
 .acpmux-summary-title__button{display:inline-flex;align-items:center;gap:4px;margin:-2px -4px;padding:2px 4px;border:0;border-radius:5px;background:none;color:inherit;font:inherit;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+/* One line, left-aligned, its counts cut with an ellipsis: the popover's title carries every count. */
+.acpmux-summary-title__button{max-width:100%;text-align:left}
+.acpmux-summary-title__text{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .acpmux-summary-title__button>svg{flex:none;opacity:.7}
 .acpmux-summary-title__button:hover{background:var(--acpmux-menu-hover);color:var(--agent-text)}
 .acpmux-summary-title__button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:0}
@@ -133,7 +136,7 @@ html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
   display: inline-flex;
   flex: 1 1 220px;
   min-width: 80px;
-  max-width: 320px;
+  max-width: 360px;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
@@ -159,7 +162,8 @@ html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
   white-space: nowrap;
 }
 .acpmux-pr-dock__bar:hover,
-.acpmux-pr-dock__more:hover {
+.acpmux-pr-dock__more:hover,
+.acpmux-pr-dock__more[data-open] {
   color: var(--agent-text);
   background: none;
 }
@@ -172,6 +176,20 @@ html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* A chip's title: it truncates, but never below a readable 12 characters (pullRequestChipPlan.ts
+   draws the number alone when that much does not fit). A title the planner measured as no wider
+   than that minimum (data-short) keeps its own width, the same rule the planner counts with. */
+.acpmux-pr-dock__title {
+  flex: 0 1 auto;
+  min-width: 12ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-pr-dock__title[data-short] {
+  flex-shrink: 0;
+  min-width: auto;
 }
 .acpmux-pr-dock__more {
   flex: none;
@@ -199,27 +217,74 @@ html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
   inset: 0 auto auto 0;
   width: max-content;
 }
+/* Each size spans what its control draws: a chip's number and the overflow with their 4px
+   inline padding, a title with the 4px gap before it. */
 .acpmux-pr-dock__measure > span {
+  flex: none;
+}
+.acpmux-pr-dock__measure > [data-measure="number"],
+.acpmux-pr-dock__measure > [data-measure="more"] {
   padding-inline: 4px;
+}
+.acpmux-pr-dock__measure > [data-measure="title"] {
+  min-width: 0;
+}
+.acpmux-pr-dock__measure > [data-measure="title"]:not(:empty) {
+  padding-inline-start: 4px;
+}
+.acpmux-pr-dock__measure > [data-measure="min"] {
+  width: calc(12ch + 4px);
 }
 .acpmux-pr-dock__popover {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 8px;
-  max-width: min(320px, calc(100vw - 24px));
+  padding: 8px 4px;
+  max-width: min(360px, calc(100vw - 24px));
   transition: none;
   animation: none;
+}
+/* The overflow lists every chip the row left out, each with its title; a long list scrolls
+   inside the popover, which never grows past the pane. */
+.acpmux-pr-dock__list {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-height: min(320px, calc(100vh - 96px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-inline: 4px;
 }
 .acpmux-pr-dock__popover .acpmux-pr-dock__bar {
   height: 24px;
   flex: none;
   font-size: var(--text-detail);
 }
+.acpmux-pr-dock__popover .acpmux-pr-dock__title,
+.acpmux-pr-dock__popover .acpmux-pr-dock__title[data-short],
+.acpmux-pr-dock__popover .acpmux-pr-dock__repo {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+/* The row sits on its own line under the reply's last words, right-aligned (InlineTail.tsx). */
+.cv-tail-line {
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
+  margin-top: 4px;
+}
+/* On its own line nothing else shares the width, so titles may take more of it. */
+.cv-tail-line > .acpmux-pr-dock {
+  flex: 0 1 auto;
+  width: 70%;
+  max-width: 560px;
+  margin-inline-start: 0;
+}
 .cv-inline-tail{display:inline-flex;align-items:baseline;gap:8px;max-width:100%;vertical-align:baseline}
 .cv-inline-tail>span:first-child{min-width:0;overflow-wrap:anywhere}
 .cv-inline-tail>.acpmux-pr-dock{flex:0 1 220px;width:220px;max-width:45vw;height:1lh;vertical-align:baseline}
-.cv-codeblock__header:has(.acpmux-pr-dock)>span:not(.cv-codeblock__actions){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* The code block's label already truncates beside any actions (conversation.css `.cv-codeblock__header >
+   span`); a `:has(.acpmux-pr-dock)` copy of that rule here made every node inserted in the pane restyle
+   the spans under it (pane-has-restyle.browser.test.ts). */
 .cv-codeblock__actions:has(>.acpmux-pr-dock){min-width:0;flex:1;justify-content:flex-end}
 .cv-block-tail{display:flex;align-items:flex-end;gap:8px;min-width:0}
 .cv-block-tail>div:first-child{flex:1;min-width:0}
@@ -229,18 +294,24 @@ html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
 .cv-md>.cv-block-tail:last-child>div:first-child>:last-child{margin-bottom:0}
 .cv-block-tail>.acpmux-pr-dock{flex:0 1 220px;max-width:45%;height:1lh}
 .cv-received__line:has(>.acpmux-pr-dock)>.cv-received__name{flex:0 1 auto;min-width:0}
-/* Keep the links visible while the existing action buttons retain their hover behavior. */
-.acpmux-turnSummary .cv-turn-actions:has(> .acpmux-pr-dock),
-.cv-reply-actions:has(> .acpmux-pr-dock) {
+/* A received line's hover box sizes to its content, so titled chips would widen it past the row:
+   cap the dock as the inline tail does, and the planner fits chips to that. */
+.cv-received__line > .acpmux-pr-dock,
+.cv-received__hover > .acpmux-pr-dock {
+  max-width: min(320px, 45vw);
+}
+/* Keep the links visible while the existing action buttons retain their hover behavior. The row
+   that holds the links says so itself (`data-pr-dock`, useHasPullRequestDock in PullRequestDock.tsx):
+   a `:has(> .acpmux-pr-dock)` here, followed by `> :not(...)`, made every node inserted in the pane
+   restyle the whole pane (pane-has-restyle.browser.test.ts). */
+.acpmux-turnSummary .cv-turn-actions[data-pr-dock],
+.cv-reply-actions[data-pr-dock] {
   opacity: 1;
 }
 .acpmux-turnSummary:not([data-turn-revealed]):not(:hover):not(:focus-within)
-  .cv-turn-actions:not(.cv-turn-actions--failed):not(.cv-turn-actions--resumable):has(
-    > .acpmux-pr-dock
-  )
+  .cv-turn-actions:not(.cv-turn-actions--failed):not(.cv-turn-actions--resumable)[data-pr-dock]
   > :not(.acpmux-pr-dock),
-.acpmux-assistant:not(:hover):not(:focus-within)
-  .cv-reply-actions:has(> .acpmux-pr-dock) > :not(.acpmux-pr-dock) {
+.acpmux-assistant:not(:hover):not(:focus-within) .cv-reply-actions[data-pr-dock] > :not(.acpmux-pr-dock) {
   opacity: 0;
 }
 /* Retained gallery comparisons, isolated from the selected inline treatment. */
@@ -303,6 +374,9 @@ html[data-pr-dock-layout="beside"] .acpmux-pr-comparison[data-mode="compact"] .a
 .acpmux-summary-task{display:flex;align-items:center;gap:2px;margin:2px 0;border:var(--cmux-hairline,.5px) solid var(--agent-border);border-radius:8px;background:color-mix(in srgb,var(--agent-text) 3%,transparent)}
 .acpmux-summary-task>.acpmux-summary-row{flex:1 1 auto;min-width:0;height:auto;min-height:32px;padding-block:8px}
 .acpmux-summary-task>.acpmux-chat-inspector-stop{margin-right:4px}
+/* One Stop per row reads as a column of repeated controls; it shows for the task under the pointer or keyboard focus, and stays while a stop is in flight or failed. */
+.acpmux-summary-task>.acpmux-chat-inspector-stop[data-state=idle]{opacity:0}
+.acpmux-summary-task:is(:hover,:focus-within)>.acpmux-chat-inspector-stop{opacity:1}
 .acpmux-summary-task[data-state=failed]>.acpmux-summary-row>svg{color:var(--agent-status-failure)}
 .acpmux-summary-task[data-state=stopped]>.acpmux-summary-row>svg,.acpmux-summary-task[data-state=lost]>.acpmux-summary-row>svg{color:var(--agent-muted)}
 .acpmux-summary-task__body{display:flex;min-width:0;flex-direction:column;align-items:flex-start;line-height:16px}
@@ -347,3 +421,6 @@ html[data-pr-dock-layout="beside"] .acpmux-pr-comparison[data-mode="compact"] .a
 .acpmux-tools-source,.acpmux-tools-note{flex:0 1 auto;min-width:0;margin-inline-start:auto;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-tools-note[data-kind=error]{color:var(--acpmux-warning)}
 .acpmux-tools-empty{padding:4px var(--ui-row-padding-inline);color:var(--agent-muted)}
+
+/* The toolbar popover starts with Environment, without a title band or divider above it. */
+.acpmux-summary-card[data-placement=popover] .acpmux-summary-card__body{padding-top:4px;border-top:0}

@@ -4,7 +4,9 @@ files rebuilt by CI, so a landed UI PR no longer stops every other open PR."""
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import re
@@ -12,6 +14,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 import yaml
@@ -121,6 +124,45 @@ class Selection(unittest.TestCase):
         self.assertIn("labels", fields)
 
 
+class MergeabilityWait(unittest.TestCase):
+    """UNKNOWN on a PR we cannot touch never warrants a 20-100 second wait."""
+
+    def setUp(self):
+        self.catch_up = load()
+
+    def choose(self, replies):
+        output = io.StringIO()
+        with patch.object(self.catch_up, "_list", side_effect=replies) as listed, \
+             patch.object(self.catch_up.time, "sleep") as sleep, \
+             contextlib.redirect_stdout(output):
+            code = self.catch_up.main(["select", "--repo", "manaflow-ai/cmux"])
+        self.assertEqual(code, 0)
+        return json.loads(output.getvalue()), listed.call_count, sleep.call_args_list
+
+    def test_unknown_unowned_fork_draft_and_base_head_do_not_delay_selection(self):
+        unknown = [
+            pr(1, mergeable="UNKNOWN", author={"login": "someone-else"}),
+            pr(2, mergeable="UNKNOWN", isCrossRepository=True),
+            pr(3, mergeable="UNKNOWN", isDraft=True),
+            pr(4, mergeable="UNKNOWN", headRefName="feat-cmux-next"),
+            pr(5, mergeable="MERGEABLE"),
+        ]
+        chosen, reads, sleeps = self.choose([unknown])
+        self.assertEqual(chosen, [])
+        self.assertEqual(reads, 1)
+        self.assertEqual(sleeps, [])
+
+    def test_unknown_opted_in_head_still_waits_for_github_mergeability(self):
+        first = [pr(7, mergeable="UNKNOWN"),
+                 pr(8, mergeable="UNKNOWN", author={"login": "someone-else"})]
+        second = [pr(7, mergeable="CONFLICTING"), first[1]]
+        chosen, reads, sleeps = self.choose([first, second])
+        self.assertEqual([item["number"] for item in chosen], [7])
+        self.assertEqual(reads, 2)
+        self.assertEqual(len(sleeps), 1)
+        self.assertEqual(sleeps[0].args, (self.catch_up.MERGEABLE_POLL_SECONDS,))
+
+
 class Workflow(unittest.TestCase):
     def setUp(self):
         self.doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
@@ -168,6 +210,79 @@ class Workflow(unittest.TestCase):
     def test_classifies_with_the_base_branch_copy(self):
         self.assertIn("trusted/scripts/cmux-next/generated_catch_up.py", self.text)
         self.assertIn("trusted/.gitattributes", self.text)
+
+
+class SelectiveCheckout(unittest.TestCase):
+    """A catch-up needs the PR head, base tip and common ancestor, not every remote branch."""
+
+    def test_checkout_fetches_only_the_needed_history(self):
+        doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        steps = doc["jobs"]["catch-up"]["steps"]
+        checkout = next(s for s in steps if s.get("name") == "Check out the pull request")
+        self.assertEqual(checkout["with"]["fetch-depth"], 1)
+        self.assertEqual(checkout["with"]["filter"], "blob:none")
+        self.assertEqual(checkout["with"]["ref"], "${{ matrix.pr.sha }}")
+        fetch = next(s for s in steps if s.get("name") == "Fetch just the PR and base ancestry")
+        self.assertLess(steps.index(checkout), steps.index(fetch))
+        self.assertLess(steps.index(fetch),
+                        next(i for i, s in enumerate(steps) if s.get("name") == "Merge feat-cmux-next"))
+        self.assertIn('--filter=blob:none --unshallow origin "$BASE_SHA"', fetch["run"])
+        self.assertIn('git merge-base HEAD "$BASE_SHA"', fetch["run"])
+        self.assertIn('"$(git rev-parse HEAD)" == "$HEAD_SHA"', fetch["run"])
+        merge = next(s for s in steps if s.get("name") == "Merge feat-cmux-next")["run"]
+        self.assertNotIn('git fetch --quiet origin "$BASE_SHA"', merge)
+
+    def test_unshallowing_one_base_sha_keeps_the_merge_base_without_other_refs(self):
+        def git(cwd, *args):
+            result = subprocess.run(["git", "-C", str(cwd), *args],
+                                    capture_output=True, text=True, check=True)
+            return result.stdout.strip()
+
+        with tempfile.TemporaryDirectory(prefix="catch-up-refs-") as tmp:
+            root = Path(tmp)
+            remote = root / "origin.git"
+            git(root, "init", "--quiet", "--bare", str(remote))
+            git(remote, "config", "uploadpack.allowFilter", "true")
+            maker = root / "maker"
+            git(root, "clone", "-q", f"file://{remote}", str(maker))
+            git(maker, "config", "user.name", "CI")
+            git(maker, "config", "user.email", "ci@example.org")
+            (maker / "shared").write_text("common\\n")
+            git(maker, "add", ".")
+            git(maker, "commit", "-qm", "common")
+            git(maker, "branch", "-M", "feat-cmux-next")
+            git(maker, "push", "-q", "origin", "feat-cmux-next")
+            git(maker, "checkout", "-qb", "lane")
+            (maker / "pr-change").write_text("one\\n")
+            git(maker, "add", ".")
+            git(maker, "commit", "-qm", "PR")
+            head = git(maker, "rev-parse", "HEAD")
+            git(maker, "push", "-q", "origin", "lane")
+            git(maker, "checkout", "-q", "feat-cmux-next")
+            (maker / "base-change").write_text("two\\n")
+            git(maker, "add", ".")
+            git(maker, "commit", "-qm", "base")
+            base = git(maker, "rev-parse", "HEAD")
+            git(maker, "push", "-q", "origin", "feat-cmux-next")
+            for i in range(8):
+                git(maker, "branch", f"irrelevant-{i}")
+                git(maker, "push", "-q", "origin", f"irrelevant-{i}")
+
+            checkout = root / "pr"
+            git(root, "init", "-q", str(checkout))
+            git(checkout, "remote", "add", "origin", f"file://{remote}")
+            git(checkout, "fetch", "-q", "--depth=1", "--filter=blob:none", "origin", head)
+            git(checkout, "checkout", "-q", "--detach", head)
+            git(checkout, "config", "user.name", "CI")
+            git(checkout, "config", "user.email", "ci@example.org")
+            git(checkout, "fetch", "-q", "--no-tags", "--filter=blob:none", "--unshallow", "origin", base)
+            self.assertEqual(len(git(checkout, "merge-base", "HEAD", base)), 40)
+            self.assertEqual(git(checkout, "rev-parse", "HEAD"), head)
+            self.assertEqual(git(checkout, "for-each-ref", "--format=%(refname)",
+                                 "refs/remotes/origin"), "")
+            git(checkout, "merge", "--no-commit", "--no-ff", base)
+            self.assertTrue((checkout / "base-change").is_file())
+            self.assertTrue((checkout / "pr-change").is_file())
 
 
 class KeyWiseDrivers(unittest.TestCase):

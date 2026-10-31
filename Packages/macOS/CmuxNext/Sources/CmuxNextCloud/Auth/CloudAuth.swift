@@ -118,12 +118,9 @@ public final class CloudAuth {
             callbackRouter: callbackRouter,
             makeSignInURL: { configuration.signInURL(callbackState: $0) },
             callbackScheme: { configuration.callbackScheme },
-            openExternalURL: { url in
-                // Whether a browser opens it (a database lookup); the open runs off the main thread (cx-050n).
-                guard NSWorkspace.shared.urlForApplication(toOpen: url) != nil else { return false }
-                NSWorkspace.shared.openInBackground(url)
-                return true
-            }
+            // Every open here follows the person's Sign In, so the browser comes to the front:
+            // opened behind cmux, the click looked dead (2026-10-31). The open never blocks (cx-050n).
+            openExternalURL: { url in NSWorkspace.shared.openInForeground(url) }
         )
     }
 
@@ -162,8 +159,7 @@ public final class CloudAuth {
     @discardableResult
     public func continueSignInInBrowser() -> Bool {
         guard let url = browserSignIn.activeAttemptSignInURL else { return false }
-        NSWorkspace.shared.openInBackground(url)
-        return true
+        return NSWorkspace.shared.openInForeground(url)
     }
 
     /// Ends the sign-in in progress.
