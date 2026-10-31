@@ -31,6 +31,15 @@ struct SidebarAgentIdentityTests {
         #expect(Set(ids.map(SidebarItemInfo.stableAgentColor(for:))).count > 1, "sessions do not all share one color")
     }
 
+    @Test func harnessWorkspaceUsesAProductionMarkByDefault() throws {
+        let workspace = SidebarWorkspace(id: WorkspaceID("agent"), title: "Claude", kind: .harness)
+        let variant = SidebarTunables.agentMark.defaultValue
+        #expect(variant == .besideTitle, "production harness rows keep their identity beside the title")
+        #expect(WorkspaceRowView.agentMarkImage(workspace, variant: variant, placeholder: false) != nil)
+        // The debug off choice remains an intentional opt-out for gallery comparisons.
+        #expect(WorkspaceRowView.agentMarkImage(workspace, variant: .off, placeholder: false) == nil)
+    }
+
     @Test func aPriorityRowDrawsItsAgentMarkOnTheSidebarColumns() throws {
         let row = priorityRow(SidebarPriorityEntry(id: "chat", title: "Fix the build", state: .idle, brand: nil,
                                                    agentColor: SidebarItemInfo.stableAgentColor(for: "chat")))

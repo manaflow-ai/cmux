@@ -100,8 +100,8 @@ public nonisolated enum SidebarTunables {
 
     public static let agentMark = Tunable<SidebarAgentMarkVariant>.choice(
         "sidebar.agentMark", .sidebar, "Agent mark",
-        help: "Where a workspace row draws the brand mark of an agent running in it (R79 prototype).",
-        default: .off, code: "SidebarTunables.agentMark")
+        help: "Where a workspace row draws the brand mark of an agent running in it; harness rows show a mark by default.",
+        default: .besideTitle, code: "SidebarTunables.agentMark")
 
     /// Multiplayer agent presence (cx-gg84): off until the dots are styled
     /// into the row; the daemon feed (`agent-presence-v1`) runs either way.
