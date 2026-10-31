@@ -114,7 +114,9 @@ const isEdit = (row: AcpmuxRow) => row.kind === "activity" && (row.items ?? []).
 /// The rows to draw. `expanded` holds the ids of open disclosures; `working` says the last
 /// turn is still running (the snapshot's `isWorking`); `now` dates the turns (timestamps.ts);
 /// `clockOffset` (the snapshot's `clockOffsetMs`) moves the running turn's start onto this
-/// computer's clock, so its "Working for" counts from the prompt. `sessionStatus` (the Debug
+/// computer's clock, so its "Working for" counts from the prompt. `turnStartedAtMs` is the live
+/// event's start, which differs from the prompt when a resumed session exposes an old opener.
+/// `sessionStatus` (the Debug
 /// toggle `agent.sessionStatus`) puts a running turn's todo list under its work, with the
 /// activity line under it.
 export function turnView(
@@ -124,6 +126,7 @@ export function turnView(
     now?: number;
     working?: boolean;
     clockOffset?: number;
+    turnStartedAtMs?: number;
     liveRuns?: boolean;
     sessionStatus?: boolean;
     lineBelow?: boolean;
@@ -137,6 +140,7 @@ export type TurnView = {
   source: readonly AcpmuxRow[];
   expanded: ReadonlySet<string>;
   clockOffset: number;
+  turnStartedAtMs?: number;
   liveRuns: boolean;
   lineBelow: boolean;
   working: boolean;
@@ -172,6 +176,7 @@ export function turnViewFrom(
     now = Date.now(),
     working = false,
     clockOffset = 0,
+    turnStartedAtMs,
     liveRuns = false,
     sessionStatus = false,
     lineBelow = false,
@@ -181,6 +186,7 @@ export function turnViewFrom(
     now?: number;
     working?: boolean;
     clockOffset?: number;
+    turnStartedAtMs?: number;
     liveRuns?: boolean;
     sessionStatus?: boolean;
     lineBelow?: boolean;
@@ -196,6 +202,7 @@ export function turnViewFrom(
     previous.source === rows &&
     previous.expanded === expanded &&
     previous.clockOffset === clockOffset &&
+    previous.turnStartedAtMs === turnStartedAtMs &&
     previous.liveRuns === liveRuns &&
     previous.lineBelow === lineBelow &&
     previous.messageBreaks === messageBreaks &&
@@ -213,6 +220,7 @@ export function turnViewFrom(
     previous &&
     previous.expanded === expanded &&
     previous.clockOffset === clockOffset &&
+    previous.turnStartedAtMs === turnStartedAtMs &&
     previous.liveRuns === liveRuns &&
     previous.lineBelow === lineBelow &&
     previous.messageBreaks === messageBreaks &&
@@ -296,6 +304,7 @@ export function turnViewFrom(
       last,
       clockOffset,
       dated[at]!,
+      turnStartedAtMs,
       liveRuns,
       sessionStatus,
       lineBelow,
@@ -317,6 +326,7 @@ export function turnViewFrom(
     source: rows,
     expanded,
     clockOffset,
+    turnStartedAtMs,
     liveRuns,
     lineBelow,
     working,
@@ -373,6 +383,7 @@ function shapedTurn(
   last: boolean,
   clockOffset: number,
   dated: boolean,
+  turnStartedAtMs?: number,
   liveRuns = false,
   sessionStatus = false,
   lineBelow = false,
@@ -433,6 +444,7 @@ function shapedTurn(
       last,
       last && held.length === 0,
       clockOffset,
+      turnStartedAtMs,
       liveRuns,
       sessionStatus,
       lineBelow,
@@ -536,6 +548,7 @@ function shapeTurn(
   last: boolean,
   retryable: boolean,
   clockOffset = 0,
+  turnStartedAtMs?: number,
   liveRuns = false,
   sessionStatus = false,
   lineBelow = false,
@@ -545,7 +558,7 @@ function shapeTurn(
   // summary that is no longer running draws as it came.
   if (end < 0)
     return live
-      ? liveTurn(user, turn, clockOffset, liveRuns, sessionStatus, lineBelow)
+      ? liveTurn(user, turn, clockOffset, turnStartedAtMs, liveRuns, sessionStatus, lineBelow)
       : last
         ? turn.flatMap(withoutDrafts).map(endedPlan)
         : settledWithoutSummary(turn);
@@ -690,7 +703,7 @@ function shapeTurn(
     tail[lastSummary] = { ...failed, continuable: true, version: failed.version + VERSION_SPAN };
   }
   if (live && liveRuns && lineBelow && tail.some((row) => row.kind === "activity"))
-    shaped.push(...liveTurn(summary, tail, clockOffset, liveRuns, sessionStatus, lineBelow));
+    shaped.push(...liveTurn(summary, tail, clockOffset, turnStartedAtMs, liveRuns, sessionStatus, lineBelow));
   else shaped.push(...(live ? tail : tail.flatMap(withoutDrafts).map(endedPlan)));
   return shaped;
 }
@@ -819,6 +832,7 @@ function liveTurn(
   user: AcpmuxRow,
   turn: AcpmuxRow[],
   clockOffset: number,
+  turnStartedAtMs?: number,
   liveRuns = false,
   sessionStatus = false,
   lineBelow = false,
@@ -833,9 +847,12 @@ function liveTurn(
   // (a parallel `cp` while the agent messages others) leaves its run for the line too.
   const named = lineBelow && liveRuns && last ? lineCall(drawn, last) : undefined;
   const rows = liveRuns ? codexRuns(mergeShortNotes(drawn), named?.tool.id) : drawn;
-  // The status ticks on this computer's clock, from the prompt moved onto it.
-  const at = user.at + clockOffset;
-  if (lineBelow && liveRuns) return codexLiveTurn(user, drawn, rows, last, named, at, clockOffset, sessionStatus);
+  // The status ticks on this computer's clock, from the live event moved onto it. A resumed turn
+  // can have an older prompt as its opener, so that prompt is only the fallback.
+  const start = turnStartedAtMs ?? user.at;
+  const at = start + clockOffset;
+  if (lineBelow && liveRuns)
+    return codexLiveTurn(user, drawn, rows, last, named, at, clockOffset, sessionStatus, start);
   if (lineBelow) {
     const shown = withLiveStep(rows, last);
     const plan = sessionStatus
@@ -845,7 +862,7 @@ function liveTurn(
     // the turn's last row and ticks from the prompt.
     if (plan && last?.kind !== "assistant") {
       const work = shown.filter((row) => row !== plan);
-      return [...work, plan, activityLine(user, work, plan, clockOffset, undefined, true)];
+      return [...work, plan, activityLine(user, work, plan, clockOffset, undefined, true, start)];
     }
     const status: AcpmuxRow = { id: LIVE_THINKING, version: 2, at, kind: WORKING, below: true };
     const doing = last && inFlightCall(last);
@@ -866,11 +883,11 @@ function liveTurn(
     return [...shown, status];
   }
   // A turn with only its started chats' card so far keeps the card under its thinking line.
-  if (!last) return [{ id: LIVE_THINKING, version: 1, at: user.at, kind: THINKING }, ...rows];
+  if (!last) return [{ id: LIVE_THINKING, version: 1, at, kind: THINKING }, ...rows];
   const answering = last.kind === "assistant";
   if (answering && rows.length === 1) return rows;
   const status: AcpmuxRow = { id: `${WORKING}-${user.id}`, version: 1, at, kind: WORKING };
-  if (answering) Object.assign(status, { version: 2, durationMs: Math.max(0, last.at - user.at) });
+  if (answering) Object.assign(status, { version: 2, durationMs: Math.max(0, last.at - start) });
   // While a call runs the line names it, as Claude desktop's does (WorkingFor.tsx), unless the
   // call's own row, right under it, already does: one running call reads once. The Codex-style
   // runs draw no call in flight (codexRuns), so there the line always names it.
@@ -900,6 +917,9 @@ function liveTurn(
       drawn.filter((row) => row !== plan),
       plan,
       clockOffset,
+      undefined,
+      false,
+      start,
     ),
   ];
 }
@@ -922,6 +942,7 @@ function codexLiveTurn(
   at: number,
   clockOffset: number,
   sessionStatus: boolean,
+  turnStartedAtMs: number,
 ): AcpmuxRow[] {
   // The one live block sits at the turn's bottom, as the ChatGPT and Codex apps draw it: no
   // "Working for" over the turn (with steers it stood above all of them, far from the line; Leo,
@@ -962,6 +983,7 @@ function codexLiveTurn(
       clockOffset,
       named?.tool,
       true,
+      turnStartedAtMs,
     ),
   ];
 }
@@ -1017,6 +1039,7 @@ function activityLine(
   clockOffset: number,
   named?: NonNullable<AcpmuxActivity["tool"]>,
   below = false,
+  turnStartedAtMs?: number,
 ): AcpmuxRow {
   const running = named
     ? { kind: "tool", text: "", tool: named }
@@ -1034,7 +1057,7 @@ function activityLine(
   const line: AcpmuxRow = {
     id: `${ACTIVITY_LINE}-${user.id}`,
     version: version * 2 + (command ? 1 : 0),
-    at: user.at + clockOffset,
+    at: (turnStartedAtMs ?? user.at) + clockOffset,
     kind: ACTIVITY_LINE,
     text: label,
     // The line below a plan occupies the footer's slot. Keeping the marker on that row lets the

@@ -6172,6 +6172,7 @@ function AcpmuxPane() {
         {
           working: snapshot.isWorking,
           clockOffset: snapshot.clockOffsetMs,
+          turnStartedAtMs: snapshot.turnStartedAtMs,
           liveRuns: codexRuns,
           sessionStatus,
           lineBelow,
@@ -6193,6 +6194,7 @@ function AcpmuxPane() {
     expanded,
     snapshot.isWorking,
     snapshot.clockOffsetMs,
+    snapshot.turnStartedAtMs,
     codexRuns,
     sessionStatus,
     lineBelow,
