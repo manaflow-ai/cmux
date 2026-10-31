@@ -276,7 +276,7 @@ impl Hub {
             let ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
             let removed: Vec<_> =
                 indices.into_iter().rev().map(|index| queue.remove(index)).collect();
-            session.queued.fetch_sub(removed.len(), Ordering::SeqCst);
+            session.queued.fetch_sub(removed.len() as u64, Ordering::SeqCst);
             (removed, ledger)
         };
         let archived: Vec<_> = removed
