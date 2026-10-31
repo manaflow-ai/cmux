@@ -149,6 +149,8 @@ struct InstalledApp {
     hide_only: bool,
     state: InstallState,
     grants: Vec<String>,
+    /// The deployed instance (`deploy.rs`), null for an app with none.
+    instance: Value,
 }
 
 /// `set`, `install` and `uninstall` answer the app's new state.
@@ -234,6 +236,7 @@ fn installed_app(app: &str, record: &Record, package: Option<&Package>) -> Insta
         hide_only: package.is_some_and(|p| p.tier == Tier::FirstParty),
         state: state(record, package),
         grants: record.grants.iter().cloned().collect(),
+        instance: Value::Null,
     }
 }
 
@@ -294,7 +297,7 @@ impl Supervisor {
             }
             "apps.set" => params(args).and_then(|p| self.store_set(client, p, origin)),
             "apps.install" => {
-                params(args).and_then(|p| self.store_install(client, p, origin, true))
+                params(args).and_then(|p| self.store_install_deploy(client, p, origin))
             }
             "apps.uninstall" => {
                 params(args).and_then(|p| self.store_install(client, p, origin, false))
@@ -368,7 +371,11 @@ impl Supervisor {
             .apps
             .iter()
             .filter(|(_, record)| record.installed)
-            .map(|(app, record)| installed_app(app, record, inner.catalog.packages.get(app)))
+            .map(|(app, record)| {
+                let mut row = installed_app(app, record, inner.catalog.packages.get(app));
+                row.instance = self.instance_json(app);
+                row
+            })
             .collect();
         InstalledListResult { revision: inner.mirror.revision, apps }
     }
@@ -379,10 +386,9 @@ impl Supervisor {
         let inner = self.inner.lock().unwrap();
         let fallback = super::mirror::absent(Source::User, None);
         let record = inner.mirror.apps.get(app).unwrap_or(&fallback);
-        let result = SetResult {
-            revision: inner.mirror.revision,
-            app: installed_app(app, record, inner.catalog.packages.get(app)),
-        };
+        let mut row = installed_app(app, record, inner.catalog.packages.get(app));
+        row.instance = self.instance_json(app);
+        let result = SetResult { revision: inner.mirror.revision, app: row };
         to_value(result)
     }
 
@@ -433,6 +439,37 @@ impl Supervisor {
             ..SetOp::default()
         };
         self.set(client, op)?;
+        if !install {
+            self.deploy_remove(&p.app);
+        }
         self.set_result(&p.app)
+    }
+
+    /// `cmux.apps.install`, with an optional `deploy {target}` (install =
+    /// deploy + pin, `deploy.rs`): the target is checked against the manifest
+    /// before anything installs; the install commits, then the runner starts
+    /// off the request and the answer carries the instance as `deploying`.
+    fn store_install_deploy(
+        &self,
+        client: u64,
+        p: super::deploy::InstallParams,
+        origin: Origin,
+    ) -> Result<Value, ApiError> {
+        let _ = p.grant_optional;
+        let checked = match &p.deploy {
+            Some(request) if origin == Origin::User => Some(self.deploy_checked(&p.app, request)?),
+            _ => None,
+        };
+        let key = p.idempotency_key.clone();
+        let mut result = self.store_install(
+            client,
+            AppRef { app: p.app.clone(), idempotency_key: key.clone() },
+            origin,
+            true,
+        )?;
+        if let Some((target, spec)) = checked {
+            result["instance"] = self.deploy_start(&p.app, &key, target, spec);
+        }
+        Ok(result)
     }
 }
