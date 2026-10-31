@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 769,
-    "mcp": 685
+    "verbs": 775,
+    "mcp": 691
   },
   "nouns": [
     {
@@ -545,6 +545,18 @@
           "id": "app.unhide",
           "mcp": true,
           "mcpTool": "app_apps_unhide"
+        }
+      ]
+    },
+    {
+      "noun": "automation",
+      "verbs": [
+        {
+          "command": "cmux automation show-page",
+          "title": "Automations",
+          "id": "automations.show",
+          "mcp": true,
+          "mcpTool": "app_automation_show_page"
         }
       ]
     },
@@ -1464,6 +1476,13 @@
           "id": "cloudSetIdlePause",
           "mcp": true,
           "mcpTool": "app_cloud_set_idle_pause"
+        },
+        {
+          "command": "cmux cloud set-network-access",
+          "title": "Internet Access…",
+          "id": "cloudSetNetworkAccess",
+          "mcp": true,
+          "mcpTool": "app_cloud_set_network_access"
         },
         {
           "command": "cmux cloud setup-github",
@@ -3574,6 +3593,39 @@
           "id": "appearance.chromeStyle.twoTone",
           "mcp": false,
           "mcpTool": null
+        }
+      ]
+    },
+    {
+      "noun": "share",
+      "verbs": [
+        {
+          "command": "cmux share chat",
+          "title": "Share Chat with Guest…",
+          "id": "agent.share",
+          "mcp": true,
+          "mcpTool": "app_share_chat"
+        },
+        {
+          "command": "cmux share kick",
+          "title": "Remove Guest",
+          "id": "agent.share.kick",
+          "mcp": true,
+          "mcpTool": "app_share_kick"
+        },
+        {
+          "command": "cmux share list",
+          "title": "List Guest Links",
+          "id": "agent.share.list",
+          "mcp": true,
+          "mcpTool": "app_share_list"
+        },
+        {
+          "command": "cmux share revoke",
+          "title": "Revoke Guest Link",
+          "id": "agent.share.revoke",
+          "mcp": true,
+          "mcpTool": "app_share_revoke"
         }
       ]
     },
