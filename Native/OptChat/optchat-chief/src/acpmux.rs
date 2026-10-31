@@ -1103,6 +1103,11 @@ pub fn session_meta(spec: &SessionSpec, preset: Option<&str>) -> Value {
     meta
 }
 
+/// How long Chief waits on `session/new`: past acpmux's own start deadline (`agent_start`, 90 s
+/// unless its config sets another), so acpmux's error arrives, which says what the agent process
+/// was doing (alive or not, its CPU class, run and CPU time), instead of a bare "no answer".
+pub const SESSION_NEW_DEADLINE: Duration = Duration::from_secs(100);
+
 /// `session/new` with acpmux's name, harness, policy, model and preset.
 pub fn new_session(
     client: &RpcClient,
@@ -1111,9 +1116,10 @@ pub fn new_session(
 ) -> Result<String, String> {
     let mut meta = session_meta(spec, preset);
     let request = |meta: &Value| {
-        client.request(
+        client.request_within(
             "session/new",
             json!({"cwd": spec.cwd, "mcpServers": [], "_meta": {"acpmux": meta}}),
+            SESSION_NEW_DEADLINE,
         )
     };
     let result = match request(&meta) {
