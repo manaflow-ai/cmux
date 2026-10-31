@@ -64,7 +64,16 @@ struct UnsentDraftTests {
         // (a, b) Text typed before the draft reached the page joins it, after it.
         _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": "typed while loading"]))
         #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == "the saved draft\n\ntyped while loading")
-        // (d) From then on the page's text is the draft: deleting it clears it.
+        // The page still has not taken the draft: its next text is still only its typing, merged with
+        // the kept draft, never in place of it (cmux#28204 review at 027ee470: "x" then "xy" left "xy").
+        _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": "typed while loading, more"]))
+        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == "the saved draft\n\ntyped while loading, more")
+        // Deleting its typing leaves the kept draft, which the page never had.
+        _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": ""]))
+        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == "the saved draft")
+        // (d) Once the page takes it (its seed), the page's text is the draft: deleting it clears it.
+        let seed = try #require(drafts.seed(for: "tab-1", session: nil))
+        _ = await seed.take()
         _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": ""]))
         #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == nil)
         withExtendedLifetime(drafts) {}

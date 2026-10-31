@@ -545,6 +545,49 @@ test("a saved draft left apart at the limit, then the typing sent: the saved dra
   expect(state.written.some((text) => !text.trim())).toBe(false);
 });
 
+test("a read asked before an edit's write was answered never puts the old draft back", async () => {
+  // cmux#28204 review at 027ee470: the read captured "buy milk", the edit's write of "buy bread" was
+  // answered (which settles the edit), then the late read put "buy milk" back over it.
+  const sessionId = "ordering-stale-read";
+  let held: string | undefined = "buy milk";
+  let holdReads = false;
+  const late: (() => void)[] = [];
+  const actions = {
+    // Answers with what acpmux held when it was asked.
+    "chat.readDraft": () =>
+      new Promise((done) => {
+        const answer = { draft: held ?? null };
+        if (holdReads) late.push(() => done(answer));
+        else done(answer);
+      }),
+    "chat.writeDraft": async ({ text }: Record<string, unknown>) => {
+      held = String(text).trim() ? String(text) : undefined;
+    },
+  };
+  page().cmuxAcpmuxActions = actions as never;
+  await act(async () => notifyDraftActionsChanged());
+  await render(sessionId);
+  await until(() => prompt() === "buy milk", "the saved draft");
+  await settle();
+  // A reconnect asks again; that read is held, with "buy milk" in it.
+  holdReads = true;
+  await act(async () => notifyDraftActionsChanged());
+  await settle();
+  expect(late.length).toBe(1);
+  holdReads = false;
+  await act(async () => markdownField()!.type(""));
+  await type("buy bread");
+  await until(() => prompt() === "buy bread", "the edit");
+  await settle();
+  await settle();
+  expect(held).toBe("buy bread");
+  for (const answer of late.splice(0)) await act(async () => answer());
+  await settle();
+  await settle();
+  expect(prompt()).toBe("buy bread");
+  expect(held).toBe("buy bread");
+});
+
 test("a saved draft and typed text that fit the limit exactly: merged and written", async () => {
   const sessionId = "ordering-at-limit";
   const saved = "s".repeat(LIMIT - 3);

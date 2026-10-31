@@ -24,7 +24,8 @@ public final class AgentUnsentDrafts {
     private let store: AgentPaneStateFile?
     private var drafts: [String: String]
     /// Tabs whose draft came from the file and no page has been handed yet.
-    private var undelivered: Set<String>
+    /// (Each with the draft the file held: what the page's text merges with until it takes the seed.)
+    private var undelivered: [String: String]
     /// The file exists but could not be read: the first save that runs sets it aside first.
     private let unreadable: UnreadableFile
 
@@ -32,13 +33,13 @@ public final class AgentUnsentDrafts {
         self.file = file
         store = file.map(AgentPaneStateFile.at)
         drafts = [:]
-        undelivered = []
+        undelivered = [:]
         unreadable = UnreadableFile()
         guard let store else { return }
         let data = store.read()
         if let data, let decoded = try? JSONDecoder().decode([String: String].self, from: data) {
             drafts = decoded
-            undelivered = Set(decoded.keys)
+            undelivered = decoded
         } else {
             // No file, or one this run could not read or decode: the first save, on the file's queue
             // (no disk check here, on the main thread), sets aside whatever file is there by then.
@@ -60,7 +61,7 @@ public final class AgentUnsentDrafts {
     public func seed(for key: String, session: String?, local: Bool = true) -> AgentPaneSeedSource? {
         guard local, session == nil, let text = drafts[key] else { return nil }
         let source = AgentPaneSeedSource(AgentPaneSeed(draft: text))
-        source.onDraftTaken = { [weak self] in _ = self?.undelivered.remove(key) }
+        source.onDraftTaken = { [weak self] in _ = self?.undelivered.removeValue(forKey: key) }
         return source
     }
 
@@ -81,18 +82,18 @@ public final class AgentUnsentDrafts {
     /// Tab `key`'s kept text, if any.
     public func draft(for key: String) -> String? { drafts[key] }
 
-    /// The page of tab `key` sent its text (`chat.unsentDraft`). Before the page was handed the
-    /// kept draft, an empty text is ignored and a different one is merged with it.
+    /// The page of tab `key` sent its text (`chat.unsentDraft`). Until the page takes the kept
+    /// draft (its seed, ``seed(for:session:local:)``), each text it sends is only its typing: it is
+    /// merged with the draft the file held, and an empty one leaves that draft as it was. Before
+    /// (cmux#28204 review at 027ee470), the first text counted as delivery, so a second ("x", then
+    /// "xy") replaced the merge and lost the kept draft.
     public func typed(_ text: String, for key: String) {
-        guard undelivered.contains(key), let kept = drafts[key] else {
+        guard let kept = undelivered[key] else {
             set(text, for: key)
             return
         }
-        guard !Self.isBlank(text) else { return }
-        // Delivered only once the merge is kept: a merge past the limit is refused, and the tab
-        // still waits for its page, so a later empty text does not clear the kept draft (cmux#28204
-        // review at 80c05be5).
-        if set(Self.merged(typed: text, kept: kept), for: key) { undelivered.remove(key) }
+        // A merge past the limit is refused (`set`): the tab keeps what it had.
+        set(Self.isBlank(text) ? kept : Self.merged(typed: text, kept: kept), for: key)
     }
 
     /// Keeps `text` as tab `key`'s draft; blank text forgets it (the tab's chat started or closed,
@@ -109,7 +110,7 @@ public final class AgentUnsentDrafts {
         let value = Self.isBlank(text) ? nil : text
         guard drafts[key] != value else { return true }
         drafts[key] = value
-        if value == nil { undelivered.remove(key) }
+        if value == nil { undelivered.removeValue(forKey: key) }
         save()
         return true
     }
@@ -118,7 +119,7 @@ public final class AgentUnsentDrafts {
     public func move(_ key: String, to real: String) {
         guard key != real, let text = drafts.removeValue(forKey: key) else { return }
         drafts[real] = text
-        if undelivered.remove(key) != nil { undelivered.insert(real) }
+        if let kept = undelivered.removeValue(forKey: key) { undelivered[real] = kept }
         save()
     }
 

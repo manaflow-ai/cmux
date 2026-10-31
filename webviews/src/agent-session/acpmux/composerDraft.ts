@@ -371,6 +371,9 @@ export async function readDurableDraft(sessionId: string | undefined): Promise<s
 // keeps it): whether this page read the chat's acpmux draft, and whether the person edited or sent
 // from its prompt since the last settled read (`hydratedDraft`). One entry per chat the page opened.
 // `generation` counts the edits and sends, so a write knows whether one came after it was queued.
+// How many of the page's writes acpmux answered, by session (`readDurableDraftState`); one entry per
+// chat the page wrote a draft for.
+const draftSettles = new Map<string, number>();
 // `keptApart`: a read's draft did not fit beside the typing and stayed out of the prompt (hydratedDraft).
 const chatDrafts = new Map<
   string,
@@ -397,6 +400,7 @@ export function noteDraftKeptApart(sessionId: string | undefined): void {
  * read (another pane changed the draft meanwhile) kept this page's older text over the newer draft
  * and wrote it back. */
 function settleDraftWrite(write: DraftWrite): void {
+  draftSettles.set(write.sessionId, (draftSettles.get(write.sessionId) ?? 0) + 1);
   const entry = chatDrafts.get(write.sessionId);
   if (!entry || !entry.read || entry.generation !== write.generation) return;
   if (hasPendingDraftWrite(write.sessionId)) return;
@@ -460,19 +464,30 @@ export function noteDraftSent(sessionId: string | undefined): void {
 /// or undefined when nothing could be read (no session, no page action yet, a failed or dropped
 /// connection). "Unread" is never "no draft": a composer that took it for one would let what the
 /// person typed while the chat loaded replace acpmux's saved draft.
+///
+/// A read is acpmux's draft when it was asked: a write of the page's answered while it was out
+/// (`settleDraftWrite`, which settles the edits before it) makes it older than the prompt, and
+/// applied it would put the old draft back over the acknowledged edit. Such a read is asked again,
+/// a few times at most, then counts as unread (cmux#28204 review at 027ee470).
 export async function readDurableDraftState(
   sessionId: string | undefined,
 ): Promise<{ draft: string | undefined } | undefined> {
   if (!sessionId?.trim()) return undefined;
-  try {
-    const action = pageDraftAction("chat.readDraft");
-    if (!action) return undefined;
-    const draft = daemonDraft(await action({ sessionId }));
-    return { draft };
-  } catch {
-    return undefined;
+  for (let attempt = 0; attempt < STALE_READ_RETRIES; attempt += 1) {
+    const settled = draftSettles.get(sessionId) ?? 0;
+    try {
+      const action = pageDraftAction("chat.readDraft");
+      if (!action) return undefined;
+      const draft = daemonDraft(await action({ sessionId }));
+      if ((draftSettles.get(sessionId) ?? 0) === settled) return { draft };
+    } catch {
+      return undefined;
+    }
   }
+  return undefined;
 }
+
+const STALE_READ_RETRIES = 4;
 
 /**
  * How long a page about to let go waits for its composer's draft to land (`pane.wakeState`). The host's
