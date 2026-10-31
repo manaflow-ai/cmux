@@ -172,8 +172,16 @@ def suite_jobs(run: dict) -> frozenset[str] | None:
 SUITE_JOBS = frozenset().union(*SUITES.values())
 
 
+# A cancelled base tier run is one the base tier kick found superseded before any of its Mac jobs started
+# (cmux_next_base_tier.py cancel_superseded): it has no verdict, and read here it would only spend the
+# lookup limits that reach the run that has one.
+BASE_TIER_TITLE = "cmux-next base tier · "
+
+
 def never_carries(run: dict, name: str) -> bool:
     """Whether RUN's suite never runs job NAME, so it has no verdict for it to read."""
+    if run.get("conclusion") == "cancelled" and (run.get("display_title") or "").startswith(BASE_TIER_TITLE):
+        return True
     jobs = suite_jobs(run)
     return name in SUITE_JOBS and jobs is not None and name not in jobs
 

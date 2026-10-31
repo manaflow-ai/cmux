@@ -458,7 +458,8 @@ export default agentPaneEntry({
         });
         // The row itself, by role: the menu's hidden width probe (QuickMenuSpacer) repeats its text
         // later in the document, and a text target takes the last match.
-        await ctx.click({ role: "menuitem", name: "More models" });
+        // The symbols row (the default) names it Legacy models, with its count.
+        await ctx.click({ role: "menuitem", name: /^(Legacy|More) models/ });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-list > .acpmux-quick-more-list"));
         const more = ctx.document.querySelector(".acpmux-quick-list > .acpmux-quick-more-list")!;
         if (more.querySelector('[aria-label="Add harness…"]'))

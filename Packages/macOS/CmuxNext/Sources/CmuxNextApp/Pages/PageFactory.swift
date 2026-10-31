@@ -148,7 +148,11 @@ struct PageFactory {
         return CloudPageProvider(op: classic.map(CloudAppLinks.ops(classic:)) ?? account.appOps,
                                  signIn: { [weak account] in await account?.auth.signIn() ?? false },
                                  signOut: { [weak account] in await account?.signOut() },
-                                 feed: classic.map(CloudAppLinks.feed(classic:)))
+                                 feed: classic.map(CloudAppLinks.feed(classic:)),
+                                 account: { [weak account] in
+                                     CloudPageProvider.accountValue(signedIn: account?.isSignedIn ?? false, user: account?.auth.user?.id,
+                                                                    team: account?.auth.teamID)
+                                 })
     }
 
     /// The Settings page's engine options.
