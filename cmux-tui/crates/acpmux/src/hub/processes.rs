@@ -253,7 +253,7 @@ fn process_values(processes: Vec<Process>, length: impl Fn(&str) -> u64) -> Vec<
     processes
         .into_iter()
         .filter_map(|mut process| {
-            process.output_bytes = process.output_file.as_deref().map(&length);
+            process.output_bytes = process.output_file.as_deref().map(|path| length(path));
             serde_json::to_value(process).ok()
         })
         .collect()
@@ -653,7 +653,10 @@ mod process_list_snapshot_tests {
         let snapshot = table.lock().unwrap().snapshot();
         let rows = process_values(snapshot, |path| {
             assert_eq!(path, "/tmp/task-output");
-            assert!(table.try_lock().is_ok(), "filesystem metadata read under process-table lock");
+            assert!(
+                table.try_lock().is_ok(),
+                "filesystem metadata read under process-table lock"
+            );
             42
         });
         assert_eq!(rows.len(), 1);
