@@ -186,20 +186,31 @@ impl Message {
 
     /// The message as one JSON line, serialized from the borrowed fields (`to_value`
     /// copied every param first; each client got one copy per streamed update).
+    /// The fields are in the sorted key order `to_value().to_string()` writes, so
+    /// the bytes are the same as before: `server/list_reply.rs` writes reply lines
+    /// itself and relies on that.
     pub fn to_line(&self) -> String {
         #[derive(Serialize)]
         struct Line<'a> {
-            jsonrpc: &'static str,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            error: Option<ErrorLine<'a>>,
             #[serde(skip_serializing_if = "Option::is_none")]
             id: Option<&'a Value>,
+            jsonrpc: &'static str,
             #[serde(skip_serializing_if = "Option::is_none")]
             method: Option<&'a str>,
             #[serde(skip_serializing_if = "Option::is_none")]
             params: Option<&'a Value>,
             #[serde(skip_serializing_if = "Option::is_none")]
             result: Option<&'a Value>,
+        }
+        /// [`RpcError`] with its keys sorted, as `to_value` writes it.
+        #[derive(Serialize)]
+        struct ErrorLine<'a> {
+            code: i64,
             #[serde(skip_serializing_if = "Option::is_none")]
-            error: Option<&'a RpcError>,
+            data: Option<&'a Value>,
+            message: &'a str,
         }
         const NULL: Value = Value::Null;
         let line = match self {
@@ -225,7 +236,11 @@ impl Message {
                 method: None,
                 params: None,
                 result: if error.is_some() { None } else { Some(result.as_ref().unwrap_or(&NULL)) },
-                error: error.as_ref(),
+                error: error.as_ref().map(|error| ErrorLine {
+                    code: error.code,
+                    data: error.data.as_ref(),
+                    message: &error.message,
+                }),
             },
         };
         let mut s = serde_json::to_string(&line).unwrap_or_else(|_| self.to_value().to_string());
