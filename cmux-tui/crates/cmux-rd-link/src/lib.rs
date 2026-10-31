@@ -18,7 +18,12 @@
 //! range RFC 7983 assigns, so one UDP socket also carries STUN and TURN.
 
 mod control;
+pub mod endpoint;
 mod replay;
+
+pub use endpoint::{Endpoint, EndpointEvent, Route, Transmit};
+#[cfg(feature = "net")]
+pub mod net;
 
 use control::{ControlReceiver, ControlSender};
 use replay::ReplayWindow;
@@ -92,6 +97,8 @@ pub enum LinkError {
     NotReady,
     /// Too many unacknowledged control records (the peer stopped answering).
     ControlBacklog,
+    /// A socket or thread could not be set up (the `net` driver).
+    Io(String),
 }
 
 impl std::fmt::Display for LinkError {
@@ -102,6 +109,7 @@ impl std::fmt::Display for LinkError {
             Self::HandshakeTimeout => write!(f, "the secure handshake timed out"),
             Self::NotReady => write!(f, "the secure handshake has not finished"),
             Self::ControlBacklog => write!(f, "the peer stopped acknowledging control messages"),
+            Self::Io(e) => write!(f, "network: {e}"),
         }
     }
 }
