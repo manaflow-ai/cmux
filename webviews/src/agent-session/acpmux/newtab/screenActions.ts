@@ -5,6 +5,7 @@ import type { NewTabScreenActions } from "./NewTabScreen";
 import { savedEnvironmentHost } from "../environments";
 import { rememberStartedProject } from "./startedProject";
 import { translate } from "../i18n";
+import { isStartCancelled, startCancelled } from "../transportErrors";
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
@@ -24,7 +25,9 @@ export function newTabScreenActions(deps: {
   inputReady?(token: string): void;
   /// A folder the user picked on the page goes through the host first (startFolder.tsx): `start`
   /// runs only with a folder it took; the home folder is asked about once.
-  requestFolder?(cwd: string, start: (folder: string) => void, cancel?: () => void): void;
+  /// `cancel` ends the send: with the host's refusal of the path, else as cancelled (a newer request,
+  /// another chat, Use Private Folder).
+  requestFolder?(cwd: string, start: (folder: string) => void, cancel?: (refusal?: unknown) => void): void;
   /// false: the page's chats run on another machine, whose folders are never this Mac's default.
   startsHere?(): boolean;
   /// Captures the page/selection owning this attempt, before any asynchronous work.
@@ -38,15 +41,18 @@ export function newTabScreenActions(deps: {
       const peer = saved?.peer;
       const queuedStart = !!harness && !peer && !noProject;
       const current = deps.startScope?.(queuedStart) ?? (() => true);
-      const cancelled = () => new Error(translate("switch.cancelled"));
       remember(harness);
       // The prompt goes in the same turn as the switch: the switch queues it, and a folder trust
       // refusal then holds it with the send's gesture (holdPrompt), so Trust sends it. Sending
       // after `chat.new` settled lost it: the switch had stopped on the refusal with nothing
       // queued ("Not sent").
-      return new Promise<void>((resolve, reject) => {
+      return new Promise<void>((resolve, settleFailed) => {
+        // A start this visit no longer owns (another chat, another start, the client gone) was
+        // cancelled, whatever its request then said: the page says nothing about it.
+        const reject = (error: unknown) =>
+          settleFailed(isStartCancelled(error) || !current() ? startCancelled() : error);
         const start = (folder?: string) => {
-          if (!current()) return reject(cancelled());
+          if (!current()) return reject(startCancelled());
           // The screen owns its draft and machine pick until the start succeeds. A rejected start
           // must not unmount it; its caller displays the refusal beside the unchanged field.
           const opened = callNative("chat.new", {
@@ -60,7 +66,7 @@ export function newTabScreenActions(deps: {
           if (!queuedStart) {
             opened
               .then(async (started) => {
-                if (!current()) throw cancelled();
+                if (!current()) throw startCancelled();
                 if (!started) throw new Error(translate("switch.noSession"));
                 if (!peer && asks && deps.startsHere?.() !== false) rememberStartedProject(folder, callNative);
                 // The send names this start's session; a later selected chat cannot take it.
@@ -83,7 +89,7 @@ export function newTabScreenActions(deps: {
           // while Trust is pending. Awaiting the start before sending would lose that queue.
           const sent = asks ? callNative("chat.send", message) : Promise.resolve();
           const accepted = opened.then((started) => {
-            if (!current()) throw cancelled();
+            if (!current()) throw startCancelled();
             if (started) {
               if (asks && deps.startsHere?.() !== false) rememberStartedProject(folder, callNative);
               deps.leave();
@@ -100,8 +106,7 @@ export function newTabScreenActions(deps: {
         if (noProject) start();
         else if (peer) start(picked);
         else if (picked && (picked !== cwd || saved)) {
-          if (deps.requestFolder)
-            deps.requestFolder(picked, start, () => reject(new Error(translate("switch.cancelled"))));
+          if (deps.requestFolder) deps.requestFolder(picked, start, (refusal) => reject(refusal ?? startCancelled()));
           else start(picked);
         } else start(deps.chatCwd);
       });

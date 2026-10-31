@@ -14,7 +14,7 @@ import { OnNewTab } from "../newTabComposer";
 import type { Project } from "../ProjectChooser";
 import { firstProject, isAgentHome, mostRecentProject, projectLabel } from "../sessionList";
 import { WorktreeFailure } from "../startFolder";
-import { errorMessage } from "../transportErrors";
+import { errorMessage, isStartCancelled } from "../transportErrors";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { sandboxFailureKey, type RunModeRows } from "../sandboxRun";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
@@ -500,24 +500,31 @@ export function NewTabScreen(props: Props) {
   /// and the prompt stays.
   const [sandboxRefusal, setSandboxRefusal] = useState<string>();
   const [startError, setStartError] = useState<string>();
-  const asking = useRef(false);
+  /// The request in flight (its number), or 0: Return waits for it. Only that request's own end
+  /// opens the page again, never an older one's late reply.
+  const asking = useRef(0);
+  const askCount = useRef(0);
   const requestChat = (...args: Parameters<NewTabScreenActions["onAsk"]>) => {
     if (asking.current) return;
-    asking.current = true;
+    const request = ++askCount.current;
+    asking.current = request;
     setStartError(undefined);
+    const done = () => {
+      if (asking.current === request) asking.current = 0;
+    };
     const failed = (error: unknown) => {
-      setStartError(errorMessage(error) || t("switch.unknownError"));
       created.current = false;
+      // A cancelled start (Not now, a newer folder request, another chat taking the page) is no
+      // failure: the draft stays and nothing says it failed. A real refusal still says why.
+      if (!isStartCancelled(error)) setStartError(errorMessage(error) || t("switch.unknownError"));
     };
     try {
       Promise.resolve(props.onAsk(...args))
         .catch(failed)
-        .finally(() => {
-          asking.current = false;
-        });
+        .finally(done);
     } catch (error) {
       failed(error);
-      asking.current = false;
+      done();
     }
   };
   /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
