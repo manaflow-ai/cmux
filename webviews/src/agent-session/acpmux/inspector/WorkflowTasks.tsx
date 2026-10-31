@@ -4,7 +4,7 @@
 // its description; then its phases, each with its counts and a dot per agent, which opens into
 // the phase's agents (model, a check and how long it took, or Queued). "Up next" names the phases
 // no agent has started. A running agent is a spinner, never a pulsing dot.
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { compactTokens } from "../conversation/CompactionNote";
 import { Spinner } from "../conversation/icons";
 import { formatDuration } from "../conversation/turns";
@@ -50,33 +50,26 @@ export function WorkflowTasks({
   const now = useNow(running.length > 0);
   return (
     <div className="acpmux-workflow-tasks">
-      {/* A group's count only when both groups show: the section's own head already counts what runs. */}
-      {running.length > 0 && finished.length > 0 && (
-        <h4 className="acpmux-workflow-tasks__group">{t("rail.running", { count: running.length })}</h4>
-      )}
-      {running.map((workflow) => (
-        <WorkflowTask
-          key={workflow.id}
-          workflow={workflow}
-          now={now}
-          onStop={onStop}
-          onOpenSubagent={onOpenSubagent}
-          onOpenWorkflowAgent={onOpenWorkflowAgent}
-          agentRowVariant={agentRowVariant}
-        />
-      ))}
-      {running.length > 0 && finished.length > 0 && (
-        <h4 className="acpmux-workflow-tasks__group">{t("rail.finished", { count: finished.length })}</h4>
-      )}
-      {finished.map((workflow) => (
-        <WorkflowTask
-          key={workflow.id}
-          workflow={workflow}
-          now={now}
-          onOpenSubagent={onOpenSubagent}
-          onOpenWorkflowAgent={onOpenWorkflowAgent}
-          agentRowVariant={agentRowVariant}
-        />
+      {/* One keyed list preserves phase disclosure and row identity across lifecycle changes. */}
+      {[...running, ...finished].map((workflow, index) => (
+        <Fragment key={workflow.id}>
+          {/* Only mixed groups need headings; the section already counts what runs. */}
+          {running.length > 0 && finished.length > 0 && (index === 0 || index === running.length) && (
+            <h4 className="acpmux-workflow-tasks__group">
+              {index === 0
+                ? t("rail.running", { count: running.length })
+                : t("rail.finished", { count: finished.length })}
+            </h4>
+          )}
+          <WorkflowTask
+            workflow={workflow}
+            now={now}
+            onStop={isRunning(workflow) ? onStop : undefined}
+            onOpenSubagent={onOpenSubagent}
+            onOpenWorkflowAgent={onOpenWorkflowAgent}
+            agentRowVariant={agentRowVariant}
+          />
+        </Fragment>
       ))}
     </div>
   );

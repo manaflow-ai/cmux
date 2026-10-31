@@ -8,6 +8,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
+import { pageClocks } from "../src/ui/pageClock";
 import { ChatInspector } from "../src/agent-session/acpmux/inspector/ChatInspector";
 import { WorkflowAgentRow, WorkflowTasks } from "../src/agent-session/acpmux/inspector/WorkflowTasks";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -303,21 +304,15 @@ test("a running workflow keeps its elapsed clock live before agent records arriv
     saved.set(key, scope[key]);
     scope[key] = value;
   }
-  const realSetInterval = globalThis.setInterval;
-  const timers: number[] = [];
-  globalThis.setInterval = ((...args: Parameters<typeof setInterval>) => {
-    timers.push(Number(args[1]));
-    return timers.length as unknown as ReturnType<typeof setInterval>;
-  }) as unknown as typeof setInterval;
-  try {
-    const workflow = summaries("running")[0]!;
-    const container = dom.window.document.getElementById("root")!;
-    root = createRoot(container);
-    await act(async () => root!.render(<WorkflowTasks workflows={[{ ...workflow, agents: [], phases: [] }]} />));
-    expect(timers).toContain(1000);
-  } finally {
-    globalThis.setInterval = realSetInterval;
-  }
+  const workflow = summaries("running")[0]!;
+  const container = dom.window.document.getElementById("root")!;
+  root = createRoot(container);
+  await act(async () => root!.render(<WorkflowTasks workflows={[{ ...workflow, agents: [], phases: [] }]} />));
+  expect(pageClocks(dom.window.document).items.some((clock) => clock.name === "elapsed" && clock.running)).toBe(true);
+  await act(async () =>
+    root!.render(<WorkflowTasks workflows={[{ ...workflow, state: "completed", agents: [], phases: [] }]} />),
+  );
+  expect(pageClocks(dom.window.document).running).toBe(0);
 });
 
 test("with running and finished workflows, each group says how many it holds", () => {
@@ -329,7 +324,7 @@ test("with running and finished workflows, each group says how many it holds", (
   expect(text(html)).toContain("1 finished demo-name-tournament");
 });
 
-test("workflow phases and agent rows stay mounted when a run finishes or resumes", async () => {
+test("workflow phases and agent rows stay mounted when a run changes groups", async () => {
   dom = new JSDOM("<!doctype html><main id=root></main>", { url: "http://localhost/" });
   for (const [key, value] of Object.entries({
     window: dom.window,
@@ -362,10 +357,12 @@ test("workflow phases and agent rows stay mounted when a run finishes or resumes
   expect(agent.textContent).toContain("Result ready");
   expect(agent.textContent).toContain("Done");
 
-  // Adding a running group and resuming this run must not reset its disclosure either.
+  // Adding a running group and moving this run back must not reset its disclosure either.
   const sibling = { ...workflow, id: "another-run", title: "Another run" };
   await render([ended, sibling]);
-  expect(container.querySelector("[aria-label='demo-name-tournament'] button[aria-expanded='true']") === phase).toBe(true);
+  expect(container.querySelector("[aria-label='demo-name-tournament'] button[aria-expanded='true']") === phase).toBe(
+    true,
+  );
   await act(async () => phase.click());
   expect(phase.getAttribute("aria-expanded")).toBe("false");
   await render([workflow, sibling]);
