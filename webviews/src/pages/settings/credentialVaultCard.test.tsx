@@ -108,3 +108,34 @@ test("vault use summaries stay short and preserve the full details", async () =>
   expect(used.getAttribute("aria-label")).toBe(used.title);
   page.unmount();
 });
+
+test.each([Number.MAX_SAFE_INTEGER, Number.MIN_SAFE_INTEGER])(
+  "an out-of-range vault use timestamp (%p) leaves the Chief controls usable",
+  async (last_used_ms) => {
+    const page = await renderPage({
+      path: "/settings/chief",
+      setup: (provider) => {
+        const vault = provider.host.credential_vault!;
+        provider.setHost({
+          ...provider.host,
+          credential_vault: {
+            ...vault,
+            secrets: vault.secrets.map((secret) => ({ ...secret, last_used_ms })),
+          },
+        });
+      },
+    });
+    try {
+      await settle();
+      expect(names(page.container)).toEqual(["GH_TOKEN", "OPENAI_API_KEY"]);
+      expect(row(page.container, "GH_TOKEN").querySelector(".row-help")?.textContent).toContain("Never used");
+      await click(row(page.container, "GH_TOKEN").querySelector<HTMLButtonElement>('[role="switch"]')!);
+      await settle();
+      expect(ops(page.provider, "cmux.settings.credential_vault.scope")).toEqual([
+        { name: "GH_TOKEN", scope: ["user"] },
+      ]);
+    } finally {
+      page.unmount();
+    }
+  },
+);
