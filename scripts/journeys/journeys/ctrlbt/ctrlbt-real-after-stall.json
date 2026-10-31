@@ -7,6 +7,11 @@
  "budget_seconds": 240,
  "steps": [
   {
+   "do": "wait",
+   "seconds": 8,
+   "title": "set-up: Home finishes its first load (home.show refuses 'not ready' at launch)"
+  },
+  {
    "do": "action",
    "action": "home.show",
    "title": "set-up: Go to Home (its menu item); Home's message box has the keyboard"
@@ -78,6 +83,11 @@
   {
    "do": "wait",
    "seconds": 3
+  },
+  {
+   "do": "rpc",
+   "method": "debug.daemon",
+   "title": "the app's daemon connection after the stall (closed by client?)"
   },
   {
    "do": "rpc",

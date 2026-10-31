@@ -7,6 +7,11 @@
  "budget_seconds": 180,
  "steps": [
   {
+   "do": "wait",
+   "seconds": 8,
+   "title": "set-up: Home finishes its first load (home.show refuses 'not ready' at launch)"
+  },
+  {
    "do": "action",
    "action": "home.show",
    "title": "set-up: Go to Home (its menu item); Home's message box has the keyboard"
