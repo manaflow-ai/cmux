@@ -216,7 +216,6 @@ export class CloudStore {
     if (!this.client || this.started) return;
     this.started = true;
     const session = ++this.session;
-    void this.watchAuth();
     let auth: AuthStatus;
     try {
       auth = await this.client.call<AuthStatus>(CloudOps.authStatus, {});
@@ -230,6 +229,8 @@ export class CloudStore {
       return;
     }
     if (session !== this.session) return;
+    // The link answers: follow the app's account from here on (each start after a stop subscribes again).
+    void this.watchAuth();
     // Back after `startLater`: the refused read's error goes, and the page loads as on a first
     // start (Retry does the same before it starts).
     const recovered = this.restartAttempts > 0;

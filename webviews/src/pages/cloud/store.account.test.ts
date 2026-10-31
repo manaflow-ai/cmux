@@ -64,7 +64,8 @@ test("an account event for the account the page shows reloads nothing", async ()
 });
 
 test("the page's own Sign In and the account event load the machines once", async () => {
-  const provider = new MockCloudProvider({ signedIn: false });
+  // `unsupported: []`: the mock serves the host's sign-in action (a gap of today's server).
+  const provider = new MockCloudProvider({ signedIn: false, unsupported: [] });
   const store = new CloudStore(provider);
   const unsubscribe = store.subscribe(() => undefined);
   await settle();
@@ -73,8 +74,10 @@ test("the page's own Sign In and the account event load the machines once", asyn
   provider.emitAccount();
   await signingIn;
   await settle();
+  expect(store.getSnapshot().auth?.signedIn).toBe(true);
   expect(store.getSnapshot().rows.length).toBe(provider.machines.length);
   expect(provider.watchers).toBe(1);
+  expect(provider.calls.filter((call) => call.op === CloudOps.machineList)).toHaveLength(1);
   unsubscribe();
 });
 
