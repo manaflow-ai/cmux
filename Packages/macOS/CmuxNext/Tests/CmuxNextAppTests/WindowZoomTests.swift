@@ -41,7 +41,8 @@ import Testing
 
     @Test(.enabled(if: NSScreen.main != nil, "zooming needs a screen: run on a GUI host")) func aZoomReturnsBeforeTheWindowResizesAndLandsOnTheRunLoop() throws {
         let (window, start) = try shownWindow()
-        defer { window.close() }
+        // As the window's controller closes it: last, a host its close made goes too.
+        defer { window.close(); WindowOverlayHost.windowIsClosing(window) }
         try #require(!window.isZoomed)
         // The zoom animates only when the panes' Motion gate lets it (`WindowZoom` resizes through
         // `Motion.panes.animateTimed`). With Reduce Motion, calm mode, animations off, a live resize or
