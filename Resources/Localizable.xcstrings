@@ -652196,6 +652196,131 @@
         }
       }
     },
+    "cli.browser.dialog.error.pending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A dialog is waiting for browser.dialog.accept or browser.dialog.dismiss"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مربع حوار بانتظار browser.dialog.accept أو browser.dialog.dismiss"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Dialog wartet auf browser.dialog.accept oder browser.dialog.dismiss"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un diálogo está esperando browser.dialog.accept o browser.dialog.dismiss"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une boîte de dialogue attend browser.dialog.accept ou browser.dialog.dismiss"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダイアログが browser.dialog.accept または browser.dialog.dismiss を待っています"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대화상자가 browser.dialog.accept 또는 browser.dialog.dismiss를 기다리고 있습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有一个对话框正在等待 browser.dialog.accept 或 browser.dialog.dismiss"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有一個對話框正在等待 browser.dialog.accept 或 browser.dialog.dismiss"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dijalog čeka na browser.dialog.accept ili browser.dialog.dismiss"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En dialog venter på browser.dialog.accept eller browser.dialog.dismiss"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una finestra di dialogo è in attesa di browser.dialog.accept o browser.dialog.dismiss"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រអប់សន្ទនាកំពុងរង់ចាំ browser.dialog.accept ឬ browser.dialog.dismiss"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En dialog venter på browser.dialog.accept eller browser.dialog.dismiss"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okno dialogowe czeka na browser.dialog.accept lub browser.dialog.dismiss"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma caixa de diálogo está aguardando browser.dialog.accept ou browser.dialog.dismiss"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Диалоговое окно ожидает browser.dialog.accept или browser.dialog.dismiss"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กล่องโต้ตอบกำลังรอ browser.dialog.accept หรือ browser.dialog.dismiss"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir iletişim kutusu browser.dialog.accept veya browser.dialog.dismiss bekliyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Діалогове вікно очікує на browser.dialog.accept або browser.dialog.dismiss"
+          }
+        }
+      }
+    },
     "cloud.overlay.signInRevoked.detail": {
       "extractionState": "manual",
       "localizations": {
