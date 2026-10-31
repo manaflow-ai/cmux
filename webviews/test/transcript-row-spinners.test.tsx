@@ -27,7 +27,7 @@ function markup(node: ReactNode) {
   return JSDOM.fragment(renderToStaticMarkup(node));
 }
 
-afterEach(resetTranscriptDisclosure);
+afterEach(() => resetTranscriptDisclosure());
 
 for (const background of [false, true]) {
   test(`three running commands have only the group header activity mark (background=${background})`, () => {
