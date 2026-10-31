@@ -420,15 +420,30 @@ impl Hub {
         // Read with or without a running turn: one that starts before this reaches the queue is
         // stopped by no agent's interrupt either.
         let review_held = from_agent && super::inbox::review_box(session);
+        // Nor does another agent's steer go in while one of the person's prompts waits behind the
+        // running turn, as no notice does (`inbox.rs`): it kept that turn going past the person's
+        // queued prompt (Leo, 2026-10-29: "but even if im just queueing, your turn should still be
+        // ending"). It queues behind the prompt, and one sent with `interrupt` stops nothing. The
+        // person's own steer and Send now still go in, and so does an inbox digest asked to steer
+        // (`inbox_digest.rs`): its drain asked for it. Checked again as the steer is written
+        // (`steer_end.rs`).
+        let prompt_held = from_agent
+            && running.is_some()
+            && !super::digest::inbox_digest::is_digest(opts.provenance.as_ref())
+            && super::inbox::persons_prompt_waits(session);
         let steer_now = steer
             && session.steering.load(Ordering::SeqCst)
             && running.is_some()
             && !capped
             && !notice_held
-            && !review_held;
+            && !review_held
+            && !prompt_held;
         if steer && opts.steer_only && !steer_now {
             if review_held && running.is_some() {
                 return Err(super::inbox::review_box_steer_refused());
+            }
+            if prompt_held && !capped {
+                return Err(super::inbox::prompt_waits_steer_refused());
             }
             return Err(super::turn_cap::steer_unavailable(capped));
         }
@@ -464,8 +479,9 @@ impl Hub {
             control,
             trust_gate,
             // Held past the cap, it waits: it stops no turn (`turn_cap.rs`); nor does another
-            // agent's message stop a review box's review (`inbox.rs`).
-            interrupt: opts.interrupt && !capped && !review_held,
+            // agent's message stop a review box's review, or go ahead of the person's prompt that
+            // waits (`inbox.rs`).
+            interrupt: opts.interrupt && !capped && !review_held && !prompt_held,
             interrupt_turn: opts.interrupt_turn.as_deref(),
             provenance: opts.provenance.as_ref(),
             agent: agent.as_deref(),
@@ -474,6 +490,7 @@ impl Hub {
             full_access_device: opts.full_access_device.as_deref(),
             replaced: &replaced,
             no_queue: opts.no_queue,
+            after_turn: after_turn.is_some(),
         };
         let (turn_id, waiting, mut guard, run) =
             match self.queue_slot(session, slot, &mut accept).await {
@@ -649,7 +666,7 @@ impl Hub {
                     replaced.set(self.supersede_queued(session, key, agent.as_deref(), &prompt_id));
             }
             accept(
-                json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false}),
+                json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false, "state": "started"}),
             );
         }
         // The prompt is recorded and acknowledged above before the agent is started again (it
@@ -801,6 +818,8 @@ impl Hub {
         }
         // Its stalled count starts once its prompt is written (`stalled_turn.rs`).
         Self::hold_stalled_count(session);
+        // A new turn: its own end decides the dot, not an earlier one's (`work_below.rs`).
+        self.clear_deferred_unread(session);
         self.set_status(session, SessionStatus::Running);
         self.watch_silent_turn(session, &turn_id).await;
         // Tests only: a pause right before the write (`full_access_bound::WriteSeam`).
@@ -1288,7 +1307,7 @@ impl Hub {
                     let stopped =
                         stop.as_str() == Some("cancelled") || (was_stopping && !carries_on);
                     let status = if stopped { "cancelled" } else { "completed" };
-                    let mut msg = json!({"status": status, "stopReason": stop, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
+                    let mut msg = json!({"status": status, "stopReason": stop, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id, "turnCount": turn});
                     if let Some(o) = msg.as_object_mut() {
                         o.extend(self.turn_error_fields(session, None));
                         // acpmux ended a turn whose agent did not answer the cancel (`cancel`).
@@ -1321,7 +1340,7 @@ impl Hub {
                     if !detached {
                         self.pause_queue(session, turn_id);
                     }
-                    let mut msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
+                    let mut msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id, "turnCount": turn});
                     if let Some(o) = msg.as_object_mut() {
                         let agent_error =
                             (!harness_failed).then(|| (e.message.as_str(), json!(e.code)));
@@ -1348,9 +1367,11 @@ impl Hub {
         // Its harness wrote the turn's spend: read it (`usage_view.rs`).
         self.refresh_usage_stats_of(session);
         self.reset_stream(session);
-        // Nobody showing it: the sidebar dot and `wait --until done` see it.
+        // Nobody showing it: the sidebar dot and `wait --until done` see it. While work it
+        // started still runs (a background subagent, a working sub-session) the task is not
+        // done: the dot waits for that work to end (`work_below.rs`, manaflow-ai/cmux#25563).
         if !self.shown(session) {
-            session.meta.lock().unwrap().unread = true;
+            self.mark_unread_unless_work_below(session);
         }
         if session.status() != SessionStatus::Closed {
             let alive = child.is_alive().await;
@@ -1453,7 +1474,7 @@ impl Hub {
                 "turn_end",
                 json!({"stopReason": stop, "turnId": turn_id, "turnSeq": 0}),
             );
-            let msg = json!({"status": "cancelled", "stopReason": stop, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id});
+            let msg = json!({"status": "cancelled", "stopReason": stop, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id, "turnCount": turn});
             self.record_last_turn(session, &msg);
             self.append(session, "mux", "turn_result", msg);
             self.reset_stream(session);
@@ -1479,7 +1500,7 @@ impl Hub {
         self.append(session, "mux", "turn_error", record);
         // `errorText` as a started turn's failure has it: its `lastTurn` and its parent's
         // `turn_ended` say why.
-        let mut msg = json!({"status": "failed", "error": e.message, "errorText": e.message, "code": e.code, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id});
+        let mut msg = json!({"status": "failed", "error": e.message, "errorText": e.message, "code": e.code, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id, "turnCount": turn});
         if let Some(o) = msg.as_object_mut() {
             o.extend(typed);
         }
@@ -1521,6 +1542,12 @@ impl Hub {
             }
         }
         last.insert("endedAt".into(), json!(now_ms()));
+        for key in ["turnCount", "turnSeq"] {
+            if let Some(value) = turn_result.get(key) {
+                last.insert(key.into(), value.clone());
+            }
+        }
+        self.lane_report_record_result(&session.id, turn_result);
         session.meta.lock().unwrap().last_turn = Some(Value::Object(last));
         // Every turn's end passes here once: its parent hears it (`subsession_results.rs`).
         self.subsession_turn_ended(session, turn_result);

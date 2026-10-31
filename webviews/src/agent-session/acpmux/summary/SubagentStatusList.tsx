@@ -26,6 +26,8 @@ import type { StartedSession } from "../started/startedSessions";
 import { ChildSessionRows, sessionStatus } from "../inspector/ChildSessionRows";
 import type { SummarySubagent } from "./sessionSummary";
 import { SubagentStack } from "./SubagentStack";
+import { AgentIdentity, isRepeatedAgentKind } from "../subagents/AgentIdentity";
+import { agentTone } from "../subagents/agentTones";
 
 const ROW_ICON = rowIconSize(12);
 const NO_SESSIONS: readonly StartedSession[] = [];
@@ -208,9 +210,11 @@ export function SubagentStatusList({
                 // Its kind is no subtitle on the line (Leo, 2026-10-31: "a lot of these subtitles
                 // are bad"): the tooltip keeps it under its task.
                 title={
-                  [agent.task, agent.kind !== agent.name ? agent.kind : undefined].filter(Boolean).join("\n") ||
-                  undefined
+                  [agent.task, agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined]
+                    .filter(Boolean)
+                    .join("\n") || undefined
                 }
+                tone={agentTone(agent.id)}
                 onOpen={onOpen ? () => onOpen(agent.id) : undefined}
               />
             </li>
@@ -266,7 +270,7 @@ function SubsessionStatusRow({ session, onOpen }: { session: SubsessionRow; onOp
       onClick={() => onOpen?.(session.sessionId)}
     >
       <span className="acpmux-lineage__icon" data-state={status}>
-        <Icon name="agent.session" size={ROW_ICON} row />
+        <AgentIdentity harness={session.harness} tone={agentTone(session.sessionId)} size={ROW_ICON} />
       </span>
       <span className="acpmux-summary-text">
         <span className="acpmux-summary-agent__name">{session.name}</span>

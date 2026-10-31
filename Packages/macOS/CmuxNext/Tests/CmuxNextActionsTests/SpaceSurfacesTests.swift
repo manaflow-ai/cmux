@@ -22,7 +22,7 @@ import Testing
 
     /// The features the user named, by id: each must be in the catalog.
     nonisolated static let named: [ActionID] = [
-        "space.next", "space.previous", "space.selectByNumber", "space.new", "space.newWindow", "space.openInNewWindow",
+        "space.next", "space.previous", "space.selectByNumber", "space.new", "space.newWindow", "space.openInNewWindow", "space.bringHere",
         "space.moveLeft", "space.moveRight", "space.move", "space.switch", "palette.toggleWorkspacePin", "newWindow",
     ]
 
@@ -52,9 +52,10 @@ import Testing
         }
     }
 
-    /// The space's right-click menu opens it in a new window.
-    @Test func openInNewWindowIsInTheSpaceMenu() {
+    /// The space's right-click menu opens it in a new window and moves it into this one.
+    @Test func openInNewWindowAndBringHereAreInTheSpaceMenu() {
         let shown = ContextMenuCatalog.shared.referencedIDs(ContextMenuCatalog.shared.entries(for: .profile))
         #expect(shown.contains("space.openInNewWindow"))
+        #expect(shown.contains("space.bringHere"))
     }
 }

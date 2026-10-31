@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextTerminal
+import CmuxNextTestSupport
 import Foundation
 import GhosttyNextKit
 import Testing
@@ -9,7 +10,7 @@ import Testing
 /// `NSEvent`s through the view's own mouse and key handlers: a URL with Command pressed over a
 /// still pointer (focused or not), Shift-Command, a program that reads the mouse (Claude Code,
 /// Codex), an OSC 8 hyperlink, and a URL the program broke onto two rows itself.
-@MainActor @Suite(.serialized) struct TerminalCmdClickLinkTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TerminalCmdClickLinkTests {
     /// Mouse modes Codex 0.163 sets (alt screen, button and any-motion tracking in SGR).
     static let mouseModes = "\u{1b}[?1049h\u{1b}[?1000h\u{1b}[?1002h\u{1b}[?1003h\u{1b}[?1006h"
 

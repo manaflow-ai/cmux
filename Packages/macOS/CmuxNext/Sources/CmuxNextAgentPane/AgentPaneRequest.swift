@@ -148,6 +148,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// throwaway Cloud VM, answered with its receipt (``AgentPaneModel/onSandboxRun``). `key` names
     /// the page's send, so its retry after an unclear failure finds the same Run.
     case sandboxRun(task: String, agent: String?, key: String)
+    /// `cloud.startChat {task, cwd, harness?, model?, key}`: a new chat's first send in Cloud (``AgentPaneCloudStart``).
+    case cloudStartChat(AgentPaneCloudStart)
     /// `sandbox.state {wait?}`: this pane's Sandboxed send, for a page that reloaded while it ran
     /// (``AgentPaneSandboxRuns/state(wait:)``).
     case sandboxState(wait: Bool)
@@ -320,6 +322,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `tips.state`: read the feature tip records, keep one, or ask to show a tip
     /// (``AgentPaneFeatureTipRecords``).
     case featureTips(AgentPaneFeatureTipRequest)
+    /// `pane.setRemoteControl {on}`: Session Info's Remote Control switch (``AgentPaneRemoteControl``),
+    /// whether cmux on iPhone may open this Mac's chats. Only with the person's own click.
+    case remoteControl(on: Bool)
     /// `chat.toolCard.respond {id, action, value?}`: a click on a button of a tool card (``AgentPaneToolCard``),
     /// with what the person typed in its field.
     case toolCard(card: String, action: String, value: AgentPaneToolCard.Entered?)
