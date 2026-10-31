@@ -184,13 +184,16 @@ export function AgentLine({
           <span className="acpmux-summary-meta acpmux-agent-line__time" aria-hidden={time === undefined}>
             {time}
           </span>
-          <span className="acpmux-agent-line__status">
-            {chevron && onOpen && (
-              <span className="acpmux-agent-line__chevron" aria-hidden="true">
-                <Icon name="disclosure.collapsed" size={ROW_ICON} row />
-              </span>
-            )}
-          </span>
+          {/* Stop's track (the stop slot, outside this button, lies over it), then the chevron's,
+              last at the line's end: the column the header's and View all's chevrons end in. */}
+          <span className="acpmux-agent-line__stop-track" aria-hidden="true" />
+          {chevron && onOpen ? (
+            <span className="acpmux-agent-line__chevron" aria-hidden="true">
+              <Icon name="disclosure.collapsed" size={ROW_ICON} row />
+            </span>
+          ) : (
+            <span className="acpmux-agent-line__chevron-track" aria-hidden="true" />
+          )}
         </>
       ) : (
         <>
