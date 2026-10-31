@@ -279,8 +279,12 @@ async function proxyCodexRequestWith(
   const hold = new CapacityHold(runtime, runtime.now(), runtime.capacityHoldBudgetMs, upstreamHeaderDeadlineAt);
   /** The last cooldown lookup: when the soonest account recovers, for the terminal answer's `resets_at`. */
   let soonestRecoveryMs: number | null | undefined;
-  /** The last cooldown lookup hit the request deadline: not proof the pool is empty. */
-  let holdLookupTimedOut = false;
+  /**
+   * The last cooldown lookup gave a definite answer (a recovery time, or none
+   * at all). A lookup that failed or hit the deadline says nothing about the
+   * accounts, so the request keeps the retryable 503.
+   */
+  let holdLookupKnown = false;
   /**
    * Holds before a new round. The cooldown lookup covers the accounts this
    * round just cooled too, so the wait honors their `retry-after`. When it
@@ -289,7 +293,7 @@ async function proxyCodexRequestWith(
    */
   const holdForNextRound = async (): Promise<boolean> => {
     const lookup = await capacityRetryAfterMs(dependencies, runtime, identity, request, upstreamHeaderDeadlineAt);
-    holdLookupTimedOut = lookup === "deadline";
+    holdLookupKnown = lookup === null || typeof lookup === "number";
     const cooldownMs = lookup === "deadline" ? null : lookup;
     soonestRecoveryMs = cooldownMs;
     const retryAfterMs = attempted.length > 0 && lastFailureTransient ? cooldownMs ?? undefined : cooldownMs;
@@ -376,7 +380,7 @@ async function proxyCodexRequestWith(
         break;
       }
       if (await holdForNextRound()) continue;
-      noUsableAccount = !holdLookupTimedOut;
+      noUsableAccount = holdLookupKnown;
       break;
     }
     attempted.push(account.id);

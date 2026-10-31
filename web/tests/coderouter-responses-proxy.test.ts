@@ -875,6 +875,26 @@ describe("codex responses proxy cooldown lookup deadline", () => {
   });
 });
 
+describe("codex responses proxy cooldown lookup failure", () => {
+  test("a cooldown lookup that fails keeps the retryable 503, not the terminal 429", async () => {
+    const failingProxy = createCodexResponsesProxy({
+      authenticate: async () => ({ teamId: "team-1", stackUserId: "stack-user-1", vmId: null }),
+      select: async () => null,
+      credential: async () => {
+        throw new Error("no account should be read");
+      },
+      cooldown: async () => {},
+      hasConfiguredAccount: async () => true,
+      nextAvailableAt: async () => {
+        throw new Error("db unavailable");
+      },
+    }, { ...holdRuntime, capacityHoldBudgetMs: 5_000 });
+    const response = await failingProxy(responsesRequest());
+    expect(response.status).toBe(503);
+    expect(((await response.json()) as { retryable: boolean }).retryable).toBe(true);
+  });
+});
+
 describe("codex responses proxy capacity hold", () => {
   /**
    * One-account pool that models cooldowns on the logical clock, the way the
