@@ -62,16 +62,21 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
   const mark = (page: Page) =>
     page.evaluate(() => {
       const probe = window as Probe;
-      // The computer use card moves under the panel by design (computerUsePreview.css); the rest stays.
+      // The computer use card moves under the panel by design (computerUsePreview.css), and the
+      // toggle draws its on state (a fill, design/session-panel.md); the rest stays.
       const outside = (element: Element) =>
-        !element.closest("aside.acpmux-chat-inspector, .acpmux-cu-preview") &&
+        !element.closest("aside.acpmux-chat-inspector, .acpmux-cu-preview, button.acpmux-chat-inspector-toggle") &&
         (element as HTMLElement).offsetParent !== null;
       probe.__stillBefore = new Map();
       probe.__stillWorst = new Map();
       for (const element of document.querySelectorAll("body *"))
         if (outside(element)) probe.__stillBefore.set(element, element.getBoundingClientRect());
-      const name = (element: Element) =>
-        `${element.tagName.toLowerCase()}.${[...element.classList].join(".")}`.replace(/\.$/, "");
+      // Its tag and classes, under the nearest ancestor with a class when it has none (an icon's path).
+      const name = (element: Element): string => {
+        const own = `${element.tagName.toLowerCase()}.${[...element.classList].join(".")}`.replace(/\.$/, "");
+        const named = element.classList.length > 0 ? undefined : element.parentElement?.closest("[class]");
+        return named ? `${name(named)} ${own}` : own;
+      };
       const sample = () => {
         for (const [element, was] of probe.__stillBefore!) {
           if (!element.isConnected || !outside(element)) continue;
