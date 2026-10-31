@@ -240,6 +240,46 @@ import Testing
         #expect(identity["browser"]?["workspace"] == "ws-agent")
     }
 
+    @Test(arguments: [false, true]) func creatingTheFirstBrowserCanBeRetriedAfterTopologyChanges(agentChat: Bool) async throws {
+        var snapshot = Self.snapshot(ownBrowser: false, neighbors: false)
+        snapshot.catalog = ControlCatalog(actions: [
+            BrowserPageTabsTests.action("openBrowser", [ControlArgumentInfo(name: "url", title: "URL", kind: .string, isRequired: false)]),
+        ], targetKinds: ["tab", "pane"], debugActionsAvailable: false)
+        if agentChat {
+            var chat = ControlTabInfo(id: "tab-chat", surface: "tab-chat", kind: "agent", title: "Agent")
+            chat.agentSessionID = "agent-1"
+            snapshot.topology.workspaces[1].screens[0].panes.append(Self.pane("pane-chat", column: 1, [chat]))
+        }
+        let caller: JSONValue = agentChat ? ["agent_session": "agent-1"] : Self.agent
+        let (router, executor) = install(snapshot)
+        let request = ControlRequest(method: "browser.page.new_tab", params: [
+            "caller": caller, "url": "https://example.com/", "idempotency_key": "first-browser",
+        ])
+        let first = try await router.handle(request).get()
+        router.snapshots.publish {
+            $0.topology.workspaces[1].screens[0].panes.append(Self.pane("pane-created", column: 2, [Self.browser("tab-created")]))
+        }
+        let replay = try await router.handle(request).get()
+        #expect(replay["replayed"] == true)
+        #expect(replay["created"] == first["created"])
+        #expect(replay["tab"] == first["tab"])
+        #expect(executor.requests.withLock { $0.count } == 1)
+
+        var changed = request
+        changed.params["url"] = "https://different.example/"
+        #expect(await router.handle(changed).failure?.code == "idempotency_conflict")
+        changed = request
+        changed.params["caller"] = ["terminal_id": "another-terminal"]
+        #expect(await router.handle(changed).failure?.code == "idempotency_conflict")
+
+        // Replaying a finished create does not depend on the caller or its browser still existing.
+        router.snapshots.publish { $0.topology.workspaces.removeAll() }
+        let afterClose = try await router.handle(request).get()
+        #expect(afterClose["replayed"] == true)
+        #expect(afterClose["created"] == first["created"])
+        #expect(executor.requests.withLock { $0.count } == 1)
+    }
+
     /// `cmux browser page new-tab URL` with no browser near the caller opens its first one, not a
     /// refusal: a terminal's in its own pane behind the terminal, an agent's beside its chat
     /// (`openBrowser` with the caller, placed by `placeBesideCaller`).
