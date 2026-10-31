@@ -53,8 +53,9 @@ struct SecondCreationKeysTests {
             let window = try #require(content.layoutView.window)
             let coordinator = services.keyRouter.creationInputCoordinator
             try await PinnedPageTests.until({ !coordinator.isHolding(in: window) }, report: { "the split's creation hold never ended" })
-            try await body(Panes(services: services, connection: connection, content: content, window: window,
-                                 first: try #require(shown(original)), second: try #require(shown(try #require(added())))))
+            let addedPane = try #require(added())
+            let first = try #require(shown(original)), second = try #require(shown(addedPane))
+            try await body(Panes(services: services, connection: connection, content: content, window: window, first: first, second: second))
         }
     }
 
