@@ -40,7 +40,7 @@
   max-width: 100%;
   min-height: 20px;
   padding: 0 8px;
-  border-radius: 999px;
+  border-radius: 4px;
   background: color-mix(in srgb, var(--agent-text) 6%, transparent);
   font-variant-numeric: tabular-nums;
 }

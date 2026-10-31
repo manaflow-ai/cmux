@@ -1193,7 +1193,7 @@ test("Labs: with Sandboxed picked the control names it, no machine is checked, a
   await press(doc().body, { key: "Alt", altKey: true });
   expect(doc().querySelector('.acpmux-env-popover [data-mode="sandboxed"]')).toBeNull();
   // New Cloud Machine, not the Cloud row (data-mode="cloud") that heads the Cloud section.
-  const cloud = rows().find((row) => row.querySelector('[data-kind="cloud"]:not([data-mode])'))!;
+  const cloud = rows().find((row) => row.querySelector('.acpmux-env-row[data-kind="cloud"]:not([data-mode])'))!;
   await act(async () => cloud.click());
   expect(calls).toEqual([["mode", "persistent"]]);
 });
