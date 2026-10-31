@@ -21,12 +21,15 @@
 //! report replaces one still queued (keeping the pull requests only that one named).
 //!
 //! ```text
-//! [NAME] lane report: turn N ended, STATE.
-//! Session: HOST/ID
-//! Last message: the first 400 characters of its last reply
+//! [NAME] BLOCK at SHA12 · 1 P1, 2 P2 · turn N, STATE
+//! Whole reply lines, retaining every P1/P2 finding's first sentence
 //! Pull requests: URLs its gh pr create calls printed or the reply names, not reported before
-//! Commits named: full SHAs in the reply
 //! ```
+//!
+//! Session and commits live in provenance `details`, collapsed by the pane. Review receipts
+//! anywhere in the reply supply the verdict; other replies use their first sentence. The report
+//! is automatic, sent at the end of each turn of a session its parent started; answer only if
+//! it needs you. Its machine-readable kind, from, to, turn and state remain unchanged.
 //!
 //! STATE is `idle`, `working on its next prompt`, `waiting on a permission` / `waiting on a
 //! question: ...`, or `blocked: ...` (a failed turn and the queue it paused, a stopped agent).
@@ -61,8 +64,6 @@ use std::sync::LazyLock;
 pub const TAG: &str = "lane.reportsTo";
 /// The provenance kind.
 pub(crate) const KIND: &str = "lane_report";
-/// The reply's first characters a report carries.
-const REPLY_CHARS: usize = 400;
 /// Transcript records read per page, newest first, back to the start of the last turn.
 const TAIL_RECORDS: usize = 400;
 /// Pages read back at most for the last turn (a turn that streamed more records than this
@@ -75,8 +76,6 @@ const MAX_DEPTH: usize = 16;
 pub const MAX_REPORTS: usize = 20;
 /// The window of [`MAX_REPORTS`].
 pub const WINDOW_MS: u64 = 10 * 60 * 1000;
-/// The words after `[NAME] ` that start a report (`prompt_line.rs` reads the name).
-const HEAD: &str = "lane report: turn ";
 /// A report's prompt id starts with this.
 const PROMPT_PREFIX: &str = "lane-report-";
 
@@ -226,19 +225,16 @@ impl Report {
 
     fn text(&self) -> String {
         let mut t = format!(
-            "[{}] {HEAD}{} ended, {}.\nSession: {}\nLast message: {}",
-            self.name, self.turn, self.state, self.session, self.reply
+            "[{}] {} · turn {}, {}\n{}",
+            self.name,
+            super::lane_report_text::headline(&self.reply),
+            self.turn,
+            self.state,
+            super::lane_report_text::excerpt(&self.reply),
         );
         if !self.prs.is_empty() {
             t.push_str(&format!("\nPull requests: {}", self.prs.join(" ")));
         }
-        if !self.shas.is_empty() {
-            t.push_str(&format!("\nCommits named: {}", self.shas.join(" ")));
-        }
-        t.push_str(
-            "\n(acpmux sends this at the end of each turn of a session you started or gave a \
-             task. Answer only if it needs you.)",
-        );
         t
     }
 }
@@ -329,6 +325,11 @@ fn new_items(found: impl IntoIterator<Item = String>, seen: &[String]) -> Vec<St
 }
 
 impl Hub {
+    /// The authenticated starter a lane reports to, independent of mutable display tags.
+    pub(crate) fn lane_report_parent(&self, lane: &str) -> Option<String> {
+        self.lane_links(|links| links.get(lane).map(|link| link.parent.clone()))
+    }
+
     fn lane_links<R>(&self, f: impl FnOnce(&mut BTreeMap<String, Link>) -> R) -> R {
         f(&mut self.lane_reports.links.lock().unwrap_or_else(|e| e.into_inner()))
     }
@@ -459,6 +460,7 @@ impl Hub {
         if !self.lane_links(|links| links.contains_key(&session.id)) {
             return;
         }
+        self.lane_report_ended(&session.id, turn);
         // A turn on reports only makes none, and leaves one still queued to go now.
         if !on_reports {
             let report = self.lane_capture(session, turn, started);
@@ -535,6 +537,7 @@ impl Hub {
             tracing::warn!(lane, %parent, "lane report not delivered: {}", e.message);
             return;
         }
+        self.lane_report_reconcile_read(&parent, lane, report.turn);
         // Counted from when the parent took it, not when it was taken: its admission may wait.
         let took = now_ms();
         self.lane_links(|links| {
@@ -571,11 +574,7 @@ impl Hub {
             session: session.id.clone(),
             turn,
             state,
-            reply: if reply.is_empty() {
-                "(no reply)".into()
-            } else {
-                short_text(&reply, REPLY_CHARS)
-            },
+            reply: if reply.is_empty() { "(no reply)".into() } else { reply },
             prs,
             shas,
         }
@@ -608,6 +607,7 @@ impl Hub {
     pub(super) fn lane_retire(&self, id: &str) {
         self.lane_links(|links| links.retain(|lane, l| lane != id && l.parent != id));
         self.lane_turns().forget(id);
+        self.lane_report_forget(id);
     }
 
     /// Hands the report to the parent: accepted (queued, started, steered or held for the
@@ -631,6 +631,7 @@ impl Hub {
         let provenance = json!({
             "kind": KIND, "from": lane, "fromName": report.name, "to": parent,
             "turn": report.turn, "state": report.state,
+            "details": {"session": report.session, "commits": report.shas},
         });
         // The lane's id and harness, for the parent's queue list (`prompt_provenance.rs`).
         let lane_session =
@@ -642,7 +643,7 @@ impl Hub {
         let opts = PromptOptions {
             prompt_id: Some(prompt_id),
             resend: true,
-            provenance: Some(provenance),
+            provenance: Some(provenance.clone()),
             agent: Some(report.name.clone()),
             // A lane's report says what its turn did (`prompt_class.rs`).
             class: Some(crate::prompt_class::PromptClass::Result),
@@ -656,6 +657,18 @@ impl Hub {
         // queue (`queue.rs`, by the report's provenance kind). A lane closing after this check still sends this one report,
         // of a turn that ended before its close.
         if !self.lane_links(|links| links.get(lane).is_some_and(|l| l.parent == parent)) {
+            return Ok(());
+        }
+        if self.lane_report_was_read(lane, report.turn) {
+            if !super::queue::closing(&p) {
+                self.lane_report_delivered_read(
+                    &p,
+                    lane,
+                    &report.prompt_id,
+                    &report.text(),
+                    &provenance,
+                );
+            }
             return Ok(());
         }
         // The answer comes when the parent's turn ends; the report is in once it is accepted.

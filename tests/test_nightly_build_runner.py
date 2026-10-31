@@ -237,9 +237,28 @@ class Main(unittest.TestCase):
     def test_failed_reads_never_fail_the_job(self) -> None:
         def broken(token: str, repo: str):
             raise OSError("HTTP 403")
-        out = self.run_main({}, read_runners=broken, read_snapshot=broken)
-        self.assertEqual(out, {"dedicated": "", "owned": "", "blacksmith": LARGE, "runner": LARGE, "helper": "",
+        out = self.run_main({"UNREAD_OWNED_FALLBACK": "1"}, read_runners=broken, read_snapshot=broken)
+        # Fleet first: unread runners queue the build on the first watched owned pool, not Blacksmith (run
+        # 41203691245, 2026-10-31: a 403 rate limit on /actions/runners sent the tip build to a stalled label).
+        self.assertEqual(out, {"dedicated": "", "owned": SIDE, "blacksmith": LARGE, "runner": SIDE, "helper": SIDE,
                                "attempt": "1"})
+
+    def test_unread_runners_with_no_watched_owned_label_still_take_blacksmith(self) -> None:
+        def broken(token: str, repo: str):
+            raise OSError("HTTP 403")
+        out = self.run_main({"OWNED_LABELS": f"{DEV} {SMALL}", "UNREAD_OWNED_FALLBACK": "1"},
+                            read_runners=broken, read_snapshot=broken)
+        self.assertEqual((out["owned"], out["runner"]), ("", LARGE))
+
+    def test_unread_runners_without_the_opt_in_take_blacksmith(self) -> None:
+        # The CI_PR_POOL_OWNED kill switch off (nightly.yml leaves UNREAD_OWNED_FALLBACK empty), and the train
+        # picker (nightly-next-train.yml, no owned-pool rescue): an unread pool never offers an owned label.
+        def broken(token: str, repo: str):
+            raise OSError("HTTP 403")
+        for env in ({}, {"UNREAD_OWNED_FALLBACK": ""}, {"UNREAD_OWNED_FALLBACK": "0"}, {"ROUTE_TOKEN": ""}):
+            with self.subTest(env=env):
+                out = self.run_main(env, read_runners=broken, read_snapshot=broken)
+                self.assertEqual((out["owned"], out["runner"]), ("", LARGE))
 
     def test_the_dedicated_builder_comes_first(self) -> None:
         fleet = [runner(*BUILDER), runner(SIDE)]
@@ -364,18 +383,33 @@ class Main(unittest.TestCase):
                                     read_snapshot=lambda t, r, snap=snap: snap)
                 self.assertEqual(out["owned"], "")
                 self.assertTrue(out["runner"].startswith("blacksmith-"))
-        # Unread runners (no routing token): Blacksmith.
-        out = self.run_main({"ROUTE_TOKEN": ""}, read_snapshot=lambda t, r: stalled)
-        self.assertEqual(out["owned"], "")
+        # Unread runners (no routing token): the owned pool still comes before Blacksmith.
+        out = self.run_main({"ROUTE_TOKEN": "", "UNREAD_OWNED_FALLBACK": "1"}, read_snapshot=lambda t, r: stalled)
+        self.assertEqual(out["owned"], SIDE)
 
     def test_no_route_token_reads_no_runners(self) -> None:
         def unexpected(token: str, repo: str):
             raise AssertionError("runners read without a route token")
-        out = self.run_main({"ROUTE_TOKEN": ""}, read_runners=unexpected, read_snapshot=lambda t, r: None)
-        self.assertEqual(out["owned"], "")
+        out = self.run_main({"ROUTE_TOKEN": "", "UNREAD_OWNED_FALLBACK": "1"}, read_runners=unexpected,
+                            read_snapshot=lambda t, r: None)
+        self.assertEqual(out["owned"], SIDE)  # unread: the watched owned pool, never a read
 
 
 class Workflow(unittest.TestCase):
+    def test_only_the_rescued_build_pick_opts_into_the_unread_owned_fallback(self) -> None:
+        # nightly.yml's build pick: on only while the CI_PR_POOL_OWNED kill switch is on (the rescue watches it).
+        import yaml  # noqa: PLC0415
+        steps = DOC["jobs"]["pick-nightly-build-runner"]["steps"]
+        pick = next(step for step in steps if step.get("id") == "pick")
+        flag = pick["env"]["UNREAD_OWNED_FALLBACK"].removeprefix("${{").removesuffix("}}")
+        for owned_on, want in (("1", "1"), ("0", ""), ("", "")):
+            with self.subTest(owned_on=owned_on):
+                self.assertEqual(evaluate(parse_expression(flag), {"vars.CI_PR_POOL_OWNED": owned_on}) or "", want)
+        # nightly-next-train.yml has no owned-pool rescue, so its pick never sets it.
+        train = yaml.safe_load((ROOT / ".github" / "workflows" / "nightly-next-train.yml").read_text())
+        for step in train["jobs"]["pick-train-runner"]["steps"]:
+            self.assertNotIn("UNREAD_OWNED_FALLBACK", step.get("env") or {}, step.get("name"))
+
     def test_no_guarded_job_reads_a_single_label_variable(self) -> None:
         for job in GUARDED:
             with self.subTest(job=job):
