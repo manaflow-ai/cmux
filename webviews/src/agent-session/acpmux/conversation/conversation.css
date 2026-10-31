@@ -1015,6 +1015,11 @@
   left: 7px;
   font-weight: 600;
 }
+/* A number of three or more digits (Markdown.tsx listNumberStyle) gets room for itself, so it never
+   draws over its item's text. */
+.cv-ol[style*="--cv-ol-digits"] > li {
+  padding-left: calc(var(--cv-ol-digits) * 0.6em + 1.4em);
+}
 .cv-li__bullet {
   position: absolute;
   left: var(--cv-bullet-left, 10px);
