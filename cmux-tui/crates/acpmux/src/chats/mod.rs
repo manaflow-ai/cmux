@@ -81,7 +81,7 @@ impl ChatService {
     /// Discovers the roots, starts the watcher, then scans every root
     /// (incremental from the cache). Blocking: call it off the executor.
     pub fn start(sources: ChatSources) -> Arc<Self> {
-        let recorded = RecordedRoots::load(sources.acpmux_home.join("chat-roots.json"));
+        let recorded = RecordedRoots::load(recorded_roots_path(&sources));
         let settings = ChatSettings::load(&settings_path(&sources));
         let (found, settings_refused) = discover_roots(&sources, recorded.roots(), &settings);
         let index = ChatIndex::load(&cache_path(&sources), found.roots);
@@ -228,6 +228,10 @@ impl ChatService {
         Ok(new)
     }
 
+    fn recorded_roots_path(&self) -> PathBuf {
+        recorded_roots_path(&self.sources)
+    }
+
     /// Records the store roots a spawn's env named (launch roots, C3); new
     /// ones are scanned and watched. Blocking.
     pub fn record_launch_roots(self: &Arc<Self>, specs: &[RootSpec]) {
@@ -235,7 +239,11 @@ impl ChatService {
         {
             let mut state = lock(&self.state);
             for spec in specs.iter().filter(|s| self.sources.refusal(&s.path).is_none()) {
-                match state.recorded.record(spec.clone()) {
+                // Not under a lost home (`config::refuse_lost_home`): it may be another daemon's.
+                let recorded = crate::config::refuse_lost_home(&self.recorded_roots_path())
+                    .map_err(std::io::Error::other)
+                    .and_then(|()| state.recorded.record(spec.clone()));
+                match recorded {
                     Ok(fresh) => new |= fresh,
                     Err(e) => tracing::warn!("record a launch root: {e}"),
                 }
@@ -352,7 +360,11 @@ impl ChatService {
     }
 
     fn save(&self, index: &ChatIndex) {
-        if let Err(e) = index.save(&cache_path(&self.sources)) {
+        let path = cache_path(&self.sources);
+        // Not under a lost home (`config::mark_home_lost`): it may be another daemon's now.
+        let saved = crate::config::refuse_lost_home(&path)
+            .and_then(|()| index.save(&path).map_err(anyhow::Error::from));
+        if let Err(e) = saved {
             tracing::warn!("chat index cache: {e}");
         }
     }
@@ -367,6 +379,10 @@ impl ChatService {
         drop(state);
         drop(old);
     }
+}
+
+fn recorded_roots_path(sources: &ChatSources) -> PathBuf {
+    sources.acpmux_home.join("chat-roots.json")
 }
 
 fn cache_path(sources: &ChatSources) -> PathBuf {
