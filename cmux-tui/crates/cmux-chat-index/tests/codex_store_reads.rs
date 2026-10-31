@@ -185,6 +185,12 @@ fn a_schema_or_affinity_change_matches_a_fresh_read() {
     let writer = codex_db(&codex);
     let mut index = ChatIndex::new(vec![root(&codex)]);
     index.rescan_all();
+    // The table named in another case, which SQLite still resolves as `threads`.
+    writer
+        .execute_batch("alter table threads rename to t; alter table t rename to Threads")
+        .unwrap();
+    index.paths_changed(&wal(&codex));
+    assert_eq!(chats(&index), fresh(&codex), "after the table is renamed");
     // A thread with no user text, in a database with no `has_user_event` column: it is listed.
     writer.execute_batch("alter table threads drop column has_user_event").unwrap();
     writer
