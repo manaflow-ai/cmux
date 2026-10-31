@@ -1,7 +1,6 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextPalette
-import CmuxNextTestSupport
 import Testing
 
 /// With the command palette open, a navigation chord the palette has no use for runs its action: Ctrl-` (New
@@ -13,7 +12,6 @@ import Testing
 /// palette's search field. The key router decides keys only for a main window's content, and New Terminal Tab has no
 /// main-menu item; the palette's key handler dropped every chord it did not map.
 @MainActor
-@Suite(.closesItsWindows)
 struct PaletteNavigationChordTests {
     /// The actions the registry ran, in order.
     @MainActor final class Ran { var ids: [String] = [] }
@@ -30,6 +28,15 @@ struct PaletteNavigationChordTests {
         return (palette, ran)
     }
 
+    /// Hides the palette and closes its panel (`hide()` only orders it out), so no panel stays open after the test.
+    private static func close(_ palette: PaletteController) {
+        palette.hide()
+        for window in NSApp?.windows ?? [] where palette.owns(window) {
+            window.isReleasedWhenClosed = false
+            window.close()
+        }
+    }
+
     private static func key(_ characters: String, keyCode: UInt16, modifiers: NSEvent.ModifierFlags) throws -> NSEvent {
         try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0, windowNumber: 0,
                                       context: nil, characters: characters, charactersIgnoringModifiers: characters,
@@ -38,7 +45,7 @@ struct PaletteNavigationChordTests {
 
     @Test func ctrlBacktickWithThePaletteOpenRunsNewTerminalTabAndClosesThePalette() throws {
         let (palette, ran) = Self.palette()
-        defer { palette.closeForTest() }
+        defer { Self.close(palette) }
         palette.show(.commands)
         let panel = try #require(palette.visiblePanel)
         #expect(palette.handleKeyDown(try Self.key("`", keyCode: 50, modifiers: [.control]), in: panel),
@@ -51,7 +58,7 @@ struct PaletteNavigationChordTests {
     /// is not run from here; the palette stays open.
     @Test func typingAndSystemChordsDoNotRunFromThePalette() throws {
         let (palette, ran) = Self.palette()
-        defer { palette.closeForTest() }
+        defer { Self.close(palette) }
         palette.show(.commands)
         #expect(!palette.runsNavigationChord(try Self.key("`", keyCode: 50, modifiers: [])))
         #expect(!palette.runsNavigationChord(try Self.key("w", keyCode: 13, modifiers: [.command])))
@@ -63,7 +70,7 @@ struct PaletteNavigationChordTests {
     /// checklist toggle) does not run from the palette's field.
     @Test func aChordThatYieldsToTextInputDoesNotRun() throws {
         let (palette, ran) = Self.palette()
-        defer { palette.closeForTest() }
+        defer { Self.close(palette) }
         palette.show(.commands)
         #expect(!palette.runsNavigationChord(try Self.key("\r", keyCode: 36, modifiers: [.command])))
         #expect(!ran.ids.contains("toggleChecklistItemComplete"))
