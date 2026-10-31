@@ -15,6 +15,9 @@ use super::*;
 /// What one terminal's agent runs below its turn.
 #[derive(Debug, Default)]
 pub(super) struct HookChildren {
+    /// Session start/end boundary: even an exact replay cannot cross it. Unlike the
+    /// lifecycle fence, it does not advance on a turn's Stop.
+    session_boundary: u64,
     /// The children that started and have not ended, by `agent_node_id`: true once one outlived
     /// the turn it started in.
     running: HashMap<String, bool>,
@@ -80,9 +83,17 @@ impl Mux {
         // held finish while its last child is posting it. Child events never advance the
         // lifecycle sequence: a later child must not suppress an earlier Stop's retry.
         let fences = self.agent_hook_fences.lock().unwrap_or_else(|e| e.into_inner());
+        let fence = fences.get(&terminal_id);
+        // A replayed spawn cannot recreate a foreground child discarded by a newer turn.
+        // Completions, however, still release a known child when a later Stop projected first.
+        if ingress.kind == "agent.child.spawned"
+            && fence.is_some_and(|fence| sequence <= fence.sequence)
+        {
+            return Ok(());
+        }
         if !matches!(
-            HookFence::journal_transition(
-                fences.get(&terminal_id),
+            HookFence::session_transition(
+                fence,
                 terminal_id.as_str(),
                 text("agent_session_id"),
                 false,
@@ -95,7 +106,13 @@ impl Mux {
         }
         let held = {
             let mut children = self.agent_hook_children.lock().unwrap_or_else(|e| e.into_inner());
-            let entry = children.entry(terminal_id.clone()).or_default();
+            let entry = children.entry(terminal_id.clone()).or_insert_with(|| HookChildren {
+                session_boundary: fence.map_or(0, |fence| fence.sequence),
+                ..HookChildren::default()
+            });
+            if sequence <= entry.session_boundary {
+                return Ok(());
+            }
             if ingress.kind == "agent.child.spawned" {
                 if !entry.ended.contains(child) {
                     entry.running.entry(child.to_owned()).or_default();
@@ -136,7 +153,10 @@ impl Mux {
                 if let Some(held) = children.get(terminal_id).and_then(|entry| entry.held.clone()) {
                     FinishGate::Release(held)
                 } else {
-                    children.remove(terminal_id);
+                    children.insert(
+                        terminal_id.clone(),
+                        HookChildren { session_boundary: sequence, ..HookChildren::default() },
+                    );
                     FinishGate::Notify
                 }
             }
@@ -170,6 +190,7 @@ impl Mux {
         &self,
         terminal_id: &TerminalPublicId,
         held: &HeldFinish,
+        sequence: u64,
     ) -> anyhow::Result<()> {
         self.post_held_agent_finish(terminal_id, held)?;
         let mut children = self.agent_hook_children.lock().unwrap_or_else(|e| e.into_inner());
@@ -178,7 +199,10 @@ impl Mux {
             .and_then(|entry| entry.held.as_ref())
             .is_some_and(|current| current.sequence == held.sequence)
         {
-            children.remove(terminal_id);
+            children.insert(
+                terminal_id.clone(),
+                HookChildren { session_boundary: sequence, ..HookChildren::default() },
+            );
         }
         Ok(())
     }

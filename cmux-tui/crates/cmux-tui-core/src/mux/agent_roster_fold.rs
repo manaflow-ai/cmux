@@ -152,7 +152,7 @@ impl Mux {
         let gate =
             self.gate_agent_finish(&terminal_id, &ingress.kind, sequence, notification.as_ref());
         if let agent_hook_children::FinishGate::Release(held) = &gate {
-            self.release_held_agent_session_finish(&terminal_id, held)?;
+            self.release_held_agent_session_finish(&terminal_id, held, sequence)?;
         }
         let held = matches!(gate, agent_hook_children::FinishGate::Hold);
         if let Some((title, body, level)) = notification.filter(|_| !held) {
