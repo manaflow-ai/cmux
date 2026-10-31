@@ -159,14 +159,10 @@ export async function intakeFiles(
       subscribe: (at: number, changed: () => void) =>
         options.cancelled?.subscribe?.(waiting[at]!.index, changed) ?? (() => {}),
     });
-    const sent = await options
-      .upload?.(
-        waiting.map(({ file }) => file),
-        cancelled,
-      )
-      .catch((failure: unknown): UploadResult => ({
-        error: failure instanceof Error ? failure.message : String(failure),
-      }));
+    const uploads = waiting.map(({ file }) => file);
+    const sent = await options.upload?.(uploads, cancelled).catch((failure: unknown): UploadResult => ({
+      error: failure instanceof Error ? failure.message : String(failure),
+    }));
     sending = false;
     // Each file is its chip (or its image's original) on its own, never after a sibling's preview.
     await Promise.all(
