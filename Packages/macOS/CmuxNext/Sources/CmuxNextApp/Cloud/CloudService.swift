@@ -195,12 +195,10 @@ final class CloudService {
         hands = HandsService(
             apiBaseURL: configuration.ownerAPIBaseURL(), accessToken: { [auth] in try await auth.tokens().access }, identity: installIdentity,
             presence: HandPresenceKeyStore(directory: paths.root.appendingPathComponent("install", isDirectory: true)))
-        let launcher = configuration.linkSource == .appServer ? CloudLinkLauncher.forApp(build: LaunchIdentity.current().build) : nil
-        link = CloudLinkLifecycle(launcher: launcher, installID: { [identity] in await identity.installID() },
-                                  connection: { [machines] in machines.local.connection })
+        let identity = installIdentity
         let transport = InstallHTTPTransport(baseURL: configuration.ownerAPIBaseURL())
         let clientHeaders = identity.requestHeaders
-        credentialProvider = CloudCredentialProvider(relay: CloudCredentialRelay(
+        let relay = CloudCredentialRelay(
             post: { path, body, bearer in try await transport.post(path, json: body, bearer: bearer, headers: clientHeaders) },
             token: { try await identity.installToken() },
             invalidate: { await identity.invalidate() },
@@ -211,8 +209,14 @@ final class CloudService {
                 let token = try? await identity.installToken()
                 return CloudCredentialRelay.Session(signedIn: true, team: token.flatMap(MacInstallIdentity.team(ofToken:)))
             },
-            allowedOps: { await CloudCredentialRelay.bundledServedOps() }
-        ))
+            allowedOps: { await CloudCredentialRelay.bundledServedOps() },
+            installID: { await identity.installID() }
+        )
+        credentialProvider = CloudCredentialProvider(relay: relay)
+        let launcher = configuration.linkSource == .appServer
+            ? CloudLinkLauncher.forApp(build: LaunchIdentity.current().build, relay: relay) : nil
+        link = CloudLinkLifecycle(launcher: launcher, installID: { [identity] in await identity.installID() },
+                                  connection: { [machines] in machines.local.connection })
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
         move.cli = binary
         move.ledger = .standard
