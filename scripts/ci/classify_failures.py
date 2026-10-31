@@ -939,6 +939,8 @@ def verdict_line(report: Mapping, rerun: bool, rerun_line: str) -> str:
     elif jobs:
         line = "**Machine:** " + ("the runner failed, not this PR; re-running the failed jobs." if rerun
                                   else f"the runner failed, not this PR. {rerun_line}")
+    elif report.get("conclusion") == "timed_out":
+        line = "**Timed out:** CI timed out before a job it attributes failed; see the run."
     else:
         line = "**Gates only:** only gate jobs failed; see the run."
     if report.get("conclusion") == "cancelled":
