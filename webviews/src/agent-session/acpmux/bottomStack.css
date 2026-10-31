@@ -179,15 +179,11 @@
   font-size: var(--text-control);
   letter-spacing: var(--text-control--letter-spacing);
   white-space: nowrap;
-  cursor: pointer;
 }
 .acpmux-pr-count:hover:enabled,
 .acpmux-pr-count[aria-expanded="true"] {
   background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
   color: var(--agent-text);
-}
-.acpmux-pr-count:disabled {
-  cursor: default;
 }
 .acpmux-pr-count:focus-visible {
   outline: 1.5px solid var(--agent-text);
@@ -250,7 +246,6 @@
 .acpmux-pr-stack .acpmux-summary-row {
   border-radius: 0;
   background: none;
-  cursor: pointer;
 }
 .acpmux-pr-stack .acpmux-summary-row:hover {
   background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
