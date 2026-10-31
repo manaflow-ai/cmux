@@ -1,0 +1,75 @@
+/// Cloud as where a new chat runs (Labs, leo-workspace design/cloud-work-mode.md): the environment
+/// picker's Cloud row (EnvironmentPicker `runMode` "cloud") makes the chat's first send a
+/// `cloud.startChat` to the host (AgentPaneCloudStart). The host takes a Cloud machine sized for
+/// the chat, copies the chat's folder there and opens the chat there with this prompt; this tab,
+/// which never started a chat, then closes. Nothing asks for a machine, a size or an environment.
+/// The host shows the progress and any failure as its own toast, and the chat shows them under the
+/// message (CloudStartView, cloudStartProgress.ts); the prompt stays in the composer until the chat
+/// opens on the machine.
+
+/// What the page hands the host.
+export type CloudStart = { task: string; cwd?: string; harness?: string; model?: string };
+
+/// The host's answer: ok, or a code with the host's own words when it has them.
+export type CloudStartAnswer = { ok: true } | { ok: false; code: string; message?: string };
+
+/// A page-side refusal before anything goes to the host: Cloud is picked but not offered now (Labs
+/// went off, a chat is starting here), or attachments, since a Cloud chat takes text only for now
+/// (the folder is copied; a pasted file is not). Either way the prompt stays; nothing is sent as a
+/// chat here instead.
+export function cloudPageRefusal(
+  offered: boolean,
+  attachmentCount: number,
+): "cloud_not_now" | "cloud_attachments" | undefined {
+  if (!offered) return "cloud_not_now";
+  return attachmentCount > 0 ? "cloud_attachments" : undefined;
+}
+
+/// Sends `start` to the host and resolves to its answer; never rejects. The host answers once the
+/// chat opens on the machine (a new machine boots in minutes), or with why it didn't.
+export async function startCloudChat(
+  call: (method: string, params: Record<string, unknown>) => Promise<unknown>,
+  start: CloudStart,
+  key: string = crypto.randomUUID(),
+): Promise<CloudStartAnswer> {
+  const params: Record<string, unknown> = { task: start.task, key };
+  if (start.cwd) params.cwd = start.cwd;
+  if (start.harness) params.harness = start.harness;
+  if (start.model) params.model = start.model;
+  try {
+    await call("cloud.startChat", params);
+    return { ok: true };
+  } catch (error) {
+    const { code, message, userMessage } = (error ?? {}) as {
+      code?: unknown;
+      message?: unknown;
+      userMessage?: unknown;
+    };
+    const words = typeof userMessage === "string" ? userMessage : typeof message === "string" ? message : undefined;
+    return {
+      ok: false,
+      code: typeof code === "string" && code ? code : "unavailable",
+      ...(words ? { message: words } : {}),
+    };
+  }
+}
+
+/// One start at a time from a page: while one waits on the host (a new machine boots in minutes),
+/// another Return starts nothing and says nothing, instead of a second start the host refuses.
+export function oneCloudStart(
+  call: (method: string, params: Record<string, unknown>) => Promise<unknown>,
+): (start: CloudStart, key?: string) => Promise<CloudStartAnswer> | undefined {
+  let waiting = false;
+  return (start, key) => {
+    if (waiting) return undefined;
+    waiting = true;
+    return startCloudChat(call, start, key).finally(() => {
+      waiting = false;
+    });
+  };
+}
+
+/// A failure the host already said in a toast (it ran the start): the page says nothing more.
+export function cloudStartToasted(answer: CloudStartAnswer): boolean {
+  return !answer.ok && answer.code === "cloud_start_failed";
+}
