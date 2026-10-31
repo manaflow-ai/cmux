@@ -285,7 +285,13 @@ impl Hub {
             if dropped + refused > 0 {
                 tracing::info!(session = %session.id, prompt = %prompt_id, dropped, refused, "a queue edit dropped display parts of blocks it did not keep or that no longer fit them");
             }
-            let size = super::queue_admission::content_bytes(&blocks, display_parts.as_ref());
+            // What it held beyond its own content (a digest's messages, `inbox_digest.rs`) it
+            // still holds.
+            let held = super::queue_admission::run_bytes(&q.run).saturating_sub(
+                super::queue_admission::content_bytes(&q.run.blocks, q.run.display_parts.as_ref()),
+            );
+            let size =
+                super::queue_admission::content_bytes(&blocks, display_parts.as_ref()) + held;
             q.run = Arc::new(PromptRun {
                 size: size.into(),
                 blocks,

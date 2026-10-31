@@ -10,7 +10,9 @@
 //! slot). The prompts a supersede key replaces leave as it comes in, so they do not count against
 //! it. Not checked: the prompts a restart rebuilds, a failed turn or a Stop holds, or an edit
 //! changes, which were admitted already, and an inbox digest (`inbox_digest.rs`), which joins
-//! queued messages into one and so never adds a prompt.
+//! queued messages into one and so never adds a prompt: it holds the messages it took, which are
+//! charged with it, and its own text, at most a few hundred characters for each of them, which
+//! may pass the byte limit by that much (the next new prompt then finds the queue full).
 //!
 //! Each prompt's size is measured once, where its run is made (`PromptRun::size`), so the check
 //! adds up at most `queueMaxPrompts` numbers under the lock. A digest is charged with the messages
@@ -105,9 +107,9 @@ fn full(reason: &str, message: String, mut data: Value) -> RpcError {
     RpcError::new(-32000, message).with_data(data)
 }
 
-/// About what `v` takes as JSON, and no less than the memory its strings hold: each string's and
-/// key's bytes with their quotes, its separators, and a number at its longest. It walks the value
-/// once and allocates nothing: a prompt is a few values, an inline image one long string.
+/// About what `v` takes as JSON, and never less: each string and key with its quotes and escapes,
+/// its separators, and a number at its longest. It walks the value once and allocates nothing,
+/// and runs once per prompt, outside the queue lock (`PromptRun::size`).
 pub(super) fn bytes(v: &Value) -> u64 {
     // The longest a JSON number is written (`-1.7976931348623157e308`).
     const NUMBER: u64 = 24;
@@ -115,13 +117,20 @@ pub(super) fn bytes(v: &Value) -> u64 {
     match v {
         Value::Null | Value::Bool(_) => 5,
         Value::Number(_) => NUMBER,
-        Value::String(s) => s.len() as u64 + 2,
+        Value::String(s) => string_bytes(s),
         Value::Array(values) => values.iter().map(bytes).sum::<u64>() + items(values.len()),
         Value::Object(fields) => {
-            fields.iter().map(|(k, v)| k.len() as u64 + 3 + bytes(v)).sum::<u64>()
+            fields.iter().map(|(k, v)| string_bytes(k) + 1 + bytes(v)).sum::<u64>()
                 + items(fields.len())
         }
     }
+}
+
+/// A string's bytes as JSON: its quotes, and an escape at its longest (`\u00XX`) for each byte
+/// JSON escapes.
+fn string_bytes(s: &str) -> u64 {
+    let escapes = s.bytes().filter(|&b| b < 0x20 || b == b'"' || b == b'\\').count() as u64;
+    s.len() as u64 + 2 + escapes * 5
 }
 
 #[cfg(test)]

@@ -30,6 +30,8 @@ fn bytes_follow_the_json_size() {
         json!(["", ""]),
         json!([12345678901234567890u64, -1.5e300, true, null, {}]),
         json!({"a": [[], {"b": [1, 2, 3]}], "c": "d"}),
+        json!(["line\none\ttab \"quoted\" back\\slash \u{1}"]),
+        json!({"\"key\"": "\n\n\n"}),
     ] {
         assert!(bytes(&v) >= v.to_string().len() as u64, "{v}: {}", bytes(&v));
     }
