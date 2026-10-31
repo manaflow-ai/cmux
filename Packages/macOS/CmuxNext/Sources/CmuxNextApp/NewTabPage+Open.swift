@@ -351,12 +351,12 @@ extension NewTabPage {
         // same-kind reuse and a lower split for the opposite kind.
         let chatPlacement = ChatColumnPlacement.keepsNewTabPage(in: page) || Self.docksChat(page)
         if effectiveKind.opensBesideChat && chatPlacement {
-            let request = AgentPaneOpenTab(kind: effectiveKind, text: effectiveText, cwd: cwd, search: search)
+            let request = AgentPaneOpenTab(kind: effectiveKind, text: effectiveText, cwd: cwd, search: search, run: kind == .terminal)
             servicesOpenNativeTool(request, from: page)
             return
         }
         switch (effectiveKind, effectiveText.isEmpty) {
-        case (.terminal, _): page.newTerminalTab(cwd: cwd, typing: effectiveText.isEmpty ? nil : effectiveText)
+        case (.terminal, _): page.newTerminalTab(cwd: cwd, typing: kind == .terminal ? command(effectiveText) ?? nil : (effectiveText.isEmpty ? nil : effectiveText))
         case (.browser, true): _ = page.newBrowserTab()
         case (.agent, true): _ = page.openAgentTab(seed: AgentPaneSeedSource(AgentPaneSeed(cwd: cwd)))
         case (.browser, false), (.agent, false):
@@ -374,7 +374,8 @@ extension NewTabPage {
         services.linkOpener.open(from: page, kind: request.kind.rightColumnKind) { target, placed in
             switch request.kind {
             case .terminal:
-                target.newTerminalTab(cwd: request.cwd, typing: command(request.text) ?? nil, placementOwner: placed != nil) { surface in placed?(surface) }; return true
+                let typing = request.run ? command(request.text) ?? nil : (request.text.isEmpty ? nil : request.text)
+                target.newTerminalTab(cwd: request.cwd, typing: typing, placementOwner: placed != nil) { surface in placed?(surface) }; return true
             case .browser:
                 let url = browserURL(request, services: services)
                 return target.newBrowserTab(url: url, engine: BrowserEngineTag.engine(for: url), background: placed != nil, placementOwner: placed != nil) { surface in placed?(surface) }
