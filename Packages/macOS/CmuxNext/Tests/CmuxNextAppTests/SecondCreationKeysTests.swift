@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextTerminal
 import Foundation
 import Testing
 
@@ -39,7 +40,22 @@ struct SecondCreationKeysTests {
             let window = try #require(content.layoutView.window)
             let first = try await splitToTerminal("first", services: services, content: content, window: window)
             let second = try await splitToTerminal("second", services: services, content: content, window: window)
+            // The workspace's create chain is quiet before the test types: a create pressed later waits for it.
+            let chain = await Self.settles(content.pendingCreate, within: .seconds(10))
+            try #require(chain, "the setup's create chain did not end within 10 s after both panes showed: \(describe(content, window, services))")
             try await body(Panes(services: services, connection: connection, content: content, window: window, first: first, second: second))
+        }
+    }
+
+    /// Whether `work` ends within `bound` (no work: true).
+    private static func settles(_ work: ActionWork?, within bound: Duration) async -> Bool {
+        guard let work else { return true }
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask { _ = await work.value; return true }
+            group.addTask { try? await Task.sleep(for: bound); return false }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
         }
     }
 
@@ -404,6 +420,10 @@ struct SecondCreationKeysTests {
         try await Self.withTwoTerminals { p in
             let coordinator = Self.replayInTestWindow(p)
             let nonce = String(UInt32.random(in: 100_000...999_999))
+            var refusals: [String] = []
+            let previous = p.services.registry.refusalObserver
+            p.services.registry.refusalObserver = { reason, quiet in refusals.append(reason); previous?(reason, quiet) }
+            defer { p.services.registry.refusalObserver = previous }
             try await Self.focus(p.first.pane, tab: p.first.tab, in: p)
             // Two creations, neither with an early view: every key below waits, on any build.
             let firstCreation = try #require(coordinator.begin(in: p.window, generation: p.content.beginFocusIntent(), tab: p.first.tab))
@@ -421,14 +441,60 @@ struct SecondCreationKeysTests {
                     pane.pane.tabs.first { $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) }?.surface
                 }.first
             }
+            // First the held split's pane and the end of its hold, read from the app (no daemon request): a test's wait-for
+            // runs on the app's own daemon connection, whose requests run in order, so a wait-for sent now would hold the
+            // split's request back until it timed out (and the line waits for that split).
+            try await PinnedPageTests.until({ split() != nil && !coordinator.isHolding(in: p.window) }, report: {
+                "waited for the held Cmd-D's pane and the end of its hold; saw refusals \(refusals), \(Self.describe(p.content, p.window, p.services))"
+            })
             let inSecond = try await Self.ran("l2x\(nonce)x42", on: p.second.surface, in: p)
             let made = split()
             let madeScreen = if let made { await Self.screen(made, in: p) } else { "" }
             let second = await Self.screen(p.second.surface, in: p)
+            let first = await Self.screen(p.first.surface, in: p)
+            // What the replayed Cmd-D did, for a failure report: the router's last action, refusals, the hold and the panes.
+            let splitEnded = await Self.settles(p.content.pendingCreate, within: .seconds(1))
+            let replay = "the held split's create work ended: \(splitEnded), "
+                + "refusals \(refusals), holding \(coordinator.isHolding(in: p.window)), \(Self.describe(p.content, p.window, p.services)), "
+                + "first terminal: \(first.suffix(200))"
             // The outcome the person sees first.
             #expect(!madeScreen.contains("l2x\(nonce)"), "the line typed for the second terminal ran in the new split: \(madeScreen.suffix(300))")
-            #expect(inSecond, "the line typed for the second terminal did not run there: \(second.suffix(300))")
-            #expect(made != nil, "the held Cmd-D made no pane")
+            #expect(inSecond, "the line typed for the second terminal did not run there: \(second.suffix(300)); \(replay)")
+            #expect(made != nil, "the held Cmd-D made no pane; \(replay)")
+        }
+    }
+
+    /// P0 1193 follow-up (coordinator 17:2xZ, from #29530's review): the hold ends at its bound while the focus names the
+    /// terminal but its view is not in the window (a remount), so the window itself has the keyboard. The keys typed for
+    /// the terminal go to it (its own encoder), never into whatever has the keyboard: before, the focused lane's keys ran
+    /// again as typed (`NSApplication.sendEvent`) and were lost. A text field that takes the keyboard moves the focus
+    /// model with it (the keys then already go to the terminal), so a remount is the way to make this state.
+    @Test func heldKeysReachTheirTerminalWhenItsViewIsOffAtTheHoldsEnd() async throws {
+        try await Self.withTwoTerminals { p in
+            let coordinator = Self.replayInTestWindow(p)
+            let nonce = String(UInt32.random(in: 100_000...999_999))
+            try await Self.focus(p.first.pane, tab: p.first.tab, in: p)
+            let creation = try #require(coordinator.begin(in: p.window, generation: p.content.beginFocusIntent(), tab: p.first.tab))
+            let held = try Self.type("echo v1x\(nonce)x$((6*7))\r", in: p)
+            try #require(held.allSatisfy { $0 }, "the test needs the keys held for the first creation: \(held)")
+
+            // The first terminal's view leaves the window (a remount); the focus model still names it.
+            guard case .terminal(let entry)? = p.first.pane.currentContent else {
+                Issue.record("the first pane shows no terminal")
+                return
+            }
+            let surface = entry.session.surfaceView
+            let parent = try #require(surface.superview, "the terminal's view is not in a view")
+            surface.removeFromSuperview()
+            defer { parent.addSubview(surface) }
+            let focused = p.content.focus.state.resolved == .terminal(pane: p.first.pane.paneKey, tab: p.first.tab)
+            try #require(focused && !(p.window.firstResponder is TerminalSurfaceView),
+                         "the test needs the focus on the first terminal while no terminal view has the keyboard; saw focus \(p.content.focus.state.resolved), first responder \(String(describing: p.window.firstResponder))")
+            // The hold waits for a responder that takes the keys, then ends at its bound (300 ms after the reply).
+            coordinator.resolve(creation, landed: true, in: p.window)
+            let inFirst = try await Self.ran("v1x\(nonce)x42", on: p.first.surface, in: p)
+            let first = await Self.screen(p.first.surface, in: p)
+            #expect(inFirst, "the line typed for the first terminal did not run there (lost at the hold's end): \(first.suffix(300)); holding \(coordinator.isHolding(in: p.window)), end \(String(describing: coordinator.lastHoldEnd(in: p.window)))")
         }
     }
 }
