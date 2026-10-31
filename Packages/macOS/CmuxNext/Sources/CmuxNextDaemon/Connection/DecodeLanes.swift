@@ -142,11 +142,15 @@ struct EventDispatch: Sendable {
     /// feeds (``TerminalEventQueue/waitWhileFull()``, ``DaemonEventRoute/waitWhileReaderParked()``), outside the
     /// line's hang scope. The handler itself never waits.
     var readerWait: (@Sendable () -> Void)?
+    /// Any thread, once, when the transport ends (``LineTransport/close()``): ends a ``readerWait`` that is waiting
+    /// now, so the reader reads the shut socket's EOF and the connection ends (`onClose`). Must not block.
+    var wakeReader: (@Sendable () -> Void)?
 
     init(weigh: @escaping @Sendable (_ name: String, _ line: Data) -> DecodeLane.Weight,
-         readerWait: (@Sendable () -> Void)? = nil) {
+         readerWait: (@Sendable () -> Void)? = nil, wakeReader: (@Sendable () -> Void)? = nil) {
         self.weigh = weigh
         self.readerWait = readerWait
+        self.wakeReader = wakeReader
     }
 
     /// Every event decodes on the lane's queue: a control connection's events and the other roles'

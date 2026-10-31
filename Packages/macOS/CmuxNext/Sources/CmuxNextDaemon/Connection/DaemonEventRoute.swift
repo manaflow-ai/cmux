@@ -93,6 +93,8 @@ final class DaemonEventRoute: Sendable {
         var readerParked = false
         /// An emit parked the reader; its ``DaemonEventRoute/waitWhileReaderParked()`` waits once for it.
         var readerOwesWait = false
+        /// The reader's transport ended (``DaemonEventRoute/wakeParkedReader()``): its wait ends whatever the backlog.
+        var readerReleasedForClose = false
 
         /// Whether the reader must wait now: a live stream consumer has more than `highWater` bytes
         /// to take.
@@ -174,8 +176,11 @@ final class DaemonEventRoute: Sendable {
     /// otherwise.
     func waitWhileReaderParked() {
         let owed = state.withLock { state -> Bool in
-            defer { state.readerOwesWait = false }
-            return state.readerOwesWait
+            defer {
+                state.readerOwesWait = false
+                state.readerReleasedForClose = false
+            }
+            return state.readerOwesWait && !state.readerReleasedForClose
         }
         guard owed else { return }
         onReaderParked?()
@@ -185,11 +190,25 @@ final class DaemonEventRoute: Sendable {
             // dedicated reader thread (LineTransport), never the main thread or a pool thread.
             readerWake.blockingWait()
             waiting = state.withLock { state -> Bool in
-                guard state.mustPark(above: highWater) else { return false }
+                guard !state.readerReleasedForClose, state.mustPark(above: highWater) else {
+                    state.readerReleasedForClose = false
+                    return false
+                }
                 state.readerParked = true
                 return true
             }
         }
+    }
+
+    /// Any thread: the reader's transport ended (``EventDispatch/wakeReader``). A reader waiting for the consumer
+    /// goes on, and one about to wait does not, so it reads the shut socket's EOF and the connection ends; the
+    /// backlog stays for the consumer.
+    func wakeParkedReader() {
+        let release = state.withLock { state -> Bool in
+            state.readerReleasedForClose = true
+            return state.releaseReader()
+        }
+        if release { readerWake.signal() }
     }
 
     /// The stream's consumer stopped taking it: its iterator ended (the route finished, or its task was
