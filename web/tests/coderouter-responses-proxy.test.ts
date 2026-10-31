@@ -94,7 +94,7 @@ afterAll(() => {
   globalThis.fetch = originalFetch;
 });
 
-const { createCodexModelsProxy, createCodexResponsesProxy } = await import("../services/coderouter/codexProxy");
+const { createCodexModelsProxy, createCodexResponsesProxy, NO_USABLE_CODEX_ACCOUNT_HINT } = await import("../services/coderouter/codexProxy");
 
 const proxy = createCodexResponsesProxy({
   authenticate: async (token) => {
@@ -610,7 +610,7 @@ describe("codex responses proxy session routing", () => {
     const started = performance.now();
     const response = await boundedProxy(responsesRequest());
 
-    expect(response.status).toBe(503);
+    expect(response.status).toBe(429);
     expect(selectionSignal).toBeDefined();
     expect(selectionSignal?.aborted).toBe(true);
     expect(performance.now() - started).toBeLessThan(1_000);
@@ -639,7 +639,7 @@ describe("codex responses proxy session routing", () => {
     const started = performance.now();
     const response = await boundedProxy(responsesRequest());
 
-    expect(response.status).toBe(503);
+    expect(response.status).toBe(429);
     expect(credentialSignal).toBeDefined();
     expect(credentialSignal?.aborted).toBe(true);
     expect(performance.now() - started).toBeLessThan(1_000);
@@ -761,9 +761,15 @@ describe("codex responses proxy session routing", () => {
   test("returns no_usable_account when selection is exhausted", async () => {
     accountsToServe = [];
     const response = await proxy(responsesRequest({ session_id: "session-dry" }));
-    expect(response.status).toBe(503);
-    const body = await response.json() as { error: string };
-    expect(body.error).toBe("no_usable_account");
+    // Terminal for Codex: a 429 usage_limit_reached ends the turn at once and prints the hint.
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBeNull();
+    expect(response.headers.get("x-codex-promo-message")).toBe(NO_USABLE_CODEX_ACCOUNT_HINT);
+    const body = await response.json() as { error: { type: string; code: string; message: string }; retryable: boolean };
+    expect(body.error.type).toBe("usage_limit_reached");
+    expect(body.error.code).toBe("no_usable_account");
+    expect(body.error.message).toContain("No healthy Codex subscription");
+    expect(body.retryable).toBe(false);
   });
 });
 
@@ -821,12 +827,18 @@ describe("codex responses proxy with no account configured", () => {
     });
   });
 
-  test("a team whose accounts are all unavailable still gets a retryable 503", async () => {
+  test("a team whose accounts are all unavailable gets a terminal answer Codex prints, not a retried 503", async () => {
+    // A retryable 503 with retry-after left Codex on "Reconnecting... 1/5" for minutes (cmux#28111).
     const run = noAccountProxy(true);
     const response = await run.proxy(responsesRequest());
-    expect(response.status).toBe(503);
-    expect(response.headers.get("retry-after")).toBe("15");
-    expect(((await response.json()) as { error: string }).error).toBe("no_usable_account");
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBeNull();
+    expect(response.headers.get("x-codex-promo-message")).toBe(NO_USABLE_CODEX_ACCOUNT_HINT);
+    const body = (await response.json()) as { error: Record<string, unknown> };
+    expect(body.error).toMatchObject({ type: "usage_limit_reached", code: "no_usable_account" });
+    // Nothing is cooling for a transient reason, so there is no reset time to promise.
+    expect(body.error.resets_at).toBeUndefined();
+    expect(run.slept()).toBe(0);
   });
 });
 
@@ -909,7 +921,9 @@ describe("codex responses proxy capacity hold", () => {
     const { proxy: holding, bodies } = holdingProxy((async () =>
       new Response(quota, { status: 400, headers: { "content-type": "application/json" } })) as typeof fetch);
     const response = await holding(responsesRequest());
-    expect(response.status).toBe(503);
+    expect(response.status).toBe(429);
+    // The reset Codex shows is when the account's quota cooldown ends.
+    expect(((await response.json()) as { error: { resets_at?: number } }).error.resets_at).toBe(Math.ceil((clock + 60 * 60_000) / 1_000));
     expect(bodies).toHaveLength(1);
     expect(sleeps).toEqual([]);
     expect(capacityCooldowns).toEqual([{ accountId: "acct-1", durationMs: 60 * 60_000, failureCode: "usage_limit_exceeded" }]);
@@ -921,7 +935,7 @@ describe("codex responses proxy capacity hold", () => {
       capacityHoldBudgetMs: 5 * 60_000,
     });
     const response = await holding(responsesRequest());
-    expect(response.status).toBe(503);
+    expect(response.status).toBe(429);
     expect(bodies.length).toBeGreaterThan(2);
     expect(clock).toBeLessThanOrEqual(5 * 60_000);
   });
@@ -999,10 +1013,10 @@ describe("codex responses proxy VM-bound route tokens", () => {
     const response = await proxy(edgeRequest({
       "x-cmux-authorization": `Bearer ${SIGNED_VM_TOKEN}`,
     }));
-    expect(response.status).toBe(503);
+    expect(response.status).toBe(429);
     expect(await response.json()).toMatchObject({
-      error: "no_usable_account",
-      retryable: true,
+      error: { code: "no_usable_account" },
+      retryable: false,
     });
     expect(selectInputs[0]?.teamId).toBe("team-1");
   });

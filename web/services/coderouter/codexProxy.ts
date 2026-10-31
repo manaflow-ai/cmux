@@ -276,6 +276,8 @@ async function proxyCodexRequestWith(
   /** False when the round's last failure needs a human (broken credential). */
   let lastFailureTransient = true;
   const hold = new CapacityHold(runtime, runtime.now(), runtime.capacityHoldBudgetMs, upstreamHeaderDeadlineAt);
+  /** The last cooldown lookup: when the soonest account recovers, for the terminal answer's `resets_at`. */
+  let soonestRecoveryMs: number | null | undefined;
   /**
    * Holds before a new round. The cooldown lookup covers the accounts this
    * round just cooled too, so the wait honors their `retry-after`. When it
@@ -284,6 +286,7 @@ async function proxyCodexRequestWith(
    */
   const holdForNextRound = async (): Promise<boolean> => {
     const cooldownMs = await capacityRetryAfterMs(dependencies, runtime, identity, request, upstreamHeaderDeadlineAt);
+    soonestRecoveryMs = cooldownMs;
     const retryAfterMs = attempted.length > 0 && lastFailureTransient ? cooldownMs ?? undefined : cooldownMs;
     if (!(await hold.wait(retryAfterMs, request.signal))) return false;
     addCoderouterBreadcrumb("routing", "Holding Codex request for capacity", {
@@ -672,7 +675,7 @@ async function proxyCodexRequestWith(
       identity,
       request,
       startedAt,
-      status: 503,
+      status: 429,
       attempted: attemptCount,
       hold: holdStats(hold),
       refreshRetries,
@@ -680,13 +683,7 @@ async function proxyCodexRequestWith(
       failureStage,
       responseStreamed: false,
     });
-    return jsonError(
-      "no_usable_account",
-      503,
-      { "retry-after": "15" },
-      "No healthy Codex subscription is currently available. Check `cr`, add an account with `cr add`, or retry shortly.",
-      true,
-    );
+    return noUsableCodexAccountResponse(soonestRecoveryMs, runtime.wallNow());
   }
   const responseHeaders = new Headers();
   for (const name of [
@@ -1528,6 +1525,39 @@ function noCodexAccountResponse(identity: RouteTokenIdentity): Response {
       code: "no_account_configured",
     },
   }, { status: 403, headers: { "cache-control": "no-store" } });
+}
+
+/** Codex prints this header after "You've hit your usage limit." and before ", or try again ...". */
+export const NO_USABLE_CODEX_ACCOUNT_HINT =
+  "No team Codex account can take requests right now (check `cr`, or add one with `cr add codex`)";
+
+/**
+ * Every Codex account the caller can reach is unusable, and none recovers
+ * within the capacity hold. This used to be a retryable 503 with
+ * `retry-after: 15`, which Codex honors: 4 request retries inside each of 5
+ * stream retries, so a chat sat on "Reconnecting... 1/5" for minutes with no
+ * message (cmux#28111). A 429 `usage_limit_reached` is terminal for Codex
+ * (stock and the cmux fork): the turn ends at once and Codex prints
+ * "You've hit your usage limit. <x-codex-promo-message>, or try again
+ * <at resets_at | later>." `error.code` keeps the `no_usable_account` reason
+ * for scripts and the canary.
+ */
+function noUsableCodexAccountResponse(recoveryMs: number | null | undefined, wallNowMs: number): Response {
+  const resetsAt = typeof recoveryMs === "number" && Number.isFinite(recoveryMs)
+    ? Math.ceil((wallNowMs + Math.max(0, recoveryMs)) / 1_000)
+    : undefined;
+  return Response.json({
+    error: {
+      message: "No healthy Codex subscription is currently available. Check `cr`, add an account with `cr add codex`, or retry later.",
+      type: "usage_limit_reached",
+      code: "no_usable_account",
+      ...(resetsAt === undefined ? {} : { resets_at: resetsAt }),
+    },
+    retryable: false,
+  }, {
+    status: 429,
+    headers: { "cache-control": "no-store", "x-codex-promo-message": NO_USABLE_CODEX_ACCOUNT_HINT },
+  });
 }
 
 function jsonError(
