@@ -52,11 +52,13 @@ final class ApprovalNotificationCaptureUITests: XCTestCase {
             sleep(2)
             let name = appearance == .dark ? "dark" : "light"
             let cell = openNotificationCenter(springboard)
+            sleep(2)
             attach(XCUIScreen.main.screenshot(), "banner-\(name)")
-            cell.press(forDuration: 1.5)
-            sleep(4)
+            // Long press on the notification itself (its centre), which opens the long look.
+            cell.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 2.0)
+            sleep(5)
             attach(XCUIScreen.main.screenshot(), "longlook-\(name)")
-            add(XCTAttachment(string: springboard.debugDescription))
+            print("CAPTURE-HIERARCHY-\(name)-BEGIN\n\(springboard.debugDescription)\nCAPTURE-HIERARCHY-END")
             // Close the long look and Notification Center.
             XCUIDevice.shared.press(.home)
             sleep(1)
@@ -72,9 +74,13 @@ final class ApprovalNotificationCaptureUITests: XCTestCase {
         let down = springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.6))
         top.press(forDuration: 0.1, thenDragTo: down)
         sleep(2)
-        let cell = springboard.descendants(matching: .any)
-            .matching(NSPredicate(format: "label CONTAINS[c] %@", "rm -rf build")).firstMatch
-        if !cell.waitForExistence(timeout: 10) {
+        // The notification's own cell (a button), not the list around it, whose label holds every notification's.
+        let match = NSPredicate(format: "label CONTAINS[c] %@", "rm -rf build")
+        let button = springboard.buttons.matching(match).firstMatch
+        let cell = button.waitForExistence(timeout: 10)
+            ? button : springboard.descendants(matching: .any).matching(match).element(boundBy: 0)
+        print("CAPTURE-CELL \(cell.debugDescription)")
+        if !cell.exists {
             attach(XCUIScreen.main.screenshot(), "no-notification")
             XCTFail("the permission notification is in Notification Center\n\(springboard.debugDescription)")
         }
