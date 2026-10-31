@@ -386,6 +386,7 @@ pub const RESERVED_IDS: &[&str] = &[
     "prime",
     "grok",
     "cursor",
+    "hermes",
     "aider",
 ];
 
@@ -398,6 +399,7 @@ pub fn harness_id(registry_id: &str) -> Option<String> {
         "codex-acp" => "codex",
         "pi-acp" => "pi",
         "grok-build" => "grok",
+        "hermes-agent" => "hermes",
         "antigravity-acp" => "antigravity",
         other => other,
     };
