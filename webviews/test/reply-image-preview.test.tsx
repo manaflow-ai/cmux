@@ -44,7 +44,15 @@ describe("template paths", () => {
 describe("rendered", () => {
   const dom = new JSDOM("<!doctype html><div id=root></div>", { url: "http://localhost/", pretendToBeVisual: true });
   const scope = globalThis as Record<string, unknown>;
-  const keys = ["window", "document", "navigator", "HTMLElement", "Element", "Node", "IS_REACT_ACT_ENVIRONMENT"] as const;
+  const keys = [
+    "window",
+    "document",
+    "navigator",
+    "HTMLElement",
+    "Element",
+    "Node",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ] as const;
   const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
   beforeAll(() => {
     Object.assign(scope, {
