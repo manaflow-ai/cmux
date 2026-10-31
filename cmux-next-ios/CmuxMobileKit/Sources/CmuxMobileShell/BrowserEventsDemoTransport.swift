@@ -72,7 +72,7 @@ private final class BrowserEventsDemoConnection: BrowserStreamConnection, Sendab
         guard scene == "context",
               let event = try JSONSerialization.jsonObject(with: input) as? [String: Any],
               event["e"] as? String == "pointer", event["kind"] as? String == "up",
-              event["button"] as? Int == 2 else { return }
+              (event["button"] as? NSNumber)?.intValue == 2 else { return }
         // Answer the actual StreamView long-press request, so UIKit presents the
         // production menu through the same deferred callback as a linked Mac.
         emit(#"""
