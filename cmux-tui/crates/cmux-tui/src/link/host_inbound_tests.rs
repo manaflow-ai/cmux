@@ -28,7 +28,7 @@ impl TokenVerifier for GoodToken {
             return Err(TokenRefused::Invalid);
         }
         Ok(VerifiedToken {
-            vm_kind: None,
+            vm_kind: Some(cmux_link::token::VmKind::Team),
             peer: LinkPeer { install: "inst_mac".into(), user: "42".into(), team: "team_a".into() },
             issued_at_ms: 1_700_000_000_000,
             lease: Some(StreamLease::fixed_until(
@@ -178,7 +178,7 @@ async fn token_issue_time_valid_daemon_hello_reaches_the_entry_as_the_token_inst
         lines.read_line(&mut stamp).await.unwrap();
         assert_eq!(
             stamp,
-            "{\"link_peer\":{\"install\":\"inst_mac\",\"user\":\"42\",\"team\":\"team_a\"},\"check\":\"link_token\",\"check_issued_at_ms\":1700000000000}\n",
+            "{\"link_peer\":{\"install\":\"inst_mac\",\"user\":\"42\",\"team\":\"team_a\"},\"check\":\"native_link_token\",\"check_issued_at_ms\":1700000000000,\"native_vm_kind\":\"team\"}\n",
             "the accepted token is stamped as the stream's control-plane check"
         );
         drop(peer);
