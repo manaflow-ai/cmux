@@ -66,6 +66,35 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         return folder
     }
 
+    /// The git folders `cmux link sync push` copies with the working copy at `root` (its objects and
+    /// refs): `root/.git` when it is a folder, else the folder a `.git` file names (`gitdir: X`, a
+    /// linked worktree or `--separate-git-dir`), plus the common folder that one's `commondir` names.
+    /// Each may lie outside `root`, so the send checks them against the pane's roots too. Empty
+    /// outside git. Reads the disk.
+    public nonisolated static func gitFolders(of root: String) -> [String] {
+        let dotGit = (root as NSString).appendingPathComponent(".git")
+        var isFolder: ObjCBool = false
+        guard FileManager.checked.fileExists(atPath: dotGit, isDirectory: &isFolder) else { return [] }
+        func resolved(_ path: String, against base: String) -> String {
+            let path = path.trimmingCharacters(in: .whitespacesAndNewlines)
+            return ((path.hasPrefix("/") ? path : (base as NSString).appendingPathComponent(path)) as NSString).standardizingPath
+        }
+        let own: String
+        if isFolder.boolValue {
+            own = dotGit
+        } else {
+            guard let text = try? String(blockingContentsOf: URL(fileURLWithPath: dotGit), encoding: .utf8),
+                  let line = text.split(whereSeparator: \.isNewline).first, line.hasPrefix("gitdir:") else { return [dotGit] }
+            own = resolved(String(line.dropFirst("gitdir:".count)), against: root)
+        }
+        var folders = [own]
+        let commonFile = URL(fileURLWithPath: (own as NSString).appendingPathComponent("commondir"))
+        if let common = try? String(blockingContentsOf: commonFile, encoding: .utf8), !common.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            folders.append(resolved(common, against: own))
+        }
+        return folders
+    }
+
     /// The seed of the chat on the Cloud machine, in `cwd` (the folder's copy there): the person's
     /// prompt, sent once with the Send's gesture, on the agent and model the page picked.
     public func seed(cwd: String) -> AgentPaneSeed {
@@ -109,6 +138,13 @@ struct AgentPaneHandOff {
             if root != folder {
                 let checked = await Self.folderInScope(root, transport: model.transport)
                 guard checked == root else { return AgentPaneModel.transportFailure(.pathOutsideRoots) }
+            }
+            // Its git folders are copied too (history, refs): a `.git` file or `commondir` that names a
+            // repository outside the pane's roots never uploads it.
+            let gitFolders = await Task.detached(priority: .userInitiated) { AgentPaneCloudStart.gitFolders(of: root) }.value
+            for gitFolder in gitFolders {
+                let checked = await Self.folderInScope(gitFolder, transport: model.transport)
+                guard checked != nil else { return AgentPaneModel.transportFailure(.pathOutsideRoots) }
             }
             start.cwd = folder
             start.uploadRoot = root
