@@ -16,10 +16,10 @@ extension DaemonService {
     /// - Returns: ``ActionEffect/applied(_:)``.
     public func intentEffect(_ label: String, _ intent: Intent, _ body: @escaping DaemonCommandBody) -> ActionEffect {
         let send = intendNowReporting(label, intent, transaction: .generate(), body)
-        return .applied(ActionConfirmation(send: {
+        return .applied(ActionConfirmation(send: { [self] in
             switch await send() {
             case .success: return nil
-            case .failure(let error): return ActionWorkFailure(label, error)
+            case .failure(let error): return self.workFailure(label, error)
             }
         }))
     }

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "c5b64be649c56a5d6e475628090c4969969b75911c2db7c9bc2503422faa07f1";
+pub const ir_sha256 = "440934d902c97a5d430e2f5c26ae15e96ab11f89fa383c70cf209c01f3abd2cb";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1873,6 +1873,12 @@ pub const ServerStatsHistogram = struct {
     p99: u64,
 };
 
+pub const ServerStatsHookQueue = struct {
+    queued_events: u64,
+    reset_dropped_events: u64,
+    undeliverable_events: u64,
+};
+
 pub const ServerStatsJournalWriter = struct {
     batch_size: ServerStatsHistogram,
     batches: u64,
@@ -1967,6 +1973,7 @@ pub const ServerStatsResourceProjection = struct {
 
 pub const ServerStatsResult = struct {
     connections: ServerStatsConnections,
+    hook_queue: ?ServerStatsHookQueue = null,
     journal_writer: wire.Nullable(ServerStatsJournalWriter),
     locks: ?ServerStatsLocks = null,
     registry_lock: ServerStatsRegistryLock,
@@ -1976,6 +1983,7 @@ pub const ServerStatsResult = struct {
     write_path: ?ServerStatsWritePath = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "hook_queue",
         "locks",
         "resource_projection",
         "write_path",

@@ -1365,6 +1365,8 @@ dependencies = [
 name = "cmux-rd-link"
 version = "0.1.0"
 dependencies = [
+ "cmux-transport",
+ "libc",
  "snow",
 ]
 

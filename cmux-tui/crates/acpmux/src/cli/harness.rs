@@ -46,6 +46,7 @@ pub const EXAMPLES: &[(&str, &str)] = &[
     ("muse", include_str!("../../harnesses/muse.toml")),
     ("muse-terminal", include_str!("../../harnesses/muse-terminal.toml")),
     ("unii", include_str!("../../harnesses/unii.toml")),
+    ("hermes", include_str!("../../harnesses/hermes.toml")),
 ];
 
 /// The guide an agent follows to integrate a harness (`cmux harness guide`).
@@ -60,6 +61,7 @@ pub fn example(name: &str) -> Option<&'static str> {
         "claude-code" => "claude",
         "gemini-cli" => "gemini",
         "muse-code" => "muse",
+        "hermes-agent" => "hermes",
         "aider-terminal" | "terminal" => "aider",
         other => other,
     };

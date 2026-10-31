@@ -582,11 +582,12 @@ Reports where the daemon spends its time so an operator or agent can locate a
 bottleneck without sampling the process: registry mutex contention with the
 source site that holds it, journal writer batch shape and commit latency, and
 control-socket admission. Counters accumulate since daemon start. The command
-reads atomics and never touches SQLite or the journal, so it is safe to poll.
+reads atomics (and, for `hook_queue`, the small hook queue files) and never
+touches SQLite or the journal, so it is safe to poll.
 
 Params: `{include?: array<string>|null}`. `include` names optional result
-sections: `resource_projection`, `write_path` and `locks`; unknown names are
-ignored.
+sections: `resource_projection`, `write_path`, `locks` and `hook_queue`;
+unknown names are ignored.
 An optional section is absent unless requested, because SDK decoders refuse
 unknown result fields.
 
@@ -625,7 +626,8 @@ object{
     effect_intent_batches:uint64, request_effect_commits:uint64,
     writer_registry_locks:uint64
   },
-  locks?:object{registry:lock_detail, state:lock_detail}
+  locks?:object{registry:lock_detail, state:lock_detail},
+  hook_queue?:object{queued_events:uint64,reset_dropped_events:uint64,undeliverable_events:uint64}
 }
 histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99:uint64}
 lock_detail = object{
@@ -688,6 +690,21 @@ distinct site seen. A site's `hold_p99_us` and `wait_p99_us` are power-of-two
 bucket bounds: at most twice the true value and never above its maximum.
 `wait_*` is how long that site waited to acquire the lock. Recording costs
 no allocation after a site's first acquisition.
+
+`hook_queue` shows the agent hook queue. The hook helper keeps each
+agent's hook events in a queue on disk (`hook-spool/` beside the session
+socket) until a daemon answers them; a stopped, restarting or crashed owner
+leaves them queued for the next owner. `queued_events` counts the lines in
+this session's queues (events not answered yet, and answered ones a sender
+has not removed yet). `reset_dropped_events` counts the events that
+`cmux session NAME reset-state` dropped with a session's saved state, for
+the sessions whose sockets share this directory. `undeliverable_events`
+counts events a live daemon took several times in a row and never answered
+(it closed on them, or did not reply within its own longest journal wait),
+so their senders gave them up and the agent's later events went on. Unlike
+the other sections,
+it reads these small files. It is present only when the session serves a
+socket.
 
 `schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
 events. Percentiles are log-linear bucket upper bounds and overestimate by at
