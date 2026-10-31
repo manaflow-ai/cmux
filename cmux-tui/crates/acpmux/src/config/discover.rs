@@ -37,6 +37,7 @@ pub fn discover_harnesses(route: Option<&str>) -> BTreeMap<String, HarnessProfil
     add_coderouter_route(&mut found, route, &which);
     add_cmux_router(&mut found, &which);
     add_uniichat(&mut found, self_argv());
+    add_chief(&mut found, self_exe(), &|path| path.is_file());
     found
 }
 
@@ -79,6 +80,62 @@ pub fn add_uniichat(found: &mut BTreeMap<String, HarnessProfile>, self_argv: Opt
             description: Some("UniiChat: one chat that never ends (uniichat.com)".into()),
             fallback: None,
             family: Some("unii".into()),
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        },
+    );
+}
+
+/// The profile name of the built-in Chief harness.
+pub const CHIEF_PROFILE: &str = "chief";
+
+/// The Chief harness's family: the Chief's own brains refuse it (optchat-chief
+/// `harness_gate`), since a Chief turn on it would message that Chief as the person.
+pub const CHIEF_FAMILY: &str = "chief";
+
+/// This process's executable, and whether it runs acpmux as `cmux-tui acp …`
+/// (a prefix before acpmux's words).
+fn self_exe() -> Option<(std::path::PathBuf, bool)> {
+    let this = crate::self_command::SelfCommand::current().ok()?;
+    Some((this.exe, !this.prefix.is_empty()))
+}
+
+/// Adds `chief`: the person's Chief as an agent chat, through `cmux-tui chief acp`
+/// (the ACP adapter over the Chief conversation Home shows). The CLI is the
+/// multicall binary acpmux is part of: this binary itself when it runs as
+/// `cmux-tui acp …`, else the `cmux-tui` beside it (the app bundle links both
+/// names to one binary). Never a `cmux` found on PATH, which can be another
+/// app's CLI; a standalone acpmux with no `cmux-tui` beside it offers no Chief.
+/// A profile file named `chief` wins.
+pub fn add_chief(
+    found: &mut BTreeMap<String, HarnessProfile>,
+    exe: Option<(std::path::PathBuf, bool)>,
+    is_file: &dyn Fn(&std::path::Path) -> bool,
+) {
+    if found.contains_key(CHIEF_PROFILE) {
+        return;
+    }
+    let Some((exe, in_cmux_tui)) = exe else { return };
+    let cli = if in_cmux_tui {
+        exe
+    } else {
+        let Some(beside) = exe.parent().map(|dir| dir.join("cmux-tui")) else { return };
+        if !is_file(&beside) {
+            return;
+        }
+        beside
+    };
+    found.insert(
+        CHIEF_PROFILE.to_owned(),
+        HarnessProfile {
+            kind: HarnessKind::Acp,
+            argv: vec![cli.to_string_lossy().into_owned(), "chief".into(), "acp".into()],
+            env: BTreeMap::new(),
+            description: Some("Your Chief: the same chat as Home".into()),
+            fallback: None,
+            family: Some(CHIEF_FAMILY.into()),
             models: vec![],
             model: None,
             effort: None,
