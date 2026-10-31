@@ -324,6 +324,19 @@ impl Hub {
         let _ = std::fs::remove_file(path);
     }
 
+    /// Fence the outgoing instance before staging the incoming durable store. Keep
+    /// this boundary shared by transfer_finish and its admission-race regression.
+    pub(super) async fn retire_transfer_instance(
+        &self,
+        old: &Arc<Session>,
+    ) -> Result<(), RpcError> {
+        // Retry tasks hold the same lock across their replaced check and append.
+        self.seal_retry_replacement(old);
+        // Drain an earlier retention commit before replacing the journal.
+        drop(old.append_lock.lock().unwrap_or_else(|e| e.into_inner()));
+        self.kill(old, false).await
+    }
+
     pub(super) async fn transfer_receive(&self, params: &Value) -> Result<Value, RpcError> {
         let manifest = params.get("manifest").cloned().unwrap_or(Value::Null);
         let guard = match params.get("guard") {
@@ -522,14 +535,7 @@ impl Hub {
                 let e = transfer_error("cwd", "the chat's folder is not here; pass cwd");
                 return Err(e.with_data(json!({"reason": "cwd_missing", "cwd": cwd})));
             }
-            // Seal the old instance before staging its durable store. Retry tasks hold this
-            // lock across their replaced check and terminal append, so no late record can land
-            // in the replacement journal.
-            self.seal_retry_replacement(old);
-            // A log retention pass that took the chat's append lock before the mark finishes its
-            // commit first; one after it leaves the chat alone (`hub/retention.rs`).
-            drop(old.append_lock.lock().unwrap_or_else(|e| e.into_inner()));
-            self.kill(old, false).await?;
+            self.retire_transfer_instance(old).await?;
         }
         let source_store = if replacing_durable { self.store.session_dir(id) } else { None };
         let source_store_backup = if let Some(source_store) = source_store.as_ref() {
