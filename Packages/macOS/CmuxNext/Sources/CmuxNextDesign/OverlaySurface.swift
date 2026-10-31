@@ -39,7 +39,8 @@ public final class OverlaySurfaceView: NSView {
     /// The glass keeps its key-window look while its window is not key (``GlassPanelView``): a
     /// dialog's card, whose overlay panel gives key back as the dialog starts to fade out; the
     /// inactive grey frost lit the card up for the whole fade (the close flashed).
-    private let keepsActiveLook: Bool
+    /// The window's ``ActiveLookScope``; nil follows the key state.
+    private let activeLook: ActiveLookScope?
     /// Pins one material (tests, `debug.drop_highlight`); nil follows this Mac.
     public var materialOverride: OverlayMaterial? {
         didSet { refreshMaterial() }
@@ -66,9 +67,9 @@ public final class OverlaySurfaceView: NSView {
                 cornerRadius: CGFloat = Metrics.panelCornerRadius,
                 card: Bool = false,
                 reduceTransparency: ReduceTransparency = .shared, tone: OverlayTone = .theme,
-                keepsActiveLook: Bool = false) {
+                activeLook: ActiveLookScope? = nil) {
         self.tone = tone
-        self.keepsActiveLook = keepsActiveLook
+        self.activeLook = activeLook
         materialOverride = material
         isInteractive = interactive
         isCard = card
@@ -137,10 +138,10 @@ public final class OverlaySurfaceView: NSView {
                     contentView.topAnchor.constraint(equalTo: fill.topAnchor),
                     contentView.bottomAnchor.constraint(equalTo: fill.bottomAnchor),
                 ])
-                glass = Glass.makePanel(content: fill, style: .regular, cornerRadius: cornerRadius, keepsActiveLook: keepsActiveLook)
+                glass = Glass.makePanel(content: fill, style: .regular, cornerRadius: cornerRadius, activeLook: activeLook)
                 tintView = fill
             } else {
-                glass = Glass.makePanel(content: contentView, style: .regular, cornerRadius: cornerRadius, keepsActiveLook: keepsActiveLook)
+                glass = Glass.makePanel(content: contentView, style: .regular, cornerRadius: cornerRadius, activeLook: activeLook)
             }
             glass.translatesAutoresizingMaskIntoConstraints = true
             view = glass
