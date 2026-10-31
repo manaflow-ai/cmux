@@ -34,7 +34,9 @@ runs the tiers its changed files reach (docs/ci/cmux-next-tiers.md):
 A change to .github/workflows/cmux-next.yml runs every tier, unless `--base-rev`
 names the base and the change leaves every job a Mac job runs or needs as it was
 (`on:` paths, a Linux-only job): then it is a CI-only file, like the rest of
-.github/workflows. When the base workflow cannot be read or parsed, every tier runs.
+.github/workflows. A changed job that never runs on a pull request adds no tier, and a
+changed Mac job WORKFLOW_JOB_TIERS lists runs only its own tiers. When the base workflow
+cannot be read or parsed, every tier runs.
 
 Pushes, dispatches and pull requests labeled `full-ci` run every tier. The
 workflow runs the tiers picked here on every same-repository pull request; a
@@ -207,9 +209,17 @@ WEBVIEW = (
 )
 
 # The web bundles are build output since cx-vn5 (scripts/cmux-next/build-web-bundles.sh
-# runs before every package build). A change to what they are built from is a
-# change to the targets that ship them: their tests read the built pages, as they
-# read the committed copies before.
+# runs before every package build). A change to what they are built from changes the
+# app the scheme and Release compiles build (`native`), but no swift test suite: the
+# targets that ship them take them as `.copy` resources (or one processed .js), which
+# no source edit can break, and their suites load fixture pages (AgentPaneView with a
+# temporary index.html, loadHTMLString, a scratch page root), never a built page's
+# content; the app suites that open a real page assert only the native side
+# (DebugSettingsHangWatchTests runs with or without the built page). A bundle source a
+# test does read, such as the dev server's entries (PageDevServerTests) or a shared
+# fixture (webviews/test/fixtures/new-tab-intents.json), selects that test through the
+# graph's reads, like any other file. ci-web type-checks, lints, tests and builds the
+# bundles on Linux, as it does for every webviews change that touches nothing else.
 BUNDLE_INPUTS = (
     "webviews/src/*", "webviews/scripts/*", "webviews/package.json", "webviews/bun.lock",
     "webviews/reactCompiler.mjs", "webviews/vite.config.ts", "schemas/settings/*",
@@ -227,6 +237,7 @@ BUNDLE_INPUTS = (
     "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/InterVariable.woff2",
 )
 BUNDLE_TARGETS = ("CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity", "CmuxNextPalette")
+BUNDLE_SWIFT_TEST_REASON = "(no swift test suite reads a built bundle; only the tests that read this file run)"
 # Committed web bundles that ci-web rebuilds and compares (`--check`) on every pull request,
 # and that the app takes as a `.copy` resource: a change to them needs no compile.
 CHECKED_WEB_BUNDLES = (
@@ -349,7 +360,7 @@ def unread_doc(root: Path, graph: dict, path: str, tree_inputs: list[str]) -> bo
     covered = False
     for target in graph["targets"].values():
         for read in target.get("reads", []):
-            if read == path:
+            if read == path or ("*" in read and matches(path, read)):
                 return False
             if not (read.endswith("/") and under(path, read)):
                 continue
@@ -401,6 +412,8 @@ class Route:
     # The fast tier's own registry, runner or job action changed.
     fast_registry: bool = False
     vendored_pin: bool = False
+    # A change to the swift test job's own steps (WORKFLOW_JOB_TIERS): every test target runs.
+    all_tests: bool = False
     tests: set[str] = field(default_factory=set)
     # Suites named by changed Swift files get a first, narrow invocation so a
     # later broad target run cannot hide the PR's own signal.
@@ -520,6 +533,10 @@ def _scheme_phase_rust_inputs(root: Path) -> list[str]:
 
 
 def matches(path: str, pattern: str) -> bool:
+    """A trailing / is a directory; a `*` is a test target's pattern read (ci-target-graph.py
+    glob_read: fnmatch, whose `*` also crosses /, so it matches at least what the test reads)."""
+    if "*" in pattern:
+        return fnmatch.fnmatchcase(path, pattern + "*" if pattern.endswith("/") else pattern)
     return under(path, pattern) if pattern.endswith("/") else path == pattern
 
 
@@ -743,22 +760,92 @@ def linux_job(job, root: Path | None, seen: frozenset[str] = frozenset()) -> boo
         linux_job(inner, root, seen | {uses}) for inner in called.values())
 
 
-def workflow_reaches_mac(base_text: str, head_text: str, root: Path | None = None) -> str | None:
-    """None when the workflow change leaves every Mac job and every job one needs as it was; otherwise
-    why it may not (a parse failure included, so an unreadable change runs every tier)."""
+# What a pull request's change to one Mac job of cmux-next.yml runs: that job's own tiers (#5424: a
+# change to the DEV compile's steps ran swift test, the daemon suites and every compile). "swift" is
+# every CmuxNext test target, and swift test and the daemon suites take "generated" too, so the
+# generated-files check they fold in runs as it does on a pull request. Any other job that runs on a
+# Mac or that one needs (path routing, placement, the web bundles, the fast tier, the canary) runs
+# every tier, and so does a change to a listed job's `if:` (it changes when the job runs, on every
+# route), a job added or removed, or a top-level key. A job that never runs on a pull request
+# (never_on_pull_request) adds no tier: the pull request cannot run it, and the base push does.
+WORKFLOW_JOB_TIERS: dict[str, tuple[str, ...]] = {
+    "swift-test": ("swift", "generated"),
+    "daemon-test": ("daemon", "generated"),
+    "generated-files": ("generated",),
+    "release-compile": ("native", "mac_release"),
+    "app-compile-fleet": ("native",),
+    "cmux-scheme-compile": ("native", "scheme"),
+}
+# The tiers a Route can take from WORKFLOW_JOB_TIERS (its attribute names; "swift" also sets all_tests).
+WORKFLOW_TIER_FIELDS = ("swift", "generated", "daemon", "native", "mac_release", "scheme")
+NOT_ON_PULL_REQUEST_REASON = "(it never runs on a pull request; the base push runs it)"
+# An `if:` operand that is false on every pull_request run: another event, a branch ref (a pull
+# request's github.ref is refs/pull/N/merge) or a dispatch input set to true (a pull request has none).
+NEVER_ON_PULL_REQUEST = re.compile(
+    r"github\.event_name\s*==\s*'(?:push|workflow_dispatch|schedule)'"
+    r"|github\.ref\s*==\s*'refs/heads/[^']*'"
+    r"|inputs\.[\w-]+\s*==\s*true")
+NEEDS_OPERAND = re.compile(r"needs\.([\w-]+)\.(?:result\s*==\s*'success'|outputs\.[\w-]+\s*==\s*'[^']+')")
+
+
+def never_on_pull_request(name: str, jobs: dict, seen: frozenset[str] = frozenset()) -> bool:
+    """Whether job `name` cannot run on a pull request: its `if:` has a top-level `&&` operand that is
+    false there (NEVER_ON_PULL_REQUEST), or that needs a job of its own `needs:` to succeed (or to set an
+    output) that cannot run there either. A parenthesised operand counts when each of its `||`
+    alternatives has such an operand. Anything else, an unreadable `if:` included, may run."""
+    job = jobs.get(name)
+    if not isinstance(job, dict) or name in seen:
+        return False
+    text = str(job.get("if") or "").strip()
+    match = re.fullmatch(r"\$\{\{(.*)\}\}", text, re.S)
+    needs = job.get("needs", [])
+    needs = {needs} if isinstance(needs, str) else set(needs) if isinstance(needs, list) else set()
+
+    def false_on_pr(expression: str) -> bool:
+        operands = split_top(expression.strip(), "&&")
+        for operand in operands or []:
+            operand = operand.strip()
+            if NEVER_ON_PULL_REQUEST.fullmatch(operand):
+                return True
+            need = NEEDS_OPERAND.fullmatch(operand)
+            if need and need.group(1) in needs and never_on_pull_request(need.group(1), jobs, seen | {name}):
+                return True
+            if operand.startswith("(") and operand.endswith(")"):
+                alternatives = split_top(operand[1:-1], "||")
+                if alternatives and all(false_on_pr(alternative) for alternative in alternatives):
+                    return True
+        return False
+
+    return bool(text) and "${{" not in (match.group(1) if match else text) and false_on_pr(match.group(1) if match else text)
+
+
+@dataclass
+class WorkflowChange:
+    """How a cmux-next.yml change routes: `every` says why it runs every tier (None: it does not);
+    otherwise `tiers` are the tiers of the Mac jobs it changed and `skipped` the changed jobs no pull
+    request runs."""
+    every: str | None
+    tiers: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    skipped: list[str] = field(default_factory=list)
+
+
+def workflow_change(base_text: str, head_text: str, root: Path | None = None) -> WorkflowChange:
+    """What a cmux-next.yml change runs on a pull request (WORKFLOW_JOB_TIERS): nothing when it leaves
+    every Mac job and every job one needs as it was, a changed job's own tiers, or every tier (a parse
+    failure included, so an unreadable change runs every tier)."""
     try:
         import yaml  # noqa: PLC0415
         base = yaml.load(base_text, Loader=yaml.BaseLoader)
         head = yaml.load(head_text, Loader=yaml.BaseLoader)
     except Exception as error:  # noqa: BLE001 - any failure to compare runs every tier
-        return f"the base and head workflows could not be compared ({error.__class__.__name__})"
+        return WorkflowChange(f"the base and head workflows could not be compared ({error.__class__.__name__})")
     if not (isinstance(base, dict) and isinstance(head, dict)
             and isinstance(base.get("jobs"), dict) and isinstance(head.get("jobs"), dict)):
-        return "the base or head workflow has no jobs map"
+        return WorkflowChange("the base or head workflow has no jobs map")
     top = sorted(key for key in set(base) | set(head)
                  if key != "jobs" and key not in QUIET_WORKFLOW_KEYS and base.get(key) != head.get(key))
     if top:
-        return f"its top-level {', '.join(top)} changed"
+        return WorkflowChange(f"its top-level {', '.join(top)} changed")
     both = (base["jobs"], head["jobs"])
     reach = {name for jobs in both for name, job in jobs.items() if not linux_job(job, root)}
     pending = list(reach)
@@ -772,10 +859,22 @@ def workflow_reaches_mac(base_text: str, head_text: str, root: Path | None = Non
                     reach.add(need)
                     pending.append(need)
     changed = sorted(name for name in set(both[0]) | set(both[1]) if both[0].get(name) != both[1].get(name))
-    hit = [name for name in changed if name in reach]
-    if hit:
-        return f"{', '.join(hit)} {'runs' if len(hit) == 1 else 'run'} on a Mac or feed{'s' if len(hit) == 1 else ''} a Mac job"
-    return None
+    result = WorkflowChange(None)
+    every = []
+    for name in (name for name in changed if name in reach):
+        old, new = both[0].get(name), both[1].get(name)
+        if not (isinstance(old, dict) and isinstance(new, dict)):
+            every.append(name)  # added or removed
+        elif never_on_pull_request(name, both[0]) and never_on_pull_request(name, both[1]):
+            result.skipped.append(name)
+        elif name in WORKFLOW_JOB_TIERS and old.get("if") == new.get("if"):
+            result.tiers[name] = WORKFLOW_JOB_TIERS[name]
+        else:
+            every.append(name)
+    if every:
+        return WorkflowChange(f"{', '.join(every)} {'runs' if len(every) == 1 else 'run'} on a Mac or "
+                              f"feed{'s' if len(every) == 1 else ''} a Mac job")
+    return result
 
 
 def base_workflow_text(root: Path, rev: str) -> str | None:
@@ -817,19 +916,29 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
     # can stay on the Linux fast tier.
     # A change only to `on:` or to Linux jobs no Mac job needs is a CI-only file here (actionlint and
     # the workflow tests check it); one that reaches a Mac job, or that cannot be compared, is not.
+    # A change to Mac jobs WORKFLOW_JOB_TIERS lists runs their tiers, and one to jobs no pull request
+    # runs adds none (workflow_change).
     quiet_workflow = False
+    workflow_tiers: dict[str, tuple[str, ...]] = {}
     if WORKFLOW in changed:
         try:
             head_workflow = (root / WORKFLOW).read_text(encoding="utf-8")
         except OSError:
             head_workflow = None
-        why = ("its base was not read" if base_workflow is None or head_workflow is None
-               else workflow_reaches_mac(base_workflow, head_workflow, root))
-        if why:
-            result.everything(f"cmux-next workflow changed ({why}): run every tier")
+        change = (WorkflowChange("its base was not read") if base_workflow is None or head_workflow is None
+                  else workflow_change(base_workflow, head_workflow, root))
+        if change.every:
+            result.everything(f"cmux-next workflow changed ({change.every}): run every tier")
             return result
         quiet_workflow = True
-        result.reasons.append(f"{WORKFLOW} changed only `on:` or jobs no Mac job runs on or needs: a CI-only file")
+        workflow_tiers = change.tiers
+        for job in change.skipped:
+            result.reasons.append(f"{WORKFLOW} job {job} changed {NOT_ON_PULL_REQUEST_REASON}")
+        for job, job_tiers in sorted(workflow_tiers.items()):
+            result.reasons.append(f"{WORKFLOW} job {job} changed: its tiers run ({', '.join(job_tiers)})")
+        if not workflow_tiers:
+            result.reasons.append(f"{WORKFLOW} changed only `on:`, jobs no Mac job runs on or needs, or jobs"
+                                  f" no pull request runs: a CI-only file")
 
     graph = load_graph(root)
     tests = {name for name, target in graph["targets"].items() if target["kind"] == "test"}
@@ -843,7 +952,7 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
     unread = {path for path in changed if unread_doc(root, graph, path, tree_inputs_early)}
     for path in sorted(unread):
         result.reasons.append(f"{path} is a doc no test or generator names {UNREAD_DOC_REASON}")
-    if "dev-build" not in labels and all(
+    if "dev-build" not in labels and not workflow_tiers and all(
         (web_fast(path) or ci_only(path) or linux_only_test(path, linux_tests))
         and (path in unread or not consumed(path, tree_inputs_early, read)) for path in changed
     ):
@@ -855,9 +964,8 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
     tree_inputs = tree_input_paths(root)
     daemon_closure = closure(graph, set(LIVE_DAEMON_SUBJECTS))
     # Targets whose sources (or local packages) changed: the package build itself can change. A web
-    # bundle input changes only what the targets that ship it copy as resources (changed_targets).
+    # bundle input is none of them: it changes only the resources the bundle targets copy (BUNDLE_INPUTS).
     changed_targets: set[str] = set()
-    source_targets: set[str] = set()
     fast = fast_tier_scope(root, graph)
 
     for path in changed:
@@ -911,15 +1019,15 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
             result.reasons.append(f"{path} is the Mac fast tier's registry or runner")
 
         if any(fnmatch.fnmatch(path, pattern) for pattern in BUNDLE_INPUTS):
+            # The compiles ship the bundles; swift test reads none of their content (BUNDLE_INPUTS).
             shipped = {name for name in BUNDLE_TARGETS if name in graph["targets"]}
-            changed_targets |= shipped
             result.native = True
-            result.reasons.append(f"{path} is built into the web bundles of {', '.join(sorted(shipped))}")
+            result.reasons.append(f"{path} is built into the web bundles of {', '.join(sorted(shipped))}"
+                                  f" {BUNDLE_SWIFT_TEST_REASON}")
 
         owner = owning_target(graph, path)
         if owner is not None:
             changed_targets.add(owner)
-            source_targets.add(owner)
             result.native = True
             # An executable target (the server helper) is bundled by the app
             # scheme's build phases, not linked into CmuxNextApp.
@@ -932,7 +1040,6 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
             if any(under(path, prefix) for prefix in prefixes):
                 users = {t for t, target in graph["targets"].items() if name in target["packages"]}
                 changed_targets |= users
-                source_targets |= users
                 result.native = result.scheme = True
                 result.reasons.append(f"{path} is in local package {name}, used by {', '.join(sorted(users))}")
         for name in tests:
@@ -944,7 +1051,11 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
 
     if result.full:
         return result
-    result.package_build = bool(source_targets)
+    for job_tiers in workflow_tiers.values():
+        for tier in job_tiers:
+            setattr(result, tier, True)
+        result.all_tests |= "swift" in job_tiers
+    result.package_build = bool(changed_targets)
     for name in tests:
         if name in changed_targets or closure(graph, {name}) & changed_targets:
             result.tests.add(name)
@@ -977,7 +1088,7 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
 
 def swift_filter(result: Route) -> str:
     """A `swift test --filter` regex for the selected test targets ('' is all)."""
-    if result.full:
+    if result.full or result.all_tests:
         return ""
     return "^(" + "|".join(sorted(result.tests)) + ")\\." if result.tests else ""
 
@@ -1029,7 +1140,7 @@ def outputs(result: Route) -> dict[str, str]:
         "vendored_pin": flag(result.vendored_pin),
         "swift_filter": swift_filter(result),
         "swift_priority_filter": swift_priority_filter(result),
-        "swift_targets": "all" if result.full else " ".join(sorted(result.tests)),
+        "swift_targets": "all" if result.full or result.all_tests else " ".join(sorted(result.tests)),
         "swift_canary_targets": " ".join(sorted(result.swift_canary_targets)),
     }
 

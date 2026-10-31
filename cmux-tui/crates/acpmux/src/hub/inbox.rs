@@ -1043,6 +1043,10 @@ impl Hub {
         }
     }
 
+    /// The record kinds `restore_inbox` reads (a log load's, so `store/kind_index.rs` copies them).
+    pub(crate) const INBOX_KINDS: &[&str] =
+        &["inbox", "inbox_noticed", "inbox_answered", "inbox_read", "inbox_removed"];
+
     /// The inbox from the session's log (`restore_queue`): every message, read and noticed as
     /// the log says. Run again, it adds only what it does not hold.
     pub(super) fn restore_inbox(&self, session: &Arc<Session>) {
@@ -1052,8 +1056,8 @@ impl Hub {
         let mut removed: std::collections::HashSet<String> = Default::default();
         let mut answered: std::collections::HashMap<String, super::queue::Answer> =
             Default::default();
-        let kinds = ["inbox", "inbox_noticed", "inbox_answered", "inbox_read", "inbox_removed"];
-        let scanned = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
+        let kinds = Self::INBOX_KINDS;
+        let scanned = self.store.scan_kinds(&session.id, kinds, &mut |e: EventRecord| {
             let ids = || {
                 let ids = e.msg.get("promptIds").and_then(Value::as_array).cloned();
                 ids.unwrap_or_default().into_iter().filter_map(|v| v.as_str().map(str::to_owned))

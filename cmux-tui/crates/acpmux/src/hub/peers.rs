@@ -476,6 +476,8 @@ impl Hub {
         {
             let full = format!("{peer}/{name}");
             summary.set("name", Value::String(full));
+            // Its warnings' commands name the peer's session (`usage_warnings.rs`).
+            super::usage_warnings::for_name(&mut summary);
         }
         summary.set("peer", Value::String(peer.to_owned()));
         // A peer from before `indicator`, `lane` or the lane's masked `step` and `title`

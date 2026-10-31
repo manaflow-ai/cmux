@@ -1155,7 +1155,7 @@ impl Hub {
         {
             let tail: Vec<String> = session.stderr_tail.lock().unwrap().iter().cloned().collect();
             // The last stderr line that says why: not a stack frame, a wrapper tag or a wrapper exit line.
-            if let Some(last) = tail.iter().rev().map(|l| l.trim()).find(|l| explains_exit(l)) {
+            if let Some(last) = tail.iter().rev().find(|line| explains_exit(line)).cloned() {
                 let agent = session.meta().harness;
                 e.message = format!("{} ({agent}): {last}", e.message);
             }
@@ -1557,8 +1557,7 @@ impl Hub {
                 if e.message == "agent process closed" {
                     let tail: Vec<String> =
                         session.stderr_tail.lock().unwrap().iter().cloned().collect();
-                    if let Some(last) =
-                        tail.iter().rev().map(|l| l.trim()).find(|l| explains_exit(l))
+                    if let Some(last) = tail.iter().rev().find(|line| explains_exit(line)).cloned()
                     {
                         e.message =
                             format!("agent process closed ({}): {last}", session.meta().harness);
@@ -1808,7 +1807,18 @@ impl Hub {
     /// Stop the child. The log stays. `purge` also deletes the log.
     pub async fn kill(&self, session: &Arc<Session>, purge: bool) -> Result<(), RpcError> {
         // An idle pass under way ends first; none starts while this stop runs (`idle.rs`).
-        let _using = session.harness_use.read().await;
+        let using = session.harness_use.read().await;
+        self.kill_held(session, purge, using).await
+    }
+
+    /// `kill`, with `_using`, a lease of `harness_use` (shared, or exclusive for a conditional
+    /// stop, `stop_if_idle.rs`), held until the session is closed.
+    pub(super) async fn kill_held(
+        &self,
+        session: &Arc<Session>,
+        purge: bool,
+        _using: impl Send,
+    ) -> Result<(), RpcError> {
         // Counted first: a start for a request from before this stop ends (`ensure_child`).
         session.stops.fetch_add(1, Ordering::SeqCst);
         session.closing.store(true, Ordering::SeqCst);
