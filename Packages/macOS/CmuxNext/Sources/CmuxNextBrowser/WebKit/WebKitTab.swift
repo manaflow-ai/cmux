@@ -83,6 +83,8 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
     /// The system's memory pressure, read when the web content process ends (``BrowserExitRecovery``);
     /// a test gives a fixed level.
     @ObservationIgnored var memoryPressure: () -> MemoryPressureLevel = { KernelMemoryPressureLevel().read() }
+    /// The one automatic reload a memory end of the web content process owes (`WebKitTab+Delegates`).
+    @ObservationIgnored var exitRecovery = BrowserExitRecovery()
 
     init(configuration: BrowserTabConfiguration, webViewConfiguration: WKWebViewConfiguration, engine: WebKitEngine,
          openedByPage: Bool = false) {
@@ -167,8 +169,11 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
         }
     }
 
-    /// WebKit draws in-view and throttles hidden views itself.
-    public func setContentVisible(_ visible: Bool) {}
+    /// WebKit draws in-view and throttles hidden views itself; a page shown after a memory end
+    /// takes its one automatic reload (`exitRecovery`).
+    public func setContentVisible(_ visible: Bool) {
+        if visible { reloadOwedAfterExit() }
+    }
 
     // MARK: Snapshot, script, find
 
