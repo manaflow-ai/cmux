@@ -100,6 +100,8 @@ public final class TerminalFeed {
     /// The pause between the keys of an answer: the agent's screen redraws after each.
     var keyPause: Duration = .milliseconds(300)
     var clock: any Clock<Duration> = ContinuousClock()
+    /// Bounds a silent notification ledger without closing the shared daemon channel.
+    var requestDeadline: Duration = .seconds(20)
 
     /// Pastes `text` into the terminal of `surface` and submits it with Return
     /// in one `send` on the Mac's `daemon` channel of `connection`, only while
@@ -541,7 +543,7 @@ public final class TerminalFeed {
             }
             if error.message.contains("foreground changed") { return "The agent left that terminal, so the reply was not sent." }
             if error.message.contains("agent not waiting") {
-                return "The agent is busy, asking something, or restarted. The reply was not sent. Open the terminal to reply."
+                return "Open the terminal to answer the agent."
             }
             return "The Mac refused the reply: \(error.message)"
         } catch {

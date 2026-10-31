@@ -52,6 +52,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+# The masker: beside this file first (the pre-push hook's installed copy, install-git-hooks.sh and refresh_checks.py put
+# it there, so a push cannot change how its own imports are read), else the repository's scripts/.
+sys.path[:0] = [str(Path(__file__).resolve().parent), str(ROOT / "scripts")]
+from swift_source_mask import mask_swift_source  # noqa: E402
 DEFAULT_MANIFEST = ROOT / "Packages/macOS/CmuxNext/Package.swift"
 MARKER = "// sorted: scripts/cmux-next/check-package-dependency-lists.py"
 REQUIRED = ("CmuxNextAppTests",)
@@ -73,7 +77,7 @@ IMPORT_BASELINE = frozenset((
     "CmuxNextBrowser", "CmuxNextCloud", "CmuxNextCodeRouter", "CmuxNextControl", "CmuxNextDesignTokens",
     "CmuxNextDevices", "CmuxNextErrorJournal", "CmuxNextHostPressure", "CmuxNextIcons",
     "CmuxNextPages", "CmuxNextPopups", "CmuxNextRemoteBrowser", "CmuxNextRemoteLocalhost", "CmuxNextRemoteView",
-    "CmuxNextResources", "CmuxNextServer", "CmuxNextSettingsWindow",
+    "CmuxNextResources", "CmuxNextSettingsWindow",
     "CmuxNextTerminal")))
 TARGET = re.compile(r'^\s*\.(target|testTarget|executableTarget)\(\s*$')
 IMPORT = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|package|internal|private|fileprivate)\s+)?import\s+(\w+)")
@@ -329,6 +333,9 @@ def manifest_targets(text: str) -> dict[str, tuple[str, set[str], str | None]]:
     for name, (kind, open_at, close_at) in target_spans(text).items():
         span = argument(text, open_at, close_at, "dependencies")
         declared = set(top_level_strings(text, span[0], span[1])) if span else set()
+        if span:
+            # `.target(name: "X")`, the form that tells a target from a product of the same name.
+            declared |= set(re.findall(r'\.target\(\s*name:\s*"([A-Za-z0-9_]+)"', text[span[0]:span[1]]))
         path = re.search(r'path:\s*"([^"]+)"', text[open_at:close_at])
         targets[name] = (kind, declared, path.group(1) if path else None)
     return targets
@@ -341,7 +348,8 @@ def undeclared_imports(text: str, package_root: Path) -> list[str]:
     for name, (kind, declared, path) in targets.items():
         folder = package_root / (path or (("Tests" if kind == "testTarget" else "Sources") + "/" + name))
         for source in sorted(folder.rglob("*.swift")):
-            for line in source.read_text(encoding="utf-8", errors="replace").split("\n"):
+            # Comments and string contents masked: a test's golden source that says `import X` imports nothing.
+            for line in mask_swift_source(source.read_text(encoding="utf-8", errors="replace")).split("\n"):
                 match = IMPORT.match(line)
                 if match and match.group(5) in targets and match.group(5) != name and match.group(5) not in declared:
                     found.add(f"{name}: {match.group(5)}")
