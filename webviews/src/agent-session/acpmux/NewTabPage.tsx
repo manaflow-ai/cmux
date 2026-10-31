@@ -12,6 +12,8 @@ import { useRowFit } from "./composerRowFit";
 import { useComposerSettings } from "./composerSettings";
 import type { AcpmuxSnapshot } from "./model";
 import { ProjectChooser, type Project } from "./ProjectChooser";
+import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "./AddProjectPanel";
+import { BrowseFailure, browseFailureMessage } from "./BrowseFailure";
 import {
   defaultRow,
   stepSelection,
@@ -324,7 +326,7 @@ type Props = NewTabCommandActions & {
   onShowAll(): void;
   onEditShortcut?(kind: TabKind): void;
   /// Choose Folder…: the host's folder panel; resolves to the picked folder.
-  onBrowseProject?(): Promise<string | undefined>;
+  onBrowseProject?(request?: BrowseRequest): Promise<BrowseResult>;
   now?: number;
 };
 
@@ -373,6 +375,40 @@ export function NewTabPage({
   // newtab/startedProject.ts), else the newest chat's, each only while the host still lists it; a
   // page on another machine (no `home`) never on this Mac's. A pick replaces it.
   const [picked, setProjectCwd] = useState<string | undefined>(undefined);
+  const [browseError, setBrowseError] = useState<string>();
+  const browseRequest = useRef(0);
+  const browsePending = useRef(false);
+  useEffect(
+    () => () => {
+      browseRequest.current += 1;
+    },
+    [],
+  );
+  const pickProject = (path: string) => {
+    browseRequest.current += 1;
+    setBrowseError(undefined);
+    setProjectCwd(path);
+  };
+  const browseProject = async (request?: BrowseRequest): Promise<BrowseResult> => {
+    if (browsePending.current) return BROWSE_BUSY;
+    browsePending.current = true;
+    // The Add Project dialog owns its result and errors until it commits the choice.
+    try {
+      if (request?.deferPick) return (await onBrowseProject?.(request)) ?? undefined;
+      const id = ++browseRequest.current;
+      setBrowseError(undefined);
+      try {
+        const path = await onBrowseProject?.(request);
+        if (browseRequest.current === id && typeof path === "string" && path.length > 0) setProjectCwd(path);
+        return path;
+      } catch (error) {
+        if (browseRequest.current === id) setBrowseError(browseFailureMessage(error));
+        return undefined;
+      }
+    } finally {
+      browsePending.current = false;
+    }
+  };
   const [started] = useState(() => (home ? (rememberedStartedProject() ?? startedProject) : undefined));
   const projectCwd =
     picked ??
@@ -428,12 +464,22 @@ export function NewTabPage({
   // The kind a prefix switched from, so Backspace in the empty field switches back.
   const [beforePrefix, setBeforePrefix] = useState<TabKind>();
   const field = useRef<HTMLInputElement>(null);
-  const { attachments, setAttachments, pending, unsettled, cancel, retry, attachError, drop, dropLanded } =
-    useAttachmentIntake({
-      allowImages: snapshot.summary?.promptCapabilities?.image !== false,
-      pasteTarget: (target) => (kind === "agent" && field.current?.contains(target) ? { uploads: false } : undefined),
-      dropZone: () => field.current?.closest(".acpmux-newtab") ?? null,
-    });
+  const {
+    attachments,
+    setAttachments,
+    pending,
+    originalFailures,
+    unsettled,
+    cancel,
+    retry,
+    attachError,
+    drop,
+    dropLanded,
+  } = useAttachmentIntake({
+    allowImages: snapshot.summary?.promptCapabilities?.image !== false,
+    pasteTarget: (target) => (kind === "agent" && field.current?.contains(target) ? { uploads: false } : undefined),
+    dropZone: () => field.current?.closest(".acpmux-newtab") ?? null,
+  });
   const holdForAttachments = useSendWhenAttached(unsettled);
   const command = useNewTabCommand(
     text,
@@ -733,6 +779,7 @@ export function NewTabPage({
               field.current?.focus();
             }}
             onRetry={retry}
+            originalFailures={originalFailures}
             onReorder={(id, index) => setAttachments((current) => reordered(current, id, index))}
           />
           {dropHost && (
@@ -746,14 +793,8 @@ export function NewTabPage({
                   current={projectCwd}
                   currentLabel={selectedProject}
                   icon={<FolderIcon />}
-                  onPick={setProjectCwd}
-                  onBrowse={
-                    onBrowseProject &&
-                    (() =>
-                      void onBrowseProject().then((picked) => {
-                        if (picked) setProjectCwd(picked);
-                      }))
-                  }
+                  onPick={pickProject}
+                  onBrowse={onBrowseProject && browseProject}
                 />
               )}
               {kind === "terminal" && (
@@ -805,7 +846,8 @@ export function NewTabPage({
                 tabIndex={-1}
                 aria-selected={index === selected}
                 className={index === selected ? "acpmux-omni-row is-selected" : "acpmux-omni-row"}
-                onMouseMove={() => index !== selected && setSelected(index)}
+                // Hover only lights the row (styles.css); Return stays the keyboard's row, as on
+                // the New Tab screen (newtab/NewTabScreen.tsx). A press still runs the row.
                 onMouseDown={(event) => {
                   event.preventDefault();
                   activate(row);
@@ -828,6 +870,13 @@ export function NewTabPage({
           </div>
         )}
       </div>
+      {browseError && (
+        <BrowseFailure
+          error={browseError}
+          onRetry={() => void browseProject()}
+          onDismiss={() => setBrowseError(undefined)}
+        />
+      )}
       {openFailed && (
         <p className="acpmux-newtab-failed" role="alert">
           {t(NEW_TAB_LABELS.openFailed)}
