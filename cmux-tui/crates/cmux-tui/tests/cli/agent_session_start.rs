@@ -560,8 +560,14 @@ fn agent_session_start_starts_codex_on_the_callers_own_cloud_vm_only() {
     let capabilities = identity["data"]["capabilities"].to_string();
     assert!(!capabilities.contains("agent-session-start-owner-cloud-v1"), "{identity}");
     let surface = team.own_agent_tab();
-    let refused = start(&team, surface, "fcx", Some("owner"));
+    let refused = start(&team, surface, "fcx", None);
     assert_eq!(refused["error_code"], "agent_session.team_vm_blocked", "{refused}");
+    // The creator's owner word takes a team VM's chat (#29107), but only one that asks first.
+    let refused = start(&team, surface, "fcx", Some("owner"));
+    assert_eq!(refused["error_code"], "agent_session.not_asking", "{refused}");
+    let refused = start(&team, surface, "fop", Some("owner"));
+    assert_eq!(refused["error_code"], "agent_session.not_asking", "{refused}");
+    assert_eq!(team.acpmux_sessions(), 0, "an agent started on a team VM");
 }
 
 /// A session never leaves its machine (cx-k21v): a tab whose record names
