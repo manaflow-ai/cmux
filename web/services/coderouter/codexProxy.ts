@@ -197,7 +197,7 @@ async function capacityRetryAfterMs(
   identity: RouteTokenIdentity,
   request: Request,
   deadlineAt: number,
-): Promise<number | null | undefined> {
+): Promise<number | null | undefined | "deadline"> {
   if (!dependencies.nextAvailableAt) return null;
   const lookup = dependencies.nextAvailableAt;
   try {
@@ -215,7 +215,8 @@ async function capacityRetryAfterMs(
     return availableAt === null ? null : Math.max(0, availableAt.getTime() - runtime.wallNow());
   } catch (error) {
     if (request.signal.aborted) throw error;
-    if (error instanceof CoderouterOperationDeadlineError) return null;
+    // The request ran out of time, which says nothing about the accounts.
+    if (error instanceof CoderouterOperationDeadlineError) return "deadline";
     reportCoderouterFailure("rds", error, { provider: "codex", operation: "next_capacity_available_at" });
     return undefined;
   }
@@ -278,6 +279,8 @@ async function proxyCodexRequestWith(
   const hold = new CapacityHold(runtime, runtime.now(), runtime.capacityHoldBudgetMs, upstreamHeaderDeadlineAt);
   /** The last cooldown lookup: when the soonest account recovers, for the terminal answer's `resets_at`. */
   let soonestRecoveryMs: number | null | undefined;
+  /** The last cooldown lookup hit the request deadline: not proof the pool is empty. */
+  let holdLookupTimedOut = false;
   /**
    * Holds before a new round. The cooldown lookup covers the accounts this
    * round just cooled too, so the wait honors their `retry-after`. When it
@@ -285,7 +288,9 @@ async function proxyCodexRequestWith(
    * failed), plain backoff still applies.
    */
   const holdForNextRound = async (): Promise<boolean> => {
-    const cooldownMs = await capacityRetryAfterMs(dependencies, runtime, identity, request, upstreamHeaderDeadlineAt);
+    const lookup = await capacityRetryAfterMs(dependencies, runtime, identity, request, upstreamHeaderDeadlineAt);
+    holdLookupTimedOut = lookup === "deadline";
+    const cooldownMs = lookup === "deadline" ? null : lookup;
     soonestRecoveryMs = cooldownMs;
     const retryAfterMs = attempted.length > 0 && lastFailureTransient ? cooldownMs ?? undefined : cooldownMs;
     if (!(await hold.wait(retryAfterMs, request.signal))) return false;
@@ -371,7 +376,7 @@ async function proxyCodexRequestWith(
         break;
       }
       if (await holdForNextRound()) continue;
-      noUsableAccount = true;
+      noUsableAccount = !holdLookupTimedOut;
       break;
     }
     attempted.push(account.id);
