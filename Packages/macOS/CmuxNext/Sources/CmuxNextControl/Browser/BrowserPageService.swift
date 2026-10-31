@@ -1,5 +1,5 @@
 public import CmuxNextSettings
-import Foundation
+public import Foundation
 
 /// `browser.page.*`: page commands for the browser tabs the app hosts,
 /// addressed by public tab id (`params.tab`, any unique prefix) or, without
@@ -15,6 +15,14 @@ public struct BrowserPageService: Sendable {
     /// Lists a tab in a second pane (`browser.page.mirror`, and the Home mirror of a tab an
     /// agent starts driving); nil (tests, hosts without strips) mirrors nothing.
     let mirrors: (any BrowserTabMirrorHost)?
+    /// The person's Secure Store logins by host, for `browser.page.fill_login`; nil (tests, hosts
+    /// without a store) answers `no_saved_login`.
+    let logins: BrowserPageLogins?
+    /// Which sites an agent scripted and which hold a filled login (``BrowserLoginGuards``): the
+    /// app's one instance, shared with the browser host's gate.
+    let loginGuards: BrowserLoginGuards
+    /// `browser.agentSecureStoreFill`, read per fill; off answers every fill `disabled`.
+    let secureStoreFillEnabled: @Sendable () async -> Bool
     /// `browser.agentMouse.*` as it is now, read per click.
     let agentMouse: @Sendable () async -> AgentMouseSetting.Value
     /// Test-only seam for the direct pixel-capture contract. Production leaves this false because
@@ -29,20 +37,39 @@ public struct BrowserPageService: Sendable {
     ///     (hosts without settings) uses the defaults, human motion with a 350 ms cap.
     ///   - mirrors: lists a tab in a second pane (``BrowserTabMirrorHost``); nil serves
     ///     `browser.page.mirror` as unavailable and mirrors no agent tab into Home.
+    ///   - logins: the person's Secure Store logins by host (`browser.page.fill_login`); nil
+    ///     answers every fill with `no_saved_login`.
+    ///   - loginGuards: the app's one ``BrowserLoginGuards`` (also the browser host's); nil makes
+    ///     one for this run only.
+    ///   - secureStoreFillEnabled: `browser.agentSecureStoreFill`, read per fill; nil is off.
     public init(engine: any BrowserPageEngine, passkeys: BrowserPasskeyRequests? = nil,
                 agentMouse: (@Sendable () async -> AgentMouseSetting.Value)? = nil,
-                mirrors: (any BrowserTabMirrorHost)? = nil) {
+                mirrors: (any BrowserTabMirrorHost)? = nil, logins: BrowserPageLogins? = nil,
+                loginGuards: BrowserLoginGuards? = nil, secureStoreFillEnabled: (@Sendable () async -> Bool)? = nil) {
         self.init(engine: engine, leases: BrowserTabLeases(), passkeys: passkeys, agentMouse: agentMouse,
-                  allowsUnsafeCapture: false, mirrors: mirrors)
+                  allowsUnsafeCapture: false, mirrors: mirrors, logins: logins, loginGuards: loginGuards,
+                  secureStoreFillEnabled: secureStoreFillEnabled)
+    }
+
+    /// `<Application Support>/<bundle id>/browser-login-guards.json`.
+    public static func loginGuardsFile(bundleIdentifier: String?) -> URL {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(filePath: NSTemporaryDirectory())
+        let bundle = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
+        return support.appending(path: bundle).appending(path: "browser-login-guards.json")
     }
 
     init(engine: any BrowserPageEngine, leases: BrowserTabLeases, passkeys: BrowserPasskeyRequests? = nil,
          agentMouse: (@Sendable () async -> AgentMouseSetting.Value)? = nil, allowsUnsafeCapture: Bool = false,
-         mirrors: (any BrowserTabMirrorHost)? = nil) {
+         mirrors: (any BrowserTabMirrorHost)? = nil, logins: BrowserPageLogins? = nil,
+         loginGuards: BrowserLoginGuards? = nil, secureStoreFillEnabled: (@Sendable () async -> Bool)? = nil) {
         self.engine = engine
+        self.loginGuards = loginGuards ?? BrowserLoginGuards(file: nil)
+        self.secureStoreFillEnabled = secureStoreFillEnabled ?? { false }
         self.leases = leases
         self.passkeys = passkeys
         self.mirrors = mirrors
+        self.logins = logins
         self.agentMouse = agentMouse ?? { AgentMouseSetting().fallback }
         self.allowsUnsafeCapture = allowsUnsafeCapture
     }
@@ -50,6 +77,7 @@ public struct BrowserPageService: Sendable {
     public func install(on router: ControlRouter) {
         let engine = engine
         let leases = leases
+        let guards = loginGuards
         let register: ([ControlMethod]) -> Void = { router.register($0.map(self.leasing)) }
         func page(_ name: String, _ operation: @escaping @Sendable (ControlCall) throws -> BrowserPageOperation) -> ControlMethod {
             .async("browser.page.\(name)") { call in
@@ -77,14 +105,10 @@ public struct BrowserPageService: Sendable {
             .async("browser.page.eval") { call in
                 let script = try Self.string(call, "script")
                 let tab = try Self.tab(call)
-                let value: JSONValue
-                do {
-                    // Objects WebKit cannot return (DOMRect, Map, …) go through toJSON.
-                    value = try await Self.run(engine, .evaluate(BrowserPageScripts.jsonSafe(script)), tab)
-                } catch let error as ControlError where error.code == "js_error" && error.message.contains("SyntaxError") {
-                    // The wrapper reports what the script throws, so this is a
-                    // parse failure: nothing ran. Statements, not an expression.
-                    value = try await Self.run(engine, .evaluate(script), tab)
+                // The agent's own script: never on a site holding a filled login, and the site it
+                // runs on takes no login from then on (BrowserLoginGuards).
+                let value = try await Self.guardedAgentScript(engine, tab, guards) { origin in
+                    try await Self.evaluateAgentScript(engine, script, tab, origin: origin)
                 }
                 if let thrown = value["value"]?[BrowserPageScripts.thrownKey]?.stringValue {
                     throw ControlError(code: "js_error", message: thrown)
@@ -120,6 +144,7 @@ public struct BrowserPageService: Sendable {
         register(tabMethods(router: router))
         router.register([rightMethod(router: router)])
         register(passkeyMethods())
+        register(fillLoginMethods())
         register(inputMethods())
         register(rawInputMethods())
         register(browserUseMethods())
@@ -150,6 +175,19 @@ public struct BrowserPageService: Sendable {
             var result: [String: JSONValue] = Self.base(tab)
             result["value"] = value["value"] ?? .null
             return .object(result)
+        }
+    }
+
+    /// An agent's `eval` script: as an expression through ``BrowserPageScripts/jsonSafe(_:)``,
+    /// else (a parse failure: nothing ran) as statements.
+    private static func evaluateAgentScript(_ engine: any BrowserPageEngine, _ script: String, _ tab: Tab, origin: String?) async throws -> JSONValue {
+        do {
+            // Objects WebKit cannot return (DOMRect, Map, …) go through toJSON.
+            return try await run(engine, .evaluate(BrowserPageScripts.pinnedAgentExpression(BrowserPageScripts.jsonSafe(script), origin: origin)), tab)
+        } catch let error as ControlError where error.code == "js_error" && error.message.contains("SyntaxError") {
+            // The wrapper reports what the script throws, so this is a
+            // parse failure: nothing ran. Statements, not an expression.
+            return try await run(engine, .evaluate(BrowserPageScripts.pinnedAgentExpression(script, origin: origin)), tab)
         }
     }
 

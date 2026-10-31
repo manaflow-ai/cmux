@@ -6,14 +6,14 @@
 import { memo, useState, type ReactNode } from "react";
 import { Markdown } from "../../agent-session/acpmux/conversation/Markdown";
 import type { Strings } from "../shared/i18n";
-import { MessageAttachments } from "./AttachmentViews";
+import { CardScreenshot, MessageAttachments } from "./AttachmentViews";
 import { Avatar } from "./Avatar";
 import { Composer } from "./Composer";
 import type { HomeDraft } from "./drafts";
 import { MessageActions } from "./MessageActions";
 import { MAX_THREAD_INDENT, messageText, mentionsMe } from "./model";
 import { MessageRuns } from "./RunCard";
-import type { HomeAttachment, HomeMessage, HomeParticipant, HomePart } from "./types";
+import type { HomeAttachment, HomeCard, HomeMessage, HomeParticipant, HomePart } from "./types";
 
 export interface MessageRowProps {
   message: HomeMessage;
@@ -110,7 +110,7 @@ export const MessageRow = memo(function MessageRow({
         ) : (
           <>
             {message.parts.map((part, index) => (
-              <Part key={index} part={part} strings={strings} />
+              <Part key={index} part={part} conversation={message.conversation} strings={strings} />
             ))}
             {message.parts.some((part) => part.type === "attachment") && (
               <MessageAttachments
@@ -233,7 +233,7 @@ function Head({
   );
 }
 
-function Part({ part, strings }: { part: HomePart; strings: Strings }) {
+function Part({ part, conversation, strings }: { part: HomePart; conversation: string; strings: Strings }) {
   switch (part.type) {
     case "text":
       return <Markdown className="hc-md">{part.text}</Markdown>;
@@ -248,8 +248,42 @@ function Part({ part, strings }: { part: HomePart; strings: Strings }) {
     case "attachment":
       // Shown together, after the text (MessageAttachments).
       return null;
+    case "card":
+      return <Card card={part} conversation={conversation} strings={strings} />;
     case "other":
       return <p className="hc-msg-other">{part.text}</p>;
+  }
+}
+
+/** A Chief's card: a live browser step with its screenshot, a Secure Store sign-in ask, or next-step chips (shown, not sent from here). */
+function Card({ card, conversation, strings }: { card: HomeCard; conversation: string; strings: Strings }) {
+  const { t, format } = strings;
+  switch (card.kind) {
+    case "browser":
+      return (
+        <div className={`hc-chip hc-card browser${card.live ? " live" : ""}`}>
+          <span className="hc-chip-status">{t(card.surface === "computer" ? "card.computer" : "card.browser")}</span>
+          <span className="hc-chip-title">{card.step}</span>
+          {card.image && <CardScreenshot conversation={conversation} image={card.image} alt={t("card.screenshot")} />}
+        </div>
+      );
+    case "sign_in":
+      return (
+        <div className="hc-chip hc-card sign-in">
+          <span className="hc-chip-status">{t("card.secureStore")}</span>
+          <span className="hc-chip-title">{format("card.signIn", card.site)}</span>
+        </div>
+      );
+    case "next_steps":
+      return (
+        <ul className="hc-card-choices" aria-label={t("card.nextSteps")}>
+          {card.choices.map((choice) => (
+            <li key={choice} className="hc-chip hc-card choice">
+              <span className="hc-chip-title">{choice}</span>
+            </li>
+          ))}
+        </ul>
+      );
   }
 }
 

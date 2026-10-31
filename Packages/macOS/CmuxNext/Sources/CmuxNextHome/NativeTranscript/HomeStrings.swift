@@ -198,4 +198,25 @@ enum HomeStrings {
         String(format: String(localized: "home.header.alsoHere", defaultValue: "Also here: %@", bundle: .module), names)
     }
     static var conversations: String { String(localized: "home.list.title", defaultValue: "Conversations", bundle: .module) }
+
+    // MARK: A Chief's sign-in card (cmux issue 25830)
+
+    /// The Secure Store sheet's title: "Add Your Sign-In for linkedin.com".
+    static func chiefSignInTitle(_ site: String) -> String {
+        String(format: String(localized: "home.card.signIn.sheet.title", defaultValue: "Add Your Sign-In for %@", bundle: .module), site)
+    }
+    static var chiefSignInMessage: String {
+        String(localized: "home.card.signIn.sheet.message",
+               defaultValue: "It is saved in this Mac’s keychain. cmux fills it into the page for the Chief; the password never goes into the chat.",
+               bundle: .module)
+    }
+    static var chiefSignInUsername: String {
+        String(localized: "home.card.signIn.sheet.username", defaultValue: "Username or email", bundle: .module)
+    }
+    static var chiefSignInPassword: String {
+        String(localized: "home.card.signIn.sheet.password", defaultValue: "Password", bundle: .module)
+    }
+    static var chiefSignInSave: String {
+        String(localized: "home.card.signIn.sheet.save", defaultValue: "Save", bundle: .module)
+    }
 }

@@ -1,4 +1,4 @@
-import type { conversation } from "@cmux/home-core"
+import { conversation } from "@cmux/home-core"
 import { NO_REPLY } from "./prompts.ts"
 
 type Head = NonNullable<conversation.ConversationState>
@@ -145,6 +145,8 @@ export const formatMessage = (head: Head, m: Message, opts: { readonly files?: b
       if (text.trim()) lines.push(text)
     } else if (part.type === "attachment") lines.push(attachmentLine(part as AttachmentMeta, opts.files === true))
     else if (part.type === "link_preview") lines.push(`[link: ${(part as { url?: string }).url ?? ""}]`)
+    // A card's text fallback (home-core card.ts): the Chief sees its own browser steps, sign-in asks and offered next steps.
+    else if (part.type === "card") lines.push(`[card: ${conversation.cardText(part)}]`)
   }
   if (lines.length === 0) return ""
   const kind = head.kind ?? "group"

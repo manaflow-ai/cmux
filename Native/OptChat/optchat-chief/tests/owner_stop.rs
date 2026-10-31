@@ -427,6 +427,7 @@ fn the_chiefs_stop_tool_leaves_subagents_at_work_running() {
     let sp = spawner(&h);
     run(&mut h, move || {
         sp.send(optchat_chief::tools::SendCall {
+            sign_in: None,
             text: Some("On it.".into()),
             attachments: Vec::new(),
             reply_to: None,

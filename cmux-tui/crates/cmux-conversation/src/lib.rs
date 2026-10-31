@@ -9,6 +9,7 @@
 
 mod attachments;
 mod budget;
+mod card;
 mod home;
 mod id;
 mod link;
@@ -23,6 +24,11 @@ pub use attachments::{
     MAX_ATTACHMENT_NAME_CHARS, MAX_DIMENSION, MAX_DURATION_MS, MAX_POSTER_BYTES,
     MAX_PREVIEW_IMAGE_BYTES, attachment_class, is_derived_image_type, is_sha256,
     valid_attachment_name, valid_attachment_part, validate_attachment_meta, validate_derived,
+};
+pub use card::{
+    Card, CardImage, CardSurface, MAX_CARD_CHOICE_CHARS, MAX_CARD_CHOICES, MAX_CARD_IMAGE_BYTES,
+    MAX_CARD_IMAGE_DIMENSION, MAX_CARD_SITE_CHARS, MAX_CARD_STEP_CHARS, valid_card,
+    valid_card_site, valid_card_target,
 };
 pub use budget::{
     BUDGET_WINDOW, MAX_AGENT_TURNS, MIN_AGENT_GAP_MS, check_agent_budget, check_agent_streak,
