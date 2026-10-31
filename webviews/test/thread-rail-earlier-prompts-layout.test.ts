@@ -67,7 +67,7 @@ test("the index arriving after the open, then a streamed reply, keeps every tick
   let read = minimapTurns(held, CHAT);
   read = minimapTurns(held, CHAT, read, undefined, earlier);
   expect(read.ticks.map((tick) => tick.key)).toEqual(keys);
-  const reply = held.findLast((row) => row.kind === "assistant")!;
+  const reply = [...held].reverse().find((row) => row.kind === "assistant")!;
   for (let n = 0; n < 6; n++) {
     const streamed = held.map((row) => (row === reply ? { ...row, text: `${row.text} more ${n}` } : row));
     const next = minimapTurns(streamed, CHAT, read, undefined, earlier);
