@@ -9,6 +9,11 @@
 #     --arg MODE --artifact artifacts/ios-sim/evidence.zip
 #
 # MODE:
+#   release-build
+#           CmuxMobileLinkFFI.xcframework, xcodegen, and an unsigned Release app
+#           for generic iOS Simulator, without injected DEBUG or demo conditions.
+#           Compile only: no simulator runtime, install, launch or publication.
+#           Takes no further arguments; retains build logs and evidence.zip.
 #   build   CmuxMobileLinkFFI.xcframework, xcodegen, and the app for the
 #           simulator (Demo: optimized, with the DEBUG developer surface); then
 #           boot one iPhone, install, launch, screenshot.
@@ -48,6 +53,9 @@
 #           the token), the phone's Settings > Devices (a base ref gives
 #           the "before") and its scanner with the camera off; the Mac's
 #           pairing log, hostd's log and paired-devices.json, keys redacted.
+#           Then the upload leg: the phone streams a sparse ~150 MB file (past
+#           the old 100 MiB cap) to the Mac with its own LinkUpload, and the
+#           stored file's size and SHA-256 must match (UploadProbe.swift).
 #
 # Isolation: the step makes its own simulator device set under its checkout
 # (`simctl --set`), so it never lists, boots or deletes another simulator, and
@@ -63,7 +71,10 @@ cmux_next_require_fleet cmux-next-ios-sim.sh "xcodebuild and an iOS simulator" "
   "cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg bench --artifact artifacts/ios-sim/evidence.zip"
 
 mode="${1:-build}"
-case "$mode" in build|test|bench|all|pair-e2e|shots) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, test, bench, all, pair-e2e or shots, got '$mode'" >&2; exit 2 ;; esac
+case "$mode" in build|release-build|test|bench|all|pair-e2e|shots) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e or shots, got '$mode'" >&2; exit 2 ;; esac
+if [[ "$mode" == release-build && $# -ne 1 ]]; then
+  echo "cmux-next-ios-sim.sh: release-build takes no further arguments" >&2; exit 2
+fi
 scenes=("${@:2}")
 if [[ "$mode" == shots && ${#scenes[@]} -eq 0 ]]; then
   echo "cmux-next-ios-sim.sh: shots needs one or more scenes after it, name=WORD,WORD,..." >&2; exit 2
@@ -113,6 +124,7 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.cargo/bin:$PATH"
 xcodegen_dir=""
 sims=""
 cleanup() {
+  local result=$?
   # The test iPhones in the default device set, when a step is cut short.
   local d
   for d in "${test_udid:-}" "${ui_udid:-}"; do
@@ -145,6 +157,16 @@ cleanup() {
     fi
     rm -rf "$mac_dd" || true
   fi
+  if [[ "$mode" == release-build ]]; then
+    # Keep failure evidence too, including FFI or project-generation failures.
+    local log
+    for log in ffi xcodegen build; do
+      if [[ -f "$work/$log.log" ]]; then cp "$work/$log.log" "$out/$log.log" || result=1; fi
+    done
+    note "- exit status: $result" || result=1
+    (cd "$out" && zip -qr evidence.zip . -x evidence.zip) || result=1
+  fi
+  return "$result"
 }
 trap cleanup EXIT
 # A cancelled step gets SIGTERM: exit, so the EXIT trap cleans up.
@@ -180,8 +202,10 @@ fi
 # The simulator runtime and iPhone, chosen before anything is built: the runtime the fleet declares
 # (CMUX_CI_IOS_SIM_RUNTIME, set by the build fleet's controller), else the newest (ios_sim_runtime.py).
 # A host without the declared runtime fails here, with the runtimes it has.
-sim_choice="$(xcrun simctl list -j runtimes devicetypes | python3 -I scripts/ci/ios_sim_runtime.py)" || exit 3
-read -r runtime device_type <<< "$sim_choice"
+if [[ "$mode" != release-build ]]; then
+  sim_choice="$(xcrun simctl list -j runtimes devicetypes | python3 -I scripts/ci/ios_sim_runtime.py)" || exit 3
+  read -r runtime device_type <<< "$sim_choice"
+fi
 
 note "# cmux-next-ios simulator step ($mode)"
 note ""
@@ -192,24 +216,102 @@ note "- xcodegen: $xcodegen_version (pinned, sha256 verified)"
 
 # --- Build ------------------------------------------------------------------
 t0=$SECONDS
-JOBS="${JOBS:-8}" bash cmux-next-ios/rust/scripts/build-xcframework.sh >"$work/ffi.log" 2>&1 || {
-  tail -60 "$work/ffi.log"; echo "error: CmuxMobileLinkFFI.xcframework build failed" >&2; exit 1; }
-(cd cmux-next-ios && "$xcodegen" generate -q)
+# The FFI comes from the worker's source-keyed cache when an earlier step built the same
+# inputs with the same toolchain (scripts/ci/ios_ffi_cache.py: key, verified restore). A
+# miss builds it as before, and a build of landed inputs (the same trees as feat-cmux-next's
+# tip, probed beside the build) is published for the next step. The cache never fails the
+# step: a miss or no key builds. Everything else (a key command that failed, a failed probe or
+# store, a helper error) is a warning in the log and SUMMARY.md, then the step builds.
+ffi_cache=(python3 -I scripts/ci/ios_ffi_cache.py)
+ffi_log="$work/ffi-cache.log"
+: >"$ffi_log"
+ffi_warn() {
+  echo "warning: ios-ffi cache: $1 (exit $2); building the FFI" >&2
+  tail -20 "$ffi_log" >&2 || true
+  note "- FFI cache warning: $1 (exit $2)"
+}
+ffi_key="" ffi_rc=0
+ffi_key="$("${ffi_cache[@]}" key "$root" "$work/ffi-inputs.json" 2>>"$ffi_log")" || ffi_rc=$?
+if [[ $ffi_rc -ne 0 ]]; then
+  [[ $ffi_rc -eq 3 ]] || ffi_warn "key failed" "$ffi_rc"
+  ffi_key=""
+elif ! [[ "$ffi_key" =~ ^[0-9a-f]{64}$ ]]; then
+  ffi_warn "key printed '${ffi_key:0:80}', not a sha256" 0
+  ffi_key=""
+fi
+ffi_xcf=cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+ffi_swift=cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift
+ffi_how=""
+if [[ -n "$ffi_key" ]]; then
+  ffi_rc=0
+  "${ffi_cache[@]}" restore "$root" "$ffi_key" >>"$ffi_log" 2>&1 || ffi_rc=$?
+  if [[ $ffi_rc -eq 0 && -f "$ffi_xcf/Info.plist" && -s "$ffi_swift" ]]; then
+    ffi_how="cache hit ${ffi_key:0:12}"
+  elif [[ $ffi_rc -eq 0 ]]; then
+    ffi_warn "restore reported a hit but left no $ffi_xcf/Info.plist" 0
+  elif [[ $ffi_rc -ne 1 ]]; then
+    ffi_warn "restore failed" "$ffi_rc"
+  fi
+fi
+if [[ -z "$ffi_how" ]]; then
+  ffi_probe=""
+  if [[ -n "$ffi_key" ]]; then
+    "${ffi_cache[@]}" probe "$work/ffi-inputs.json" "$work/ffi-tip.json" >>"$ffi_log" 2>&1 &
+    ffi_probe=$!
+  fi
+  JOBS="${JOBS:-8}" bash cmux-next-ios/rust/scripts/build-xcframework.sh >"$work/ffi.log" 2>&1 || {
+    tail -60 "$work/ffi.log"; echo "error: CmuxMobileLinkFFI.xcframework build failed" >&2; exit 1; }
+  ffi_how="built"
+  if [[ -n "$ffi_probe" ]]; then
+    ffi_how="built, cache miss ${ffi_key:0:12}"
+    ffi_rc=0
+    wait "$ffi_probe" || ffi_rc=$?
+    if [[ $ffi_rc -eq 0 ]]; then
+      "${ffi_cache[@]}" store "$root" "$work/ffi-inputs.json" "$work/ffi-tip.json" >>"$ffi_log" 2>&1 || {
+        ffi_rc=$?; ffi_warn "store failed" "$ffi_rc"; }
+    else
+      ffi_warn "probe of the feat-cmux-next tip failed, nothing stored" "$ffi_rc"
+    fi
+  fi
+fi
+grep -h '^ios-ffi cache:' "$ffi_log" || true
+note "- FFI: $((SECONDS - t0)) s ($ffi_how)"
+(cd cmux-next-ios && "$xcodegen" generate -q) >"$work/xcodegen.log" 2>&1 || {
+  cat "$work/xcodegen.log"; echo "error: xcodegen failed" >&2; exit 1; }
 dd="$work/dd"
 # Demo builds the Swift packages as Release (no DEBUG), so the flood benchmark
 # and terminal demo would be missing; the command-line conditions reach the
 # packages too (verify/terminal-flood.md, Reproducing).
+configuration=Demo
+build_settings=('SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG CMUX_MOBILE_DEMO')
+if [[ "$mode" == release-build ]]; then
+  configuration=Release
+  build_settings=(CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO)
+fi
+build_command=(xcodebuild -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration "$configuration"
+  -destination 'generic/platform=iOS Simulator' -derivedDataPath "$dd"
+  CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ARCHS=arm64 ONLY_ACTIVE_ARCH=YES
+  "${build_settings[@]}" build)
+if [[ "$mode" == release-build ]]; then
+  printf '%q ' "${build_command[@]}" >"$out/build-command.txt"
+  printf '\n' >>"$out/build-command.txt"
+  note "- configuration: Release; destination: generic/platform=iOS Simulator; signing: disabled"
+  note "- compilation conditions: Release defaults; no injected DEBUG or CMUX_MOBILE_DEMO"
+fi
 set +e
-xcodebuild -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Demo \
-  -destination 'generic/platform=iOS Simulator' -derivedDataPath "$dd" \
-  CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
-  'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG CMUX_MOBILE_DEMO' \
-  build >"$work/build.log" 2>&1
+"${build_command[@]}" >"$work/build.log" 2>&1
 status=$?
 set -e
 grep -E "error:|BUILD (SUCCEEDED|FAILED)" "$work/build.log" | sort -u | head -40 || true
 [[ $status -eq 0 ]] || { tail -40 "$work/build.log"; exit 1; }
-app="$dd/Build/Products/Demo-iphonesimulator/CmuxMobileApp.app"
+app="$dd/Build/Products/$configuration-iphonesimulator/CmuxMobileApp.app"
+if [[ "$mode" == release-build ]]; then
+  [[ -d "$app" ]] || { echo "error: Release app missing at $app" >&2; exit 1; }
+  note "- build: $((SECONDS - t0)) s (FFI + xcodegen + Release simulator app)"
+  ditto -c -k --keepParent "$app" "$out/CmuxMobileApp-Release-simulator.app.zip"
+  note "- compile only: no simulator install or launch, TestFlight upload or publication"
+  exit 0
+fi
 bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")"
 note "- build: $((SECONDS - t0)) s (FFI + xcodegen + Demo simulator app), bundle $bundle_id"
 

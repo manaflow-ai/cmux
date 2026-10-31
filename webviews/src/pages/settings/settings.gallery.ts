@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
-import type { AccountsCmux, AccountsRow, AccountsState, HostLists } from "./ops";
+import type { AccountsCmux, AccountsRow, AccountsState, CloudEnvironmentsState, HostLists } from "./ops";
 import { categories, homes } from "./categories";
 import { MockTeams } from "./mockTeams";
 import { mockThemeColors } from "./mockThemes";
@@ -173,6 +173,33 @@ const host: Partial<HostLists> = {
       },
     ],
   },
+};
+const rowShapeMachines: HostLists["machines"] = [
+  {
+    id: "sample-row-shape",
+    title: "Research build machine",
+    subtitle: "Online · local network",
+    active: true,
+    color: "#7F5FA8",
+    color_key: "research build machine",
+    vm_host: { on: true, busy: false, error: null },
+  },
+];
+const rowShapeEnvironments: CloudEnvironmentsState = {
+  available: true,
+  loading: false,
+  error: null,
+  environments: [
+    {
+      id: "env-row-shape",
+      name: "Research environment",
+      repo: "manaflow-ai/cmux@feat-cmux-next",
+      setup_script: "bun install",
+      status: "failed",
+      error: "setup exited 3",
+      log_tail: "lockfile mismatch",
+    },
+  ],
 };
 const click = (selector: string): PageFixtureStep => ({ selector, action: "click" });
 const input = (selector: string, value: string): PageFixtureStep => ({ selector, action: "input", value });
@@ -602,12 +629,48 @@ Object.assign(variants, {
   "long-rooms": variant("rooms", { host: { ...host, rooms: longRows, browser_profiles: longProfiles } }),
   "long-profiles": variant("browser", { host: { ...host, rooms: [], browser_profiles: longProfiles } }),
   "long-machines": variant("machines", { host: { ...host, machines: longRows } }),
+  "machines-row-shape": variant("accounts", {
+    host: { ...host, machines: rowShapeMachines },
+    options: { values: { "appearance.machineColors": { "research build machine": "#7F5FA8" } } },
+    note: "One machine row with its color control and the Dedicated agent machine line below.",
+    play: async (ctx) => {
+      const card = ctx.find({ selector: '[data-card="machines"]' });
+      card.setAttribute("data-gallery-capture", "");
+      card.scrollIntoView({ block: "center" });
+    },
+  }),
+  "cloud-environments-row-shape": variant("accounts", {
+    environments: rowShapeEnvironments,
+    note: "One failed Cloud Environment row with status, repository, error log and actions.",
+    play: async (ctx) => {
+      const card = ctx.find({ selector: '[data-card="cloudEnvironments"]' });
+      card.setAttribute("data-gallery-capture", "");
+      card.scrollIntoView({ block: "center" });
+    },
+  }),
   "profile-editor": variant("browser", {
     steps: [
       click('[data-profile="p-work"] .host-toggle'),
       wait(".host-form"),
       { selector: ".host-form input", action: "select" },
     ],
+  }),
+  "clear-refused": variant("browser", {
+    options: { failing: { "cmux.app.action.run": "cmux.browser.clear_refused" } },
+    note: "Clear Browsing Data refusal, scrolled into view for the captured row.",
+    steps: [click('[data-profile="p-work"] .host-toggle'), wait(".host-form"), click("[data-clear]")],
+    play: async (ctx) => {
+      await ctx.waitFor(() => ctx.document.querySelector("[data-clear-error]"));
+      const field = ctx.find({ selector: "[data-clear-browsing-data]" });
+      field.setAttribute("data-gallery-capture", "");
+      field.scrollIntoView({ block: "center" });
+    },
+  }),
+  // Settings > Updates with the Update Channel menu open: the menu hugs its rows and lines up with
+  // its trigger, and Check Every reads in hours (settings-select-menu-browser.test.ts measures it).
+  "updates-channel-open": variant("updates", {
+    steps: [click(`${row("updates.channel")} .ui-select-button`), wait(".ui-select-popup .ui-menu-item")],
+    note: "Settings > Updates, the Update Channel menu open over the Check Every row.",
   }),
   "search-results": variant("general", { steps: [input("[data-settings-search]", "browser")] }),
   "search-results-font": variant("general", { steps: [input("[data-settings-search]", "font")] }),
@@ -841,6 +904,20 @@ Object.assign(variants, {
     },
     steps: [wait('[data-card="computer-use"]'), focusComputerUse],
     note: "The legacy helper can't verify this build (not team-signed): legacy Computer Use is off.",
+  }),
+  "computer-use-upstream-fallback": variant("agents", {
+    host: {
+      ...host,
+      computer_use: {
+        phase: "ready",
+        accessibility: true,
+        screen_recording: true,
+        helper: "cmux Computer Use",
+        upstream_fallback: true,
+      },
+    },
+    steps: [wait('[data-card="computer-use"]'), focusComputerUse],
+    note: "Driver Upstream in a build without its helper: Legacy runs, and the status line says so.",
   }),
   "computer-use-not-granted": variant("agents", {
     host: {

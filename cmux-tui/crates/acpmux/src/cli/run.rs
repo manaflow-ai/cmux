@@ -15,9 +15,14 @@ mod permission;
 pub(crate) use permission::{answer_permission, answer_question};
 
 mod extra;
-mod launch;
+mod fanout;
+pub(crate) mod launch;
+mod ls;
+mod ls_pages;
+pub use ls::LsArgs;
 mod parent;
 mod send_async;
+mod session_move;
 mod standard;
 mod transfer;
 
@@ -35,7 +40,7 @@ pub(crate) async fn resolve_id(client: &Client, key: &str) -> Result<String> {
         if e.downcast_ref::<crate::client::DaemonError>()
             .is_some_and(|e| e.0.code == crate::rpc::RpcError::not_found("").code)
         {
-            anyhow::Error::from(errors::AppError::no_session(&key))
+            anyhow::Error::from(errors::AppError::no_session_from(&key, &e))
         } else {
             e
         }

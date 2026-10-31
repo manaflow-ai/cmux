@@ -9,13 +9,16 @@ import CmuxNextHome
 /// handler), so the menu adds no second code path.
 @MainActor
 public enum HomePageMenus {
-    /// The menu around the conversations: New Message, New Chief and Invite,
+    /// The menu around the conversations: New Message, New Chief, Invite and Invite to Team,
     /// each its catalog action (the toolbar's compose button runs New Message), then, when the
     /// account has more than one team, Switch Active Team with each team (the active one checked):
     /// Home lists one team's people at a time, and this switches which.
     public static func backgroundMenu(registry: ActionRegistry) -> NSMenu {
         let menu = NSMenu()
-        for (id, symbol): (ActionID, String) in [("home.newMessage", "square.and.pencil"), ("home.newChief", "sparkles"), ("home.invite", "envelope")] {
+        for (id, symbol): (ActionID, String) in [("home.newMessage", "square.and.pencil"), ("home.newChief", "sparkles"), ("home.invite", "envelope"),
+                                                  ("home.inviteToTeam", "person.2.badge.plus")] {
+            // Invite to Team needs a signed-in account with a team (its reason says why not).
+            if id == "home.inviteToTeam", registry.unavailableReason(for: id) != nil { continue }
             guard let title = registry.descriptor(for: id)?.title else { continue }
             menu.addItem(HomeMenuTarget.item(title: title, symbol: symbol) {
                 _ = registry.perform(id, invocation: ActionInvocation(origin: .user))

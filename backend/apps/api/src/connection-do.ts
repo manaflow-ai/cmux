@@ -17,6 +17,7 @@ import * as ghTokens from "./integrations/github-tokens.ts"
 import { ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
+import { isAgentGatewayPrincipal, resolveConnectionPrincipal } from "./agent-gateway-principal.ts"
 
 export type { ExternalReply, ProviderEvent } from "./integrations/external.ts"
 
@@ -215,7 +216,16 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     return this.boundTo(entity) ? ghTokens.revokeTokens(this.ledger(), who, Date.now()).finally(() => this.scheduleAlarm()) : 0
   }
 
-  async githubStatus(entity: string, principal: Principal) { return ghTokens.githubStatus(this.env, this.boundTo(entity) ? this.bind(entity).currentState : connectionsDomain.initial(), principal) }
+  async githubStatus(entity: string, principal: Principal) {
+    if (principal.team !== entity) return { configured: false, app_slug: null, connection: null }
+    return ghTokens.githubStatus(this.env, this.boundTo(entity) ? this.bind(entity).currentState : connectionsDomain.initial(), principal)
+  }
+
+  async githubRepos(entity: string, principal: Principal, query: { readonly query?: string; readonly cursor?: string }) {
+    if (principal.team !== entity) return { ok: false as const, status: 403, code: "auth.forbidden", message: "not this team's connections" }
+    if (!this.boundTo(entity)) return { ok: false as const, status: 404, code: "integration.not_found", message: "this team has no GitHub connection" }
+    return ghTokens.githubRepos({ env: this.env, http: this.http, state: () => this.bind(entity).currentState, needsReauth: this.markNeedsReauth, installActive: this.installActive }, principal, query)
+  }
 
   /** UserDO revoked an install (install.revoke, a machine delete's VM install): its sockets close and its GitHub tokens are revoked. */
   override async closeInstall(entity: string, install: string, agent?: string): Promise<boolean> {
@@ -235,9 +245,18 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
       // UserDO's socket registry calls closeInstall here on a revoke (socket-registry.ts); false when the install is no longer active.
       register: (p, at) => (this.env.USER_DO.get(this.env.USER_DO.idFromName(p.user!)) as unknown as Users).registerSocket(p.user!, p.install!, p.grant, "ConnectionDO", team, at),
       audit: (record) => void this.runSystem("integration.github.token_minted", record, `ghtok:${String(record.token_id)}`),
-      needsReauth: (c, detail) => void this.submitSystem("connection.status", { connection: c.id, status: "needs_reauth", detail }, `status:${c.id}:needs_reauth:${Date.now()}`)
+      needsReauth: this.markNeedsReauth,
+      installActive: this.installActive
     }
   }
+
+  private installActive = async (p: Principal) => {
+    type Users = { installGrant(e: string, install: string, grant: string): Promise<{ ok: boolean }> }
+    if (!p.user || !p.install || !p.grant) return false
+    return (await (this.env.USER_DO.get(this.env.USER_DO.idFromName(p.user)) as unknown as Users).installGrant(p.user, p.install, p.grant)).ok
+  }
+
+  private markNeedsReauth = (c: Connection, detail: string) => void this.submitSystem("connection.status", { connection: c.id, status: "needs_reauth", detail }, `status:${c.id}:needs_reauth:${Date.now()}`)
 
   /** Provider-side revocations after disconnects (G5); the alarm retries what is left. */
   private async revokeAtProviders(now: number) {
@@ -492,18 +511,31 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
   }
 
   private async callProvider(principal: Principal, op: string, params: Record<string, unknown>): Promise<unknown> {
+    if (isAgentGatewayPrincipal(principal)) {
+      const current = await resolveConnectionPrincipal(this.env, principal)
+      if (!current || "refused" in current) throw new ProviderError("policy.denied", "the caller no longer has access")
+      principal = current
+    }
     const { provider, c } = this.usableFor(principal, op, params)
     const impl = providers[provider]
     if (!impl.configured(this.env)) throw new ProviderError("integration.unavailable", `${provider} is not configured`)
-    // With granular consent a user may have granted fewer scopes than were asked for.
-    // A scope the deployment may no longer use (a restricted Gmail scope with the gate closed) does not count.
-    const usable = c.scopes_granted.filter((s) => !impl.refuseScopes?.(this.env, [s]))
-    const needs = impl.scopesFor?.(op)
-    if (needs && !needs.some((s) => usable.includes(s))) {
-      throw new ProviderError("integration.unavailable", `${op} needs the ${needs.join(" or ")} permission, which this connection was not granted; reconnect and allow it`)
+    const checkScopes = (connection: Connection) => {
+      // With granular consent a user may have granted fewer scopes than were asked for.
+      // A scope the deployment may no longer use does not count.
+      const usable = connection.scopes_granted.filter((s) => !impl.refuseScopes?.(this.env, [s]))
+      const needs = impl.scopesFor?.(op)
+      if (needs && !needs.some((s) => usable.includes(s))) {
+        throw new ProviderError("integration.unavailable", `${op} needs the ${needs.join(" or ")} permission, which this connection was not granted; reconnect and allow it`)
+      }
     }
+    checkScopes(c)
+    const beforeEffect = isAgentGatewayPrincipal(principal) ? async () => {
+      const current = await resolveConnectionPrincipal(this.env, principal)
+      if (!current || "refused" in current) throw new ProviderError("policy.denied", "the caller no longer has access")
+      checkScopes(this.usableFor(current, op, params).c)
+    } : undefined
     try {
-      const r = await impl.call(this.env, this.http, await this.usableCredential(c), op, params)
+      const r = await impl.call(this.env, this.http, await this.usableCredential(c), op, params, beforeEffect)
       return r.value
     } catch (e) {
       if (e instanceof ProviderError && e.code === "needs_reauth") {

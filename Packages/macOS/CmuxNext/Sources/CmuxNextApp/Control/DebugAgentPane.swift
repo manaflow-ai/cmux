@@ -35,8 +35,7 @@ import WebKit
 /// `select_session` (`session`), `pick_folder` (`cwd`: the folder chip's pick), `answer_permission` (`option`, `allow`,
 /// `decision`), `open_changes` (the latest turn's changes view),
 /// `models` (the harness's models), `set_model` (`model`, `effort`), `layout_watch` (`ms`, `tolerance`; layoutWatch.ts),
-/// `readiness` (page body, transcript and composer metrics), `cloud_auth` (the native
-/// `cloudMachine.list` reply consumed by the picker), `engine` (`cef` or `webkit:<reason>`), `focus_composer`, `composer_focused`, `click` (`selector`
+/// `readiness` (page body, transcript and composer metrics), `engine` (`cef` or `webkit:<reason>`), `focus_composer`, `composer_focused`, `click` (`selector`
 /// or `text`: a native click on that element, DebugAgentPaneClick), `pid` (the WebContent process, for profiling), or
 /// `full_rate` (`enabled` turns full-rate rendering on or off on the live
 /// page; returns whether it is on), or `inspector` (`open` sets its visibility;
@@ -175,10 +174,6 @@ enum DebugAgentPane {
         if action == "readiness" {
             return await readiness(pane: pane, view: view, waitForAnimations: params["wait_animations"]?.boolValue == true)
         }
-        if action == "cloud_auth" {
-            let reply = await view.model.respond(to: .cloudMachine(.list))
-            return .object(["pane": .string(pane), "reply": JSONValue(foundation: reply) ?? .null])
-        }
         if action == "close_menus" {
             let script = """
             const target = document.activeElement || document.body;
@@ -212,7 +207,7 @@ enum DebugAgentPane {
             return await toggleInspector(view, open: params["open"]?.boolValue, pane: pane)
         }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, answer_permission, open_changes, set_model, models, stream, layout_watch, readiness, cloud_auth, engine, focus_composer, composer_focused, click, pid, full_rate, gesture_state or inspector")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, answer_permission, open_changes, set_model, models, stream, layout_watch, readiness, engine, focus_composer, composer_focused, click, pid, full_rate, gesture_state or inspector")])
         }
         do {
             let result = try await view.callPageScript(script, arguments: ["fn": function, "args": arguments(action, params)])

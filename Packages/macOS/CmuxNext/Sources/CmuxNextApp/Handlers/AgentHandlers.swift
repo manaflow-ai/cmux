@@ -166,6 +166,10 @@ enum AgentHandlers {
             }
             view.toggleDictation()
         })
+        // Stop Reading Aloud: the app's one voice (AgentPaneReadAloud), from any window, chat or none.
+        registry.bindEffect("agentPane.stopReadingAloud", requires: nil, effect: { _ in
+            context.services.agentTabs.readAloud.stop() ? .done : .refused(MiscHandlerStrings.nothingReadAloud)
+        })
         // Search Agent Chats (decision K1): the command palette's chats page, from anywhere.
         context.services.palette.sources.actionPages["agentPane.searchChats"] = { [weak services = context.services] in
             services.map { AgentChatsPalettePage(services: $0).page() }
@@ -431,7 +435,7 @@ enum AgentHandlers {
                 case .workspace, .window:
                     workspace = key
                     surface = try await WorkspaceCreation.create(key, name: nil, on: connection, repair: repair) { created in
-                        try await connection.createTerminal(in: created, cwd: options.cwd).surface
+                        try await WorkspaceCreation.firstTerminal(in: created, cwd: options.cwd, on: connection).surface
                     }
                 }
                 if let surface { try await connection.send(surface, text: line) }
@@ -444,8 +448,11 @@ enum AgentHandlers {
                 }
             } catch {
                 logger.error("fork-agent-conversation failed: \(String(describing: error), privacy: .public)")
-                // The person asked for a fork: say why there is none (acpmux's reason).
-                refusals.show(error.localizedDescription, in: windows.active?.window)
+                // The person asked for a fork: say why there is none (acpmux's reason). A pane still opening was shown
+                // already where the request was refused (`DaemonConnection.observePaneNotReady`), once.
+                if (error as? PaneNotReady)?.shown != true {
+                    refusals.show(error is PaneNotReady ? MiscHandlerStrings.paneNotReady : error.localizedDescription, in: windows.active?.window)
+                }
             }
         }
     }
