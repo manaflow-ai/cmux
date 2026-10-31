@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 770,
-    "mcp": 686
+    "verbs": 771,
+    "mcp": 687
   },
   "nouns": [
     {
@@ -545,6 +545,18 @@
           "id": "app.unhide",
           "mcp": true,
           "mcpTool": "app_apps_unhide"
+        }
+      ]
+    },
+    {
+      "noun": "automation",
+      "verbs": [
+        {
+          "command": "cmux automation show-page",
+          "title": "Automations",
+          "id": "automations.show",
+          "mcp": true,
+          "mcpTool": "app_automation_show_page"
         }
       ]
     },

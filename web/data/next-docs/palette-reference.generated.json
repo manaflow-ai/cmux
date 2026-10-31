@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1238,
+    "entries": 1239,
     "shortcuts": 189
   },
   "sections": [
@@ -26,6 +26,12 @@
           "title": "Attach Files…",
           "shortcut": null,
           "command": "cmux home attach"
+        },
+        {
+          "id": "automations.show",
+          "title": "Automations",
+          "shortcut": null,
+          "command": "cmux automation show-page"
         },
         {
           "id": "home.chatColors",
