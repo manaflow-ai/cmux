@@ -178,6 +178,21 @@ button.cv-subagent > :last-child {
 .cv-subagent__stop[data-state="failed"]:hover:not(:disabled) {
   color: var(--agent-status-failure);
 }
+/* A transcript row's Stop shows only while its own row is hovered or holds focus, at once, with
+   no fade (as Session Info's grant Revoke and the pull request chips' x do): a group of running
+   agents does not repeat a lit Stop on every row. At rest it is transparent, not hidden, so Tab
+   still reaches it and the time beside it does not move; the row takes no new highlight, only
+   the button lights on its own hover. A disabled Stop stays dimmed while shown. */
+.cv-subagent-stoppable > .cv-subagent__stop {
+  opacity: 0;
+  transition: none;
+}
+.cv-subagent-stoppable:is(:hover, :focus-within) > .cv-subagent__stop {
+  opacity: 1;
+}
+.cv-subagent-stoppable:is(:hover, :focus-within) > .cv-subagent__stop:disabled {
+  opacity: 0.5;
+}
 /* The child view's first line (model.ts: 44px): a 28px "Subagent of" chip centred on a rule,
    8px above and below. A click goes back to the parent's view. */
 .cv-subagent-of {
