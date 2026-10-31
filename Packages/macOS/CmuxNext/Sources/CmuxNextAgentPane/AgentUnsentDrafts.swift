@@ -55,7 +55,7 @@ public final class AgentUnsentDrafts {
             // Do not make app wiring wait for disk or JSON decoding. The seed source below waits
             // for this read only when a page actually asks for its first draft.
             store.readStateAsync { [weak self] state in
-                DispatchQueue.main.async { [weak self] in self?.finishLoading(state) }
+                Task { @MainActor [weak self] in self?.finishLoading(state) }
             }
         }
     }

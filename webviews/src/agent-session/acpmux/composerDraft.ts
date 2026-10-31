@@ -12,9 +12,7 @@ export function composerDraft(draft: unknown): string | undefined {
 /** ECMAScript WhiteSpace plus LineTerminator, shared with the native and daemon layers. */
 export function isDraftBlank(text: string): boolean {
   return [...text].every((character) =>
-    /[\u0009-\u000D\u0020\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]/u.test(
-      character,
-    ),
+    /[\u0009-\u000D\u0020\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]/u.test(character),
   );
 }
 
