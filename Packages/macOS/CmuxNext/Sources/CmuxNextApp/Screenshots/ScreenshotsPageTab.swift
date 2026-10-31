@@ -43,7 +43,7 @@ final class ScreenshotsPageTab: BrowserTab {
         self.model = model
         view = ScreenshotsView(model: model, cache: cache, workspace: workspace, files: files)
         view.promptFonts = (Typography.bodyEmphasized, Typography.body)
-        view.secondaryText = Palette.textSecondary
+        (view.primaryText, view.secondaryText) = (Palette.textPrimary, Palette.textSecondary)
     }
 
     func load(_ url: URL) {

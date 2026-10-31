@@ -46,7 +46,7 @@ final class ScreenshotsPageService {
                 return said(tab.id)
             }
         }
-        return window.focusedPane?.newBrowserTab(url: ScreenshotsPageAddress.url, background: !run.selects) == true ? said(nil) : .done
+        return window.focusedPane.map { $0.newBrowserTab(url: ScreenshotsPageAddress.url, background: !run.selects) ? said(nil) : .done } ?? .refused(MiscHandlerStrings.noPane)
     }
 
     func makePage(key: String, engine: BrowserEngineKind, profile: BrowserProfileID) -> ScreenshotsPageTab {

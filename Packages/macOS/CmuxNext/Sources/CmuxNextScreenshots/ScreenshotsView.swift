@@ -27,6 +27,11 @@ public final class ScreenshotsView: NSView {
     private let promptButton = NSButton(title: ScreenshotsStrings.promptButton, target: nil, action: nil)
     private let prompt = NSStackView()
 
+    /// The prompt title's color (the app passes its palette).
+    public var primaryText: NSColor = .labelColor {
+        didSet { promptTitle.textColor = primaryText }
+    }
+
     /// Header text colors (the app passes its palette).
     public var secondaryText: NSColor = .secondaryLabelColor {
         didSet {
@@ -109,13 +114,23 @@ public final class ScreenshotsView: NSView {
     /// Runs when the person clicks Show Screenshots (the app remembers the tab and starts the folder detection).
     public var onShowScreenshots: (() -> Void)?
 
-    /// Focuses the grid, or Show Screenshots while the prompt is up (the tab got focus); Space presses the button.
+    /// Focuses the grid, or this pane while the prompt is up (the tab got focus): a plain button takes the keyboard
+    /// only with Full Keyboard Access on, so the pane takes it and Space, the button's key, presses Show Screenshots.
     public func focus() {
-        if showsPrompt { window?.makeFirstResponder(promptButton) } else { grid.focus() }
+        if showsPrompt { window?.makeFirstResponder(self) } else { grid.focus() }
     }
 
     /// The view that takes the keyboard when the tab is focused.
-    public var focusTarget: NSView { showsPrompt ? promptButton : grid }
+    public var focusTarget: NSView { showsPrompt ? self : grid }
+
+    public override var acceptsFirstResponder: Bool { showsPrompt }
+
+    public override func keyDown(with event: NSEvent) {
+        guard showsPrompt, event.charactersIgnoringModifiers == " ", event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty else {
+            return super.keyDown(with: event)
+        }
+        showScreenshots()
+    }
 
     /// Whether the Show Screenshots prompt is up (the page has listed nothing yet).
     public var showsPrompt: Bool { !prompt.isHidden }
@@ -123,9 +138,11 @@ public final class ScreenshotsView: NSView {
     /// The person's click on Show Screenshots: the page lists its folders from now on. The prompt goes in one
     /// frame, with no animation.
     @objc public func showScreenshots() {
+        let hadKeyboard = window?.firstResponder === self || window?.firstResponder === promptButton
         model.startListing()
         onShowScreenshots?()
         refresh()
+        if hadKeyboard { grid.focus() } // the keyboard goes on to the grid that replaced the prompt
     }
 
     private func configurePrompt() {
