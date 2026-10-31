@@ -197,8 +197,8 @@ jobs:
   # "as long as you're mindful about it, I feel like it's reasonable, but you
   # don't need to make it, like, a hard gate". It is not a ruleset required check.
   #
-  # Cheap by design: one paginated pulls/N/files call with the read-only
-  # GITHUB_TOKEN, the body from the event payload, and the script from the base
+  # Cheap by design: one paginated GraphQL query (files and the current body) with
+  # the read-only GITHUB_TOKEN, REST only as its fallback, and the script from the base
   # commit (sparse, no pull request code). Editing the body to add a `Size:` line
   # runs it again. Drafts skip until marked ready, and CI_QUOTA_HOLD=1 pauses it
   # while the token budget is reserved for the nightly
@@ -248,20 +248,35 @@ jobs:
             echo "::notice title=PR size::the base predates the size check; skipped"
             exit 0
           fi
-          # An API error (rate limit, outage) warns and passes, as an oversized pull request does.
-          if ! gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" \
-            --jq '.[] | {filename, additions, deletions} | @json' > "$RUNNER_TEMP/files.jsonl"; then
-            echo "::warning title=PR size::could not read the pull request's files; size not measured"
-            exit 0
-          fi
-          # The body as it is now, not the event's copy: a re-run of an older run must not
-          # answer with a `Size:` line the body no longer has. A failed read keeps the event's.
+          # The files and the body as it is now (not the event's copy: a re-run of an older run must
+          # not answer with a `Size:` line the body no longer has) in one GraphQL query a 100 files.
+          # GraphQL has its own hourly pool; the REST reads below, the GITHUB_TOKEN pool every
+          # workflow shares (it ran out at 00:50Z on 2026-10-31), are only the fallback.
+          # --paginate advances only a cursor named $endCursor. Each page repeats the body line.
+          # shellcheck disable=SC2016 # GraphQL's $variables, not the shell's
+          query='query($owner:String!,$name:String!,$number:Int!,$endCursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){body changedFiles files(first:100,after:$endCursor){pageInfo{hasNextPage endCursor} nodes{path additions deletions}}}}}'
+          rows='.data.repository.pullRequest | ({pull_request: {body, changed_files: .changedFiles}} | @json), (.files.nodes[] | {filename: .path, additions, deletions} | @json)'
           event="$GITHUB_EVENT_PATH"
-          if gh api "repos/$REPOSITORY/pulls/$PR" --jq '{pull_request: {body, changed_files}}' \
-            > "$RUNNER_TEMP/live-event.json" 2>/dev/null && [ -s "$RUNNER_TEMP/live-event.json" ]; then
+          if gh api graphql --paginate -f query="$query" -f owner="${REPOSITORY%%/*}" -f name="${REPOSITORY#*/}" \
+            -F number="$PR" --jq "$rows" > "$RUNNER_TEMP/graphql.jsonl" 2>/dev/null \
+            && grep -m1 '^{"pull_request":' "$RUNNER_TEMP/graphql.jsonl" > "$RUNNER_TEMP/live-event.json"; then
+            grep -v '^{"pull_request":' "$RUNNER_TEMP/graphql.jsonl" > "$RUNNER_TEMP/files.jsonl" || true
             event="$RUNNER_TEMP/live-event.json"
           else
-            echo "::notice title=PR size::could not read the current body; using the event's"
+            echo "::notice title=PR size::GraphQL read failed; reading the files over REST"
+            # An API error (rate limit, outage) warns and passes, as an oversized pull request does.
+            if ! gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" \
+              --jq '.[] | {filename, additions, deletions} | @json' > "$RUNNER_TEMP/files.jsonl"; then
+              echo "::warning title=PR size::could not read the pull request's files; size not measured"
+              exit 0
+            fi
+            # A failed read of the current body keeps the event's.
+            if gh api "repos/$REPOSITORY/pulls/$PR" --jq '{pull_request: {body, changed_files}}' \
+              > "$RUNNER_TEMP/live-event.json" 2>/dev/null && [ -s "$RUNNER_TEMP/live-event.json" ]; then
+              event="$RUNNER_TEMP/live-event.json"
+            else
+              echo "::notice title=PR size::could not read the current body; using the event's"
+            fi
           fi
           status=0
           python3 scripts/ci/pr_size.py --files "$RUNNER_TEMP/files.jsonl" --event "$event" || status=$?
