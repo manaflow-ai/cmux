@@ -28,7 +28,20 @@ import UserNotifications
     }
 
     @Test func anAgentEventOpensItsChat() {
-        #expect(decide(NotificationRoute(kind: "question", mac: "m", sessionID: "s"), chat: chat) == .chat(chat))
+        let ws = workspace("w1", mac: "m", tabs: ["t-chat"])
+        #expect(decide(NotificationRoute(kind: "question", mac: "m", sessionID: "s"), chat: chat, workspaces: [ws]) == .chat(chat))
+    }
+
+    /// Two Macs can retain a copy of the same conversation, or a notification
+    /// can name a stale session. Its Mac id outranks a coincidentally matching
+    /// chat id on another machine.
+    @Test func aChatOnAnotherMacNeverOpensForThisNotification() {
+        let other = workspace("w1", mac: "mac-a", tabs: ["t-chat"])
+        let route = NotificationRoute(kind: "question", mac: "mac-b", sessionID: "s")
+        #expect(decide(route, chat: chat, workspaces: [other]) == .feed)
+        #expect(decide(route, chat: chat, workspaces: [other], phase: .loading) == .wait)
+        let source = workspace("w1", mac: "mac-b", tabs: ["t-chat"])
+        #expect(decide(route, chat: chat, workspaces: [source]) == .chat(chat))
     }
 
     @Test func aTerminalNotificationOpensItsTab() {
