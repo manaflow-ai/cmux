@@ -36,6 +36,8 @@ type MockAuthGlobals = {
   cmuxAcpmuxMockSessionAuth?: MockSessionAuth;
   /** Capability ids `initialize` names (`_meta.acpmux.capabilities`); absent names none, as an older daemon. */
   cmuxAcpmuxMockCapabilities?: string[];
+  /** Gallery only: `session/new` refuses with `trust.pending` until `acp.trust.set` trusts a folder. */
+  cmuxAcpmuxMockTrustPending?: boolean;
 };
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
@@ -202,6 +204,8 @@ export class MockAcpmuxSocket {
   ]);
   /// acpmux's own record, which `acp.trust.set` writes; the agents' files never change.
   private trust = new Map<string, TrustLevel>([["~/code/atlas-web", "trusted"]]);
+  /// `cmuxAcpmuxMockTrustPending`: whether a folder has been trusted since the page loaded.
+  private trustGranted = false;
   /// Folder profiles the user enabled (`_acpmux/harness_enable`), by id.
   private enabledProfiles = new Set<string>();
   private bookmarks = new Map<string, Set<number>>();
@@ -558,6 +562,11 @@ export class MockAcpmuxSocket {
         this.closeSeededTurn(target, "completed", String(params.optionId ?? "").startsWith("allow"));
         return {};
       case "session/new": {
+        // A gallery state whose folder is not trusted yet: the start waits on the Trust question.
+        if ((globalThis as MockAuthGlobals).cmuxAcpmuxMockTrustPending && !this.trustGranted)
+          throw Object.assign(new Error("trust.pending: answer the trust question for the folder first"), {
+            data: { reason: "trust.pending", cwd: String(params.cwd ?? "~/code/cmux") },
+          });
         // A new chat opens in the project of the session it was started from.
         const from = this.sessions.find((entry) => entry.sessionId === this.attached) ?? this.sessions[0];
         const profile = mockFolderProfiles.find((entry) => entry.id === params._meta?.acpmux?.harness);
@@ -652,6 +661,7 @@ export class MockAcpmuxSocket {
         }
         const level: TrustLevel = params.level === "untrusted" ? "untrusted" : "trusted";
         this.trust.set(cwd, level);
+        if (level === "trusted") this.trustGranted = true;
         return { cwd, level };
       }
       case "file.search":
