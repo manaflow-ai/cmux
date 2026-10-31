@@ -111,19 +111,15 @@ extension AgentHibernationController {
             }
             if let processScopeKey {
                 guard refreshedTerminations.allSatisfy({ termination in
-                          guard let ttyDevice = termination.ttyDevice else {
-                              return false
-                          }
-                          return processTTYDeviceProvider(
-                              pid_t(termination.processID)
-                          ) == ttyDevice
+                          termination.terminalStillMatches(
+                              processTTYDeviceProvider(pid_t(termination.processID))
+                          )
                       }),
                       refreshedTerminations.allSatisfy({ termination in
-                          processArgumentsProvider(termination.processID)?
-                              .matchesCMUXScope(
-                                  workspaceId: processScopeKey.workspaceId,
-                                  surfaceId: processScopeKey.panelId
-                              ) == true
+                          termination.argumentsStillMatch(
+                              processArgumentsProvider(termination.processID),
+                              processScopeKey: processScopeKey
+                          )
                       }),
                       // Close same-generation exec and process-group races
                       // introduced by the uncached scope/TTY probes.
@@ -231,10 +227,13 @@ extension AgentHibernationController {
         )
     }
 
+    /// The one terminal every termination except a cmux helper shares.
     nonisolated static func commonTTYDevice(
         in terminations: [ScopedProcessTermination]
     ) -> Int64? {
-        let ttyDevices = Set(terminations.compactMap(\.ttyDevice))
+        let ttyDevices = Set(
+            terminations.filter { !$0.isCmuxHelper }.compactMap(\.ttyDevice)
+        )
         guard ttyDevices.count == 1 else { return nil }
         return ttyDevices.first
     }
