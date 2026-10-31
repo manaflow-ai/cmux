@@ -19,6 +19,9 @@ on:
     workflows: ["cmux-next defaults guard"]
     types: [completed]
 
+env:
+  SOURCE_WORKFLOW_PATHS: .github/workflows/cmux-next-defaults-guard.yml
+
 permissions: {}
 
 concurrency:
