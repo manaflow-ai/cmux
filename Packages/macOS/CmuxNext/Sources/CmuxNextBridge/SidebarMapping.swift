@@ -141,7 +141,7 @@ public struct SidebarMapping {
         let indicator = statuses.workspace
         // The focused tab; the row is named for its chat while it is an idle shell (`labelTab`).
         let focused = frontTab(workspace, selectedTab: selectedTab), front = labelTab(focused, tabs, newTabPages: newTabPages)
-        // The workspace's folder (Group by Folder's bucket): a tab row repeats it nowhere.
+        // The workspace's folder (Group by Folder's bucket).
         let rowFolder = focused?.cwd ?? tabs.lazy.compactMap(\.cwd).first
         let folder = folderTab(tabs, label: front)
         // The row's face (name, icon, kind) is one tab's: the label tab, or the work a page beside

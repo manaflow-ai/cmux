@@ -9,8 +9,8 @@ import Testing
 /// says notifications are muted, the Priority bell names what its dot counts and keeps its
 /// shortcut out of the label.
 @MainActor @Suite(.serialized) struct SidebarIconMeaningTests {
-    private static func row(_ key: SidebarRowKey, section: SectionID, workspace: WorkspaceID? = nil) -> SidebarRow {
-        SidebarRow(key: key, y: 0, height: 28, section: section, workspace: workspace, siblingIndex: 0,
+    private static func row(_ key: SidebarRowKey, section: SectionID) -> SidebarRow {
+        SidebarRow(key: key, y: 0, height: 28, section: section, siblingIndex: 0,
                    isLastInGroup: true, isCollapsed: false, childCount: 1)
     }
 

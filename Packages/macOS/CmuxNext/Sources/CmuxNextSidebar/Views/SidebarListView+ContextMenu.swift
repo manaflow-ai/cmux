@@ -24,7 +24,7 @@ extension SidebarListViewComponents {
             target = fold.group.map(SidebarContextTarget.group) ?? .section(fold.section)
         case let .item(item)?:
             target = .layoutItem(LayoutItemID(item))
-        case .block?, .status?, .tab?:
+        case .block?, .status?:
             target = .background
         case nil:
             target = .background

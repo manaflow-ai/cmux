@@ -82,7 +82,7 @@ extension SidebarListViewComponents {
                 press.activatedOnPress = true
                 model.send(.activateItem(id, opensWorkspace: event.modifierFlags.contains(.option)))
             }
-        case .section, .emptySection, .emptyGroup, .folder, .block, .doneFold, .showMore, .status, .tab:
+        case .section, .emptySection, .emptyGroup, .folder, .block, .doneFold, .showMore, .status:
             break
         }
         self.press = press
@@ -126,8 +126,6 @@ extension SidebarListViewComponents {
             // Mouse-down drew the click on the old and new rows (`patchSelection`) and moved no row: no layout here
             // (u2455: every click laid the whole list out and configured every row).
             return syncRowStates()
-        case .tab:
-            break
         case let .group(group):
             // An empty saved group reopens; any other group toggles.
             if let g = model.group(group), g.isPinned, g.workspaces.isEmpty, g.items.isEmpty {

@@ -15,7 +15,6 @@ extension SidebarLayoutMetrics {
             sectionSpacing: SidebarDensityTokens.sectionSpacing,
             rowHeight: row,
             rowHeightWithSubtitle: SidebarDensityTokens.rowHeightWithSubtitle,
-            tabRowHeight: row,
             rowSpacing: Metrics.space1,
             emptySectionHeight: row
         )
