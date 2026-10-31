@@ -451,11 +451,21 @@ test("while a Cloud start is out the box takes no edits, and takes them again on
     />
   );
   // The tab closes once the chat opens on the machine: an edit made meanwhile would go with it.
+  const typeOnPage = (key: string) =>
+    act(async () => {
+      container.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+    });
+  const field = () => container.querySelector<HTMLTextAreaElement>("textarea")!;
   await act(async () => root!.render(page(true)));
   expect(container.querySelector(".nt-box")!.hasAttribute("inert")).toBe(true);
+  // Typing on the page (outside the field) goes nowhere while the start is out.
+  await typeOnPage("x");
+  expect(field().value).toBe("");
   // A failed start keeps the prompt here to edit and send again.
   await act(async () => root!.render(page(false)));
   expect(container.querySelector(".nt-box")!.hasAttribute("inert")).toBe(false);
+  await typeOnPage("x");
+  expect(field().value).toBe("x");
 });
 
 test("picking Cloud drops a saved environment picked before: the send names the folder chip's folder, not the tab's inherited one", async () => {

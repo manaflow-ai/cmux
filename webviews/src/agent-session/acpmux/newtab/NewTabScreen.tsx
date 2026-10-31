@@ -388,7 +388,7 @@ export function NewTabScreen(props: Props) {
   // in chat should put it in chat").
   usePasteAnywhere(() => {
     const input = field.current;
-    if (!input) return false;
+    if (!input || props.cloudStarting) return false;
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
     return true;
@@ -411,6 +411,7 @@ export function NewTabScreen(props: Props) {
   } = useAttachmentIntake({
     allowImages: snapshot.summary?.promptCapabilities?.image !== false,
     dropZone: () => field.current?.closest(".acpmux-main") ?? null,
+    locked: () => props.cloudStarting === true,
     // Shell mode turns the page into a terminal, which takes no attachment: the paste stays text.
     pasteTarget: (target) => (!shell && field.current?.contains(target) ? { uploads: false } : undefined),
     ...(props.upload ? { upload: props.upload } : {}),
@@ -1052,6 +1053,8 @@ export function NewTabScreen(props: Props) {
   const typeAnywhere = useRef<(event: KeyboardEvent) => void>(() => undefined);
   typeAnywhere.current = (event) => {
     const input = field.current;
+    // A Cloud start is out: the box takes nothing until it ends (`cloudStarting`).
+    if (props.cloudStarting) return;
     if (!input || event.defaultPrevented || event.isComposing) return;
     if (event.metaKey || event.ctrlKey || event.altKey || event.key.length !== 1) return;
     const target = event.target as Element | null;
