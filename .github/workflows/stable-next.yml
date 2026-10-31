@@ -203,7 +203,11 @@ jobs:
           BUILD: ${{ steps.pick.outputs.build }}
         run: |
           set -euo pipefail
-          curl -fsS --retry 3 -A cmux-stable-next/1 -o "$RUNNER_TEMP/notes.json" "$NEXT_FEED_BASE/notes/$BUILD.json"
+          # nightly.yml publishes the notes a few minutes after the feed names the build (publish-release-notes
+          # follows publish-nightly), so a build picked right after it went live waits for them (run 41153970072).
+          curl -fsS --retry 20 --retry-delay 30 --retry-all-errors -A cmux-stable-next/1 \
+            -o "$RUNNER_TEMP/notes.json" "$NEXT_FEED_BASE/notes/$BUILD.json" \
+            || { echo "::error title=cmux NEXT Stable::notes/$BUILD.json is not published after 10 minutes"; exit 1; }
           sha="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["build"] == sys.argv[2]; print(d["head"])' \
             "$RUNNER_TEMP/notes.json" "$BUILD")"
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "notes/$BUILD.json names no commit" >&2; exit 1; }
