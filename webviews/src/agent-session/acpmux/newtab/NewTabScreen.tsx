@@ -14,6 +14,8 @@ import { OnNewTab } from "../newTabComposer";
 import type { Project } from "../ProjectChooser";
 import { firstProject, isAgentHome, mostRecentProject, projectLabel } from "../sessionList";
 import { WorktreeFailure } from "../startFolder";
+import { BrowseFailure, browseFailureMessage } from "../BrowseFailure";
+import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "../AddProjectPanel";
 import { errorMessage } from "../transportErrors";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { sandboxFailureKey, type RunModeRows } from "../sandboxRun";
@@ -218,7 +220,7 @@ type Props = NewTabScreenActions & {
   /// The projects the picker offers (App's newTabProjects).
   projects?: Project[];
   /// The host's folder panel; resolves with the folder picked, if any.
-  onBrowseProject?(): Promise<string | undefined>;
+  onBrowseProject?(request?: BrowseRequest): Promise<BrowseResult>;
   chips?: NewTabChips;
   /// Lazily load the chosen harness's actual commands in a deferred chat.
   onCommands?(harness: string, cwd?: string): void;
@@ -383,6 +385,7 @@ export function NewTabScreen(props: Props) {
     attachments,
     setAttachments,
     pending: reading,
+    originalFailures,
     unsettled,
     videoReading,
     cancel,
@@ -501,28 +504,39 @@ export function NewTabScreen(props: Props) {
   const [sandboxRefusal, setSandboxRefusal] = useState<string>();
   const [startError, setStartError] = useState<string>();
   const asking = useRef(false);
+  /// The agent whose chat is starting while the page still shows (a chat on another machine, or in
+  /// no project, leaves only once it has started): the composer says "Starting Claude Code…" until
+  /// the start answers, so a slow start never reads as Return having done nothing.
+  const [starting, setStarting] = useState<string>();
   const requestChat = (...args: Parameters<NewTabScreenActions["onAsk"]>) => {
     if (asking.current) return;
     asking.current = true;
     setStartError(undefined);
+    setStarting(args[0]);
     const failed = (error: unknown) => {
       setStartError(errorMessage(error) || t("switch.unknownError"));
       created.current = false;
     };
+    const done = () => {
+      asking.current = false;
+      setStarting(undefined);
+    };
     try {
       Promise.resolve(props.onAsk(...args))
         .catch(failed)
-        .finally(() => {
-          asking.current = false;
-        });
+        .finally(done);
     } catch (error) {
       failed(error);
-      asking.current = false;
+      done();
     }
   };
   /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
-    if (targetAuthPending || authBlocksSend(targetAuth)) return false;
+    // Only a verdict that already says the harness is signed out holds the prompt back. A check
+    // still running never does (Leo 2026-10-30: "I SHOULD BE ALWAYS ABLE TO SATRT NEW FUCKGN
+    // CHATS"): it has no deadline and can take many seconds on a busy daemon, and the turn itself
+    // reports a sign-in that turns out missing.
+    if (authBlocksSend(targetAuth)) return false;
     if (command.intercept(prompt, agent, attachments.length)) return false;
     if (props.runMode?.mode === "sandboxed" && props.onSandbox) {
       const started = props.onSandbox(agent, prompt, attachments);
@@ -566,27 +580,13 @@ export function NewTabScreen(props: Props) {
     harness && (!remoteTarget || targetHost)
       ? { target: { harness, ...(targetHost ? { host: targetHost } : {}) } }
       : undefined;
-  const {
-    auth: targetAuth,
-    pending: targetAuthPending,
-    recheck: recheckTarget,
-  } = useSessionAuth(
+  const { auth: targetAuth, recheck: recheckTarget } = useSessionAuth(
     authQuery,
     parentSignIn?.readSessionAuth,
     parentSignIn?.authEpoch,
     parentSignIn?.authRefresh,
     parentSignIn?.authObservation,
   );
-  const authTarget = JSON.stringify(authQuery ?? null);
-  /// The ask that waits on the harness's sign-in check (askChat refuses while it runs: Return, an
-  /// Ask row or New chat right after Cmd-T, or setup's resume), with the check's target. It runs
-  /// again once the check settles on that target; a sign-in it then finds missing keeps the draft.
-  /// One slot: a later ask replaces it, so one ask goes. An edit drops it, except setup's resume,
-  /// which reads the draft as it is then.
-  const afterAuth = useRef<{ target: string; run: () => void; keepOnEdit?: true }>(undefined);
-  const waitForAuth = (run: () => void, keepOnEdit = false) => {
-    afterAuth.current = { target: authTarget, run, ...(keepOnEdit ? { keepOnEdit } : {}) };
-  };
 
   // The Ask row names the agent Return asks and the model on its chip.
   const ask = useMemo(() => {
@@ -860,7 +860,6 @@ export function NewTabScreen(props: Props) {
       case "workspace":
         return props.onJump("workspace", row.id);
       case "ask":
-        if (targetAuthPending) return waitForAuth(() => activateNow.current(row));
         return askChat(row.harness, row.text, project, row.harness === harness ? chipModel : undefined);
       case "create":
         return row.kind === "chat" ? startChat() : create(row.kind);
@@ -868,12 +867,8 @@ export function NewTabScreen(props: Props) {
         return props.onAction?.(row.id);
     }
   };
-  const activateNow = useRef(activate);
-  activateNow.current = activate;
   const edit = (next: string) => {
     touch();
-    // An ask still waiting on the sign-in check was for the draft before this edit.
-    if (!afterAuth.current?.keepOnEdit) afterAuth.current = undefined;
     setTouched(true);
     const entry = composing.current || shell ? undefined : shellEntry(text, next, wholeSelection.current);
     wholeSelection.current = false;
@@ -930,7 +925,6 @@ export function NewTabScreen(props: Props) {
       openSetup();
       return;
     }
-    if (targetAuthPending) return waitForAuth(() => submitNow.current());
     askChat(harness, prompt, project, chipModel);
   };
   submitNow.current = submit;
@@ -955,7 +949,6 @@ export function NewTabScreen(props: Props) {
     if (created.current) return;
     const prompt = shell ? "" : text.trim();
     if (command.intercept(prompt, harness, attachments.length)) return;
-    if (targetAuthPending) return waitForAuth(() => startChatNow.current());
     created.current = true;
     const asked = askChat(
       harness,
@@ -966,16 +959,10 @@ export function NewTabScreen(props: Props) {
     // A Sandboxed New chat that started nothing (no prompt, a refusal) leaves the page's creates open.
     if (asked === false) created.current = false;
   };
-  const startChatNow = useRef(startChat);
-  startChatNow.current = startChat;
   continueAfterSetup.current = (agent) => {
     // Setup may finish while an attachment is still loading. Resume the same draft only once
     // its files are ready, reading the latest state rather than the setup-opening snapshot.
     if (holdForAttachments(() => continueAfterSetup.current(agent)) || created.current) return;
-    // Setup just made the harness ready, so its sign-in check is usually still running, and askChat
-    // refuses while it does. Resume once that harness's check settles; a sign-in it then finds
-    // missing keeps the draft.
-    if (targetAuthPending && harness === agent) return waitForAuth(() => continueAfterSetup.current(agent), true);
     created.current = true;
     const prompt = shell ? "" : text.trim();
     const asked = askChat(
@@ -985,18 +972,6 @@ export function NewTabScreen(props: Props) {
     );
     if (asked === false) created.current = false;
   };
-  useEffect(() => {
-    const waiting = afterAuth.current;
-    if (!waiting) return;
-    // The person picked another harness or machine meanwhile: send nothing; the draft stays.
-    if (waiting.target !== authTarget) {
-      afterAuth.current = undefined;
-      return;
-    }
-    if (targetAuthPending) return;
-    afterAuth.current = undefined;
-    waiting.run();
-  }, [targetAuthPending, authTarget]);
   const send = () => {
     touch();
     if (!shell) return submit();
@@ -1172,8 +1147,20 @@ export function NewTabScreen(props: Props) {
   };
   // Each folder choice takes a number; a worktree reply applies only while its choice is the latest.
   const projectChoice = useRef(0);
+  const browsePending = useRef(false);
+  const browseAlive = useRef(true);
+  useEffect(() => {
+    browseAlive.current = true;
+    return () => {
+      browseAlive.current = false;
+      projectChoice.current += 1;
+      browsePending.current = false;
+    };
+  }, []);
+  const [browseError, setBrowseError] = useState<string>();
   const pickProject = (cwd?: string) => {
     projectChoice.current += 1;
+    setBrowseError(undefined);
     // A folder picked anywhere on the page (a widget card's project) replaces a saved environment,
     // and is on this Mac.
     saved.pick(undefined);
@@ -1192,6 +1179,7 @@ export function NewTabScreen(props: Props) {
   const pickMachine = (next?: { peer: string; folder?: string }) => {
     // A newer choice than any worktree still on its way (`projectChoice`).
     projectChoice.current += 1;
+    setBrowseError(undefined);
     saved.pick(undefined);
     touch();
     setMachine(next);
@@ -1252,11 +1240,36 @@ export function NewTabScreen(props: Props) {
         }
       : undefined;
   const browseProject = props.onBrowseProject
-    ? () => {
-        void props.onBrowseProject?.().then((cwd) => {
-          if (cwd) pickProject(cwd);
-        });
+    ? (request?: BrowseRequest) => {
+        if (!browseAlive.current) return Promise.resolve(undefined);
+        if (browsePending.current) return Promise.resolve(BROWSE_BUSY);
+        const choice = ++projectChoice.current;
+        browsePending.current = true;
+        setBrowseError(undefined);
+        return Promise.resolve()
+          .then(() => props.onBrowseProject?.(request))
+          .then((cwd) => {
+            if (choice !== projectChoice.current) return undefined;
+            if (typeof cwd !== "string" || cwd.length === 0) return cwd;
+            if (request?.deferPick) return cwd;
+            pickProject(cwd);
+            return cwd;
+          })
+          .then(undefined, (error: unknown) => {
+            if (choice !== projectChoice.current) return undefined;
+            if (request?.deferPick) throw error;
+            setBrowseError(browseFailureMessage(error));
+            return undefined;
+          })
+          .finally(() => {
+            browsePending.current = false;
+          });
       }
+    : undefined;
+  // A saved environment owns its draft and the browse failure state. Keep a folder chosen there
+  // from replacing the New Tab project until the person saves the environment.
+  const browseSavedEnvironment = browseProject
+    ? (request?: BrowseRequest) => browseProject({ ...request, deferPick: true })
     : undefined;
   const Chips = props.chips;
   const chooser = useRef<HTMLInputElement>(null);
@@ -1366,11 +1379,17 @@ export function NewTabScreen(props: Props) {
                 environments: saved.list,
                 ...(environment ? { current: environment.id } : {}),
                 onPick: (id: string) => {
+                  projectChoice.current += 1;
+                  setBrowseError(undefined);
                   touch();
                   saved.pick(id);
                   requestAnimationFrame(() => field.current?.focus());
                 },
-                onClear: () => saved.pick(undefined),
+                onClear: () => {
+                  projectChoice.current += 1;
+                  setBrowseError(undefined);
+                  saved.pick(undefined);
+                },
                 onCreate: () => saved.edit(null),
                 onEdit: (id: string) => saved.edit(saved.list.find((other) => other.id === id)),
               },
@@ -1398,7 +1417,7 @@ export function NewTabScreen(props: Props) {
       folders={(props.projects ?? [])
         .filter((choice) => !isAgentHome(choice.cwd))
         .map((choice) => ({ id: choice.cwd, label: choice.label }))}
-      {...(props.onBrowseProject ? { onBrowse: props.onBrowseProject } : {})}
+      {...(browseSavedEnvironment ? { onBrowse: browseSavedEnvironment } : {})}
       machines={sshMachines}
       machineFolders={machineFolders}
       {...(props.onConnect ? { onConnectSSH: () => props.onConnect!("ssh") } : {})}
@@ -1508,10 +1527,18 @@ export function NewTabScreen(props: Props) {
           chat starts in heads it, as text over the card (ComposerContext, the composer's own; hq#1957
           composer location strip; newtab/screen.css). */}
       <div ref={setComposer} className="nt-composer" data-composer-look={look === "codex" ? "codex" : undefined}>
-        {authBlocksSend(targetAuth) && (
+        {authBlocksSend(targetAuth) ? (
           <p className="acpmux-composer-remote-note" role="alert">
             {targetAuthText}
           </p>
+        ) : (
+          starting !== undefined && (
+            <output className="acpmux-composer-remote-note">
+              {t("switch.starting", {
+                agent: snapshot.catalog.find((entry) => entry.id === starting)?.name ?? starting,
+              })}
+            </output>
+          )
         )}
         {props.startNotice}
 
@@ -1521,6 +1548,9 @@ export function NewTabScreen(props: Props) {
           </p>
         )}
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
+        {browseError && browseProject && (
+          <BrowseFailure error={browseError} onRetry={browseProject} onDismiss={() => setBrowseError(undefined)} />
+        )}
         {sandboxRefusal && props.runMode?.mode === "sandboxed" && (
           <output className="acpmux-switch-notice">
             <span role="alert">{t(sandboxFailureKey(sandboxRefusal) ?? "sandbox.error.failed")}</span>
@@ -1618,6 +1648,7 @@ export function NewTabScreen(props: Props) {
               field.current?.focus();
             }}
             onRetry={retry}
+            originalFailures={originalFailures}
             onReorder={(id, index) => setAttachments((current) => reordered(current, id, index))}
           />
           {command.input}

@@ -71,7 +71,7 @@ import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } f
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
-import { failedSendText } from "./sendFailure";
+import { failedSendText, retryHelps, sendCause } from "./sendFailure";
 import { SessionPager, type SessionPage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
 import { isPlumbingCall, showsNothing } from "./hiddenTools";
@@ -98,6 +98,7 @@ import {
 } from "./summary/transcriptPullRequests";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
 import { handoffPromptId, namesHandoffTurn } from "./cloudHandoffTurn";
+import { STALL_CHECK_MS, stallLine } from "./stallLog";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -1305,6 +1306,19 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
 }
 
 /** Direct browser client for the authenticated acpmux WebSocket protocol. */
+/// Every native root a session summary names into `fold`: the chat's current agent session and
+/// the earlier ones acpmux retired (`retiredAgentSessionIds`), which older records still name.
+/// True when a record already folded named one of them: the rows drawn from it are stale.
+function seedRoots(
+  fold: SubagentFold,
+  summary: { agentSessionId?: unknown; retiredAgentSessionIds?: unknown } | undefined,
+): boolean {
+  const retired = summary?.retiredAgentSessionIds;
+  let named = false;
+  if (Array.isArray(retired)) for (const id of retired) named = fold.setRoot(text(id)) || named;
+  return fold.setRoot(text(summary?.agentSessionId)) || named;
+}
+
 export class AcpmuxDirectClient {
   /// Coalesces the snapshots of acpmux events that land within one display frame: a fast stream
   /// sends several deltas per frame, and each snapshot re-renders the transcript. The page that
@@ -2753,6 +2767,30 @@ export class AcpmuxDirectClient {
     });
   }
 
+  /// The pane positions whose stall was checked already (`checkStall`): one check per position.
+  private readonly stallChecked = new Set<string>();
+  /// A send to the shown chat went slow: when acpmux holds an event after the pane's last one that it
+  /// wrote a while ago, the pane missed the chat's events, and the log says so (stallLog.ts). A hidden
+  /// page holds its frames on purpose, so it is not checked; each position is checked once.
+  private checkStall(sessionId: string): void {
+    if (this.closed || this.selectedSessionId !== sessionId || !pageShown()) return;
+    const paneSeq = this.lastSeq;
+    const key = `${sessionId} ${paneSeq}`;
+    if (this.stallChecked.has(key)) return;
+    this.stallChecked.add(key);
+    const connection = this.socket?.readyState === WebSocket.OPEN ? "open" : "not open";
+    void this.typed("_acpmux/events", { sessionId, afterSeq: paneSeq, limit: 1 }, STALL_CHECK_MS).then(
+      (result) => {
+        const line = stallLine(sessionId, paneSeq, records(result?.events)[0], Date.now(), connection);
+        if (line) console.error(line);
+      },
+      (error: unknown) =>
+        console.error(
+          `agent pane stall check: session ${sessionId}: acpmux did not answer its events after seq ${paneSeq}: ${String((error as { code?: unknown } | null)?.code ?? error)}; connection ${connection}`,
+        ),
+    );
+  }
+
   /// Pages from its own cursor: live events keep advancing lastSeq meanwhile.
   /// The live summary, queue and permission survive the rebuild; after a lag the
   /// missed events are replayed onto them, while a fresh attach is already current.
@@ -3856,6 +3894,11 @@ export class AcpmuxDirectClient {
     if (this.readAheadAt.has(session.sessionId)) this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
     if (session.sessionId === this.selectedSessionId) {
       this.summary = { ...this.summary, ...session };
+      // A harness restart or a new conversation names a new native root without a rebuild: the
+      // fold learns it now, or a record naming it as a parent would not repair its child. One
+      // that records already folded named (a retired root, too) drew rows that are now wrong:
+      // folded again by lineage, as ``learnChatThread`` does, with no later update needed.
+      if (seedRoots(this.subagents, session)) this.rebuildKeepingLiveState();
       this.learnChatThread();
       // A change that doesn't carry the queue keeps the one already mapped.
       if (session.queue) {
@@ -4146,9 +4189,10 @@ export class AcpmuxDirectClient {
     this.toolRows.clear();
     this.planCalls.clear();
     this.subagents = new SubagentFold(this.subagentStops);
-    // Replay knows the native harness id from the session summary. Seed it before any persisted
-    // acpmux records so an echoed root thread cannot be reconstructed as a child of its reporter.
-    this.subagents.setRoot(text(this.summary?.agentSessionId));
+    // Replay knows the native harness ids from the session summary, the earlier ones a restart
+    // retired too. Seed them before any persisted acpmux records so an echoed root thread cannot
+    // be reconstructed as a child of its reporter.
+    seedRoots(this.subagents, this.summary);
     this.pendingPermission = undefined;
     this.waitingPermissions = new Map();
     this.pendingSecret = undefined;
@@ -5939,8 +5983,10 @@ export class AcpmuxDirectClient {
     // deadline, as before: there is no failed row then, so no second copy to send.
     timers.push(
       setTimeout(() => {
-        if (this.deliveries.get(promptId)?.delivery.state === "sending" && this.setDelivery(promptId, { slow: true }))
+        if (this.deliveries.get(promptId)?.delivery.state === "sending" && this.setDelivery(promptId, { slow: true })) {
           this.emit();
+          this.checkStall(sessionId);
+        }
       }, deliveryTiming.slowMs),
     );
     timers.push(
@@ -6073,7 +6119,9 @@ export class AcpmuxDirectClient {
         // says just that, not the generic refusal's pick wording (cx-w2p8r).
         if (held && !isTrustRefusal(error))
           this.notice(
-            code === "transport.gesture_required" ? translate("prompt.notSentAgain") : failedSendText(error, false),
+            code === "transport.gesture_required"
+              ? translate("prompt.notSentAgain")
+              : failedSendText(error, false, sendAttachments),
           );
         else this.emit();
         throw error;
@@ -6103,7 +6151,7 @@ export class AcpmuxDirectClient {
           ...row,
           pending: false,
           failed: true,
-          error: failedSendText(error, this.retriedPrompts.has(promptId)),
+          error: failedSendText(error, this.retriedPrompts.has(promptId), sendAttachments),
           version: row.version + 1,
         });
         this.failedPrompts.set(rowId, { input, attachments, promptId });
@@ -6230,7 +6278,9 @@ export class AcpmuxDirectClient {
   /// prompt id (a trust refusal's kept gesture is bound to that id, heldPrompt.ts). The run's other
   /// rows go.
   async retryPrompts(rowIds: readonly string[], ticket?: string, anchor?: string): Promise<string | undefined> {
-    const run = rowIds.filter((id) => this.failedPrompts.has(id));
+    // A prompt too large to send is refused the same way again, from any Retry (the card, the
+    // message menu): it stays failed until Edit takes an attachment out.
+    const run = rowIds.filter((id) => this.failedPrompts.has(id) && retryHelps(sendCause(this.rows.get(id)?.delivery)));
     const kept = anchor && run.includes(anchor) ? anchor : run[run.length - 1];
     if (!kept) return undefined;
     if (run.length > 1) {
@@ -7962,8 +8012,8 @@ export class AcpmuxDirectClient {
     this.toolRows = new Map();
     this.planCalls = new Set();
     this.subagents = new SubagentFold(this.subagentStops);
-    // An older page replays persisted records too: seed the native root as the full replay does.
-    this.subagents.setRoot(text(this.summary?.agentSessionId));
+    // An older page replays persisted records too: seed the native roots as the full replay does.
+    seedRoots(this.subagents, this.summary);
     this.groupedPermissions = new Map();
     this.waitingPermissions = new Map();
     this.openQuestions = new Set();
