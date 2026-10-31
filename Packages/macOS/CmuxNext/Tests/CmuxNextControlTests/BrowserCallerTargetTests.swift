@@ -240,6 +240,38 @@ import Testing
         #expect(identity["browser"]?["workspace"] == "ws-agent")
     }
 
+    @Test(arguments: ["elsewhere", "own", "mirror"])
+    func anActionWithNoTargetRequiresTheSameFocusedBrowser(focus: String) async throws {
+        var snapshot = Self.snapshot(ownBrowser: false, neighbors: false)
+        snapshot.catalog = ControlCatalog(actions: [
+            ControlActionInfo(id: "browserShowHistory", title: "Show Browser History", category: "browser", categoryTitle: "Browser",
+                              cliName: nil, symbol: "clock", keywords: [], shortcut: nil, shortcutConfig: nil,
+                              arguments: [], targets: [], requiresMask: 1 << 1, requires: ["browserFocused"],
+                              isBound: true, isDebugOnly: false, mainMenu: nil),
+        ], contextMask: 1 << 1, targetKinds: ["tab", "pane"], debugActionsAvailable: false)
+        snapshot.topology.workspaces[0].sessionID = "session-remote"
+        var pane = Self.pane("pane-local", column: 1, [Self.browser("tab-front")])
+        if focus == "mirror" {
+            pane.tabs = []
+            pane.selectedTabID = "tab-front"
+            pane.mirroredTabIDs = ["tab-front"]
+            snapshot.topology.workspaces.append(Self.workspace("ws-owner", [Self.pane("pane-owner", column: 0, [Self.browser("tab-front")])]))
+        }
+        snapshot.topology.workspaces[1].screens[0].panes.append(pane)
+        if focus != "elsewhere" {
+            snapshot.topology.focus = ControlFocus(windowID: "win-b", workspaceID: "ws-agent", paneID: "pane-local", tabID: "tab-front")
+        }
+        let (router, executor) = install(snapshot)
+        let result = await router.handle(ControlRequest(method: "action.run", params: ["action": "browserShowHistory", "caller": Self.agent]))
+        if focus == "elsewhere" {
+            #expect(result.failure?.code == "unavailable")
+            #expect(executor.last == nil)
+        } else {
+            #expect(try result.get()["ran"] == true)
+            #expect(executor.last?.actionID == "browserShowHistory")
+        }
+    }
+
     @Test(arguments: [false, true]) func creatingTheFirstBrowserCanBeRetriedAfterTopologyChanges(agentChat: Bool) async throws {
         var snapshot = Self.snapshot(ownBrowser: false, neighbors: false)
         snapshot.catalog = ControlCatalog(actions: [
