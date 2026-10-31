@@ -21,20 +21,20 @@ final class AppBrowserPasskeyHost: BrowserPasskeyHost, Sendable {
     }
 
     func isInFront(tabID: String) async -> Bool {
-        guard NSApp.isActive, let services, let (tab, pane) = services.locateTab(tabID),
+        guard NSApp.isActive, let services, let (tab, pane) = services.locateTabOnAnyMachine(tabID),
               let controller = services.paneController(for: pane) else { return false }
         return controller.selectedTab?.id == tab.id && controller.view.window?.isKeyWindow == true
     }
 
     func reveal(tabID: String) async throws {
-        guard let services, services.locateTab(tabID) != nil else {
+        guard let services, services.locateTabOnAnyMachine(tabID) != nil else {
             throw ControlError(code: "not_found", message: "No tab \(tabID)")
         }
         // The person clicked the request: a person's view change.
         let context = AppActionContext(services: services)
         TabHandlers.reveal(tabID: tabID, ctx: context)
         if !services.environment.noActivate { NSApp.activate() }
-        if let (_, pane) = services.locateTab(tabID), let window = services.paneController(for: pane)?.view.window {
+        if let (_, pane) = services.locateTabOnAnyMachine(tabID), let window = services.paneController(for: pane)?.view.window {
             window.makeKeyAndOrderFront(nil)
         }
         // WebKit starts WebAuthn only in a focused document (`Document::hasFocus`).

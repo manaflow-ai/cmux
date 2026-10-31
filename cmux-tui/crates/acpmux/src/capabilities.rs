@@ -18,6 +18,10 @@ use crate::rpc::method;
 /// One capability: its id and the wire names (methods and notifications) the
 /// web pane uses under it. Every name is in the protocol registry
 /// (`protocol::registry`); the tests check that.
+/// Session-to-session message events; a daemon with it names, in each prompt acceptance, the
+/// message its journal kept (`hub/message_events.rs` `name_message`).
+pub const SESSION_MESSAGES: &str = "session-messages-v1";
+
 pub struct Capability {
     pub id: &'static str,
     pub wire: &'static [&'static str],
@@ -79,6 +83,7 @@ pub const CAPABILITIES: &[Capability] = &[
         id: "machine-consent-v1",
         wire: &[method::MUX_MACHINE_CONSENT_SET, method::MUX_MACHINE_CONSENT_GET],
     },
+    Capability { id: SESSION_MESSAGES, wire: &[method::MUX_MESSAGE] },
     // Inline `/btw` answers: the pane may send `inline: true` and receive `{text}`;
     // older daemons treat that field as legacy side-session input, so this id gates the shape.
     Capability { id: "btw-inline-v1", wire: &[method::MUX_BTW] },

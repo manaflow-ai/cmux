@@ -12,7 +12,7 @@ nonisolated public struct ChannelBuild: Equatable, Sendable {
         case held
         /// It was taken off the feed (`pulled.json`).
         case pulled
-        /// No verdict yet, or the canary skipped it.
+        /// No verdict yet, or the canary skipped it: no badge (most builds; the canary rates few).
         case pending
     }
 
