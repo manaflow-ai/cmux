@@ -1517,3 +1517,15 @@ fn open_link_refuses_files_workspaces_and_stray_flags_without_echoing_urls() {
         );
     }
 }
+
+/// The app's `not_found` for an unknown CLI action has no reason; an action whose target names
+/// nothing gives one, and that reaches the caller instead of reading as a missing command.
+#[test]
+fn a_missing_target_is_not_a_missing_action() {
+    let unknown =
+        serde_json::json!({"code": "not_found", "message": "Unknown action 'share chat'"});
+    assert!(!names_a_target(&unknown));
+    let missing = serde_json::json!({"code": "not_found", "message": "No agent chat is on surface 99.",
+        "data": {"action": "share chat", "reason": "No agent chat is on surface 99."}});
+    assert!(names_a_target(&missing));
+}
