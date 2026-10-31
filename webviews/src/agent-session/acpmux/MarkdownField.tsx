@@ -136,6 +136,9 @@ export type MarkdownFieldProps = {
   /// the value given so far is its document, and its placed attachments are their nodes. Called in
   /// the same task as `editor.current` and `view.current` are set, before COMPOSER_READY_EVENT.
   onReady?(): void;
+  /// Quotes `quoteReply` took before the editor was made, when the field goes before it is made:
+  /// they were never placed, so the owner keeps them for the next field (none is ever dropped).
+  onUnplacedQuotes?(quotes: string[]): void;
   /// The element each attachment placed in the text draws its chip into, by id, as they change.
   /// Only a field given one when it is made has placed attachments (composer/inlineNode.ts); any
   /// other keeps every U+FFFC as its text and pastes plain text.
@@ -192,6 +195,7 @@ function sameMarkdownFieldProps(previous: MarkdownFieldProps, next: MarkdownFiel
     previous.onReturnInput === next.onReturnInput &&
     previous.onFirstInput === next.onFirstInput &&
     previous.onReady === next.onReady &&
+    previous.onUnplacedQuotes === next.onUnplacedQuotes &&
     previous.onInlineViews === next.onInlineViews &&
     previous.isInlineAttachment === next.isInlineAttachment &&
     previous.plugins === next.plugins &&
@@ -406,6 +410,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onReturnInput,
     onFirstInput,
     onReady,
+    onUnplacedQuotes,
     onInlineViews,
     isInlineAttachment,
     plugins = [],
@@ -434,6 +439,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onReturnInput,
     onFirstInput,
     onReady,
+    onUnplacedQuotes,
     onInlineViews,
     isInlineAttachment,
   });
@@ -447,6 +453,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onReturnInput,
     onFirstInput,
     onReady,
+    onUnplacedQuotes,
     onInlineViews,
     isInlineAttachment,
   };
@@ -891,6 +898,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       });
     return () => {
       disposed = true;
+      // A quote taken while the editor was being made goes back to the owner, not with the field.
+      const unplaced = pendingQuotes.current.splice(0);
+      if (unplaced.length) latest.current.onUnplacedQuotes?.(unplaced);
       void editor.current?.destroy();
       editor.current = undefined;
       view.current = undefined;

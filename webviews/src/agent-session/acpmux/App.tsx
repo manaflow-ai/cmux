@@ -160,7 +160,7 @@ import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
 import type { BrowseRequest } from "./AddProjectPanel";
-import { quoteIntoComposer, replayHeldForComposer, restoreComposerDraft } from "./composerRestore";
+import { handBackQuotes, quoteIntoComposer, replayHeldForComposer, restoreComposerDraft } from "./composerRestore";
 import {
   linkAttachment,
   linkItems,
@@ -7888,6 +7888,10 @@ function AcpmuxPane() {
     }
     replayHeldForComposer(handle, heldBack, heldQuotes);
   }, []);
+  const composerUnplacedQuotes = useCallback(
+    (quotes: string[]) => handBackQuotes(composerHandle, heldQuotes, quotes),
+    [],
+  );
   useComposerKeyboard(() => {
     if (!prompt.current) return false;
     prompt.current.focus();
@@ -11583,6 +11587,7 @@ function AcpmuxPane() {
             onShellChange={setComposerShell}
             prompt={prompt}
             handle={composerRef}
+            onUnplacedQuotes={composerUnplacedQuotes}
             // No prompt goes while a picked folder waits for the user's answer, or while the chat only
             // shows a session another app runs (WatchBanner).
             blocked={trustAsk.blocked}

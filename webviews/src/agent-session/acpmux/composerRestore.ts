@@ -55,3 +55,19 @@ export function replayHeldForComposer(
   heldQuotes.current = undefined;
   for (const quote of quotes ?? []) handle.quoteReply(quote);
 }
+
+/// A composer that went while its editor was still being made hands back the quotes it had taken:
+/// they go into the composer there is now, or wait (ahead of any picked since) for the next one.
+export function handBackQuotes(
+  composer: { current: ComposerQuoteHandle | null },
+  heldQuotes: { current: string[] | undefined },
+  quotes: string[],
+): void {
+  if (!quotes.length) return;
+  const handle = composer.current;
+  if (handle) {
+    for (const quote of quotes) handle.quoteReply(quote);
+    return;
+  }
+  heldQuotes.current = [...quotes, ...(heldQuotes.current ?? [])];
+}

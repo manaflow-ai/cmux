@@ -283,6 +283,9 @@ type Props = {
   /// Receives the composer's handle, which puts a prompt a harness switch held back (its text
   /// and attachments) into the composer.
   handle?: React.Ref<ComposerHandle>;
+  /// Quotes the composer took (`quoteReply`) while its editor was still being made, when it goes
+  /// before the editor is: the host holds them for the next composer, so none is lost.
+  onUnplacedQuotes?(quotes: string[]): void;
   /// The context menu's Cut, Copy, Paste and Paste as Plain Text: the host runs the web view's own
   /// editing command (`pane.edit`). Without it those items are disabled.
   onEdit?(command: ComposerEditCommand): void;
@@ -442,6 +445,7 @@ export function Composer({
   onEmptyCommandReturn,
   onShellChange,
   handle,
+  onUnplacedQuotes,
   sessionId,
   switching,
   blocked,
@@ -522,6 +526,8 @@ export function Composer({
   const promptKeyDown = useRef<NonNullable<MarkdownFieldProps["onKeyDown"]>>(() => {});
   const promptReturnInput = useRef<NonNullable<MarkdownFieldProps["onReturnInput"]>>(() => {});
   const promptComposition = useRef<NonNullable<MarkdownFieldProps["onCompositionChange"]>>(() => {});
+  const promptUnplacedQuotes = useRef(onUnplacedQuotes);
+  promptUnplacedQuotes.current = onUnplacedQuotes;
   const stablePromptCallbacks = useMemo(
     () => ({
       onBeforeInput: (...args: Parameters<NonNullable<MarkdownFieldProps["onBeforeInput"]>>) =>
@@ -531,6 +537,7 @@ export function Composer({
       onKeyDown: (event: KeyboardEvent) => promptKeyDown.current(event),
       onReturnInput: () => promptReturnInput.current(),
       onCompositionChange: (value: boolean) => promptComposition.current(value),
+      onUnplacedQuotes: (quotes: string[]) => promptUnplacedQuotes.current?.(quotes),
     }),
     [],
   );
@@ -1919,6 +1926,7 @@ export function Composer({
           onKeyDown: stablePromptCallbacks.onKeyDown,
           onReturnInput: stablePromptCallbacks.onReturnInput,
           onCompositionChange: stablePromptCallbacks.onCompositionChange,
+          onUnplacedQuotes: stablePromptCallbacks.onUnplacedQuotes,
         }}
         attachments={attachments}
         pending={pending}

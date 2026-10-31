@@ -112,3 +112,26 @@ test("a quote while the composer is mounted goes straight in", async () => {
   expect(calls).toEqual([["quote", "> Now\n\n"]]);
   expect(heldQuotes.current).toBeUndefined();
 });
+
+test("quotes a composer hands back wait ahead of later ones, or go straight into a live composer", async () => {
+  const { handBackQuotes, quoteIntoComposer, replayHeldForComposer } = await import("./composerRestore");
+  const calls: Calls = [];
+  const handle = { current: null as ReturnType<typeof composer> | null };
+  const heldBack = { current: undefined as { text: string; attachments: ComposerAttachment[] }[] | undefined };
+  const heldQuotes = { current: undefined as string[] | undefined };
+
+  quoteIntoComposer(handle, heldQuotes, "> Later\n\n");
+  handBackQuotes(handle, heldQuotes, ["> Earlier\n\n"]);
+  expect(heldQuotes.current).toEqual(["> Earlier\n\n", "> Later\n\n"]);
+
+  handle.current = composer(calls);
+  replayHeldForComposer(handle.current, heldBack, heldQuotes);
+  handBackQuotes(handle, heldQuotes, ["> Straight in\n\n"]);
+  handBackQuotes(handle, heldQuotes, []);
+  expect(calls).toEqual([
+    ["quote", "> Earlier\n\n"],
+    ["quote", "> Later\n\n"],
+    ["quote", "> Straight in\n\n"],
+  ]);
+  expect(heldQuotes.current).toBeUndefined();
+});
