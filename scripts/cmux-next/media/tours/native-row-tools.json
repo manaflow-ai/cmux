@@ -1,0 +1,17 @@
+{
+  "title": "Native tab-row tools: synthetic quick actions, worktree and pull request menus, and overflow in light and dark",
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "Light appearance", "rpc": {"method": "debug.appearance", "params": {"mode": "light"}}, "wait": 1, "shot": false, "optional": "debug.appearance is DEBUG only"},
+    {"title": "Full-width native tools: fix-login, #123 and Session Info on", "rpc": {"method": "debug.native_row_tools_fixture", "params": {"width": 760}}, "wait": 1.5, "optional": "debug.native_row_tools_fixture is DEBUG only; capture requires true 2x window pixels", "capture": {"method": "debug.native_row_tools_fixture", "params": {"inspect": true}, "scale": 2, "menu": false}},
+    {"title": "Pull request menu: Open, passing, failing and pending checks, and Merge", "rpc": {"method": "debug.native_row_tools_fixture", "params": {"menu": "pr", "width": 760}}, "wait": 1.5, "optional": "debug.native_row_tools_fixture is DEBUG only; capture requires true 2x window pixels", "capture": {"method": "debug.native_row_tools_fixture", "params": {"inspect": true}, "scale": 2, "menu": true}},
+    {"title": "Close the pull request menu", "rpc": {"method": "debug.object_menu", "params": {"dismiss": true}}, "wait": 0.5, "shot": false, "optional": "debug.object_menu is DEBUG only"},
+    {"title": "Worktree menu: facts, Apply and Remove", "rpc": {"method": "debug.native_row_tools_fixture", "params": {"menu": "worktree", "width": 760}}, "wait": 1.5, "optional": "debug.native_row_tools_fixture is DEBUG only; capture requires true 2x window pixels", "capture": {"method": "debug.native_row_tools_fixture", "params": {"inspect": true}, "scale": 2, "menu": true}},
+    {"title": "Close the worktree menu", "rpc": {"method": "debug.object_menu", "params": {"dismiss": true}}, "wait": 0.5, "shot": false, "optional": "debug.object_menu is DEBUG only"},
+    {"title": "Narrow native row: hidden tools remain under the overflow control", "rpc": {"method": "debug.native_row_tools_fixture", "params": {"width": 140}}, "wait": 1.5, "optional": "debug.native_row_tools_fixture is DEBUG only; capture requires true 2x window pixels", "capture": {"method": "debug.native_row_tools_fixture", "params": {"inspect": true}, "scale": 2, "menu": false}},
+    {"title": "Dark appearance", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 1, "shot": false, "optional": "debug.appearance is DEBUG only"},
+    {"title": "Full-width native tools in dark appearance", "rpc": {"method": "debug.native_row_tools_fixture", "params": {"width": 760}}, "wait": 1.5, "optional": "debug.native_row_tools_fixture is DEBUG only; capture requires true 2x window pixels", "capture": {"method": "debug.native_row_tools_fixture", "params": {"inspect": true}, "scale": 2, "menu": false}},
+    {"title": "Remove the transient fixture", "rpc": {"method": "debug.native_row_tools_fixture", "params": {"dismiss": true}}, "wait": 0.5, "shot": false, "optional": "debug.native_row_tools_fixture is DEBUG only"},
+    {"title": "Back to the system appearance", "rpc": {"method": "debug.appearance", "params": {"mode": "system"}}, "wait": 1, "shot": false, "optional": "debug.appearance is DEBUG only"}
+  ]
+}

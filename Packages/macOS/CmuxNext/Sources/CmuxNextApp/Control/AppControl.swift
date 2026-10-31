@@ -593,6 +593,10 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugCloudMachineFixture.show(call.params, services: services))
             },
+            .mainActor("debug.native_row_tools_fixture") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugNativeRowToolsFixture.show(call.params, services: services))
+            },
             // Captures of the workspace, tab and pane right-click menus and their folders (tour:object-menu-*).
             .mainActor("debug.object_menu") { [weak services] call in
                 guard let services else { return .value(.null) }

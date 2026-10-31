@@ -32,6 +32,9 @@ settings. A step has a `title` and optionally:
     expect    app debug RPC postcondition: {"method": "debug.layers",
               "fields": {"field": expected_value}}; mismatches fail required
               steps and make optional steps unavailable
+    capture   fixture geometry RPC {"method": ..., "params": {...}, "scale": 2,
+              "menu": false}; reads top-left window-point `capture` bounds after
+              settling, crops the composited snapshot, and verifies real 2x pixels
 
 Screenshots are the DEV app's own drawing of its main window
 (`debug.window_snapshot`, which needs no grant), child windows it owns
@@ -59,6 +62,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import json
+import math
 import os
 from pathlib import Path
 import plistlib
@@ -73,7 +77,7 @@ import threading
 import time
 from typing import Any
 
-STEP_KEYS = {"title", "cmux", "rpc", "daemon", "wait", "shot", "display", "optional", "expect", "windows"}
+STEP_KEYS = {"title", "cmux", "rpc", "daemon", "wait", "shot", "display", "optional", "expect", "windows", "capture"}
 # Other windows a step shoots beside the main one (floating panels, popovers,
 # sheets), at most this many, each at least this big in points.
 MAX_OTHER_WINDOWS = 4
@@ -176,6 +180,15 @@ def load_tour(path: Path) -> dict[str, Any]:
             raise TourError(f"{where}: `rpc` must be {{\"method\": name, \"params\": object}}")
         if step.get("daemon") and command is None:
             raise TourError(f"{where}: `daemon` needs a `cmux` command")
+        capture = step.get("capture")
+        if capture is not None:
+            if (not isinstance(capture, dict) or set(capture) - {"method", "params", "scale", "menu"}
+                    or not isinstance(capture.get("method"), str) or not capture["method"].strip()
+                    or not isinstance(capture.get("params", {}), dict)
+                    or type(capture.get("scale")) is not int or capture["scale"] != 2
+                    or not isinstance(capture.get("menu", False), bool)
+                    or step.get("display") or step.get("shot") is False):
+                raise TourError(f"{where}: `capture` requires a geometry RPC, scale 2 and an app-window shot")
         wait = step.get("wait", DEFAULT_WAIT)
         if isinstance(wait, bool) or not isinstance(wait, (int, float)) or not 0 <= wait <= 30:
             raise TourError(f"{where}: `wait` must be 0 to 30 seconds")
@@ -839,6 +852,72 @@ def step_label(result: dict[str, Any]) -> str:
     return str(result.get("status", ""))
 
 
+def png_size(path: Path) -> tuple[int, int]:
+    """Read pixel dimensions without adding an image-library dependency to capture hosts."""
+    with path.open("rb") as image:
+        header = image.read(24)
+    if len(header) != 24 or header[:8] != b"\x89PNG\r\n\x1a\n" or header[12:16] != b"IHDR":
+        raise TourError("capture is not a PNG with dimensions")
+    return int.from_bytes(header[16:20], "big"), int.from_bytes(header[20:24], "big")
+
+
+def capture_fixture(app: App, path: Path, config: dict[str, Any]) -> str | None:
+    """Crop only fixture-owned bounds; never upscale or silently omit a native menu.
+
+    Geometry comes from the fixture after its menu has opened: `capture` is an
+    integral top-left rectangle in window points; `window` is the full window's
+    point size. A menu capture additionally requires `menuVisible` and a window
+    server composite that includes a floating window. Failed evidence is deleted.
+    """
+    raw = path.with_name(path.stem + "-raw.png")
+    try:
+        geometry = app.request(config["method"], config.get("params", {}))
+        if not isinstance(geometry, dict) or geometry.get("error"):
+            raise TourError(f"fixture geometry unavailable: {geometry}")
+        rect, window = geometry.get("capture"), geometry.get("window")
+        if not isinstance(rect, dict) or not isinstance(window, dict):
+            raise TourError("fixture omitted capture/window geometry")
+        values = [rect.get(key) for key in ("x", "y", "width", "height")]
+        values += [window.get(key) for key in ("width", "height")]
+        if any(type(v) not in (int, float) or not math.isfinite(v) or int(v) != v for v in values):
+            raise TourError("fixture capture geometry must use finite integral window points")
+        x, y, width, height, full_width, full_height = map(int, values)
+        if (min(x, y) < 0 or min(width, height, full_width, full_height) <= 0
+                or max(full_width, full_height) > 16384
+                or x + width > full_width or y + height > full_height):
+            raise TourError("fixture capture is outside the window bounds")
+        if geometry.get("scale") != 2:
+            raise TourError("fixture did not request 2x capture")
+        menu = config.get("menu", False)
+        if menu and geometry.get("menuVisible") is not True:
+            raise TourError("fixture menu is not visible")
+        raw.unlink(missing_ok=True)
+        snapshot = app.request("debug.window_snapshot", {"kind": "main", "path": str(raw), "webviews": False},
+                               timeout=SNAPSHOT_TIMEOUT)
+        if not isinstance(snapshot, dict) or snapshot.get("error"):
+            raise TourError(f"composited snapshot unavailable: {snapshot}")
+        if menu and (snapshot.get("method") != "composited"
+                     or not isinstance(snapshot.get("floating_windows"), int)
+                     or snapshot["floating_windows"] < 1):
+            raise TourError("snapshot did not include the native menu overlay")
+        pixels = png_size(raw)
+        if pixels != (full_width * 2, full_height * 2):
+            raise TourError(f"expected a true 2x snapshot {(full_width * 2, full_height * 2)}, got {pixels}; no upscaling")
+        done = subprocess.run(["sips", "--cropToHeightWidth", str(height * 2), str(width * 2),
+                               "--cropOffset", str(y * 2), str(x * 2), str(raw), "--out", str(path)],
+                              capture_output=True, text=True, timeout=30)
+        if done.returncode:
+            raise TourError((done.stderr or done.stdout).strip() or "sips crop failed")
+        if png_size(path) != (width * 2, height * 2):
+            raise TourError("cropped image dimensions do not match the fixture's 2x bounds")
+        return None
+    except (OSError, ValueError, TourError, subprocess.SubprocessError) as error:
+        path.unlink(missing_ok=True)
+        return str(error)
+    finally:
+        raw.unlink(missing_ok=True)
+
+
 def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: Path) -> dict[str, Any]:
     started = time.monotonic()
     result: dict[str, Any] = {"index": index, "title": step["title"], "status": "ok"}
@@ -894,12 +973,18 @@ def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: 
     if step.get("shot", True) or result["status"] == "failed":
         suffix = "-failed" if result["status"] == "failed" else ""
         path = shots / f"{index:02d}-{slug(step['title'])}{suffix}.png"
-        problem = display_capture(app, screen, path) if step.get("display") else screen.capture(path)
+        if step.get("capture"):
+            problem = capture_fixture(app, path, step["capture"])
+        else:
+            problem = display_capture(app, screen, path) if step.get("display") else screen.capture(path)
         if problem:
             result["shot_error"] = problem
+            if step.get("capture"):
+                result["status"] = "unavailable" if step.get("optional") else "failed"
+                result["detail"] = problem
         else:
             result["shot"] = f"shots/{path.name}"
-            if screen.app and step.get("windows", not step.get("display")):
+            if screen.app and step.get("windows", not step.get("display") and not step.get("capture")):
                 windows, problem = shoot_other_windows(app, path)
                 if windows:
                     result["windows"] = windows
