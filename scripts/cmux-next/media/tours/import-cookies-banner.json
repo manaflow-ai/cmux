@@ -1,0 +1,116 @@
+{
+  "title": "Import Cookies banner",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Fresh state: the banner setting on",
+      "rpc": {
+        "method": "debug.browser_import_offer",
+        "params": {
+          "action": "reset"
+        }
+      },
+      "shot": false
+    },
+    {
+      "title": "Browser workspace",
+      "cmux": [
+        "action",
+        "run",
+        "newBrowserWorkspace"
+      ],
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "A page in the person's own browser tab",
+      "cmux": [
+        "tab",
+        "new-browser",
+        "--url",
+        "https://example.com"
+      ],
+      "wait": 5,
+      "shot": false
+    },
+    {
+      "title": "Light",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "light"
+        }
+      },
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Light: the banner offers to import cookies, with Don't Show Again, Not Now and Import",
+      "rpc": {
+        "method": "debug.browser_import_offer",
+        "params": {
+          "action": "show"
+        }
+      },
+      "wait": 3
+    },
+    {
+      "title": "Dark",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "dark"
+        }
+      },
+      "wait": 3
+    },
+    {
+      "title": "Don't Show Again: browser.import.cookieBanner turns off and the banner goes",
+      "rpc": {
+        "method": "debug.browser_import_offer",
+        "params": {
+          "action": "answer",
+          "choice": "never"
+        }
+      },
+      "wait": 3,
+      "expect": {
+        "method": "debug.browser_import_offer",
+        "fields": {
+          "dismissed": true,
+          "offered": false
+        }
+      }
+    },
+    {
+      "title": "Show Import Cookies Banner (cmux browser show-cookie-banner): back on and shown again",
+      "cmux": [
+        "action",
+        "run",
+        "browser.showCookieImportBanner"
+      ],
+      "wait": 4,
+      "expect": {
+        "method": "debug.browser_import_offer",
+        "fields": {
+          "dismissed": false
+        }
+      }
+    },
+    {
+      "title": "Back to the system appearance",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "system"
+        }
+      },
+      "wait": 1,
+      "shot": false
+    }
+  ]
+}
