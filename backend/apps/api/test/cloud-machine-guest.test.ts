@@ -1,8 +1,9 @@
 import { runInDurableObject } from "cloudflare:test"
 import { describe, expect, it } from "vitest"
-import { decodeBase64, execCommand, execTimeout, FILE_MAX_BYTES, FS_PROGRAM, fsCommand, OUTPUT_MAX_BYTES, validPath } from "../src/cloud-machine-guest.ts"
+import { decodeBase64, DIR_MAX_BYTES, DIR_MAX_ENTRIES, execCommand, execTimeout, FILE_MAX_BYTES, FS_PROGRAM, fsCommand, OUTPUT_MAX_BYTES, validPath } from "../src/cloud-machine-guest.ts"
 import { bindBody, bindFile, cloudStub, createdAndBound, frame, person, post, reply, sessionToken, SIZE, worker } from "./cloud-bind-support.ts"
 import { SHARED_TEAM } from "./setup/cloud-teams.ts"
+import { DriverError } from "../src/providers/contract.ts"
 
 /** Exec and files on a Cloud machine in classic /api/vm's shapes (cloud-machine-guest.ts, CloudDO.ownerExec). */
 
@@ -35,6 +36,9 @@ describe("the route's checks", () => {
     expect(cmd.startsWith("python3 -c '")).toBe(true)
     expect(cmd.endsWith(` write '/tmp/it'"'"'s here' 384`) || cmd.endsWith(` write '/tmp/it'\\''s here' 384`)).toBe(true)
     expect(FS_PROGRAM).toContain(`M=${FILE_MAX_BYTES}`)
+    // A listing stops at its entry count and at its JSON's size (the provider answer's bound, freestyle-exec-errors.test.ts).
+    expect(FS_PROGRAM).toContain(`DN,DB=${DIR_MAX_ENTRIES},${DIR_MAX_BYTES}`)
+    expect(FS_PROGRAM).toContain("if n>DB:sys.exit(46)")
     // A new file without a mode is the owner's only (classic's 0600), never readable by the work user.
     expect(FS_PROGRAM).toContain("else 0o600)")
     expect(FS_PROGRAM).not.toContain("0o644")
@@ -156,6 +160,30 @@ describe("/v1/cloud/machines/{machine}/exec and /fs/{op}", { timeout: 60_000 }, 
     expect(await call("DELETE", `${base}/fs/remove?path=/proc/self/root/.`, t)).toMatchObject({ status: 400, header: "vm_invalid_path", body: { error: { code: "vm_invalid_path", message: "the path is the machine's root" } } })
     await stub.fakeControl({ guest_reply: { exitCode: 1, stdout: "", stderr: "Traceback: boom" } })
     expect(await call("DELETE", `${base}/fs/remove?path=/x`, t)).toMatchObject({ status: 502, body: { error: { code: "vm_file_operation_failed", message: "Traceback: boom" } } })
+  })
+
+  it("answers an over-limit answer as a final 413, never a retryable 502, and audits it", async () => {
+    const { t, team, machine } = await signedInWithMachine("cloud-guest-1")
+    const stub = stubOf(team)
+    // On this instance only, and put back in finally: the later tests create machines through the real driver.
+    await inDO(stub, async (instance) => {
+      instance.driverFor = async () => ({
+        execStdin: async () => {
+          throw new DriverError("cloud.exec.output_limit", "guest exec: output exceeded the response limit", true)
+        }
+      })
+    })
+    try {
+      const base = `/v1/cloud/machines/${machine}`
+      expect(await call("POST", `${base}/exec`, t, { command: ECHO })).toMatchObject({ status: 413, header: "vm_output_too_large", body: { ok: false, error: { code: "vm_output_too_large" } } })
+      expect(await call("GET", `${base}/fs/read?path=/home/cmux/big.bin`, t)).toMatchObject({ status: 413, header: "vm_output_too_large" })
+      const audit = (await stub.fakeControl({})).audit as Array<{ action: string; machine: string; outcome: string }>
+      expect(audit.filter((e) => e.action === "owner.exec" && e.machine === machine).map((e) => e.outcome)).toEqual(["output_limit", "output_limit"])
+    } finally {
+      await inDO(stub, async (instance) => {
+        delete instance.driverFor
+      })
+    }
   })
 
   it("refuses no auth, another person's machine, a wrong method and invalid bodies before any guest call", async () => {
