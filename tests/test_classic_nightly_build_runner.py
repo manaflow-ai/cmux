@@ -128,10 +128,14 @@ class FirstAndAlternate(unittest.TestCase):
         # A label that is not a candidate changes nothing.
         self.assertEqual(picker.blacksmith_route(None, now, "glaeda-std-xcode-26.6")[0], picker.LARGE)
 
-    def test_the_alternate_is_always_the_other_blacksmith_label(self) -> None:
+    def test_the_alternate_is_the_other_blacksmith_label_while_it_moves(self) -> None:
         self.assertEqual(picker.alternate(picker.SMALL), picker.LARGE)
         self.assertEqual(picker.alternate(picker.LARGE), picker.SMALL)
+        self.assertEqual(picker.alternate(picker.SMALL, snapshot(), NOW), picker.LARGE)
+        # Never a label the fresh snapshot saw stalled.
+        self.assertEqual(picker.alternate(picker.SMALL, snapshot(large=40), NOW), picker.SMALL)
         self.assertTrue(all(label.startswith("blacksmith-") for label in picker.CANDIDATES))
+
 
     def test_successive_reruns_never_return_to_the_label_that_stalled(self) -> None:
         """A consumer's runs-on: attempt > 1 and an older pick -> alternate, else the pick."""
@@ -155,8 +159,172 @@ class FirstAndAlternate(unittest.TestCase):
         # Re-run all jobs on attempt 2 with 6 vCPU stalled: a fresh pick of 12 vCPU, taken as is.
         fresh = pick(2, small=52)
         self.assertEqual(route(fresh, 2), picker.LARGE)
-        # 12 vCPU then stalls; re-run failed jobs on attempt 3 keeps attempt 2's outputs and leaves it.
-        self.assertEqual(route(fresh, 3), picker.SMALL)
+        # Re-run failed jobs on attempt 3 keeps attempt 2's outputs: the snapshot saw 6 vCPU stalled, so the
+        # alternate is the pick itself, never the label it saw stalled.
+        self.assertEqual(route(fresh, 3), picker.LARGE)
+        # A pick made with both moving offers the other label for a re-run.
+        self.assertEqual(route(pick(2), 3), picker.LARGE)
+
+def observed(generated: dt.datetime = NOW, **overrides: dict) -> dict:
+    """The queue janitor's 2026-10-30 18:37Z snapshot, as of `generated`: both labels stalled by the queue rule,
+    blacksmith-12vcpu-macos-26 with nothing running and no start (absent from label_started), 6 vCPU busy."""
+    pools = {picker.LARGE: {"queued": 180, "running": 0, "oldest_queued_minutes": 1399},
+             picker.SMALL: {"queued": 77, "running": 5, "oldest_queued_minutes": 552}}
+    started = {picker.SMALL: (generated - dt.timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")}
+    for label, entry in overrides.items():
+        pools[label] = {**pools[label], **entry}
+    return {"generated_at": generated.strftime("%Y-%m-%dT%H:%M:%SZ"), "pools": pools, "label_started": started}
+
+
+class DeadLabel(unittest.TestCase):
+    """A label that started nothing for an hour is dead, not busy: never picked or offered for a re-run while
+    another label shows life (2026-10-30: DEV daily verify and tip-dmg-build re-runs queued on 12 vCPU)."""
+
+    def outputs(self, snap, attempt: int = 1, first: str = "6vcpu", **env) -> dict:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "out"
+            picker.main({"GITHUB_OUTPUT": str(output), "GITHUB_RUN_ATTEMPT": str(attempt), "FIRST": first,
+                         "SNAPSHOT_TOKEN": "t", "GITHUB_REPOSITORY": "o/r", **env},
+                        read_snapshot=lambda token, repo: snap, now=NOW, sleep=lambda seconds: None, clock=Clock())
+            return dict(line.split("=", 1) for line in output.read_text().split())
+
+    def test_the_dev_daily_rerun_never_takes_the_dead_label(self) -> None:
+        out = self.outputs(observed())
+        self.assertEqual((out["cloud"], out["alternate"]), (picker.SMALL, picker.SMALL))
+
+    def test_a_dead_first_label_is_skipped_even_with_its_queue_cleared(self) -> None:
+        # The janitor cancelled 12 vCPU's queue: the stall rule sees nothing waiting there, but nothing started.
+        snap = observed(**{picker.LARGE: {"queued": 0, "oldest_queued_minutes": 0}})
+        self.assertEqual(picker.blacksmith_route(snap, NOW, picker.LARGE)[0], picker.SMALL)
+        self.assertEqual(picker.blacksmith_route(snap, NOW, picker.SMALL)[0], picker.SMALL)
+        self.assertEqual(picker.alternate(picker.SMALL, snap, NOW), picker.SMALL)
+
+    def test_a_stale_snapshot_still_proves_a_label_dead(self) -> None:
+        stale = observed(NOW - dt.timedelta(minutes=50))
+        # Too old for the stall rule (the caller passes it as evidence only): 12 vCPU first would be the default.
+        self.assertEqual(picker.blacksmith_route(None, NOW, picker.LARGE, stale)[0], picker.SMALL)
+        self.assertEqual(picker.alternate(picker.SMALL, None, NOW, stale), picker.SMALL)
+        # Past the evidence window it proves nothing: the old defaults hold.
+        old = observed(NOW - dt.timedelta(hours=7))
+        self.assertEqual(picker.blacksmith_route(None, NOW, picker.LARGE, old)[0], picker.LARGE)
+        self.assertEqual(picker.alternate(picker.SMALL, None, NOW, old), picker.LARGE)
+
+    def test_main_reads_a_stale_snapshot_for_dead_labels(self) -> None:
+        out = self.outputs(observed(NOW - dt.timedelta(minutes=50)), first="12vcpu")
+        self.assertEqual((out["cloud"], out["alternate"]), (picker.SMALL, picker.SMALL))
+
+    def test_a_dead_small_label_gives_way_to_a_busy_large_one(self) -> None:
+        snap = observed(**{picker.SMALL: {"running": 0}, picker.LARGE: {"running": 4}})
+        snap["label_started"] = {picker.LARGE: snap["label_started"][picker.SMALL]}
+        label, why = picker.blacksmith_route(snap, NOW, picker.SMALL)
+        self.assertEqual(label, picker.LARGE, why)
+        self.assertEqual(picker.alternate(picker.LARGE, snap, NOW), picker.LARGE)
+
+    def test_a_label_that_started_a_job_lately_or_runs_one_is_alive(self) -> None:
+        snap = observed()
+        snap["label_started"][picker.LARGE] = (NOW - dt.timedelta(minutes=20)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self.assertFalse(picker.picker.blacksmith_dead(snap, picker.LARGE, NOW))
+        snap["label_started"][picker.LARGE] = (NOW - dt.timedelta(minutes=90)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self.assertTrue(picker.picker.blacksmith_dead(snap, picker.LARGE, NOW))
+        self.assertFalse(picker.picker.blacksmith_dead(observed(**{picker.LARGE: {"running": 1}}), picker.LARGE, NOW))
+
+    def test_a_truncated_snapshot_proves_no_label_dead(self) -> None:
+        # Its listing missed in-flight runs, so it can miss a running job or a start on the label.
+        for flag in (True, "yes", None):
+            with self.subTest(truncated=flag):
+                snap = dict(observed(NOW - dt.timedelta(minutes=50)), truncated=flag)
+                self.assertFalse(picker.picker.blacksmith_dead(snap, picker.LARGE, NOW))
+                self.assertEqual(picker.blacksmith_route(None, NOW, picker.LARGE, snap)[0], picker.LARGE)
+        complete = dict(observed(NOW - dt.timedelta(minutes=50)), truncated=False)
+        self.assertTrue(picker.picker.blacksmith_dead(complete, picker.LARGE, NOW))
+
+    def test_no_label_showing_life_or_no_start_map_changes_nothing(self) -> None:
+        both = observed(**{picker.SMALL: {"running": 0}})
+        both["label_started"] = {}
+        self.assertEqual(picker.blacksmith_route(both, NOW, picker.SMALL)[0], picker.SMALL)
+        self.assertEqual(picker.blacksmith_route(None, NOW, picker.LARGE, both)[0], picker.LARGE)
+        older_janitor = observed()
+        del older_janitor["label_started"]
+        self.assertFalse(picker.picker.blacksmith_dead(older_janitor, picker.LARGE, NOW))
+        self.assertEqual(picker.blacksmith_route(None, NOW, picker.LARGE, older_janitor)[0], picker.LARGE)
+
+
+def stamp(moment: dt.datetime) -> str:
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def both_dead(generated: dt.datetime) -> dict:
+    """2026-10-31 05:44Z: blacksmith-12vcpu-macos-26 88 queued, none running, the oldest 1403 min; 6 vCPU had
+    started nothing for an hour either, so the snapshot shows both labels dead."""
+    snap = observed(generated, **{picker.LARGE: {"queued": 88, "oldest_queued_minutes": 1403},
+                                  picker.SMALL: {"running": 0}})
+    snap["label_started"] = {picker.SMALL: stamp(generated - dt.timedelta(minutes=70))}
+    return snap
+
+
+class EveryLabelDead(unittest.TestCase):
+    """A re-run never takes a label the snapshot or RUNNER_POOLS' `_dead` marks show dead, even when every
+    candidate shows dead: dead_macos_26() drops evidence that names both, so a stale snapshot showing both dead
+    still offered blacksmith-12vcpu-macos-26 as `alternate` (DEV daily verify and tip-dmg-build re-runs)."""
+
+    outputs = DeadLabel.outputs
+
+    def test_a_stale_snapshot_showing_both_dead_offers_no_dead_alternate(self) -> None:
+        stale = both_dead(NOW - dt.timedelta(minutes=50))
+        self.assertEqual(picker.dead_labels(stale, NOW), set())
+        self.assertEqual(picker.every_dead(stale, NOW), {picker.LARGE, picker.SMALL})
+        out = self.outputs(stale)
+        self.assertEqual((out["cloud"], out["alternate"]), (picker.SMALL, picker.SMALL))
+        # Fresh too: the alternate is never the dead label.
+        out = self.outputs(both_dead(NOW))
+        self.assertEqual(out["alternate"], out["cloud"])
+
+    def test_runner_pools_marks_count_as_dead(self) -> None:
+        pools = {"macos_26": picker.SMALL, "_dead": {picker.LARGE: stamp(NOW - dt.timedelta(minutes=5))}}
+        # No snapshot at all: the mark alone keeps the re-run off 12 vCPU and the 12 vCPU-first pick off it.
+        self.assertEqual(picker.alternate(picker.SMALL, None, NOW, None, pools), picker.SMALL)
+        self.assertEqual(picker.blacksmith_route(None, NOW, picker.LARGE, None, pools)[0], picker.SMALL)
+        out = self.outputs(None, first="12vcpu", RUNNER_POOLS=__import__("json").dumps(pools))
+        self.assertEqual((out["cloud"], out["alternate"]), (picker.SMALL, picker.SMALL))
+        # A mark older than runner_pools.DEAD_TTL, one in the future, or a malformed one proves nothing.
+        for since in (stamp(NOW - dt.timedelta(minutes=45)), stamp(NOW + dt.timedelta(hours=1)), "soon", None):
+            with self.subTest(since=since):
+                old = {"macos_26": picker.SMALL, "_dead": {picker.LARGE: since}}
+                self.assertEqual(picker.alternate(picker.SMALL, None, NOW, None, old), picker.LARGE)
+        for raw in ("", "not json", "[1]", '{"_dead": []}'):
+            with self.subTest(raw=raw):
+                self.assertEqual(picker.marked_dead(picker.runner_pools(raw), NOW), set())
+
+    def test_every_label_dead_takes_the_pools_live_member(self) -> None:
+        stale = both_dead(NOW - dt.timedelta(minutes=50))
+        pools = {"macos_26": picker.SMALL, "_dead": {picker.LARGE: stamp(NOW), picker.SMALL: stamp(NOW)}}
+        for first in ("12vcpu", "6vcpu"):
+            with self.subTest(first=first):
+                self.assertEqual(picker.blacksmith_route(None, NOW, first, stale, pools)[0], picker.SMALL)
+                self.assertEqual(picker.blacksmith_route(stale, NOW, first, None, pools)[0], picker.SMALL)
+                self.assertEqual(picker.blacksmith_route(None, NOW, first, None, pools)[0], picker.SMALL)
+        self.assertEqual(picker.alternate(picker.SMALL, None, NOW, stale, pools), picker.SMALL)
+        # A member that is not a candidate is never printed; the caller's order holds.
+        odd = {**pools, "macos_26": "blacksmith-6vcpu-macos-15"}
+        self.assertEqual(picker.blacksmith_route(None, NOW, picker.LARGE, None, odd)[0], picker.LARGE)
+        self.assertEqual(picker.alternate(picker.LARGE, None, NOW, None, odd), picker.LARGE)
+
+    def test_the_mark_ttl_is_the_writers(self) -> None:
+        text = (ROOT / "scripts" / "ci" / "runner_pools.py").read_text()
+        self.assertIn(f'DEAD_KEY = "{picker.DEAD_KEY}"', text)
+        minutes = int(picker.MARK_TTL.total_seconds() // 60)
+        self.assertIn(f"DEAD_TTL = dt.timedelta(minutes={minutes})", text)
+
+    def test_every_picker_step_reads_runner_pools(self) -> None:
+        for name in ("nightly.yml", "cmux-next-dev-daily.yml"):
+            text = (ROOT / ".github" / "workflows" / name).read_text()
+            steps = re.findall(r"env:\n((?:          .*\n)+?)        run: python3 scripts/ci/classic_nightly_build_runner.py\n",
+                               text)
+            with self.subTest(workflow=name):
+                self.assertTrue(steps)
+                for env in steps:
+                    self.assertIn("RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}", env)
+
 
 class Main(unittest.TestCase):
     def run_main(self, env, runners, snap):
@@ -174,7 +342,7 @@ class Main(unittest.TestCase):
         self.assertEqual(self.run_main({}, [runner(POOL, RUNNER)], snapshot()),
                          {"trusted": "true", "cloud": picker.LARGE, "alternate": picker.SMALL, "attempt": "1"})
         self.assertEqual(self.run_main({}, [runner(POOL, RUNNER, status="offline")], snapshot(large=30)),
-                         {"trusted": "false", "cloud": picker.SMALL, "alternate": picker.LARGE, "attempt": "1"})
+                         {"trusted": "false", "cloud": picker.SMALL, "alternate": picker.SMALL, "attempt": "1"})
 
     def test_a_failing_read_never_fails_the_job(self) -> None:
         def boom(token, repo):

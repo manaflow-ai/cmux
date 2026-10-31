@@ -473,6 +473,28 @@ session protocol, but the managed API does not mint or expose its scoped identit
 workspace, tab, terminal, and revision state on one authoritative cmux-tui path. Therefore
 `cmux vm ssh-info <id>` and `POST /api/vm/:id/ssh-endpoint` stay unsupported.
 
+## Freestyle customer
+
+Every Freestyle machine names the cmux account that owns it as its Freestyle `customer`, so
+Freestyle can tell our customers' accounts apart. The customer id is the row's `user_id` (the
+Stack Auth user id) and nothing else: no email, IP, OAuth identity, secret or token.
+
+- **Create:** `CreateOptions.customer` and `RestoreOptions.customer` become an inline
+  `customer` on `POST /v5/vms`. `createVm` and `finishBaseCreate` pass it, which covers create,
+  restore, fork and Base open/reset. An id outside Freestyle's alphabet (1–128 of
+  `A-Za-z0-9_.:@-`) is left out rather than failing the create.
+- **Wake:** `resume` with `customer` tags a machine that does not carry its owner yet with a
+  `PATCH /v5/vms/{id}` holding only `customer`. The span's `cmux.vm.customer_tag` says `tagged`,
+  `failed` or `skipped`; a refused tag never fails the wake.
+- **Deleted accounts:** account deletion hands a shared team's machines to the
+  `deleted-account` sentinel, which is never sent. After the deletion commits,
+  `detachDeletedAccountCustomers` clears the account's id from those machines (`customerId: null`),
+  best effort; a wake or the backfill clears any it missed.
+- **Existing machines:** `scripts/cloud-vm/backfill-freestyle-customers.ts <staging|production>`
+  plans from the target's rows (read-only transaction) and changes nothing without `--apply`.
+  The Freestyle account is shared by every environment, so a machine no row names is reported
+  and never tagged.
+
 ## Capabilities: the client-visible provider contract
 
 Every VM API response (`GET /api/vm` entries, `GET /api/vm/:id`, create, restore, fork, base
