@@ -36,8 +36,10 @@ jobs queued on a pool they hold exceeds a threshold:
      it the job is just waiting in a backed-up pool and is left alone. While
      any other job of the run created before it is unfinished (running, held,
      or queued without being lost itself), it may be the gate the job waits
-     behind, so the run is left alone at any head (_gated(); a job created
-     with or after it is never one of its needs, may_need()). A lost job holds nothing but never
+     behind, so the run is left alone at any head (_gated()). A job created
+     with or after it is never one of its needs (may_need(): GitHub creates a
+     job once its needs finished), so it neither gates the job nor restarts
+     its 30 minutes when it finishes (lost_wait_start()). A lost job holds nothing but never
      runs, so this category is not gated on a backed-up pool. A run whose
      head is stale (a push with no open pull request at its head, or a pull
      request run whose PR is closed, merged or superseded) is cancelled. A
@@ -1164,6 +1166,8 @@ class Candidate:
     # Category e at an open pull request's head: this sweep re-runs it as cmux-bot once the cancel
     # settles (rerun_open_head()), and the pending entry carries it otherwise (open_head_lost()).
     open_head: bool = False
+    # That re-run is of this job alone, not the run's failed jobs (LostVerdict.rerun_job).
+    rerun_job: int | None = None
 
 
 def classify(
@@ -1387,6 +1391,8 @@ class LostJob:
     queued_since: dt.datetime
     # Newer jobs on the same labels that a runner took (skipped_by_pool()).
     skipped: int
+    # The job's id: in a run that already failed, the failover re-runs this job alone (open_head_lost()).
+    job_id: int | None = None
 
 
 def _overdue(run_jobs: Sequence[Mapping[str, Any]], now: dt.datetime) -> Iterable[tuple[Mapping[str, Any], dt.datetime]]:
@@ -1407,8 +1413,11 @@ def _gated(run_jobs: Iterable[Mapping[str, Any]], suspects: Iterable[Mapping[str
     that is itself a suspect (unassigned and overdue, and in find_lost() also
     skipped by its pool) is no gate, so two lost jobs never mask each other.
     Nor is a sibling no suspect may need (may_need(): created with or after
-    every suspect), such as run 41158893861's `web / react-*` jobs, still
-    running beside the lost `GhosttyKit release check`.
+    every suspect), running or not: the run cannot finish without the lost
+    job, a cancel's re-run brings the sibling back with it, and in run
+    41158893861 such siblings were created in waves (02:30Z, 02:43Z, 02:57Z)
+    and kept running beside the lost `GhosttyKit release check` until a
+    runner took it at 02:59Z, 41 minutes in.
     """
     suspects = list(suspects)
     exempt = {id(job) for job in suspects}
@@ -1452,7 +1461,8 @@ def find_lost(
         for job, since in _overdue(run_jobs, now):
             skipped = skipped_by_pool(job, since, others)
             if skipped:
-                found.append((job, LostJob(str(job.get("name") or ""), job_pool_key(job), since, skipped)))
+                job_id = job.get("id") if isinstance(job.get("id"), int) else None
+                found.append((job, LostJob(str(job.get("name") or ""), job_pool_key(job), since, skipped, job_id)))
         if found and not _gated(run_jobs, [job for job, _ in found]):
             lost[run["id"]] = min((item for _, item in found), key=lambda item: item.queued_since)
     return lost
@@ -1563,6 +1573,9 @@ OPEN_HEAD_RULE = ("never cancelled: an open pull request's run at its head is ne
 # the stall-aware failover, cancelled and re-run at the same head in the same sweep (rerun_open_head()).
 OPEN_HEAD_FAILOVER = ("stall-aware failover at the open head: cancelled and its failed jobs re-run as cmux-bot "
                       "at the same head in this sweep (or the next, if the cancel has not settled)")
+OPEN_HEAD_JOB_FAILOVER = ("stall-aware failover at the open head: the run already failed, so it is cancelled and "
+                          "only the lost job is re-run as cmux-bot at the same head, keeping that red, in this sweep "
+                          "(or the next, if the cancel has not settled)")
 
 
 def open_pr_at_head(run: Mapping[str, Any], prs: Sequence[Mapping[str, Any]] | None) -> Mapping[str, Any] | None:
@@ -1607,11 +1620,14 @@ class LostVerdict:
     pr: Mapping[str, Any] | None = None
     # The cancel is at an open pull request's head: this sweep re-runs it as cmux-bot (rerun_open_head()).
     open_head: bool = False
+    # Re-run this job alone (POST /actions/jobs/{id}/rerun) instead of the run's failed jobs: the run already
+    # failed, and re-running its failed jobs would repeat that red (open_head_lost()).
+    rerun_job: int | None = None
 
 
 def open_head_lost(run: Mapping[str, Any], run_jobs: Sequence[Mapping[str, Any]], evidence: str,
                    pr: Mapping[str, Any], *, rerun_state: bool, newer: Mapping[str, Any] | None,
-                   cmux_bot: bool) -> LostVerdict:
+                   cmux_bot: bool, lost_job_id: int | None = None) -> LostVerdict:
     """Category e at the head of open pull request `pr`: the stall-aware failover, or OPEN_HEAD_RULE.
 
     A job GitHub never assigned (runner_id 0, no runner name), queued 30 minutes or more since it could run
@@ -1625,7 +1641,12 @@ def open_head_lost(run: Mapping[str, Any], run_jobs: Sequence[Mapping[str, Any]]
     - a nightly, DEV or promote run (_lost_scope() already leaves out protected runs; checked again here);
     - an attempt a bot started (bot_rerun()): run 40398277457, the rescue's attempt 2, was cancelled at its
       head and never re-run; such an attempt is never cancelled a second time;
-    - a run that already failed: re-running its failed jobs would repeat a red job too;
+    - a run that already failed, unless the lost job (`lost_job_id`) is its only unfinished job: then the
+      cancel kills nothing else and only that job is re-run (`rerun_job`, POST /actions/jobs/{id}/rerun),
+      so the red stays as it is. Run 41150189497 (PR #28544, 2026-10-31): `cmux-next fast tier` on
+      glaeda-side-std-xcode-26.6 queued from 00:36Z with no runner while newer jobs on that label ran, kept
+      here for 2.5 hours because `cmux-next swift test` had failed, until a person failed it over by hand.
+      Re-running the run's failed jobs would repeat that red, so any other unfinished job keeps the rule;
     - a run a newer run at its head took over, which reports for that head;
     - no re-run state (rerun_state) or no cmux-bot token this sweep (cmux_bot): the cancel could not be
       carried or re-run as cmux-bot, so nothing is cancelled.
@@ -1642,7 +1663,10 @@ def open_head_lost(run: Mapping[str, Any], run_jobs: Sequence[Mapping[str, Any]]
         return keep("a nightly, DEV or promote run")
     if bot_rerun(run):
         return keep(f"attempt {run.get('run_attempt')} is a bot's re-run")
-    if any(job.get("status") == "completed" and job.get("conclusion") == "failure" for job in run_jobs):
+    failed = any(job.get("status") == "completed" and job.get("conclusion") == "failure" for job in run_jobs)
+    unfinished = [job for job in run_jobs if job.get("status") != "completed"]
+    alone = lost_job_id is not None and [job.get("id") for job in unfinished] == [lost_job_id]
+    if failed and not alone:
         return keep("the run already failed, and a re-run of its failed jobs would repeat that red")
     if newer is not None:
         return keep(f"newer run {newer.get('id')} at its head took over")
@@ -1650,6 +1674,9 @@ def open_head_lost(run: Mapping[str, Any], run_jobs: Sequence[Mapping[str, Any]]
         return keep("no re-run state to fall back on")
     if not cmux_bot:
         return keep("no cmux-bot token this sweep to re-run it")
+    if failed:
+        return LostVerdict("cancel", f"{reason}: {OPEN_HEAD_JOB_FAILOVER}", rerun=True, pr=pr, open_head=True,
+                           rerun_job=lost_job_id)
     return LostVerdict("cancel", f"{reason}: {OPEN_HEAD_FAILOVER}", rerun=True, pr=pr, open_head=True)
 
 
@@ -1703,7 +1730,7 @@ def classify_lost(
     at_head = open_pr_at_head(run, prs)
     if at_head is not None:
         return open_head_lost(run, run_jobs, evidence, at_head, rerun_state=rerun_state, newer=newer,
-                              cmux_bot=cmux_bot)
+                              cmux_bot=cmux_bot, lost_job_id=lost.job_id)
     if state == "stale":
         return LostVerdict("cancel", f"{evidence}; {why}", pr=pr)
     if bot_rerun(run):
@@ -2039,6 +2066,9 @@ def new_lost_reruns(candidates: Iterable[Candidate], results: Mapping[int, str],
             if candidate.open_head:
                 # At an open pull request's head: only cmux-bot re-runs it (rerun_open_head(), plan_lost_reruns()).
                 entry["open_head"] = True
+            if candidate.rerun_job is not None:
+                # The run already failed: only this job is re-run (rerun_lost()).
+                entry["job_id"] = candidate.rerun_job
             if unconfirmed:
                 entry["cancel_unconfirmed"] = True
             entries.append(entry)
@@ -2359,7 +2389,7 @@ def build_plan(
             if lost_verdict is not None and lost_verdict.action == "cancel":
                 candidates.append(Candidate(run, held_category, lost_verdict.reason, usage, lost_verdict.pr,
                                             rerun=lost_verdict.rerun, app_actor=app_actor,
-                                            open_head=lost_verdict.open_head))
+                                            open_head=lost_verdict.open_head, rerun_job=lost_verdict.rerun_job))
                 continue
         pr = None
         if run.get("event") == "pull_request":
@@ -3560,6 +3590,12 @@ class GitHub:
             raise RuntimeError(f"run {run_id} needs an App's re-run; this sweep has only GITHUB_TOKEN")
         self.request("POST", f"/repos/{self.repo}/actions/runs/{run_id}/rerun-failed-jobs", app_only=app_only)
 
+    def rerun_job(self, job_id: int, *, app_only: bool = False) -> None:
+        """Re-run one job (and the jobs that need it), keeping every other job's result; see rerun_failed()."""
+        if app_only and not self.app_token:
+            raise RuntimeError(f"job {job_id} needs an App's re-run; this sweep has only GITHUB_TOKEN")
+        self.request("POST", f"/repos/{self.repo}/actions/jobs/{job_id}/rerun", app_only=app_only)
+
     def request_ui_tests(self, run: Mapping[str, Any], attempt: int) -> None:
         """Start ci-ui-tests.yml for the attempt a re-run of a pull request's CI began.
 
@@ -3656,9 +3692,15 @@ def rerun_lost(github: GitHub, decisions: Sequence[LostRerun]) -> tuple[list[dic
         if decision.action != "rerun":
             continue
         run_id = int(decision.entry["run_id"])
+        app_only = bool(decision.entry.get("app_actor") or decision.entry.get("open_head"))
+        job_id = decision.entry.get("job_id")
         try:
-            github.rerun_failed(run_id, app_only=bool(decision.entry.get("app_actor") or decision.entry.get("open_head")))
-            results[run_id] = "re-ran failed jobs"
+            if isinstance(job_id, int) and not isinstance(job_id, bool):
+                github.rerun_job(job_id, app_only=app_only)
+                results[run_id] = f"re-ran job {job_id}"
+            else:
+                github.rerun_failed(run_id, app_only=app_only)
+                results[run_id] = "re-ran failed jobs"
         except Exception as error:  # noqa: BLE001 one failed re-run never drops the other entries
             failures += 1
             results[run_id] = f"failed: {error!r}"
