@@ -748,7 +748,6 @@ function InspectorPresence({
         remoteControl={scope ? undefined : remoteControl}
         // Compact ends the chat's context, not a subagent's.
         onCompact={scope ? undefined : onCompact}
-        working={snapshot.isWorking}
         onOpenDocument={onOpenDocument}
         onShowCall={onShowCall}
       />
@@ -934,7 +933,6 @@ export function ChatInspector({
   onSaveEnvironment,
   onReconnectMcp,
   onCompact,
-  working = false,
   onOpenFolder,
   onShowCall,
   banner,
@@ -997,10 +995,9 @@ export function ChatInspector({
   onSaveEnvironment?: () => Promise<unknown> | void;
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
   onReconnectMcp?: (server: string) => Promise<unknown>;
-  /// Sends the chat's agent its `/compact`: Context's Compact (ContextSection), off while `working`.
+  /// Sends the chat's agent its `/compact`: Context's Compact session (ContextSection), live while a
+  /// turn runs (the /compact queues behind it).
   onCompact?: () => void;
-  /// A turn runs.
-  working?: boolean;
   /// Opens the chat's project folder in the Files tree beside the chat.
   onOpenFolder?: (path: string) => void;
   /// Shows the Bash call that started a background command in the transcript: what its row opens
@@ -1128,7 +1125,6 @@ export function ChatInspector({
         percent={percent}
         breakdown={summary?.contextBreakdown}
         onCompact={onCompact}
-        working={working}
       />
     </InspectorSection>
   ) : (
