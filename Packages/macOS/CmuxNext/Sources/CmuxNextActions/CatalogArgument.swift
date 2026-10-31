@@ -215,6 +215,13 @@ nonisolated enum CatalogArgument {
                        kind: .string, isRequired: false)
     }
 
+    /// `cloud deliver-secrets --names A,B`: the secret names an own machine (SSH or an acpmux peer) gets;
+    /// a Cloud machine's come from its machine config.
+    static var secretNamesString: ActionArgument {
+        ActionArgument(name: "names", title: String(localized: "argument.secretNames", defaultValue: "Secret Names", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
     /// The idle auto-pause choice (`cloudSetIdlePause`): Off, or the minutes
     /// of idle after which cmux Cloud pauses the machine. The server
     /// (`web/services/vms/idlePause.ts`) takes exactly these values.

@@ -205,6 +205,10 @@ public final class AgentPaneView: NSView {
         self.webView = webView
         super.init(frame: .zero)
         pageEvents?.onUiPointerReport = { [weak self] value in self?.uiPointerReport?(value) }
+        model.tabRow.supportsNativeTools = pageEvents != nil
+        model.onTabRowToolInvoked = { [weak self] id, menuItemID in
+            self?.invokeTabRowTool(id, menuItemID: menuItemID)
+        }
         openURL = { [weak self] url, modifiers in
             if let self { LinkRouter.shared.open(url, modifiers: modifiers, from: self) } else { Self.routedOpenURL(url, modifiers) }
         }
@@ -246,6 +250,14 @@ public final class AgentPaneView: NSView {
             self.rendersAtFullRate = full
         }
         model.onDictation = { [weak self] command in self?.dictation.handle(command) }
+        // A long recording is an upload of the chat: in its folder on this Mac (it goes with the chat),
+        // else at the top; the App's launch sweep removes either after 30 days.
+        dictation.chatSession = { [weak model] in model?.sessionId }
+        model.onDictationRecording = { [weak self] path, session in self?.dictation.takeRecording(path, session: session) }
+        model.onDictationRecordingUnsent = { [weak self] recording, session in self?.dictation.giveBackRecording(recording, session: session) }
+        dictation.recordingFolder = { [weak model] in
+            model.flatMap { ChatUploadFolders.standard?.freshUpload(session: $0.onLocalPaths?() == true ? $0.sessionId : nil) }
+        }
         // A frame that grants needs a real gesture in this pane; page script cannot make one.
         gestureMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
             // AppKit calls a local monitor on the main thread; anywhere else, no gesture (fail closed).
@@ -332,9 +344,10 @@ public final class AgentPaneView: NSView {
             page.additionalZoom = zoom
             return
         }
-        webView.pageZoom = Double(DesignSettings.shared.uiScale) * zoom
+        let pageZoom = Double(DesignSettings.shared.uiScale) * zoom
+        webView.evaluateJavaScript(DesignSettings.shared.interfaceScaleScript(pageZoom: pageZoom), completionHandler: nil)
+        webView.pageZoom = pageZoom
         glassFeed.refresh() // the zoom moves the art's rect in CSS px
-        webView.evaluateJavaScript(DesignSettings.shared.interfaceScaleScript, completionHandler: nil)
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -387,6 +400,8 @@ public final class AgentPaneView: NSView {
 
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
+        // A closed page must not notify the pane that used to host it after it leaves.
+        onNativeToolOwnerChange = nil
         popupHostStorage?.hide()
         rateReapply?.cancel()
         motionObservation?.cancel()
@@ -397,6 +412,7 @@ public final class AgentPaneView: NSView {
         reduceMotionObserver = nil
         reduceMotionOverrideObserver = nil
         dictation.close()
+        model.readAloud?.stop(owner: model)
         model.shell.terminateAll()
         if let gestureMonitor { NSEvent.removeMonitor(gestureMonitor) }
         gestureMonitor = nil
@@ -435,9 +451,13 @@ public final class AgentPaneView: NSView {
         applyTheme()
     }
 
+    /// Called by a pane when AppKit reparents this page, so native toolbar ownership cannot stay stale.
+    public var onNativeToolOwnerChange: (() -> Void)?
+
     public override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         themeFollower.rebind()
+        onNativeToolOwnerChange?()
     }
 
     public override func viewDidMoveToWindow() {

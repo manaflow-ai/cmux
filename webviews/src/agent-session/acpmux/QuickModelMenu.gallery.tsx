@@ -15,11 +15,22 @@ type Props = {
   many?: boolean;
   placement?: "left" | "top" | "compact";
   stress?: boolean;
+  /** Opt in to the inline effort segments used by the focused layout fixture. */
+  inlineEffort?: boolean;
   anchorTop?: boolean;
   anchorMiddle?: boolean;
+  routeLayout?: QuickMenu["routeLayout"];
 };
 
-const models = (family: string, names: string[]) => names.map((name) => ({ id: `${family}/${name}`, name, family }));
+const models = (family: string, names: string[]) =>
+  names.map((name) => ({
+    id: `${family}/${name}`,
+    name,
+    family,
+    // The inline-effort layout variant opts into these declared model choices; ordinary gallery
+    // variants leave inlineEffort false and retain their standalone Effort row.
+    efforts: ["low", "medium", "high"],
+  }));
 
 const families: QuickFamily[] = [
   {
@@ -56,7 +67,10 @@ const families: QuickFamily[] = [
 
 const extras: Pick<QuickMenu, "effort" | "fast"> = {
   effort: {
-    levels: ["low", "medium", "high", "xhigh", "max"].map((id) => ({ id, name: id[0]!.toUpperCase() + id.slice(1) })),
+    levels: ["low", "medium", "high", "xhigh", "max"].map((id) => ({
+      id,
+      name: id[0]!.toUpperCase() + id.slice(1),
+    })),
     current: "high",
     onPick: () => undefined,
   },
@@ -89,6 +103,8 @@ export default componentEntry<Props>({
           anchorMiddle,
           placement = "left",
           stress,
+          inlineEffort = false,
+          routeLayout,
         }: Props) {
           const [isOpen, setOpen] = useState(false);
           const trigger = useRef<HTMLButtonElement | null>(null);
@@ -113,7 +129,10 @@ export default componentEntry<Props>({
           return (
             <OnNewTab.Provider value={!chat}>
               <div
-                style={{ padding: 16, paddingTop: anchorMiddle ? 280 : chat && !anchorTop ? 400 : 16 }}
+                style={{
+                  padding: 16,
+                  paddingTop: anchorMiddle ? 280 : chat && !anchorTop ? 400 : 16,
+                }}
                 data-expand={expand ? "" : undefined}
                 data-selection={selection}
               >
@@ -127,7 +146,12 @@ export default componentEntry<Props>({
                     current: "claude/Opus 5.5",
                     onModel: () => undefined,
                     ...extras,
+                    ...(extras.effort
+                      ? { effort: { ...extras.effort, onPick: (value: string) => setSelection(`effort:${value}`) } }
+                      : {}),
+                    inlineEffort,
                     harnessPlacement: placement,
+                    routeLayout,
                     search: {
                       find: (query) =>
                         list
@@ -140,8 +164,13 @@ export default componentEntry<Props>({
                       accounts: {
                         list: async () => ({
                           accounts: [
-                            { id: "subscription", name: "Claude subscription", kind: "direct-subscription" },
+                            {
+                              id: "subscription",
+                              name: "Claude subscription",
+                              kind: "direct-subscription",
+                            },
                             { id: "api", name: "API key", kind: "direct-api-key" },
+                            { id: "cmux", name: "Cmux", kind: "cmux-router" },
                           ],
                           active: "subscription",
                         }),
@@ -152,7 +181,8 @@ export default componentEntry<Props>({
                     families: {
                       list,
                       current: tab ?? "claude",
-                      onPick: () => undefined,
+                      onPick: (model) =>
+                        setSelection(JSON.stringify({ family: model.family, model: model.id, effort: model.effort })),
                       onLaunch: (harness) => setSelection(harness),
                       onAddHarness: () => undefined,
                     },
@@ -167,9 +197,43 @@ export default componentEntry<Props>({
         },
     ),
   variants: {
+    "provider-submenu": {
+      props: { chat: true, routeLayout: "submenu" },
+      play: async (ctx) => {
+        await open(ctx);
+        await ctx.focus({ role: "menuitem", name: /^Account/ });
+        await ctx.press("Enter");
+      },
+    },
+    "provider-inline": { props: { chat: true, routeLayout: "inline" }, play: open },
+    "provider-grouped": {
+      props: { chat: true, routeLayout: "grouped" },
+      play: async (ctx) => {
+        await open(ctx);
+        await ctx.focus({ role: "menuitem", name: /^Account/ });
+        await ctx.press("Enter");
+      },
+    },
+    "roomy-more-models": {
+      height: 1000,
+      props: { tab: "opencode" },
+      play: async (ctx) => {
+        await open(ctx);
+        await ctx.click({ selector: ".acpmux-quick-disclosure" });
+      },
+    },
+    "short-more-models": {
+      height: 320,
+      props: { tab: "opencode" },
+      play: async (ctx) => {
+        await open(ctx);
+        await ctx.click({ selector: ".acpmux-quick-disclosure" });
+      },
+    },
     "newtab-midpoint": { props: { anchorMiddle: true }, play: open },
     "chat-flipped": { props: { chat: true, anchorTop: true }, play: open },
     "claude-many-harnesses": { props: { many: true }, play: open },
+    "claude-many-harnesses-inline-effort": { props: { many: true, inlineEffort: true }, play: open },
     combined: { props: { chat: true }, play: open },
     "combined-fast": { props: { chat: true, fast: true }, play: open },
     "harness-left": { props: { placement: "left" }, play: open },

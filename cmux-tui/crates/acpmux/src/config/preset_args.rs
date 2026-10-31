@@ -260,6 +260,8 @@ pub fn write_system_prompt(presets: &Path, name: &str, text: &str) -> io::Result
 
 /// Removes preset `name`'s directory (its system prompt file).
 pub fn remove_preset_dir(presets: &Path, name: &str) -> io::Result<()> {
+    // A lost home's presets may be another daemon's now (`config::mark_home_lost`).
+    crate::config::refuse_lost_home(presets).map_err(io::Error::other)?;
     if check_preset_dir_name(name).is_err() {
         return Ok(());
     }

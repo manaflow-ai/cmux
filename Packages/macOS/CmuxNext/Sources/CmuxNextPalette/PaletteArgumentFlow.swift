@@ -46,7 +46,18 @@ struct PaletteArgumentFlow {
             return .push(withPreview(listPage(for: argument, options: options, collected: collected), argument, collected))
         case .target(let kind):
             guard let targets else { return .textInput(textSpec(for: argument, collected: collected)) }
-            return .push(listPage(for: argument, options: targets.targets(of: kind, for: descriptor.id), collected: collected))
+            var page = listPage(for: argument, options: targets.targets(of: kind, for: descriptor.id), collected: collected)
+            if let refresh = targets.targetRefresh(of: kind, for: descriptor.id) {
+                let flow = self
+                let invocation = collected
+                page.providers = [AsyncPaletteProvider(id: "argument", immediateItems: page.providers.first?.immediateItems) {
+                    let options = await refresh()
+                    guard !Task.isCancelled else { return [] }
+                    let loaded = flow.listPage(for: argument, options: options, collected: invocation)
+                    return await loaded.providers.first?.items() ?? []
+                }]
+            }
+            return .push(page)
         }
     }
 
@@ -151,7 +162,7 @@ struct PaletteArgumentFlow {
                 subtitle: option.subtitle,
                 symbol: option.symbol ?? descriptor.symbol,
                 section: section,
-                isEnabled: next != nil,
+                isEnabled: next != nil && option.isEnabled,
                 primary: PaletteCommand(
                     id: "choose",
                     title: PaletteStrings.choose,

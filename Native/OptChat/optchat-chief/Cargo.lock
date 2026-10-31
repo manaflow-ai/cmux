@@ -106,6 +106,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
+name = "chief-kernel"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "optchat-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "chief-turn"
 version = "0.1.0"
 dependencies = [
@@ -141,6 +151,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-json"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-sdk"
 version = "1.0.0"
 dependencies = [
@@ -159,6 +176,7 @@ name = "cmux-server-core"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-json",
  "hmac",
  "ring",
  "serde",
@@ -758,6 +776,7 @@ name = "optchat-chief"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "chief-kernel",
  "chief-turn",
  "chrono",
  "cmux-chief",

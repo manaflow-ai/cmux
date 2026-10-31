@@ -308,6 +308,31 @@ export default agentPaneEntry({
       play: scrollPanel,
       snapshot: panel(116),
     },
+    "workflow-progress": {
+      note: "A workflow reports completed/started agents, failures, queued agents and token usage in the default tray.",
+      play: trayLines(1),
+      snapshot: chat(
+        [
+          user("Review the changes across all modules", 2),
+          group(
+            [
+              agent("Review modules", 1.8, "running", {
+                kind: "workflow",
+                action: "Review",
+                agents: { done: 37, started: 101, failed: 2, queued: 4 },
+                tokens: 1_200_000,
+                phases: [{ index: 0, title: "Review" }],
+                workflowAgents: new Map([
+                  [0, { index: 0, label: "Review module", phaseIndex: 0, state: "running", tokens: 12_000 }],
+                ]),
+              }),
+            ],
+            1.8,
+          ),
+        ],
+        { isWorking: true },
+      ),
+    },
     "one-running": {
       note: "One subagent running: its line alone above the composer, its icon in the theme's accent, what it does now, its time and state.",
       play: trayLines(1),
@@ -379,6 +404,22 @@ export default agentPaneEntry({
           user("Start the dev server, then have a subagent check the routes", 2),
           devServer,
           group([agent("Check the routes", 1.2, "running", { kind: "Explore", action: "Read src/routes.ts" })], 1.2),
+        ],
+        { isWorking: true },
+      ),
+    },
+    "one-agent-two-commands": {
+      note: "One subagent and two background commands: the header reads exactly `1 subagent running · 2 commands` above the composer.",
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+        const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent;
+        if (title !== "1 subagent running · 2 commands") throw new Error(`unexpected tray title: ${title}`);
+      },
+      snapshot: chat(
+        [
+          user("Start the checks and have one reviewer inspect the tray", 2),
+          group([agent("Inspect the tray", 1.6, "running", { kind: "Explore", action: "Read SubagentTray.tsx" })], 1.6),
+          described,
         ],
         { isWorking: true },
       ),

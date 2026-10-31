@@ -87,6 +87,7 @@ export const PreviewCard = React.forwardRef<
     /// The rail's unshifted left edge, for the same pane-edge clamp in both CSS translations.
     railLeft?: number;
     bookmark?: PreviewBookmark;
+    onPointerEnter?(): void;
     onPointerLeave(event: React.PointerEvent<HTMLDivElement>): void;
     onSizeChange?(): void;
     onFocus?(): void;
@@ -103,6 +104,7 @@ export const PreviewCard = React.forwardRef<
     metadata,
     railLeft = 0,
     bookmark,
+    onPointerEnter,
     onPointerLeave,
     onSizeChange,
     onFocus,
@@ -195,6 +197,7 @@ export const PreviewCard = React.forwardRef<
           transform: `translate3d(${at.x + x}px, ${at.y + y}px, 0)`,
         } as React.CSSProperties
       }
+      onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
       onWheel={layer ? (event) => forwardWheel(scroller!, event.nativeEvent) : undefined}
       onFocus={onFocus}

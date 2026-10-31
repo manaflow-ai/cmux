@@ -31,6 +31,13 @@ import Testing
         #expect(!keys.contains("typing"))
     }
 
+    @Test func theChiefFootnoteHasHomeSpacingUnderTheSwitchingCard() throws {
+        var state = Self.state(typing: false, notice: nil)
+        state.ui.cmuxNotice = "Chief memory summaries are paused. The Chief still answers."
+        let row = try #require(RowBuilder.rows(state, messages: [], now: Self.t0).first { $0.key == "notice" })
+        #expect(row.gap == 8)
+    }
+
     @Test func stepsRunFromOneLineToTheNext() {
         var steps = HomeTurnSteps()
         steps.record(HomeLiveActivity(line: "Thinking", since: Self.t0))

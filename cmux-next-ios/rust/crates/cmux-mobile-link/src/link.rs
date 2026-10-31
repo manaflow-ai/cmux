@@ -205,6 +205,15 @@ enum Next {
     Shutdown,
 }
 
+/// What became of a data frame [`Outbox::push_data`] was given.
+enum Pushed {
+    Queued,
+    /// The writer is gone.
+    Shutdown,
+    /// Its channel closed while it waited for room.
+    ChannelClosed,
+}
+
 /// One stream's outgoing frames, by priority.
 #[derive(Default)]
 struct Outbox {
@@ -254,8 +263,9 @@ impl Outbox {
     }
 
     /// Queue a channel's data frame, waiting while that channel already
-    /// has [`CHANNEL_QUEUE_BYTES`] queued. `false` once the writer is gone.
-    async fn push_data(&self, class: Class, frame: Frame) -> bool {
+    /// has [`CHANNEL_QUEUE_BYTES`] queued. Gives up once the writer is gone
+    /// or the channel is `closed` (its close wakes the wait).
+    async fn push_data(&self, class: Class, frame: Frame, closed: &AtomicBool) -> Pushed {
         loop {
             let room = self.room.notified();
             tokio::pin!(room);
@@ -263,14 +273,17 @@ impl Outbox {
             {
                 let mut queues = self.lock();
                 if queues.shutdown {
-                    return false;
+                    return Pushed::Shutdown;
+                }
+                if closed.load(Ordering::Acquire) {
+                    return Pushed::ChannelClosed;
                 }
                 let used = queues.bytes.get(&frame.channel).copied().unwrap_or(0);
                 if used == 0 || used + frame.payload.len() <= CHANNEL_QUEUE_BYTES {
                     Self::enqueue(&mut queues, class, frame);
                     drop(queues);
                     self.ready.notify_one();
-                    return true;
+                    return Pushed::Queued;
                 }
             }
             room.await;
@@ -956,12 +969,14 @@ impl ChannelSender {
         let mut rest = data;
         while !rest.is_empty() {
             let chunk = rest.split_to(rest.len().min(DATA_CHUNK));
-            if self.inner.closed_reason().is_some()
-                || !self.inner.outboxes[self.stream]
-                    .push_data(self.class, Frame::new(self.id, FrameType::Data, chunk))
-                    .await
-            {
+            if self.inner.closed_reason().is_some() {
                 return Err(self.inner.closed_error());
+            }
+            let frame = Frame::new(self.id, FrameType::Data, chunk);
+            match self.inner.outboxes[self.stream].push_data(self.class, frame, &self.closed).await {
+                Pushed::Queued => {}
+                Pushed::Shutdown => return Err(self.inner.closed_error()),
+                Pushed::ChannelClosed => return Err(LinkError::ChannelClosed),
             }
         }
         Ok(())
@@ -976,6 +991,8 @@ impl ChannelSender {
         self.inner.lock_channels().remove(&self.id);
         let payload = serde_json::to_vec(&CloseInfo::new(code, reason)).expect("close serializes");
         let _ = self.inner.push(self.stream, self.class, Frame::new(self.id, FrameType::Close, payload));
+        // A send of this channel waiting for room gives up now, not when the link moves again.
+        self.inner.outboxes[self.stream].room.notify_waiters();
     }
 }
 
@@ -1102,6 +1119,31 @@ mod tests {
         let mac = server.await.unwrap();
         phone.close("bye");
         assert_eq!(mac.closed().await, "peer closed the link");
+    }
+
+    /// Closing a channel wakes its own send that waits for queue room: a
+    /// cancelled upload over a stalled link must not keep the phone's file open.
+    #[tokio::test]
+    async fn close_wakes_a_send_waiting_for_room() {
+        // The peer never reads, so the channel's queue fills and the send waits.
+        let (a, _stalled) = tokio::io::duplex(64 * 1024);
+        let phone = Link::new(a, Role::Phone, LinkConfig::default(), None);
+        let channel = phone.open("upload", serde_json::json!({})).await.unwrap();
+        let sender = Arc::new(channel.sender);
+        let sending = tokio::spawn({
+            let sender = Arc::clone(&sender);
+            async move { sender.send(Bytes::from(vec![0u8; CHANNEL_QUEUE_BYTES * 8])).await }
+        });
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(!sending.is_finished(), "the send waits for room");
+
+        sender.close("cancelled", "").await;
+        let sent = tokio::time::timeout(Duration::from_secs(5), sending)
+            .await
+            .expect("the close wakes the waiting send")
+            .unwrap();
+        assert!(matches!(sent, Err(LinkError::ChannelClosed)), "{sent:?}");
+        drop(phone);
     }
 
     /// A stream that accepts at most `chunk` bytes every `pause`, like a

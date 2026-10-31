@@ -18,6 +18,7 @@ extension ChatsFeed {
         AgentTurnStateFeed.purged = { AgentChatUploads.removeInBackground(session: $0) }
         // An acpmux peer that connects later in the launch gets the app's build too.
         AgentTurnStateFeed.peerSessionChanged = { _ = AcpmuxPeerReconnects.shared.note(peer: $0, stale: $1) }
+        turns.peerStateChanged = { RemoteMachinesSidebar.shared.peerStateChanged(peer: $0, state: $1) } // its peers' link pushes
         AgentChatUploads.sweepInBackground()
         let localHost = (try? services.cloud.localDeviceID()).map(AgentSessionRef.host(installID:))
         turns.start(localHost: localHost)

@@ -34,6 +34,7 @@ extension AppControl {
             },
         ])
         registerRunMethods(services)
+        registerVMAgentKeyMethods(services)
         // Tagged DEV builds only (debug.* methods; a release build registers
         // none, and ControlRouter drops them too).
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -133,6 +134,8 @@ extension AppControl {
             }.withDeadline(.fixed(.seconds(25))),
             ControlMethod.async("runs.cancel") { call in
                 let id = try Self.runID(call.params)
+                // The person's own cancel: the Run's end tells nothing (SandboxRunNotices).
+                await MainActor.run { services.agentTabs.pageChats.runNotices?.follower.noteCancel(id) }
                 let api = try await Self.runsAPI(services, newRun: false)
                 return try await Self.runJSON { try await api.cancelRun(id) }
             }.withDeadline(.fixed(.seconds(65))),

@@ -24,6 +24,8 @@
 //!   promptAt?, answerAt?}]}`, the newest 200. A harness with no reader, or a
 //!   file too large or unreadable, answers invalid params with `data.reason`
 //!   `transcript_unsupported`, `transcript_too_large` or `transcript_unreadable`.
+//! - `_acpmux/chat_fork {harness, agentSessionId, cwd?}`: a terminal chat's fork, made by its
+//!   harness's ACP agent (`chat_fork.rs`): `{harness, agentSessionId}` of the new session.
 //! - `_acpmux/chat_roots`: the roots, refused roots with reasons, watcher errors.
 //! - `_acpmux/chat_roots_record {harness, transcriptPath}`: a hook reports
 //!   a transcript; its store root joins the index (recorded roots file).
@@ -69,6 +71,7 @@ pub(super) async fn route(
 ) -> Result<Value, RpcError> {
     // A read-only paired machine reads, nothing else (`pairing.rs`), before any dispatcher.
     let params = super::pairing::gate(conn, m, params)?;
+    hub.prepare_store_request(m, &params).await;
     if let Some(reply) = super::pairing::dispatch(hub, conn, m, &params).await {
         return reply;
     }
@@ -102,6 +105,9 @@ pub(super) async fn route(
         return reply;
     }
     if let Some(reply) = super::processes::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
+    if let Some(reply) = super::bg_tasks::dispatch(hub, conn, m, &params).await {
         return reply;
     }
     // Moving a chat to another daemon (`hub/transfer_out.rs`): a bundle holds the whole chat and
@@ -224,6 +230,32 @@ pub(super) async fn route(
                 }))
             })
             .await
+        }
+        // Fork Conversation of a terminal chat whose agent's CLI has no fork (`chat_fork.rs`).
+        "_acpmux/chat_fork" => {
+            let text = |key: &str| {
+                params.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty())
+            };
+            let harness =
+                text("harness").ok_or_else(|| RpcError::invalid_params("harness is missing"))?;
+            let id = text("agentSessionId")
+                .ok_or_else(|| RpcError::invalid_params("agentSessionId is missing"))?;
+            let cwd = text("cwd")
+                .map(PathBuf::from)
+                .or_else(dirs::home_dir)
+                .unwrap_or_else(|| PathBuf::from("/"));
+            let (family, profile) = {
+                let cfg = hub.config.read().await;
+                let (name, profile) =
+                    crate::chat_fork::profile_for(&cfg, harness).ok_or_else(|| {
+                        RpcError::invalid_params(format!(
+                            "no ACP harness runs {harness} here, so its chat cannot fork"
+                        ))
+                    })?;
+                (crate::config::derive_family(name, profile), profile.clone())
+            };
+            let forked = crate::chat_fork::fork(harness, &family, &profile, id, &cwd).await?;
+            Ok(json!({"harness": harness, "agentSessionId": forked}))
         }
         "_acpmux/chat_roots_record" => {
             let service =

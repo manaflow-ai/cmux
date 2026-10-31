@@ -116,7 +116,8 @@ extension SidebarListView {
         for ws in patched {
             // The hover cards show no "Now:" step: a working agent's new step (many a second) rebuilds no card.
             let cardChanged = workspaces[ws.id].map { var old = $0; old.agentStep = ws.agentStep; return old != ws } ?? true
-            let oldFocus = workspaces[ws.id]?.focusedTab
+            let oldWorkspace = workspaces[ws.id]
+            let oldFocus = oldWorkspace?.focusedTab
             workspaces[ws.id] = ws
             // A tab switch changes the workspace row, not its tabs: only a tab whose own content changed is drawn again,
             // and the tabs that lost and took the focus mark (`SidebarTabRowView`).
@@ -158,7 +159,22 @@ extension SidebarListView {
                 heightChanged = true
                 continue
             }
+            // The parent may have no realized view to lay out and invalidate its children.
+            // Compare only title-column inputs: status/agent-step ticks must not create mark
+            // images or lay out unchanged tabs. The shared title-column calculation resolves
+            // the actual icon/mark widths when an affected child lays out.
+            let oldContent = row.content ?? WorkspaceRowContent()
+            let wasPlaceholder = oldWorkspace.map { $0.rowState == .placeholder && $0.title.isEmpty } ?? false
+            let isPlaceholder = ws.rowState == .placeholder && ws.title.isEmpty
+            let leadingMarkChanged = SidebarTunables.agentMark.value == .besideTitle
+                && (oldWorkspace?.agentBrand != ws.agentBrand || oldWorkspace?.agentIcon != ws.agentIcon)
+            let titleColumnChanged = oldContent.icon != content.icon || oldContent.treeDepth != content.treeDepth
+                || (oldContent.machine == nil) != (content.machine == nil)
+                || wasPlaceholder != isPlaceholder || leadingMarkChanged
             displayed.setContent(content, for: row.key)
+            if titleColumnChanged {
+                for tab in ws.tabs { rowViews[.tab(ws.id, tab.id)]?.needsLayout = true }
+            }
             reconfigure(row.key)
             for tab in changedTabs { reconfigure(.tab(ws.id, tab)) }
         }

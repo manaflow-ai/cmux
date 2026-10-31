@@ -5,7 +5,7 @@ import Foundation
 ///
 /// Leo 2026-10-20: "Using optchat: control · 6m 3s" with the typing dots for six minutes said nothing.
 /// The agent chat shows its progress narration and folds its tool calls ("Ran 3 commands ›"); Home
-/// keeps its compact column of short caption rows and shows the same, at most three rows.
+/// shows the same parts side by side on its one caption line (`HomeNoticeRows`).
 public enum HomeTurnProgressStyle: String, Sendable, CaseIterable {
     /// The default: the turn's finished steps folded into one row, the Chief's newest thought as a
     /// narration row, then the step running now with its time.
@@ -28,7 +28,7 @@ struct HomeTurnProgress: Equatable {
     /// The rows top to bottom.
     var rows: [String] { [summary, narration, current].compactMap { $0 } }
 
-    /// The status line's text: one row per line (`HomeNoticeRows` draws each in its own row).
+    /// The status line's text: one part per text line; `HomeNoticeRows` draws them side by side on one line.
     var text: String { rows.joined(separator: "\n") }
 
     /// Lines the owner sends for its own writing, not a step of the turn's work.

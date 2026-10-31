@@ -203,7 +203,8 @@ test("Cards with the agent's chips draws the split, and the mic stays in the box
     const screen = host.querySelector<HTMLElement>(".nt-screen")!;
     const box = host.querySelector<HTMLElement>(".nt-box")!;
     // The split, not the pill: no toolbar under a pill; the mic and Send in the box; the chips in
-    // the quiet row under it with the project strip (#24519).
+    // the quiet row under it, and the project strip above the box (#27956, Leo 2026-10-29:
+    // "project and cloudness at the top").
     expect(screen.dataset.pill).toBeUndefined();
     expect(host.querySelector(".nt-toolbar")).toBeNull();
     expect(box.querySelector(".nt-pickers .acpmux-mic")).not.toBeNull();
@@ -215,9 +216,12 @@ test("Cards with the agent's chips draws the split, and the mic stays in the box
     expect(strip).not.toBeNull();
     expect(box.contains(strip)).toBe(false);
     const foot = composer.querySelector(".nt-foot .acpmux-composer-foot")!;
-    expect(foot.contains(strip)).toBe(true);
+    expect(foot.contains(strip)).toBe(false);
     expect(composer.querySelectorAll(".nt-location")).toHaveLength(1);
-    expect(composer.querySelector(".nt-above")).toBeNull();
+    const above = composer.querySelector(".nt-above")!;
+    expect(above).not.toBeNull();
+    expect(above.contains(strip)).toBe(true);
+    expect(above.compareDocumentPosition(box) & window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(box.compareDocumentPosition(foot) & window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // Cards draws no create row with the split either (u2851): the app always passes the chips.
     expect(host.querySelector(".nt-create")).toBeNull();

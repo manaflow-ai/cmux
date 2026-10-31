@@ -208,7 +208,7 @@ public extension PageDescriptor {
     static let changelog = PageDescriptor(
         id: "cmux.changelog", resource: "changelog", namespaces: ["cmux.changelog."],
         nativeOps: [PageNativeOp.actionRun], actions: changelogTryItActions,
-        csp: PageCSP(media: [changelogReelSource]))
+        csp: PageCSP(media: ["data:", changelogReelSource]))
 
     /// Where the nightly publishes each build's reel (`ReleaseMediaStore.reelBase`): the changelog
     /// page's `media-src`, a folder, so nothing else on that host plays.

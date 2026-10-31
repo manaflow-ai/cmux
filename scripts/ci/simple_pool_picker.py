@@ -430,6 +430,70 @@ def snapshot_age(snapshot: Mapping[str, Any] | None) -> float:
     return max(0.0, (dt.datetime.now(dt.timezone.utc) - generated).total_seconds() / 60)
 
 
+# blacksmith_dead(): a Blacksmith label that ran nothing and started no job for this long before the
+# snapshot was made is dead, not just busy. blacksmith-12vcpu-macos-26 started no job from 2026-10-28
+# 20:32Z on and again from about 2026-10-29 19:40Z (2026-10-30 18:37Z snapshot: 180 queued, oldest
+# 1399 min, none running, absent from label_started), while blacksmith-6vcpu-macos-26, stalled by the
+# queue rule too (77 queued, oldest 552 min), ran 5 and started one at 18:39Z.
+BLACKSMITH_DEAD_MINUTES = 60
+# A snapshot too old for the stall rule still proves a label dead for this long: the label it saw dead
+# for an hour was not revived by the time a later pick reads it in most cases, and a wrong call only
+# keeps a job on the label that last showed life.
+BLACKSMITH_DEAD_EVIDENCE_MINUTES = 6 * 60
+
+
+def blacksmith_dead(snapshot: Mapping[str, Any] | None, label: str, now: Any = None) -> bool:
+    """Whether the queue janitor's snapshot shows `label` dead: nothing running on it, and no runner took a job
+    asking for it in the BLACKSMITH_DEAD_MINUTES before the snapshot was made (its `label_started` map; a label it
+    does not list started nothing among the in-flight runs). The snapshot is the `macos-pool-load` artifact of
+    ci-queue-janitor.yml, a scheduled workflow, so it is written by the default branch's queue_janitor.py, whose
+    label_started() fills that map (this branch's copy of the janitor is not the one that runs; the 2026-10-30
+    18:37Z artifact of run 41108466754 on main carries it).
+
+    The stall rule alone cannot tell a dead label from a busy one: both have a job waiting past
+    BLACKSMITH_STALL_MINUTES. A snapshot without `label_started` (an older janitor), a truncated one (its listing
+    missed in-flight runs, so it can miss a running job or a start: any `truncated` but false, as
+    pr_runner_pool.snapshot_truncated() reads it), an undated one or one older than BLACKSMITH_DEAD_EVIDENCE_MINUTES
+    by `now` (a datetime; the wall clock when None) proves nothing. A complete listing still carries `unread_runs`
+    (runs whose jobs could not be read, nearly every sweep), which may hide a start too; that is accepted, since a
+    wrong call only sends the job to a label that showed life. An idle healthy label looks dead too: callers
+    prefer a label that shows life and fall back to their own order when none does, so the only cost is not
+    choosing a label with no evidence for it."""
+    import datetime as dt
+
+    if not isinstance(snapshot, Mapping):
+        return False
+    pools, starts = snapshot.get("pools"), snapshot.get("label_started")
+    if not isinstance(pools, Mapping) or not isinstance(starts, Mapping):
+        return False
+    if "truncated" in snapshot and snapshot.get("truncated") is not False:
+        return False
+
+    def moment(value: Any) -> dt.datetime | None:
+        try:
+            parsed = dt.datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo is not None else None
+
+    generated = moment(snapshot.get("generated_at"))
+    if generated is None:
+        return False
+    now = now if isinstance(now, dt.datetime) and now.tzinfo is not None else dt.datetime.now(dt.timezone.utc)
+    if (now - generated).total_seconds() / 60 > BLACKSMITH_DEAD_EVIDENCE_MINUTES:
+        return False
+    entry = pools.get(label)
+    try:
+        running = int(entry.get("running", 0)) if isinstance(entry, Mapping) else 0
+    except (TypeError, ValueError):
+        return False
+    if running > 0:
+        return False
+    started = moment(starts.get(label))
+    return started is None or (generated - started).total_seconds() / 60 >= BLACKSMITH_DEAD_MINUTES
+
+
+
 def blacksmith_stalled(queued: int, oldest_queued_minutes: float, age: float = 0.0) -> bool:
     """The one stall rule for a Blacksmith label: its oldest queued job has waited
     BLACKSMITH_STALL_MINUTES by now (the snapshot's figure plus the snapshot's age).

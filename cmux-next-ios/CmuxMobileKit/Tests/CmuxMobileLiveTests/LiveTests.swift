@@ -19,7 +19,7 @@ import Testing
         #expect(machine.handle(.dialSucceeded(generation: 1, path: .turnTLS)) == [])
         #expect(machine.phase == .connected(.wireGuard, .turnTLS, rttMillis: nil))
         _ = machine.handle(.linkUpdated(generation: 1, path: .turnTLS, rttMillis: 27))
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WireGuard relay (TURN over TLS) · 27 ms")
+        #expect(machine.phase.statusLine(macName: "Studio") == "Connected")
     }
 
     @Test func offlineMacIsNotDialed() {
@@ -40,7 +40,7 @@ import Testing
         #expect(machine.phase == .connecting(.webRTC, attempt: 2))
         #expect(machine.handle(.dialFailed(generation: 2, reason: "ICE timed out")) == [.scheduleRetry(generation: 3, after: .seconds(1))])
         #expect(machine.phase == .waiting(.webRTC, attempt: 2, reason: "ICE timed out", retryIn: .seconds(1)))
-        #expect(machine.phase.statusLine(macName: "Studio") == "WebRTC failed: ICE timed out · retrying in 1 s")
+        #expect(machine.phase.statusLine(macName: "Studio") == "Reconnecting…")
         #expect(machine.handle(.retryDue(generation: 3)) == [.dial(generation: 4, macID: "m1", transport: .webRTC)])
         #expect(machine.handle(.dialFailed(generation: 4, reason: "x")) == [.scheduleRetry(generation: 5, after: .seconds(2))])
         // A stale timer is ignored.
@@ -69,7 +69,7 @@ import Testing
         #expect(machine.handle(.relayOnly(true)) == [.close, .dial(generation: 2, macID: "m1", transport: .webRTC)])
         #expect(machine.relayOnly)
         #expect(machine.handle(.dialSucceeded(generation: 2, path: .turn)) == [])
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WebRTC relay (TURN)")
+        #expect(machine.phase.statusLine(macName: "Studio") == "Connected")
     }
 
     /// Settings → Developer "Block UDP": a change redials, like relay only.
@@ -81,7 +81,7 @@ import Testing
         #expect(machine.handle(.blockUDP(true)) == [.close, .dial(generation: 2, macID: "m1", transport: .wireGuard)])
         #expect(machine.blockUDP)
         #expect(machine.handle(.dialSucceeded(generation: 2, path: .turnTLS)) == [])
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WireGuard relay (TURN over TLS)")
+        #expect(machine.phase.statusLine(macName: "Studio") == "Connected")
         // WebRTC ignores it: a change there does not redial.
         var webRTC = LinkMachine(transport: .webRTC)
         _ = webRTC.handle(.target(mac))
@@ -745,6 +745,14 @@ final class Counter: @unchecked Sendable {
         guard case .turnResult("t", .failed, "boom", _)? = records.map(result).first else { Issue.record("no result"); return }
         let decision = json(#"{"seq":10,"dir":"mux","kind":"permission_decision","msg":{"permissionId":"perm","outcome":{"outcome":"cancelled"}}}"#)
         #expect(records.map(decision) == [.permissionDecision(permissionId: "perm", optionId: nil)])
+    }
+
+    /// A question's decision record carries the answers acpmux put into the tool's input
+    /// (live rig, `question: Which environment?`); the phone used to drop them.
+    @Test func decisionCarriesTheRecordedAnswers() {
+        let decision = json(#"{"seq":3,"dir":"mux","kind":"permission_decision","msg":{"permissionId":"q","outcome":{"outcome":"selected","optionId":"allow_once","_meta":{"updatedInput":{"answers":{"Which environment?":"B"}}}}}}"#)
+        #expect(records.map(decision) == [.permissionDecision(permissionId: "q", optionId: "allow_once",
+                                                               answers: .object(["Which environment?": .string("B")]))])
     }
 
     @Test func permissionRequestIsToolPermissionOrQuestion() {

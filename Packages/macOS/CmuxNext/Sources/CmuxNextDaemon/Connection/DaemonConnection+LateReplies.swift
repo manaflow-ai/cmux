@@ -47,16 +47,34 @@ extension DaemonConnection {
     /// ``lateTerminalStartBudget`` is thrown as the timeout.
     @discardableResult
     public func createTerminalWaitingForStart(in key: WorkspaceKey, cwd: String?) async throws -> CreateTerminalResult {
-        let request = await createTerminalRequest(in: key, cwd: cwd)
+        try await requestWaitingForStart(await createTerminalRequest(in: key, cwd: cwd))
+    }
+
+    /// Sends `request`, a terminal start cmux-tui replays (a keyed `create-terminal`, or a
+    /// `split`, `new-pane` or `new-pane-right` under its client-minted `terminal_id`,
+    /// `split-client-keys-v1`), again while it misses its start deadline, so the terminal a loaded
+    /// host starts late is the one returned and none is started twice. A split that gave up at the
+    /// 5 s deadline took back the pane the window already showed: on a loaded Mac every split
+    /// snapped back. A refusal is thrown at once; a start still late after
+    /// ``lateTerminalStartBudget`` is thrown as the timeout.
+    func requestWaitingForStart<R: TerminalSpawningRequest>(_ request: R) async throws -> R.Response {
         let giveUp = ContinuousClock.now + Self.lateTerminalStartBudget
         // wakeup-allow: each pass waits for one reply or its start deadline; the retry ends at the budget, on a reply, or on another error
         while true {
             do {
                 return try await self.request(request)
             } catch let error as DaemonError where error.isLateStart && ContinuousClock.now < giveUp && !Task.isCancelled {
-                Self.lateReplyLogger.info("create-terminal in \(key.rawValue, privacy: .public): \(String(describing: error), privacy: .public); waiting with its mutation id")
+                Self.lateReplyLogger.info("\(R.command, privacy: .public): \(String(describing: error), privacy: .public); waiting with its client ids")
             }
         }
+    }
+
+    /// A `split`, `new-pane` or `new-pane-right` with its client-minted ids: waited for through a
+    /// late start where the daemon replays a creation sent again with them (`split-client-keys-v1`),
+    /// sent once on an older daemon, which would make a second pane.
+    func requestPaneCreation<R: TerminalSpawningRequest>(_ request: R) async throws -> R.Response {
+        guard identity?.supports(DaemonCapability.splitClientKeys.rawValue) == true else { return try await self.request(request) }
+        return try await requestWaitingForStart(request)
     }
 
     /// `create-workspace` for workspace `key`, sent again on a late reply under one mutation

@@ -21,6 +21,8 @@ CAPTURE = (f"<!-- cmux-capture sha={SHA} state=tour:hover-card job=j1 -->\n"
            "| Light | Dark |\n| --- | --- |\n"
            "| ![light](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/42/cap-aaaaaaaa-tour-hover-card-light.png) "
            "| ![dark](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/42/cap-aaaaaaaa-tour-hover-card-dark.png) |\n")
+REVIEW = ("Viewed after image: yes\n"
+          "Visual verdict: This looks right next to ChatGPT and Claude.\n")
 
 
 class CaptureCheckTests(unittest.TestCase):
@@ -51,10 +53,73 @@ class CaptureCheckTests(unittest.TestCase):
         self.assertIn(SWIFT, out)
 
     def test_capture_marker_with_media_passes(self):
-        self.assertEqual(self.run_check(CAPTURE, [SWIFT])[0], 0)
-        code, out = self.run_check(CAPTURE, [SWIFT], head="b" * 40)  # captured an earlier commit
+        self.assertEqual(self.run_check(CAPTURE + REVIEW, [SWIFT])[0], 0)
+        code, out = self.run_check(CAPTURE + REVIEW, [SWIFT], head="b" * 40)  # captured an earlier commit
         self.assertEqual(code, 0)
         self.assertIn("::warning::", out)
+
+    def test_capture_requires_after_image_review_proof(self):
+        code, out = self.run_check(CAPTURE, [SWIFT])
+        self.assertEqual(code, 1)
+        self.assertIn("Viewed after image: yes", out)
+        self.assertIn("Visual verdict: <one sentence: would Leo accept this next to ChatGPT/Claude?>", out)
+        self.assertEqual(self.run_check(CAPTURE + "Viewed after image: yes\n", [SWIFT])[0], 1)
+        self.assertEqual(self.run_check(CAPTURE + "Viewed after image: yes\n"
+                                        "Visual verdict: <one sentence: would Leo accept this next to ChatGPT/Claude?>\n",
+                                        [SWIFT])[0], 1)
+        self.assertEqual(self.run_check(CAPTURE + "Viewed after image: yes\n"
+                                        "Visual verdict: <one sentence: would Leo accept this next to ChatGPT/Claude?>.\n",
+                                        [SWIFT])[0], 1)
+        self.assertEqual(self.run_check(CAPTURE + "Viewed after image: yes\n"
+                                        "Visual verdict: <one sentence: would Leo accept this next to ChatGPT/Claude? >.\n",
+                                        [SWIFT])[0], 1)
+        self.assertEqual(self.run_check(CAPTURE + "Viewed after image: yes\n"
+                                        "Visual verdict: < one sentence : would Leo accept this next to ChatGPT/Claude? >.\n",
+                                        [SWIFT])[0], 1)
+        self.assertEqual(self.run_check(CAPTURE + "Viewed after image: yes\nVisual verdict: Looks good.\n", [SWIFT])[0], 0)
+        self.assertEqual(self.run_check(CAPTURE + "Viewed after image: yes\n"
+                                        "Visual verdict: Looks polished. Ship it.\n", [SWIFT])[0], 1)
+        self.assertEqual(self.run_check(CAPTURE + "Viewed after image: yes\n"
+                                        "Visual verdict: The 1.5 px inset looks good.\n", [SWIFT])[0], 0)
+        self.assertEqual(self.run_check(CAPTURE + "Viewed after image: yes\n"
+                                        "Visual verdict: The URL https://x.y/z looks good.\n", [SWIFT])[0], 0)
+        self.assertEqual(self.run_check(CAPTURE + "Viewed after image: yes\n"
+                                        "Visual verdict: Looks good. ship it.\n", [SWIFT])[0], 1)
+        self.assertEqual(self.run_check(CAPTURE + "Viewed after image: yes\n"
+                                        "Visual verdict: Looks good?! Ship it.\n", [SWIFT])[0], 1)
+        self.assertEqual(self.run_check(CAPTURE + "Viewed after image: yes\n"
+                                        "Visual verdict: Looks good. 123px is aligned.\n", [SWIFT])[0], 1)
+        self.assertEqual(self.run_check(CAPTURE + "Viewed after image: yes\n"
+                                        "Visual verdict: Looks good... really nice.\n", [SWIFT])[0], 0)
+        self.assertEqual(self.run_check(CAPTURE + REVIEW, [SWIFT])[0], 0)
+
+    def test_review_proof_is_not_accepted_from_comments_or_code(self):
+        body = CAPTURE + "<!--\n" + REVIEW + "-->\n"
+        self.assertEqual(self.run_check(body, [SWIFT])[0], 1)
+        body = CAPTURE + "```\n" + REVIEW + "```\n"
+        self.assertEqual(self.run_check(body, [SWIFT])[0], 1)
+        body = CAPTURE + "    Viewed after image: yes\n    Visual verdict: Looks good.\n"
+        self.assertEqual(self.run_check(body, [SWIFT])[0], 1)
+        body = CAPTURE + "<!--\n" + REVIEW + "    -->\n"
+        self.assertEqual(self.run_check(body, [SWIFT])[0], 1)
+        body = CAPTURE + "> ```\n> " + REVIEW.replace("\n", "\n> ") + "> ```\n"
+        self.assertEqual(self.run_check(body, [SWIFT])[0], 1)
+        body = CAPTURE + "<!--\n" + REVIEW
+        self.assertEqual(self.run_check(body, [SWIFT])[0], 1)
+        body = CAPTURE + "> > ```\n> > " + REVIEW.replace("\n", "\n> > ") + "> > ```\n"
+        self.assertEqual(self.run_check(body, [SWIFT])[0], 1)
+        body = CAPTURE + ">     Viewed after image: yes\n>     Visual verdict: Looks good.\n"
+        self.assertEqual(self.run_check(body, [SWIFT])[0], 1)
+        body = CAPTURE + "````\n```\n" + REVIEW + "```\n````\n"
+        self.assertEqual(self.run_check(body, [SWIFT])[0], 1)
+        body = CAPTURE + "```\n> ```\n" + REVIEW + "```\n"
+        self.assertEqual(self.run_check(body, [SWIFT])[0], 1)
+        body = CAPTURE + "```\n<!--\n```\n" + REVIEW
+        self.assertEqual(self.run_check(body, [SWIFT])[0], 0)
+        body = CAPTURE + "    <!--\n\n" + REVIEW
+        self.assertEqual(self.run_check(body, [SWIFT])[0], 0)
+        body = CAPTURE + "<pre>\n" + REVIEW + "</pre>\n"
+        self.assertEqual(self.run_check(body, [SWIFT])[0], 1)
 
     def test_marker_alone_or_in_a_code_block_is_not_a_capture(self):
         marker_only = f"<!-- cmux-capture sha={SHA} state=x -->\n"
@@ -74,7 +139,8 @@ class CaptureCheckTests(unittest.TestCase):
         self.assertEqual(module.evidence(hidden, set(), "42"), ("", None))
 
     def test_tour_label_or_a_reason_passes(self):
-        self.assertEqual(self.run_check("", [SWIFT], labels="risk:normal,media-tour")[0], 0)
+        self.assertEqual(self.run_check(REVIEW, [SWIFT], labels="risk:normal,media-tour")[0], 0)
+        self.assertEqual(self.run_check("", [SWIFT], labels="risk:normal,media-tour")[0], 1)
         for body in ("No capture: renames a private type, nothing on screen changes",
                      "- **No capture:** layout constants only, verified identical",
                      "no capture - internal refactor of the view model",

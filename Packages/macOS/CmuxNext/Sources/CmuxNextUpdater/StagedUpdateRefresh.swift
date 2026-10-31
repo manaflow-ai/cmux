@@ -33,6 +33,9 @@ final class StagedUpdateRefresh {
     /// Whether this app's driver holds the staged installer and found updates download by
     /// themselves; nil reads the driver (``UpdateController/canCancelStagedUpdate``).
     var replaceable: (() -> Bool)?
+    /// Whether this app's driver holds the staged installer, so the install click can cancel it;
+    /// nil reads the driver (``UpdateController/canCancelStagedUpdate``).
+    var cancellable: (() -> Bool)?
     /// Starts the check that stages the newer build; nil runs the driver's ``UpdateController/checkForUpdates()``.
     var startCheck: (() -> Void)?
     /// `updates.checkAutomatically` and `updates.checkIntervalSeconds` (``reschedule(automatic:interval:updater:)``).
@@ -46,8 +49,8 @@ final class StagedUpdateRefresh {
     private var installing = false
     let timer: DemandTimer
     /// The install click waiting for the feed (``beforeInstall(updater:install:)``): the staged
-    /// build it read against and the install to run if that build stays.
-    private var pendingClick: (staged: String, install: @MainActor () -> Void)?
+    /// build it read against, the install to run if that build stays, and whether the feed answered.
+    private var pendingClick: (staged: String, install: @MainActor () -> Void, probed: Bool)?
     /// The install click's deadline: the feed has ``clickProbeDeadline`` to answer.
     let clickTimer: DemandTimer
     /// How long the install click waits for the feed before it installs the staged build.
@@ -61,51 +64,89 @@ final class StagedUpdateRefresh {
     /// Whether an install click waits for the feed.
     var clickWaits: Bool { pendingClick != nil }
 
-    /// The person clicked to install the staged build: read the ring's feed first, for at most
-    /// ``clickProbeDeadline``. A strictly newer build replaces the staged one (its installer is
-    /// cancelled, Sparkle's check downloads the newer build, and the click carries over to it,
-    /// ``UpdaterService/installAfterSwap``), so one click ends on the newest build (a583: the click
-    /// at 03:39 installed a build staged at 02:10, and the relaunched app staged the 03:37 nightly
-    /// for a second click). Otherwise, or when the feed fails or is slow, `install` runs. A second
-    /// click while the feed is read joins the first.
+    /// The person clicked to install the staged build: read the ring's feed and the pulled list
+    /// first, for at most ``clickProbeDeadline``. A strictly newer build, or a pulled staged one,
+    /// gives way (its installer is cancelled, this app's check downloads the newest build, and the
+    /// click carries over to it, ``UpdaterService/installAfterSwap``), so one click ends on the
+    /// newest build (a583: the click at 03:39 installed a build staged at 02:10, and the relaunched
+    /// app staged the 03:37 nightly for a second click). This holds whether or not found updates
+    /// download by themselves: the click is the person's yes to the newest build's download (Leo
+    /// 2026-10-29: "those kinds of download/update things need to be more "latest" instead of me
+    /// downloading whatever was the first one"). Otherwise, or when the feed fails or is slow,
+    /// `install` runs. A second click while the feed is read joins the first. A staged build known
+    /// pulled never installs, even when this app cannot replace it (the update sheet opens instead).
     func beforeInstall(updater: UpdaterService, install: @escaping @MainActor () -> Void) {
         guard pendingClick == nil else { return }
-        guard updater.disabledReason == nil, isReplaceable(updater), let staged = updater.stagedBuild(), !staged.isEmpty else {
+        guard updater.disabledReason == nil, isCancellable(updater), let staged = updater.stagedBuild(), !staged.isEmpty else {
+            if let staged = updater.stagedBuild(), !staged.isEmpty, updater.isKnownPulled(staged) {
+                updater.log.append("install click: staged build \(staged) was pulled and this app cannot replace it; not installing it")
+                updater.presentUpdateUI?()
+                return
+            }
             return install()
         }
         updater.log.append("install click: looking for a build newer than staged build \(staged)")
-        pendingClick = (staged, install)
+        pendingClick = (staged, install, false)
         let probe = updater.probe()
+        let pulled = updater.pulledWatch.refresh()
         clickTimer.schedule(after: Self.clickProbeDeadline) { @MainActor [weak self, weak updater] in
             guard let self, let updater else { return }
-            self.settleClick(answered: false, updater: updater)
+            // A feed that answered in time still counts while the pulled list is read.
+            self.settleClick(answered: self.pendingClick?.probed == true, updater: updater)
         }
         Task { @MainActor [weak self, weak updater] in
             let failure = await probe.value
+            if failure == nil, let self, let updater {
+                self.pendingClick?.probed = true
+                // A strictly newer build decides the click at once: whatever the pulled list says, the staged build gives way.
+                if Self.probedNewer(than: staged, updater: updater) != nil { return self.settleClick(answered: true, updater: updater) }
+            }
+            await pulled.value
             guard let self, let updater else { return }
             self.settleClick(answered: failure == nil, updater: updater)
         }
     }
 
+    /// The probed ring's build when it is strictly newer than `staged`, else nil.
+    private static func probedNewer(than staged: String, updater: UpdaterService) -> String? {
+        guard case .updateAvailable(let item)? = updater.lastProbe?.outcome, AppcastSelector.isOlder(staged, than: item.version) else { return nil }
+        return item.version
+    }
+
     /// The feed answered (or its deadline passed): the first of the two decides the click.
     private func settleClick(answered: Bool, updater: UpdaterService) {
-        guard let (staged, install) = pendingClick else { return }
+        guard let (staged, install, _) = pendingClick else { return }
         pendingClick = nil
         clickTimer.cancel()
-        guard answered, updater.stagedBuild() == staged,
-              case .updateAvailable(let item)? = updater.lastProbe?.outcome,
-              AppcastSelector.isOlder(staged, than: item.version) else {
+        guard updater.stagedBuild() == staged else { return install() }
+        // A build dropped as pulled before stays pulled, whatever the latest read of the list said.
+        let pulled = updater.isKnownPulled(staged)
+        let newer = answered ? Self.probedNewer(than: staged, updater: updater) : nil
+        guard pulled || newer != nil else {
             updater.log.append(answered ? "install click: staged build \(staged) is the newest"
                                         : "install click: the feed did not answer in time; installing staged build \(staged)")
             return install()
         }
+        let why = pulled ? "staged build \(staged) was pulled" : "build \(newer ?? "") is newer than staged build \(staged)"
         guard updater.cancelStaged() else {
-            updater.log.append("install click: build \(item.version) is newer, but no installer was held to cancel; installing staged build \(staged)")
+            guard !pulled else {
+                // A pulled build is never installed: the update sheet says what failed, so the click never ends in silence.
+                updater.log.append("install click: \(why), but no installer was held to cancel; not installing it")
+                updater.presentUpdateUI?()
+                return
+            }
+            updater.log.append("install click: \(why), but no installer was held to cancel; installing staged build \(staged)")
             return install()
         }
-        updater.log.append("install click: build \(item.version) is newer than staged build \(staged): installing it instead")
+        if pulled, !updater.droppedPulled.insert(staged).inserted {
+            // The newest-build check staged the pulled build again (a cached appcast): dropped, and nothing
+            // fetches it again until Sparkle's next scheduled check.
+            updater.log.append("install click: \(why) and was staged again: dropped, not installed")
+            return
+        }
+        updater.log.append("install click: \(why): getting the newest build instead")
         updater.installAfterSwap = true
-        if let startCheck { startCheck() } else { updater.controller?.checkForUpdates() }
+        updater.startNewestCheck(.click)
     }
 
     /// Follows the flow's phase: an update waiting arms the next probe; anything else ends it.
@@ -190,6 +231,11 @@ final class StagedUpdateRefresh {
         }
         self.task = task
         return task
+    }
+
+    private func isCancellable(_ updater: UpdaterService) -> Bool {
+        if let cancellable { return cancellable() }
+        return updater.controller?.canCancelStagedUpdate ?? false
     }
 
     private func isReplaceable(_ updater: UpdaterService) -> Bool {

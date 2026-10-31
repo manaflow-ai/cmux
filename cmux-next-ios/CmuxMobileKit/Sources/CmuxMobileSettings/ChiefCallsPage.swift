@@ -82,7 +82,7 @@ struct ChiefCallsPage: View {
             } header: {
                 Text("Voice")
             } footer: {
-                Text("Changes apply to the next call. Marin and Cedar sound most natural.")
+                Text("Changes apply to the next call.")
             }
 
             Section {

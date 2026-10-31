@@ -27,6 +27,7 @@ extension DaemonService {
         }
         store.applyProvisional(snapshot: snapshot.tree)
         launchSnapshotWindows = snapshot.windows
+        launchSnapshotSidebarDoc = snapshot.sidebarDoc
         Self.launchMark("launch_snapshot_applied")
     }
 

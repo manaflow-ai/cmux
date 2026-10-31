@@ -24,6 +24,8 @@ extension SettingsWindowService {
             "machines": .array(machines.map { vmHostRow(Self.machineRow($0), id: $0.id) }),
             // Settings > Devices (plans/cmux-next/add-device-DESIGN.md 2.4): every device, one remove.
             "devices": (try? JSONValue.parse(services.devices.pageData(phones: services.iphone.devicePhones))) ?? .null,
+            // This Mac's one-line join consent (labs.machineJoin): null unless joined.
+            "devices_join": services.joinConsent.pageData().flatMap { try? JSONValue.parse($0) } ?? .null,
             "browser_profiles": .array(browserProfiles.map { profile in
                 [
                     "id": .string(profile.id), "name": .string(profile.name),
@@ -132,8 +134,8 @@ extension SettingsWindowService {
     }
 
     /// A Cloud machine's row with its "Dedicated agent machine" switch (`vm_host`: `on`, `busy`,
-    /// `error`), once the machine answered (``CloudVmHostStore``): only a machine the legacy Cloud
-    /// API can exec on, and only while the link in use says the signed-in caller owns it
+    /// `error`), once the machine answered (``CloudVmHostStore``): only a machine the Cloud API can
+    /// exec on (either link), and only while the link in use says the signed-in caller owns it
     /// (``CloudLinkOwnership``, the Cloud API's `vmKind`). The machine's own answer cannot tell:
     /// `vmHost` is on by default on any Linux machine, team VMs included, and `cmuxVm` is a record
     /// its agents can write. Personal and SSH machines never get the switch, and a machine the
@@ -141,7 +143,8 @@ extension SettingsWindowService {
     /// machine is not reachable now.
     func vmHostRow(_ row: JSONValue, id: String) -> JSONValue {
         guard case .object(var members) = row, let reach = vmHostReach(id) else { return row }
-        let owns = services.machines.session(id)?.link?.ownership.callerOwnsVM == true
+        let session = services.machines.session(id)
+        let owns = (session?.link?.ownership ?? session?.appLink?.ownership)?.callerOwnsVM == true
         let store = services.cloudVmHost
         let entry = owns ? store.state(id, readable: reach) : nil
         guard let vm = Self.vmHostSwitch(entry, callerOwnsVM: owns, busy: !reach || store.setting.contains(id)) else { return row }
@@ -164,11 +167,11 @@ extension SettingsWindowService {
 
     /// Whether `id`'s vmHost can be read or set over the Cloud exec now (true), only shown from
     /// what it last said (false: not connected, or Cloud turned off), or never (nil: not a
-    /// Cloud machine on the legacy link with exec). The row and every set ask this, so a switch
+    /// Cloud machine with exec). The row and every set ask this, so a switch
     /// drawn while connected never execs (or wakes the machine) once it is not.
     func vmHostReach(_ id: String) -> Bool? {
-        guard let session = services.machines.session(id), session.appLink == nil,
-              session.machine.allows(.exec) else { return nil }
+        // Either link: CloudService.machineAPI execs on a legacy and a Worker machine.
+        guard let session = services.machines.session(id), session.machine.allows(.exec) else { return nil }
         guard !services.machines.isFeatureDisabled(.cloud) else { return false }
         if case .connected = session.daemon.store.connectionState { return true }
         return false

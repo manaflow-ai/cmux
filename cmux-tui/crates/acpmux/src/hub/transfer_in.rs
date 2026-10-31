@@ -24,6 +24,7 @@ use super::transfer_out::{
 use super::*;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use cmux_json::JsonSet as _;
 
 /// Held by a receive, a finish and a forget, so a forget either sees the move landed or drops its
 /// receive before the finish reads it, and no receive of it starts after.
@@ -102,9 +103,18 @@ impl Hub {
         if session.status() != SessionStatus::Closed {
             return false;
         }
-        let mut moved = session.moving().is_some();
+        if session.meta().moved_to.is_some() {
+            return true;
+        }
+        // A move only begun is not: a stopped chat is closed for its whole move.
+        if session.moving().is_some() {
+            return false;
+        }
+        // A move committed before `moved_to` was recorded: its log says so.
+        let mut moved = false;
         let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
-            moved |= e.kind == "transferred";
+            // The daemon's own records only: an agent's update may carry any kind.
+            moved |= e.dir == "mux" && e.kind == "transferred";
             !moved
         });
         moved
@@ -380,7 +390,7 @@ impl Hub {
         made.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         let mut answer = json!({"receiveId": receive_id, "sessionId": id});
         if guard.is_some() {
-            answer["guarded"] = json!(true);
+            answer.set("guarded", json!(true));
         }
         Ok(answer)
     }
@@ -489,7 +499,7 @@ impl Hub {
             let path = bundle.join("session.json");
             let edited = std::fs::read(&path).map_err(anyhow::Error::from).and_then(|raw| {
                 let mut meta: Value = serde_json::from_slice(&raw)?;
-                meta["cwd"] = json!(cwd);
+                meta.set("cwd", json!(cwd));
                 Ok(std::fs::write(&path, serde_json::to_vec_pretty(&meta)?)?)
             });
             edited.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
@@ -512,7 +522,10 @@ impl Hub {
                 let e = transfer_error("cwd", "the chat's folder is not here; pass cwd");
                 return Err(e.with_data(json!({"reason": "cwd_missing", "cwd": cwd})));
             }
-            old.replaced.store(true, Ordering::SeqCst);
+            // Seal the old instance before staging its durable store. Retry tasks hold this
+            // lock across their replaced check and terminal append, so no late record can land
+            // in the replacement journal.
+            self.seal_retry_replacement(old);
             // A log retention pass that took the chat's append lock before the mark finishes its
             // commit first; one after it leaves the chat alone (`hub/retention.rs`).
             drop(old.append_lock.lock().unwrap_or_else(|e| e.into_inner()));

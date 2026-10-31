@@ -9,11 +9,13 @@ import CmuxNextBrowserHistory
 import CmuxNextChiefPetWiring
 import CmuxNextChromiumWarmup
 import CmuxNextCompat
+import CmuxNextComputerUse
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextMobileHost
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDaemonRecovery
 import CmuxNextFeed
 import CmuxNextFloating
@@ -22,6 +24,7 @@ import CmuxNextHibernation
 import CmuxNextHomeEngine
 import CmuxNextIcons
 import CmuxNextPalette
+import CmuxNextAccounts
 import CmuxNextPages
 import CmuxNextPopups
 import CmuxNextBrowserImport
@@ -66,6 +69,7 @@ final class AppServices {
     /// Its event batches run on the app's ``MainWorkScheduler`` (``mainWork``), which every
     /// remote machine's service shares.
     let daemon: DaemonService
+    let personalPlacements = PersonalPlacementQueue()
     /// The app's one main-thread scheduler (from the composition root), passed by init to the
     /// local daemon and to the Cloud, SSH and server services for their machines.
     let mainWork: MainWorkScheduler
@@ -90,6 +94,8 @@ final class AppServices {
     let machineAsks = SidebarAsks()
     /// Auto-archive of idle workspaces (plans/cmux-next/auto-archive-DESIGN.md); started at launch.
     private(set) lazy var autoArchive = AutoArchiveCoordinator(host: self, ledgerStore: AutoArchiveLedgerStore(defaults: .standard))
+    /// Each window's own Home (cmux#27880).
+    private(set) lazy var windowHomes = WindowHomes(host: self)
     /// Hibernates idle workspaces (plans/cmux-next/workspace-hibernation-DESIGN.md).
     private(set) lazy var workspaceHibernation = WorkspaceHibernation(host: self, keepAwake: WorkspaceKeepAwakeStore(defaults: .standard),
                                                                   deadline: DemandTimer(owner: "workspace-hibernation"))
@@ -111,8 +117,27 @@ final class AppServices {
     /// Add Device and Settings > Devices (plans/cmux-next/add-device-DESIGN.md): one entry, one list, one remove.
     private(set) lazy var addDevice = AddDeviceCard(services: .app(self))
     private(set) lazy var devices = DeviceDirectory.app(self)
+    #if DEBUG
+    /// `debug.joined_machines`: the joined machines' calls in place of the CLI while set (captures).
+    var debugJoinedMachines: MachineJoinService?
+    #endif
+    /// The Machines section's joined machines (Labs `labs.machineJoin`); empty while it is off.
+    private(set) lazy var joinedMachines = JoinedMachineStore(service: { [weak self] in
+        guard let self, self.settings?.snapshot.machineJoin == true else { return nil }
+        #if DEBUG
+        if let fixture = self.debugJoinedMachines { return fixture }
+        #endif
+        return MachineJoinService.app(self)
+    })
+    /// This Mac's one-line join consent (Settings > Devices' switches, the one-time sheet), behind labs.machineJoin.
+    private(set) lazy var joinConsent = JoinConsentModel.app(self)
+    /// The app's latest key or mouse input and whether it was the person's (HID system): backs a consent
+    /// grant made in a page. Started at launch.
+    let personInput = PersonInputLedger()
+    /// Process-wide widening-switch gate shared by every Settings window.
+    let wideningGate = PageWideningGate()
     /// Settings > Machines' "Dedicated agent machine" switch on each Cloud machine (acpmux vmHost).
-    private(set) lazy var cloudVmHost = CloudVmHostStore(api: cloud.api)
+    private(set) lazy var cloudVmHost = CloudVmHostStore(api: cloud.machineAPI)
     let machineHealth = MachineHealthStore()
     let mobile = MobileHostService(displayName: { await MacName().displayName() })  // phone access; the account layer starts it
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
@@ -217,6 +242,10 @@ final class AppServices {
     }()
     /// `cmux://agent-activity`: the computer use sessions page.
     private(set) lazy var agentActivityPage = AgentActivityPageService(services: self)
+    /// The live preview card of computer use in agent chats (`computerUse.livePreview`); its live
+    /// view runs only while the person can see the chat's page.
+    private(set) lazy var computerUsePreview = ComputerUseLivePreview(
+        host: self, sight: ComputerUsePreviewViewSight { [weak self] in self?.agentTabs.views[$0] })
     /// `cmux://screenshots`: the Screenshots pane (its detection, thumbnail cache and pages).
     private(set) lazy var screenshotsPage = ScreenshotsPageService(services: self)
     private(set) lazy var remoteViewPages = RemoteViewPageService()
@@ -358,13 +387,13 @@ final class AppServices {
     private(set) lazy var quit = QuitCoordinator(services: self)
     /// Background mode (cx-ghagp): no window open means no Dock icon or Cmd-Tab entry, and a menu bar item instead.
     /// Only the process's own services drive it, and not while quitting (window teardown runs inside a quit).
-    private(set) lazy var background = BackgroundActivation(registry: registry, icon: .icon(.appCmux, size: 16), mayEnter: { [weak self] in
+    private(set) lazy var background = BackgroundActivation(registry: registry, icon: MenuBarIcon().image(), mayEnter: { [weak self] in
         guard let self else { return false }
         return AppProcessRoot.shared.services === self && self.windows.controllers.isEmpty && !self.quit.isQuitting
             && self.settings?.snapshot.hideDockIconWithoutWindows ?? CmuxConfigSnapshot.hideDockIconWithoutWindowsFallback
     }, menuBarItemShown: { [weak self] in self?.menuBarExtra.isShown ?? false })
     /// The cmux menu bar item (`app.showMenuBarIcon`): account, agents, help, community, updates, logs, Quit.
-    private(set) lazy var menuBarExtra = MenuBarExtra(registry: registry, icon: .icon(.appCmux, size: 16), host: self)
+    private(set) lazy var menuBarExtra = MenuBarExtra(registry: registry, icon: MenuBarIcon().image(), host: self)
     /// First-run onboarding, browser import and default-app claims.
     private(set) lazy var onboarding = OnboardingService(services: self)
     /// Agent permission requests (`permissions.request`): the card, the store and the TCC reads.
@@ -519,7 +548,8 @@ final class AppServices {
             self?.cache.pageRequests.closedHistories.save(self?.cache.existingBrowser(key)?.tab)
         }
         cache.machineBadge = { [weak self] key, url in self?.browserMachineBadge(key: key, url: url) }
-        cache.defersRestoredPages = crashRecovery.recovery.skipsBrowserPages
+        cache.crashedPages = crashRecovery.recovery.crashedPages
+        cache.onRestoredPageStart = { [weak crashRecovery] key in crashRecovery?.marker?.notePageStarted(key) }
         crashRecovery.observe(cache.cef.crashLog)
         AppRunMarker.keepSignalHandlers(crashRecovery.marker, across: cache.cef, reporter: crashReporting.reporter)
         cache.cef.openURLWithoutWindow = { [weak self] url, disposition, profile in
@@ -671,11 +701,42 @@ final class AppServices {
         }
     }
     // MARK: Lookup
-    /// The tab with durable id (or tab resource id: links and TabMirror's wait use it) `id`
-    /// and the pane that holds it, on any machine (O(1) per daemon).
+    /// A durable or resource id without a machine is usable only when exactly one
+    /// machine holds it. Forks can preserve ids; never pick one by registry order.
     func locateTab(_ id: String) -> (TabModel, PaneModel)? {
+        var found: (TabModel, PaneModel)?
+        for daemon in machines.daemons {
+            guard let tab = daemon.store.tab(idOrResource: id), let pane = daemon.store.pane(holding: tab) else { continue }
+            guard found == nil else { return nil }
+            found = (tab, pane)
+        }
+        return found
+    }
+
+    /// Compatibility for callers whose state is still keyed by a bare tab id: the
+    /// pre-#5338 first match across machines. Do not add callers; migrate these
+    /// to machine-scoped state instead (the source guard ratchets the existing set).
+    func locateTabOnAnyMachine(_ id: String) -> (TabModel, PaneModel)? {
         for daemon in machines.daemons {
             if let tab = daemon.store.tab(idOrResource: id), let pane = daemon.store.pane(holding: tab) { return (tab, pane) }
+        }
+        return nil
+    }
+
+    /// Resolves only in the named machine; a missing machine never falls back locally.
+    func locateTab(_ id: String, onMachine machineID: String) -> (TabModel, PaneModel)? {
+        guard let daemon = machines.daemon(machine: machineID),
+              let tab = daemon.store.tab(idOrResource: id), let pane = daemon.store.pane(holding: tab) else { return nil }
+        return (tab, pane)
+    }
+
+    /// Finds this very model, not a same-id tab on another machine. A model removed
+    /// from its store (including a disconnected machine) has no current pane.
+    func locateTab(model tab: TabModel) -> (TabModel, PaneModel)? {
+        for daemon in machines.daemons {
+            guard daemon.store.tab(idOrResource: tab.id) === tab,
+                  let pane = daemon.store.pane(holding: tab) else { continue }
+            return (tab, pane)
         }
         return nil
     }
@@ -727,5 +788,27 @@ final class AppServices {
             if let found = controller.content?.pane(for: pane.handle), found.pane === pane { return found }
         }
         return nil
+    }
+}
+
+// Composition of the paid-plan path (plans/cmux-next/paid-plans-DESIGN.md §2); the logic is in CmuxNextAccounts/Billing.
+extension AppServices {
+    /// The upgrade path every paywall takes: cmux.com Checkout as the signed-in account, returning to this build.
+    func paidPlanUpgrade() -> PaidPlanUpgrade {
+        let client = cloud.isSignedIn ? accounts.client : nil
+        return PaidPlanUpgrade(checkout: client.map(PaidPlanUpgrade.cmuxComCheckout), open: { LinkRouter.shared.open($0) },
+                               scheme: cloud.configuration.callbackScheme, onboarding: PaidPlanOnboarding(defaults: .standard), pricing: StaticURL.pricing.url)
+    }
+
+    /// The welcome card for a plan the Cloud list read (shown once, after an upgrade).
+    func paidPlanObserved(_ planID: String?) {
+        PaidPlanWelcome(onboarding: PaidPlanOnboarding(defaults: .standard), account: { [weak self] in self?.cloud.auth.user?.id },
+                        ask: { [weak self] in await self?.machineAsks.ask($0, detail: $1, symbol: "sparkles", yes: $2, no: $3) ?? false },
+                        startCloudWorkspace: { [weak self] in _ = self?.registry.perform("newCloudWorkspace") }).planObserved(planID)
+    }
+
+    /// Back in the app while an upgrade waits for its payment: read the plan again (AppDelegate's activation loop).
+    func paidPlanReturned() async {
+        if PaidPlanOnboarding(defaults: .standard).hasPending { await cloud.refresh() }
     }
 }

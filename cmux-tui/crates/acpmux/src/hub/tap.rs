@@ -28,6 +28,11 @@ const MODEL_UPDATES: [&str; 8] = [
     "subagent_progress",
 ];
 
+/// The `session/update` kinds that show the model at work now, never only an error it ends a
+/// turn with: a tool call it starts, a thought, a plan. A chat marked stuck
+/// (`session_liveness.rs`) whose agent sends one is not stuck (`Hub::unstick_on_work`).
+const WORK_UPDATES: [&str; 3] = ["tool_call", "agent_thought_chunk", "plan"];
+
 /// The raw harness lines only a responding model produces, which often come long before any
 /// update a client shows: Claude's stream (its first event is the model's answer starting), its
 /// messages, its thinking (redacted thinking sends no thought), a running tool's heartbeat (a
@@ -72,7 +77,30 @@ pub(super) fn logged_from_the_model(e: &crate::store::EventRecord) -> bool {
             || (e.msg.get("id").is_some() && e.msg.get("method").is_some()))
 }
 
+/// Whether an agent's message is one of [`WORK_UPDATES`].
+fn shows_work(msg: &Message) -> bool {
+    matches!(msg, Message::Notification { method, params: Some(p) }
+        if method == crate::rpc::method::SESSION_UPDATE
+            && p.pointer("/update/sessionUpdate")
+                .and_then(Value::as_str)
+                .is_some_and(|kind| WORK_UPDATES.contains(&kind)))
+}
+
 impl Hub {
+    /// A chat marked stuck whose agent works again (`shows_work`) is not stuck: its failures are
+    /// forgotten at once, not at its next completed turn (2026-10-29: a coordinator read
+    /// `stuck` while it made tool call after tool call). Logged `unstuck`, so watchers re-read it.
+    pub(super) fn unstick_on_work(&self, session: &Session) {
+        let reason = {
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            let Some((reason, ..)) = m.harness_failures.stuck() else { return };
+            m.harness_failures = crate::session_liveness::HarnessFailures::after(m.last_seq);
+            reason
+        };
+        self.save_meta(session);
+        self.append(session, "mux", "unstuck", json!({"stuckReason": reason}));
+    }
+
     /// Make sure a live child process exists for the session. Spawns, runs
     /// `initialize`, and either creates or loads the agent session.
     /// The tap that logs one session's wire traffic (and the agent host
@@ -84,16 +112,24 @@ impl Hub {
         let report_epoch = session.floor.report_epoch.load(Ordering::SeqCst);
         // A `message_start` was logged and its first delta was not yet.
         let awaiting_first_delta = AtomicBool::new(false);
+        // This tap's number: once a Stop ended its agent, nothing it logs is a sign of work.
+        let tap_number = session.taps.fetch_add(1, Ordering::SeqCst) + 1;
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
+            let muted = tap_number <= tap_session.muted_taps.load(Ordering::SeqCst);
             // The sign of work is published before a tool call's end can bring the stalled
             // deadline nearer and wake the reaper (`stalled_turn.rs`).
-            if matches!(dir, Direction::In) && from_the_model(msg) {
+            if !muted && matches!(dir, Direction::In) && from_the_model(msg) {
                 tap_session.heard.fetch_add(1, Ordering::SeqCst);
                 tap_hub.heard_now(&tap_session);
                 tap_session.last_model_at.store(crate::store::now_ms(), Ordering::Relaxed);
                 tap_hub.heard_after_silence(&tap_session);
+                // Not a history replay (`session/load`): the agent works now.
+                if !tap_session.loading.load(Ordering::SeqCst) && shows_work(msg) {
+                    tap_hub.unstick_on_work(&tap_session);
+                }
             }
-            if matches!(dir, Direction::In)
+            if !muted
+                && matches!(dir, Direction::In)
                 && let Message::Notification { method, params: Some(p) } = msg
                 && method == crate::rpc::method::SESSION_UPDATE
             {
@@ -129,8 +165,14 @@ impl Hub {
                     if method == crate::agent::HOST_EXIT =>
                 {
                     let code = params.as_ref().and_then(|p| p.get("code")).cloned();
-                    let intentional =
-                        matches!(tap_session.status(), SessionStatus::Idle | SessionStatus::Closed);
+                    // The idle exit marked it before it ended the harness (`idle.rs`); a stop clears the mark.
+                    let hibernating = tap_session.hibernated_at.load(Ordering::SeqCst) != 0
+                        && tap_session.status() != SessionStatus::Closed;
+                    let intentional = hibernating
+                        || matches!(
+                            tap_session.status(),
+                            SessionStatus::Idle | SessionStatus::Closed
+                        );
                     tap_session.harness_turn.store(false, Ordering::SeqCst);
                     // Its workflows ran in the agent's process: they end with it.
                     tap_hub.workflow_index.end_session(&tap_session.id, crate::store::now_ms());
@@ -139,7 +181,11 @@ impl Hub {
                             &tap_session,
                             "mux",
                             if intentional { "stopped" } else { "exited" },
-                            json!({"code": code}),
+                            if hibernating {
+                                json!({"code": code, "hibernated": true})
+                            } else {
+                                json!({"code": code})
+                            },
                             host_seq,
                         )
                         .1;

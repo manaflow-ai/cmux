@@ -95,10 +95,21 @@ public struct TerminalTabAction {
 /// shell passes the Ghostty content). It says so instead of drawing a fake
 /// shell.
 public final class PlaceholderTerminalTabContent: TerminalTabContent {
-    public init() {}
+    let reload: (@MainActor (Workspace) async -> Void)?
+
+    public init(reload: (@MainActor (Workspace) async -> Void)? = nil) { self.reload = reload }
+
+    func retry(_ workspace: Workspace) async { await reload?(workspace) }
 
     public func page(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView {
-        AnyView(PlaceholderTerminalPage(tab: tab, insets: context.safeAreaInsets))
+        var retryAction: (@MainActor () async -> Void)?
+        if reload != nil {
+            retryAction = { [weak self] in
+                guard let self else { return }
+                await self.retry(workspace)
+            }
+        }
+        return AnyView(PlaceholderTerminalPage(tab: tab, insets: context.safeAreaInsets, retry: retryAction))
     }
 
     public func card(for tab: WorkspaceTab, in workspace: Workspace) -> AnyView {
@@ -109,12 +120,15 @@ public final class PlaceholderTerminalTabContent: TerminalTabContent {
 struct PlaceholderTerminalPage: View {
     let tab: WorkspaceTab
     let insets: EdgeInsets
+    var retry: (@MainActor () async -> Void)? = nil
 
     var body: some View {
         ContentUnavailableView {
             Label(tab.title, systemImage: "apple.terminal")
         } description: {
             Text("This terminal isn't available.")
+        } actions: {
+            if let retry { RetryButton(action: retry).accessibilityIdentifier("terminal.placeholder.retry") }
         }
         .padding(.top, insets.top)
         .padding(.bottom, insets.bottom)

@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileAuth
+import CmuxMobileArtifacts
 import CmuxMobileBrowserStream
 import CmuxMobileChief
 import CmuxMobileDesign
@@ -11,6 +12,7 @@ import CmuxMobileTransport
 import CmuxMobileOnboarding
 import CmuxMobileSettings
 import CmuxMobileVoice
+import CmuxMobileSupport
 import SwiftUI
 import OSLog
 import UIKit
@@ -62,7 +64,10 @@ public struct RootView: View {
     @State private var store: AppStore
     @State private var settings = SettingsStore()
     @State private var sidebar = SidebarModel()
+    /// The app's keyboard notifications, for every keyboard-pinned composer.
+    @State private var keyboard = MobileKeyboardFrameTracker()
     @State private var launchFinished = false
+    @State private var previewSweepStarted = false
     /// Live data from sign-in on (setup included); nil in mock mode.
     @State private var live: LiveCoordinator?
     /// Setup's steps, fixed once the team list has loaded so a Mac appearing
@@ -156,8 +161,18 @@ public struct RootView: View {
             }
         }
         .animation(theme.motion.gentle.animation, value: destination)
+        .environment(\.mobileKeyboardFrameTracker, keyboard)
         // Settings → Require Face ID (audit B11).
         .cmuxMobileAppLock(enabled: settings.requireFaceID)
+        .task {
+            guard !previewSweepStarted else { return }
+            previewSweepStarted = true
+            // A one-shot launch cleanup; active downloads/viewers are protected by
+            // the store's ownership registry even when startup races a preview.
+            await Task.detached(priority: .utility) {
+                ManagedPreviewFile.removeStaleCopies()
+            }.value
+        }
         .task(id: auth.isResolved) {
             guard auth.isResolved, !launchFinished else { return }
             if !auth.isSignedIn, !auth.isMock { AccountSignOut().settleLaunchSignedOut() }
@@ -196,9 +211,16 @@ public struct RootView: View {
         }
         .onChange(of: auth.teamList) { _, _ in syncTeams() }
         // A Mac's pairing code from the Camera (`cmux-next://pair?…`); never logged, it holds a token.
+        // Any other cmux link (`cmux://tab/…`, Safari, Messages, Notes) opens what it names.
         .onOpenURL { url in
+            if let link = CmuxLink(url: url) { return NotificationRouter.shared.open(link: link) }
             guard let invite = PairInvite(url: url) else { return }
             if let live { live.accept(invite) } else { heldInvite = invite }
+        }
+        // A universal link (`https://cmux.com/link/…`, `/deeplink/agent`, a cloud group's page).
+        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+            guard let url = activity.webpageURL, let link = CmuxLink(url: url) else { return }
+            NotificationRouter.shared.open(link: link)
         }
         .onChange(of: auth.teamList.phase, initial: true) { _, _ in planSetup() }
         .onChange(of: asksNotifications) { _, _ in planSetup() }
@@ -336,6 +358,15 @@ public struct RootView: View {
             heldInvite = nil
             coordinator.accept(invite)
         }
+        #if DEBUG
+        // Test-only (compiled out of Release): the pair-e2e rig (scripts/ci/cmux_next_pair_e2e.py)
+        // hands this launch a Mac's pairing code in its environment, taken as a scanned code is
+        // (.onOpenURL above). A simulator asks "Open in cmux?" for `simctl openurl`, and nothing on
+        // a CI Mac answers it. Never logged; the code's token is single use and expires in minutes.
+        if let text = ProcessInfo.processInfo.environment["CMUX_MOBILE_PAIR_URL"], let invite = PairInvite(text: text) {
+            coordinator.accept(invite)
+        }
+        #endif
     }
 
     #if DEBUG
@@ -400,6 +431,17 @@ struct ShellView: View {
     init(store: AppStore, auth: CmuxMobileAuthModel, settings: SettingsStore, sidebar: SidebarModel, live: LiveCoordinator?, options: ShellLaunchOptions) {
         let shell = ShellModel(store: store, auth: auth, settings: settings, sidebar: sidebar)
         shell.attach(live: live)
+        #if DEBUG
+        // Synthetic connection metadata for captures; never reads a real machine.
+        if auth.isMock, UserDefaults.standard.bool(forKey: "cmux-mobile-link-status-demo"),
+           let mac = store.activeTeam?.macs.first {
+            let phase = LinkMachine.Phase.connected(.wireGuard, .direct, rttMillis: 27)
+            let status = phase.statusLine(macName: mac.name, media: .up(.turn, rttMillis: 30))
+            let detail = phase.diagnosticLine(macName: mac.name, media: .up(.turn, rttMillis: 30))
+            if store.macLinkStatus[mac.id] != status { store.macLinkStatus[mac.id] = status }
+            if store.macLinkDiagnostics[mac.id] != detail { store.macLinkDiagnostics[mac.id] = detail }
+        }
+        #endif
         if let tab = options.initialTab.flatMap(RootTab.init(rawValue:)) { shell.tab = tab }
         if let page = options.settingsPage.flatMap(SettingsRoute.init(name:)) {
             shell.tab = .settings
@@ -504,6 +546,7 @@ struct ShellView: View {
         .task {
             #if DEBUG
             if CommandLine.arguments.contains("-cmux-mobile-team-transparent") { DemoDriver(shell: shell).seedTransparentTeams() }
+            KeyboardPinTrace.startIfRequested()
             #endif
             if options.sidebarOpen { shell.sidebar.open() }
             #if DEBUG
@@ -565,7 +608,10 @@ private struct LinkSettingsObserver: ViewModifier {
                 // Hidden pages stop painting on the Mac and give up the lane.
                 StreamedBrowserDirectory.shared.setAppActive(phase != .background)
                 // The notification preview shows these chats' last messages.
-                if phase == .background { Task { await PushSnapshots().save() } }
+                if phase == .background {
+                    shell.live?.background()
+                    Task { await PushSnapshots().save() }
+                }
             }
     }
 }
@@ -619,7 +665,10 @@ private struct LiveCallHost: ViewModifier {
 }
 
 /// Exactly four tabs: Home, Workspaces, Feed, Settings. The selected tab is
-/// `label` (neutral accent), never blue.
+/// `label` (neutral accent), never blue. The bar stays fully visible while
+/// content scrolls: it never minimizes to the selected tab's pill. Whether it
+/// shows at all is ``ShellModel/showsTabBar(on:)``, set here on each tab's
+/// content, outside its stack.
 struct ShellTabs: View {
     let shell: ShellModel
 
@@ -628,13 +677,19 @@ struct ShellTabs: View {
         TabView(selection: $shell.tab) {
             Tab("Home", systemImage: "house", value: RootTab.home) {
                 HomeScreen(shell: shell)
+                    .modifier(TabBarVisibility(shell: shell, tab: .home))
+                    .modifier(TabBarProbeHost())
             }
             Tab("Workspaces", systemImage: "square.stack.3d.up", value: RootTab.workspaces) {
                 WorkspacesScreen(shell: shell)
+                    .modifier(TabBarVisibility(shell: shell, tab: .workspaces))
+                    .modifier(TabBarProbeHost())
             }
             .badge(shell.store.attentionCount)
             Tab("Feed", systemImage: "bubble.left.and.text.bubble.right", value: RootTab.feed) {
                 FeedTabContent(shell: shell)
+                    .modifier(TabBarVisibility(shell: shell, tab: .feed))
+                    .modifier(TabBarProbeHost())
             }
             .badge(FeedStore.shared.needsYouCount)
             Tab("Settings", systemImage: "gearshape", value: RootTab.settings) {
@@ -652,11 +707,25 @@ struct ShellTabs: View {
                 ) {
                     SidebarToolbarItem(sidebar: shell.sidebar)
                 }
+                .modifier(TabBarVisibility(shell: shell, tab: .settings))
+                .modifier(TabBarProbeHost())
             }
         }
-        .tabBarMinimizeBehavior(.onScrollDown)
+        .tabBarMinimizeBehavior(.never)
         .tint(theme.colors.label.color)
         .cmuxMobileSensoryFeedback(.selection, trigger: shell.tab)
+    }
+}
+
+/// The UI tests' tab bar probe (``TabBarProbe``) in a tab's content, outside
+/// its stack; nothing outside DEBUG builds launched with its argument.
+private struct TabBarProbeHost: ViewModifier {
+    func body(content: Content) -> some View {
+        #if DEBUG
+        content.overlay(alignment: .topLeading) { TabBarProbe() }
+        #else
+        content
+        #endif
     }
 }
 
@@ -668,7 +737,9 @@ private struct FeedTabContent: View {
 
     var body: some View {
         @Bindable var shell = shell
-        CmuxMobileFeed.FeedScreen(path: $shell.feedPath) { SidebarToolbarItem(sidebar: shell.sidebar) }
+        CmuxMobileFeed.FeedScreen(path: $shell.feedPath, reconnect: {
+            await shell.live?.reconnectFeeds()
+        }) { SidebarToolbarItem(sidebar: shell.sidebar) }
     }
 }
 

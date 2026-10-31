@@ -15,6 +15,10 @@ use serde_json::Value;
 
 use crate::adopt_tools::{PastTool, ToolResult};
 
+#[path = "adopt_replay_page.rs"]
+mod page;
+pub use page::{ClaudePage, PAGE_TURNS, claude_page, newest_claude_page, newest_prompt_start};
+
 /// One past exchange: the person's prompt, the tool calls it led to, in order, and the
 /// assistant's answer text.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

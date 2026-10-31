@@ -534,8 +534,11 @@ fn queued_prompt(prompt_id: &str, provenance: Option<Value>) -> crate::hub::queu
         trust_gate: false,
         provenance,
         agent: None,
+        class: None,
         supersede: None,
         full_access_device: None,
+        message_id: None,
+        message_sender: None,
     };
     crate::hub::queue::QueuedPrompt {
         prompt_id: prompt_id.into(),
@@ -803,6 +806,7 @@ async fn an_import_settles_an_attempt_left_in_flight() {
 
     let here = hub_at(&dirs[1]);
     let imported = here.import(&bundle, Some("imported".into())).await.unwrap();
+    assert!(imported.meta().name_given, "a name the import gives is someone's (`acpmux ls`)");
     let entry = last_entry(&here, &imported, "s/t1").unwrap();
     assert!(none_in_flight(&entry) && entry["retry"].is_null(), "{entry}");
     assert_eq!((&entry["state"], &entry["retryable"]), (&json!("failed"), &json!(false)));

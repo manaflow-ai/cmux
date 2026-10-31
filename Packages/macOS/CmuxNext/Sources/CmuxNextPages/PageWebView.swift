@@ -416,11 +416,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         }
     }
 
-    /// Page zoom follows `uiScale`; the chrome multiplier is only the `--cmux-interface-scale` token.
+    /// Page zoom follows `uiScale` times this page's additional zoom; the chrome multiplier remains
+    /// a separate `--cmux-interface-scale` token.
     func applyUIScale() {
+        evaluateInPage(DesignSettings.shared.interfaceScaleScript(pageZoom: pageZoom))
         webView.pageZoom = pageZoom
         chromiumSession?.page.setZoom(pageZoom)
-        evaluateInPage(DesignSettings.shared.interfaceScaleScript)
         if loaded { glassFeed.refresh() } // the zoom moves the art's rect in CSS px
     }
 
@@ -551,7 +552,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         super.viewDidMoveToWindow()
         // Its tab or window closed: the page's popup ends with it.
         if window == nil { popupHost?.dismiss() }
-        chromiumSession?.page.setVisible(window != nil && !isHiddenOrHasHiddenAncestor)
+        setChromiumVisibility(true)
         applyTheme()
         windowDidChangeChrome()
         if shouldFocusOnAttach, window != nil {
@@ -564,12 +565,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func viewDidHide() {
         super.viewDidHide()
         popupHost?.dismiss()
-        chromiumSession?.page.setVisible(false)
+        setChromiumVisibility(false)
     }
 
     public override func viewDidUnhide() {
         super.viewDidUnhide()
-        chromiumSession?.page.setVisible(window != nil)
+        setChromiumVisibility(true)
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -606,7 +607,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
         let url = action.request.url
         switch PageNavigation.policy(for: url, page: descriptor, userClicked: action.navigationType == .linkActivated,
-                                     mainFrame: action.targetFrame?.isMainFrame ?? true, hook: onNavigate) {
+                                     mainFrame: action.targetFrame?.isMainFrame ?? true,
+                                     targetFrameURL: action.targetFrame?.request.url,
+                                     sourceFrameURL: action.sourceFrame.request.url, hook: onNavigate) {
         case .allow:
             return .allow
         case .openExternal:

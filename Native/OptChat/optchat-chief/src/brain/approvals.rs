@@ -187,6 +187,7 @@ impl Brain {
     /// - `profile` reads (`history`, or no field), never a write or undo;
     /// - `control` `status`, `interrupt` with no message, and `answer` with
     ///   `deny`;
+    /// - `watch` with no command (the list, a cancel);
     /// - any other `tell` or `control` only to a subagent that asks for its
     ///   own effects (policy `ask`), so an untrusted turn cannot launder a
     ///   command through an approve-all subagent.
@@ -240,6 +241,8 @@ impl Brain {
             "mcp__optchat__remember" => return false,
             // Nor spend the owner's money on a Cloud machine.
             "mcp__optchat__cloud_workspace" => return false,
+            // Nor run a command on the owner's machine: only list and cancel.
+            "mcp__optchat__watch" => return field("command").is_none_or(|c| c.trim().is_empty()),
             _ => return true,
         }
         let Some(id) = field("id") else {

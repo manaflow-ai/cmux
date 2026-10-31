@@ -1,10 +1,11 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// POLISH (no flash): a window dialog and its scrim appeared in one frame, so the whole window
 /// darkened at once. Both fade in with the fade-in token, which Reduce Motion keeps.
-@MainActor @Suite(.serialized) struct DialogFadeTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct DialogFadeTests {
     /// The close fades need an awake display with animations enabled: in a window with no screen
     /// or with motion off a change applies at once (`Motion.canAnimate`), so these tests run only
     /// where the fade can be observed.
@@ -14,7 +15,7 @@ import Testing
         defer { Motion.reduceMotionOverride = nil }
         let window = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 400, height: 300), styleMask: [.titled],
                               backing: .buffered, defer: false)
-        defer { window.orderOut(nil) }
+        defer { window.closeWithOverlayHost() }
         let host = WindowOverlayHost.host(for: window)
         let dialog = NSView(frame: NSRect(x: 0, y: 0, width: 160, height: 90))
         let handle = host.present(dialog, options: OverlayOptions(kind: .dialog, isModal: true, dimsContent: true,
@@ -36,7 +37,7 @@ import Testing
                               backing: .buffered, defer: false)
         // On screen, as a dialog's window is: a change in a window with no screen applies at once.
         window.orderFrontRegardless()
-        defer { window.orderOut(nil) }
+        defer { window.closeWithOverlayHost() }
         try #require(window.screen != nil)
         let host = WindowOverlayHost.host(for: window)
         let dialog = NSView(frame: NSRect(x: 0, y: 0, width: 160, height: 90))
@@ -65,7 +66,7 @@ import Testing
         let second = NSWindow(contentRect: NSRect(x: 650, y: 400, width: 400, height: 300), styleMask: [.titled],
                               backing: .buffered, defer: false)
         for window in [first, second] { window.orderFrontRegardless() }
-        defer { for window in [first, second] { window.orderOut(nil) } }
+        defer { for window in [first, second] { window.closeWithOverlayHost() } }
         try #require(first.screen != nil && second.screen != nil)
         let options = OverlayOptions(kind: .dialog, isModal: true, dimsContent: true, passesThroughClicks: false)
         let dialog = NSView(frame: NSRect(x: 0, y: 0, width: 160, height: 90))
@@ -85,7 +86,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 400, height: 300), styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.orderFrontRegardless()
-        defer { window.orderOut(nil) }
+        defer { window.closeWithOverlayHost() }
         try #require(window.screen != nil)
         let host = WindowOverlayHost.host(for: window)
         let dialog = NSView(frame: NSRect(x: 0, y: 0, width: 160, height: 90))

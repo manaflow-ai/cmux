@@ -316,7 +316,7 @@ final class MockPageView: NSView {
 }
 
 /// Records restores; saves `navigation` (else the shown page) with the
-/// measured scroll position on the shown entry.
+/// page's reported, else measured, scroll position on the shown entry.
 extension MockBrowserTab: BrowserSessionRestoring {
     public func restoreSession(_ entries: [BrowserSavedEntry], current: Int) {
         restoredSessions.append(BrowserSavedSession(entries: entries, current: current))
@@ -329,6 +329,8 @@ extension MockBrowserTab: BrowserSessionRestoring {
         guard let url = state.url else { return nil }
         var session = BrowserRestoredHistory.empty.session(around: navigation, shown: BrowserNavigationEntry(url: url, title: state.title))
         guard session.entries.indices.contains(session.current) else { return nil }
+        // As BrowserRestoredSession: the page's own report, then a measure over it.
+        if let report = state.scrollReport, report.url == url { session.entries[session.current].scrollY = report.y }
         if let y { session.entries[session.current].scrollY = y }
         return session
     }

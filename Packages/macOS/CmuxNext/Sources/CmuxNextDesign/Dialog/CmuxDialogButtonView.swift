@@ -4,7 +4,7 @@ public import AppKit
 /// default button prominent, a destructive one in the danger color. It
 /// draws a focus ring in `Palette.focusRing` while it has keyboard focus.
 @MainActor
-public final class CmuxDialogButtonView: NSButton {
+public final class CmuxDialogButtonView: ClickableButton {
     public private(set) var button: CmuxDialogButton
     /// The key that presses this button, drawn after its title (u2647); nil draws none.
     public let keyHint: CmuxDialogKeyHint?

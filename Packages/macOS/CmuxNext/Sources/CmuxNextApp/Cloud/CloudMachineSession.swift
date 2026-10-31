@@ -19,6 +19,8 @@ import CmuxNextWakeups
 final class CloudMachineSession {
     let machineID: String
     var machine: CloudMachine
+    /// Its create's auto-size pick, which a list read's ``machine`` lacks: a hand-off's `size`.
+    var sizePick: CloudSizePick?
     let daemon: DaemonService
     @ObservationIgnored let link: CloudMachineLink?
     @ObservationIgnored let appLink: CloudLinkSession?
@@ -79,6 +81,7 @@ final class CloudMachineSession {
                  localIdentity: @escaping @MainActor () -> DaemonIdentity?, mainWork: MainWorkScheduler) {
         machineID = machine.id
         self.machine = machine
+        sizePick = machine.sizePick
         self.link = link
         self.appLink = appLink
         self.localIdentity = localIdentity
@@ -312,7 +315,9 @@ final class CloudMachineSession {
         retryNow()
     }
 
-    private func retryNow() {
+    /// Retry on the record as it stands (the caller just read it): resume a paused legacy machine,
+    /// else connect an app link, wake a legacy daemon that is starting, or connect it again.
+    func retryNow() {
         if appLink == nil, machine.status == .paused { return attach(origin: .user) }
         if case .failed = linkPhase { linkPhase = .starting }
         if appLink != nil {

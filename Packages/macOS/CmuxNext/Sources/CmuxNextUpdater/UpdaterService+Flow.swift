@@ -13,15 +13,16 @@ extension UpdaterService {
     /// found update the person closed or snoozed (``updateSnooze``) stays
     /// hidden; a check they ask for clears that first (``checkForUpdates()``).
     public var card: UpdateCard? {
-        // A found update nobody asked about (downloads wait for a click) is the titlebar's quiet
+        // A found update nobody asked about (downloads wait for a click) is the sidebar footer's quiet
         // Update Available button (``availableButton``), not this card; a check they asked for shows here.
-        guard let card = flow.card(downloadsAutomatically: true) else { return pulledWatch.card }
-        if card == .installing, installCardDismissed { return pulledWatch.card }
-        if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return pulledWatch.card }
+        if let newestCard { return newestCard }
+        guard let card = flow.card(downloadsAutomatically: true) else { return nil }
+        if card == .installing, installCardDismissed { return nil }
+        if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return nil }
         return card
     }
 
-    /// The titlebar's quiet Update Available button: a found update that waits for a click
+    /// The sidebar footer's quiet Update Available button: a found update that waits for a click
     /// (`updates.downloadAutomatically` off, or downloads deferred on a metered network); a click
     /// downloads it (``downloadClicked()``), and the staged update then asks before relaunching.
     /// Nil otherwise, and for a version the
@@ -37,7 +38,7 @@ extension UpdaterService {
         flow.footerPill(preferences: preferences)
     }
 
-    /// The answer to the update-found step (the notice card's Update, the titlebar's Update
+    /// The answer to the update-found step (the notice card's Update, the sidebar footer's Update
     /// Available, the sheet's Update): download only. The update then waits on the Update Ready
     /// card, which asks before relaunching (Leo 2026-10-27: "ask before the download + install
     /// step, and likewise for the reboot"). With the opt-in too (a download deferred on a metered
@@ -163,6 +164,7 @@ extension UpdaterService {
     /// Feeds ``indicatorPhase`` to the gate when it moved.
     func syncFlowPhase() {
         stagedRefresh.dropStale(updater: self)
+        dropPulledAvailable()
         let phase = indicatorPhase
         guard phase != flow.phase else { return }
         if userCheckRunning, phase != .checking { userCheckRunning = false }
@@ -177,8 +179,10 @@ extension UpdaterService {
         let wasInstalling = flow.phase == .installing
         let wasReady = if case .ready = flow.phase { true } else { false }
         let clickedInstall = flow.installRequested
+        let previous = flow.phase
         send(.sparkle(phase))
         carryInstallClick(phase)
+        followNewestFetch(phase, previous: previous)
         followInstall(phase)
         followStagedUpdate(phase)
         stagedRefresh.follow(phase, updater: self)
@@ -188,6 +192,9 @@ extension UpdaterService {
         case .ready:
             recordStagedUpdate()
             keepRunningBuildForRollback()
+            followPulled()
+        case .available:
+            followPulled()
         case .note where wasInstalling && automaticInstallInFlight:
             // An install nobody clicked failed: nothing opens over the person's work; the
             // log keeps it and the next check offers the update again.

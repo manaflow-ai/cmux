@@ -150,7 +150,8 @@ extension DaemonConnection {
         }
         if supportsPlacementEnv {
             let options = await placed(options)
-            return Self.created(try await request(SplitRequest(pane: pane, direction: direction, options: options)), options: options)
+            // The client-minted terminal id keys the split: a late start is waited for, not taken back.
+            return Self.created(try await requestPaneCreation(SplitRequest(pane: pane, direction: direction, options: options)), options: options)
         }
         if let placed = try await spawnPlacedByMove(options, into: .split(pane, direction)) { return placed }
         var options = served(options)
@@ -164,16 +165,25 @@ extension DaemonConnection {
     public func newPaneInColumn(of pane: PaneID, options: SpawnOptions = SpawnOptions()) async throws -> SurfaceCreated {
         guard supportsPlacementEnv else { return try await request(NewPaneRequest(pane: pane, options: served(options))) }
         let options = await placed(options)
-        return Self.created(try await request(NewPaneRequest(pane: pane, options: options)), options: options)
+        return Self.created(try await requestPaneCreation(NewPaneRequest(pane: pane, options: options)), options: options)
     }
 
     /// New scrolling column right of `pane`'s. `cwd`, `env`, and `keep`
     /// reach the daemon only with `terminal-placement-env-v1`.
     @discardableResult
     public func newColumn(rightOf pane: PaneID, width: Double? = nil, options: SpawnOptions = SpawnOptions()) async throws -> SurfaceCreated {
-        guard supportsPlacementEnv else { return try await request(NewColumnRequest(pane: pane, width: width, options: served(options))) }
+        try await newColumn(beside: pane, left: false, width: width, options: options)
+    }
+
+    /// New scrolling column beside `pane`'s: before it when `left` (`column-left-v1`, New
+    /// Column Left), else after it.
+    @discardableResult
+    public func newColumn(beside pane: PaneID, left: Bool, width: Double? = nil, options: SpawnOptions = SpawnOptions()) async throws -> SurfaceCreated {
+        guard supportsPlacementEnv else {
+            return try await request(NewColumnRequest(pane: pane, width: width, left: left, options: served(options)))
+        }
         let options = await placed(options)
-        return Self.created(try await request(NewColumnRequest(pane: pane, width: width, options: options)), options: options)
+        return Self.created(try await requestPaneCreation(NewColumnRequest(pane: pane, width: width, left: left, options: options)), options: options)
     }
 
     @discardableResult
@@ -299,6 +309,12 @@ extension DaemonConnection {
 
     public func frontendProjection(subject: String, scope: ProjectionScope = .personal) async throws -> FrontendProjection {
         try await request(GetFrontendProjectionRequest(frontend: Self.origin, scope: scope, subjectKey: subject))
+    }
+
+    /// The same read with its own deadline instead of the control-plane default.
+    public func frontendProjection(subject: String, scope: ProjectionScope = .personal,
+                                   timeout: Duration) async throws -> FrontendProjection {
+        try await request(GetFrontendProjectionRequest(frontend: Self.origin, scope: scope, subjectKey: subject), timeout: timeout)
     }
 
     @discardableResult

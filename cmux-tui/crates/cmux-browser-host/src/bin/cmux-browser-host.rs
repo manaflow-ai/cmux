@@ -30,6 +30,7 @@ mod unix {
     use cmux_browser_host::host::{Host, agent_bundle, bundle};
     use cmux_browser_host::idle_exit::{IdleExit, SystemClock};
     use cmux_browser_host::server::{bind, default_socket_path, serve};
+    use cmux_json::JsonSet as _;
     use serde_json::{Value, json};
     use std::io::{BufRead, BufReader, Read, Write};
     use std::os::unix::net::UnixStream;
@@ -539,10 +540,10 @@ mod unix {
         }
         let mut params = json!({"session": options.session, "code": code});
         if let Some(max) = options.max_output {
-            params["maxOutput"] = json!(max);
+            params.set("maxOutput", json!(max));
         }
         if let Some(ms) = options.timeout_ms {
-            params["timeoutMs"] = json!(ms);
+            params.set("timeoutMs", json!(ms));
         }
         match request(&mut stream, 2, "browser.repl.eval", params) {
             Ok(result) => {

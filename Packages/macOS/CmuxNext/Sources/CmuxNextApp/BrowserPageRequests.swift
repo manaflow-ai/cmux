@@ -115,7 +115,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             return pageClosedBeforeAdoption(page)
         }
         guard let services, let key = services.cache.key(of: page) ?? services.popups.openerKey(of: page),
-              let (openerTab, pane) = services.locateTab(key) else {
+              let (openerTab, pane) = services.locateTabOnAnyMachine(key) else {
             // The opener is gone: nowhere to show a new page.
             switch intent {
             case .adoptTab(let child, _), .openPopup(let child, _): child.close()
@@ -260,7 +260,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// `page` shows a New Tab page and is the last tab of its pane.
     private func isNewTabPageAtEnd(_ page: any BrowserTab) -> Bool {
         guard BrowserNewTabPage.isNewTabPage(page.state.url), let services, let key = services.cache.key(of: page),
-              let (_, pane) = services.locateTab(key) else { return false }
+              let (_, pane) = services.locateTabOnAnyMachine(key) else { return false }
         return pane.tabs.last?.id == key
     }
 

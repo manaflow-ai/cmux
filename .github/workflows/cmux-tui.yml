@@ -408,8 +408,20 @@ jobs:
         if: ${{ !cancelled() }}
         working-directory: cmux-tui
         run: |
-          cargo clippy --workspace --lib --bins --locked --message-format=json -- $(python3 ../scripts/cmux-next/rust_panic_ratchet.py --flags) > "$RUNNER_TEMP/panic-clippy.jsonl"
+          read -r -a panic_flags <<<"$(python3 ../scripts/cmux-next/rust_panic_ratchet.py --flags)"
+          cargo clippy --workspace --lib --bins --locked --message-format=json -- "${panic_flags[@]}" > "$RUNNER_TEMP/panic-clippy.jsonl"
           python3 ../scripts/cmux-next/rust_panic_ratchet.py --clippy-json "$RUNNER_TEMP/panic-clippy.jsonl"
+
+      # The red log lists at most 20 hits per crate; the full clippy JSON lets a
+      # fixer (or --update-baseline, which needs a Linux run) work from the laptop.
+      - name: Upload panic ratchet clippy JSON
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: panic-clippy-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/panic-clippy.jsonl
+          if-no-files-found: ignore
+          retention-days: 3
 
       # cmux-rd-ffi is its own Cargo workspace (outside --workspace), so the
       # cmux-tui lint/test steps never build it. Its tests pin the C header
@@ -692,12 +704,37 @@ jobs:
           ZIG_TARBALL_CACHE_DIR: ${{ runner.temp }}/cmux-zig-tarballs
         run: ./scripts/install-zig-ci.sh
 
-      - name: Fetch the ghostty-next Zig packages (retried)
-        run: ./scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # cmux-tailnet's build script compiles libtailscale with `go build`. The
+      # owned Mac minis have no Go, so clippy died there before any test ran.
+      # go-version matches the pinned libtailscale go.mod (see its build.rs).
+      #
+      # No Actions cache for Go on an owned mini. The mini keeps its own
+      # ~/go/pkg/mod between jobs, and Go makes that tree read-only, so
+      # untarring the ~590 MB cache over it failed with "Can't unlink
+      # already-existing object: Permission denied" on 8 of 8 sampled jobs
+      # (2026-10-29). Each of those jobs still downloaded the tarball (about 63 s)
+      # and then tried to save it again (about 48 s). Blacksmith VMs start empty,
+      # so they keep the cache.
+      - name: Set up pinned Go (libtailscale)
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: cmux-tui/crates/cmux-tailnet/go-version
+          cache: ${{ !contains(runner.name, '-glaeda') }}
+          cache-dependency-path: cmux-tui/crates/cmux-tailnet/build.rs
+
+      # On an owned mini, only feat-cmux-next saves. The cache key carries a hash
+      # of each mini's Rust environment, and a dispatch on a branch can read only
+      # that branch's entries and the default branch's. So a branch save almost
+      # never comes back: 0 of 8 sampled jobs restored one (2026-10-29). Each
+      # branch save took about 155 s and 0.6-0.9 GB of the repository's 10 GB
+      # GitHub cache store. These saves filled about 70% of the store, and the
+      # store evicts by least-recent use, so other caches were pushed out.
       - name: Cache cargo build
         id: cargo-cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -705,6 +742,7 @@ jobs:
           cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-macos
+          save-if: ${{ !contains(runner.name, '-glaeda') || github.ref == 'refs/heads/feat-cmux-next' }}
 
       - name: Report cargo cache hit rate
         if: always()
@@ -855,7 +893,7 @@ jobs:
           name: optchat-chief-lock-${{ inputs.commit }}
           path: Native/OptChat/optchat-chief/Cargo.lock
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
 
       - name: Require committed Chief lockfile
         run: git diff --exit-code -- Native/OptChat/optchat-chief/Cargo.lock
@@ -906,7 +944,9 @@ jobs:
     name: test (${{ matrix.os }})
     needs: validate-inputs
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 40
+    # A green run takes ~40 min on a 32 vCPU runner (the workspace test step alone
+    # 36.6 min, run 40976799846); 40 cancelled the first all-green run.
+    timeout-minutes: 55
     strategy:
       fail-fast: false
       matrix:

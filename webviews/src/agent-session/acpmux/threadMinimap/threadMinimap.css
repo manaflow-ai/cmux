@@ -30,24 +30,44 @@
   margin: 0;
   animation: acpmux-minimap-in var(--cmux-motion-micro) cubic-bezier(0.23, 1, 0.32, 1);
 }
+.acpmux-minimap__strip {
+  position: absolute;
+  left: 0;
+  display: block;
+}
+/* Keep keyboard navigation mounted and the pane-edge strip live while text leaves no room. */
+.acpmux-minimap__rail[data-occluded] {
+  opacity: 0;
+  pointer-events: none;
+}
 @keyframes acpmux-minimap-in {
   from {
     opacity: 0;
   }
 }
-/* The list moves only under the rail's own control (it keeps the band in view, a scrub reaches past
-   an edge, a focused row scrolls in), never by the wheel: `overflow: hidden` still scrolls from
-   script and focus but draws no scroller, so the transcript's shared one is the only one on screen
-   (SCROLLBARS-THIN; #23285 left this list a second visible scroller). */
+/* A list that fits its prompts is no scroll container (`overflow: hidden` still scrolls from script and
+   focus), so the wheel over it scrolls the transcript. One longer than its room scrolls itself
+   (data-rail-scrolls, railWheel.ts): the wheel over it moves only the list, never chaining to the
+   transcript at its ends. Its scrollbar is hidden in both engines, so the transcript's shared one is
+   the only one on screen (SCROLLBARS-THIN; #23285 left this list a second visible scroller). */
 .acpmux-minimap__list {
   display: flex;
   flex-direction: column;
   height: 100%;
   overflow: hidden;
+  scrollbar-width: none;
   /* An ordered list (each prompt's place for assistive tech), with none of a list's own spacing. */
   margin: 0;
   padding: 0;
   list-style: none;
+}
+.acpmux-minimap__list[data-rail-scrolls] {
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.acpmux-minimap__list::-webkit-scrollbar {
+  display: none;
 }
 /* A rail longer than its room fades at an edge with more rows past it: 2.5rem, less in a short rail
    (--acpmux-minimap-fade, model.ts railFade), and never over the prompts on screen (railFades). */
@@ -70,7 +90,7 @@
   position: relative;
   flex: none;
   display: block;
-  width: 36px;
+  width: 100%;
   height: 10px;
   margin: 0;
   padding: 0;
@@ -81,6 +101,19 @@
   cursor: default;
   outline: none;
   contain: layout paint;
+}
+.acpmux-minimap__tick:focus-visible {
+  /* shared agent-session styles suppress generic button outlines with !important; this rail owns
+     its compact focus treatment and marks the control with data-focus-ring="tick". */
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--cmux-focus-ring-color, var(--agent-text)) !important;
+  outline-offset: -1.5px;
+  border-radius: var(--acpmux-inspector-row-radius, 4px);
+}
+@media (prefers-contrast: more) {
+  .acpmux-minimap__tick:focus-visible {
+    outline: var(--cmux-focus-ring-width, 2px) solid var(--cmux-focus-ring-color, var(--agent-text)) !important;
+    outline-offset: 2px;
+  }
 }
 .acpmux-minimap__bar,
 .acpmux-minimap__dot {
@@ -95,7 +128,7 @@
   transition: transform var(--cmux-motion-micro) var(--acpmux-minimap-spring);
 }
 .acpmux-minimap__bar {
-  width: 26px;
+  width: min(26px, 100%);
   height: 2px;
 }
 /* The ticks' entrance (Leo 2026-10-25: "the animation ... those sort of lines pop up. There should

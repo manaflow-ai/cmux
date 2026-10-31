@@ -95,6 +95,12 @@ fn protocol_sessions_names_its_page_fields() {
     };
     let params = fields("SessionsParams");
     assert!(params.contains("limit") && params.contains("cursor"), "SessionsParams: {params:?}");
+    assert!(
+        params.contains("localOnly")
+            && params.contains("excludeStatus")
+            && params.contains("orderBy"),
+        "SessionsParams: {params:?}"
+    );
     assert!(fields("SessionsResult").contains("nextCursor"), "SessionsResult lacks nextCursor");
 }
 

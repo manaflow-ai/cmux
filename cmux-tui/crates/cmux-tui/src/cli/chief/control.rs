@@ -9,6 +9,7 @@ use super::link::{Link, LinkError};
 use super::messages::messages;
 use super::{GlobalArgs, Session};
 use crate::cli::OutputMode;
+use cmux_json::JsonSet as _;
 
 /// What `cmux chief engine|stop` asks.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -57,7 +58,7 @@ fn stop(link: &mut Link, name: Option<&str>, chief: Option<&str>) -> Result<bool
         None => json!({}),
     };
     if let Some(chief) = chief {
-        params["chief"] = json!(chief);
+        params.set("chief", json!(chief));
     }
     let result = link.call("chief.stop", params, Some(&key))?;
     Ok(result.pointer("/value/stopped").and_then(Value::as_bool).unwrap_or(false))

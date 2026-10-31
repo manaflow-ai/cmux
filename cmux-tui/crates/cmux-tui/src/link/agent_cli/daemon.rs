@@ -8,6 +8,7 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::time::Duration;
 
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 /// Most calls; the daemon gives acpmux 15 s.
@@ -72,8 +73,8 @@ impl Daemon {
         let lost = |e: std::io::Error| CallError::Lost(format!("{cmd}: {e}"));
         let id = self.next_id;
         self.next_id += 1;
-        params["id"] = json!(id);
-        params["cmd"] = json!(cmd);
+        params.set("id", json!(id));
+        params.set("cmd", json!(cmd));
         let mut line = params.to_string();
         line.push('\n');
         let stream = self.reader.get_mut();

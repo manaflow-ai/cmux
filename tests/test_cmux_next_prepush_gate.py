@@ -485,6 +485,349 @@ class PrePushGateTests(unittest.TestCase):
         self.assertIn("try!", output)
         self.assertNotIn("Old.swift", output, "base debt in an untouched file must not be reported")
 
+    # A package whose test target declares one local target (one target per block, as Package.swift writes them).
+    DEPS_PACKAGE = """// swift-tools-version: 6.2
+import PackageDescription
+let package = Package(
+    name: "CmuxNext",
+    targets: [
+        .target(
+            name: "CmuxNextApp"
+        ),
+        .target(
+            name: "CmuxNextKit"
+        ),
+        .testTarget(
+            name: "CmuxNextKitTests",
+            dependencies: ["CmuxNextKit"]
+        ),
+    ]
+)
+"""
+
+    def test_push_that_adds_an_undeclared_local_import_is_refused_with_the_fix(self):
+        # 2026-10-29: a63986a4 and e875485c each pushed a test import their target did not declare, and the CI step
+        # "Package dependency lists sorted" was red on every pull request after them.
+        self.write(f"{PKG}/Package.swift", self.DEPS_PACKAGE)
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/KitTests.swift", "import CmuxNextKit\n")
+        self.commit("a test target")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        before = self.remote_head()
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/AppTests.swift", "import CmuxNextKit\n@testable import CmuxNextApp\n")
+        self.commit("a test that imports the app")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before, "the bad commit must not reach origin")
+        self.assertIn("Package dependency lists sorted", output)
+        self.assertIn('Fix: add "CmuxNextApp" to the dependencies of CmuxNextKitTests', output)
+
+        self.write(f"{PKG}/Package.swift",
+                   self.DEPS_PACKAGE.replace('dependencies: ["CmuxNextKit"]', 'dependencies: ["CmuxNextKit", "CmuxNextApp"]'))
+        self.commit("declare it")
+        declared = self.push()
+        self.assertEqual(declared.returncode, 0, declared.stdout + declared.stderr)
+
+    def test_push_that_drops_a_dependency_an_unchanged_file_imports_is_refused(self):
+        # Review of 6d8b96f: the gate's trees held only the changed files, so a manifest edit that dropped a
+        # dependency an untouched source imports passed. A manifest change now brings the package's Swift sources.
+        self.write(f"{PKG}/Package.swift",
+                   self.DEPS_PACKAGE.replace('dependencies: ["CmuxNextKit"]', 'dependencies: ["CmuxNextKit", "CmuxNextApp"]'))
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/AppTests.swift", "import CmuxNextKit\n@testable import CmuxNextApp\n")
+        self.commit("a test target that declares what it imports")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        before = self.remote_head()
+        self.write(f"{PKG}/Package.swift", self.DEPS_PACKAGE)
+        self.commit("drop a dependency AppTests.swift still imports")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn('Fix: add "CmuxNextApp" to the dependencies of CmuxNextKitTests', output)
+
+    def test_a_push_that_removes_one_of_two_baseline_imports_is_not_told_to_drop_the_baseline_line(self):
+        # Review of 115ed33e: without a manifest change the trees hold only the changed files, so the check saw no
+        # file importing CmuxNextWakeups and called IMPORT_BASELINE's line stale while an untouched file kept it.
+        package = """// swift-tools-version: 6.2
+import PackageDescription
+let package = Package(
+    name: "CmuxNext",
+    targets: [
+        .target(
+            name: "CmuxNextWakeups"
+        ),
+        .testTarget(
+            name: "CmuxNextActionsTests"
+        ),
+    ]
+)
+"""
+        self.write(f"{PKG}/Package.swift", package)
+        self.write(f"{PKG}/Sources/CmuxNextWakeups/Wakeups.swift", "public enum Wakeups {}\n")
+        self.write(f"{PKG}/Tests/CmuxNextActionsTests/A.swift", "import CmuxNextWakeups\n")
+        self.write(f"{PKG}/Tests/CmuxNextActionsTests/B.swift", "import CmuxNextWakeups\n")
+        self.commit("two files under the baseline import")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.write(f"{PKG}/Tests/CmuxNextActionsTests/A.swift", "import Foundation\n")
+        self.commit("one file stops importing it")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertNotIn("drop its line", output)
+
+    def test_a_push_that_declares_a_baseline_import_and_drops_its_line_passes(self):
+        # Review of 3db311e3: the hook runs the installed checker, whose IMPORT_BASELINE still lists the pair, so the
+        # cleanup the pushed checker asks for (declare it, drop its line) was refused with "drop its line".
+        checker = "scripts/cmux-next/check-package-dependency-lists.py"
+        pair = '"CmuxNextActionsTests: CmuxNextWakeups",'
+        self.assertIn(pair, (self.repo / checker).read_text(), "the fixture needs this baseline pair")
+        package = """// swift-tools-version: 6.2
+import PackageDescription
+let package = Package(
+    name: "CmuxNext",
+    targets: [
+        .target(
+            name: "CmuxNextWakeups"
+        ),
+        .testTarget(
+            name: "CmuxNextActionsTests"
+        ),
+    ]
+)
+"""
+        self.write(f"{PKG}/Package.swift", package)
+        self.write(f"{PKG}/Sources/CmuxNextWakeups/Wakeups.swift", "public enum Wakeups {}\n")
+        self.write(f"{PKG}/Tests/CmuxNextActionsTests/A.swift", "import CmuxNextWakeups\n")
+        self.commit("a baseline import")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.write(f"{PKG}/Package.swift", package.replace(
+            'name: "CmuxNextActionsTests"\n', 'name: "CmuxNextActionsTests",\n            dependencies: ["CmuxNextWakeups"]\n'))
+        self.write(checker, (self.repo / checker).read_text().replace(pair + "\n    ", "", 1))
+        self.assertNotIn(pair, (self.repo / checker).read_text())
+        self.commit("declare it and drop its baseline line")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertNotIn("drop its line", output)
+
+    def test_a_pushed_baseline_cannot_hide_an_import_the_installed_checker_refuses(self):
+        # The other half of the same fix: only the installed checker decides what is missing, so a push that adds a
+        # pair to its own IMPORT_BASELINE still cannot land an undeclared import.
+        checker = "scripts/cmux-next/check-package-dependency-lists.py"
+        self.write(f"{PKG}/Package.swift", self.DEPS_PACKAGE)
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/KitTests.swift", "import CmuxNextKit\n")
+        self.commit("a test target")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/AppTests.swift", "@testable import CmuxNextApp\n")
+        self.write(checker, (self.repo / checker).read_text().replace(
+            "IMPORT_BASELINE = frozenset((\n", 'IMPORT_BASELINE = frozenset((\n    "CmuxNextKitTests: CmuxNextApp",\n', 1))
+        self.commit("baseline the new import instead of declaring it")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn('Fix: add "CmuxNextApp" to the dependencies of CmuxNextKitTests', output)
+
+    def test_an_annotated_or_set_baseline_is_read_so_a_dropped_line_is_still_seen(self):
+        # Review of c9beb1af: `IMPORT_BASELINE: frozenset[str] = ...` read as None, which dropped_baseline_pairs took
+        # as "nothing dropped", so a push that rewrote the line that way and dropped a pair passed the gate.
+        spec = importlib.util.spec_from_file_location("prepush_gate_baseline", SOURCE / GATE)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        for source in (b'IMPORT_BASELINE: frozenset[str] = frozenset(("A: B",))\n',
+                       b'IMPORT_BASELINE = frozenset({"A: B"})\n'):
+            self.assertEqual(gate.import_baseline(source), frozenset({"A: B"}), source)
+        self.assertIsNone(gate.import_baseline(b"IMPORT_BASELINE: frozenset[str]\n"))
+
+    def test_a_head_without_the_checker_reads_no_baseline_instead_of_aborting(self):
+        # Review of 3f01de17: `git()` raises SystemExit on a failed `git show`, which the CalledProcessError handler
+        # never caught, so a pushed head without the checker aborted the whole push.
+        spec = importlib.util.spec_from_file_location("prepush_gate_no_checker", SOURCE / GATE)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        (self.repo / gate.DEPS_CHECKER).unlink()
+        self.commit("a head without the dependency checker")
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        self.assertNotEqual(self.git("cat-file", "-e", f"{head}:{gate.DEPS_CHECKER}", check=False).returncode, 0)
+        self.assertIsNone(gate.pushed_import_baseline(self.repo, head))
+
+    def test_a_push_that_drops_a_baseline_line_without_declaring_the_import_is_refused(self):
+        # Review of a37b4cce: the installed checker still lists the pair, so it reported neither a missing import nor
+        # a stale line, and a push that only deleted the pair from IMPORT_BASELINE passed; CI's pushed checker failed.
+        checker = "scripts/cmux-next/check-package-dependency-lists.py"
+        pair = '"CmuxNextActionsTests: CmuxNextWakeups",'
+        package = """// swift-tools-version: 6.2
+import PackageDescription
+let package = Package(
+    name: "CmuxNext",
+    targets: [
+        .target(
+            name: "CmuxNextWakeups"
+        ),
+        .testTarget(
+            name: "CmuxNextActionsTests"
+        ),
+    ]
+)
+"""
+        self.write(f"{PKG}/Package.swift", package)
+        self.write(f"{PKG}/Sources/CmuxNextWakeups/Wakeups.swift", "public enum Wakeups {}\n")
+        self.write(f"{PKG}/Tests/CmuxNextActionsTests/A.swift", "import CmuxNextWakeups\n")
+        self.commit("a baseline import")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        before = self.remote_head()
+        self.write(checker, (self.repo / checker).read_text().replace(pair + "\n    ", "", 1))
+        self.assertNotIn(pair, (self.repo / checker).read_text())
+        self.commit("drop the baseline line, declare nothing")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn('Fix: add "CmuxNextWakeups" to the dependencies of CmuxNextActionsTests', output)
+
+    def test_a_source_only_push_that_removes_a_baseline_import_s_last_use_must_drop_its_line(self):
+        # Review of befae46a: with the manifest unchanged the gate dropped every "drop its line" finding, so a push
+        # that removed the last import of a baseline pair passed and left the pair in IMPORT_BASELINE. Only a line
+        # the push itself made stale is kept: base stale lines and pairs an untouched file still imports stay out.
+        checker = "scripts/cmux-next/check-package-dependency-lists.py"
+        pair = '"CmuxNextActionsTests: CmuxNextWakeups",'
+        package = """// swift-tools-version: 6.2
+import PackageDescription
+let package = Package(
+    name: "CmuxNext",
+    targets: [
+        .target(
+            name: "CmuxNextWakeups"
+        ),
+        .testTarget(
+            name: "CmuxNextActionsTests"
+        ),
+    ]
+)
+"""
+        self.write(f"{PKG}/Package.swift", package)
+        self.write(f"{PKG}/Sources/CmuxNextWakeups/Wakeups.swift", "public enum Wakeups {}\n")
+        self.write(f"{PKG}/Tests/CmuxNextActionsTests/A.swift", "import CmuxNextWakeups\n")
+        self.commit("the one file under a baseline import")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        before = self.remote_head()
+        self.write(f"{PKG}/Tests/CmuxNextActionsTests/A.swift", "import Foundation\n")
+        self.commit("its last file stops importing it")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("IMPORT_BASELINE lists CmuxNextActionsTests: CmuxNextWakeups", output)
+        self.assertIn("drop its line", output)
+
+        self.write(checker, (self.repo / checker).read_text().replace(pair + "\n    ", "", 1))
+        self.assertNotIn(pair, (self.repo / checker).read_text())
+        self.commit("drop its baseline line")
+        dropped = self.push()
+        self.assertEqual(dropped.returncode, 0, dropped.stdout + dropped.stderr)
+
+    WAKEUPS_PACKAGE = """// swift-tools-version: 6.2
+import PackageDescription
+let package = Package(
+    name: "CmuxNext",
+    targets: [
+        .target(
+            name: "CmuxNextWakeups"
+        ),
+        .testTarget(
+            name: "CmuxNextActionsTests"
+        ),
+    ]
+)
+"""
+
+    def test_a_push_that_only_deletes_a_baseline_import_s_last_file_must_drop_its_line(self):
+        # Review of 81d1b7fb: changed_files() leaves deletions out, so a push that only deleted the last Swift file
+        # importing a baseline pair changed no file, the gate never ran the dependency check, and the stale
+        # IMPORT_BASELINE line reached CI.
+        checker = "scripts/cmux-next/check-package-dependency-lists.py"
+        pair = '"CmuxNextActionsTests: CmuxNextWakeups",'
+        self.write(f"{PKG}/Package.swift", self.WAKEUPS_PACKAGE)
+        self.write(f"{PKG}/Sources/CmuxNextWakeups/Wakeups.swift", "public enum Wakeups {}\n")
+        self.write(f"{PKG}/Tests/CmuxNextActionsTests/A.swift", "import CmuxNextWakeups\n")
+        self.write(f"{PKG}/Tests/CmuxNextActionsTests/B.swift", "import Foundation\n")
+        self.commit("the one file under a baseline import")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        before = self.remote_head()
+        self.git("rm", "--quiet", f"{PKG}/Tests/CmuxNextActionsTests/A.swift")
+        self.commit("delete its last importing file")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("IMPORT_BASELINE lists CmuxNextActionsTests: CmuxNextWakeups", output)
+        self.assertIn("drop its line", output)
+
+        self.write(checker, (self.repo / checker).read_text().replace(pair + "\n    ", "", 1))
+        self.assertNotIn(pair, (self.repo / checker).read_text())
+        self.commit("drop its baseline line")
+        dropped = self.push()
+        self.assertEqual(dropped.returncode, 0, dropped.stdout + dropped.stderr)
+
+    def test_a_push_that_renames_a_baseline_import_s_last_file_is_not_told_to_drop_the_line(self):
+        # The rename side of the same fix: the old path is gone but the new one still imports the module.
+        self.write(f"{PKG}/Package.swift", self.WAKEUPS_PACKAGE)
+        self.write(f"{PKG}/Sources/CmuxNextWakeups/Wakeups.swift", "public enum Wakeups {}\n")
+        self.write(f"{PKG}/Tests/CmuxNextActionsTests/A.swift", "import CmuxNextWakeups\n")
+        self.commit("the one file under a baseline import")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.git("mv", f"{PKG}/Tests/CmuxNextActionsTests/A.swift", f"{PKG}/Tests/CmuxNextActionsTests/C.swift")
+        self.commit("rename it")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertNotIn("drop its line", output)
+
+    def test_a_manifest_edit_does_not_put_a_changed_test_under_production_rules(self):
+        # Review of 115ed33e: the package's file list for the dependency check replaced ast-grep's list of changed
+        # production sources, so a test's try! failed only when the push also changed Package.swift.
+        self.write(f"{PKG}/Package.swift", self.DEPS_PACKAGE)
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/KitTests.swift", "import CmuxNextKit\n")
+        self.commit("a test target")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.write(f"{PKG}/Package.swift",
+                   self.DEPS_PACKAGE.replace('dependencies: ["CmuxNextKit"]', 'dependencies: ["CmuxNextApp", "CmuxNextKit"]'))
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/TryTests.swift", self.with_try("TryTests"))
+        self.commit("a manifest edit and a test with try!")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertNotIn("TryTests.swift", output)
+
     def test_push_that_adds_a_raw_spawn_in_a_daemon_crate_is_refused(self):
         # Reviews 1 and 2 of pl-holder-11: on macOS a daemon child started any other way than
         # cmux_process::Command can inherit a PTY master the daemon is receiving on another thread.

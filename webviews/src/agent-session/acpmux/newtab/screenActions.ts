@@ -104,6 +104,7 @@ export function newTabScreenActions(deps: {
       ignore(callNative("tab.open", { kind: "terminal", text: command, run: true, ...(cwd ? { cwd } : {}) }));
     },
     onJump: (target, id) => ignore(callNative("tab.jump", { target, id })),
+    onAction: (id) => ignore(callNative("app.action", { id })),
     onOpenSession(sessionId) {
       deps.selectSession(sessionId);
     },

@@ -1,0 +1,48 @@
+{
+  "about": "Which source paths make up each UI surface, and the design spec that surface follows (one spec per surface, in leo-workspace design/<surface>.md). scripts/ci/pr_design_spec_check.py warns, never fails, when a pull request changes a surface's paths and its description does not cite the spec. leo-workspace tools/prior_art.py reads this map to list a surface's open and recently merged PRs before work starts. A path is a file or a directory (everything under it). Tests and gallery files are left out: changing them changes no design. Keep paths current when files move; the check warns about a mapped path that no longer exists.",
+  "version": 1,
+  "surfaces": {
+    "model-picker": {
+      "spec": "leo-workspace design/model-picker.md",
+      "aliases": ["model menu", "model picker", "harness rail", "harness tabs", "effort picker", "effort"],
+      "paths": [
+        "webviews/src/agent-session/acpmux/QuickModelMenu.tsx",
+        "webviews/src/agent-session/acpmux/ModelPicker.tsx",
+        "webviews/src/agent-session/acpmux/modelPicker.css",
+        "webviews/src/agent-session/acpmux/modelPickerLayout.ts",
+        "webviews/src/agent-session/acpmux/EffortTrack.tsx",
+        "webviews/src/agent-session/acpmux/EffortPicker.tsx"
+      ]
+    },
+    "composer": {
+      "spec": "leo-workspace design/composer.md",
+      "aliases": ["composer", "prompt box"],
+      "paths": [
+        "webviews/src/agent-session/acpmux/Composer.tsx",
+        "webviews/src/agent-session/acpmux/ComposerBox.tsx",
+        "webviews/src/agent-session/acpmux/ComposerFoot.tsx",
+        "webviews/src/agent-session/acpmux/ComposerPickers.tsx",
+        "webviews/src/agent-session/acpmux/composerChrome.tsx",
+        "webviews/src/agent-session/acpmux/composerControls.css",
+        "webviews/src/agent-session/acpmux/composerFooterShared.css",
+        "webviews/src/agent-session/acpmux/composerLook.css",
+        "webviews/src/agent-session/acpmux/composerStates.css"
+      ]
+    },
+    "new-tab": {
+      "spec": "leo-workspace design/new-tab.md",
+      "aliases": ["new tab"],
+      "paths": [
+        "webviews/src/agent-session/acpmux/NewTabPage.tsx",
+        "webviews/src/agent-session/acpmux/newtab/"
+      ]
+    },
+    "sidebar": {
+      "spec": "leo-workspace design/sidebar.md",
+      "aliases": ["sidebar"],
+      "paths": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/"
+      ]
+    }
+  }
+}

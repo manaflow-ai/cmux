@@ -53,6 +53,37 @@ import Testing
         #expect(condition())
     }
 
+    /// The inbox is every page the owner has, not its newest 200 (`next_cursor`): a Chief or
+    /// conversation past the first page showed nowhere and left Home on each refresh.
+    @Test func theInboxReadsEveryPage() async throws {
+        let later = "conv_1Y05MEWEFMQQB63VDHQB9MXAJT"
+        http.script { path, body in
+            guard path == "/v1/read", body["op"].string == "inbox.list" else { return nil }
+            var second = WireFixture.entry()
+            if case .object(var fields) = second { fields["conversation"] = .string(later); second = .object(fields) }
+            switch body["params"]["cursor"].string {
+            case nil:
+                return HomeWireHTTPReply(json: ["ok": true, "value": ["entries": [WireFixture.entry()], "next_cursor": "k1"], "revision": "1"])
+            case "k1"?:
+                // The first page's conversation again (it moved while the pages were read), then a new one.
+                return HomeWireHTTPReply(json: ["ok": true, "value": ["entries": [WireFixture.entry(lastSeq: 9), second], "next_cursor": .null],
+                                                "revision": "2"])
+            default:
+                return HomeWireHTTPReply(json: ["ok": true, "value": ["entries": [], "next_cursor": .null], "revision": "3"])
+            }
+        }
+        let source = makeSource()
+        let log = try await connect(source)
+        defer { log.stop() }
+        let entries = await source.entries
+        #expect(Set(entries.keys) == [conversation, ConversationID(later)])
+        // The first page's copy of an entry listed twice.
+        #expect(entries[conversation]?["last_seq"].uint == 1)
+        let cursors = http.bodies("/v1/read").filter { $0["op"].string == "inbox.list" }.map { $0["params"]["cursor"].string }
+        #expect(cursors.prefix(2) == [nil, "k1"])
+        await source.shutdown()
+    }
+
     @Test func aResendAfterALostAnswerKeepsTheSameKey() async throws {
         let source = makeSource()
         let log = try await connect(source)
@@ -301,6 +332,60 @@ import Testing
         #expect(asked["message_id"].string == "msg_1")
         #expect(asked["part_index"].int == 0)
         await source.shutdown()
+    }
+
+    @Test func anAttachmentUploadsOrderedMultipartPiecesBeforeCompletion() async throws {
+        let source = makeSource()
+        let log = try await connect(source)
+        defer { log.stop() }
+        let bytes = Data("elevenbytes".utf8)
+        let path = "/v1/home/attachments/multipart/\(WireFixture.conversationID)/slot.k1.mac"
+        http.script { [http] route, _ in
+            switch route {
+            case "/v1/home/attachments/intent":
+                return HomeWireHTTPReply(json: ["ok": true, "value": [
+                    "state": "upload", "mode": "multipart", "method": "PUT", "part_size": 4, "slot": "slot",
+                    "upload_url": .string("http://mini.tail1234.ts.net:7320\(path)"),
+                ]])
+            case path:
+                let request = try #require(http.requests.last)
+                let number = try #require(request.value(forHTTPHeaderField: "x-cmux-part-number").flatMap(Int.init))
+                return HomeWireHTTPReply(json: ["ok": true, "value": [
+                    "part_number": .number(Double(number)), "byte_count": .number(Double(request.httpBody?.count ?? 0)),
+                    "etag": .string("etag-\(number)"),
+                ]])
+            case "/v1/home/attachments/multipart/complete":
+                return HomeWireHTTPReply(json: ["ok": true, "value": ["state": "stored"]])
+            default: return nil
+            }
+        }
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("wire-multipart-\(UUID().uuidString)")
+        try bytes.write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let ref = AttachmentRef(hash: String(repeating: "ab", count: 32), name: "note.txt", mimeType: "text/plain", byteCount: bytes.count)
+        #expect(try await source.upload(AttachmentUpload(conversation: conversation, fileURL: file, ref: ref)) == ref)
+        let puts = http.requests.filter { $0.httpMethod == "PUT" }
+        #expect(puts.map { $0.httpBody?.count } == [4, 4, 3])
+        #expect(puts.reduce(into: Data()) { $0.append($1.httpBody ?? Data()) } == bytes)
+        let complete = try #require(http.bodies("/v1/home/attachments/multipart/complete").first)
+        #expect(complete["parts"].array?.map { $0["etag"].string } == ["etag-1", "etag-2", "etag-3"])
+        #expect(http.bodies("/v1/home/attachments/intent").first?["multipart"].bool == true)
+        #expect(http.requests.last?.url?.path == "/v1/home/attachments/multipart/complete")
+        await source.shutdown()
+    }
+
+    @Test func aMultipartPartIsReadWholeAcrossShortReads() throws {
+        // A read may return fewer bytes than asked without being at the end: the part is filled before it is sent.
+        // Each read returns at most 2 bytes and never more than asked, as a pipe or network volume may.
+        var rest = Data("abcdefgh".utf8)
+        let read: (Int) throws -> Data? = { limit in
+            let next = rest.prefix(min(limit, 2))
+            rest.removeFirst(next.count)
+            return Data(next)
+        }
+        #expect(try WireHomeSource.readPart(size: 4, read) == Data("abcd".utf8))
+        #expect(try WireHomeSource.readPart(size: 4, read) == Data("efgh".utf8))
+        #expect(try WireHomeSource.readPart(size: 4, read) == Data())
     }
 
     @Test func theBackoffGrowsToThirtySeconds() {

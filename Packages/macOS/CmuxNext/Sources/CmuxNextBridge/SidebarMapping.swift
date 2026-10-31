@@ -74,10 +74,10 @@ public struct SidebarMapping {
         func groupImage(_ icon: String) -> SidebarFavicon? { groupIconAsset.map { $0(icon) } ?? iconAsset(icon) }
         var nodes: [SidebarNode] = []
         for section in daemonSections {
-            // The home workspace (`kind` "home") is what the Home item in the
-            // top section shows; it is not also a workspace row (nxdog28)
+            // The home workspace (`kind` "home") and a window's own Home (cmux#27880) are what
+            // the Home item in the top section shows; neither is also a workspace row (nxdog28)
             // while that item is in the layout (`hidesHomeWorkspace`).
-            let rows = section.workspaces.filter { (!hidesHomeWorkspace || $0.kind != Self.homeKind) && workspaceFilter($0) }
+            let rows = section.workspaces.filter { (!hidesHomeWorkspace || !$0.isAnyHome) && workspaceFilter($0) }
                 .map { workspace in
                     let make = { row(workspace, machine: machine.id, status: statusLine(workspace.id), showsUnread: showsUnread,
                                      muted: muted.contains(workspace.id), selectedTab: selectedTab, newTabPages: newTabPages,
@@ -125,16 +125,20 @@ public struct SidebarMapping {
         let unread = showsUnread ? workspace.unreadCount : 0
         let statuses = StatusMapping.shared.summaries(tabs: tabs, status: workspace.status)
         let indicator = statuses.workspace
-        let front = frontTab(workspace, selectedTab: selectedTab)
+        // The focused tab; the row is named for its chat while it is an idle shell (`labelTab`).
+        let focused = frontTab(workspace, selectedTab: selectedTab), front = labelTab(focused, tabs, newTabPages: newTabPages)
         // The workspace's folder (Group by Folder's bucket): a tab row repeats it nowhere.
-        let rowFolder = front?.cwd ?? tabs.lazy.compactMap(\.cwd).first
-        let folder = folderTab(tabs)
-        let work = front?.kind == .browser ? workTab(workspace, selectedTab: selectedTab) : nil
-        let page = front.flatMap { pageFace(workspace, $0, work) }
+        let rowFolder = focused?.cwd ?? tabs.lazy.compactMap(\.cwd).first
+        let folder = folderTab(tabs, label: front)
+        // The row's face (name, icon, kind) is one tab's: the label tab, or the work a page beside
+        // it was opened from (an agent's PR in its right column), wherever focus is. The page's
+        // favicon stays on the page's own tab (Leo, 2026-10-21: a chat row showed GitHub's mark).
+        let face = faceTab(workspace, selectedTab: selectedTab, newTabPages: newTabPages)
+        let page = face.flatMap { pageFace(workspace, $0, nil) }
         // Each browser tab's face once: its favicon in the tab list, its sound on the row.
         var browserFaces: [String: PageFace] = [:]
         for tab in tabs where tab.kind == .browser {
-            browserFaces[tab.id] = tab.id == front?.id ? page : pageFace(workspace, tab, nil)
+            browserFaces[tab.id] = tab.id == face?.id ? page : pageFace(workspace, tab, nil)
         }
         let entries = workspace.status?.entries ?? []
         // Another computer's folders shorten against that computer's home, never this Mac's (cx-gaq9).
@@ -160,9 +164,9 @@ public struct SidebarMapping {
             // A page in a split beside a chat or terminal leaves the row's icon to that work, as it
             // leaves its name (#22250; Leo 2026-10-21: "why did this turn into the githb favicon?").
             icon: Self.icon(color: workspace.color, icon: workspace.icon, asset: iconAsset)
-                ?? (work == nil ? page?.favicon.map(WorkspaceIcon.favicon) : nil),
-            kind: kind(front),
-            kindBrand: front?.agentBrand,
+                ?? page?.favicon.map(WorkspaceIcon.favicon),
+            kind: kind(face),
+            kindBrand: face?.agentBrand,
             // A tab marked unread by hand (Mark Tab Unread) shows as the workspace's manual dot.
             unread: unread > 0 ? .count(unread)
                 : (showsUnread && (workspace.markedUnread || tabs.contains(where: \.markedUnread)) ? .dot : .none),
@@ -182,12 +186,14 @@ public struct SidebarMapping {
                 return listed
             },
             muted: muted,
-            // The store refuses every close of its home workspace (`home_not_closable`).
-            isClosable: workspace.kind != Self.homeKind,
+            // The store refuses every close of its home workspace (`home_not_closable`); a
+            // window's own Home closes only with its window.
+            isClosable: !workspace.isAnyHome,
             // Group by Folder's bucket: the front tab's folder, else any tab's.
             folder: rowFolder.map(shorten)
         )
-        row.focusedTab = front.map { TabID($0.id) }
+        row.focusedTab = focused.map { TabID($0.id) }
+        row.activityFromProgram = indicator.primary?.source == .program
         row.presence = presence(tabs)
         row.isUnnamed = Self.isUnnamed(workspace, label: page?.title)
         row.audio = SidebarWorkspaceAudio.merge(tabs.lazy.map { browserFaces[$0.id]?.audio })
@@ -247,6 +253,17 @@ public struct SidebarMapping {
             }
         }
         return work?.tab
+    }
+
+    /// The one tab a workspace's row and window titlebar both read their name and icon from: the
+    /// label tab (`labelTab`), or for a browser one the work it yields to (`workTab`), so focus
+    /// moving to a page beside a chat leaves both the chat's.
+    public func faceTab(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?,
+                        newTabPages: Set<String> = []) -> TabModel? {
+        let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
+        let front = labelTab(frontTab(workspace, selectedTab: selectedTab), tabs, newTabPages: newTabPages)
+        guard front?.kind == .browser else { return front }
+        return workTab(workspace, selectedTab: selectedTab) ?? front
     }
 
     /// The tab `pane` shows: the window's selection, else the daemon's default tab.
@@ -384,11 +401,6 @@ public struct SidebarMapping {
 
     static func entry(_ key: String, in entries: [WorkspaceStatus.Entry]) -> String? {
         entries.first { $0.key == key && !$0.text.isEmpty }?.text
-    }
-
-    /// The first tab that reports a folder: the row's folder and branch.
-    func folderTab(_ tabs: [TabModel]) -> TabModel? {
-        tabs.first { $0.cwd != nil }
     }
 
     /// The front terminal's program as the shell or program titles it (OSC

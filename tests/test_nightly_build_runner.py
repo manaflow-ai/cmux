@@ -6,7 +6,7 @@ vars.CI_NIGHTLY_NEXT_BUILD_RUNNER alone on nightly-next, for every attempt
 (prepare-nightly-variant-primary did too until it moved to Linux, #25885). Runs 40446901975 and 40448164753 died at "Set up
 runner" on that label, and run 40453543604's rescue re-run was refused on the same
 label again. scripts/ci/nightly_build_runner.py now picks the dedicated nightly-next
-builder while it is free (waiting up to 5 min while it is busy), else an idle owned Mac,
+builder while it is free (waiting up to 1 min while it is busy), else an idle owned Mac,
 else a moving Blacksmith label, and a re-run of failed jobs that keeps the pick takes
 Blacksmith. A workflow_dispatch run and a re-run that picks again go through the same pick
 as attempt 1 of a push (until 2026-10-27 they never got the routing token).
@@ -121,11 +121,12 @@ class DedicatedRoute(unittest.TestCase):
         self.assertEqual(label, DEDICATED)
         self.assertEqual(clock.sleeps, [])
 
-    def test_a_busy_builder_is_waited_on_up_to_five_minutes(self) -> None:
+    def test_a_busy_builder_is_waited_on_up_to_a_minute(self) -> None:
         busy, idle = [runner(*BUILDER, busy=True)], [runner(*BUILDER)]
         (label, _), clock = self.route([busy, busy, idle])
         self.assertEqual(label, DEDICATED)
         self.assertEqual(clock.sleeps, [30, 30])
+        self.assertEqual(picker.DEDICATED_WAIT_SECONDS, 60)
         (label, why), clock = self.route([busy] * 100)
         self.assertEqual(label, "")
         self.assertIn("stayed busy", why)
@@ -250,8 +251,7 @@ class Main(unittest.TestCase):
         self.assertEqual(out["runner"], LARGE)
 
     def test_the_blacksmith_pick_reads_queue_ages_after_the_wait(self) -> None:
-        # LARGE had waited 8 min when the snapshot was read; after a 5 min wait it is past the
-        # 10 min stall bound, so the moving SMALL is picked.
+        # The Blacksmith pick reads queue ages after the wait: `now` moves by the time waited.
         fleet = [runner(*BUILDER, busy=True)]
         seen = {}
 
@@ -290,11 +290,43 @@ class Main(unittest.TestCase):
         out = self.run_main({}, argv=("verify",), read_runners=lambda t, r: [runner(SIDE, busy=True)],
                             read_snapshot=lambda t, r: snapshot({LARGE: 90}))
         self.assertEqual(out, {"owned": ""})
-        # A busy fleet is never waited on, even while Blacksmith is stalled: the rescue has no timed
-        # fallback for an owned job held behind a stalled Blacksmith label.
+        # While every Blacksmith label is stalled, a busy owned pool is queued on instead: it frees within
+        # one build, and the rescue holds the job there until the Blacksmith label moves.
         out = self.run_main({}, argv=("verify",), read_runners=lambda t, r: [runner(SIDE, busy=True)],
                             read_snapshot=lambda t, r: snapshot({LARGE: 90, SMALL: 90}))
-        self.assertEqual(out, {"owned": ""})
+        self.assertEqual(out, {"owned": SIDE})
+
+    def test_every_blacksmith_label_stalled_queues_on_the_busy_owned_pool(self) -> None:
+        # Run 40622241620 (2026-10-28): build-nightly-app waited 15 min on a stalled Blacksmith label
+        # while the owned nightly slots took the next two tips.
+        stalled = snapshot({LARGE: 90, SMALL: 90})
+        out = self.run_main({}, read_runners=lambda t, r: [runner(SIDE, busy=True)],
+                            read_snapshot=lambda t, r: stalled)
+        self.assertEqual((out["owned"], out["runner"]), (SIDE, SIDE))
+        # One Blacksmith label still moves: it takes the build, as before.
+        out = self.run_main({}, read_runners=lambda t, r: [runner(SIDE, busy=True)],
+                            read_snapshot=lambda t, r: snapshot({LARGE: 90}))
+        self.assertEqual((out["owned"], out["runner"]), ("", SMALL))
+        # An offline-only pool still beats the stalled label: the job is watched there and picked again
+        # (review P1 on #26614: nothing watches a nightly build queued on a stalled Blacksmith label).
+        out = self.run_main({}, read_runners=lambda t, r: [runner(SIDE, status="offline")],
+                            read_snapshot=lambda t, r: stalled)
+        self.assertEqual((out["owned"], out["runner"]), (SIDE, SIDE))
+        # An online runner's label comes before an offline-only one.
+        out = self.run_main({},
+                            read_runners=lambda t, r: [runner(DEV, status="offline"), runner(SIDE, busy=True)],
+                            read_snapshot=lambda t, r: stalled)
+        self.assertEqual(out["owned"], SIDE)
+        # No snapshot, or no registered runner on the pool: Blacksmith.
+        for runners, snap in (([runner(SIDE, busy=True)], None), ([], stalled)):
+            with self.subTest(runners=runners, snap=snap):
+                out = self.run_main({}, read_runners=lambda t, r, runners=runners: runners,
+                                    read_snapshot=lambda t, r, snap=snap: snap)
+                self.assertEqual(out["owned"], "")
+                self.assertTrue(out["runner"].startswith("blacksmith-"))
+        # Unread runners (no routing token): Blacksmith.
+        out = self.run_main({"ROUTE_TOKEN": ""}, read_snapshot=lambda t, r: stalled)
+        self.assertEqual(out["owned"], "")
 
     def test_no_route_token_reads_no_runners(self) -> None:
         def unexpected(token: str, repo: str):

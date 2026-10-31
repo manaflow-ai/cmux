@@ -222,7 +222,16 @@ struct RowSpec: Hashable {
     var width: CGFloat = Fixture.windowWidth
     /// Height estimated from another width (lazy re-measure after a resize).
     var estimated = false
+    /// cmux: how far right of the incoming side an incoming "N Replies" label moves (a group's avatar column); 0 elsewhere.
+    var cmuxIndent: CGFloat = 0
     var metrics: Metrics { Metrics(width: width) }
+    /// The height in this row a thread connector's arc hangs from (row coordinates): its vertical middle.
+    /// A quote (`ThreadPreview`) hangs it 2 pt under the quote's middle, not the row's (macOS 27 Messages, 2x reference
+    /// of 2026-10-28: the arc's stroke centre 13.75 pt under a 23.5 pt quote's top, 19.25 pt under a 34.5 pt one's).
+    var connectorAnchorY: CGFloat {
+        if case let .threadPreview(pv) = kind { return pv.box.height / 2 + 2 }
+        return height / 2
+    }
 
     /// Cheap hash: the key plus geometry. Equality still compares everything,
     /// so specs that differ only in content collide and are told apart by ==.
@@ -312,6 +321,32 @@ struct ThreadPreview: Hashable {
     var outgoing = false
     /// Measured layout (points, relative to the row's content top).
     var box: CGSize
+    /// cmux: a group chat's quote of another person's message (user, 2026-10-29, a macOS Messages group chat as the
+    /// target, docs/design/home-group-reply-imessage-parity.md): drawn at the bubble column (right of the avatar column),
+    /// outlined at half opacity with a tail, text and card alike, and with no 1:1 stub.
+    var cmuxGroup = false
+    /// cmux: the quoted person's avatar, drawn small and faded beside a group quote (nil: none mapped, or not a group).
+    var cmuxSender: SenderAvatar? = nil
+    /// cmux: how far under the row's content bottom the group quote's line runs down the avatar column (to the top of the
+    /// reply's bubble, another person's); 0 draws no line (my reply, or not a group).
+    var cmuxLineBelow: CGFloat = 0
+    /// cmux: the quote's left edge (row coordinates) on the incoming side.
+    var cmuxLeft: CGFloat { Fixture.leftEdge + (cmuxGroup ? SenderAvatar.bubbleInset : 0) }
+    /// cmux: the quoted person's avatar in a group (Messages: 18 pt, half opacity, its bottom 4.25 pt under the quote's,
+    /// centred on the avatar column).
+    static let cmuxSenderDiameter: CGFloat = 18, cmuxSenderBelow: CGFloat = 4.25, cmuxSenderOpacity: CGFloat = 0.5
+    /// cmux: the group line starts this far under the quoted person's avatar (Messages: 6 to 6.5 pt), 2.5 pt wide.
+    static let cmuxLineGap: CGFloat = 6.25, cmuxLineWidth: CGFloat = 2.5
+    /// cmux: a group reply's bubble top under its quote's bottom, its sender's name between (Messages: 35 pt for a text
+    /// and a card quote).
+    static let cmuxReplyTopUnderQuote: CGFloat = 35
+    /// cmux: the group quote's opacity (Messages: outline and text at half).
+    static let cmuxGroupOpacity: CGFloat = 0.5
+    /// cmux: the quoted person's avatar disc (row coordinates) for a quote drawn in `box`.
+    static func cmuxSenderRect(below box: CGRect) -> CGRect {
+        let d = cmuxSenderDiameter
+        return CGRect(x: SenderAvatar.left + SenderAvatar.diameter / 2 - d / 2, y: box.maxY + cmuxSenderBelow - d, width: d, height: d)
+    }
     static let stubGap: CGFloat = 3.5, stubHeight: CGFloat = 12.5
     /// Space between the stub and the reply below.
     static let replyGap: CGFloat = 7
@@ -336,8 +371,10 @@ struct ThreadPreview: Hashable {
         } else if case let .text(t, _) = part {
             let maxBox = ThreadPreview.maxTextBoxWidth(width: width)
             p.textLines = ThreadPreview.wrap(t, maxWidth: maxBox - ThreadPreview.textPadX)
-            let one = p.textLines.count == 1 ? p.textLines.first.map { TextDraw.width($0, font: ThreadPreview.textFont) } : nil
-            p.box = CGSize(width: one.map { min(maxBox, ($0 + ThreadPreview.textPadX).rounded(.toNearestOrEven)) } ?? maxBox,
+            // cmux (user, 2026-10-28): the quote hugs its widest line, wrapped or not, as Messages' does (it took the whole
+            // column when wrapped, leaving an empty band right of the text). Rounded up so the widest line always fits.
+            let widest = p.textLines.map { TextDraw.width($0, font: ThreadPreview.textFont) }.max() ?? 0
+            p.box = CGSize(width: min(maxBox, (widest + ThreadPreview.textPadX).rounded(.up)),
                            height: ThreadPreview.textHeight(lines: p.textLines.count))
         } else {
             let (title, sub) = p.lines
@@ -353,27 +390,64 @@ struct ThreadPreview: Hashable {
     /// takes the full quote column; the column scales with the bubble column (`Metrics.maxTextWidth`). It
     /// replaces the outlined 10 pt copy of macOS Messages' preview, which did not look like the quoted bubble.
     var isText: Bool { if case .text = part { return true }; return false }
-    static let textFont = UIFont.systemFont(ofSize: 12)
+    /// cmux (2026-10-28, the user's macOS 27 Messages reference at 2x, docs/design/home-reply-imessage-parity.md): Messages
+    /// draws the quote 10 pt (its 48-character line is 229 pt wide, the 10 pt system font's width to 0.05 pt).
+    static let textFont = UIFont.systemFont(ofSize: 10)
     /// The text's lines as drawn (text roots only; one line when it fits).
     var textLines: [String] = []
     /// cmux: bubble edge to text plus text to bubble edge: a bubble's padding (`Fixture.bubblePadX`) on each side.
-    static let textPadX: CGFloat = 2 * Fixture.bubblePadX
-    /// cmux: a one-line quote's height (under 30 pt, so its ends are half circles as a 1-line bubble's).
-    static let textOneLineHeight: CGFloat = 28
-    /// Baseline to baseline of a wrapped root.
-    static let textLinePitch: CGFloat = 15
-    static let maxTextLines = 2
-    /// cmux: the quote's height for `lines` lines: 28 pt for one; a wrapped quote is at least 46 pt, a 2-line bubble's
-    /// height, so it keeps the bubbles' 15 pt continuous corner (a shorter body takes UIKit's pill corner).
-    static func textHeight(lines: Int) -> CGFloat {
-        lines <= 1 ? textOneLineHeight : max(46, textOneLineHeight + textLinePitch * CGFloat(lines - 1))
+    /// Messages: the text starts 8 pt in from the quote's left end and ends 9 pt before its right end.
+    static let textPadX: CGFloat = 17
+    static let textLeft: CGFloat = 8
+    /// cmux: a one-line quote's height, outline outside to outside (Messages: 23.5 pt; its ends are half circles).
+    static let textOneLineHeight: CGFloat = 23.5
+    /// Baseline to baseline of a wrapped root (Messages: 11 pt).
+    static let textLinePitch: CGFloat = 11
+    /// The first baseline under the quote's top (Messages: 16 pt, one line or two).
+    static let textFirstBaselineY: CGFloat = 16
+    /// The quote's tail is the bubbles' tail at this scale (Messages: it hangs 4 pt under the quote, the bubbles' 5.1).
+    static let tailScale: CGFloat = 0.8
+    /// cmux: Messages shows a 3-line root whole (2026-10-29 group reference: a 182-character root on 3 lines, 45.5 pt).
+    static let maxTextLines = 3
+    /// How far above the quote's bottom the scaled tail joins its end (the tail's top inner point, 2.52 pt x 0.8).
+    static let tailJoinHeight: CGFloat = 2.02
+    /// cmux: how far in to move the tail on an end of radius `endRadius` so it joins the curve as it joins the one-line
+    /// end (radius `oneLineRadius`) it was fitted to: the two curves' distance in from the end at the join height.
+    static func tailInset(endRadius r: CGFloat, oneLineRadius r0: CGFloat) -> CGFloat {
+        func reach(_ r: CGFloat) -> CGFloat {
+            guard r > tailJoinHeight else { return 0 }
+            return r - (r * r - (r - tailJoinHeight) * (r - tailJoinHeight)).squareRoot()
+        }
+        return max(0, reach(r) - reach(r0))
     }
-    /// cmux: the first baseline under the quote's top: the lines centred in the quote.
-    func textFirstBaseline() -> CGFloat {
-        let f = ThreadPreview.textFont
-        let lineH = f.ascender - f.descender
-        let block = lineH + ThreadPreview.textLinePitch * CGFloat(max(0, textLines.count - 1))
-        return ((box.height - block) / 2 + f.ascender).rounded(.toNearestOrEven)
+    /// cmux: the quote's height for `lines` lines: 23.5 pt for one, 11 pt more per line (Messages: 34.5 pt for two; both
+    /// end in half circles).
+    static func textHeight(lines: Int) -> CGFloat {
+        textOneLineHeight + textLinePitch * CGFloat(max(0, lines - 1))
+    }
+    /// cmux: the first baseline under the quote's top (Messages: 16 pt).
+    func textFirstBaseline() -> CGFloat { ThreadPreview.textFirstBaselineY }
+    /// cmux: the quote's outline in `box`: a text quote is a pill with the bubbles' tail at `tailScale` on its root's side
+    /// (Messages draws a quote with its own small tail); a card or thumbnail is its bubble shape without a tail, except a
+    /// group's card quote, which has the tail too (Messages, 2026-10-29 group reference).
+    func outline(in box: CGRect) -> UIBezierPath {
+        let cardTail = cmuxGroup && !isText && !isThumbnail
+        guard isText || cardTail else { return BubblePath.balloon(frame: box, row: shapeRow) }
+        let body = cardTail ? BubblePath.balloon(frame: box, row: shapeRow) : BubblePath.make(body: box, outgoing: outgoing, tail: false, circularEnds: true)
+        let t = BubblePath.tailPath(outgoing: outgoing)
+        // cmux (user 2026-10-29, "when multiline the bottom right thing doesnt look drawn well"): the tail is fitted to a
+        // one-line quote's end; a taller quote's half-circle end is wider, so its curve at the tail's join (2 pt above the
+        // bottom) lies further in. Move the tail in by that difference so it joins the curve as on one line. A card's
+        // corner is the bubbles' 15 pt one.
+        let oneLine = ThreadPreview.textOneLineHeight / 2
+        let r = cardTail ? 15 : min(box.width, box.height) / 2
+        let inset = ThreadPreview.tailInset(endRadius: r,
+                                            oneLineRadius: cardTail ? oneLine : r - ThreadPreview.textLinePitch * CGFloat(max(0, textLines.count - 1)) / 2)
+        var xf = outgoing
+            ? CGAffineTransform(translationX: box.maxX - inset, y: box.maxY).scaledBy(x: ThreadPreview.tailScale, y: ThreadPreview.tailScale)
+            : CGAffineTransform(translationX: box.minX + inset, y: box.maxY).scaledBy(x: -ThreadPreview.tailScale, y: ThreadPreview.tailScale)
+        guard let tail = t.cgPath.copy(using: &xf) else { return body }
+        return UIBezierPath(cgPath: body.cgPath.union(tail))
     }
     /// cmux: the quote's shape as a row: a part of the root's side, the quote's size, no tail (a quote is never the
     /// last bubble of a run). `BubblePath.balloon` of this row is the quote's outline, the same rule as every bubble.
@@ -406,7 +480,10 @@ struct ThreadPreview: Hashable {
                 break
             }
             guard TextLayout.range(line.range.location, line.range.length, in: ns.length) != nil else { break }
-            lines.append(ns.substring(with: line.range))
+            // cmux: a wrapped line's trailing space is not drawn, so it does not widen the quote (user, 2026-10-28).
+            var text = ns.substring(with: line.range)
+            while text.last == " " { text.removeLast() }
+            lines.append(text)
         }
         return lines.isEmpty ? [""] : lines
     }
@@ -421,6 +498,12 @@ struct ThreadPreview: Hashable {
         let safe = cut < ns.length ? ns.rangeOfComposedCharacterSequence(at: cut).location : cut
         var head = ns.substring(to: safe)
         while head.last == " " { head.removeLast() }
+        // cmux: the index lookup can land past the room (the glyph under `room` is kept); drop characters until the line
+        // with "…" fits, so a cut quote never runs past its outline (user, 2026-10-28).
+        while !head.isEmpty, TextDraw.width(head + "…", font: textFont) > maxWidth + 0.01 {
+            head.removeLast()
+            while head.last == " " { head.removeLast() }
+        }
         return head + "…"
     }
     static let titleFont = UIFont.systemFont(ofSize: 12, weight: .semibold)
@@ -442,7 +525,9 @@ struct ThreadPreview: Hashable {
     /// Box to stub: 3.5 pt under a card, 5.5 pt under a thumbnail (its tail is between).
     /// Text previews (macOS 27, lossless stills): stub 5.15 pt under the box, 12.25 pt long.
     var stubGap: CGFloat { isThumbnail ? 5.5 : isText ? 5.15 : ThreadPreview.stubGap }
-    var stubHeight: CGFloat { isThumbnail ? 11.5 : isText ? 12.25 : ThreadPreview.stubHeight }
+    /// A text quote's row ends 17.9 pt under the quote (stub gap + stub), so the reply 7 pt under the row sits 48.5 pt under a
+    /// one-line quote's top, as in Messages (2026-10-28 reference).
+    var stubHeight: CGFloat { isThumbnail ? 11.5 : isText ? 12.75 : ThreadPreview.stubHeight }
     /// The row's height: box, stub, rounded to the device pixel grid (Fixture.renderScale). A text preview's parts are
     /// 41.65 pt (24.25 + 5.15 + 12.25; 52.65 with 2 lines); Messages' rows under a preview sit on whole device pixels
     /// (nosb-active against deactivate-activate tp0000ms: incoming edges 798.00 / 864.00 px, ours were 798.31 / 864.31
@@ -975,6 +1060,8 @@ enum RowBuilder {
             let outgoing = m.senderId == me
             var gap: CGFloat
             var connector: String?
+            // cmux: the index of this message's group quote row (its line is set once the reply's rows are placed).
+            var groupQuote: Int?
             if prev.map({ m.date.timeIntervalSince($0.date) > separatorGap }) ?? true { // no force unwrap
                 // The time label sits 17.5 pt under a thread reply and 13.5 pt under any other bubble, and the next
                 // bubble 5 pt under the label (macOS 27, AX walk of the real transcript, 2026-10-14, cx-3cb row-gap:
@@ -1037,13 +1124,22 @@ enum RowBuilder {
             if let r = m.replyTo, !threadMode, connector == nil, let p = prev, p.id != r.messageId, p.replyTo != r {
                 let root = s.conversation.messages.first { $0.id == r.messageId }
                 let part = root.flatMap { r.partIndex < $0.parts.count ? $0.parts[r.partIndex] : nil }
-                let pv = ThreadPreview.make(root: r, part: part, count: replyCount[r.messageId] ?? 0, outgoing: root?.senderId == me, width: width)
+                var pv = ThreadPreview.make(root: r, part: part, count: replyCount[r.messageId] ?? 0, outgoing: root?.senderId == me, width: width)
+                // cmux: a group's quote of another person's message names them with their avatar (user, 2026-10-29).
+                if group, !pv.outgoing {
+                    pv.cmuxGroup = true
+                    pv.cmuxSender = SenderAvatar(root.flatMap { root in s.conversation.participants.first { $0.id == root.senderId } }?.avatar)
+                }
                 // Under a root's "N Replies" label the preview sits 32 pt under the label's text, 5 pt less
                 // under our label row (AX walk 2026-10-14: 32.0 in 11 of 11 label-to-preview pairs, cx-3cb row-gap).
                 var pvGap = ThreadPreview.gap
                 if case .replies = rows.last?.kind ?? previousRow { pvGap -= 5 }
+                groupQuote = pv.cmuxGroup ? rows.count : nil
                 rows.append(RowSpec(key: "preview:\(m.id)", kind: .threadPreview(pv), gap: pvGap, height: pv.height(scale: scale)))
                 gap = ThreadPreview.replyGap
+                // cmux (2026-10-28, macOS 27 Messages reference): the Chief's reply under the quote of my root hangs from the
+                // quote on the grey arc, as a reply right under its root does (incoming side only, as there).
+                if pv.outgoing, !outgoing { connector = "preview:\(m.id)" }
             }
 
             if m.retractedAt != nil {
@@ -1063,6 +1159,10 @@ enum RowBuilder {
                     || p.retractedAt != nil || m.replyTo != p.replyTo
                     || thread(m, at: idx) != thread(p, at: prevIndex) } ?? true
                 if let name = sender?.displayName, !name.isEmpty, startsRun, connector == nil {
+                    // cmux: under a group quote the name sits so that the bubble's top is 35 pt under the quote (Messages).
+                    if let q = groupQuote, let row = rows[checked: q], case let .threadPreview(pv) = row.kind {
+                        gap = max(0, ThreadPreview.cmuxReplyTopUnderQuote - (row.height - pv.box.height) - 14 - 1)
+                    }
                     rows.append(RowSpec(key: "name:\(m.id)", kind: .senderName(name), gap: gap, height: 14))
                     gap = 1
                 }
@@ -1098,6 +1198,19 @@ enum RowBuilder {
                     rows.append(RowSpec(key: "part:\(m.id):\(pi)", kind: .part(row), gap: g, height: size.height,
                                         width: width, estimated: measured.estimated))
                 }
+                // cmux: another person's reply under a group quote: the quote's line runs down to the reply's bubble top
+                // (within the quote row's bitmap margin).
+                if inGroup, let q = groupQuote, var row = rows[checked: q], case var .threadPreview(pv) = row.kind {
+                    var below: CGFloat = 0
+                    for r in rows.dropFirst(q + 1) {
+                        below += r.gap
+                        if case .part = r.kind { break }
+                        below += r.height
+                    }
+                    pv.cmuxLineBelow = max(0, min(below - 0.5, RowDraw.margin - 0.5))
+                    row.kind = .threadPreview(pv)
+                    if let i = rows.checkedIndex(q) { rows[i] = row } // checked write
+                }
                 if m.edits?.isEmpty == false {
                     rows.append(RowSpec(key: "edited:\(m.id)", kind: .label(text: Strings.edited, outgoing: outgoing, color: .link),
                                         gap: 1, height: 14))
@@ -1107,9 +1220,12 @@ enum RowBuilder {
                     rows.append(RowSpec(key: "failed:\(m.id)", kind: .label(text: CmuxStrings.failedLabel(m.status), outgoing: outgoing, color: .failure),
                                         gap: 1, height: 14))
                 }
-                if !threadMode, let n = replyCount[m.id], n >= 2, m.replyTo == nil {
+                // cmux: one reply further down says "1 Reply" too (Messages, 2026-10-29 group reference); a reply right under
+                // its root shows the thread with its line instead.
+                if !threadMode, let n = replyCount[m.id], n >= 2 || (n == 1 && next?.replyTo?.messageId != m.id), m.replyTo == nil {
                     rows.append(RowSpec(key: "replies:\(m.id)", kind: .replies(count: n, root: PartRef(messageId: m.id, partIndex: 0),
-                                                                               outgoing: outgoing), gap: 0, height: 22))
+                                                                               outgoing: outgoing), gap: 0, height: 22,
+                                        cmuxIndent: inGroup ? SenderAvatar.bubbleInset : 0))
                 }
                 // ThreadMode.tree thread view: "N Replies" under a reply that has replies opens its
                 // branch (drill-in). `threadCounts` is nil in `.messages` mode and in the transcript.
@@ -1126,7 +1242,7 @@ enum RowBuilder {
         // cmux: the host's notice, centered like the date row, under the newest message. Row key "notice" (the
         // tail rows' paging rules); none while upstream's status line (ask 9, same key) is set.
         if !threadMode, span.upperBound == messages.count, s.atNewest, s.ui.notice?.isEmpty ?? true, let notice = s.ui.cmuxNotice {
-            rows.append(RowSpec(key: "notice", kind: .separator(bold: "", rest: notice), gap: 0, height: 35.5))
+            rows.append(RowSpec(key: "notice", kind: .separator(bold: "", rest: notice), gap: 8, height: 35.5))
         }
         // A stream with text is its sender's bubble (no typing indicator for them); one without text is the indicator.
         let typists = s.ui.typing.contains { t in t != me && !writing.contains { $0.sender == t } }
@@ -1163,7 +1279,9 @@ enum RowBuilder {
             var row = row
             row.width = width
             if case let .threadPreview(pv) = row.kind, pv.isText {
-                let again = ThreadPreview.make(root: pv.root, part: pv.part, count: pv.count, outgoing: pv.outgoing, width: width)
+                var again = ThreadPreview.make(root: pv.root, part: pv.part, count: pv.count, outgoing: pv.outgoing, width: width)
+                // cmux: the group quote's look and line (their lengths do not depend on the width).
+                again.cmuxGroup = pv.cmuxGroup; again.cmuxSender = pv.cmuxSender; again.cmuxLineBelow = pv.cmuxLineBelow
                 row.kind = .threadPreview(again)
                 row.height = again.height(scale: scale)
             }

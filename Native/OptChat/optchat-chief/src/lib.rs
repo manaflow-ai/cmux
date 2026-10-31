@@ -81,4 +81,5 @@ pub mod usage;
 pub mod version_tool;
 pub mod voice;
 pub mod wake;
+pub mod watch;
 pub mod workspaces;

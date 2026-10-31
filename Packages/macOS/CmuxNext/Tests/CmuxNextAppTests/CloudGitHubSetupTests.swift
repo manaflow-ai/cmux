@@ -1,5 +1,7 @@
 import CmuxNextActions
+import CmuxNextCloud
 @testable import CmuxNextApp
+import Darwin
 import Foundation
 import Testing
 
@@ -65,10 +67,26 @@ struct CloudGitHubSetupTests {
 
     // MARK: Validation
 
-    @Test(arguments: ["Ann\nrm -rf ~", "Ann\0", "Ann\u{1B}[31m", "Ann\rLee", "Ann\u{7F}", String(repeating: "a", count: 257)])
-    func aValueWithAControlCharacterOrTooLongIsRefused(value: String) {
+    /// A value as a test argument, printed escaped. Swift Testing prints a String argument as is
+    /// on its console lines: the NUL ended that line early and lost its newline, so the next
+    /// test's line joined it and the test-run wrapper lost that test's finish (it read as never
+    /// finished, and the run as cut short, on feat-cmux-next 2026-10-28).
+    struct Unsafe: CustomTestStringConvertible, Sendable {
+        let value: String
+        var testDescription: String { value.debugDescription }
+    }
+
+    @Test(arguments: ["Ann\nrm -rf ~", "Ann\0", "Ann\u{1B}[31m", "Ann\rLee", "Ann\u{7F}", String(repeating: "a", count: 257)].map(Unsafe.init))
+    func aValueWithAControlCharacterOrTooLongIsRefused(value: Unsafe) {
         #expect(throws: ActionFailure(message: CloudStrings.gitHubIdentityUnsafe)) {
-            try CloudGitHubSetup.validated(.init(name: value, email: "a@b.c"))
+            try CloudGitHubSetup.validated(.init(name: value.value, email: "a@b.c"))
+        }
+    }
+
+    @Test func aControlCharacterArgumentPrintsEscaped() {
+        for value in ["Ann\nrm -rf ~", "Ann\0", "Ann\u{1B}[31m", "Ann\rLee", "Ann\u{7F}"] {
+            let printed = String(describingForTest: Unsafe(value: value))
+            #expect(!printed.unicodeScalars.contains { $0.properties.generalCategory == .control }, "\(printed.debugDescription)")
         }
     }
 
@@ -88,20 +106,21 @@ struct CloudGitHubSetupTests {
         let identity = CloudGitHubSetup.GitIdentity(name: "Ann Lee", email: "ann@example.com")
         let outcome = CloudGitHubSetup.parse(exitCode: 0, stdout: "cmux-git: set\ncmux-gh: pending AB12-CD34\n")
         #expect(outcome == .init(identity: .set, gitHub: .pending, deviceCode: "AB12-CD34"))
-        let fields = CloudGitHubSetup.fields(outcome, identity: identity)
+        let fields = CloudGitHubSetup.fields(outcome, identity: identity, fallback: .notConnected)
         #expect(fields == [
-            "ok": .bool(true), "user_name": .string("Ann Lee"), "user_email": .string("ann@example.com"),
+            "ok": .bool(true), "method": .string("device"), "fallback_reason": .string("not_connected"), "user_name": .string("Ann Lee"), "user_email": .string("ann@example.com"),
             "gh_status": .string("pending"), "device_code": .string("AB12-CD34"),
             "verification_uri": .string("https://github.com/login/device"),
         ])
     }
 
     @Test func theResultCarriesOnlyTheAgreedKeys() {
-        let allowed: Set<String> = ["ok", "user_name", "user_email", "gh_status", "device_code", "verification_uri"]
+        let allowed: Set<String> = ["ok", "method", "fallback_reason", "user_name", "user_email", "gh_status", "device_code", "verification_uri"]
         let identity = CloudGitHubSetup.GitIdentity(name: "Ann", email: "a@b.c")
         for stdout in ["cmux-git: set\ncmux-gh: logged_in", "cmux-git: skipped\ncmux-gh: missing", "cmux-git: failed\ncmux-gh: failed",
-                       "cmux-git: set\ncmux-gh: pending AB12-CD34", "gho_secret_token\ncmux-gh: pending gho_secret_token"] {
-            let fields = CloudGitHubSetup.fields(CloudGitHubSetup.parse(exitCode: 0, stdout: stdout), identity: identity)
+                       "cmux-git: set\ncmux-gh: pending AB12-CD34", "gho_secret_token\ncmux-gh: pending gho_secret_token",
+                       "cmux-git: set\ncmux-gh: app", "cmux-git: set\ncmux-app: unavailable\ncmux-gh: logged_in"] {
+            let fields = CloudGitHubSetup.fields(CloudGitHubSetup.parse(exitCode: 0, stdout: stdout), identity: identity, fallback: .unknown)
             #expect(Set(fields.keys).isSubset(of: allowed))
             #expect(!fields.values.contains(.string("gho_secret_token")))
         }
@@ -111,13 +130,13 @@ struct CloudGitHubSetupTests {
         let outcome = CloudGitHubSetup.parse(exitCode: 0, stdout: "cmux-git: set\ncmux-gh: logged_in\n")
         #expect(outcome.ok)
         #expect(outcome.deviceCode == nil)
-        #expect(CloudGitHubSetup.fields(outcome, identity: .init(name: "A", email: nil))["device_code"] == nil)
+        #expect(CloudGitHubSetup.fields(outcome, identity: .init(name: "A", email: nil), fallback: nil)["device_code"] == nil)
     }
 
     @Test func aMissingGhIsNotOk() {
         let outcome = CloudGitHubSetup.parse(exitCode: 0, stdout: "cmux-git: set\ncmux-gh: missing\n")
         #expect(!outcome.ok)
-        #expect(CloudGitHubSetup.fields(outcome, identity: .init())["gh_status"] == .string("missing"))
+        #expect(CloudGitHubSetup.fields(outcome, identity: .init(), fallback: nil)["gh_status"] == .string("missing"))
     }
 
     @Test(arguments: ["cmux-gh: pending", "cmux-gh: pending abcd-1234", "cmux-gh: pending AB12CD34", "cmux-gh: pending https://evil.example/AB12-CD34"])
@@ -135,9 +154,141 @@ struct CloudGitHubSetupTests {
 
     @Test func identityNotSetLeavesTheNameOutOfTheResult() {
         let outcome = CloudGitHubSetup.parse(exitCode: 0, stdout: "cmux-git: failed\ncmux-gh: logged_in\n")
-        let fields = CloudGitHubSetup.fields(outcome, identity: .init(name: "Ann", email: "a@b.c"))
+        let fields = CloudGitHubSetup.fields(outcome, identity: .init(name: "Ann", email: "a@b.c"), fallback: nil)
         #expect(fields["ok"] == .bool(false))
         #expect(fields["user_name"] == nil)
+    }
+
+    // MARK: The cmux GitHub App first
+
+    @Test func theAppRunsBeforeTheDeviceFlowOnlyWhenAsked() throws {
+        let identity = CloudGitHubSetup.GitIdentity(name: "Ann", email: "a@b.c")
+        let app = CloudGitHubSetup.command(identity, app: true)
+        let helper = try #require(app.range(of: CloudGitHubSetup.appCommand))
+        let signIn = try #require(app.range(of: "gh auth status"))
+        #expect(helper.upperBound <= signIn.lowerBound, "the App's helper runs first")
+        #expect(app.range(of: CloudGitHubSetup.identityCommand(identity))?.upperBound ?? app.endIndex <= helper.lowerBound)
+        #expect(!CloudGitHubSetup.command(identity).contains("cmux github setup"))
+        // An earlier sign-in is stopped before the App's helper goes in, so it cannot finish later
+        // and put gh back over it; a machine already signed in gets gh back as git's helper.
+        let stop = try #require(app.range(of: CloudGitHubSetup.stopPreviousCommand))
+        #expect(stop.upperBound <= helper.lowerBound)
+        #expect(app.contains("then gh auth setup-git --hostname github.com >/dev/null 2>&1 || { echo 'cmux-gh: failed'; exit 0; }; echo 'cmux-gh: logged_in'"))
+        // Also without the App (a team that disconnected after an App setup): gh goes back as the helper.
+        #expect(CloudGitHubSetup.command(identity).contains("then gh auth setup-git --hostname github.com >/dev/null 2>&1 || { echo 'cmux-gh: failed'; exit 0; }; echo 'cmux-gh: logged_in'"))
+        #expect(CloudGitHubSetup.appCommand.contains("/run/cmux-vm-agent/agent.sock"))
+    }
+
+    /// The helper line, run by a real `/bin/sh` with a stand-in `cmux`: the App when the Cloud agent's
+    /// socket is there and `cmux github setup` succeeds, else `unavailable` and the device flow follows.
+    @Test(arguments: [(true, 0, "cmux-gh: app\n"), (false, 0, "cmux-app: unavailable\n"), (true, 1, "cmux-app: failed\n")])
+    func theHelperIsUsedOnlyWithTheAgentAndAWorkingCmux(socket: Bool, cmuxExit: Int, expected: String) throws {
+        let root = URL(fileURLWithPath: "/tmp/cn-gh-app-\(UUID().uuidString.prefix(8))")
+        let bin = root.appendingPathComponent("bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let seen = root.appendingPathComponent("seen")
+        // A working agent: the probe's repo is refused by the team's policy.
+        let stub = "#!/bin/sh\necho \"$*\" >>\"$SEEN\"\n[ \"$2\" = credential ] && echo 'cmux github credential: policy.denied: the GitHub connection may not act on cmux-setup-probe/none' >&2\nexit \(cmuxExit)\n"
+        try Data(stub.utf8).write(to: bin.appendingPathComponent("cmux"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: bin.appendingPathComponent("cmux").path)
+        let path = root.appendingPathComponent("a.sock").path
+        let listener = socket ? try Self.listen(at: path) : -1
+        defer { if listener >= 0 { Darwin.close(listener) } }
+        let script = CloudGitHubSetup.appCommand(at: path) + "\necho 'cmux-gh: logged_in'"
+        let ran = try Self.run("/bin/sh", ["-c", script], environment: ["PATH": bin.path + ":/usr/bin:/bin", "SEEN": seen.path])
+        #expect(ran.output == expected + (expected.hasPrefix("cmux-app:") ? "cmux-gh: logged_in\n" : ""))
+        let called = (try? String(contentsOf: seen, encoding: .utf8)) ?? ""
+        // A working agent's probe answer is the policy refusal, so the helper goes in.
+        #expect(called == (socket ? "github credential get\ngithub setup\n" : ""))
+    }
+
+    /// An agent not yet bound, unreachable or broken, a deployment without the App, a team with no
+    /// connection: any probe answer but the policy refusal puts no helper in, and the device flow follows.
+    @Test(arguments: ["vm.unbound: this machine is not bound to cmux Cloud yet", "vm.agent_unreachable: connection refused",
+                      "vm.agent_bad_answer: no token in the answer", "integration.unavailable: GitHub did not answer; retry",
+                      "integration.not_found: this team has no GitHub connection", ""])
+    func anUnusableAgentGetsNoHelper(answer: String) throws {
+        let root = URL(fileURLWithPath: "/tmp/cn-gh-unbound-\(UUID().uuidString.prefix(8))")
+        let bin = root.appendingPathComponent("bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let seen = root.appendingPathComponent("seen")
+        let stub = "#!/bin/sh\necho \"$*\" >>\"$SEEN\"\n[ \"$2\" = credential ] && echo 'cmux github credential: \(answer)' >&2\nexit 0\n"
+        try Data(stub.utf8).write(to: bin.appendingPathComponent("cmux"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: bin.appendingPathComponent("cmux").path)
+        let path = root.appendingPathComponent("a.sock").path
+        let listener = try Self.listen(at: path)
+        defer { Darwin.close(listener) }
+        let script = CloudGitHubSetup.appCommand(at: path) + "\necho 'cmux-gh: logged_in'"
+        let ran = try Self.run("/bin/sh", ["-c", script], environment: ["PATH": bin.path + ":/usr/bin:/bin", "SEEN": seen.path])
+        #expect(ran.output == "cmux-app: unavailable\ncmux-gh: logged_in\n")
+        #expect((try? String(contentsOf: seen, encoding: .utf8)) == "github credential get\n", "the helper went in on an unusable agent")
+    }
+
+    /// A hung agent is stopped after the probe's bound and counts as unavailable: the device flow
+    /// still starts inside the exec's timeout.
+    @Test func aHungAgentGetsNoHelperWithinTheBound() throws {
+        let root = URL(fileURLWithPath: "/tmp/cn-gh-hung-\(UUID().uuidString.prefix(8))")
+        let bin = root.appendingPathComponent("bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let seen = root.appendingPathComponent("seen")
+        let stub = "#!/bin/sh\necho \"$*\" >>\"$SEEN\"\n[ \"$2\" = credential ] && exec sleep 60\nexit 0\n"
+        try Data(stub.utf8).write(to: bin.appendingPathComponent("cmux"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: bin.appendingPathComponent("cmux").path)
+        let path = root.appendingPathComponent("a.sock").path
+        let listener = try Self.listen(at: path)
+        defer { Darwin.close(listener) }
+        let script = CloudGitHubSetup.appCommand(at: path) + "\necho 'cmux-gh: logged_in'"
+        let started = ContinuousClock.now
+        let ran = try Self.run("/bin/sh", ["-c", script], environment: ["PATH": bin.path + ":/usr/bin:/bin", "SEEN": seen.path])
+        #expect(ContinuousClock.now - started < .seconds(CloudGitHubSetup.probeSeconds + 4))
+        #expect(ran.output == "cmux-app: unavailable\ncmux-gh: logged_in\n")
+        #expect((try? String(contentsOf: seen, encoding: .utf8)) == "github credential get\n", "the helper went in on a hung agent")
+    }
+
+    @Test func theAppOutcomeIsOkAndNamesItsMethod() {
+        let outcome = CloudGitHubSetup.parse(exitCode: 0, stdout: "cmux-git: set\ncmux-gh: app\n")
+        #expect(outcome == .init(identity: .set, gitHub: .app))
+        #expect(outcome.ok)
+        let fields = CloudGitHubSetup.fields(outcome, identity: .init(name: "Ann", email: nil),
+                                             fallback: CloudGitHubSetup.fallback(.ready, outcome))
+        #expect(fields == ["ok": .bool(true), "method": .string("app"), "gh_status": .string("app"), "user_name": .string("Ann")])
+        #expect(CloudGitHubSetup.summary(outcome, fallback: nil) == CloudStrings.gitHubAppReady)
+    }
+
+    /// Why the machine signed in itself: the App's check, else a ready App the machine could not use.
+    @Test func theFallbackSaysWhyInPlainWords() {
+        let unavailable = CloudGitHubSetup.parse(exitCode: 0, stdout: "cmux-git: set\ncmux-app: unavailable\ncmux-gh: pending AB12-CD34\n")
+        #expect(unavailable.appNotOnMachine)
+        #expect(unavailable.gitHub == .pending && unavailable.deviceCode == "AB12-CD34")
+        #expect(CloudGitHubSetup.fallback(.ready, unavailable) == .notOnMachine)
+        #expect(CloudGitHubSetup.fallback(.notConnected, unavailable) == .notConnected)
+        #expect(CloudGitHubSetup.fallback(.notConfigured, unavailable) == .notConfigured)
+        #expect(CloudGitHubSetup.fallback(.unknown, unavailable) == .unknown)
+        // A run that never said whether the machine has the App (a failed exec) is not `notOnMachine`.
+        let failed = CloudGitHubSetup.parse(exitCode: 124, stdout: "")
+        #expect(CloudGitHubSetup.fallback(.ready, failed) == .unknown)
+        // Nor one that said so and then timed out, nor a helper that failed to go in.
+        let timedOut = CloudGitHubSetup.parse(exitCode: 124, stdout: "cmux-git: set\ncmux-app: unavailable\n")
+        #expect(CloudGitHubSetup.fallback(.ready, timedOut) == .unknown)
+        let helperFailed = CloudGitHubSetup.parse(exitCode: 0, stdout: "cmux-git: set\ncmux-app: failed\ncmux-gh: logged_in\n")
+        #expect(CloudGitHubSetup.fallback(.ready, helperFailed) == .unknown)
+        let summary = CloudGitHubSetup.summary(unavailable, fallback: .notConnected)
+        #expect(summary.hasPrefix(CloudStrings.gitHubFallback(.notConnected)))
+        #expect(summary.hasSuffix(CloudStrings.gitHubEnterCode("AB12-CD34")))
+        #expect(CloudGitHubSetup.fields(unavailable, identity: .init(), fallback: .notOnMachine)["fallback_reason"] == .string("not_on_machine"))
+    }
+
+    @Test func theConfirmSaysWhichWayBeforeAnythingRuns() {
+        let ann = CloudGitHubSetup.GitIdentity(name: "Ann", email: "a@b.c"), none = CloudGitHubSetup.GitIdentity()
+        #expect(CloudGitHubHandlers.confirmBody(ann, app: .ready) == CloudStrings.gitHubAppConfirmBody(name: "Ann", email: "a@b.c"))
+        #expect(CloudGitHubHandlers.confirmBody(none, app: .ready) == CloudStrings.gitHubAppConfirmNoIdentity)
+        #expect(CloudGitHubHandlers.confirmBody(ann, app: .notConnected)
+            == CloudStrings.gitHubFallback(.notConnected) + " " + CloudStrings.gitHubConfirmBody(name: "Ann", email: "a@b.c"))
+        #expect(CloudGitHubHandlers.confirmBody(none, app: .unknown)
+            == CloudStrings.gitHubFallback(.unknown) + " " + CloudStrings.gitHubConfirmNoIdentity)
     }
 
     // MARK: Target
@@ -303,6 +454,23 @@ struct CloudGitHubSetupTests {
 
     // MARK: Helpers
 
+    /// A listening Unix socket at `path` (what `[ -S ]` tests); the caller closes it.
+    static func listen(at path: String) throws -> Int32 {
+        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let bytes = Array(path.utf8)
+        guard fd >= 0, bytes.count < MemoryLayout.size(ofValue: address.sun_path) else { throw CocoaError(.fileWriteUnknown) }
+        withUnsafeMutableBytes(of: &address.sun_path) { raw in
+            for (index, byte) in bytes.enumerated() { raw[index] = byte }
+        }
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        }
+        guard bound == 0, Darwin.listen(fd, 1) == 0 else { Darwin.close(fd); throw CocoaError(.fileWriteUnknown) }
+        return fd
+    }
+
     nonisolated struct FakeGit: MarkdownGitRunning {
         var values: [String: String]
         func run(_ arguments: [String], in folder: String) async -> MarkdownGitOutput? {
@@ -337,5 +505,17 @@ struct CloudGitHubSetupTests {
         let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         return (process.terminationStatus, String(decoding: data, as: UTF8.self))
+    }
+
+    @Test func theAppCheckAnswersByItsDeadlineEvenWhenItsWorkIgnoresCancel() async {
+        let started = ContinuousClock().now
+        // A mint that does not stop on cancel (an unstructured task's value) still loses the race.
+        let answer = await CloudService.firstAnswer(within: .milliseconds(200), otherwise: CloudGitHubApp.unknown) {
+            await Task.detached { try? await Task.sleep(for: .seconds(5)); return CloudGitHubApp.ready }.value
+        }
+        #expect(answer == .unknown)
+        #expect(ContinuousClock().now - started < .seconds(2), "the check waited for the work it gave up on")
+        let fast = await CloudService.firstAnswer(within: .seconds(5), otherwise: CloudGitHubApp.unknown) { .ready }
+        #expect(fast == .ready)
     }
 }

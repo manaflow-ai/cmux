@@ -17,6 +17,7 @@ import {
   GLASS_ATTRIBUTE,
   GLASS_CLASS,
   LENS_ATTRIBUTE,
+  NATIVE_GLASS_ATTRIBUTE,
   installBackdropFallback,
   powerOfTwo,
   readBackdrop,
@@ -357,7 +358,7 @@ class GlassLens {
     this.rootWatch = new MutationObserver(this.reconcile);
     this.rootWatch.observe(this.root, {
       attributes: true,
-      attributeFilter: [GLASS_ATTRIBUTE, "data-reduce-transparency"],
+      attributeFilter: [GLASS_ATTRIBUTE, NATIVE_GLASS_ATTRIBUTE, "data-reduce-transparency"],
     });
     this.mutations = new MutationObserver(this.onMutations);
     this.reconcile();
@@ -383,7 +384,13 @@ class GlassLens {
       this.root.getAttribute(GLASS_ATTRIBUTE),
       this.root.hasAttribute("data-reduce-transparency") || this.reduceQuery?.matches === true,
     );
-    const want = this.capable && this.mode !== "plain" && this.backdrop.image !== null && this.backdrop.rect !== null;
+    // A host that draws its own glass under the page (NATIVE_GLASS_ATTRIBUTE) gets no lens over it.
+    const want =
+      this.capable &&
+      this.mode !== "plain" &&
+      !this.root.hasAttribute(NATIVE_GLASS_ATTRIBUTE) &&
+      this.backdrop.image !== null &&
+      this.backdrop.rect !== null;
     if (want !== this.armed) {
       this.armed = want;
       // `style` too: an inline move (a virtualized row, a drag) changes no class and fires no scroll.

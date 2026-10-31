@@ -33,6 +33,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     var parked: [String: WorkspaceContentController] = [:]
     /// Orders `parked` by when each was parked (`mountedContents`).
     var parkSerial: UInt64 = 0
+    /// Workspaces Toggle Left/Right/Top/Bottom Dock created for an empty edge, docked there once the daemon reports
+    /// them (`arrangeOnScreen`). In memory only.
+    var pendingDocks: [String: DockEdge] = [:]
     unowned let services: AppServices
     private var workspaceObservation: Task<Void, Never>?
     private var titleObservation: Task<Void, Never>?
@@ -143,6 +146,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         parked.removeAll()
         topPages.teardown()
         sidebar.teardown()
+        // Last: a host the steps above made for the closing window (the overlay layer is made on
+        // first use) closes its panel too, since it came after the close that tears hosts down.
+        if let window { WindowOverlayHost.windowIsClosing(window) }
     }
 
     /// Preview pages are removed immediately when Labs is switched off,
@@ -155,7 +161,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             for await enabled in ObservationStream({ settings.snapshot.previewFeatures }) {
                 guard !enabled, let self,
                       let page = self.state.page,
-                      page == .page(.appStore) || page == .page(.changelog) else { continue }
+                      case .page(let id) = page, InternalPageTabStore.isPreviewPage(id) else { continue }
                 _ = self.leaveTopPage()
             }
         }
@@ -197,7 +203,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     /// Reads what `showWorkspace` depends on (the request, each machine's workspace list): O(machines), no id list.
     private static func readShowInputs(_ state: WindowState, cloud: CloudService, machines: MachineRegistry, windows: WindowManager) {
-        _ = (state.workspaceID, state.page, state.machineID, cloud.hasLoadedMachines, multiViewEnabled)
+        _ = (state.workspaceID, state.page, state.machineID, cloud.hasLoadedMachines, multiViewEnabled, LayoutTunables.dockedWorkspaces.value)
         _ = creationKey(state, cloud, machines)
         _ = windows.registry.members(of: state.id)
         for daemon in machines.daemons { _ = (daemon.store.isLoaded, daemon.store.workspaces.count) }

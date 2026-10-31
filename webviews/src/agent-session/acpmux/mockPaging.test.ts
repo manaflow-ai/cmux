@@ -29,11 +29,13 @@ type Snapshot = { sessionId?: string; rows: { kind: string; text?: string }[]; c
 test("a long mock chat opens on its newest page and pages back to its first message", async () => {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
-  const TURNS = 300;
+  const TURNS = 1200;
   let snapshot: Snapshot | undefined;
+  let snapshots = 0;
   const client = await AcpmuxDirectClient.connect(
     mockHost,
     (next) => {
+      snapshots += 1;
       snapshot = next as unknown as Snapshot;
     },
     undefined,
@@ -53,6 +55,9 @@ test("a long mock chat opens on its newest page and pages back to its first mess
     // Older pages, as the reader scrolls up, until the first message.
     for (let pages = 0; snapshot?.canLoadOlder && pages < TURNS; pages += 1) await client.loadOlder();
     expect(snapshot?.canLoadOlder).toBe(false);
+    // Older pages are published in bounded batches; publishing once per page makes the
+    // composer/session rail re-render while a long transcript is being prepended.
+    expect(snapshots).toBeLessThan(25);
     const all = prompts();
     expect(all.length).toBe(TURNS);
     all.forEach((text, turn) => expect(text).toStartWith(`Turn ${turn}:`));

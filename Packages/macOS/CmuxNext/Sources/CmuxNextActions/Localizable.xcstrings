@@ -12185,6 +12185,399 @@
         }
       }
     },
+    "action.agentPane.toggleFiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Files Beside Chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットの横のファイルを切り替え"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبديل الملفات بجانب الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uključi/isključi datoteke pored chata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skift filer ved siden af chatten"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dateien neben dem Chat umschalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar archivos junto al chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Basculer les fichiers à côté du chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attiva/disattiva file accanto alla chat"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទ/បើកឯកសារនៅក្បែរការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 옆 파일 토글"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veksle filer ved siden av chatten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przełącz pliki obok czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar arquivos ao lado do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переключить файлы рядом с чатом"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับไฟล์ข้างแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbetin Yanında Dosyaları Aç/Kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перемкнути файли поруч із чатом"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bật/tắt tệp bên cạnh cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换聊天旁的文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換聊天旁的檔案"
+          }
+        }
+      }
+    },
+    "action.agentPane.togglePreview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Preview Beside Chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットの横のプレビューを切り替え"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبديل المعاينة بجانب الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uključi/isključi pregled pored chata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skift forhåndsvisning ved siden af chatten"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorschau neben dem Chat umschalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar vista previa junto al chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Basculer l’aperçu à côté du chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attiva/disattiva anteprima accanto alla chat"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទ/បើកការមើលជាមុននៅក្បែរការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 옆 미리보기 토글"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veksle forhåndsvisning ved siden av chatten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przełącz podgląd obok czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar pré-visualização ao lado do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переключить предпросмотр рядом с чатом"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับตัวอย่างข้างแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbetin Yanında Önizlemeyi Aç/Kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перемкнути попередній перегляд поруч із чатом"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bật/tắt bản xem trước bên cạnh cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换聊天旁的预览"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換聊天旁的預覽"
+          }
+        }
+      }
+    },
+    "action.agentPane.toggleSideTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Tabs Beside Chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットの横のタブを切り替え"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبديل علامات التبويب بجانب الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uključi/isključi kartice pored chata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skift faner ved siden af chatten"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabs neben dem Chat umschalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar pestañas junto al chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Basculer les onglets à côté du chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attiva/disattiva schede accanto alla chat"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទ/បើកផ្ទាំងនៅក្បែរការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 옆 탭 토글"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veksle faner ved siden av chatten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przełącz karty obok czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar abas ao lado do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переключить вкладки рядом с чатом"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับแท็บข้างแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbetin Yanında Sekmeleri Aç/Kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перемкнути вкладки поруч із чатом"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bật/tắt các tab bên cạnh cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换聊天旁的标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換聊天旁的分頁"
+          }
+        }
+      }
+    },
     "action.agentPane.stopTurn": {
       "extractionState": "manual",
       "localizations": {
@@ -31651,6 +32044,33 @@
         "tr": {"stringUnit": {"state": "needs_review", "value": "Depo"}},
         "uk": {"stringUnit": {"state": "needs_review", "value": "Репозиторій"}},
         "vi": {"stringUnit": {"state": "needs_review", "value": "Kho mã"}}
+      }
+    },
+    "argument.secretNames": {
+      "comment": "cloud deliver-secrets argument: the secret names (comma-separated) an own machine (SSH or an acpmux peer) gets.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Secret Names"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "シークレット名"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Geheimnisnamen"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Noms des secrets"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Nombres de secretos"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "أسماء الأسرار"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "비밀 이름"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "机密名称"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機密名稱"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Imena tajni"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Hemmelighedsnavne"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Nomi dei segreti"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ឈ្មោះអាថ៌កំបាំង"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Hemmelighetsnavn"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nazwy sekretów"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Nomes dos segredos"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Имена секретов"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ชื่อความลับ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Sır adları"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Імена секретів"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Tên bí mật"}}
       }
     },
     "argument.pinned": {

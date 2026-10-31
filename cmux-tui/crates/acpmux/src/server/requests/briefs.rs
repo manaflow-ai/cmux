@@ -14,7 +14,7 @@ pub(super) async fn steer(
         .get("briefId")
         .and_then(Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("briefId is required"))?;
-    let row = hub.briefs.get(id).ok_or_else(|| RpcError::not_found(format!("no brief {id:?}")))?;
+    let row = brief_for(hub, conn, id)?;
     let idempotency = params
         .get("idempotencyKey")
         .or_else(|| params.get("idempotency_key"))
@@ -24,7 +24,9 @@ pub(super) async fn steer(
             json!({"brief":row,"event":crate::hub::dispatch::event("steer", &row),"replayed":true}),
         );
     }
-    if let Some(host) = row.get("host").and_then(Value::as_str).filter(|host| *host != "local")
+    // A peer daemon's connection reaches a brief this host ran only (`brief_for`): never forwarded.
+    if conn.origin != Origin::Peer
+        && let Some(host) = row.get("host").and_then(Value::as_str).filter(|host| *host != "local")
         && let Some(peer) = hub.peer_by_name(host)
     {
         let mut forwarded = params.clone();
@@ -54,7 +56,7 @@ pub(super) async fn steer(
         .ok_or_else(|| RpcError::invalid_params("steer text is required"))?;
     let mut p = json!({"sessionId":sid,"text":text,"steer":true,"_meta":{"acpmux":{"briefId":id,"steer":true}}});
     if let Some(via) = params.pointer("/_meta/acpmux/via").cloned() {
-        p["_meta"]["acpmux"]["via"] = via;
+        p.set_path(&["_meta", "acpmux", "via"], via);
     }
     Box::pin(super::handle_request(hub, conn, method::SESSION_PROMPT, p)).await?;
     let row = hub
@@ -66,16 +68,89 @@ pub(super) async fn steer(
             }
         })
         .unwrap_or(row);
+    let row = shown(conn, row);
     Ok(json!({"brief":row,"event":crate::hub::dispatch::event("steer", &row)}))
 }
 
-pub(super) async fn list(hub: &Arc<Hub>, params: Value) -> Result<Value, RpcError> {
+/// A peer daemon's connection (paired devices included) never learns this host's peers
+/// (`redact::hide_peers_from_peer`). Of the brief ledger it sees what this host ran: a row with a
+/// session of this host's (`Hub::brief_ran_here`; not one still being claimed, which may be on
+/// its way to a peer), without `suggestedHost`. A row a peer ran names that peer in `host`,
+/// `target` and `to`.
+fn peer_sees(hub: &Hub, row: &Value) -> bool {
+    row.get("sessionId").and_then(Value::as_str).is_some() && hub.brief_ran_here(row)
+}
+
+/// `row` as `conn` may see it: without `suggestedHost`, a peer of this host, for a peer daemon's.
+fn shown(conn: &Conn, mut row: Value) -> Value {
+    if conn.origin == Origin::Peer
+        && let Some(obj) = row.as_object_mut()
+    {
+        obj.remove("suggestedHost");
+    }
+    row
+}
+
+/// Brief `id` for a steer or report from `conn`. A peer daemon's connection gets one answer for a
+/// brief a peer ran and for one that does not exist ([`peer_sees`]).
+fn brief_for(hub: &Hub, conn: &Conn, id: &str) -> Result<Value, RpcError> {
+    hub.briefs
+        .get(id)
+        .filter(|row| conn.origin != Origin::Peer || peer_sees(hub, row))
+        .map(|row| shown(conn, row))
+        .ok_or_else(|| RpcError::not_found(format!("no brief {id:?}")))
+}
+
+/// How long the peers together may take to list their briefs (they are asked at once); one
+/// that has not answered by then is left out and named in `peersFailed`.
+const PEERS_BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
+
+pub(super) async fn list(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    params: Value,
+) -> Result<Value, RpcError> {
     let status = params.get("status").and_then(Value::as_str);
     let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(100) as usize;
+    let wanted = |row: &Value| {
+        status.is_none_or(|want| row.get("status").and_then(Value::as_str) == Some(want))
+    };
+    // A peer daemon's connection is listed the briefs this host ran ([`peer_sees`]), newest first
+    // as below, and no peer of this host is asked for theirs.
+    if conn.origin == Origin::Peer {
+        let rows: Vec<Value> = hub
+            .briefs
+            .matching(wanted)
+            .into_iter()
+            .rev()
+            .filter(|row| peer_sees(hub, row))
+            .take(limit.clamp(1, 500))
+            .map(|row| shown(conn, row))
+            .collect();
+        return Ok(json!({ "briefs": rows }));
+    }
     let mut rows = hub.briefs.list(status, limit);
-    for peer in hub.connected_peers() {
-        let Ok(remote) = peer.request(method::MUX_BRIEFS, json!({"limit": 500})).await else {
-            continue;
+    // The peers at once, under one deadline: one by one, each with the request budget (600 s),
+    // a stalled peer held the list for ten minutes. A peer left out is named, with why.
+    let deadline = tokio::time::Instant::now() + PEERS_BUDGET;
+    let peers = hub.connected_peers();
+    let replies = futures::future::join_all(peers.iter().map(|peer| {
+        tokio::time::timeout_at(deadline, peer.request(method::MUX_BRIEFS, json!({"limit": 500})))
+    }))
+    .await;
+    let mut failed = Vec::new();
+    for (peer, reply) in peers.iter().zip(replies) {
+        let remote = match reply {
+            Ok(Ok(remote)) => remote,
+            Ok(Err(e)) => {
+                failed.push(json!({"peer": peer.name, "error": e.message}));
+                continue;
+            }
+            Err(_) => {
+                let error = format!("no answer within {}s", PEERS_BUDGET.as_secs());
+                failed.push(json!({"peer": peer.name, "error": error}));
+                continue;
+            }
         };
         for row in remote.get("briefs").and_then(Value::as_array).into_iter().flatten() {
             let Some(id) = row.get("briefId").and_then(Value::as_str) else { continue };
@@ -84,18 +159,22 @@ pub(super) async fn list(hub: &Arc<Hub>, params: Value) -> Result<Value, RpcErro
                 .find(|candidate| candidate.get("briefId").and_then(Value::as_str) == Some(id))
             {
                 *local = row.clone();
-            } else if status
-                .is_none_or(|want| row.get("status").and_then(Value::as_str) == Some(want))
-            {
+            } else if wanted(row) {
                 rows.push(row.clone());
             }
             hub.briefs.put(row.clone());
         }
     }
-    if let Some(want) = status {
-        rows.retain(|row| row.get("status").and_then(Value::as_str) == Some(want));
+    if status.is_some() {
+        rows.retain(wanted);
     }
-    Ok(json!({"briefs":rows.into_iter().take(limit.clamp(1, 500)).collect::<Vec<_>>() }))
+    let mut reply =
+        json!({"briefs":rows.into_iter().take(limit.clamp(1, 500)).collect::<Vec<_>>() });
+    if !failed.is_empty() {
+        tracing::warn!(peers = ?failed, "briefs left out the peers that did not answer");
+        reply.set("peersFailed", Value::Array(failed));
+    }
+    Ok(reply)
 }
 
 pub(super) async fn report(
@@ -107,7 +186,7 @@ pub(super) async fn report(
         .get("briefId")
         .and_then(Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("briefId is required"))?;
-    let row = hub.briefs.get(id).ok_or_else(|| RpcError::not_found(format!("no brief {id:?}")))?;
+    let row = brief_for(hub, conn, id)?;
     let key = params
         .get("idempotencyKey")
         .or_else(|| params.get("idempotency_key"))
@@ -120,7 +199,9 @@ pub(super) async fn report(
             json!({"brief":row,"event":crate::hub::dispatch::event("report", &row),"replayed":true}),
         );
     }
-    if let Some(host) = row.get("host").and_then(Value::as_str).filter(|host| *host != "local")
+    // A peer daemon's connection reaches a brief this host ran only (`brief_for`): never forwarded.
+    if conn.origin != Origin::Peer
+        && let Some(host) = row.get("host").and_then(Value::as_str).filter(|host| *host != "local")
         && let Some(peer) = hub.peer_by_name(host)
     {
         let mut forwarded = params.clone();
@@ -188,6 +269,7 @@ pub(super) async fn report(
             }
         })
         .ok_or_else(|| RpcError::not_found(format!("no brief {id:?}")))?;
+    let row = shown(conn, row);
     let event = crate::hub::dispatch::event("report", &row);
     if replayed {
         return Ok(json!({"brief": row, "event": event, "replayed": true}));
@@ -250,7 +332,8 @@ pub(super) async fn task_new(
         .ok_or_else(|| RpcError::invalid_params("a task has a one-line title"))?;
     let idempotency = text("idempotencyKey");
     let id = loop {
-        let id = format!("t-{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+        let uuid = uuid::Uuid::new_v4().simple().to_string();
+        let id = format!("t-{}", uuid.get(..8).unwrap_or(&uuid));
         if hub.briefs.get(&id).is_none() {
             break id;
         }
@@ -273,10 +356,10 @@ pub(super) async fn task_new(
         "harness": meta.harness, "model": meta.model_request,
     });
     if let Some(caller) = caller {
-        record["fromSession"] = json!(caller);
+        record.set("fromSession", json!(caller));
     }
     if let Some(key) = idempotency {
-        record["idempotencyKey"] = json!(key);
+        record.set("idempotencyKey", json!(key));
     }
     let row = hub.briefs.put(record);
     // The giver's message, as `acpmux send` from it would be (`requests.rs` session/prompt).
@@ -321,6 +404,8 @@ pub(super) async fn tasks(
         .list(None, 500)
         .into_iter()
         .filter(|row| from.is_none() || row["fromSession"].as_str() == from.as_deref())
+        // A peer daemon's connection: the briefs this host ran ([`peer_sees`]).
+        .filter(|row| conn.origin != Origin::Peer || peer_sees(hub, row))
         .filter(|row| !open_only || tasks::open(row))
         .collect();
     rows.sort_by_key(|row| {

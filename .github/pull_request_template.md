@@ -31,7 +31,21 @@ Left empty or deleted, /release falls back to the PR title and flags the PR for 
 ## Proof
 
 <!-- Before/after screenshots or a short clip for anything user-visible; otherwise one line on why not (e.g. CI only).
-Native app UI: paste what `cmux-ci capture <head sha> --state <scene:NAME|tour:NAME> --pr <N>` prints (real light and dark stills of a fleet build), add the media-tour label, or write `No capture: <why>`. The pr-capture-check job fails a native UI change without one. -->
+Native app UI: paste what `cmux-ci capture <head sha> --state <scene:NAME|tour:NAME> --pr <N>` prints (real light and dark stills of a fleet build), add the media-tour label, or write `No capture: <why>`. When a capture or media-tour label is used, add these two body lines after viewing the after image:
+
+Viewed after image: yes
+Visual verdict: <one sentence: would Leo accept this next to ChatGPT/Claude?>
+
+The pr-capture-check job fails a native UI change without the required evidence or review proof. -->
+
+<!-- Performance change (the perf label, or a perf word in the title or description)? Record the deltas so we can look back on them: add a section like the one below, with before and after from the same harness (or, under that heading, `No perf numbers: <why>`). The pr-perf-section-check job fails a perf PR without one; docs-only PRs are exempt.
+
+## Performance
+
+| metric | before | after | delta | harness or run link |
+| --- | --- | --- | --- | --- |
+| sidebar open p50 | 182 ms | 113 ms | -38% | https://github.com/manaflow-ai/cmux/actions/runs/... |
+-->
 
 ## Checklist
 

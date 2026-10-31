@@ -1780,6 +1780,20 @@ Result<ColumnPin> Codec<ColumnPin>::decode(const Json& value) {
     return result;
 }
 
+Result<Json> Codec<ColumnSide>::encode(const ColumnSide& value) {
+    switch (value) {
+        case ColumnSide::left: return Json(std::string("left"));
+        case ColumnSide::right: return Json(std::string("right"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<ColumnSide> Codec<ColumnSide>::decode(const Json& value) {
+    if (value == Json(std::string("left"))) return ColumnSide::left;
+    if (value == Json(std::string("right"))) return ColumnSide::right;
+    return make_error(ErrorCode::decode, "unknown ColumnSide value");
+}
+
 Result<Json> Codec<ConversationChange>::encode(const ConversationChange& value) {
     (void)value;
     Json::Object object;
@@ -17561,6 +17575,11 @@ Result<CloudHostReplicaStatusRequest> Codec<CloudHostReplicaStatusRequest>::deco
 Result<Json> Codec<CloudInboxListRequest>::encode(const CloudInboxListRequest& value) {
     (void)value;
     Json::Object object;
+    if (!value.cursor.is_absent()) {
+        auto encoded = encode_value(value.cursor);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cursor", std::move(encoded).value());
+    }
     if (value.include_archived) {
         auto encoded = encode_value(*value.include_archived);
         if (!encoded) return std::move(encoded).error();
@@ -17578,6 +17597,16 @@ Result<CloudInboxListRequest> Codec<CloudInboxListRequest>::decode(const Json& v
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     CloudInboxListRequest result{};
+    const Json* field_cursor = value.find("cursor");
+    if (field_cursor) {
+        if (field_cursor->is_null()) {
+            result.cursor = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_cursor);
+            if (!decoded) return std::move(decoded).error();
+            result.cursor = Field<std::string>(std::move(decoded).value());
+        }
+    }
     const Json* field_include_archived = value.find("include_archived");
     if (field_include_archived) {
         auto decoded = decode_value<bool>(*field_include_archived);
@@ -19820,6 +19849,11 @@ Result<ConversationRunAppendResult> Codec<ConversationRunAppendResult>::decode(c
 Result<Json> Codec<ConversationRunsRequest>::encode(const ConversationRunsRequest& value) {
     (void)value;
     Json::Object object;
+    if (!value.answers.is_absent()) {
+        auto encoded = encode_value(value.answers);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("answers", std::move(encoded).value());
+    }
     if (!value.before_started_at.is_absent()) {
         auto encoded = encode_value(value.before_started_at);
         if (!encoded) return std::move(encoded).error();
@@ -19845,6 +19879,16 @@ Result<ConversationRunsRequest> Codec<ConversationRunsRequest>::decode(const Jso
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     ConversationRunsRequest result{};
+    const Json* field_answers = value.find("answers");
+    if (field_answers) {
+        if (field_answers->is_null()) {
+            result.answers = Field<std::vector<std::string>>::null();
+        } else {
+            auto decoded = decode_value<std::vector<std::string>>(*field_answers);
+            if (!decoded) return std::move(decoded).error();
+            result.answers = Field<std::vector<std::string>>(std::move(decoded).value());
+        }
+    }
     const Json* field_before_started_at = value.find("before_started_at");
     if (field_before_started_at) {
         if (field_before_started_at->is_null()) {
@@ -25843,6 +25887,11 @@ Result<Json> Codec<NewPaneRightRequest>::encode(const NewPaneRightRequest& value
         if (!encoded) return std::move(encoded).error();
         object.emplace("shell_args", std::move(encoded).value());
     }
+    if (!value.side.is_absent()) {
+        auto encoded = encode_value(value.side);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("side", std::move(encoded).value());
+    }
     if (!value.tab_id.is_absent()) {
         auto encoded = encode_value(value.tab_id);
         if (!encoded) return std::move(encoded).error();
@@ -25953,6 +26002,16 @@ Result<NewPaneRightRequest> Codec<NewPaneRightRequest>::decode(const Json& value
             auto decoded = decode_value<std::vector<std::string>>(*field_shell_args);
             if (!decoded) return std::move(decoded).error();
             result.shell_args = Field<std::vector<std::string>>(std::move(decoded).value());
+        }
+    }
+    const Json* field_side = value.find("side");
+    if (field_side) {
+        if (field_side->is_null()) {
+            result.side = Field<ColumnSide>::null();
+        } else {
+            auto decoded = decode_value<ColumnSide>(*field_side);
+            if (!decoded) return std::move(decoded).error();
+            result.side = Field<ColumnSide>(std::move(decoded).value());
         }
     }
     const Json* field_tab_id = value.find("tab_id");
@@ -41853,6 +41912,9 @@ constexpr std::array<CommandFieldRequirement, 8> kCommand32FieldRequirements{{
     {"origin", 7U, ""},
     {"reason", 0U, "close-reason-v1"},
 }};
+constexpr std::array<CommandFieldRequirement, 1> kCommand80FieldRequirements{{
+    {"answers", 0U, "conversation-run-answers-v1"},
+}};
 constexpr std::array<CommandFieldRequirement, 1> kCommand91FieldRequirements{{
     {"idempotency_key", 0U, "creation-attempt-keys-v1"},
 }};
@@ -41915,13 +41977,14 @@ constexpr std::array<CommandFieldRequirement, 7> kCommand169FieldRequirements{{
     {"tab_id", 12U, "split-client-keys-v1"},
     {"terminal_id", 12U, "terminal-placement-env-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 9> kCommand170FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 10> kCommand170FieldRequirements{{
     {"cwd", 12U, "terminal-placement-env-v1"},
     {"env", 12U, "terminal-placement-env-v1"},
     {"keep", 12U, "terminal-reap-v1"},
     {"kind", 12U, "pane-browser-kind-v1"},
     {"pane_id", 12U, "split-client-keys-v1"},
     {"shell_args", 12U, "terminal-shell-args-v1"},
+    {"side", 12U, "column-left-v1"},
     {"tab_id", 12U, "split-client-keys-v1"},
     {"terminal_id", 12U, "terminal-placement-env-v1"},
     {"url", 12U, "pane-browser-kind-v1"},
@@ -42122,7 +42185,7 @@ constexpr std::array<CommandMetadata, 286> kCommands{{
     {"conversation-op", "local-admin", 12U, "local-conversations-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"conversation-run", "local-admin", 12U, "conversation-runs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"conversation-run-append", "local-admin", 12U, "conversation-runs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"conversation-runs", "local-admin", 12U, "conversation-runs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"conversation-runs", "local-admin", 12U, "conversation-runs-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand80FieldRequirements)},
     {"conversation-search", "local-admin", 12U, "conversation-search-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"conversation-snapshot", "local-admin", 12U, "local-conversations-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"conversation-thread", "local-admin", 12U, "conversation-thread-v1", false, "", "", std::span<const CommandFieldRequirement>{}},

@@ -3,6 +3,8 @@ import CmuxNextActions
 import CmuxNextAgentIntegrations
 import CmuxNextAgentPane
 import CmuxNextApps
+import CmuxNextCloudUI
+import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHomeEngine
 import CmuxNextMacScreen
@@ -115,9 +117,16 @@ struct PageFactory {
         guard let settings = services.settings else { return nil }
         let provider = SettingsPageProvider(settings: settings, domains: { [weak services] in
             ["themes": services?.themes.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "sounds": SettingsPageDomains.sounds, "recent_fonts": services?.settings?.recentFonts.families ?? []]
-        }, hostLists: { [weak services] in services?.settingsWindow.pageHostLists() ?? .null })
+        }, hostLists: { [weak services] in services?.settingsWindow.pageHostLists() ?? .null }, wideningGate: services.wideningGate)
         provider.removeDevice = { [weak services] id in await services?.devices.remove(id: id) }
         provider.setDeviceFullAccess = { [weak services] id, on in await services?.devices.setFullAccess(id: id, on: on) }
+        provider.setJoinConsent = { [weak services] surface, on in
+            guard let services, let surface = JoinConsentSurface(rawValue: surface) else { return nil }
+            return await services.joinConsent.set(surface, on: on)
+        }
+        provider.personBacksGesture = { [weak services] uptime in services?.personInput.backs(uptime) ?? false }
+        // Touch ID or the password, which every turn-on of Full access or Dedicated agent machine needs.
+        provider.ownerConfirm = LocalDeviceOwnerAuthenticator()
         provider.setMachineVmHost = { [weak services] id, on in
             guard let services else { return nil }
             return await services.cloudVmHost.set(id, on: on, reachable: services.settingsWindow.vmHostReach(id) == true)
@@ -144,6 +153,36 @@ struct PageFactory {
         )
         provider.harnessesState = { harnesses.state }
         provider.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
+        let cloud = services.cloud
+        let environments = CloudEnvironmentsSettings(
+            available: { [weak cloud] in cloud.map { $0.configuration.linkSource == .appServer && $0.auth.isSignedIn } ?? false },
+            list: { [weak cloud] in
+                guard let cloud else { throw PageError.closed }
+                return try JSONEncoder().encode(await cloud.appOps("cloud.environment.list", .object([:]), nil, .script))
+            },
+            save: { [weak cloud] args in
+                guard let cloud else { throw PageError.closed }
+                _ = try await cloud.appOps("cloud.environment.set", try JSONDecoder().decode(CmuxNextDaemon.JSONValue.self, from: args), UUID().uuidString, .user)
+            },
+            approvedCall: { [weak cloud] op, id, confirm in
+                guard let cloud else { throw PageError.closed }
+                do { _ = try await cloud.appServerApprovedCall(op, args: .object(["environment": .string(id)]), confirm: confirm) }
+                catch CloudMachineCreateFlow.Failure.declined { return false }
+                return true
+            },
+            confirm: { [weak services] title, body, button in
+                await withCheckedContinuation { continuation in
+                    CloudPresenter.confirm(title, body, button: button, identifier: CloudPresenter.environmentConfirmIdentifier,
+                                           in: services?.windows.active?.window) { continuation.resume(returning: $0) }
+                }
+            })
+        provider.environmentsState = { (try? JSONValue.parse(JSONEncoder().encode(environments.state))) ?? .null }
+        provider.environmentsRun = { params in
+            guard let run = try? JSONDecoder().decode(CloudEnvironmentsRun.self, from: JSONSerialization.data(withJSONObject: params.foundationObject)) else {
+                throw PageError.invalidParams("unknown environments action")
+            }
+            return (try? JSONValue.parse(JSONEncoder().encode(await environments.run(run)))) ?? .object([:])
+        }
         let devices = services.deviceHub.settingsModel
         provider.devicesState = { (try? JSONValue.parse(JSONEncoder().encode(devices.state))) ?? .null }
         provider.devicesRun = { params in

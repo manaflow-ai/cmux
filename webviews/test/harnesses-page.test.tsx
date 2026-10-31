@@ -8,6 +8,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { HarnessesScreen } from "../src/agent-session/acpmux/harnesses/HarnessesScreen";
+import { INSTALL_COMMANDS } from "../src/agent-session/acpmux/harnesses/harnessRows";
 import { buildPickerCatalog, BUNDLED_MODEL_CATALOG } from "../src/agent-session/acpmux/modelCatalogData";
 import { NewTabScreen } from "../src/agent-session/acpmux/newtab/NewTabScreen";
 import type { HarnessHealth } from "../src/agent-session/acpmux/HarnessHealthNotice";
@@ -208,7 +209,7 @@ test("Install runs the install command in place, shows its progress, then checks
   // In place: no terminal or browser tab, and the row says it is installing.
   expect(calls.filter((call) => call.method === "tab.open")).toEqual([]);
   expect(calls.find((call) => call.method === "shell.run")?.params).toEqual({
-    command: "npm install -g opencode-ai",
+    command: INSTALL_COMMANDS.opencode,
     cwd: "/Users/you/src/cmux",
   });
   await until(() => status(container, "OpenCode") === "added 1 package in 3s", "the second output line");

@@ -296,6 +296,9 @@
   }
 }
 .acpmux-send:focus-visible {
+  /* Its own wash marks keyboard focus: the pane's focus pill (shared/styles.css) stays off it, so
+     focus paints the hover pill alone, not a second wash over it. */
+  --acpmux-focus-pill: transparent;
   background: var(--acpmux-row-hover, var(--acpmux-composer-hover));
 }
 /* The first Esc of the double press (escapeStop.ts): Stop keeps its glyph and footprint and takes the
@@ -373,9 +376,23 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 
 /* Shell mode (`!` first, Composer.tsx): the prompt becomes a plain monospace field behind a `!`
    glyph in the theme's magenta (ANSI 5), and the box takes a quiet edge of it. Same padding and
-   line height as the markdown prompt, so entering or leaving moves nothing. */
+   line height as the markdown prompt, so entering or leaving moves nothing.
+   The glyph stands on the column the caret had and the command's first line is the prompt's line,
+   so one set of insets draws both: these are the markdown prompt's own (markdownField.css), and a
+   look that gives the prompt other ones re-points these (composerLocation.css) instead of writing
+   the padding again. They follow the chrome scale, as the prompt's do; literal px here left the
+   glyph and the shell caret where scale 1 put them, so entering shell mode moved the line (2.75 px
+   down and 1.75 px left at the 1.25 chrome size). */
 .acpmux-composer {
   --acpmux-shell-accent: var(--agent-ansi-5, #d670d6);
+  --acpmux-shell-inset-top: calc(15px * var(--cmux-interface-scale, 1));
+  --acpmux-shell-inset-right: calc(16px * var(--cmux-interface-scale, 1));
+  --acpmux-shell-inset-bottom: calc(8px * var(--cmux-interface-scale, 1));
+  --acpmux-shell-inset-left: calc(16px * var(--cmux-interface-scale, 1));
+  /* The glyph's own column: it takes the first character cell of the field's monospace font, the
+     command starts in the second. In `ch` of that font, not px, so a larger Chat Display size moves
+     the command out of the glyph's way instead of printing over it. */
+  --acpmux-shell-glyph-column: 2ch;
 }
 .acpmux-composer-prompt.is-hidden {
   display: none;
@@ -385,9 +402,9 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 }
 .acpmux-shell-glyph {
   position: absolute;
-  left: 16px;
-  top: 15px;
-  font: 600 14px/22px ui-monospace, SFMono-Regular, Menlo, monospace;
+  left: var(--acpmux-shell-inset-left);
+  top: var(--acpmux-shell-inset-top);
+  font: var(--weight-emphasis) var(--text-content)/var(--text-content--line-height) ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--acpmux-shell-accent);
   pointer-events: none;
 }
@@ -395,17 +412,21 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   display: block;
   box-sizing: border-box;
   width: 100%;
-  min-height: 45px;
-  max-height: calc(22px * 8 + 23px);
+  /* One line in those insets, and eight at most: the markdown prompt's own height and cap. */
+  min-height: calc(var(--text-content--line-height) + var(--acpmux-shell-inset-top) + var(--acpmux-shell-inset-bottom));
+  max-height: calc(
+    var(--text-content--line-height) * 8 + var(--acpmux-shell-inset-top) + var(--acpmux-shell-inset-bottom)
+  );
   margin: 0;
-  padding: 15px 16px 8px 32px;
+  padding: var(--acpmux-shell-inset-top) var(--acpmux-shell-inset-right) var(--acpmux-shell-inset-bottom)
+    calc(var(--acpmux-shell-inset-left) + var(--acpmux-shell-glyph-column, 2ch));
   border: 0;
   outline: 0;
   background: transparent;
   resize: none;
   overflow-y: auto;
   overscroll-behavior: contain;
-  font: 14px/22px ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: var(--text-content)/var(--text-content--line-height) ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--agent-text);
   caret-color: var(--acpmux-shell-accent); /* caret-color: the shell mode's accent marks the mode */
 }
@@ -444,6 +465,13 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-composer-box:has(:focus-visible),
 .nt-box:has(:focus-visible) {
   --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);
+}
+/* The New Tab box is shared glass (#24593), whose own rim ignores --acpmux-card-ring. Its edge is
+   the card ring, as the chat card's is, so focus lifts it a step, Increase Contrast widens it and
+   appearance.borders none clears it. Over art or a see-through window the rule below adds the
+   glass's light rim. */
+.nt-box.ui-glass {
+  box-shadow: var(--acpmux-card-ring), var(--glass-elevation);
 }
 /* Under a top strip variant the strip draws its own rim in --acpmux-strip-edge (composerLocation.css);
    by default the card's rim goes round the strip and takes the focused tone itself (below). */
@@ -534,12 +562,11 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-queued-edit {
   grid-column: 1 / -1;
   min-width: 0;
-  max-height: 88px;
+  max-height: calc(var(--text-content--line-height) * 4);
   /* Its text stays where the row's text was. */
   margin: 2px 0 2px -6px;
   padding: 2px 6px;
   resize: none;
-  line-height: 18px;
   border: 0;
   border-radius: 6px;
   /* The composer's focused hairline, never a ring (Leo 2026-10-21: the white rounded ring). */
@@ -547,7 +574,9 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);
   background: var(--acpmux-base);
   color: var(--agent-text);
-  font: inherit;
+  font-family: inherit;
+  font-size: var(--text-content);
+  line-height: var(--text-content--line-height);
 }
 .acpmux-queued-edit:focus {
   box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);

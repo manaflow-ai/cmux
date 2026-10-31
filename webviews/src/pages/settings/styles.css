@@ -855,6 +855,11 @@ mark {
   margin-top: 8px;
 }
 
+.clear-browsing-data-error {
+  flex-basis: 100%;
+  min-width: 0;
+}
+
 .host-toggle {
   width: 100%;
   padding: 0;
@@ -916,6 +921,32 @@ mark {
 
 .host-field > .field {
   width: 240px;
+}
+
+/* Wrap complete controls rather than shrinking their labels in narrow profile editors. */
+.host-field[data-clear-browsing-data] {
+  flex-wrap: wrap;
+}
+
+.host-field[data-clear-browsing-data] > .row-help {
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 100%;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: normal;
+  text-overflow: clip;
+}
+
+.host-field[data-clear-browsing-data] > .field {
+  flex-shrink: 0;
+  max-width: 100%;
+}
+
+.host-field[data-clear-browsing-data] > .host-actions {
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .host-swatches {
@@ -1010,6 +1041,61 @@ mark {
 
 .accounts-form > .field {
   max-width: 320px;
+}
+
+/* Teams: a team row has no provider mark, so its details start under the title. */
+.accounts-team-body {
+  padding-left: 0;
+}
+
+/* New Team is the row itself, not details under a title: its title starts where a team's name does. */
+.accounts-team-create,
+.accounts-team-create > .accounts-form {
+  padding-top: 0;
+}
+
+.accounts-team-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.accounts-badge {
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: var(--text-caption);
+  font-weight: 400;
+  line-height: var(--text-caption--line-height);
+  color: var(--muted-text);
+}
+
+.accounts-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 24px;
+  margin: 0;
+}
+
+.accounts-fact {
+  display: flex;
+  /* The label is smaller than its value: share a baseline, not a top edge. */
+  align-items: baseline;
+  gap: 8px;
+}
+
+.accounts-fact > dd {
+  margin: 0;
+}
+
+.accounts-team-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.accounts-team-role {
+  margin-left: auto;
 }
 
 /* Settings > Devices: tones reuse the Accounts status dot; the history is a compact table. */

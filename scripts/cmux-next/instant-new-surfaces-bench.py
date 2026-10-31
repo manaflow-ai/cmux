@@ -35,6 +35,7 @@ parser.add_argument("--budget-key-ms", type=float, default=16.7)
 parser.add_argument("--hang-stacks", action="store_true",
                     help="as the every-action sweep: hang watchdog at 8 ms, the agent pane mock (Cmd-N opens its New Tab page), "
                          "and each run's longest main-thread stall with its whole stack (64 frames) in the row and the log")
+parser.add_argument("--native-new-tab", action="store_true", help="run with tabs.nativeNewTabPage on (Cmd-T opens the native New Tab page)")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
 opts = parser.parse_args()
@@ -46,7 +47,7 @@ BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*")
 SCRATCH = tempfile.mkdtemp(prefix=f"instant-{TAG}-")
 open(os.path.join(SCRATCH, "ghostty"), "w").close()
 CONFIG = os.path.join(SCRATCH, "cmux.json")
-open(CONFIG, "w").write("{}\n")
+open(CONFIG, "w").write(json.dumps({"tabs": {"nativeNewTabPage": True}} if opts.native_new_tab else {}) + "\n")
 CLI_ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1", "CMUX_TAG": TAG,
            "CMUX_BUNDLE_ID": BUNDLE_ID, "CMUX_BUNDLED_CLI_PATH": CLI}

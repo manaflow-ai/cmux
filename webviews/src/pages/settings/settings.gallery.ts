@@ -1,7 +1,8 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
-import type { AccountsCmux, AccountsRow, AccountsState, HostLists } from "./ops";
+import type { AccountsCmux, AccountsRow, AccountsState, CloudEnvironmentsState, HostLists } from "./ops";
 import { categories, homes } from "./categories";
+import { MockTeams } from "./mockTeams";
 import { mockThemeColors } from "./mockThemes";
 import { schema } from "./schema";
 import MARTIN_PANDEMONIUM from "../../gallery/fixtures/art/martin-pandemonium.jpg?inline";
@@ -76,6 +77,24 @@ const accounts = (patch: Partial<AccountsRow> = {}, state: Partial<AccountsState
   groups: [{ id: "sample", title: "Sample providers", rows: [{ ...account, ...patch }] }],
   ...state,
 });
+/** The Active Team menu and the Teams group over sample teams, after `edit` (a gesture or a flag). */
+const activeTeamRow = (teams: MockTeams): NonNullable<AccountsState["teams"]> => ({
+  title: "Active Team",
+  help: "Cloud machines, CodeRouter and phone access use this team.",
+  options: teams.teams.map((team) => ({ id: team.id, name: team.name, active: team.id === teams.active })),
+  disabled: false,
+  note: null,
+  error: null,
+});
+const withTeams = (edit: (teams: MockTeams) => void = () => {}): AccountsState => {
+  const teams = new MockTeams();
+  teams.teams = teams.teams.map((team) => ({
+    ...team,
+    name: team.role === "admin" ? "Sample team" : "Another sample team",
+  }));
+  edit(teams);
+  return accounts({}, { teams: activeTeamRow(teams), teamList: teams.state() });
+};
 const host: Partial<HostLists> = {
   machines: [
     {
@@ -154,6 +173,33 @@ const host: Partial<HostLists> = {
       },
     ],
   },
+};
+const rowShapeMachines: HostLists["machines"] = [
+  {
+    id: "sample-row-shape",
+    title: "Research build machine",
+    subtitle: "Online · local network",
+    active: true,
+    color: "#7F5FA8",
+    color_key: "research build machine",
+    vm_host: { on: true, busy: false, error: null },
+  },
+];
+const rowShapeEnvironments: CloudEnvironmentsState = {
+  available: true,
+  loading: false,
+  error: null,
+  environments: [
+    {
+      id: "env-row-shape",
+      name: "Research environment",
+      repo: "manaflow-ai/cmux@feat-cmux-next",
+      setup_script: "bun install",
+      status: "failed",
+      error: "setup exited 3",
+      log_tail: "lockfile mismatch",
+    },
+  ],
 };
 const click = (selector: string): PageFixtureStep => ({ selector, action: "click" });
 const input = (selector: string, value: string): PageFixtureStep => ({ selector, action: "input", value });
@@ -583,12 +629,42 @@ Object.assign(variants, {
   "long-rooms": variant("rooms", { host: { ...host, rooms: longRows, browser_profiles: longProfiles } }),
   "long-profiles": variant("browser", { host: { ...host, rooms: [], browser_profiles: longProfiles } }),
   "long-machines": variant("machines", { host: { ...host, machines: longRows } }),
+  "machines-row-shape": variant("accounts", {
+    host: { ...host, machines: rowShapeMachines },
+    options: { values: { "appearance.machineColors": { "research build machine": "#7F5FA8" } } },
+    note: "One machine row with its color control and the Dedicated agent machine line below.",
+    play: async (ctx) => {
+      const card = ctx.find({ selector: '[data-card="machines"]' });
+      card.setAttribute("data-gallery-capture", "");
+      card.scrollIntoView({ block: "center" });
+    },
+  }),
+  "cloud-environments-row-shape": variant("accounts", {
+    environments: rowShapeEnvironments,
+    note: "One failed Cloud Environment row with status, repository, error log and actions.",
+    play: async (ctx) => {
+      const card = ctx.find({ selector: '[data-card="cloudEnvironments"]' });
+      card.setAttribute("data-gallery-capture", "");
+      card.scrollIntoView({ block: "center" });
+    },
+  }),
   "profile-editor": variant("browser", {
     steps: [
       click('[data-profile="p-work"] .host-toggle'),
       wait(".host-form"),
       { selector: ".host-form input", action: "select" },
     ],
+  }),
+  "clear-refused": variant("browser", {
+    options: { failing: { "cmux.app.action.run": "cmux.browser.clear_refused" } },
+    note: "Clear Browsing Data refusal, scrolled into view for the captured row.",
+    steps: [click('[data-profile="p-work"] .host-toggle'), wait(".host-form"), click("[data-clear]")],
+    play: async (ctx) => {
+      await ctx.waitFor(() => ctx.document.querySelector("[data-clear-error]"));
+      const field = ctx.find({ selector: "[data-clear-browsing-data]" });
+      field.setAttribute("data-gallery-capture", "");
+      field.scrollIntoView({ block: "center" });
+    },
   }),
   "search-results": variant("general", { steps: [input("[data-settings-search]", "browser")] }),
   "search-results-font": variant("general", { steps: [input("[data-settings-search]", "font")] }),
@@ -809,6 +885,34 @@ Object.assign(variants, {
     steps: [wait('[data-card="computer-use"] [data-granted="true"]'), focusComputerUse],
     note: "Computer Use ready: Accessibility and Screen Recording both allowed.",
   }),
+  "computer-use-host-unverified": variant("agents", {
+    host: {
+      ...host,
+      computer_use: {
+        phase: "ready",
+        accessibility: true,
+        screen_recording: true,
+        helper: "cmux Computer Use",
+        host_unverified: true,
+      },
+    },
+    steps: [wait('[data-card="computer-use"]'), focusComputerUse],
+    note: "The legacy helper can't verify this build (not team-signed): legacy Computer Use is off.",
+  }),
+  "computer-use-upstream-fallback": variant("agents", {
+    host: {
+      ...host,
+      computer_use: {
+        phase: "ready",
+        accessibility: true,
+        screen_recording: true,
+        helper: "cmux Computer Use",
+        upstream_fallback: true,
+      },
+    },
+    steps: [wait('[data-card="computer-use"]'), focusComputerUse],
+    note: "Driver Upstream in a build without its helper: Legacy runs, and the status line says so.",
+  }),
   "computer-use-not-granted": variant("agents", {
     host: {
       ...host,
@@ -1021,6 +1125,57 @@ Object.assign(variants, {
     }),
     note: "Empty credential form; fixtures never contain credentials.",
   }),
+  "accounts-team-roles": variant("accounts", {
+    accounts: withTeams(),
+    note: "Teams: each team with your role (Admin or Member), the active one marked, and New Team.",
+  }),
+  "accounts-team-roles-unknown": variant("accounts", {
+    accounts: withTeams((teams) => (teams.rolesUnknown = true)),
+    note: "Only the sign-in service answered: roles read Role unknown.",
+  }),
+  "accounts-team-admin": variant("accounts", {
+    accounts: withTeams((teams) => teams.run({ action: "team.details", team: "team-personal" })),
+    note: "Details as an admin: your role, member count and plan, members (You marked), pending invitations, Rename and Delete.",
+  }),
+  "accounts-team-member": variant("accounts", {
+    accounts: withTeams((teams) => teams.run({ action: "team.details", team: "team-acme" })),
+    note: "Details as a member: read-only, no invitations, no Rename or Delete.",
+  }),
+  "accounts-team-rename": variant("accounts", {
+    accounts: withTeams((teams) => {
+      teams.run({ action: "team.details", team: "team-personal" });
+      teams.run({ action: "team.rename", team: "team-personal" });
+    }),
+    note: "Rename Team: the field starts at the current name, up to 64 characters.",
+  }),
+  "accounts-team-delete": variant("accounts", {
+    accounts: withTeams((teams) => {
+      teams.run({ action: "team.details", team: "team-personal" });
+      teams.run({ action: "team.delete", team: "team-personal" });
+    }),
+    note: "Delete Team asks first and names the team.",
+  }),
+  "accounts-team-delete-blocked": variant("accounts", {
+    accounts: withTeams((teams) => {
+      teams.teams = teams.teams.map((team) => ({ ...team, subscribed: team.id === "team-personal" }));
+      teams.run({ action: "team.details", team: "team-personal" });
+      teams.run({ action: "team.delete", team: "team-personal" });
+      teams.run({ action: "team.confirmDelete", team: "team-personal" });
+    }),
+    note: "A team with an active subscription cannot be deleted: the confirmation says why.",
+  }),
+  "accounts-team-create": variant("accounts", {
+    accounts: withTeams((teams) => teams.run({ action: "team.new" })),
+    note: "New Team: you become its admin and it becomes your active team.",
+  }),
+  "accounts-team-deleted": variant("accounts", {
+    accounts: withTeams((teams) => {
+      teams.run({ action: "team.details", team: "team-personal" });
+      teams.run({ action: "team.delete", team: "team-personal" });
+      teams.run({ action: "team.confirmDelete", team: "team-personal" });
+    }),
+    note: "After deleting the active team, the other team is active and the notice says so.",
+  }),
   "accounts-teams": variant("accounts", {
     accounts: accounts(
       {},
@@ -1036,6 +1191,7 @@ Object.assign(variants, {
           note: null,
           error: null,
         },
+        teamList: null,
       },
     ),
     note: "The active team switcher: one row with a pop-up menu of the teams, the active one checked.",
@@ -1131,6 +1287,7 @@ export default settingsPageEntry({
     "page:cmux.settings",
     "pages/settings/components/AccentPicker.tsx",
     "pages/settings/components/AccountsSection.tsx",
+    "pages/settings/components/AccountsTeams.tsx",
     "pages/settings/components/AgentHarnesses.tsx",
     "pages/settings/components/AgentIntegrations.tsx",
     "pages/settings/components/ComputerUseCard.tsx",

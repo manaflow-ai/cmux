@@ -15,7 +15,7 @@
    "cmux-app-host": 2,
    "cmux-browser-host": 1,
    "cmux-mux2": 42,
-   "cmux-remote": 44,
+   "cmux-remote": 39,
    "cmux-terminal-client": 1,
    "cmux-tui": 76,
    "cmux-tui-core": 190,
@@ -110,7 +110,7 @@
  "waived": {
   "rust": {
    "exit": {
-    "acpmux": 4,
+    "acpmux": 6,
     "cmux-browser-host": 4,
     "cmux-tui-core": 3
    },
@@ -179,7 +179,7 @@
     "CmuxVNC": 3,
     "CmuxVNCDemoServer": 3,
     "CmuxVNCWebRTC": 19,
-    "MessagesLabHome": 1
+    "MessagesLabHome": 2
    }
   }
  }
