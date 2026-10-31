@@ -74,6 +74,42 @@ struct PaletteMemberPickerTests {
         #expect(row.section.title == "New Group Chat")
     }
 
+    /// Every locale's "New Group Chat…" loses its ellipsis and the space some put before it.
+    @Test(arguments: [
+        "New Group Chat…",
+        "دردشة جماعية جديدة…",
+        "Novi grupni chat…",
+        "Ny gruppechat…",
+        "Neuer Gruppenchat …",
+        "Nuevo chat de grupo…",
+        "Nouvelle discussion de groupe…",
+        "Nuova chat di gruppo…",
+        "新規グループチャット…",
+        "ការជជែកជាក្រុមថ្មី…",
+        "새 그룹 채팅…",
+        "Ny gruppechat …",
+        "Nowy czat grupowy…",
+        "Novo chat em grupo…",
+        "Новый групповой чат…",
+        "แชทกลุ่มใหม่…",
+        "Yeni Grup Sohbeti…",
+        "Новий груповий чат…",
+        "Cuộc trò chuyện nhóm mới…",
+        "新建群聊…",
+        "新增群組聊天…"
+    ])
+    func headingDropsTheEllipsisInEveryLocale(_ title: String) {
+        let base = PaletteArgumentFlow.baseTitle(title)
+        #expect(!base.hasSuffix("…") && !base.hasSuffix(" ") && !base.isEmpty)
+        #expect(title.hasPrefix(base))
+    }
+
+    @Test func baseTitleKeepsTitlesWithoutAnEllipsis() {
+        #expect(PaletteArgumentFlow.baseTitle("Rename Tab...") == "Rename Tab")
+        #expect(PaletteArgumentFlow.baseTitle("Close Tab") == "Close Tab")
+        #expect(PaletteArgumentFlow.baseTitle("…") == "…")
+    }
+
     @Test func continueSendsTheChosenIdsAsMembers() throws {
         let registry = Self.registry()
         var ran: ActionInvocation?
