@@ -15,13 +15,28 @@ extension PageWebView {
         guard let model = WebPopupHost.Model(params) else { return .object(["shown": .bool(false)]) }
         let host = popupHost ?? WebPopupHost(
             webView: focusView, zoom: { [weak self] in CGFloat(self?.pageZoom ?? 1) },
-            send: { [weak self] event in self?.router.publishPopup(JSONValue(foundation: event) ?? .null) })
+            send: { [weak self] event in self?.popupEvent(event) })
         popupHost = host
         if op == PageNativeOp.popupUpdate {
             host.update(model)
             return .object([:])
         }
         return JSONValue(foundation: host.show(model)) ?? .object(["shown": .bool(false)])
+    }
+
+    /// One event of the native popup for the page (`pick`, `highlight`, `dismiss`). A pick is a
+    /// choice in the host's own panel, which is a window of its own: the page's gesture monitors never
+    /// see that click, so the choice itself is the gesture, as a right-click menu's is
+    /// (``finishContextMenu(_:at:)``). The host hears it first (``onPopupPick``, with the AppKit event
+    /// being dispatched), before the page runs the row's action.
+    func popupEvent(_ event: [String: Any], current: NSEvent? = NSApp.currentEvent) {
+        if event["type"] as? String == "pick" {
+            let uptime = ProcessInfo.processInfo.systemUptime
+            if chromiumSession != nil { chromiumUserInput(at: uptime) }
+            else { webView.noteNativeMenuSelection(at: uptime) }
+            onPopupPick?(current)
+        }
+        router.publishPopup(JSONValue(foundation: event) ?? .null)
     }
 
     /// A right-click menu of the page (`cmux.app.contextMenu.show`) as a standard macOS menu at the

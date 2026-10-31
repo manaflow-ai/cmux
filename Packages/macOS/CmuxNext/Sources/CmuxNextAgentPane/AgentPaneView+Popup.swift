@@ -12,7 +12,7 @@ extension AgentPaneView {
             guard let model = WebPopupHost.Model(params) else { return AgentPaneReply.failure(code: "invalid_params", message: "Bad popup") }
             let host = popupHostStorage ?? WebPopupHost(
                 webView: webView, zoom: { [weak self] in self?.webView.pageZoom ?? 1 },
-                send: { [weak self] event in self?.sendPopupEvent(event) })
+                send: { [weak self] event in self?.popupEvent(event) })
             popupHostStorage = host
             if method == "popup.update" {
                 host.update(model)
@@ -40,6 +40,22 @@ extension AgentPaneView {
             if picked != nil, let self { AgentPanePersonInput.record(self.model.transport.gestures) }
             reply(["ok": true, "value": ["picked": picked.map { $0 as Any } ?? NSNull()]])
         }
+    }
+
+    /// One event of the native popup for the page. A pick there is a click in the popup's own
+    /// panel, a window the pane's gesture monitor (``judge(_:eventWindow:)``) never judges: without
+    /// this, a mode picked from a menu shown past the pane's edge went out with no gesture and was
+    /// refused (`transport.gesture_required`, "Couldn't switch to auto: Click the choice again to
+    /// apply it."). The pick counts before the page runs the row's action.
+    func popupEvent(_ event: [String: Any], current: NSEvent? = NSApp.currentEvent) {
+        if event["type"] as? String == "pick" { popupPicked(current) }
+        sendPopupEvent(event)
+    }
+
+    /// A row of the page's native popup was picked during `event`: the person's gesture when the
+    /// event is theirs (``AgentPanePersonInput``); a posted click or a call outside an event grants nothing.
+    func popupPicked(_ event: NSEvent?) {
+        AgentPanePersonInput.record(model.transport.gestures, event: event)
     }
 
     private func sendPopupEvent(_ event: [String: Any]) {

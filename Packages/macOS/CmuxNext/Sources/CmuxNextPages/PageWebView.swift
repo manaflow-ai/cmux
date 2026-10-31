@@ -118,6 +118,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// ``PageCrashReloads`` allows: the page is not reloaded, and the host shows its notice (with a
     /// button that calls ``reloadAfterCrashes()``).
     public var onCrash: ((PageWebView, _ reloading: Bool) -> Void)?
+    /// A row of the page's native popup (``popupHost``) was picked, with the AppKit event in dispatch
+    /// (its mouse up or key), before the page hears the pick: a host that keeps its own record of the
+    /// person's gestures (the agent pane's transport) counts the choice there.
+    public var onPopupPick: (@MainActor (NSEvent?) -> Void)?
     /// Whether a crashed page reloads by itself (up to ``PageCrashReloads/limit``). A host whose page
     /// holds the person's state (the agent chat: an open menu, the caret, an IME composition) sets it
     /// false: every crash shows its notice, and only its Reload button reloads.

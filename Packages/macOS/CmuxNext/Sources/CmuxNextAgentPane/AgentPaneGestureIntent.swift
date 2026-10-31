@@ -55,9 +55,13 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
     ]
 
     /// How long a ticket waits for its frame: a pick held while a harness starts, or a prompt held
-    /// while the user answers the folder trust question.
+    /// while the user answers the folder trust question. A mode or option picked behind a switch
+    /// waits as long as the prompt held behind the same switch: it goes out first, once the harness
+    /// has started, and a start slower than ``AgentPaneUserGestures/ticketLifetime`` (a loaded Mac,
+    /// a gateway that answers slowly) refused the pick while its prompt still went ("Couldn't switch
+    /// to auto"). Still single use, for its exact pick, on its connection. A permission answer's stays short.
     public var lifetime: TimeInterval {
-        method == "session/prompt" ? AgentPaneUserGestures.heldPromptLifetime : AgentPaneUserGestures.ticketLifetime
+        method == "_acpmux/permission_respond" ? AgentPaneUserGestures.ticketLifetime : AgentPaneUserGestures.heldPromptLifetime
     }
 
     public var method: String
