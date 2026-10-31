@@ -807,7 +807,7 @@ export function Composer({
     // then replaced the tab's kept draft on disk.
     const typed = field.current?.value() ?? textRef.current;
     // Merged only before the page read this chat's draft; after it, the prompt is the draft.
-    if (sessionId && draftWasRead(sessionId)) return;
+    if (draftWasRead(persistedSession.current)) return;
     const next = mergedDraft(typed, draft);
     if (next === typed) return;
     notTyped();
