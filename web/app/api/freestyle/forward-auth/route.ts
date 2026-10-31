@@ -14,6 +14,7 @@ import {
 import type { CloudVmPublicationTarget } from "../../../../services/vm-publications/repository";
 import { tracePublicationAuthOperation, withPublicationAuthRequest } from "../../../../services/vm-publications/requestTelemetry";
 import {
+  PUBLICATION_API_KEY_COOKIE,
   PUBLICATION_CALLBACK_PATH,
   PUBLICATION_SESSION_COOKIE,
   PUBLICATION_TRANSACTION_COOKIE,
@@ -162,6 +163,10 @@ export async function handleForwardAuthRequest(
       sessionToken: publicationCookie(
         request.headers.get("cookie"),
         PUBLICATION_SESSION_COOKIE,
+      ),
+      apiKey: publicationCookie(
+        request.headers.get("cookie"),
+        PUBLICATION_API_KEY_COOKIE,
       ),
     });
 

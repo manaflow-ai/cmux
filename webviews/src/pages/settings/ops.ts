@@ -607,7 +607,7 @@ export type HarnessRow = {
   latest?: string | null;
   outdated?: boolean;
   /** Only from evidence (a profile's check or a probe's sign-in error). */
-  auth?: "signedIn" | "signedOut" | "unknown";
+  auth?: "signedIn" | "signedOut" | "expired" | "unknown";
   /** How to update it; `elevated`: needs sudo, so the page shows `command` and never runs it. */
   update?: { command: string; elevated: boolean } | null;
   /** The update owner runs this channel (npm, Bun or native); without it Update is not offered. */

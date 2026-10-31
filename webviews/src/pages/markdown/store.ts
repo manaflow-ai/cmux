@@ -568,6 +568,11 @@ export class MarkdownStore {
         readOnly,
         readOnlyReason: file.readOnlyReason,
         assetBase: file.assetBase,
+        // What belongs to this file alone: the previous file's comments, table widths and
+        // remote-image grant must not carry over to the one now shown.
+        remoteImageBase: file.remoteImageBase,
+        tableWidths: file.tableWidths,
+        comments: file.comments,
       },
       readOnly,
       readOnlyReason: readOnly ? (file.readOnlyReason ?? "outside") : null,
