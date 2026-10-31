@@ -2,8 +2,9 @@
 //! an agent lane (design/agent-dispatch.md), checked where the lane would start
 //! (`server/place.rs` `here_refusal`, `server/requests.rs` `dispatch_brief`): `--host local`, a
 //! peer's dispatch and `auto` placed here are refused alike. A replay of a brief this host took
-//! before starts nothing and still answers, and a refused brief leaves no claim behind. One test
-//! function: the registry is read from this process's environment.
+//! before starts nothing and still answers, under `--host local`, this host's name or `auto`, and
+//! a refused brief leaves no claim behind. One test function: the registry is read from this
+//! process's environment.
 
 // Unix only until the Windows port runs the daemon (cmux::local_socket).
 #![cfg(unix)]
@@ -113,10 +114,20 @@ async fn last_resort_dispatch() {
         .await
         .unwrap();
     assert_eq!(replayed["replayed"], true, "{replayed}");
+    // So does a retry that names this host, or asks `auto` (which now finds no host for an agent
+    // lane): the placement rules a new lane meets come after the replay.
+    for host in [here.as_str(), "auto"] {
+        let replayed =
+            call(&a, None, method::MUX_DISPATCH, dispatch("say hi", host, "brief-old")).await;
+        let replayed = replayed.unwrap_or_else(|e| panic!("{host}: a replay was refused: {e}"));
+        assert_eq!(replayed["replayed"], true, "{host}: {replayed}");
+    }
 
     // A new agent lane here is refused, from the unix socket or a peer, local or auto.
     for (origin, host) in
         [(None, "local"), (Some(Origin::Peer), "local"), (Some(Origin::Peer), "auto")]
+            .into_iter()
+            .chain([(None, here.as_str()), (None, "auto")])
     {
         let refused =
             call(&a, origin, method::MUX_DISPATCH, dispatch("say hi", host, "brief-new")).await;
