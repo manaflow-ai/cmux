@@ -9,5 +9,5 @@ Use Refresh to read the workspace list again; it preserves unfinished lines and
 does not refresh in the background.
 
 Try it: copy the folder to `<cmux state>/apps/local/workspace-board`
-(`cmux raw command --request-json '{"cmd":"apps-list"}'` prints it as `local_dir`), install it in the App Store, then
+(`cmux-tui raw command --request-json '{"cmd":"apps-list"}'` prints it as `local_dir`), install it in the App Store, then
 `cmux app open local/workspace-board`. Saving a file reloads the pane.

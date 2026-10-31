@@ -22,7 +22,7 @@ async function send(workspace, terminal, input) {
   if (!text) return
   try {
     await cmux.call("terminal.input.write", { workspace, terminal, text: text + "\n" })
-    input.value = ""
+    if (input.value === text) input.value = ""
     say(`Sent to ${terminal}.`)
   } catch (error) {
     if (error.code === "scope.missing") {

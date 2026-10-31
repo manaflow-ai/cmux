@@ -81,8 +81,8 @@ function CommunityCard({
 }) {
   const { t, format } = strings;
   const summary = manifestSummary(listing.manifest);
-  // An installed copy older than the approved listing gets it again (no update prompts in the MVP).
-  const newer = local?.installed && local.latest_version !== listing.version;
+  // A cached copy can outlive a declined install or uninstall. Always fetch the version shown.
+  const newer = local !== undefined && local.latest_version !== listing.version;
   const get = (label: string) => (
     <button
       type="button"
