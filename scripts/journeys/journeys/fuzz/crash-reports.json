@@ -1,0 +1,43 @@
+{
+ "id": "crash-reports",
+ "priority": "P3",
+ "title": "Read the mini's crash reports of the last 12 h (diag-crashes.json): app, build, exception, the crashing thread's top frames",
+ "why": "A crash on a fleet mini (a Problem Reporter window, lead 10:5xZ) is classified from its own report: a product crash or the harness ending the app. The step only reads ~/Library/Logs/DiagnosticReports.",
+ "source": "scripts/journeys/ext_fuzz.py fuzz_crash_reports",
+ "budget_seconds": 90,
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "fuzz_crash_reports",
+   "hours": 12,
+   "frames": 16
+  },
+  {
+   "do": "expect",
+   "title": "the app answers, the daemon agrees and the window is not blank (the journey's three evidence kinds)",
+   "timeout": 20,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "system.identify",
+      "path": "pid",
+      "gt": 0
+     }
+    },
+    {
+     "smoke_daemon_lines": {
+      "lines": []
+     }
+    },
+    {
+     "smoke_frame": {
+      "min_lines": 0
+     }
+    }
+   ]
+  }
+ ]
+}
