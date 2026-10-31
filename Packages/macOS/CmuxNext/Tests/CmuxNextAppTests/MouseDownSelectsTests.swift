@@ -125,10 +125,11 @@ private typealias StripTab = CmuxNextTabs.TabID
         #expect(harness.activated == [BandHarness.newTerminal])
     }
 
+    /// The App Store: Home never drags (`LayoutItem.isMovable`, `SidebarHomeDragTests`).
     @Test func aPressThatBecomesADragStillDragsAndSwitchesOnce() throws {
         let harness = BandHarness()
         defer { harness.window.closeAfterTest() }
-        let view = try harness.view(BandHarness.home)
+        let view = try harness.view(BandHarness.appStore)
         var drags = 0, ended = 0
         view.onDragged = { _, _ in drags += 1; return true }
         view.onDragEnded = { _ in ended += 1 }
@@ -136,7 +137,7 @@ private typealias StripTab = CmuxNextTabs.TabID
         view.mouseDragged(with: try harness.event(.leftMouseDragged, on: view, dy: 30))
         view.mouseUp(with: try harness.event(.leftMouseUp, on: view, dy: 30))
         #expect(drags == 1 && ended == 1, "the press did not drag")
-        #expect(harness.activated == [BandHarness.home])
+        #expect(harness.activated == [BandHarness.appStore])
     }
 
     @Test func aPaneTabSelectsOnMouseDownBeforeTheRelease() throws {
