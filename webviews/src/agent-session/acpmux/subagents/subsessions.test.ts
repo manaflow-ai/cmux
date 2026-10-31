@@ -143,9 +143,11 @@ test("a sender name shared by live chats never chooses the first one arbitrarily
   expect(store.has("local")).toBe(true);
   expect(store.has("remote")).toBe(true);
   const before = changes;
-  // Merely changing list order cannot make a colliding sender name actionable.
+  // Merely changing list order cannot make a colliding sender name actionable or
+  // notify subscribers: the set of identities and hosts has not changed.
   store.set([remote, local]);
   expect(store.find("reviewer")).toBeUndefined();
+  expect(changes).toBe(before);
   // The ambiguous alias becomes actionable when its other live owner leaves.
   store.set([remote]);
   expect(store.find("reviewer")).toBe("remote");
