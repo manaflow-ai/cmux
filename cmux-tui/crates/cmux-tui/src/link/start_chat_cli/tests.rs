@@ -97,6 +97,28 @@ fn a_machine_marked_for_chats_is_taken_first_even_with_chats_open() {
     assert_eq!(pick::pick(&theirs, Some(ME), &none()), None);
 }
 
+/// #28407: a machine with a pause, resume or delete on its way is never
+/// taken, even marked for chats and still connected.
+#[test]
+fn a_changing_machine_is_skipped_even_when_marked_for_chats() {
+    for status in ["pausing", "starting", "deleting"] {
+        for connected in [true, false] {
+            let changing = with(machine("vm-changing", "cloud-chats"), |m| {
+                m.status = status.into();
+                m.connected = connected;
+            });
+            let free = machine("vm-free", "spare");
+            let both = [changing.clone(), free];
+            assert_eq!(
+                pick::pick(&both, Some(ME), &none()).as_deref(),
+                Some("vm-free"),
+                "{status}"
+            );
+            assert_eq!(pick::pick(&[changing], Some(ME), &none()), None, "{status}");
+        }
+    }
+}
+
 #[test]
 fn lane_shell_vms_are_never_picked() {
     let lanes =

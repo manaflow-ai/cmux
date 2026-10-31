@@ -41,6 +41,12 @@ impl Candidate {
         matches!(self.status.as_str(), "running" | "provisioning")
     }
 
+    /// A pause, resume or delete the server accepted is on its way
+    /// (`CloudMachine.Status.isChanging`).
+    fn is_changing(&self) -> bool {
+        matches!(self.status.as_str(), "pausing" | "starting" | "deleting")
+    }
+
     /// Paused by the idle timer, which pauses only an idle machine.
     fn is_idle_paused(&self) -> bool {
         self.status == "paused" && self.pause_reason.as_deref() == Some("idle")
@@ -76,7 +82,8 @@ pub(crate) fn is_lane_pool(name: &str) -> bool {
 /// The machine a first send takes, by id; None: make one ([`CHATS_NAME`]).
 /// Only this person's (`user`; a machine the server names no creator for
 /// counts when an earlier send ran on it, `used`), never a lane-pool VM, and
-/// only one that can take work now or after an idle resume. Among those: one
+/// only one that can take work now or after an idle resume, with no pause,
+/// resume or delete on its way. Among those: one
 /// marked for chats first, then a free one (connected with no chat open, or
 /// paused by the idle timer); connected first, then in the App's order.
 pub(crate) fn pick(
@@ -96,7 +103,8 @@ pub(crate) fn pick(
     let mut ranked: Vec<&Candidate> = candidates
         .iter()
         .filter(|machine| {
-            mine(machine)
+            !machine.is_changing()
+                && mine(machine)
                 && !machine.names().any(is_lane_pool)
                 && (machine.connected || machine.is_live() || machine.is_idle_paused())
                 && (marked(machine) || free(machine))
