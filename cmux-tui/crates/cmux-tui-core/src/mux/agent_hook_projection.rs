@@ -47,24 +47,24 @@ impl Mux {
                 return Ok(());
             }
             for (producer, origin, key, earlier_sequence, ingress) in pending {
-                if let Err(error) = self.project_agent_hook_record(&ingress, earlier_sequence) {
-                    if !agent_hook_terminal_gone(&error) {
-                        self.workspace_registry
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner())
-                            .enqueue_agent_hook_pending(
-                                &producer,
-                                &origin,
-                                &key,
-                                earlier_sequence,
-                                &ingress,
-                                AgentHookPendingFailure {
-                                    error: AGENT_HOOK_RETRY_ERROR,
-                                    retry_class: agent_hook_retry_class(&error),
-                                },
-                            )?;
-                        return Err(error);
-                    }
+                if let Err(error) = self.project_agent_hook_record(&ingress, earlier_sequence)
+                    && !agent_hook_terminal_gone(&error)
+                {
+                    self.workspace_registry
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .enqueue_agent_hook_pending(
+                            &producer,
+                            &origin,
+                            &key,
+                            earlier_sequence,
+                            &ingress,
+                            AgentHookPendingFailure {
+                                error: AGENT_HOOK_RETRY_ERROR,
+                                retry_class: agent_hook_retry_class(&error),
+                            },
+                        )?;
+                    return Err(error);
                 }
                 self.workspace_registry
                     .lock()
