@@ -93,6 +93,9 @@ extension CloudStartChat {
             /// opens its chat there without copying again, which would overwrite what the chat
             /// already changed (`cmux link sync push` rewrites every file the machine changed).
             var copiedChat: String?
+            /// The folder under the work root this send's copy goes to on that machine, kept from
+            /// before the copy starts (``place(for:on:)``).
+            var place: String?
         }
 
         var defaults: @MainActor () -> UserDefaults? = { nil }
@@ -114,10 +117,27 @@ extension CloudStartChat {
         func record(_ machineID: String, for key: String) {
             let key = key.lowercased()
             let all = entries()
-            let copied = all.last { $0.key == key && $0.machineID == machineID }?.copiedChat
+            let same = all.last { $0.key == key && $0.machineID == machineID }
             var kept = all.filter { $0.key != key }
-            kept.append(Entry(key: key, machineID: machineID, copiedChat: copied))
+            kept.append(Entry(key: key, machineID: machineID, copiedChat: same?.copiedChat, place: same?.place))
             save(Array(kept.suffix(Self.limit)))
+        }
+
+        /// The folder under the machine's work root the send `key`'s copy goes to on `machineID`:
+        /// the one kept for it, else a new one (`fresh`, under ``AgentPaneCloudStart/remotePlace``),
+        /// kept now, before anything is copied. A retry finds its own copy's folder; a retry whose
+        /// record is gone (older than ``limit`` sends, another machine) gets a new folder, so its
+        /// copy never writes over a chat that already started in the old one (`cmux link sync push`
+        /// rewrites every file the machine changed).
+        func place(for key: String, on machineID: String, fresh: () -> String) -> String {
+            let lowered = key.lowercased()
+            let all = entries()
+            if let kept = all.last(where: { $0.key == lowered && $0.machineID == machineID })?.place { return kept }
+            let place = fresh()
+            var kept = all.filter { $0.key != lowered }
+            kept.append(Entry(key: lowered, machineID: machineID, copiedChat: nil, place: place))
+            save(Array(kept.suffix(Self.limit)))
+            return place
         }
 
         /// The chat's folder on `machineID` when the send `key`'s copy finished there.
@@ -129,8 +149,10 @@ extension CloudStartChat {
         /// The send `key`'s copy finished on `machineID`, its chat's folder there `chat`.
         func recordCopy(_ chat: String, for key: String, on machineID: String) {
             let key = key.lowercased()
-            var kept = entries().filter { $0.key != key }
-            kept.append(Entry(key: key, machineID: machineID, copiedChat: chat))
+            let all = entries()
+            let place = all.last { $0.key == key && $0.machineID == machineID }?.place
+            var kept = all.filter { $0.key != key }
+            kept.append(Entry(key: key, machineID: machineID, copiedChat: chat, place: place))
             save(Array(kept.suffix(Self.limit)))
         }
 

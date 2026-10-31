@@ -191,4 +191,25 @@ struct CloudStartChatMachineTests {
         #expect(CloudStartChat.refusal(cloudDisabled: true, signedIn: true) == "cloud_disabled")
         #expect(CloudStartChat.refusal(cloudDisabled: true, signedIn: false) == "cloud_disabled")
     }
+
+    /// A retry finds its own copy's folder; one whose record is gone gets a new folder, so its copy
+    /// never writes over a chat that already started in the old one.
+    @Test func aRetryWhoseRecordWasEvictedCopiesIntoANewFolder() {
+        let destinations = CloudStartChat.Destinations()
+        let key = UUID().uuidString
+        var minted = 0
+        let fresh = { () -> String in minted += 1; return "chats/\(key.lowercased())/\(minted)" }
+        destinations.record("vm-a", for: key)
+        let first = destinations.place(for: key, on: "vm-a", fresh: fresh)
+        // The same send again (its copy cut off, or done and the tab lost): the same folder.
+        #expect(destinations.place(for: key, on: "vm-a", fresh: fresh) == first)
+        destinations.recordCopy("/home/cmux/work/" + first + "/paint", for: key, on: "vm-a")
+        #expect(destinations.place(for: key, on: "vm-a", fresh: fresh) == first)
+        // Pushed out by newer sends: the next try gets a folder of its own, never the old one.
+        for _ in 0..<CloudStartChat.Destinations.limit { destinations.record("vm-b", for: UUID().uuidString) }
+        #expect(destinations.copiedChat(for: key, on: "vm-a") == nil)
+        let again = destinations.place(for: key, on: "vm-a", fresh: fresh)
+        #expect(again != first)
+        #expect(minted == 2)
+    }
 }

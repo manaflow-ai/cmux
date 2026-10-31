@@ -105,7 +105,8 @@ struct CloudStartChat {
         if let copied = destinations.copiedChat(for: start.key, on: machine.machineID) {
             remoteChat = copied
         } else {
-            remoteChat = try await move.sync(folder, to: socket, machine: name, cli: cli, retry: again, place: start.remotePlace).chat
+            let place = destinations.place(for: start.key, on: machine.machineID) { start.remotePlace + "/" + UUID().uuidString.prefix(8).lowercased() }
+            remoteChat = try await move.sync(folder, to: socket, machine: name, cli: cli, retry: again, place: place).chat
             destinations.recordCopy(remoteChat, for: start.key, on: machine.machineID)
         }
         let context = AppActionContext(services: services)
