@@ -363,7 +363,7 @@ fn push_inner(
                 summary.deleted += 1;
             }
             Some(_) => {
-                summary.kept += 1;
+                summary.kept = summary.kept.saturating_add(1);
                 spared.push((relative.clone(), pushed.clone()));
             }
             None => {}
