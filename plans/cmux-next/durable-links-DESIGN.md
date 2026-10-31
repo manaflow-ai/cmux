@@ -56,7 +56,13 @@ before. A live row of that id is never touched by the scope (it is "used" after 
 resurrect, so a second create in the same scope mints a random id).
 
 Not in this slice (a343 owns, same mechanism): panes (`pane_`), screens, workspaces keep their
-ids on reopen. Until then a `pane/` or `workspace/` link to a closed object refuses as gone.
+ids on reopen. Until then a `pane/` link to a closed pane refuses as gone.
+
+`workspace` (cmux#25572): a `ws_` id. A closing workspace's member records its id
+(`closed_workspace_id`); `closed.reopen {workspace}` reopens the workspace member of the newest
+group that recorded it, as a new workspace (its own id comes back with a343). Excludes `closed`,
+`members` and `tab`; `resource.not_found` when no group holds it (open, closed before the id was
+recorded, reopened already, or deleted).
 
 ## 4. App
 
@@ -65,6 +71,10 @@ first) call `closed.reopen {tab: id, fallback_pane}` and select the returned tab
 reported (`PaneController.selectWhenReported`, the Cmd-Shift-T path); `resource.not_found` on
 every daemon is the gone refusal. One shared path, so the OS handler, Home, agent chats, the
 palette, the CLI and MCP all get it.
+
+`DeepLinkNavigator.open(.workspace(id))`: reveal if live; else `DurableWorkspaceLink` asks each
+connected daemon (local first, the same walk) for `closed.reopen {workspace: id}` and reveals the
+workspace the reply names once the store lists it (both in `DurableTabLink.swift`).
 
 ## 5. Link convention for Chiefs and agents
 
@@ -92,7 +102,8 @@ plan (live -> reveal, else reopen by id, else gone).
 
 ## 7. Left for later
 
-- Pane, screen and workspace ids kept on reopen (a343 D1, same mechanism).
+- Pane, screen and workspace ids kept on reopen (a343 D1, same mechanism). Until then a
+  workspace link opens a closed workspace once; after that reopen its old id names nothing.
 - Artifacts that are not tabs (a file shown in a Home preview card) get a `cmux://tab/` link only
   once they are opened as a tab.
 - Links across machines: `?machine=` is a hint; a closed tab on an offline machine refuses as
