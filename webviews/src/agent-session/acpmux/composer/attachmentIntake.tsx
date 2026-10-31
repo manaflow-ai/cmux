@@ -89,6 +89,8 @@ export type AttachmentIntakeOptions = {
   /// When the composer moves to another chat: whether the files still being read move with it (a
   /// harness switch's new session carries the prompt). A chat that had no id yet always carries.
   carries?(): boolean;
+  /// Overrides the fresh-chat default for a recovery that deliberately carries text only.
+  suppressCarry?(from?: string, to?: string): boolean;
 };
 
 /** Append a batch while replacing the same attachment id and collapsing repeated local path links
@@ -256,7 +258,12 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   useLayoutEffect(() => {
     const from = lastScope.current;
     lastScope.current = scope;
-    if (from === scope || (from !== undefined && !live.current.options.carries?.())) return;
+    if (
+      from === scope ||
+      live.current.options.suppressCarry?.(from, scope) ||
+      (from !== undefined && !live.current.options.carries?.())
+    )
+      return;
     for (const batch of batches.current) if (batch.scope === from && !batch.bound) batch.scope = scope;
     setPending((chips) => chips.map((chip) => (chip.scope === from && !chip.bound ? { ...chip, scope } : chip)));
   }, [scope]);
