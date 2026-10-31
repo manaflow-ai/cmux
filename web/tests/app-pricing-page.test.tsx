@@ -205,7 +205,9 @@ describe("app pricing page", () => {
     const reader = stream.getReader();
     try {
       const first = await readInitialMain(reader);
-      expect(first.includes("$50") && first.includes("$200")).toBe(true);
+      expect(first.includes("$15") && first.includes("$50") && first.includes("$200")).toBe(true);
+      expect(first.includes("lg:grid-cols-4")).toBe(true);
+      expect(first.includes("Billing is not available")).toBe(false);
       expect(first.includes("animate-pulse")).toBe(false);
       expect(first.includes("/api/billing/checkout")).toBe(false);
       expect(first.includes("/api/billing/portal")).toBe(false);

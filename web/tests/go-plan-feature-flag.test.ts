@@ -21,6 +21,6 @@ describe("Go rollout flag", () => {
 
 // Releasing web Plus must not accidentally release App Store Go.
 test("web Plus is available while App Store Go still honors its release flag", async () => {
-  expect(await isWebPlusPlanEnabled("test-user")).toBe(true);
+  expect(isWebPlusPlanEnabled("test-user")).toBe(true);
   expect(await isGoPlanEnabled("test-user", async () => response({}, 503))).toBe(false);
 });

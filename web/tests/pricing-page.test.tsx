@@ -143,6 +143,10 @@ describe("localized pricing page", () => {
       const first = await readInitialMain(reader);
       expect(first.includes("$50") && first.includes("$200")).toBe(true);
       expect(first.includes("Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM")).toBe(true);
+      // Plus is in the first paint, so the grid does not reflow to make room for it.
+      expect(first.includes("$15")).toBe(true);
+      expect(first.includes("lg:grid-cols-4")).toBe(true);
+      expect(first.includes("25% repeat(6,12.5%)")).toBe(true);
       expect(first.includes("animate-pulse")).toBe(false);
       expect(first.includes("Current plan")).toBe(false);
     } finally {

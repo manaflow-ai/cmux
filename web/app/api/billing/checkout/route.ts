@@ -144,8 +144,8 @@ function nativeCheckoutError(error: NativeCheckoutError) {
   return NextResponse.json({ error, ...action }, { status });
 }
 
-async function goPlanUnavailable(userID: string, plan: unknown): Promise<boolean> {
-  return plan === "go" && !(await isGoPlanEnabled(userID));
+function goPlanUnavailable(userID: string, plan: unknown): boolean {
+  return plan === "go" && !isGoPlanEnabled(userID);
 }
 
 /** Native/CLI checkout binds the purchaser to the app's authenticated account. */
@@ -158,7 +158,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const plan = nativeCheckoutPlan(body);
     if (plan === "team") return await nativeTeamCheckout(request, user.id, body);
     if (!plan) return nativeCheckoutError("invalid_plan");
-    if (await goPlanUnavailable(user.id, plan)) return nativeCheckoutError("plan_unavailable");
+    if (goPlanUnavailable(user.id, plan)) return nativeCheckoutError("plan_unavailable");
     const app = await checkoutStackServerApp();
     if (!app || !isStripeBillingConfigured()) return nativeCheckoutError("billing_unavailable");
     const attribution = nativeCheckoutAttribution();
@@ -334,7 +334,7 @@ async function stripePersonalCheckout(
     const user = authenticatedUserId ? await stackServerApp.getUser(authenticatedUserId) :
       await stackServerApp.getUser({ or: "return-null" });
     if (!user || user.isAnonymous) return checkoutSignInRedirect(request);
-    if (plan === GO_PLAN_ID && !(await isGoPlanEnabled(user.id))) {
+    if (plan === GO_PLAN_ID && !isGoPlanEnabled(user.id)) {
       return NextResponse.redirect(new URL("/pricing?billing=plan_unavailable", requestOrigin(request)));
     }
     if (isAccountDeletionInProgress(user)) {
