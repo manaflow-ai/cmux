@@ -157,9 +157,10 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              text: \"cmd\\n\"}} runs it there and the tab stays open with its output. Use this \
              for 'open a terminal', 'run X on my right', 'next to my logs'. With shell (or \
              argv) the tab runs only that command and closes when it exits.\n\
-             - pane_split {{pane, direction}}: only when the person says \"split\" or wants \
-             two terminals \"side by side\" (split the workspace's pane, then use the new \
-             value.pane_id). \"Next to my logs\", \"beside X\" or \"on the right\" means a \
+             - pane_split {{pane, direction}}: only when the person says \"split\", \"below\" \
+             or \"underneath\" (direction: \"down\"), or wants two terminals \"side by side\". \
+             The split makes the new pane's terminal (value.terminal_id): write into it, do not \
+             add a tab. \"Next to my logs\", \"beside X\" or \"on the right\" means a \
              new tab in that pane: tab_create_terminal {{pane}}, or no pane for the column \
              right of this chat (pane: \"current\" is this chat's own pane, not the right).\n\
              - terminal_input_write {{terminal, text: \"cmd\\n\"}}; terminal_wait {{terminal, \
@@ -175,6 +176,8 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              - Groups: tab_group_create {{tabs: [ids], name}}; workspace_group_create {{name}}, \
              then workspace_place {{workspace, group: <its id>}} for each member.\n\
              - workspace_status_set {{workspace, key, text}} (a sidebar status pill); \
+             workspace_status_clear {{workspace, key}} removes it (an empty text leaves an empty \
+             pill); \
              notification_create {{title, body}}.\n\n\
              Anything else: `await cmux.docs(\"words\")` answers {{tools: [{{name, description, \
              inputSchema}}], more: [names]}}; a tool's exact name finds it first. \
