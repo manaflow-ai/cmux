@@ -1,0 +1,27 @@
+# Loom models of the daemon's lock and queue code (fuzz catalog row i). Part
+# of the cmux-tui/fuzz workspace only, so no cmux-tui CI job builds or runs it.
+#
+#   RUSTFLAGS='--cfg loom' cargo test --release --manifest-path cmux-tui/fuzz/Cargo.toml -p cmux-tui-loom
+[package]
+name = "cmux-tui-loom"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dev-dependencies]
+loom = "0.7"
+
+[[test]]
+name = "admission"
+path = "tests/admission.rs"
+
+[[test]]
+name = "journal_queue"
+path = "tests/journal_queue.rs"
+
+[[test]]
+name = "registry_receipt"
+path = "tests/registry_receipt.rs"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(loom)"] }

@@ -11,6 +11,8 @@ pub mod http;
 pub mod identity;
 pub mod link;
 pub use mux_client::MuxLineClient;
+#[cfg(fuzzing)]
+pub mod fuzz_seam;
 mod mux_client;
 mod mux_codec;
 mod mux_input;

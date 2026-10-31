@@ -1,0 +1,19 @@
+# The live wire test of fuzz catalog row c: a real daemon socket, the
+# admission limit plus more clients, garbage and partial frames. Part of the
+# cmux-tui/fuzz workspace only, so no cmux-tui CI job builds or runs it.
+#
+#   cargo test --release --manifest-path cmux-tui/fuzz/Cargo.toml -p cmux-tui-fuzz-live -- --nocapture
+#   CMUX_WIRE_FUZZ_SEED=<n> CMUX_WIRE_FUZZ_ROUNDS=<n>   (repeat a run, run longer)
+[package]
+name = "cmux-tui-fuzz-live"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dev-dependencies]
+cmux-tui-core = { path = "../../crates/cmux-tui-core" }
+serde_json = "1"
+
+[[test]]
+name = "concurrent_clients"
+path = "tests/concurrent_clients.rs"

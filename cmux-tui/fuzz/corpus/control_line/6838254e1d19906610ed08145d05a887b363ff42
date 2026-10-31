@@ -1,0 +1,1 @@
+{"id":2,"cmd":"server-stats","include":["locks","write_path"]}

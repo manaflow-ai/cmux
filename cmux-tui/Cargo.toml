@@ -178,8 +178,9 @@ publish = false
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 unused_qualifications = "warn"
-# `cargo kani` sets cfg(kani) for the proof harnesses in cmux-layout-reducer.
-unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }
+# `cargo kani` sets cfg(kani) for the proof harnesses in cmux-layout-reducer;
+# cargo-fuzz sets cfg(fuzzing) and the loom models set cfg(loom) (cmux-tui/fuzz).
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)", "cfg(fuzzing)", "cfg(loom)"] }
 
 [workspace.lints.clippy]
 uninlined_format_args = "warn"

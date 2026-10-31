@@ -104,6 +104,13 @@ impl<R> MuxLineAssembler<R> {
     pub(crate) fn with_maximum(maximum: usize) -> Self {
         Self { lines: HashMap::new(), bytes: 0, maximum }
     }
+
+    /// Lines with parts still missing, and the bytes they hold (the fuzz
+    /// seam's leak check).
+    #[cfg(fuzzing)]
+    pub(crate) fn in_flight(&self) -> (usize, usize) {
+        (self.lines.len(), self.bytes)
+    }
 }
 
 struct PartialLine<R> {

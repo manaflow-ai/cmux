@@ -652,36 +652,6 @@ pub struct ConnectionStats {
 }
 
 impl ConnectionStats {
-    /// Claims a slot if fewer than `limit` connections are active.
-    /// At the limit it first takes back the slots of clients that hung up
-    /// (`reclaim_hung_up`): a connection thread parked on the registry lock
-    /// outlives its client, and those threads held every slot while the app
-    /// was refused (#27669).
-    pub fn try_claim(&self, limit: u64) -> bool {
-        let claim = |count: u64| (count < limit).then_some(count + 1);
-        let mut claimed = self.active.fetch_update(Ordering::AcqRel, Ordering::Acquire, claim);
-        if claimed.is_err() && self.reclaim_hung_up(limit) > 0 {
-            claimed = self.active.fetch_update(Ordering::AcqRel, Ordering::Acquire, claim);
-        }
-        match claimed {
-            Ok(previous) => {
-                // Use the count this claim produced, not a later reload: a
-                // release in between would under-report the peak.
-                self.peak.fetch_max(previous + 1, Ordering::Relaxed);
-                self.accepted.fetch_add(1, Ordering::Relaxed);
-                true
-            }
-            Err(_) => {
-                self.refused.fetch_add(1, Ordering::Relaxed);
-                false
-            }
-        }
-    }
-
-    pub fn release(&self) {
-        self.active.fetch_sub(1, Ordering::AcqRel);
-    }
-
     pub fn active(&self) -> u64 {
         self.active.load(Ordering::Acquire)
     }
