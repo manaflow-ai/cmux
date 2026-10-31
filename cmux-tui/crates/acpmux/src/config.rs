@@ -1524,14 +1524,19 @@ impl Config {
     }
 
     /// Without a configured default, the first harness that runs an ACP
-    /// session (a terminal harness, an installed `muse` say, never does).
+    /// session (a terminal harness, an installed `muse` say, never does), and
+    /// never the Chief harness: a new chat is a coding agent unless the person
+    /// picks their Chief.
     fn pick_auto_default(&mut self) {
         if self.default_harness.is_none() {
             self.auto_default = true;
             self.default_harness = self
                 .harnesses
                 .iter()
-                .find(|(_, profile)| profile.kind != HarnessKind::Terminal)
+                .find(|(_, profile)| {
+                    profile.kind != HarnessKind::Terminal
+                        && profile.family.as_deref() != Some(CHIEF_FAMILY)
+                })
                 .map(|(name, _)| name.clone());
         }
     }
