@@ -1,5 +1,15 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-31: record the terminal cwd-title change in b648fd2d603 (#28059).
+  The reported defect was: "Two terminal tabs in one workspace are both titled
+  \"Terminal\" / \"~\"." Non-home cwd-derived titles remain visible in sidebar
+  tab rows, so terminals in different folders are distinguishable; explicit user
+  names retain precedence. `SidebarTabLineTests`, `SidebarTabLineMappingTests`,
+  and `TerminalTitleTabItemTests` cover the mapping. The implementation at
+  b7b5b367227e488a4afbedc0c083695bbd831a16 received independent code review:
+  https://github.com/manaflow-ai/cmux/pull/28059#issuecomment-6536962266.
+  This record adds no UI change and does not replace the required capture verdict.
+
 - 2026-10-30: `sidebar.textSize` (Settings > Appearance > Sidebar Text Size; palette, `cmux settings set
   sidebar.textSize larger`, MCP `settings_set`). Lawrence msg 17752 (a ChatGPT sidebar screenshot): "we also need
   option for sidebar text to be very significantly bigger. this is how big chatgpt is by default, let's match them".
