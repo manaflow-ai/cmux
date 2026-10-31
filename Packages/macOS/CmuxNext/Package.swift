@@ -128,8 +128,9 @@ import PackageDescription
 //     Undo, the pane model; no AppKit; plans/finder-parity/PARITY.md)
 //   CmuxNextFilesUI -> Files, Design, Compat (the Files pane's AppKit views: list, icons, columns,
 //     path bar, Quick Look, drag in and out)
-//   CmuxNextCrashReporting -> CmuxSentryReporting, Sentry (crash and exception reports to Sentry:
-//     consent, channel environment, release, scrubbing; no UI, no daemon; cx-urd.58)
+//   CmuxNextCrashReporting -> Compat, Wakeups, CmuxSentryReporting, Sentry (crash and exception reports
+//     to Sentry: consent, channel environment, release, scrubbing; the run marker's background file
+//     writer, RunMarkerFile; no UI, no daemon; cx-urd.58)
 //   CmuxNextTestSupport -> system frameworks only (helpers test targets share, under Tests/; no
 //     product links it)
 //   CmuxNextSessionTransfer -> Design, Settings (Move Sessions from Another cmux Build: the
@@ -1327,6 +1328,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextCrashReporting",
             dependencies: [
                 "CmuxNextCompat",
+                "CmuxNextWakeups",
                 .product(name: "CmuxSentryReporting", package: "CmuxSentryTelemetry"),
                 .product(name: "Sentry-Dynamic", package: "sentry-cocoa"),
             ],
