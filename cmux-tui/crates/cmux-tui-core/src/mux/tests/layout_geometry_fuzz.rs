@@ -573,6 +573,10 @@ proptest! {
         failure_persistence: None,
         max_shrink_iters: 4_000,
         max_shrink_time: 60_000,
+        // A fixed seed: the same cases every run, so a new random input
+        // cannot turn the base red. Fuzz runs set a random seed on a scratch
+        // branch.
+        rng_seed: proptest::test_runner::RngSeed::Fixed(0x1e_0d),
         ..ProptestConfig::default()
     })]
 

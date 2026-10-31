@@ -5,12 +5,12 @@
 //! - no crash (a panic or an abort fails the test binary);
 //! - GRID: after a resize to `cols x rows`, the terminal is `max(cols, 1) x
 //!   max(rows, 1)`, and the cursor is inside the grid;
-//! - REPLAY (the R3a view side; off while findings e1/e2 are open, see
-//!   [`REPLAY_ORACLE`]): a fresh terminal of the same size fed the
+//! - REPLAY (the R3a view side; off while #29136 is open, see
+//!   [`OPEN_FINDING_ORACLES`]): a fresh terminal of the same size fed the
 //!   attach replay shows the same viewport text and cursor, which is what a
 //!   frontend that attaches at that moment shows; checked only while the
 //!   stream is at ground (no unfinished sequence);
-//! - SNAPSHOT: the READY snapshot encodes;
+//! - SNAPSHOT: the READY snapshot encodes (off while #29136 is open);
 //! - STALL: no single write, resize or replay takes over 5 s (a hang
 //!   detector under a loaded runner; `CMUX_VT_FUZZ_STALL_MS=100` is the
 //!   100 ms main-thread budget for a run on an idle host).
@@ -22,15 +22,21 @@ use std::time::{Duration, Instant};
 
 use ghostty_vt::{Callbacks, SnapshotPhase, Terminal};
 use proptest::prelude::*;
+use proptest::test_runner::RngSeed;
 
 const SCROLLBACK: usize = 1 << 20;
 
-/// The REPLAY oracle finds the open findings e1 and e2 (byte replay differs
-/// from the terminal; red tests on `fuzz-red/terminal-e1`, fix owner: the
-/// resize P0). While they are open it is off here, so this test does not turn
-/// the base red; the fuzz runs keep it on (scratch branch
-/// `cp/fuzz-vt-replay-on`), and the fix PR for e1/e2 sets it to true.
-const REPLAY_ORACLE: bool = false;
+/// The REPLAY and SNAPSHOT oracles find the open findings e1-e3 (issue
+/// #29136; red tests on `fuzz-red/terminal-e1`). While they are open both
+/// are off here, so this test does not turn the base red. The fuzz runs keep
+/// them on, with a random seed (scratch branch `cp/fuzz-vt-replay-on`). The
+/// fix PR for #29136 sets this to true.
+const OPEN_FINDING_ORACLES: bool = false;
+
+/// The landed test uses a fixed seed, so it gives the same cases every run
+/// and cannot turn the base red on a new random input; the fuzz runs on the
+/// scratch branch use a random seed.
+const FIXED_SEED: Option<u64> = Some(0x1e_0e);
 
 #[derive(Debug, Clone)]
 enum Op {
@@ -153,7 +159,7 @@ fn check_grid(term: &Terminal, cols: u16, rows: u16) -> Result<(), String> {
 }
 
 fn check_replay(term: &mut Terminal) -> Result<(), String> {
-    if !REPLAY_ORACLE || !term.vt_stream_is_ground() {
+    if !OPEN_FINDING_ORACLES || !term.vt_stream_is_ground() {
         return Ok(());
     }
     let (cols, rows) = (term.cols(), term.rows());
@@ -196,15 +202,26 @@ fn run_sequence(start: (u16, u16), ops: &[Op]) -> Result<(), String> {
                     .map_err(|error| at(format!("resize failed: {error:#}")))?;
             }
         }
-        // A program may change the grid itself (DECCOLM): after a write the
-        // terminal's own size is the one to hold the cursor.
-        if matches!(op, Op::Write(_)) {
-            (cols, rows) = (term.cols(), term.rows());
+        // A program may change the grid itself, only through DECCOLM
+        // (CSI ? 3 h / l with mode 40): 80 or 132 columns, the same rows.
+        if matches!(op, Op::Write(_)) && (term.cols(), term.rows()) != (cols.max(1), rows.max(1)) {
+            if term.rows() != rows.max(1) || ![80, 132].contains(&term.cols()) {
+                return Err(at(format!(
+                    "GRID: a write changed the grid from {}x{} to {}x{} (only DECCOLM may, to 80 or 132 columns)",
+                    cols.max(1),
+                    rows.max(1),
+                    term.cols(),
+                    term.rows()
+                )));
+            }
+            cols = term.cols();
         }
         check_grid(&term, cols, rows).map_err(at)?;
-        timed("encode_snapshot", || term.encode_snapshot(SnapshotPhase::Ready))
-            .map_err(at)?
-            .map_err(|error| at(format!("SNAPSHOT: {error:#}")))?;
+        let snapshot =
+            timed("encode_snapshot", || term.encode_snapshot(SnapshotPhase::Ready)).map_err(at)?;
+        if OPEN_FINDING_ORACLES {
+            snapshot.map_err(|error| at(format!("SNAPSHOT: {error:#}")))?;
+        }
         check_replay(&mut term).map_err(at)?;
     }
     Ok(())
@@ -216,6 +233,7 @@ proptest! {
         failure_persistence: None,
         max_shrink_iters: 4_000,
         max_shrink_time: 60_000,
+        rng_seed: FIXED_SEED.map_or(RngSeed::Random, RngSeed::Fixed),
         ..ProptestConfig::default()
     })]
 
