@@ -30,6 +30,7 @@ final class OnboardingService {
     private var projectScanTask: Task<Void, Never>?
     /// Follows `browser.import.enabled` (``BrowserImportGate``).
     private var importSettingFollow: Task<Void, Never>?
+    private var cookieBannerFollow: Task<Void, Never>?
 
     /// Where `workspace.importClassic` reads classic's saved session; nil
     /// reads the one classic saved last (tests point it at a fixture).
@@ -115,6 +116,8 @@ final class OnboardingService {
     func followImportSetting(_ settings: SettingsController) {
         importSettingFollow?.cancel()
         importSettingFollow = BrowserImportGate(host: services).follow(settings)
+        cookieBannerFollow?.cancel()
+        cookieBannerFollow = browserImportOffer.followBannerSetting(settings)
     }
 
     /// `browser.import.enabled` turned off: the browser tab's offer goes and an Import from Browser

@@ -1482,15 +1482,100 @@ jobs:
           path: ${{ steps.marker.outputs.path }}
           retention-days: 1
 
+  # cmux-next checks' runner.
+  # Jobs that need neither Linux nor Blacksmith take fleet Linux (vars.LINUX_RUNNER when it names our
+  # own Linux runner), else a mini idle now with no nightly job waiting on its pool, else their
+  # Blacksmith label (scripts/ci/portable_job_placement.py; Leo, 2026-10-31: "i mean the linux things
+  # cant our minis just run them"). Every step fails open: no output keeps each job's Blacksmith route.
+  # The placement code comes from the base branch, as macos-placement's does.
+  portable-placement:
+    name: portable job placement
+    if: ${{ inputs.dev_daily != true && inputs.base_tier != true && inputs.same_tree_sha == '' && github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) }}
+    environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 4
+    permissions:
+      # The queue janitor's pool snapshot (nightly jobs waiting on a pool).
+      actions: read
+      contents: read
+    outputs:
+      linux_runner: ${{ steps.place.outputs.linux_runner }}
+      linux_jobs: ${{ steps.place.outputs.linux_jobs }}
+      mini_runner: ${{ steps.place.outputs.mini_runner }}
+      mini_jobs: ${{ steps.place.outputs.mini_jobs }}
+      # A re-run of failed jobs carries this job's outputs from an earlier attempt; a job takes them
+      # only in the attempt that placed it, so a stale reading never sends it to a busy mini.
+      placed_attempt: ${{ github.run_attempt }}
+    steps:
+      - name: Check out the trusted placement
+        timeout-minutes: 1
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+
+      # A mini or fleet Linux host reuses its workspace: drop the submodule checkouts a previous job
+      # left there (a no-op on Blacksmith, which starts with none).
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        continue-on-error: true
+        run: if [ -x scripts/ci/reset-stale-submodules.sh ]; then scripts/ci/reset-stale-submodules.sh; fi
+
+      - name: Mint the owned-pool routing token
+        id: route-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Mint the cmux-bot runner-read token
+        id: route-token-fallback
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-organization-self-hosted-runners: read
+
+      - name: Place the portable jobs
+        id: place
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          JOBS: checks
+          # Fork branch first: a fork never reads the runner variables (and its job is skipped); ubuntu-24.04 places nothing.
+          FLEET_LINUX: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER }}
+          SIDE_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || '' }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          ROUTE_TOKEN_FALLBACK: ${{ steps.route-token-fallback.outputs.token }}
+          SNAPSHOT_TOKEN: ${{ github.token }}
+        run: |
+          # A base branch that predates the script places nothing: every job keeps its Blacksmith route.
+          if [ ! -f scripts/ci/portable_job_placement.py ]; then
+            echo "portable placement: the trusted base predates scripts/ci/portable_job_placement.py"
+            exit 0
+          fi
+          python3 scripts/ci/portable_job_placement.py
+
   checks:
     # feat-cmux-next pushes run it again (Leo, 2026-10-19; cx-g34i had dropped it): a direct push's
     # red shows on that push, and a pull request's red has a base run to be compared with.
     # Not in a base tier run: the push of its commit already ran it.
-    if: ${{ inputs.dev_daily != true && inputs.base_tier != true && inputs.same_tree_sha == '' }}
+    # !cancelled(): a skipped or failed portable-placement (a fork, a re-run) leaves the Blacksmith route.
+    needs: [portable-placement]
+    if: ${{ !cancelled() && inputs.dev_daily != true && inputs.base_tier != true && inputs.same_tree_sha == '' }}
     name: cmux-next checks (god files, concurrency, crash safety, l10n)
-    # Blacksmith runners are free here; 16 vCPU runs the script tests 32 at once
-    # (scripts/ci/run-checks-concurrently.sh) and the god-file scans faster.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    # Fleet Linux, then a free mini (portable-placement), then Blacksmith 16 vCPU, which runs the script
+    # tests 32 at once (scripts/ci/run-checks-concurrently.sh). The checks are Python and bash; none needs Linux.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' checks ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' checks ') && needs.portable-placement.outputs.mini_runner || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -1521,6 +1606,11 @@ jobs:
           # The merge commit and its first parent: the god-file checks compare a
           # pull request against its base.
           fetch-depth: 2
+
+      # A mini or fleet Linux host reuses its workspace: drop the submodule checkouts a previous job
+      # left there (a no-op on Blacksmith, which starts with none).
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        run: scripts/ci/reset-stale-submodules.sh
 
       # Every check runs even when an earlier one fails; the last step fails the
       # job once, naming each red check. Checkout stays fatal: with no tree,
@@ -2942,12 +3032,17 @@ jobs:
           echo "::notice title=cmux-next fast tier reused::$RUN_URL passed on the same inputs (${SHA:0:12})"
           echo "Reused $RUN_URL: it passed on \`${SHA:0:12}\` with the same inputs (\`$KEY\`)." >> "$GITHUB_STEP_SUMMARY"
 
-      # Checkout removes .build. Link the owned Mac's kept build after Xcode
-      # selection so its fingerprint uses the compiler that runs this job.
+      # Checkout removes .build. On an owned Mac the tier builds in one of the
+      # mini's shared roots (scripts/ci/owned_spm_scratch.py lease): a mirror of
+      # this checkout at a path every runner slot shares, so the build the last
+      # fast tier on any slot left is warm here. Its output `root` is where the
+      # tier runs; with no root free it links this workspace's own kept build.
+      # After Xcode selection, so its fingerprint uses the compiler of this job.
       - name: Keep Swift package builds on this owned Mac
+        id: spm-root
         if: ${{ (contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
-        run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
+        run: python3 scripts/ci/owned_spm_scratch.py lease "$GITHUB_WORKSPACE"
 
       # Owned minis keep their builds on their own SSD (above). Blacksmith overflow
       # restores the newest seed cmux-next-fast-tier-seed.yml saved from a
@@ -3006,7 +3101,7 @@ jobs:
           CMUX_FAST_SWIFT_CACHE_KEY: ${{ steps.fast-cache-key.outputs.swift-key }}
           CMUX_FAST_SWIFT_CACHE_HIT: ${{ steps.fast-cache-restore.outputs.cache-hit }}
           CMUX_FAST_CACHE_MATCHED_KEY: ${{ steps.fast-cache-restore.outputs.cache-matched-key }}
-        run: python3 -I scripts/cmux-next/fast-tier.py --kind swift --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
+        run: python3 -I scripts/cmux-next/fast-tier.py --root "${{ steps.spm-root.outputs.root || github.workspace }}" --kind swift --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
 
       # Also after a failure or a cancel: end the daemon of this job's home and
       # its agents (shutdown never starts one), then delete the home.
@@ -3296,8 +3391,11 @@ jobs:
       # mini, CMUX_TEST_REQUIRE_GUI=1 turns a lost display into a failure
       # instead of a silent skip. Blacksmith and hosted labels
       # keep the skip: nothing has shown that they have a display session.
+      # Not on a pull request: display tests gate no PR (Leo, 2026-10-31: "i dont like doing display
+      # tests anymore"), so a PR's display suites skip, and a lost display never fails a PR job. Pushes
+      # and nightlies keep the requirement as advisory coverage.
       - name: Require the GUI session on a mini
-        if: ${{ startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-') }}
+        if: ${{ startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-') && github.event_name != 'pull_request' }}
         shell: bash
         run: echo "CMUX_TEST_REQUIRE_GUI=1" >> "$GITHUB_ENV"
 
@@ -3881,8 +3979,11 @@ jobs:
       # mini, CMUX_TEST_REQUIRE_GUI=1 turns a lost display into a failure
       # instead of a silent skip. Blacksmith and hosted labels
       # keep the skip: nothing has shown that they have a display session.
+      # Not on a pull request: display tests gate no PR (Leo, 2026-10-31: "i dont like doing display
+      # tests anymore"), so a PR's display suites skip, and a lost display never fails a PR job. Pushes
+      # and nightlies keep the requirement as advisory coverage.
       - name: Require the GUI session on a mini
-        if: ${{ startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-') }}
+        if: ${{ startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-') && github.event_name != 'pull_request' }}
         shell: bash
         run: echo "CMUX_TEST_REQUIRE_GUI=1" >> "$GITHUB_ENV"
 
@@ -4291,8 +4392,11 @@ jobs:
       # mini, CMUX_TEST_REQUIRE_GUI=1 turns a lost display into a failure
       # instead of a silent skip. Blacksmith and hosted labels
       # keep the skip: nothing has shown that they have a display session.
+      # Not on a pull request: display tests gate no PR (Leo, 2026-10-31: "i dont like doing display
+      # tests anymore"), so a PR's display suites skip, and a lost display never fails a PR job. Pushes
+      # and nightlies keep the requirement as advisory coverage.
       - name: Require the GUI session on a mini
-        if: ${{ startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-') }}
+        if: ${{ startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-') && github.event_name != 'pull_request' }}
         shell: bash
         run: echo "CMUX_TEST_REQUIRE_GUI=1" >> "$GITHUB_ENV"
 
@@ -6484,9 +6588,14 @@ jobs:
           API: ${{ github.api_url }}/repos/${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           RESULTS: https://gh-events.cmux.com/compile-checks/v1
+          # The pull request this head belongs to (empty on a push). A head whose run the controller never
+          # saw has no check; a read that names its pull request has the controller queue one
+          # (cmuxterm-hq#5571), instead of this step waiting 40 minutes for a check that never comes.
+          PR: ${{ github.event.pull_request.number }}
         run: |
           set -uo pipefail
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error title=Compile check::bad head sha '$SHA'"; exit 1; }
+          [[ -z "${PR:-}" || "$PR" =~ ^[1-9][0-9]*$ ]] || PR=""
           # One deadline for the pending post and the wait (40 min); the terminal post comes after it
           # (at most 110 s), so the step (50 min) and the App token (60 min) always outlast both.
           deadline=$((SECONDS + ${WAIT_SECONDS:-2400}))
@@ -6511,7 +6620,7 @@ jobs:
             # and a 404 (no result yet) is retried by curl inside the same bound.
             if ! timeout "$left" curl -sS --fail --connect-timeout 10 --max-time "$((wait + 30))" \
                 --retry 60 --retry-delay 30 --retry-max-time "$left" --retry-all-errors \
-                -o "$reply" "$RESULTS/$SHA?repo=${REPO/\//%2F}&wait=$wait"; then
+                -o "$reply" "$RESULTS/$SHA?repo=${REPO/\//%2F}${PR:+&pr=$PR}&wait=$wait"; then
               echo "::warning title=Compile check::no result for $SHA from the controller (attempt $attempt)"
               continue
             fi

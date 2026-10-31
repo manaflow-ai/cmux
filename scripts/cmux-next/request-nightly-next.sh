@@ -114,8 +114,14 @@ strings_fresh() { # <sha>
     return 0
   fi
   if ! command -v node >/dev/null 2>&1; then
-    echo "warning: no node on this runner; the page strings of ${1:0:12} are not checked" >&2
     [[ "$1" == "$head" ]] || cleanup_strings
+    # No node proves nothing about the strings: the run that promotes
+    # (NIGHTLY_NEXT_PROMOTE=1) fails instead of requesting unchecked strings.
+    if [[ "${NIGHTLY_NEXT_PROMOTE:-}" == 1 ]]; then
+      echo "error: no node on this runner; the page strings of ${1:0:12} cannot be checked, so it is not promoted" >&2
+      return 2
+    fi
+    echo "warning: no node on this runner; the page strings of ${1:0:12} are not checked" >&2
     return 0
   fi
   if git -C "$root" ls-files --error-unmatch webviews/src/pages/settings/generated/strings.json >/dev/null 2>&1; then
@@ -145,8 +151,8 @@ already_promoted() { # <sha>
 }
 
 # request <sha>: 0 = requested or already on nightly-next, 1 = not promotable
-# (no gate, stale strings), 2 = the dispatch itself failed (an API error: the
-# caller exits 1).
+# (no gate, stale strings), 2 = the dispatch itself failed (an API error) or
+# the promoting run has no node to check the strings with (the caller exits 1).
 request() { # <sha>
   if already_promoted "$1"; then
     echo "not requesting ${1:0:12}: it is already on nightly-next (${promoted:0:12})"
@@ -156,7 +162,10 @@ request() { # <sha>
     echo "not promoting ${1:0:12}: its nightly.yml has no NIGHTLY_NEXT_NOTARY_PAUSED gate"
     return 1
   fi
-  if ! strings_fresh "$1"; then
+  local strings_rc=0
+  strings_fresh "$1" || strings_rc=$?
+  (( strings_rc != 2 )) || return 2
+  if (( strings_rc != 0 )); then
     echo "not promoting ${1:0:12}: its generated page strings are stale (node webviews/scripts/pages/gen-strings.mjs --check); an older or later commit with fresh strings is promoted"
     return 1
   fi

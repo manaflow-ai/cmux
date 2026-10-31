@@ -76,6 +76,14 @@ const PANE = `
   <fieldset>
     <label data-expect="default" data-name="size choice"><input type="radio" name="size" /><span data-expect="default" data-name="size choice text">8 GB</span></label>
     <label data-expect="default" data-name="locked size choice"><input type="radio" name="size" disabled /><span data-expect="default" data-name="locked size choice text">32 GB</span></label>
+    <!-- Labels in selectable text: a choice's words keep its arrow; a field's label keeps the I-beam
+         over its words and its field the text cursor (desktop.css cascades these with no
+         \`label:has(...) *\` rule, which restyled the whole pane on every insertion). -->
+    <div class="selectable">
+      <label data-expect="default" data-name="choice in selectable text"><input type="checkbox" /><span data-expect="default" data-name="its words, selectable">Wrap</span></label>
+      <label data-expect="default" data-name="locked choice in selectable text"><input type="checkbox" disabled /><span data-expect="default" data-name="its words, locked and selectable">Off</span></label>
+      <label data-expect="auto" data-name="field label in selectable text"><span data-expect="auto" data-name="field label words">Name</span> <input data-expect="text" data-name="its text field" type="text" /></label>
+    </div>
     <!-- A label for an enabled control keeps the hand beside a disabled one, after it or before it.
          CSS cannot follow \`for\` to a disabled control, so such a label keeps the hand too. -->
     <input type="checkbox" disabled /><label data-expect="default" data-name="label after a disabled box, for an enabled one" for="fixture-on-a"><span data-expect="default" data-name="its text">On</span></label><input id="fixture-on-a" type="checkbox" />

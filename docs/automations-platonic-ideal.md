@@ -40,50 +40,49 @@ What cmux adds over both references:
 
 ## 1. What the references do
 
-ChatGPT automations: the page fetch was refused in this run (tool rejected), so this column comes
-from the public product (Codex app automations and ChatGPT Tasks) and must be re-checked against
-https://learn.chatgpt.com/docs/automations before we quote it to anyone. Claude Code Desktop: read in
-full at https://code.claude.com/docs/en/desktop-scheduled-tasks on 2026-10-30.
+ChatGPT scheduled tasks ("automations"): read at https://learn.chatgpt.com/docs/automations on
+2026-10-31. Claude Code Desktop: read in full at https://code.claude.com/docs/en/desktop-scheduled-tasks
+on 2026-10-30. Where the ChatGPT page says nothing, the cell says "not stated".
 
 ## 2. Parity table
 
-Legend: ✅ have, 🟡 partial, ❌ missing. "cmux today" is feat-cmux-next at dfaa79eb0f4c.
+Legend: ✅ have, 🟡 partial, ❌ missing. "cmux today" was feat-cmux-next at dfaa79eb0f4c; section 12 lists what landed since.
 
-| Feature | ChatGPT automations (unverified, see 1) | Claude Code Desktop scheduled tasks | cmux today | cmux target |
+| Feature | ChatGPT scheduled tasks | Claude Code Desktop scheduled tasks | cmux today | cmux target |
 | --- | --- | --- | --- | --- |
-| Create from chat in plain words | ✅ ("every morning…") | ✅ ("set up a daily code review at 9am"), one-shot too | 🟡 Cloud Chief `chief-auto add`; the local Mac Chief has none | ✅ Chief on every target; confirm card shows parsed schedule + target before it saves |
-| Create with a form | ✅ | ✅ name, instructions, folder, trigger, permission mode, model | 🟡 web dashboard `routes/automations.tsx` only | ✅ one form in the app, the same form the Chief fills |
-| Presets: hourly, daily, weekdays, weekly | ✅ | ✅ | ❌ (cron only) | ✅ |
-| Custom cron with time zone | ? | ✅ local time, numbers only, ≥ 1 h in the form | ✅ Cloud `cron {expr, tz}` | ✅ plus names (`mon`), `@daily`, preview of the next 5 fires |
-| Interval ("every 30 min") | ? | 🟡 only when Claude sets it (min 1 min) | 🟡 `continue` trigger, cooldown ≥ 60 s | ✅ `every 30m`, floor 1 min local, 5 min Cloud free plan |
-| One-shot ("tomorrow at 3pm") | ✅ (Tasks reminders) | ✅ disables itself after it fires | ❌ | ✅ `at <time>`; the automation ends `done` and stays in history |
-| Manual only (saved prompt, Run now) | ✅ | ✅ | ✅ `manual` trigger | ✅ |
-| Webhook / URL trigger | ❌ | 🟡 cloud tasks only ("API calls") | ✅ Cloud `webhook` (ingress `automation-hook.ts`) | ✅ signed URL per automation; local runner gets it relayed from Cloud |
-| GitHub / integration events | ❌ | 🟡 cloud tasks only | ✅ Cloud `event {source: integration}` | ✅ |
+| Create from chat in plain words | ✅ ChatGPT or Codex drafts the prompt, picks where it runs, updates it later; skills can make tasks too | ✅ ("set up a daily code review at 9am"), one-shot too | 🟡 Cloud Chief `chief-auto add`; the local Mac Chief has none | ✅ Chief on every target; confirm card shows parsed schedule + target before it saves |
+| Create with a form | 🟡 "custom schedule controls"; no form described | ✅ name, instructions, folder, trigger, permission mode, model | 🟡 web dashboard `routes/automations.tsx` only | ✅ one form in the app, the same form the Chief fills |
+| Presets: hourly, daily, weekdays, weekly | ✅ preset cadences | ✅ | ❌ (cron only) | ✅ |
+| Custom cron with time zone | 🟡 RFC 5545 RRULE (`FREQ=MONTHLY;BYMONTHDAY=1;BYHOUR=9`), not cron | ✅ local time, numbers only, ≥ 1 h in the form | ✅ Cloud `cron {expr, tz}` | ✅ plus names (`mon`), `@daily`, preview of the next 5 fires |
+| Interval ("every 30 min") | 🟡 minute intervals only for in-chat tasks (follow-up loops) | 🟡 only when Claude sets it (min 1 min) | 🟡 `continue` trigger, cooldown ≥ 60 s | ✅ `every 30m`, floor 1 min local, 5 min Cloud free plan |
+| One-shot ("tomorrow at 3pm") | not stated | ✅ disables itself after it fires | ❌ | ✅ `at <time>`; the automation ends `done` and stays in history |
+| Manual only (saved prompt, Run now) | 🟡 Run now processes pending events; manual-only not stated | ✅ | ✅ `manual` trigger | ✅ |
+| Webhook / URL trigger | ❌ (the Agents API has its own scheduled automations page) | 🟡 cloud tasks only ("API calls") | ✅ Cloud `webhook` (ingress `automation-hook.ts`) | ✅ signed URL per automation; local runner gets it relayed from Cloud |
+| GitHub / integration events | ✅ Gmail, Slack channels, GitHub PR activity (web and mobile, eligible plans, admin permission); events close together batch into one run; cannot mix with a time schedule | 🟡 cloud tasks only | ✅ Cloud `event {source: integration}` | ✅ |
 | File, git, local events | ❌ | ❌ | 🟡 classic event rules (`docs/automations.md`), not in cmux-next | ✅ `on file`, `on git push/branch`, `on agent.needs_input`, `on login` (local runner) |
 | Presence ("when I'm back") | ❌ | ❌ | 🟡 schema `presence`, `not_yet_supported` | ✅ later |
-| Runs with my Mac asleep / off | ✅ (cloud) | ❌ local; ✅ cloud tasks (fresh clone) | ✅ Cloud Chief jobs | ✅ failover to a Mac mini or Cloud |
-| Access to local files and tools | ✅ (Codex local project) | ✅ | ❌ no local scheduler in cmux-next | ✅ this Mac or a paired machine with that folder |
-| Own worktree per run | ✅ background worktree | ✅ opt-in "Worktree" | 🟡 `agent_prompt.workspace.mode fresh_worktree` in schema | ✅ default on for git folders |
-| Pick model / agent / effort | ✅ | ✅ model + permission mode | 🟡 `agent_prompt.model/effort` | ✅ harness (Claude, Codex, OpenCode, Hermes), model, effort |
-| Permission mode per task, saved "always allow" | ? | ✅ per task, revocable | ❌ | ✅ per automation; a stalled prompt becomes "needs you", never a silent hang |
-| Missed runs after sleep | n/a (cloud) | 🟡 one catch-up for the latest miss in 7 days, older discarded, notification | ❌ | ✅ policy per automation (section 5.3) + failover first |
-| Staggered start | ? | ✅ deterministic offset of a few minutes | ❌ | ✅ deterministic jitter, 0–90 s, off for `at` |
-| Overlap (previous run still going) | ? | ✅ skipped, reason shown | ✅ `concurrency {max, on_limit: queue|skip}` | ✅ |
-| Run history with skipped runs and reasons | ✅ | ✅ "Show more" paging | ✅ Cloud `automation.runs.list`, states incl. `skipped`, `dead` | ✅ one history across all runners |
-| Open the session a run made | ✅ inbox item | ✅ History row opens it | 🟡 Cloud Chief posts in its chat | ✅ run → its transcript, diff, logs; "Open as workspace" |
-| Results inbox, archive when nothing to report | ✅ (triage, auto-archive empty) | ❌ (sessions list) | ❌ | ✅ quiet success; findings go to Home (section 8) |
-| Notifications | ✅ push / email | ✅ catch-up start; prompts stall | 🟡 Chief chat message | ✅ failure, needs-you, report; iPhone + Mac; digest option |
-| Alerts on repeated failure | ? | ❌ | 🟡 planned (slice 5: failed, dead, 3 consecutive, 80% budget) | ✅ |
-| Retries with backoff | ? | ❌ | ✅ Workflow step retries | ✅ on infra errors only, never re-runs a finished agent turn |
-| Timeouts and budgets | ? | ❌ | ✅ deadline, `Budget` (wall clock, VM minutes, model spend) | ✅ |
-| Pause / resume / delete | ✅ | ✅ delete archives sessions, leaves SKILL.md | ✅ `enabled`, delete | ✅ delete keeps run history 30 days |
+| Runs with my Mac asleep / off | ✅ web and team tasks run in the cloud (no local folder); desktop tasks need the computer on and the app running | ❌ local; ✅ cloud tasks (fresh clone) | ✅ Cloud Chief jobs | ✅ failover to a Mac mini or Cloud |
+| Access to local files and tools | ✅ desktop: local project directory, several projects per task | ✅ | ❌ no local scheduler in cmux-next | ✅ this Mac or a paired machine with that folder |
+| Own worktree per run | ✅ desktop: local checkout or a new worktree (frequent schedules make many worktrees) | ✅ opt-in "Worktree" | 🟡 `agent_prompt.workspace.mode fresh_worktree` in schema | ✅ default on for git folders |
+| Pick model / agent / effort | ✅ model and reasoning effort; a retired model must be replaced | ✅ model + permission mode | 🟡 `agent_prompt.model/effort` | ✅ harness (Claude, Codex, OpenCode, Hermes), model, effort |
+| Permission mode per task, saved "always allow" | 🟡 default sandbox (read-only, workspace-write, full access), `approval_policy = "never"` when allowed, admin `requirements.toml` | ✅ per task, revocable | ❌ | ✅ per automation; a stalled prompt becomes "needs you", never a silent hang |
+| Missed runs after sleep | not stated | 🟡 one catch-up for the latest miss in 7 days, older discarded, notification | ❌ | ✅ policy per automation (section 5.3) + failover first |
+| Staggered start | not stated | ✅ deterministic offset of a few minutes | ❌ | ✅ deterministic jitter, 0–90 s, off for `at` |
+| Overlap (previous run still going) | not stated | ✅ skipped, reason shown | ✅ `concurrency {max, on_limit: queue|skip}` | ✅ |
+| Run history with skipped runs and reasons | 🟡 recent runs in Scheduled; skips not stated | ✅ "Show more" paging | ✅ Cloud `automation.runs.list`, states incl. `skipped`, `dead` | ✅ one history across all runners |
+| Open the session a run made | ✅ a standalone run is a new chat; an in-chat run returns to its chat | ✅ History row opens it | 🟡 Cloud Chief posts in its chat | ✅ run → its transcript, diff, logs; "Open as workspace" |
+| Results inbox, archive when nothing to report | ✅ Scheduled is the inbox, unread marker on runs that need attention, archive runs (pinned runs keep worktrees) | ❌ (sessions list) | ❌ | ✅ quiet success; findings go to Home (section 8) |
+| Notifications | 🟡 the unread marker; nothing else stated | ✅ catch-up start; prompts stall | 🟡 Chief chat message | ✅ failure, needs-you, report; iPhone + Mac; digest option |
+| Alerts on repeated failure | not stated | ❌ | 🟡 planned (slice 5: failed, dead, 3 consecutive, 80% budget) | ✅ |
+| Retries with backoff | not stated (a sandbox overstep fails the tool call) | ❌ | ✅ Workflow step retries | ✅ on infra errors only, never re-runs a finished agent turn |
+| Timeouts and budgets | not stated | ❌ | ✅ deadline, `Budget` (wall clock, VM minutes, model spend) | ✅ |
+| Pause / resume / delete | 🟡 paused status; delete not stated | ✅ delete archives sessions, leaves SKILL.md | ✅ `enabled`, delete | ✅ delete keeps run history 30 days |
 | Edit the prompt as a file | ❌ | ✅ `~/.claude/scheduled-tasks/<name>/SKILL.md` | 🟡 Cloud code bodies in code.storage | ✅ `~/.config/cmux/automations/<slug>/automation.md` (frontmatter + prompt), synced |
 | Task edits itself while running | ❌ | ✅ `update_scheduled_task` MCP tool | ❌ | ✅ `automation.update` from inside a run, scoped to itself |
-| CLI | ❌ | ❌ (`/loop` is session-only) | 🟡 classic `cmux automation` = event rules only; Cloud `chief-auto` in the Chief VM | ✅ `cmux automation create/list/show/run/pause/resume/logs/history/edit/delete` |
+| CLI | ❌ "CLI and IDE extension: no Scheduled interface" | ❌ (`/loop` is session-only) | 🟡 classic `cmux automation` = event rules only; Cloud `chief-auto` in the Chief VM | ✅ `cmux automation create/list/show/run/pause/resume/logs/history/edit/delete` |
 | MCP / agent tools | ❌ | ✅ list, create, edit, pause (no delete) | 🟡 `chief-auto` | ✅ same op set as the CLI |
-| Limits | ✅ (active-task cap) | none stated locally; cloud ≥ 1 h | ✅ free plan 1 Chief job; 50 active per team | ✅ local: unlimited; Cloud: plan quota, shown before create |
-| Teams / shared automations | ❌ | ❌ | ✅ owner team in schema | ✅ team automations, run as the creator, transfer on leave |
+| Limits | not stated | none stated locally; cloud ≥ 1 h | ✅ free plan 1 Chief job; 50 active per team | ✅ local: unlimited; Cloud: plan quota, shown before create |
+| Teams / shared automations | ✅ Team Tasks run on the team's service account and app connections | ❌ | ✅ owner team in schema | ✅ team automations, run as the creator, transfer on leave |
 
 ## 3. Use cases (who wants what)
 
@@ -352,3 +351,9 @@ noisy automation never floods Home. A "Digest" option collects reports into one 
    unlimited.
 6. Runs never add sidebar rows; "Open as workspace" on demand.
 7. Delete by an agent needs the person's yes (as Claude Desktop).
+
+## 12. Status (landed)
+
+- Slice 1 (local): `cmux-automations` crate and `cmux automation create/list/show/run/pause/resume/edit/history/logs/delete/runner` on this Mac.
+- Cloud slice: `automation.create` with a `chief` body from the person's clients shares the free plan's one Cloud job (`chief-job-gate.ts`); the app's `cloud.automation` method (`CloudAutomationRelay`) forwards Cloud automation ops as the signed-in user; `cmux automation … --target cloud`; the Mac Chief makes jobs with `cmux automation` (prompt Jobs rule); the Automations page view and model (`CmuxNextCloudUI/Automations`).
+- Not yet: the Automations sidebar row, its page provider and the Cmd+Shift+P entries (app wiring; the provider protocol lives in the app target), failover between targets, event triggers on the local runner.
