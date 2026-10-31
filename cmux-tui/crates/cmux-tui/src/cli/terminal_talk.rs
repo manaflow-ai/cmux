@@ -34,6 +34,17 @@ pub(in crate::cli) fn now_ms() -> u64 {
         .map_or(0, |elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
 }
 
+/// Route the agent terminal verbs before the generic daemon-resource grammar.
+/// Other terminal actions (including help) keep their existing parser.
+pub(in crate::cli) fn run_if_requested(args: &[String]) -> Option<i32> {
+    let (global, words) = super::parse_globals(args).ok()?;
+    let (scope, command) = words.split_first()?;
+    if super::shorthand::scope(scope) != "terminal" || super::has_help_option(&words) {
+        return None;
+    }
+    run(&global, command)
+}
+
 /// `Some(exit code)` for `terminal list --agents` and `terminal <t> send`;
 /// `None` for any other terminal command (`words` follow `terminal`).
 pub(in crate::cli) fn run(global: &GlobalArgs, words: &[String]) -> Option<i32> {
