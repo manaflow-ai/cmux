@@ -35,6 +35,11 @@ fn a_thread_is_the_senders_pr_or_topic_else_the_pr_its_first_line_names_else_the
     assert_eq!(thread_key(None, "lane-a", link), "from:lane-a/pr:27520");
     assert_eq!(thread_key(None, "lane-a", "no number here\n#5 below"), "from:lane-a");
     assert_eq!(thread_key(None, "lane-a", "#0 is nothing"), "from:lane-a");
+    // Multibyte text around the markers: the number after `#` or `pull/` is read on its own
+    // char boundary.
+    assert_eq!(thread_key(None, "lane-a", "合并 #42 完成"), "from:lane-a/pr:42");
+    assert_eq!(thread_key(None, "lane-a", "見て pull/7"), "from:lane-a/pr:7");
+    assert_eq!(thread_key(None, "lane-a", "末尾#"), "from:lane-a");
 }
 
 #[test]
@@ -75,11 +80,12 @@ fn the_inbox_takes_another_agents_text_only() {
 
 #[test]
 fn only_a_plain_send_from_this_host_goes_to_the_inbox() {
-    assert!(plain_send(false, false, false, false));
-    assert!(!plain_send(true, false, false, false), "a peer's or the relay's forward");
-    assert!(!plain_send(false, true, false, false), "a team message");
-    assert!(!plain_send(false, false, true, false), "a correction under a supersede key");
-    assert!(!plain_send(false, false, false, true), "a steer-only send");
+    assert!(plain_send(false, false, false, false, false));
+    assert!(!plain_send(true, false, false, false, false), "a peer's or the relay's forward");
+    assert!(!plain_send(false, true, false, false, false), "a team message");
+    assert!(!plain_send(false, false, true, false, false), "a correction under a supersede key");
+    assert!(!plain_send(false, false, false, true, false), "a steer-only send");
+    assert!(!plain_send(false, false, false, false, true), "a cmux agent message");
     assert!(plain_kind(None));
     assert!(plain_kind(Some(&json!({"kind": "session_message"}))));
     assert!(plain_kind(Some(&json!({"kind": "agent_message"}))));
@@ -191,4 +197,79 @@ fn an_answered_record_keeps_an_answer_or_an_error() {
     let err = json!({"noticePromptId": "n-2", "promptIds": ["b"], "error": failed});
     let (_, answer) = answered_record(&err).unwrap();
     assert_eq!(answer.unwrap_err().message, "the agent died");
+}
+
+/// An idle chat whose cut turn's automatic continuation may still fire (`auto_resume.rs`) does
+/// not wake for its inbox: a turn of its own would supersede the continuation. The inbox is
+/// looked at again on its timer, and goes in once nothing waits.
+#[tokio::test]
+async fn an_idle_chat_waits_for_its_cut_turns_continuation_before_its_inbox() {
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let meta = json!({"schema": crate::store::META_SCHEMA, "id": "inbox-wait",
+        "name": "inbox-wait", "harness": "claude", "cwd": "/tmp", "status": "idle",
+        "createdAt": 1, "updatedAt": 2});
+    store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+    let hub = Hub::new(cfg, store);
+    hub.begin_startup(false);
+    let session = hub.resolve("inbox-wait").unwrap();
+    let due = now_ms().saturating_sub(FLUSH_MS + 1);
+    let blocked = item("p1", "t", "other", PromptClass::Block, due, "blocked on review");
+    session.inbox.lock().unwrap().items.push(blocked);
+    hub.set_ending_for_test(&session, Some("cut"));
+    hub.inbox_review(&session);
+    {
+        let inbox = session.inbox.lock().unwrap();
+        assert!(inbox.in_flight.is_none(), "no notice while the continuation may fire");
+        assert!(inbox.timer.is_some(), "looked at again on its timer");
+    }
+    hub.set_ending_for_test(&session, None);
+    hub.inbox_review(&session);
+    assert!(session.inbox.lock().unwrap().in_flight.is_some(), "it goes in once nothing waits");
+}
+
+/// The inbox goes in as soon as a continuation can no longer fire, however it went: a turn's end
+/// reviews the inbox while the turn is still marked ending (`take_turn`), which puts the wake
+/// off; the settle that finds no continuation (`schedule_auto_resume`), or a Stop, lets the mark
+/// go, and the timer looks again then instead of `REFUSED_RETRY_MS` on.
+#[tokio::test]
+async fn a_turn_that_ends_with_no_continuation_lets_the_inbox_in_at_once() {
+    for stop in [false, true] {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let meta = json!({"schema": crate::store::META_SCHEMA, "id": "inbox-ended",
+            "name": "inbox-ended", "harness": "claude", "cwd": "/tmp", "status": "idle",
+            "createdAt": 1, "updatedAt": 2});
+        store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+        let hub = Hub::new(cfg, store);
+        hub.begin_startup(false);
+        let session = hub.resolve("inbox-ended").unwrap();
+        let due = now_ms().saturating_sub(FLUSH_MS + 1);
+        let blocked = item("p1", "t", "other", PromptClass::Block, due, "blocked on review");
+        session.inbox.lock().unwrap().items.push(blocked);
+        // A notice went in, or was tried: a hub with no agent refuses it at once, so `in_flight`
+        // alone may come and go between two looks (`notice_done`).
+        let tried = |inbox: &Inbox| {
+            inbox.in_flight.is_some()
+                || inbox.refused_at != 0
+                || inbox.items.iter().any(|i| i.noticed || i.answered.is_some())
+        };
+        // The turn's end, as `finish_turn` runs it: marked ending, then the inbox reviewed.
+        hub.set_ending_for_test(&session, Some("t1"));
+        hub.inbox_review(&session);
+        assert!(!tried(&session.inbox.lock().unwrap()), "not while it may continue");
+        if stop {
+            hub.stop_auto_resume(&session);
+        } else {
+            // It ended well: no continuation.
+            hub.schedule_auto_resume(&session, "t1", None);
+        }
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !tried(&session.inbox.lock().unwrap()) {
+            assert!(tokio::time::Instant::now() < deadline, "held past the settle (stop: {stop})");
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }
 }

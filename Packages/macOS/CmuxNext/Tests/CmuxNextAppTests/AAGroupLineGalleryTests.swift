@@ -75,6 +75,15 @@ import Testing
                 }
             }
         }
+        try SidebarGroupChromeShapeTests.withShape(true) {
+            for (mode, theme, dark) in [("light", "Soft Blue Light", false), ("dark", "Soft Blue", true)] {
+                let image = try Self.render(theme: theme, dark: dark)
+                let url = out.appending(path: "connected-\(mode).png")
+                let dest = try #require(CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil))
+                CGImageDestinationAddImage(dest, image, nil)
+                #expect(CGImageDestinationFinalize(dest))
+            }
+        }
         let tar = Process()
         tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
         tar.currentDirectoryURL = AANestedGroupsGalleryTests.packageRoot

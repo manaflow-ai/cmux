@@ -45,9 +45,30 @@ impl<B: Backend> Server<B> {
     ) -> Result<Cow<'a, Map<String, Value>>, Value> {
         let terminal = tool.wire == "tab.create_terminal";
         let open_url = tool.wire == "workspace.open_url";
+        // `pane: "current"` would put the terminal over this chat's own pane; models write
+        // it by reflex for "on my right" (tests/tool-evals r13a: GPT 6 Astra and 6.1 Sol in
+        // 8 samples, after the sheet said no pane). It goes beside the chat like no pane;
+        // the chat's own pane by its id still works.
+        // `workspace: "current"` too, which models write beside it; any other parent stays.
+        let current = |key: &str| arguments.get(key).and_then(Value::as_str) == Some("current");
+        let own_pane = terminal
+            && current("pane")
+            && crate::cli::beside::PARENTS.iter().all(|key| {
+                *key == "pane"
+                    || !arguments.contains_key(*key)
+                    || (*key == "workspace" && current(key))
+            });
+        let unplaced = if own_pane {
+            let mut without = arguments.clone();
+            without.remove("pane");
+            without.remove("workspace");
+            Cow::Owned(without)
+        } else {
+            Cow::Borrowed(arguments)
+        };
         if !(terminal || open_url)
             || arguments.contains_key("session")
-            || !crate::cli::beside::names_no_place(arguments)
+            || !crate::cli::beside::names_no_place(&unplaced)
         {
             return Ok(Cow::Borrowed(arguments));
         }
@@ -65,16 +86,16 @@ impl<B: Backend> Server<B> {
             return Ok(Cow::Borrowed(arguments));
         };
         if open_url {
-            return Err(self.open_beside(arguments));
+            return Err(self.open_beside(&unplaced));
         }
-        let mut with_place = arguments.clone();
+        let mut with_place = Map::clone(&unplaced);
         match placement {
             crate::cli::beside::Placement::Pane { workspace, pane } => {
                 with_place.insert("workspace".into(), json!(workspace));
                 with_place.insert("pane".into(), json!(pane));
             }
             crate::cli::beside::Placement::NewColumn { workspace, chat_pane } => {
-                return Err(self.new_column(arguments, &workspace, &chat_pane));
+                return Err(self.new_column(&unplaced, &workspace, &chat_pane));
             }
         }
         Ok(Cow::Owned(with_place))
@@ -168,7 +189,11 @@ impl<B: Backend> Server<B> {
                 Err(failure) => match self.daemon_caller() {
                     Some(caller) => Some(caller),
                     None => {
-                        let message = failure.error["message"].as_str().unwrap_or("no answer");
+                        let message = failure
+                            .error
+                            .get("message")
+                            .and_then(Value::as_str)
+                            .unwrap_or("no answer");
                         return Err(caller_scope::unresolved(message));
                     }
                 },
@@ -199,8 +224,12 @@ impl<B: Backend> Server<B> {
         arguments.insert("direction".into(), json!("right"));
         let call = tool.plan(&arguments).ok()?;
         let answer = self.backend.resource(None, call.plan, &call.prefixes).ok()?;
-        let right =
-            answer.get("value").unwrap_or(&answer)["pane"]["id"].as_str().map(str::to_owned);
+        let right = answer
+            .get("value")
+            .unwrap_or(&answer)
+            .pointer("/pane/id")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
         Some(match right {
             Some(right) => json!({"caller": caller, "beside": {"pane": right}}),
             None => json!({"caller": caller}),

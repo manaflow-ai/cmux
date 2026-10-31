@@ -208,6 +208,11 @@ async fn forward_inner(
         if super::trust_gate::gated(conn.origin, params) && !peer.supports_trust_gate() {
             return Err(super::trust_gate::peer_unsupported(&peer.name));
         }
+        // A conditional stop runs only where the session lives: an older peer would ignore the
+        // condition and stop it anyway (`hub/stop_if_idle.rs`).
+        if m == method::MUX_KILL && crate::hub::stop_if_idle::StopCondition::asked(params) {
+            return Err(crate::hub::stop_if_idle::remote_refusal(&peer.name));
+        }
         // A dropped file crosses the link as one frame: checked here, and only to a peer that
         // takes it (`hub/file_uploads.rs`).
         if m == method::MUX_FILE_PUT {
@@ -283,6 +288,11 @@ async fn forward_inner(
             return Err(crate::hub::media_read::peer_unsupported(&peer, m)
                 .with_data(json!({"reason": "transcriptRead.unsupported"})));
         }
+        // And a chat's older native turns (`hub/native_history.rs`): a pane stops paging on it.
+        if m == method::MUX_NATIVE_HISTORY && !peer.supports_native_history() {
+            return Err(crate::hub::media_read::peer_unsupported(&peer, m)
+                .with_data(json!({"reason": "transcriptRead.unsupported"})));
+        }
         // Typing and an authored view are this daemon's own chats only (`hub/presence.rs`):
         // forwarded, whatever the peer serves this link as, one entry there would stand for
         // every client here.
@@ -345,8 +355,10 @@ async fn forward_inner(
                 let attach = tokio::spawn({
                     let (peer, id) = (peer.clone(), id.clone());
                     async move {
-                        let _ =
-                            peer.request(method::MUX_ATTACH, crate::peer::hidden_attach(&id)).await;
+                        // A failed attach is logged there, and unmarked when the peer refused
+                        // it; the prompt still goes, and answers with the peer's own error if
+                        // the chat is gone.
+                        let _ = peer.attach_hidden(&id).await;
                     }
                 });
                 tokio::select! {

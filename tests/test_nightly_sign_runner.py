@@ -38,15 +38,13 @@ SIGNING_JOBS = {
     "verify-final-dmg-nightly": "needs.pick-nightly-sign-runner.outputs.runner",
     "recover-nightly-next-notarization": "needs.find-nightly-next-recovery.outputs.sign_runner",
     "verify-recovered-nightly-next": "needs.find-nightly-next-recovery.outputs.sign_runner",
-    "sign-nightly-identity-legacy": "needs.legacy-identity-target.outputs.sign_runner",
-    # Its same-run Blacksmith twin (tests/test_ci_signing_owned_mac.py).
-    "sign-nightly-identity-legacy-blacksmith": "needs.legacy-identity-target.outputs.sign_runner",
-    "verify-nightly-identity-legacy": "needs.legacy-identity-target.outputs.sign_runner",
-    # Signs the Sparkle deltas (the release environment), after the feed is published.
-    "generate-nightly-deltas": "needs.pick-nightly-sign-runner.outputs.runner",
     # The release-pool path's one Mac job: Apple's checks and the DMG image, no secrets.
     "signer-dmg-image": "needs.pick-nightly-sign-runner.outputs.runner",
 }
+# Jobs that never take Blacksmith (Lawrence, 2026-10-30: nightlies never use Blacksmith): an owned
+# pick where one exists, then the owned nightly slot variable, then the owned side lane.
+OWNED_ONLY_JOBS = ("sign-nightly-identity-legacy", "verify-nightly-identity-legacy", "generate-nightly-deltas")
+OWNED_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER }}"
 # Each picker's re-run label, the other Blacksmith macOS 26 size.
 ALTERNATES = {
     "needs.pick-nightly-sign-runner.outputs.runner": "needs.pick-nightly-sign-runner.outputs.alternate",
@@ -235,6 +233,67 @@ class Unverified(unittest.TestCase):
             self.assertEqual(output.read_text(), f"runner={SMALL}\nalternate={LARGE}\nplacement=unverified\n")
 
 
+def observed(age_minutes: int = 2, **overrides: dict) -> dict:
+    """The queue janitor's 2026-10-30 18:37Z snapshot, `age_minutes` old: both labels stalled by the queue rule,
+    blacksmith-12vcpu-macos-26 with nothing running and no start (absent from label_started), 6 vCPU busy."""
+    generated = NOW - dt.timedelta(minutes=age_minutes)
+    pools = {LARGE: {"queued": 180, "running": 0, "oldest_queued_minutes": 1399},
+             SMALL: {"queued": 77, "running": 5, "oldest_queued_minutes": 552}}
+    for label, entry in overrides.items():
+        pools[label] = {**pools[label], **entry}
+    started = {SMALL: (generated - dt.timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")}
+    return {"generated_at": generated.strftime("%Y-%m-%dT%H:%M:%SZ"), "pools": pools, "label_started": started}
+
+
+class DeadLabel(unittest.TestCase):
+    """A label that started nothing for an hour is dead, not busy (2026-10-30: run 41100841614's sign pick read a
+    38-minute-old snapshot, took 6 vCPU unverified and offered the dead 12 vCPU label to every re-run)."""
+
+    def test_an_unverified_pick_never_offers_a_label_a_stale_snapshot_shows_dead(self) -> None:
+        for attempt in (1, 2, 3):
+            with self.subTest(attempt=attempt):
+                runner, other, _, verified = picker.place(LARGE, observed(age_minutes=38), NOW, attempt)
+                self.assertEqual((runner, other, verified), (SMALL, SMALL, False))
+
+    def test_a_dead_variable_label_is_skipped_even_with_its_queue_cleared(self) -> None:
+        snap = observed(**{LARGE: {"queued": 0, "oldest_queued_minutes": 0}})
+        self.assertEqual(picker.place(LARGE, snap, NOW, 1)[:2], (SMALL, SMALL))
+
+    def test_with_every_label_stalled_the_pick_is_one_that_still_starts_jobs(self) -> None:
+        snap = observed(**{SMALL: {"running": 0}, LARGE: {"running": 2}})
+        snap["label_started"] = {LARGE: snap["label_started"][SMALL]}
+        label, why = picker.pick(SMALL, snap, NOW)
+        self.assertEqual(label, LARGE, why)
+        self.assertEqual(picker.alternate(SMALL, LARGE, snap, NOW), LARGE)
+
+    def test_a_truncated_snapshot_proves_no_label_dead(self) -> None:
+        # Its listing missed in-flight runs, so it can miss a running job or a start on the label.
+        snap = dict(observed(age_minutes=38), truncated=True)
+        self.assertEqual(picker.dead(snap, NOW), set())
+        self.assertEqual(picker.place(LARGE, snap, NOW, 1)[:2], (SMALL, LARGE))
+
+    def test_an_unverified_pick_skips_a_dead_variable_label(self) -> None:
+        """pick() is the overflow pick of dev_landing_place.py (OVERFLOW_LABEL, 12 vCPU) and nightly_build_runner.py:
+        a snapshot too old for the stall rule still shows the label dead."""
+        label, why = picker.pick(LARGE, observed(age_minutes=38), NOW)
+        self.assertEqual(label, SMALL, why)
+        self.assertIn("is dead", why)
+        self.assertEqual(picker.pick(LARGE, None, NOW)[0], LARGE)
+        self.assertEqual(picker.pick(LARGE, dict(observed(age_minutes=38), truncated=True), NOW)[0], LARGE)
+
+    def test_no_label_showing_life_or_an_older_janitor_changes_nothing(self) -> None:
+        both = observed(**{SMALL: {"running": 0}})
+        both["label_started"] = {}
+        self.assertEqual(picker.place(LARGE, both, NOW, 1)[:2], (SMALL, SMALL))  # every label stalled: DEFAULT
+        self.assertEqual(picker.place(LARGE, dict(both, generated_at="2026-10-26T08:50:00Z"), NOW, 1)[:2],
+                         (SMALL, LARGE))
+        older = observed(age_minutes=38)
+        del older["label_started"]
+        self.assertEqual(picker.place(LARGE, older, NOW, 1)[:2], (SMALL, LARGE))
+        # Past the evidence window a snapshot proves nothing.
+        self.assertEqual(picker.place(LARGE, observed(age_minutes=7 * 60), NOW, 1)[:2], (SMALL, LARGE))
+
+
 class Workflow(unittest.TestCase):
     def test_signing_jobs_read_the_picked_label_first(self) -> None:
         jobs = WORKFLOW["jobs"]
@@ -248,6 +307,17 @@ class Workflow(unittest.TestCase):
                 self.assertIn(f"|| github.run_attempt > 1 && {ALTERNATES[picked]} || {picked} ||", runs_on)
                 needs = jobs[name]["needs"]
                 self.assertIn(picked.split(".")[1], [needs] if isinstance(needs, str) else needs)
+
+    def test_owned_only_jobs_never_name_blacksmith(self) -> None:
+        jobs = WORKFLOW["jobs"]
+        for name in OWNED_ONLY_JOBS:
+            with self.subTest(job=name):
+                runs_on = str(jobs[name]["runs-on"])
+                self.assertTrue(runs_on.endswith(OWNED_FALLBACK), runs_on)
+                self.assertNotIn("blacksmith", runs_on)
+                self.assertNotIn("MACOS_RUNNER", runs_on)
+                self.assertNotIn("sign_runner", runs_on)
+                self.assertNotIn("sign_alternate", runs_on)
 
     def test_no_other_macos_job_resolves_to_the_variable_alone(self) -> None:
         reads = {name for name, job in WORKFLOW["jobs"].items() if "vars.MACOS_RUNNER_26" in str(job.get("runs-on", ""))}
@@ -326,9 +396,7 @@ class OwnedVerify(unittest.TestCase):
                 # A skipped or failed pick must not skip the verify.
                 self.assertTrue(job["if"].startswith("!cancelled()"))
                 self.assertIn(f"|| needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && {self.OWNED} "
-                              "|| github.run_attempt > 1 && needs.legacy-identity-target.outputs.sign_alternate "
-                              "|| needs.legacy-identity-target.outputs.sign_runner "
-                              "|| vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26'", str(job["runs-on"]))
+                              + OWNED_FALLBACK, str(job["runs-on"]))
                 xcode = job["env"]["CMUX_CI_XCODE_APP"]
                 self.assertIn(f"needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && {self.OWNED} != '' "
                               "&& vars.CMUX_CI_XCODE_APP_PR", xcode)
@@ -401,8 +469,9 @@ class SnapshotReadToken(unittest.TestCase):
     READ = "${{ steps.snapshot-read-token.outputs.token || github.token }}"
     KEY = "secrets.GLAEDA_ROUTE_APP_KEY"
     # The jobs that read the routing App key; no other job gains it (find-nightly-next-recovery and
-    # legacy-identity-target keep reading the snapshot with GITHUB_TOKEN).
-    KEYED_JOBS = {"pick-nightly-build-runner", "pick-nightly-sign-runner"}
+    # legacy-identity-target keep reading the snapshot with GITHUB_TOKEN). route-visual-gate-nightly
+    # picks the visual gate's idle owned Mac with it (docs/ci/nightly-next-visual-gate.md).
+    KEYED_JOBS = {"pick-nightly-build-runner", "pick-nightly-sign-runner", "route-visual-gate-nightly"}
 
     def test_each_snapshot_read_uses_the_read_token_with_the_github_token_fallback(self) -> None:
         for name in self.PICKERS:

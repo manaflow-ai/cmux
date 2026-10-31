@@ -267,7 +267,7 @@ test("under Reduce Motion the strip's revealed rail hides as soon as the pointer
 
 const card = () => document.querySelector<HTMLElement>(".acpmux-minimap__card");
 const advance = (ms: number) => act(async () => void jest.advanceTimersByTime(ms));
-/// Hovers row `index` until its preview card opens (Codex's 250 ms), then moves the pointer into the
+/// Hovers row `index` until its preview card opens (at once), then moves the pointer into the
 /// card, which keeps it open.
 async function holdCard(index: number) {
   await enter(index);
