@@ -14,6 +14,8 @@ import { OnNewTab } from "../newTabComposer";
 import type { Project } from "../ProjectChooser";
 import { firstProject, isAgentHome, mostRecentProject, projectLabel } from "../sessionList";
 import { WorktreeFailure } from "../startFolder";
+import { BrowseFailure, browseFailureMessage } from "../BrowseFailure";
+import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "../AddProjectPanel";
 import { errorMessage } from "../transportErrors";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { sandboxFailureKey, type RunModeRows } from "../sandboxRun";
@@ -218,7 +220,7 @@ type Props = NewTabScreenActions & {
   /// The projects the picker offers (App's newTabProjects).
   projects?: Project[];
   /// The host's folder panel; resolves with the folder picked, if any.
-  onBrowseProject?(): Promise<string | undefined>;
+  onBrowseProject?(request?: BrowseRequest): Promise<BrowseResult>;
   chips?: NewTabChips;
   /// Lazily load the chosen harness's actual commands in a deferred chat.
   onCommands?(harness: string, cwd?: string): void;
@@ -383,6 +385,7 @@ export function NewTabScreen(props: Props) {
     attachments,
     setAttachments,
     pending: reading,
+    originalFailures,
     unsettled,
     videoReading,
     cancel,
@@ -657,9 +660,12 @@ export function NewTabScreen(props: Props) {
   const { plainFooter, spellChecking } = useComposerSettings();
   // The quiet row's labels step down with the composer's width, as the chat's (composerRowFit.ts).
   const foot = useRef<HTMLDivElement>(null);
-  // The model picker uses one footer position in every New Tab template and composer look.
+  // Every template with chips draws the chat composer's box. Claude's look splits the mode, model and
+  // effort into the quiet row under it; Codex's keeps them in the box's own row (Leo 2026-10-30: "the
+  // bypass/context/model picker stuff should literally be inside the composer box"; "no just codex").
   const look = useComposerLook();
-  const split = props.chips !== undefined;
+  const chatBox = props.chips !== undefined;
+  const split = chatBox && look !== "codex";
   // Footer look and template can change while this screen stays mounted.
   useRowFit(foot, `${split}:${plainFooter}:${look}`);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
@@ -1144,8 +1150,20 @@ export function NewTabScreen(props: Props) {
   };
   // Each folder choice takes a number; a worktree reply applies only while its choice is the latest.
   const projectChoice = useRef(0);
+  const browsePending = useRef(false);
+  const browseAlive = useRef(true);
+  useEffect(() => {
+    browseAlive.current = true;
+    return () => {
+      browseAlive.current = false;
+      projectChoice.current += 1;
+      browsePending.current = false;
+    };
+  }, []);
+  const [browseError, setBrowseError] = useState<string>();
   const pickProject = (cwd?: string) => {
     projectChoice.current += 1;
+    setBrowseError(undefined);
     // A folder picked anywhere on the page (a widget card's project) replaces a saved environment,
     // and is on this Mac.
     saved.pick(undefined);
@@ -1164,6 +1182,7 @@ export function NewTabScreen(props: Props) {
   const pickMachine = (next?: { peer: string; folder?: string }) => {
     // A newer choice than any worktree still on its way (`projectChoice`).
     projectChoice.current += 1;
+    setBrowseError(undefined);
     saved.pick(undefined);
     touch();
     setMachine(next);
@@ -1224,17 +1243,42 @@ export function NewTabScreen(props: Props) {
         }
       : undefined;
   const browseProject = props.onBrowseProject
-    ? () => {
-        void props.onBrowseProject?.().then((cwd) => {
-          if (cwd) pickProject(cwd);
-        });
+    ? (request?: BrowseRequest) => {
+        if (!browseAlive.current) return Promise.resolve(undefined);
+        if (browsePending.current) return Promise.resolve(BROWSE_BUSY);
+        const choice = ++projectChoice.current;
+        browsePending.current = true;
+        setBrowseError(undefined);
+        return Promise.resolve()
+          .then(() => props.onBrowseProject?.(request))
+          .then((cwd) => {
+            if (choice !== projectChoice.current) return undefined;
+            if (typeof cwd !== "string" || cwd.length === 0) return cwd;
+            if (request?.deferPick) return cwd;
+            pickProject(cwd);
+            return cwd;
+          })
+          .then(undefined, (error: unknown) => {
+            if (choice !== projectChoice.current) return undefined;
+            if (request?.deferPick) throw error;
+            setBrowseError(browseFailureMessage(error));
+            return undefined;
+          })
+          .finally(() => {
+            browsePending.current = false;
+          });
       }
+    : undefined;
+  // A saved environment owns its draft and the browse failure state. Keep a folder chosen there
+  // from replacing the New Tab project until the person saves the environment.
+  const browseSavedEnvironment = browseProject
+    ? (request?: BrowseRequest) => browseProject({ ...request, deferPick: true })
     : undefined;
   const Chips = props.chips;
   const chooser = useRef<HTMLInputElement>(null);
   /// The Cards template (u2851): the field is a pill of its own and the chips sit under it. The
-  /// split draws the chat composer's box instead.
-  const pill = template === "cards" && !split;
+  /// chat composer's box replaces it.
+  const pill = template === "cards" && !chatBox;
 
   const onPlusCommand = props.onPlusCommand;
   const plusSearchRows = useMemo(() => composerPlusSearchExtensions(t), [t]);
@@ -1338,11 +1382,17 @@ export function NewTabScreen(props: Props) {
                 environments: saved.list,
                 ...(environment ? { current: environment.id } : {}),
                 onPick: (id: string) => {
+                  projectChoice.current += 1;
+                  setBrowseError(undefined);
                   touch();
                   saved.pick(id);
                   requestAnimationFrame(() => field.current?.focus());
                 },
-                onClear: () => saved.pick(undefined),
+                onClear: () => {
+                  projectChoice.current += 1;
+                  setBrowseError(undefined);
+                  saved.pick(undefined);
+                },
                 onCreate: () => saved.edit(null),
                 onEdit: (id: string) => saved.edit(saved.list.find((other) => other.id === id)),
               },
@@ -1370,7 +1420,7 @@ export function NewTabScreen(props: Props) {
       folders={(props.projects ?? [])
         .filter((choice) => !isAgentHome(choice.cwd))
         .map((choice) => ({ id: choice.cwd, label: choice.label }))}
-      {...(props.onBrowseProject ? { onBrowse: props.onBrowseProject } : {})}
+      {...(browseSavedEnvironment ? { onBrowse: browseSavedEnvironment } : {})}
       machines={sshMachines}
       machineFolders={machineFolders}
       {...(props.onConnect ? { onConnectSSH: () => props.onConnect!("ssh") } : {})}
@@ -1386,7 +1436,13 @@ export function NewTabScreen(props: Props) {
   // this page draws no context ring.
   const pickers = (
     <ChromeArea className="acpmux-chrome-area" items={[chrome.dictation]}>
-      <div className="nt-pickers" data-footer-look={plainFooter ? "plain" : undefined} onPointerDownCapture={touch}>
+      {/* Codex's look keeps the chips in this row (no quiet row), so its labels step down here. */}
+      <div
+        ref={chatBox && !split ? foot : undefined}
+        className="nt-pickers"
+        data-footer-look={plainFooter ? "plain" : undefined}
+        onPointerDownCapture={touch}
+      >
         {!split && attachmentPicker}
         {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
         switch is the one Enter reuses. */}
@@ -1501,6 +1557,9 @@ export function NewTabScreen(props: Props) {
           </p>
         )}
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
+        {browseError && browseProject && (
+          <BrowseFailure error={browseError} onRetry={browseProject} onDismiss={() => setBrowseError(undefined)} />
+        )}
         {sandboxRefusal && props.runMode?.mode === "sandboxed" && (
           <output className="acpmux-switch-notice">
             <span role="alert">{t(sandboxFailureKey(sandboxRefusal) ?? "sandbox.error.failed")}</span>
@@ -1598,6 +1657,7 @@ export function NewTabScreen(props: Props) {
               field.current?.focus();
             }}
             onRetry={retry}
+            originalFailures={originalFailures}
             onReorder={(id, index) => setAttachments((current) => reordered(current, id, index))}
           />
           {command.input}

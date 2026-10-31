@@ -1,0 +1,28 @@
+{
+  "about": "cmux Cloud backend paths in this repository. New cloud backend code (control plane, provider drivers, metering and billing, the hand-off server, entitlements, the NEXT Worker) goes to the private repository manaflow-ai/cmux-platform; the code below moves there one PR-sized move at a time (it lands in cmux-platform first, a follow-up deletes it here). The client, CLI, GUI and protocol stay here, so `stays` lists the paths under a backend path that are not backend. scripts/ci/pr_cloud_backend_check.py warns, never fails, when a pull request adds or changes a backend path and its description has no `cmux-platform:` line. A path is a file or a directory (everything under it). CI and build infrastructure workers (workers/ci-artifacts, workers/fleet-artifacts, workers/cmux-actions) are not cloud product backend and are left out.",
+  "backend": [
+    "backend/apps/api",
+    "backend/apps/home-server",
+    "backend/db",
+    "backend/packages/cloud-env",
+    "backend/packages/ownership",
+    "backend/packages/saml",
+    "backend/scripts",
+    "services/iroh-relay-minter",
+    "web/app/api",
+    "web/app/handler/app-session-handoff",
+    "web/app/server",
+    "web/app/v1",
+    "web/db",
+    "web/orpc/server",
+    "web/services",
+    "workers/cmux-vm",
+    "workers/device-hub",
+    "workers/iroh-v2",
+    "workers/presence"
+  ],
+  "stays": [
+    "workers/cmux-vm/cli",
+    "workers/cmux-vm/sdk"
+  ]
+}
