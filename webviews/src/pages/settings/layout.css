@@ -872,6 +872,10 @@
     overflow-x: auto;
   }
 
+  /* One scrolling row of categories: the sections' runs join it and their headers step aside. */
+  .sidebar-section { display: contents; }
+  .sidebar-section-title { display: none; }
+
   .section-link {
     flex: none;
     width: auto;
