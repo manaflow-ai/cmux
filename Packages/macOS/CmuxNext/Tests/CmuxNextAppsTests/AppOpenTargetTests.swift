@@ -39,4 +39,26 @@ struct AppOpenTargetTests {
         ]))
         #expect(AppOpenTarget(manifest) == .none)
     }
+
+    @Test func aRemotePaneOpensItsRunningInstance() throws {
+        var record = AppRecord(manifest: try shipped("hello-deploy"), tier: .unverified, installed: true, source: .user)
+        #expect(AppOpenTarget(record) == .notDeployed, "installed but not deployed yet")
+        record.instance = AppInstance(id: "inst_1", target: "self-hosted:build-01", state: .deploying, url: nil)
+        #expect(AppOpenTarget(record) == .notDeployed, "still deploying")
+        record.instance = AppInstance(id: "inst_1", target: "self-hosted:build-01", state: .running,
+                                      url: URL(string: "http://100.64.0.9:49153/"))
+        #expect(AppOpenTarget(record) == .web(URL(string: "http://100.64.0.9:49153/")!))
+    }
+
+    @Test func theInstanceDecodesFromTheSupervisorsListRow() throws {
+        let manifest = try shipped("hello-deploy")
+        let json: AppJSON = [
+            "id": .string(manifest.id), "manifest": manifest.raw, "installed": true,
+            "instance": ["id": "inst_9", "target": "self-hosted:ops@build-01", "state": "running",
+                         "url": "http://100.64.0.9:49153/", "app": .string(manifest.id), "started_ms": 1],
+        ]
+        let record = try #require(AppRecord(json: json))
+        #expect(record.instance == AppInstance(id: "inst_9", target: "self-hosted:ops@build-01", state: .running,
+                                               url: URL(string: "http://100.64.0.9:49153/")))
+    }
 }
