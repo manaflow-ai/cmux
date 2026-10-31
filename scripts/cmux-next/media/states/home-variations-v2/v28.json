@@ -18,15 +18,15 @@
    "shot": false
   },
   {
-   "title": "Tab in bug-412-login",
+   "title": "Focus bug-412-login",
    "cmux": [
-    "action",
-    "run",
-    "splitRight"
+    "workspace",
+    "name:bug-412-login",
+    "focus"
    ],
    "wait": 0.4,
    "shot": false,
-   "optional": "split"
+   "optional": "focus"
   },
   {
    "title": "Workspace bug-418-crash",
@@ -40,6 +40,28 @@
    "shot": false
   },
   {
+   "title": "Focus bug-418-crash",
+   "cmux": [
+    "workspace",
+    "name:bug-418-crash",
+    "focus"
+   ],
+   "wait": 0.4,
+   "shot": false,
+   "optional": "focus"
+  },
+  {
+   "title": "Tab in bug-418-crash",
+   "cmux": [
+    "action",
+    "run",
+    "newSurface"
+   ],
+   "wait": 0.4,
+   "shot": false,
+   "optional": "tab"
+  },
+  {
    "title": "Workspace bug-421-scroll",
    "cmux": [
     "workspace",
@@ -51,15 +73,15 @@
    "shot": false
   },
   {
-   "title": "Tab in bug-421-scroll",
+   "title": "Focus bug-421-scroll",
    "cmux": [
-    "action",
-    "run",
-    "splitRight"
+    "workspace",
+    "name:bug-421-scroll",
+    "focus"
    ],
    "wait": 0.4,
    "shot": false,
-   "optional": "split"
+   "optional": "focus"
   },
   {
    "title": "Workspace api",
@@ -73,6 +95,28 @@
    "shot": false
   },
   {
+   "title": "Focus api",
+   "cmux": [
+    "workspace",
+    "name:api",
+    "focus"
+   ],
+   "wait": 0.4,
+   "shot": false,
+   "optional": "focus"
+  },
+  {
+   "title": "Tab in api",
+   "cmux": [
+    "action",
+    "run",
+    "newSurface"
+   ],
+   "wait": 0.4,
+   "shot": false,
+   "optional": "tab"
+  },
+  {
    "title": "Workspace docs",
    "cmux": [
     "workspace",
@@ -84,15 +128,15 @@
    "shot": false
   },
   {
-   "title": "Tab in docs",
+   "title": "Focus docs",
    "cmux": [
-    "action",
-    "run",
-    "splitRight"
+    "workspace",
+    "name:docs",
+    "focus"
    ],
    "wait": 0.4,
    "shot": false,
-   "optional": "split"
+   "optional": "focus"
   },
   {
    "title": "Workspace release-1.3",
@@ -104,6 +148,28 @@
    ],
    "wait": 0.6,
    "shot": false
+  },
+  {
+   "title": "Focus release-1.3",
+   "cmux": [
+    "workspace",
+    "name:release-1.3",
+    "focus"
+   ],
+   "wait": 0.4,
+   "shot": false,
+   "optional": "focus"
+  },
+  {
+   "title": "Tab in release-1.3",
+   "cmux": [
+    "action",
+    "run",
+    "newSurface"
+   ],
+   "wait": 0.4,
+   "shot": false,
+   "optional": "tab"
   },
   {
    "title": "Go to Home",

@@ -18,7 +18,18 @@
    "shot": false
   },
   {
-   "title": "Tab in bug-412-login",
+   "title": "Focus bug-412-login",
+   "cmux": [
+    "workspace",
+    "name:bug-412-login",
+    "focus"
+   ],
+   "wait": 0.4,
+   "shot": false,
+   "optional": "focus"
+  },
+  {
+   "title": "Split bug-412-login",
    "cmux": [
     "action",
     "run",
@@ -29,7 +40,7 @@
    "optional": "split"
   },
   {
-   "title": "Split bug-412-login",
+   "title": "Split down bug-412-login",
    "cmux": [
     "action",
     "run",
@@ -38,17 +49,6 @@
    "wait": 0.4,
    "shot": false,
    "optional": "split"
-  },
-  {
-   "title": "Split down bug-412-login",
-   "cmux": [
-    "action",
-    "run",
-    "newSurface"
-   ],
-   "wait": 0.4,
-   "shot": false,
-   "optional": "extra tab"
   },
   {
    "title": "Workspace bug-418-crash",
@@ -62,6 +62,28 @@
    "shot": false
   },
   {
+   "title": "Focus bug-418-crash",
+   "cmux": [
+    "workspace",
+    "name:bug-418-crash",
+    "focus"
+   ],
+   "wait": 0.4,
+   "shot": false,
+   "optional": "focus"
+  },
+  {
+   "title": "Tab in bug-418-crash",
+   "cmux": [
+    "action",
+    "run",
+    "newSurface"
+   ],
+   "wait": 0.4,
+   "shot": false,
+   "optional": "tab"
+  },
+  {
    "title": "Workspace bug-421-scroll",
    "cmux": [
     "workspace",
@@ -73,7 +95,18 @@
    "shot": false
   },
   {
-   "title": "Tab in bug-421-scroll",
+   "title": "Focus bug-421-scroll",
+   "cmux": [
+    "workspace",
+    "name:bug-421-scroll",
+    "focus"
+   ],
+   "wait": 0.4,
+   "shot": false,
+   "optional": "focus"
+  },
+  {
+   "title": "Split bug-421-scroll",
    "cmux": [
     "action",
     "run",
@@ -95,7 +128,18 @@
    "shot": false
   },
   {
-   "title": "Split api",
+   "title": "Focus api",
+   "cmux": [
+    "workspace",
+    "name:api",
+    "focus"
+   ],
+   "wait": 0.4,
+   "shot": false,
+   "optional": "focus"
+  },
+  {
+   "title": "Split down api",
    "cmux": [
     "action",
     "run",
@@ -106,7 +150,7 @@
    "optional": "split"
   },
   {
-   "title": "Split down api",
+   "title": "Tab in api",
    "cmux": [
     "action",
     "run",
@@ -114,7 +158,7 @@
    ],
    "wait": 0.4,
    "shot": false,
-   "optional": "extra tab"
+   "optional": "tab"
   },
   {
    "title": "Workspace docs",
@@ -128,7 +172,18 @@
    "shot": false
   },
   {
-   "title": "Tab in docs",
+   "title": "Focus docs",
+   "cmux": [
+    "workspace",
+    "name:docs",
+    "focus"
+   ],
+   "wait": 0.4,
+   "shot": false,
+   "optional": "focus"
+  },
+  {
+   "title": "Split docs",
    "cmux": [
     "action",
     "run",
@@ -150,6 +205,28 @@
    "shot": false
   },
   {
+   "title": "Focus release-1.3",
+   "cmux": [
+    "workspace",
+    "name:release-1.3",
+    "focus"
+   ],
+   "wait": 0.4,
+   "shot": false,
+   "optional": "focus"
+  },
+  {
+   "title": "Tab in release-1.3",
+   "cmux": [
+    "action",
+    "run",
+    "newSurface"
+   ],
+   "wait": 0.4,
+   "shot": false,
+   "optional": "tab"
+  },
+  {
    "title": "Workspace landing-page",
    "cmux": [
     "workspace",
@@ -161,7 +238,18 @@
    "shot": false
   },
   {
-   "title": "Tab in landing-page",
+   "title": "Focus landing-page",
+   "cmux": [
+    "workspace",
+    "name:landing-page",
+    "focus"
+   ],
+   "wait": 0.4,
+   "shot": false,
+   "optional": "focus"
+  },
+  {
+   "title": "Split landing-page",
    "cmux": [
     "action",
     "run",
@@ -172,7 +260,7 @@
    "optional": "split"
   },
   {
-   "title": "Split landing-page",
+   "title": "Split down landing-page",
    "cmux": [
     "action",
     "run",
@@ -181,17 +269,6 @@
    "wait": 0.4,
    "shot": false,
    "optional": "split"
-  },
-  {
-   "title": "Split down landing-page",
-   "cmux": [
-    "action",
-    "run",
-    "newSurface"
-   ],
-   "wait": 0.4,
-   "shot": false,
-   "optional": "extra tab"
   },
   {
    "title": "Workspace infra",
@@ -205,6 +282,28 @@
    "shot": false
   },
   {
+   "title": "Focus infra",
+   "cmux": [
+    "workspace",
+    "name:infra",
+    "focus"
+   ],
+   "wait": 0.4,
+   "shot": false,
+   "optional": "focus"
+  },
+  {
+   "title": "Tab in infra",
+   "cmux": [
+    "action",
+    "run",
+    "newSurface"
+   ],
+   "wait": 0.4,
+   "shot": false,
+   "optional": "tab"
+  },
+  {
    "title": "Workspace design-review",
    "cmux": [
     "workspace",
@@ -216,7 +315,18 @@
    "shot": false
   },
   {
-   "title": "Tab in design-review",
+   "title": "Focus design-review",
+   "cmux": [
+    "workspace",
+    "name:design-review",
+    "focus"
+   ],
+   "wait": 0.4,
+   "shot": false,
+   "optional": "focus"
+  },
+  {
+   "title": "Split design-review",
    "cmux": [
     "action",
     "run",
@@ -238,7 +348,18 @@
    "shot": false
   },
   {
-   "title": "Split ios-build",
+   "title": "Focus ios-build",
+   "cmux": [
+    "workspace",
+    "name:ios-build",
+    "focus"
+   ],
+   "wait": 0.4,
+   "shot": false,
+   "optional": "focus"
+  },
+  {
+   "title": "Split down ios-build",
    "cmux": [
     "action",
     "run",
@@ -249,7 +370,7 @@
    "optional": "split"
   },
   {
-   "title": "Split down ios-build",
+   "title": "Tab in ios-build",
    "cmux": [
     "action",
     "run",
@@ -257,7 +378,7 @@
    ],
    "wait": 0.4,
    "shot": false,
-   "optional": "extra tab"
+   "optional": "tab"
   },
   {
    "title": "Workspace perf",
@@ -271,7 +392,18 @@
    "shot": false
   },
   {
-   "title": "Tab in perf",
+   "title": "Focus perf",
+   "cmux": [
+    "workspace",
+    "name:perf",
+    "focus"
+   ],
+   "wait": 0.4,
+   "shot": false,
+   "optional": "focus"
+  },
+  {
+   "title": "Split perf",
    "cmux": [
     "action",
     "run",
@@ -291,6 +423,28 @@
    ],
    "wait": 0.6,
    "shot": false
+  },
+  {
+   "title": "Focus onboarding",
+   "cmux": [
+    "workspace",
+    "name:onboarding",
+    "focus"
+   ],
+   "wait": 0.4,
+   "shot": false,
+   "optional": "focus"
+  },
+  {
+   "title": "Tab in onboarding",
+   "cmux": [
+    "action",
+    "run",
+    "newSurface"
+   ],
+   "wait": 0.4,
+   "shot": false,
+   "optional": "tab"
   },
   {
    "title": "Go to Home",
