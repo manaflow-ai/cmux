@@ -10034,10 +10034,8 @@ function AcpmuxPane() {
   // chat's view its own and the chat's workflows and started chats.
   const revealSection = inspector.reveal;
   const listedAgents = inspectorSubagent ? inspectorSubagent.agents.length : trayAgents.length + childSessions.length;
-  if (revealSection && listedAgents > 0)
-    commands.showSubagents = () => revealSection("subagents");
-  if (revealSection && backgroundRows > 0)
-    commands.showBackgroundTasks = () => revealSection("tasks");
+  if (revealSection && listedAgents > 0) commands.showSubagents = () => revealSection("subagents");
+  if (revealSection && backgroundRows > 0) commands.showBackgroundTasks = () => revealSection("tasks");
   paletteCommands.current = { sessionId: snapshot.sessionId ?? "", commands };
   const commandNames = Object.keys(commands).sort().join(" ");
   // Again for every client: the host's handshake (a reconnect's too) forgets the list, and a new

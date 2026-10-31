@@ -260,9 +260,15 @@ await requireBrowserLane("page-commands-palette.test.ts", async () => {
     try {
       await offers(page, "toggleFiles,toggleQueueing,toggleSideTabs");
       const stored = () => page.evaluate(() => localStorage.getItem("cmux.acpmux.queueing"));
-      await page.evaluate((session) => window.cmuxAcpmuxBridge!.command!(`header:toggleQueueing|${session}`), PAPERCUT_CHAT);
+      await page.evaluate(
+        (session) => window.cmuxAcpmuxBridge!.command!(`header:toggleQueueing|${session}`),
+        PAPERCUT_CHAT,
+      );
       expect(await stored()).toBe("off");
-      await page.evaluate((session) => window.cmuxAcpmuxBridge!.command!(`header:toggleQueueing|${session}`), PAPERCUT_CHAT);
+      await page.evaluate(
+        (session) => window.cmuxAcpmuxBridge!.command!(`header:toggleQueueing|${session}`),
+        PAPERCUT_CHAT,
+      );
       expect(await stored()).toBeNull();
     } finally {
       await page.close();
@@ -279,7 +285,10 @@ await requireBrowserLane("page-commands-palette.test.ts", async () => {
         window.cmuxAcpmuxBridge!.command!("runInBackground");
       });
       expect(await heard(page, "_acpmux/process/background")).toBe(false);
-      await page.evaluate((session) => window.cmuxAcpmuxBridge!.command!(`header:runInBackground|${session}`), PAPERCUT_CHAT);
+      await page.evaluate(
+        (session) => window.cmuxAcpmuxBridge!.command!(`header:runInBackground|${session}`),
+        PAPERCUT_CHAT,
+      );
       expect(await heard(page, "_acpmux/process/background")).toBe(true);
     } finally {
       await page.close();
@@ -304,9 +313,15 @@ await requireBrowserLane("page-commands-palette.test.ts", async () => {
       );
       // Each command reveals its section: scrolled to and lit for a moment (inspector.css `[data-revealed]`).
       const shown = page.locator('aside.acpmux-chat-inspector[data-presence="shown"]');
-      await page.evaluate((session) => window.cmuxAcpmuxBridge!.command!(`header:showBackgroundTasks|${session}`), PAPERCUT_CHAT);
+      await page.evaluate(
+        (session) => window.cmuxAcpmuxBridge!.command!(`header:showBackgroundTasks|${session}`),
+        PAPERCUT_CHAT,
+      );
       await shown.locator('[data-section="tasks"][data-revealed]').first().waitFor({ timeout: 10_000 });
-      await page.evaluate((session) => window.cmuxAcpmuxBridge!.command!(`header:showSubagents|${session}`), PAPERCUT_CHAT);
+      await page.evaluate(
+        (session) => window.cmuxAcpmuxBridge!.command!(`header:showSubagents|${session}`),
+        PAPERCUT_CHAT,
+      );
       await shown.locator('[data-section="subagents"][data-revealed]').first().waitFor({ timeout: 10_000 });
     } finally {
       await page.close();
