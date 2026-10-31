@@ -362,3 +362,22 @@ test("Update Automatically turns auto-update on for one harness; a failed auto-u
   expect(row.querySelector("[data-harness-auto-failed]")!.textContent).toContain("npm ERR! network timeout");
   page.unmount();
 });
+
+test("an expired sign-in badges Agents and says so on its row, like a signed-out one", async () => {
+  const { harnessesNeedAttention } = await import("./harnesses");
+  const page = await renderPage({ path: "/settings/agents" });
+  await settle();
+  const base = page.provider.harnesses;
+  const harnesses = (base?.harnesses ?? []).map((row) => ({ ...row, outdated: false, auth: "signedIn" as const }));
+  const expired = {
+    ...base,
+    harnesses: harnesses.map((row) => (row.id === "codex" ? { ...row, auth: "expired" as const } : row)),
+  } as typeof base;
+  expect(harnessesNeedAttention({ ...base, harnesses } as typeof base)).toBe(false);
+  expect(harnessesNeedAttention(expired)).toBe(true);
+  await act(async () => page.provider.setHarnesses(expired));
+  await settle();
+  const codex = card(page.container)!.querySelector<HTMLElement>('[data-harness="codex"]')!;
+  expect(codex.querySelector('[data-harness-auth="expired"]')?.textContent).toBe("Signed out");
+  page.unmount();
+});

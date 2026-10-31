@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-10-21, on the cmux NEXT sidebar: "ALL THIS RELATIVELY UNNECESSARY SPACING AFTER GROUPS AND
@@ -8,7 +9,7 @@ import Testing
 /// last member, under a folder's last row, under the Pinned block's last row and under the last pinned
 /// chat, as between any two rows. A pinned workspace row's pin starts where an unpinned row's content
 /// starts and centers on its row as that row's content does.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarUniformRowSpacingTests {
     static let group = GroupID("grp")
     static let pins = [LayoutItemID("itm_pin_1"), LayoutItemID("itm_pin_2")]
@@ -254,7 +255,7 @@ struct SidebarUniformRowSpacingTests {
         (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride) = (density, true)
         defer { (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride) = (saved, savedMotion) }
         let h = Harness()
-        defer { h.window.orderOut(nil) }
+        defer { h.window.close() }
         let spacing = h.list.displayed.rowSpacing
         #expect(spacing > 0)
         let lastPin = h.inList(try h.pinnedRow(Self.pins[1]))
@@ -271,7 +272,7 @@ struct SidebarUniformRowSpacingTests {
         (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride) = (density, true)
         defer { (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride) = (saved, savedMotion) }
         let h = Harness()
-        defer { h.window.orderOut(nil) }
+        defer { h.window.close() }
         let pinned = try h.pinnedRow(Self.pins[0])
         let ink = try #require(pinned.pinInkFrame, "the pinned workspace row draws no pin")
         let pin = h.list.convert(ink, from: pinned)

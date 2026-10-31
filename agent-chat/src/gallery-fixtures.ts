@@ -1,4 +1,4 @@
-import type { Block, CommandGroup, Provider, ProviderCapabilities, SessionActions, SessionOption } from "./session";
+import type { Block, CommandGroup, PendingQuestion, Provider, ProviderCapabilities, SessionActions, SessionOption } from "./session";
 
 export const galleryProviders: Provider[] = [
   { id: "claude", label: "Claude Code", installed: true, installCommand: "npm i -g @anthropic-ai/claude-code" },
@@ -189,3 +189,28 @@ export const stressConversationBlocks: Block[] = Array.from({ length: 250 }, (_,
 ]).flat();
 
 export const galleryActions: SessionActions = { fork: true, handoff: true };
+
+// Codex request_user_input, normalized the way adapters/codex.ts emits it.
+export const galleryQuestions: PendingQuestion[] = [
+  {
+    questionId: "codex-choice",
+    items: [
+      {
+        id: "db_engine",
+        header: "Database",
+        question: "Which database should the service use?",
+        options: [
+          { label: "Postgres", description: "Managed Postgres with point-in-time restore." },
+          { label: "SQLite", description: "One file next to the service." },
+        ],
+        allowsOther: true,
+        secret: false,
+      },
+      { id: "service_name", header: "Name", question: "What should the service be called?", options: [], allowsOther: true, secret: false },
+    ],
+  },
+  {
+    questionId: "codex-secret",
+    items: [{ id: "token", header: "Token", question: "Paste the deploy token for staging.", options: [], allowsOther: true, secret: true }],
+  },
+];

@@ -59,6 +59,14 @@ if [[ "${CMUX_ALLOW_REPLACING_RUNNING_CMUX:-}" == "1" ]]; then
   OPEN_ENV_ARGS=(--env CMUX_ALLOW_REPLACING_RUNNING_CMUX=1)
 fi
 
+# The Release configuration bundles the pinned cmux-tui by default and fails
+# when that pin is not downloaded; it never falls back to an older client. A
+# local Release build runs this checkout's own cmux-tui instead (tree mode, as
+# reload.sh --release does), fetched before the build (public URL, sha256-checked).
+export CMUX_NEXT_TUI_MODE="${CMUX_NEXT_TUI_MODE:-tree}"
+if [[ -z "${CMUX_NEXT_TUI_BIN:-}" && "$CMUX_NEXT_TUI_MODE" != deferred ]]; then
+  "$(dirname "${BASH_SOURCE[0]}")/cmux-next/pin-cmux-tui.sh" fetch
+fi
 # cmux-next's web bundles are build output (cx-vn5); the app's verify phase needs them.
 if [[ -x scripts/cmux-next/build-web-bundles.sh ]]; then
   scripts/cmux-next/build-web-bundles.sh

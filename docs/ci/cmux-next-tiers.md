@@ -59,6 +59,45 @@ proves the committed bundle matches them; the bundle is a `.copy` resource, so
 the app takes it without a compile. An explicitly requested local gallery matrix can diff the touched entries. A
 `dev-build` PR still compiles its dogfood app.
 
+A web bundle source runs no swift test of its own. The bundles' inputs
+(`BUNDLE_INPUTS`: `webviews/src/`, the bundle build scripts, the schema and the
+other files the bundles import) still run the compiles that ship them (`native`),
+but swift test only for the test targets whose sources name the changed file
+(the target graph's `reads`). The four targets that ship a bundle take it as a
+`.copy` resource, or one processed `.js`, so no source edit can break their build,
+and no suite asserts on a built page: the agent pane, page and Activity suites
+load fixture pages (an `AgentPaneView` with a temporary `index.html`,
+`loadHTMLString`, a scratch page root), and the app suites that open a real page
+check only its native side. `BundleInputs` in `tests/test_cmux_next_route.py`
+keeps that true: a suite in a target that links a bundle target and runs page
+JavaScript must load its own document or be an opt-in bench. A test that reads a
+pattern of files names the pattern (`PageDevServerTests`:
+`"webviews/src/pages/*/main.tsx"`, the dev server's entries), and the graph
+records the pattern, so an edit inside a page no longer runs CmuxNextPagesTests
+for the whole of `webviews/src/pages/`. ci-web type-checks, lints, tests and
+builds the bundles on Linux for every webviews change, as before.
+
+A design note runs no Mac tier either. A test helper such as
+`planURL(_ name:)` builds `"plans/cmux-next/\(name)"`, so the target graph
+records the whole of `plans/cmux-next/` as a read. The router narrows that for
+docs (`.md`, `.html`, images): a doc counts as read only when a string literal in
+the reading target names it (or names the directory itself), or when a generator
+writes it (`scripts/cmux-next/generated_outputs.py`). #28326 changed only
+`plans/cmux-next/sidebar-owner.md` and queued the fast tier and swift test.
+
+The Mac fast tier (`cmux-next fast tier`, the `swift` entries of
+`scripts/cmux-next/fast-tier.json`) builds the CmuxNext package and runs a few
+of its suites, so it runs only when that build or those suites can change: a
+package target's sources or a local package it uses, a file read by a test
+target that holds one of its suites (placed from `fast-tier.json` and the target
+graph), a package one of its entries builds, an action its job uses, an input of
+every tier, or the tier's own registry (router output `fast_tier`). The job builds
+no web bundles and links CCmuxAppFFI as a pinned binary, so a change only to the
+bundles' sources, to the cmux-app-ffi crates, or to files only other test targets
+read skips it (#28160, #28015: acpmux Rust with the pane's protocol types, which
+keep the daemon tier and the compiles). A cmux-tui-only or app-host-only change keeps its daemon and
+scheme tiers and skips it too; `fast-tier-cargo` still runs on Linux.
+
 The Swift canary is the pull-request gate for a small package-only Swift diff.
 It builds only the affected CmuxNext production targets with `swift build
 --configuration debug --target`, reusing the linked SwiftPM scratch on a mini.
@@ -74,7 +113,30 @@ verdict (2026-10-21), as a fork PR does for its other native sources. Every
 and push-attribution names the PR.
 
 A CI-only change runs no Mac tier either: workflows, `scripts/ci/`, the router,
-`scripts/gh-merge-green` and their Python tests (alone or with web files). ci.yml's
+`scripts/gh-merge-green` and their Python tests (alone or with web files).
+`cmux-next.yml` counts as one only when, against the pull request's base
+(`--base-rev HEAD^1`), its change leaves every Mac job and every job one needs as
+it was: `on:` paths or `run-name`, or a job that runs only on Linux and that no Mac
+job needs (the `checks` job, a dispatch request). A job that never runs on a pull
+request adds no tier either: its `if:` requires a push, a dispatch, a branch ref or a
+dispatch input, or a job that does (the DEV landing compile, the fast Release gate, the
+nightly requests). The base push runs it. A change to one of the Mac jobs
+`WORKFLOW_JOB_TIERS` lists runs that job's own tiers:
+
+| job changed | tiers it runs |
+| --- | --- |
+| `swift-test` | swift test on every CmuxNext test target, with the generated-files check it folds in |
+| `daemon-test` | the daemon suites, with the generated-files check |
+| `generated-files` | generated |
+| `release-compile` | native and the Mac Release compile |
+| `app-compile-fleet` | native |
+| `cmux-scheme-compile` | native and the scheme compile |
+
+Before this, a change to the DEV compile's steps ran swift test, the daemon suites
+and every compile (#5424). The router runs every tier, as before, for: a change to a
+listed job's `if:`, a job added or removed, path routing, placement, the web bundles
+job, the fast tier or the canary, a top-level key, or a base that cannot be read
+(#28459 changed only `on:` paths and queued both Mac jobs). ci.yml's
 guards run actionlint and the CI unit tests. When the router itself changes,
 `Routing replay (router changes)` replays the last 30 merged PRs' changed files
 through the base router and the PR's own (`scripts/ci/cmux_next_route_replay.py`)
@@ -97,7 +159,18 @@ Every tier runs on:
   newest waits (a newer push replaces a waiting one), so a base compile break
   turns the base red within one compile of its commit. When a push job fails,
   `cmux-next push attribution` comments on each PR merged since that job last
-  passed on a push. The owning lane fixes forward;
+  passed on a push. The owning lane fixes forward. The base Mac tier (daemon
+  tests, generated files, the Debug app scheme compile) is not on the push: it
+  runs at most once every 15 minutes, on the tip, in a `cmux-next base tier · <sha>`
+  dispatch that `cmux-next-base-tier-kick.yml` starts
+  (`scripts/ci/cmux_next_base_tier.py`, cmuxterm-hq#5424). Its tip holds every
+  landing since the last one, so each landing gets that verdict within about
+  15 minutes plus the run. When it fails, push attribution comments on the PRs
+  merged since it last passed (about ten in a busy window). To name one, push a
+  branch at a commit in that range and dispatch cmux-next.yml on it
+  (`gh workflow run cmux-next.yml --ref <branch>`), which runs every tier there;
+  halve the range until one PR is left. `vars.CMUX_NEXT_BASE_TIER_COALESCE = 0` puts the tier back on
+  every push;
 - a change to the manifest, the target graph, the router, the workflow or the
   test runner scripts, or to a file in the CmuxNext package that no target owns.
 
@@ -191,6 +264,21 @@ newest verdict naming the head decides, so a later BLOCK beats an earlier SHIP) 
 approving review from a call owner in `.github/defaults-call-owners.json` other than the
 author. A new setting whose default is off (false, null, `off`, `never`, `none`,
 `disabled` or empty) keeps what everyone had before it existed and passes on its own.
+
+## Warm sources
+
+Every compile, build or test job names the warm state it starts from in
+`.github/warm-sources.json`, beside the tiers above: kept DerivedData
+(`deriveddata-reuse`), the per-mini SwiftPM scratch (`spm-shared`), the fleet
+compiler-CAS nodes (`ssd-cas`), the DEV CAS seed (`dev-cas`), actions/cache on
+Blacksmith (`actions-cache`), the controller's warm Linux lanes (`linux-pool-warm`)
+and green-product reuse for the same tree (`product-reuse`). A job with none says
+why (`exempt`); one that compiles cold today says `cold: ...` until its cache is wired.
+`tests/test_ci_warm_sources.py` (release-notary guards) fails on a compile job missing
+from the table, an entry with neither, a source the job's steps do not wire, an
+exemption on a job that now wires a source, and an entry for a job that is gone. For
+a new job, `python3 tests/test_ci_warm_sources.py --suggest` prints the entry its
+steps give; each source's `runbook` says how to wire it.
 
 ## Measurements
 

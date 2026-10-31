@@ -185,6 +185,8 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     public var image: String?
     public var imageVersion: String?
     public var createdAt: Date?
+    /// Person who created the machine, when the team API supplies it.
+    public var createdBy: String?
     public var address: Address?
     public var size: Size?
     /// Server-declared provider operations and attach transports; `nil`
@@ -208,6 +210,9 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     /// When the machine last started running (`runningSince`, epoch ms).
     /// Nil while it is paused, so a paused machine shows no running cost.
     public var runningSince: Date?
+    /// The auto-size pick a create with `autosize` answered (``CloudSizePick``); nil on a list
+    /// record, on a create that sent its own size, and on an older server.
+    public var sizePick: CloudSizePick?
 
     /// The declared capabilities, or the conservative empty set when the
     /// record declared none. Gate actions with ``allows(_:)``, not this.
@@ -233,9 +238,9 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     public var title: String { displayName?.nonEmpty ?? slug?.nonEmpty ?? id }
 
     enum CodingKeys: String, CodingKey {
-        case id, provider, status, displayName, slug, kind, image, imageVersion, createdAt, address, size, capabilities
+        case id, provider, status, displayName, slug, kind, image, imageVersion, createdAt, createdBy, createdByUserId, address, size, capabilities
         case pauseReason, idlePauseMinutes, idlePause
-        case hourlyRateUsd, runningSince
+        case hourlyRateUsd, runningSince, sizePick
     }
 
     public init(id: String, provider: String = "freestyle", status: Status = .running, displayName: String? = nil,
@@ -246,12 +251,30 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         self.provider = provider
         self.status = status
         self.displayName = displayName
+        self.createdBy = nil
         self.slug = slug
         self.address = address
         self.declaredCapabilities = capabilities
         self.pauseReason = pauseReason
         self.idlePauseMinutes = idlePauseMinutes
         self.idlePause = idlePause
+    }
+
+    /// Classic list, detail and create routes publish `{userId, displayName}`.
+    /// Accept the earlier string form too, without hiding malformed machine fields.
+    private struct CreatorReference: Decodable {
+        let userId: String
+        private enum CodingKeys: String, CodingKey { case userId }
+
+        init(from decoder: any Decoder) throws {
+            let scalar = try decoder.singleValueContainer()
+            do {
+                userId = try scalar.decode(String.self)
+            } catch DecodingError.typeMismatch {
+                let object = try decoder.container(keyedBy: CodingKeys.self)
+                userId = try object.decode(String.self, forKey: .userId)
+            }
+        }
     }
 
     public init(from decoder: any Decoder) throws {
@@ -266,6 +289,8 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         image = try c.decodeIfPresent(String.self, forKey: .image)
         imageVersion = try c.decodeIfPresent(String.self, forKey: .imageVersion)
         createdAt = try c.decodeIfPresent(Double.self, forKey: .createdAt).map { Date(timeIntervalSince1970: $0 / 1000) }
+        createdBy = try c.decodeIfPresent(String.self, forKey: .createdByUserId)
+            ?? c.decodeIfPresent(CreatorReference.self, forKey: .createdBy)?.userId
         address = try c.decodeIfPresent(Address.self, forKey: .address)
         size = try c.decodeIfPresent(Size.self, forKey: .size)
         declaredCapabilities = try c.decodeIfPresent(Capabilities.self, forKey: .capabilities)
@@ -277,6 +302,7 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         // Display facts: a malformed value drops the cost line, never the machine.
         hourlyRateUsd = (try? c.decodeIfPresent(Double.self, forKey: .hourlyRateUsd)) ?? nil
         runningSince = ((try? c.decodeIfPresent(Double.self, forKey: .runningSince)) ?? nil).map { Date(timeIntervalSince1970: $0 / 1000) }
+        sizePick = (try? c.decodeIfPresent(CloudSizePick.self, forKey: .sizePick)) ?? nil
     }
 }
 
@@ -300,6 +326,9 @@ public struct CloudAttachEndpoint: Sendable, Hashable, Decodable {
     /// boundary (acpmux `hub/vm_boundary.rs`). Missing, null or any other string keeps them
     /// sandboxed; a value of another type fails the attach.
     public var callerOwnsVM: Bool { vmKind == "owner" }
+    /// Only the exact `"team"`: the Cloud API says the machine is a teammate's, so its owner starts
+    /// chats there. Grants nothing; it only names the refusal (``CloudMachineLink/callerIsTeammate``).
+    public var callerIsTeammate: Bool { vmKind == "team" }
 }
 
 public struct CloudEnrollmentApproval: Sendable, Hashable, Decodable {
