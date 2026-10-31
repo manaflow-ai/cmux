@@ -233,7 +233,7 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await page.close();
   });
 
-  test("a finished turn's Worked for opened at the latest row stays on its pixel", async () => {
+  test("a finished turn's Worked for opened at the latest row pins the bottom", async () => {
     const page = await open("no-preference");
     await show(page, done);
     await settle(page);
@@ -241,7 +241,8 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await probe(page, `[data-row-id="worked-t7-user"] button.cv-worked`);
     const opened = await clickAndWatch(page);
     expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
-    expect(opened.moved).toBeLessThanOrEqual(1);
+    expect(opened.bottomDrift).toBeLessThanOrEqual(2);
+    expect(await atLatest(page)).toBe(true);
     expect(await page.locator('[data-row-id="t7-run"]').count()).toBe(1);
     await page.close();
   });
@@ -294,7 +295,8 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     expect(await line.getAttribute("aria-expanded")).toBe("false");
     await probe(page, '[data-row-id="worked-completed-user"] .cv-worked');
     const opened = await clickAndWatch(page);
-    expect(opened.moved).toBeLessThanOrEqual(1);
+    expect(opened.bottomDrift).toBeLessThanOrEqual(2);
+    expect(await atLatest(page)).toBe(true);
     expect(await line.getAttribute("aria-expanded")).toBe("true");
     const position = await page.evaluate(() => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
@@ -528,7 +530,7 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await page.close();
   });
 
-  test("under Reduce Motion a tool call opens at once, and still stays on its pixel", async () => {
+  test("under Reduce Motion a tool call opens at once and still pins the bottom", async () => {
     const page = await open("reduce");
     await show(page, [...done, ...live(1)]);
     await settle(page);
@@ -536,7 +538,8 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     const opened = await clickAndWatch(page, 250);
     expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
     expect(opened.folded).toBe(false);
-    expect(opened.moved).toBeLessThanOrEqual(1);
+    expect(opened.bottomDrift).toBeLessThanOrEqual(2);
+    expect(await atLatest(page)).toBe(true);
     await page.close();
   });
 });
