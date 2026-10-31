@@ -103,6 +103,26 @@ class OracleTests(unittest.TestCase):
         # A query that only names /script-nav does not exempt a page.
         self.assertEqual(model.judged_title("http://localhost:1/page?from=/script-nav", model.CANARY), model.CANARY)
 
+    def test_stale_title_while_the_next_page_loads_is_skipped_once(self):
+        nav = ("http://localhost:1/script-nav?to=javascript%3Ax", model.CANARY)
+        slow = "http://localhost:1/slow?ms=3000"
+        # The navigation started (new URL) but the old page's title is still shown: not a finding.
+        self.assertEqual(model.judged_title(slow, model.CANARY, previous=nav), "")
+        # The next reading (previous is the slow URL now): the same title is judged.
+        self.assertEqual(model.judged_title(slow, model.CANARY, previous=(slow, model.CANARY)), model.CANARY)
+        # A new title on the new page is judged at once.
+        self.assertEqual(model.judged_title(slow, "fuzz slow", previous=nav), "fuzz slow")
+        # No earlier reading on /script-nav: judged.
+        self.assertEqual(model.judged_title(slow, model.CANARY, previous=("http://localhost:1/page", "x")), model.CANARY)
+
+    def test_url_path_never_raises_on_the_malformed_corpus(self):
+        for url in model._payloads()["malformed"] + model._payloads()["huge"] + ["http://[zz::]/script-nav", "http://[::1"]:
+            model.url_path(url)
+            model.judged_title(url, model.CANARY, previous=(url, model.CANARY))
+        self.assertEqual(model.url_path("http://[zz::]/script-nav?x=1"), "/script-nav")
+        self.assertEqual(model.url_path("http://x.test"), "/")
+        self.assertEqual(model.url_path("about:blank"), "blank")
+
     def test_download_path(self):
         with tempfile.TemporaryDirectory() as folder:
             self.assertIsNone(model.download_violation({"destination": os.path.join(folder, "fuzz.bin")}, folder))
