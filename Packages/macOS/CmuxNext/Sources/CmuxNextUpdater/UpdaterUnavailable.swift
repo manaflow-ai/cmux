@@ -31,9 +31,9 @@ nonisolated public struct UpdaterUnavailable: Error, Equatable, CustomStringConv
     }
 
     static func cannotSwitch(to target: String, from track: UpdateTrack) -> UpdaterUnavailable {
-        // `nightly-next` is an internal feed identity; the disabled subtitle
-        // uses the user-facing channel name (`nightly`) like the rest of the
-        // updater UI.
-        UpdaterUnavailable(description: UpdaterStrings.cannotSwitch(to: target, from: UpdaterStrings.channel(track)))
+        // `nightly-next` is an internal feed identity; keep the existing
+        // wording for every other track while presenting it as NIGHTLY here.
+        let displayTrack = track == .nightlyNext ? UpdateTrack.nightly.rawValue : track.rawValue
+        UpdaterUnavailable(description: UpdaterStrings.cannotSwitch(to: target, from: displayTrack))
     }
 }
