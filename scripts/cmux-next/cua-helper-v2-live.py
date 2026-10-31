@@ -254,8 +254,26 @@ try:
     report["helper_socket"] = sock
     check("2 helper ready line logged", bool(ready), ready["message"] if ready else json.dumps(rows)[:600])
     helper = next((p for p in bundle_processes() if "cmux-cua-helper" in p["command"]), None)
+    remote = None
+    if helper is None and os.path.isdir(os.path.join(APP, "Contents/Library/cmux Remote (dev).app")):
+        # cmux Remote (docs/cmux-remote.md): the worker is the host's child, the host the daemon's.
+        rows = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,command="], capture_output=True, text=True).stdout.splitlines()
+        procs = [r.strip().split(None, 2) for r in rows if "cmux-remote " in r]
+        hosts = [p for p in procs if len(p) == 3 and " host " in f" {p[2]} "]
+        workers = [p for p in procs if len(p) == 3 and "worker computer-use" in p[2]]
+        host = hosts[0] if hosts else None
+        worker = next((w for w in workers if host and w[1] == host[0]), None)
+        daemon = next((p for p in bundle_processes() if p["pid"] == int(host[1])), None) if host else None
+        remote = {"host": host, "worker": worker, "host_parent": daemon,
+                  "host_outside_app": bool(host) and not host[2].startswith(APP)}
+        report["cmux_remote"] = remote
     report["helper_process"] = helper
-    check("helper v2 runs as a child of the app", bool(helper) and helper["ppid"] == app.pid, json.dumps(helper))
+    if remote is not None:
+        check("Computer Use runs as cmux Remote's worker (worker <- host <- the app's cmux-tui daemon; host outside the app)",
+              bool(remote["worker"]) and bool(remote["host_parent"]) and "cmux-tui" in remote["host_parent"]["command"]
+              and remote["host_outside_app"], json.dumps(remote)[:600])
+    else:
+        check("helper v2 runs as a child of the app", bool(helper) and helper["ppid"] == app.pid, json.dumps(helper))
     if sock:
         real = os.path.realpath(sock)
         st = os.stat(sock)
