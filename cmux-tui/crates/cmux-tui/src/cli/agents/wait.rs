@@ -395,18 +395,21 @@ fn chat_activity<B: Backend>(
     let command = super::chat::ChatCommand::State { target: target.to_owned() };
     let info = match backend.chat_in_session(session, &command, None, "agents") {
         Ok(info) => info,
-        Err(failure) if failure.error["code"] == "selector.not_found" => {
+        Err(failure) if failure.error.get("code").and_then(Value::as_str) == Some("selector.not_found") => {
             return Ok(Activity::Missing);
         }
-        Err(failure) if failure.error["code"] == "chat.out_of_scope" || first => {
+        Err(failure)
+            if failure.error.get("code").and_then(Value::as_str) == Some("chat.out_of_scope")
+                || first =>
+        {
             return Err(AgentFailure::Owner(failure));
         }
         // A transient read failure during an existing wait cannot prove the
         // chat closed. Keep waiting for the next event or scheduled check.
         Err(_) => return Ok(Activity::Working),
     };
-    let state = &info["result"];
-    let chat = state["chat"].as_str().ok_or_else(|| {
+    let state = info.get("result").unwrap_or(&info);
+    let chat = state.get("chat").and_then(Value::as_str).ok_or_else(|| {
         AgentFailure::Owner(CallFailure {
             kind: FailureKind::NotRun,
             error: json!({
@@ -418,12 +421,12 @@ fn chat_activity<B: Backend>(
             idempotency_key: None,
         })
     })?;
-    let pending = has_pending(&state["pending_permissions"]);
-    let status = state["status"].as_str().unwrap_or_default();
+    let pending = state.get("pending_permissions").is_some_and(has_pending);
+    let status = state.get("status").and_then(Value::as_str).unwrap_or_default();
     let reason = if pending || matches!(status, "waiting" | "waiting-for-input") {
         Some("blocked")
-    } else if state["running"] == true
-        || has_pending(&state["queued"])
+    } else if state.get("running").and_then(Value::as_bool) == Some(true)
+        || state.get("queued").is_some_and(has_pending)
         || matches!(status, "running" | "starting" | "pending")
     {
         None
