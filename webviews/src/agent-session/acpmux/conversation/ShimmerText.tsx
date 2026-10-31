@@ -11,15 +11,7 @@
 import type { ReactNode } from "react";
 
 /// `text` with the shimmer layers (the band shows only while loops run; otherwise the words alone).
-export function ShimmerText({
-  text,
-  baseText = text,
-  lit,
-}: {
-  text: string;
-  baseText?: string;
-  lit?: ReactNode;
-}) {
+export function ShimmerText({ text, baseText = text, lit }: { text: string; baseText?: string; lit?: ReactNode }) {
   return (
     <>
       <span className="cv-shimmer__base">{baseText}</span>

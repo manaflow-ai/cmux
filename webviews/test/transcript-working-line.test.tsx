@@ -43,11 +43,7 @@ type Call = {
 
 const liveTurn = (calls: Call[]) =>
   turnView(
-    [
-      row("u", "user"),
-      row("a", "assistant", { text: "On it." }),
-      row("run", "activity", { items: calls }),
-    ],
+    [row("u", "user"), row("a", "assistant", { text: "On it." }), row("run", "activity", { items: calls })],
     new Set(),
     { working: true },
   );
@@ -57,8 +53,7 @@ function statusLine(calls: Call[]): AcpmuxRow {
   return status;
 }
 
-const drawn = (status: AcpmuxRow) =>
-  renderToStaticMarkup(<WorkingFor row={status} now={() => status.at + 26_000} />);
+const drawn = (status: AcpmuxRow) => renderToStaticMarkup(<WorkingFor row={status} now={() => status.at + 26_000} />);
 // The line draws nothing before its words: no working mark, no activity dots, and its first child
 // is the label itself.
 const stillMarkup = (html: string) =>
@@ -141,10 +136,7 @@ test("while a call runs, the status line names it beside the turn's time", () =>
 // with the terminal glyph the tool rows use, as Claude desktop's line does; other calls lead with
 // their label alone.
 test("a command in flight leads with the terminal glyph", () => {
-  const calls = [
-    call("git status", "completed"),
-    call("cd ~/Projects/cmux && git log", "in_progress"),
-  ];
+  const calls = [call("git status", "completed"), call("cd ~/Projects/cmux && git log", "in_progress")];
   expect(statusLine(calls).doingCommand).toBe(true);
   expect(closedLine(calls)).toContain("cv-worked__glyph");
 });
@@ -181,11 +173,7 @@ test("Thinking is the word alone, with no mark before it; the word itself shimme
 
 test("a running label's shimmer includes its timer and uses the slow cadence", async () => {
   const html = renderToStaticMarkup(
-    <Thinking
-      doing="Read the Freestyle lanes note; check dispatcher"
-      doingAt={at}
-      now={() => at + 50_000}
-    />,
+    <Thinking doing="Read the Freestyle lanes note; check dispatcher" doingAt={at} now={() => at + 50_000} />,
   );
   expect(html).toContain('class="cv-shimmer__row"');
   expect(html).toContain('class="cv-shimmer__lit-time" data-text="50s"');
@@ -201,10 +189,7 @@ test("the start status before the turn does not shimmer", () => {
 
 test("the activity line names the work with no dots before it", () => {
   const html = renderToStaticMarkup(
-    <ActivityLine
-      row={row("act", "activity-line", { text: "Edit grid.css" })}
-      now={() => at + 26_000}
-    />,
+    <ActivityLine row={row("act", "activity-line", { text: "Edit grid.css" })} now={() => at + 26_000} />,
   );
   expect(text(html)).toMatch(/^Edit grid\.css \d+s$/);
   expect(stillMarkup(html)).toBe(true);
@@ -239,11 +224,7 @@ test("live activity lines share the page's one second and rest while the page is
     row(`act-${index}`, "activity-line", { text: `Edit grid-${index}.css` }),
   );
   try {
-    act(() =>
-      root.render(
-        lines.map((line) => <ActivityLine key={line.id} row={line} now={() => at + 26_000} />),
-      ),
-    );
+    act(() => root.render(lines.map((line) => <ActivityLine key={line.id} row={line} now={() => at + 26_000} />)));
     expect(dom.window.document.querySelectorAll(".cv-activity__time")).toHaveLength(5);
     // Five live lines, one timer: none of their own, and the page clock's one for all of them.
     expect(intervals).toBe(0);
@@ -266,10 +247,7 @@ test("live activity lines share the page's one second and rest while the page is
 
 test("a call whose title is its raw input reads as a label, not JSON", () => {
   const raw = '{"file_path":"src/app.ts"}';
-  const status = statusLine([
-    read("p", "Read package.json"),
-    read("r", raw, { inputSummary: raw }),
-  ]);
+  const status = statusLine([read("p", "Read package.json"), read("r", raw, { inputSummary: raw })]);
   expect(status.doing).toContain("app.ts");
   expect(status.doing).not.toContain("{");
 });
@@ -284,11 +262,7 @@ test("no dots loop on the running line; only the word Thinking shimmers, in the 
   // keyframes (two transform loops, ShimmerText.tsx), its lit words mixed from the theme accent
   // (never a literal color). working-loops-compositor.test.tsx checks the loops in the engines.
   const rule = (selector: string) =>
-    css.match(
-      new RegExp(
-        `:root:not\\(\\[data-status-indicators="static"\\]\\) \\${selector} \\{([^}]*)\\}`,
-      ),
-    );
+    css.match(new RegExp(`:root:not\\(\\[data-status-indicators="static"\\]\\) \\${selector} \\{([^}]*)\\}`));
   const band = rule(".cv-shimmer__band");
   const lit = rule(".cv-shimmer__lit");
   expect(band![1]).toContain("animation: cmux-shimmer-band");
