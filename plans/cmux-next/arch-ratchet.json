@@ -850,6 +850,16 @@
       "owner": "abe4e792b0edd3ffa",
       "receipt": "Review (claude-opus-5-5 reviewer subagent): SHIP at f79664d7e8a667d1d56eef4633a3cc618a6a9d17",
       "expiry": "2026-11-14"
+    },
+    {
+      "date": "2026-10-31",
+      "row": "app_lines",
+      "allow": 10,
+      "why": "P0 resize, same bug class in the browser stand-in (cmux-ad 11:2xZ item 2, review of f79664d7e8a findings 1 and 3): TabContentCache.moveNode must nest a stand-in's moved node under the daemon tab's node when that one exists, and hold it until release; the tab-node map lives in the App's TabContentCache.",
+      "author": "abe4e792b0edd3ffa",
+      "owner": "abe4e792b0edd3ffa",
+      "receipt": "Review (opus-reviewer): SHIP at 7490a5f384721e937d570212ee7a3e611f11cf12",
+      "expiry": "2026-11-14"
     }
   ],
   "escape_reviews": [
