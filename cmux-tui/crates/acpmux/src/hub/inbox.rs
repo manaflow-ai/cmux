@@ -37,6 +37,14 @@
 //! found notices steered into review turns (2026-10-30): "The reviewer then reads the thread
 //! instead of reviewing and ends with no SHIP/BLOCK verdict."
 //!
+//! A chat whose agent cannot read an inbox has none either ([`reads_inbox`]): one started with no
+//! cmux tools (`agent_tools::left_out`: a remote origin, `ACPMUX_AGENT_TOOLS=0`,
+//! `--strict-mcp-config`). Another agent's message queues for it as before the inbox, so its agent
+//! reads every word. Nothing here waits on Labs `meshRelay.teamMessaging`: an agent reads its inbox
+//! with `inbox_read`, in a shell with `acpmux session inbox`, and, while team messaging is off,
+//! with the team mailbox's `team_inbox` and `acpmux inbox` too (`inbox_team_page.rs`), which an
+//! agent started before the inbox has instead of `inbox_read`.
+//!
 //! The agent hears of its inbox as ONE notice (provenance `inbox_notice`), one line per thread
 //! with new messages (how many, from whom, the newest one's first line), blockers first, the way
 //! Claude Code tells it of background work; it reads a thread whole with the `inbox_read` tool
@@ -293,6 +301,16 @@ pub(super) fn takes(
 /// message waits behind its running turn instead of steering in (`turns.rs`).
 pub(super) fn review_box(session: &Session) -> bool {
     crate::review_box::of_meta(&session.meta.lock().unwrap_or_else(|e| e.into_inner()))
+}
+
+/// Whether the chat's agent can read its inbox: it has cmux's tools (`inbox_read`), as its agent
+/// was launched (`hub/tools.rs`), or will be by this daemon. Not one of a remote origin, nor any
+/// while the daemon-wide switch turns the tools off (`agent_tools::SWITCH_ENV`).
+pub(super) fn reads_inbox(session: &Session) -> bool {
+    let switch = std::env::var_os(crate::agent_tools::SWITCH_ENV);
+    !session.meta.lock().unwrap_or_else(|e| e.into_inner()).remote_origin
+        && switch.is_none_or(|v| v != "0")
+        && session.launched_with_tools.load(Ordering::SeqCst) != 2
 }
 
 /// Takes the chat's first work for `prompt_id` when a message now would be it: the chat never ran
@@ -564,11 +582,13 @@ impl Hub {
         plain: bool,
     ) -> Route {
         // A chat closing or closed takes a message as it did before the inbox: none waits in
-        // the inbox of a chat that will not wake. A review box has no inbox (module docs).
+        // the inbox of a chat that will not wake. A review box has no inbox, nor a chat whose
+        // agent cannot read one (module docs).
         if !plain
             || !plain_kind(provenance)
             || super::queue::closing(session)
             || review_box(session)
+            || !reads_inbox(session)
         {
             return Route::Plain;
         }
@@ -1414,6 +1434,9 @@ fn trim(inbox: &mut Inbox) {
         }
     }
 }
+
+#[path = "inbox_team_page.rs"]
+mod team_page;
 
 #[cfg(test)]
 #[path = "inbox_tests.rs"]
