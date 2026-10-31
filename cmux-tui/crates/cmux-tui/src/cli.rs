@@ -465,6 +465,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     };
     #[cfg(unix)]
     if let Some(code) = mcp::run_if_requested(args)
+        .or_else(|| terminal_talk::run_if_requested(args))
         .or_else(|| agents::run_if_requested(args))
         .or_else(|| chief::run_if_requested(args))
         .or_else(|| chief::run_avatar_if_requested(args))
