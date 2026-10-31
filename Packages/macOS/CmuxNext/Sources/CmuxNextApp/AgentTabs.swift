@@ -39,10 +39,10 @@ final class AgentTabStore {
     var lookup: @MainActor (String) -> (record: AgentSessionRef, store: DaemonStore)? = { _ in nil }
     /// The pane holding tab `key` and its daemon (New side chat opens its fork there first).
     var locate: @MainActor (String) -> (pane: PaneID, daemon: DaemonService)? = { _ in nil }
-    /// The right column beside the pane holding chat tab `key`, as ``RightColumnPlacement`` reads it (``RightColumn``).
+    /// The right column beside the pane holding chat tab `key`, as ``RightColumnPlacement`` reads it (``LinkOpener/rightColumn(beside:)``).
     var rightColumn: @MainActor (String) -> RightColumnPlacement.Column = { _ in RightColumnPlacement.Column() }
-    /// Runs an open on the right of chat tab `chat` in its turn (``RightColumn/serially(beside:_:)``); unwired: at once.
-    var serially: @MainActor (_ chat: String, _ turn: @escaping RightColumn.Turn) -> Bool = { _, turn in turn({}); return true }
+    /// Runs an open on the right of chat tab `chat` in its turn (``RightColumnTurns``); unwired: at once.
+    var serially: @MainActor (_ chat: String, _ turn: @escaping RightColumnTurns.Turn) -> Bool = { _, turn in turn({}); return true }
     /// A right-column pane by its ``RightColumnPlacement/Column`` key (a layout pane id) and its daemon.
     var locatePane: @MainActor (String) -> (pane: PaneID, daemon: DaemonService)? = { _ in nil }
     /// Selects tab `key` in its pane without moving keyboard focus (an unfocused subagent tab).

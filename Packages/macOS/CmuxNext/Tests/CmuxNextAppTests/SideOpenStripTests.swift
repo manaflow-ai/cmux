@@ -69,7 +69,7 @@ import Testing
         defer { withExtendedLifetime(state) { pane.teardown() } }
         #expect(pane.view.window == nil)
         #expect(pane.view.bounds.width > 0, "fixture: the placeholder frame has a width")
-        #expect(RightColumn.width(of: pane) == nil, "a windowless pane's placeholder width was taken for a measure")
+        #expect(LinkOpener.width(of: pane) == nil, "a windowless pane's placeholder width was taken for a measure")
     }
 
     @Test func aLinkOpenedToTheRightNeverShowsInTheLeftPanesStrip() throws {

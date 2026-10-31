@@ -8,7 +8,7 @@ import Foundation
 import Testing
 
 /// The two entry points every open on the right goes through take their turn beside the source pane
-/// (``RightColumn/serially(beside:_:)``): ``LinkOpener/open(from:background:mainPane:_:)`` (links, files,
+/// (``RightColumnTurns``): ``LinkOpener/open(from:background:mainPane:_:)`` (links, files,
 /// browser tabs, New Tab, the diff page; folders through ``LinkOpener/openFolder(_:from:)``) and
 /// ``AgentTabStore/openOnRight(of:origin:open:created:finished:)`` (subagents, side chats, Session Info
 /// sessions, transcript session cards). One asked for while another is under way waits, then decides.
@@ -49,7 +49,7 @@ import Testing
 
         // Another open (a subagent's, say) is still moving into place beside the chat.
         var underWay: (@MainActor () -> Void)?
-        RightColumn.serially(beside: chat.layoutPaneID) { done in underWay = done }
+        services.linkOpener.turns.serially(beside: chat.layoutPaneID) { done in underWay = done }
         var made: [LayoutPaneID] = []
         // The make refuses, so its turn ends at once and no daemon move is needed here.
         let answered = services.linkOpener.open(from: chat) { pane, placed in
@@ -60,25 +60,26 @@ import Testing
         #expect(made.isEmpty, "the link decided its place while another open was still moving in")
         underWay?()
         #expect(made == [right], "in its turn, the link opens by the pane on the right (a split below it is made there first)")
-        #expect(!RightColumn.isBusy(beside: chat.layoutPaneID), "a refused open kept its turn")
+        #expect(!services.linkOpener.turns.isBusy(beside: chat.layoutPaneID), "a refused open kept its turn")
         withExtendedLifetime(state) {}
     }
 
     @Test func anAgentOpenWaitsForTheOpenUnderWayBesideItsChat() {
         let tabs = AgentTabStore(build: nil, registry: ActionRegistry(), environment: [:], showcase: true)
         let source = LayoutPaneID("agent-turn-chat")
-        tabs.serially = { _, turn in RightColumn.serially(beside: source, turn) }
+        let turns = RightColumnTurns()
+        tabs.serially = { _, turn in turns.serially(beside: source, turn) }
         tabs.rightColumn = { _ in .init(sourceWidth: 1400) }
         var mainPane: [String] = []
         // Main pane layout is asked first (nothing on the right) and refuses, so the turn ends at once.
         tabs.openInMainPane = { chat, _, _, _, _ in mainPane.append(chat); return false }
         var underWay: (@MainActor () -> Void)?
-        RightColumn.serially(beside: source) { done in underWay = done }
+        turns.serially(beside: source) { done in underWay = done }
         let answered = tabs.openOnRight(of: "chat-tab", open: { _, _ in throw CancellationError() })
         #expect(answered, "a waiting open answers true")
         #expect(mainPane.isEmpty, "the agent open decided its place while another open was still moving in")
         underWay?()
         #expect(mainPane == ["chat-tab"])
-        #expect(!RightColumn.isBusy(beside: source), "a refused open kept its turn")
+        #expect(!turns.isBusy(beside: source), "a refused open kept its turn")
     }
 }

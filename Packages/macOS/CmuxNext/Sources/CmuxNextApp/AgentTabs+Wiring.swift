@@ -250,11 +250,11 @@ extension AgentTabStore {
         }
         tabs.rightColumn = { [weak services] key in
             guard let services, let (_, pane) = services.locateTab(key), let source = services.paneController(for: pane) else { return .init() }
-            return RightColumn.measure(beside: source)
+            return LinkOpener.rightColumn(beside: source)
         }
         tabs.serially = { [weak services] chat, turn in
             guard let services, let (_, pane) = services.locateTab(chat), let source = services.paneController(for: pane) else { turn({}); return true }
-            return RightColumn.serially(beside: source.layoutPaneID, turn)
+            return services.linkOpener.turns.serially(beside: source.layoutPaneID, turn)
         }
         tabs.locatePane = { [weak services] key in
             guard let services else { return nil }

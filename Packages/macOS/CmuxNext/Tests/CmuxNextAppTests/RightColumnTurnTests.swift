@@ -3,12 +3,13 @@ import CmuxNextBridge
 @testable import CmuxNextApp
 import Testing
 
-/// Every open on the right of a pane takes its turn beside that pane (``RightColumn/serially(beside:_:)``),
+/// Every open on the right of a pane takes its turn beside that pane (``RightColumnTurns``),
 /// deciding its place from the column as the open before it left it. Reviews of #28044 at c15e0d89 and
 /// e954bd85 each found two opens that read one column before either had landed (two links; a folder and
 /// a link), so both split below the same pane and three panes stood on the right. Each fix covered one
 /// opener and the next review found another; the turn is now the one place every opener goes through.
 @MainActor @Suite(.serialized) struct RightColumnTurnTests {
+    let turns = RightColumnTurns()
     /// The openers that place on the right, by the entry point each goes through.
     enum Kind: String, CaseIterable {
         case link, file, browser, folder // LinkOpener.open / openFolder
@@ -21,15 +22,17 @@ import Testing
         var events: [String] = []
         var landings: [@MainActor () -> Void] = []
         let source: LayoutPaneID
+        let turns: RightColumnTurns
 
-        init(_ source: String, panes: [String] = []) {
+        init(_ source: String, panes: [String] = [], turns: RightColumnTurns) {
             self.source = LayoutPaneID(source)
+            self.turns = turns
             self.panes = panes
         }
 
         /// An open of `kind`, through the turn: it decides from the column it finds, and its turn ends when it lands.
         func open(_ kind: Kind) {
-            RightColumn.serially(beside: source) { [self] done in
+            turns.serially(beside: source) { [self] done in
                 let decision = RightColumnPlacement.decide(sourceWidth: 1400, column: panes, width: { _ in 700 })
                 switch decision {
                 case .splitRight:
@@ -53,18 +56,18 @@ import Testing
         let source = LayoutPaneID("turn-basic")
         var ran: [String] = []
         var first: (@MainActor () -> Void)?
-        let firstRan = RightColumn.serially(beside: source) { done in ran.append("first"); first = done }
-        let secondRan = RightColumn.serially(beside: source) { done in ran.append("second"); done() }
+        let firstRan = turns.serially(beside: source) { done in ran.append("first"); first = done }
+        let secondRan = turns.serially(beside: source) { done in ran.append("second"); done() }
         #expect(firstRan)
         #expect(!secondRan, "a second open ran beside one still moving")
         #expect(ran == ["first"])
         // Another pane's opens are not held up.
-        let otherRan = RightColumn.serially(beside: LayoutPaneID("turn-other")) { done in ran.append("other"); done() }
+        let otherRan = turns.serially(beside: LayoutPaneID("turn-other")) { done in ran.append("other"); done() }
         #expect(otherRan)
         first?()
         first?()
         #expect(ran == ["first", "other", "second"])
-        #expect(!RightColumn.isBusy(beside: source), "a turn that ended twice left its source held")
+        #expect(!turns.isBusy(beside: source), "a turn that ended twice left its source held")
     }
 
     /// Every pair of openers, each kind with each, from an empty right column and from one pane on the
@@ -73,7 +76,7 @@ import Testing
     func everyPairOfOpenersLeavesAtMostTwoPanes(startingWith start: [String]) {
         for first in Kind.allCases {
             for second in Kind.allCases {
-                let column = Column("pair-\(first)-\(second)-\(start.count)", panes: start)
+                let column = Column("pair-\(first)-\(second)-\(start.count)", panes: start, turns: turns)
                 column.open(first)
                 column.open(second)
                 column.landAll()
@@ -88,7 +91,7 @@ import Testing
 
     /// All the openers at once, mixed: one split right, one split below it, then every other is a tab in the lower pane.
     @Test func everyOpenerAtOnceFillsOneColumn() {
-        let column = Column("mixed")
+        let column = Column("mixed", turns: turns)
         for kind in Kind.allCases + Kind.allCases.reversed() { column.open(kind) }
         column.landAll()
         #expect(column.panes == ["right", "lower"])
