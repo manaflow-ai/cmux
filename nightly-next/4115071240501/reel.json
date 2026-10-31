@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "build": "4115071240501",
+  "notes": "notes/4115071240501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 25894,
+      "title": "cmux NEXT iOS: terminal links open a browser tab, Find in the terminal, Clear clears the Mac's scrollback",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28189,
+      "title": "carry of #25712: preserve closed New Tab agent conversations",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26402,
+      "title": "cmux NEXT sidebar: workspace tabs off by default; Show Workspace Tabs leads Settings > Appearance > Sidebar",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28099,
+      "title": "feat(acpmux): issue enrollment-backed turn attestations",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28571,
+      "title": "ci(capture-check): a PR's own pr-media stills with review proof count as its capture",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28553,
+      "title": "ci(cmux-next): run the base Mac tier at most once every 15 minutes, on the tip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28460,
+      "title": "Open Recovered Draft tour: assert the drawn palette (debug.focus palette report)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28593,
+      "title": "chat-open bench: the table's legend no longer reads as a verdict; name the one-artifact limit",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
