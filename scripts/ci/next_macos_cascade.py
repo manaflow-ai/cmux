@@ -542,6 +542,29 @@ def retry_label(live: Mapping[str, int], waiting: Mapping[str, int], stall: Sequ
     return min(free, key=lambda label: (load[label] / CAPACITY[label], LABELS.index(label)))
 
 
+def gui_overflow_label(live: Mapping[str, int] | None, waiting: Mapping[str, int] | None, seen: Seen | None,
+                       jobs: int = 1) -> str:
+    """The Blacksmith macOS label the GUI jobs (cmux-next.yml swift-test, daemon-test, generated-files) take
+    when no owned GUI runner has room: LARGE while it can start all `jobs` now, else SMALL, the last resort.
+
+    LARGE needs a fresh reading that vouches for it: not stalled (stalled(), the pickers' one rule), not dead
+    (Seen.dead: on 2026-10-30 it had started nothing for about a day, 158 queued, oldest 1431 min), no
+    freshness work queued for it (Seen.reserved), a free slot for each job under CAPACITY, and the shared pool
+    fitting each (fits(): nothing queued on any Blacksmith macOS label). Without that reading (runner groups or
+    snapshot unread, or a snapshot too old for waits) nothing does, so SMALL. On 6 vCPU, swift-test's suites
+    ran starved (run 41123927916: tests that take under a second idle took 78-227 s).
+    """
+    if live is None or waiting is None or seen is None or seen.stale:
+        return SMALL
+    stall = {*stalled(live, waiting, seen.waits, seen.age), *seen_dead(seen)}
+    if LARGE in stall or seen.reserved.get(LARGE, 0) > 0:
+        return SMALL
+    jobs = max(jobs, 1)
+    free = CAPACITY[LARGE] - live.get(LARGE, 0) - waiting.get(LARGE, 0)
+    room, queue = pool_room(live, waiting), pool_queued(waiting)
+    return LARGE if free >= jobs and fits(LARGE, room - vcpus(LARGE) * (jobs - 1), queue) else SMALL
+
+
 def bot_rerun(env: Mapping[str, str]) -> bool:
     """The rescue's full re-run: attempt 2 that a RESCUE_ACTORS bot triggered, placed afresh like attempt 1."""
     return ((env.get("GITHUB_RUN_ATTEMPT") or "").strip() == "2"
