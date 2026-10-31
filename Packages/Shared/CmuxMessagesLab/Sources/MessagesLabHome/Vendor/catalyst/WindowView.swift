@@ -1299,7 +1299,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         kept.reverse()
         var rows: [RowSpec] = []
         rows.reserveCapacity(kept.count + 8)
-        var rest = kept[...], fresh = 0
+        var rest = ArraySlice(kept), fresh = 0
         for r in ranges + [tailFrom..<msgs.count] {
             while let row = rest.first, row.owner < r.lowerBound { rows.append(row.spec); rest.removeFirst() }
             if r.upperBound == msgs.count { rest.removeAll() }
@@ -1367,8 +1367,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         if receiptsMove {
             let before = RowBuilder.receiptTargets(old.conversation.messages, me: old.me)
             let after = RowBuilder.receiptTargets(msgs, me: s.me)
-            for (id, r) in before where after[id].map({ $0 != r }) ?? true { if let i = index(id) { local.append(i) } }
-            for (id, r) in after where before[id].map({ $0 != r }) ?? true { if let i = index(id) { local.append(i) } }
+            for (id, r) in before where after.value(for: id).map({ $0 != r }) ?? true { if let i = index(id) { local.append(i) } } // dictionary read
+            for (id, r) in after where before.value(for: id).map({ $0 != r }) ?? true { if let i = index(id) { local.append(i) } } // dictionary read
         }
         switch action {
         case .send, .receive, .streamEnd(_, _?):
