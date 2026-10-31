@@ -860,6 +860,8 @@ final class RowCell: UICollectionViewCell {
         } else {
             setTyping(false, spec)
         }
+        // cmux: the Chief's status line shimmers (HomeNoticeShimmer); any other row takes the shimmer off.
+        if case .notice = spec.kind { HomeNoticeShimmer.configure(self, spec) } else { noticeShimmer?.detach(from: self) }
         if TiledBubble.applies(spec) { markdownOverlay?.detach(); TiledBubble.configure(self, spec); CATransaction.commit(); return }
         tiled?.detach(self)
         let span = RowDraw.drawSpan(spec)
