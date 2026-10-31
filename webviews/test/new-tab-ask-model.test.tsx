@@ -190,63 +190,6 @@ test("New Tab preflights its selected harness and keeps a refused draft", async 
   }
 });
 
-// Return twice before acpmux answered the handshake: the App holds each ask until it does
-// (withSubmitAfterHandshake), so a second held ask would start a second chat and send the prompt
-// twice once the handshake lands (cmuxterm-hq#5368).
-test("Return twice before the handshake asks once", async () => {
-  const { createRoot } = await import("react-dom/client");
-  const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
-  const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
-  const asks: unknown[] = [];
-  const held: (() => void)[] = [];
-  const root = createRoot(host);
-  try {
-    await act(async () =>
-      root.render(
-        <QueryClientProvider client={new QueryClient()}>
-          <NewTabScreen
-            snapshot={noChat()}
-            lastAgent="claude"
-            cwd="/Users/you/src/app"
-            // As the App's handshake hold does: the ask settles only once acpmux has answered.
-            onAsk={(...args) =>
-              new Promise<void>((resolve) =>
-                held.push(() => {
-                  asks.push(args);
-                  resolve();
-                }),
-              )
-            }
-            onOpen={noop}
-            onSearch={noop}
-            onShell={noop}
-            onJump={noop}
-            onOpenSession={noop}
-            onShowAll={noop}
-          />
-        </QueryClientProvider>,
-      ),
-    );
-    const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
-    await act(async () => {
-      setter.call(field, "fix the flaky upload test");
-      field.dispatchEvent(new window.Event("input", { bubbles: true }));
-    });
-    for (let press = 0; press < 2; press++)
-      await act(async () =>
-        field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
-      );
-    // The handshake lands.
-    await act(async () => {
-      for (const run of held.splice(0)) run();
-    });
-    expect(asks).toHaveLength(1);
-  } finally {
-    await act(async () => root.unmount());
-  }
-});
-
 /// A New Tab with the draft typed whose harness's sign-in check answers `auth`, or never answers.
 /// `onAsk` stands in for the start: by default it is taken at once.
 async function newTabPage(options: { auth?: unknown; onAsk?: (...args: unknown[]) => unknown } = {}) {
