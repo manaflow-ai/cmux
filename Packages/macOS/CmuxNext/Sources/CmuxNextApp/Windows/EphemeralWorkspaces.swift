@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextBrowserTabs
 import CmuxNextDaemon
+import CmuxNextLayout
 
 // Incognito workspaces on a daemon with state resources are `ephemeral`
 // (state-ownership.md 2): created with `workspace.create {ephemeral: true}`,

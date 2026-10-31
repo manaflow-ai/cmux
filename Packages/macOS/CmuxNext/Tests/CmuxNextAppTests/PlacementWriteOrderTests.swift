@@ -5,6 +5,7 @@ import CmuxNextControl
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextDaemonService
+import CmuxNextLayout
 import CmuxNextSidebar
 import Foundation
 import Testing
