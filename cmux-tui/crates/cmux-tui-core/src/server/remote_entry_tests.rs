@@ -442,3 +442,6 @@ fn good_check_time(mux: &Mux, install: &str) -> Option<Instant> {
 
 #[path = "remote_entry_token_time_tests.rs"]
 mod token_issue_time;
+
+#[path = "remote_entry_native_role_tests.rs"]
+mod native_role;
