@@ -63,6 +63,9 @@ export type QuickMenu = {
   /// Fast mode: the menu's last checkbox row, its one place. Absent where the running model has
   /// none; the model button owns it for every harness.
   fast?: { checked: boolean; onChange(on: boolean): void };
+  /// Starred models (ModelPicker's favorites): the Prototype look's rows star and unstar them in
+  /// place (QuickModelPanel.tsx); the other looks star them in the full picker.
+  favorites?: { has(id: string): boolean; toggle(id: string): void };
   /// The rail beside the list: Starred (when any), then each harness. Without it the menu lists
   /// `models` alone and More models opens the full picker.
   families?: QuickFamilies;
@@ -1130,7 +1133,7 @@ function QuickRowLabel({ label, value }: { label: string; value?: string }) {
 /// an older route without a kind. A chat bound by its workspace or family checks that route, and CLI login
 /// is disabled: unbinding the chat would leave it on that route. With no routes it says how to add
 /// one; a switch acpmux refused says so first.
-function AccountRows({
+export function AccountRows({
   list,
   failed,
   switchFailed,
@@ -1208,7 +1211,7 @@ function AccountRows({
 /// The chat's accounts, read each time the menu opens (acpmux holds them; nothing polls), and a
 /// pick that switches the chat. A refused switch (acpmux's route.unavailable, a route of another
 /// family) stays named on the Account row until a switch succeeds or the chat changes.
-function useAccountList(open: boolean, account: QuickMenu["account"]) {
+export function useAccountList(open: boolean, account: QuickMenu["account"]) {
   const [list, setList] = useState<ChatAccountList>();
   const [failed, setFailed] = useState(false);
   const [switchFailed, setSwitchFailed] = useState(false);

@@ -650,3 +650,200 @@
   display: inline-flex;
   gap: var(--ds-space-1);
 }
+
+/* The Prototype look's model menu (QuickModelPanel.tsx, composerLook.ts `prototype`). The chip opens
+   the model panel itself, as T3 Code's does (Lucas 2026-10-30): an icon rail (Starred, then each
+   harness), the search field, the models and a short footer (Provider, sign-in). Every popup of it
+   wears the mode menu's surface (composerLocation.css .acpmux-access-menu): its radius, padding,
+   highlight and text size, on the same glass. */
+.acpmux-quick-menu.acpmux-quick-proto,
+.acpmux-effort-menu {
+  /* The menus render outside the composer, which sets this for its own text. */
+  -webkit-font-smoothing: antialiased;
+}
+.acpmux-quick-menu.acpmux-quick-proto {
+  font-size: var(--text-control);
+  padding: var(--ui-popup-padding);
+  border-radius: var(--ui-popup-radius);
+}
+.acpmux-quick-proto .ui-menu-item.acpmux-quick-item {
+  border-radius: var(--ui-row-radius);
+  font-size: var(--text-control);
+  letter-spacing: var(--text-control--letter-spacing);
+}
+.acpmux-quick-proto .ui-menu-item.acpmux-quick-item[data-highlighted],
+.acpmux-quick-proto .ui-menu-item.acpmux-quick-item[data-popup-open] {
+  background: var(--acpmux-menu-highlight);
+}
+.acpmux-quick-proto .acpmux-quick-search input {
+  font-size: var(--text-control);
+  letter-spacing: var(--text-control--letter-spacing);
+}
+.acpmux-quick-menu.acpmux-quick-panel {
+  min-width: min(300px, var(--available-width, calc(100vw - 24px)));
+}
+/* As tall as the shown tab's rows (and the rail), up to the room from the chip to the window's edge:
+   it fits each tab as you switch, and More models opened takes it to that limit. */
+.acpmux-quick-menu.acpmux-quick-panel.acpmux-quick-railed {
+  width: min(460px, var(--available-width, calc(100vw - 24px)));
+  height: auto;
+  max-height: min(calc(100vh - 16px), var(--acpmux-quick-room));
+  padding: 0;
+}
+.acpmux-quick-panel .acpmux-quick-layout {
+  flex: 1 1 auto;
+}
+/* The rail counts toward the panel's height (the compact menu's rail does not: contain: size), so a
+   short tab never cuts it off. */
+.acpmux-quick-panel .acpmux-quick-rail {
+  flex: none;
+  contain: none;
+  align-items: center;
+  box-sizing: border-box;
+  padding: var(--ds-space-1);
+}
+.acpmux-quick-panel .acpmux-quick-rail-tab {
+  justify-content: center;
+  width: calc(var(--ui-row-height) + var(--ds-space-2));
+  height: var(--ui-row-height);
+  min-height: 0;
+  padding: 0;
+  border-radius: var(--ui-row-radius);
+}
+/* Selected is the full fill; the pointer gets a lighter one, so the two never look alike. */
+.acpmux-quick-panel .acpmux-quick-rail-tab:hover {
+  background: transparent;
+}
+@media (hover: hover) and (pointer: fine) {
+  .acpmux-quick-panel .acpmux-quick-rail-tab:hover {
+    background: color-mix(in srgb, var(--acpmux-menu-hover) 50%, transparent);
+    color: var(--agent-text);
+  }
+}
+.acpmux-quick-panel .acpmux-quick-rail-tab[aria-pressed="true"] {
+  background: var(--acpmux-menu-hover);
+  color: var(--agent-text);
+}
+.acpmux-quick-rail-initial {
+  font-weight: var(--weight-emphasis);
+}
+.acpmux-quick-column {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+/* Its rows' full height counts toward the panel's (a zero basis measured it as empty); it shrinks
+   and scrolls only at the panel's limit. */
+.acpmux-quick-panel .acpmux-quick-body {
+  flex: 0 1 auto;
+  padding: var(--ds-space-1);
+}
+/* A model row, as T3 Code's (Leo on #27849): the name over its harness (mark and name) in secondary
+   text, then the check, the number key and the star at the trailing edge. */
+.acpmux-quick-proto .ui-menu-item.acpmux-quick-item.acpmux-quick-two {
+  display: flex;
+  height: auto;
+  min-height: calc(var(--ui-row-height) + var(--ds-space-3));
+  padding-block: 4px;
+  gap: var(--ds-space-2);
+}
+.acpmux-quick-two-text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+.acpmux-quick-two-sub {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+/* The running row's check sits where the other rows show their number key, at the key's width. */
+.acpmux-quick-two .ui-menu-check {
+  order: 2;
+  width: 18px;
+}
+/* The number key: a tight square badge, its digit centred both ways (line-height 1 puts the digit's
+   middle on the box's middle; tabular digits keep every key the same width). */
+.acpmux-quick-key {
+  flex: none;
+  order: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 18px;
+  aspect-ratio: 1;
+  padding: 0;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--agent-text) 7%, transparent);
+  color: var(--agent-muted);
+  font: inherit;
+  font-size: var(--text-detail);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-quick-star {
+  position: relative;
+  flex: none;
+  order: 3;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--agent-muted);
+  font: inherit;
+  /* An unset star stays quiet until its row is highlighted: nine outlines would be noise. */
+  opacity: 0.45;
+  transition-property: opacity, color;
+  transition-duration: var(--agent-motion-hover, 80ms);
+  transition-timing-function: var(--agent-ease-out, ease-out);
+}
+/* The row's full height and half the gaps on each side: never over the number key. */
+.acpmux-quick-star::before {
+  content: "";
+  position: absolute;
+  inset: -10px -4px;
+}
+.ui-menu-item[data-highlighted] .acpmux-quick-star { opacity: 1; }
+.acpmux-quick-star[data-on] {
+  opacity: 1;
+  color: var(--agent-text);
+}
+@media (hover: hover) and (pointer: fine) {
+  .acpmux-quick-star:hover { color: var(--agent-text); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-quick-star { transition: none; }
+}
+/* The footer under the list: Provider and sign-in rows that stay put while the list scrolls. */
+.acpmux-quick-foot {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  padding: 0 var(--ds-space-1) var(--ds-space-1);
+}
+/* The hairline under the rail's Starred tab: Starred is a view of every harness, not one of them. */
+.acpmux-quick-rail-rule {
+  pointer-events: none;
+  flex: none;
+  align-self: stretch;
+  height: 0;
+  margin: var(--ds-space-1) var(--ds-space-1);
+  border-block-start: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+}
+/* A row's chevron (More models, the footer's Provider) centres under the model rows' stars: the star's
+   20px box puts its middle 10px in from the row's end, and the chevron (6px and its 1.5px border)
+   has its middle 3.75px in from its own end. */
+.acpmux-quick-panel .ui-submenu-chevron { margin-inline-end: calc(10px - 3.75px); }

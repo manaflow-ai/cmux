@@ -98,7 +98,7 @@ import {
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
-import { configurationSessionMatches, resolveEffortOption } from "./configurationActions";
+import { configurationSessionMatches, effortPickOption } from "./configurationActions";
 import { rememberRecentFolders } from "./newtab/recentProject";
 import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
@@ -9046,26 +9046,22 @@ function AcpmuxPane() {
               // l10n-allow: a refusal for the host action's caller, which drops a stale pick; never shown.
               throw new Error("the agent chat session changed");
             const requested = typeof value === "string" && value ? value : String(effort ?? "");
-            const resolved = resolveEffortOption(
+            const option = effortPickOption(
               summary?.configOptions,
               typeof configId === "string" ? configId : undefined,
             );
             // l10n-allow: a refusal for the host action's caller; the picker offers no effort then.
-            if (!resolved || !requested) throw new Error("the session offers no effort option");
-            const current = resolved.currentValue;
-            if (
-              !harnessSwitch.pickConfig(
-                resolved.id,
-                requested,
-                summary?.sessionId
-                  ? {
-                      sessionId: summary.sessionId,
-                      current,
-                    }
-                  : undefined,
-              )
-            )
-              await client.setConfig(resolved.id, requested);
+            if (!option || !requested) throw new Error("the session offers no effort option");
+            // An id the session does not name yet is only ever held (a chat still starting), never
+            // sent to a live session.
+            const live =
+              option.live && summary?.sessionId
+                ? { sessionId: summary.sessionId, ...(option.current ? { current: option.current } : {}) }
+                : undefined;
+            if (harnessSwitch.pickConfig(option.id, requested, live)) return;
+            // l10n-allow: a refusal for the host action's caller; the picker offers no effort then.
+            if (!option.live) throw new Error("the session offers no effort option");
+            await client.setConfig(option.id, requested);
           },
           // A switch that is likely next (a hover over a chat's row in the host's lists): its newest
           // page is read now, so the switch draws it from memory (direct.ts `prefetch`).

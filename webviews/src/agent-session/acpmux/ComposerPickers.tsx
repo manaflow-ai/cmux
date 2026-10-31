@@ -1,3 +1,4 @@
+import { useComposerLook } from "./composerLook";
 import { composerPickerEntries } from "./composerPickerEntries";
 import React, { useCallback, useContext, useEffect, useId, useRef, useState } from "react";
 import type { SignIn } from "./signIn";
@@ -14,7 +15,7 @@ import {
 } from "./defaultChoice";
 import { loadLastChips, rememberLastChips } from "./chipMemory";
 import type { AcpmuxSnapshot } from "./model";
-import type { SpeedSection } from "./EffortPicker";
+import { EffortPicker, type SpeedSection } from "./EffortPicker";
 import { pendingSpeed } from "./pendingSpeed";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { type StringKey, useT } from "./i18n";
@@ -960,10 +961,44 @@ export function ComposerPickers({
             fastMode.onPick(on ? nextFastModeValue(fastMode, rememberedFastValue, fastMode.values) : fastMode.offValue),
         }
       : undefined;
+  // The Prototype look's effort chip (Lucas 2026-10-30, T3 Code's; Leo on #27849: "effort as the
+  // thing you can select into"): the model chip opens the model panel, and the level and Fast mode
+  // are this chip's menu (EffortPicker): Reasoning, then Fast Mode as Standard or Fast. A model with
+  // no levels has no chip, and its Fast mode stays in the model panel's footer.
+  const prototype = useComposerLook() === "prototype";
+  const speed: SpeedSection | undefined = quickFast
+    ? {
+        title: t("picker.fastModeSection"),
+        choices: [
+          { id: "off", name: t("picker.tierStandard") },
+          { id: "on", name: t("picker.tierFast") },
+        ],
+        current: quickFast.checked ? "on" : "off",
+        on: "on",
+        onPick: (value) => quickFast.onChange(value === "on"),
+      }
+    : undefined;
+  const effortChipShort = reported ? effortShort : heldShort;
+  const effortChip = prototype && quickEffort && (
+    <EffortPicker
+      label={t(PICKER_LABELS.effort)}
+      icon={<BrainIcon />}
+      efforts={reported ? efforts : quickEffort.levels}
+      current={reported ? effortValue : quickEffort.current}
+      defaulted={reported && effortDefaulted}
+      {...(reported && ultracode ? { ultracode } : {})}
+      {...(effortChipShort ? { short: effortChipShort } : {})}
+      {...(speed ? { speed } : {})}
+      chevron={<ChevronIcon />}
+      slider={reasoningSlider}
+      sliderStyle={reasoningSliderStyle}
+      onPick={quickEffort.onPick}
+    />
+  );
   const quick: QuickMenuExtras = {
     ...(quickEffort ? { effort: quickEffort } : {}),
     ...(quickAccount ? { account: quickAccount } : {}),
-    ...(quickFast ? { fast: quickFast } : {}),
+    ...(quickFast && !effortChip ? { fast: quickFast } : {}),
   };
   // The button names the effort after the model ("Opus 5.5  Medium"), and its short name for a
   // narrow row ("Med"). Before the session reports, it names the held pick.
@@ -1016,8 +1051,8 @@ export function ComposerPickers({
           }
           usage={usageNote}
           quick={quick}
-          {...(quickDetail ? { detail: quickDetail } : {})}
-          {...(quickShort && quickShort !== quickDetail ? { detailShort: quickShort } : {})}
+          {...(quickDetail && !prototype ? { detail: quickDetail } : {})}
+          {...(quickShort && quickShort !== quickDetail && !prototype ? { detailShort: quickShort } : {})}
         />
       ) : (
         // No harness installed (Leo 2026-10-14): the chip itself adds one, a plain button styled as
@@ -1031,6 +1066,7 @@ export function ComposerPickers({
           </span>
         )
       )}
+      {effortChip}
       {/* With no harness installed (the Add harness chip above) there is nothing to set a mode for:
           the start mode, its highest-level fallback and the inert "Mode" placeholder are the chips'
           catalog fallback's, a harness acpmux does not have, so the row shows none of them. While
@@ -1234,8 +1270,12 @@ function AccessMenu({
     ? `${label}: ${currentMode?.name ?? label}\n${t(PICKER_LABELS.approvesAllDetail, { mode: reportedMode.name })}\n${help}`
     : `${label}: ${currentMode?.name ?? label}\n${help}`;
   // A numbered menu (Claude Code's) draws no icon column, as Claude Code's mode menu does; the
-  // button keeps the mode's symbol.
-  const iconless = numbered && heading !== undefined;
+  // button keeps the mode's symbol. The Prototype look draws the column, with Codex's icons on the
+  // matching Claude modes (Lucas 2026-10-29).
+  const prototype = useComposerLook() === "prototype";
+  const iconless = !prototype && numbered && heading !== undefined;
+  const iconOf = (choice: ModeChoice | undefined) =>
+    choice?.icon ?? (prototype && choice ? PROTOTYPE_MODE_ICONS[choice.id] : undefined);
   // Nothing left to pick (every other mode refused, no grants): a plain label, never a dead menu.
   if (
     refusedIds.length > 0 &&
@@ -1254,7 +1294,7 @@ function AccessMenu({
         /* tooltip-allow: the chip is its shield alone; the tooltip says what it is and why it is fixed */
         title={`${tooltip}\n${refusedReason}`}
       >
-        <ModeIcon modeId={value} icon={currentMode?.icon} />
+        <ModeIcon modeId={value} icon={iconOf(currentMode)} />
         <span className="acpmux-mode-text" data-fit-part="access" data-fit-forms="full">
           {currentMode?.name ?? label}
         </span>
@@ -1276,7 +1316,7 @@ function AccessMenu({
           title={tooltip}
           aria-haspopup="menu"
         >
-          {modes.length > 0 ? <ModeIcon modeId={value} icon={currentMode?.icon} /> : <LockIcon />}
+          {modes.length > 0 ? <ModeIcon modeId={value} icon={iconOf(currentMode)} /> : <LockIcon />}
           <span className="acpmux-mode-text" data-fit-part="access" data-fit-forms="full">
             {currentMode?.name ?? (modes.length === 0 ? grants[0]?.label : undefined) ?? label}
           </span>
@@ -1308,7 +1348,7 @@ function AccessMenu({
                 >
                   {!iconless && (
                     <span className="acpmux-access-item-icon" aria-hidden="true">
-                      <ModeIcon modeId={choice.id} icon={choice.icon} />
+                      <ModeIcon modeId={choice.id} icon={iconOf(choice)} />
                     </span>
                   )}
                   <span className="acpmux-menu-text">
@@ -1357,6 +1397,13 @@ function AccessMenu({
     </span>
   );
 }
+
+/// The Prototype look's icons for Claude Code's modes: Codex's for the matching levels.
+const PROTOTYPE_MODE_ICONS: Readonly<Record<string, ModeIconName>> = {
+  default: "hand",
+  acceptEdits: "terminal-shield",
+  bypassPermissions: "shield-alert",
+};
 
 /// Plan modes (an id ending in "plan") read and propose without editing; the toggle sits apart from the permission chip.
 export function isPlan(modeId: string): boolean {
@@ -1965,6 +2012,22 @@ function ModeIcon({ modeId, icon }: { modeId?: unknown; icon?: ModeIconName }) {
   if (icon === "shield-alert") return <ShieldIcon shield="alert" modeIcon="shield-alert" />;
   return <ModeShield modeId={modeId} />;
 }
+/// The Prototype look's effort chip: a brain, as T3 Code's (after Lucide's "brain", ISC).
+const BrainIcon = () => (
+  <Icon size={15}>
+    <g transform="scale(0.6667)" strokeWidth={1.875}>
+      <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" />
+      <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z" />
+      <path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4" />
+      <path d="M17.599 6.5a3 3 0 0 0 .399-1.375" />
+      <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" />
+      <path d="M3.477 10.896a4 4 0 0 1 .585-.396" />
+      <path d="M19.938 10.5a4 4 0 0 1 .585.396" />
+      <path d="M6 18a4 4 0 0 1-1.967-.516" />
+      <path d="M19.967 17.484A4 4 0 0 1 18 18" />
+    </g>
+  </Icon>
+);
 export const ChevronIcon = () => (
   <Icon size={14}>
     <path d="M4.6 6.3 8 9.6l3.4-3.3" />

@@ -22,9 +22,9 @@ export type SpeedSection = {
 /// with one checked row per level the model offers; then Ultracode and the speed section when the
 /// agent has them. The agent's own level ("default", `defaulted`) checks the level it resolves to,
 /// with a Default hint, and the chip names that level; unresolved, it says Reasoning, never the
-/// first level. The chip says Ultracode while that is on. No composer draws it since Leo 2026-10-20
-/// (one model button, its menu's Effort › and Fast mode rows, QuickModelMenu.tsx); it stays a
-/// standalone control with its gallery.
+/// first level. The chip says Ultracode while that is on. Since Leo 2026-10-20 the default looks draw
+/// none (one model button, its menu's Effort › and Fast mode rows, QuickModelMenu.tsx); the
+/// Prototype look draws it beside the model chip (ComposerPickers.tsx, Lucas 2026-10-30).
 /// The menu is the shared popup layer's opaque surface (ui/Menu), so nothing shows through it.
 /// Picking sends chat.effort through `onPick` (and each section's own `onPick`).
 /// With `slider` (the Debug Settings toggle `agent.reasoningSlider`, off by default) the Reasoning
@@ -40,6 +40,7 @@ export function EffortPicker({
   defaulted = false,
   ultracode,
   speed,
+  icon,
   chevron,
   short,
   slider = false,
@@ -54,6 +55,8 @@ export function EffortPicker({
   defaulted?: boolean;
   ultracode?: SpeedSection;
   speed?: SpeedSection;
+  /// Drawn before the level (the Prototype look's brain).
+  icon?: React.ReactNode;
   chevron?: React.ReactNode;
   /// The level's short name ("Med"), for a narrow composer row (composerRowFit.ts).
   short?: string;
@@ -126,6 +129,7 @@ export function EffortPicker({
     <span className="acpmux-picker acpmux-effort">
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton className="acpmux-picker-button" label={t("effort.title")} data-menu={label} aria-haspopup="menu">
+          {icon}
           <EffortLabel label={level} short={short && short !== level ? short : undefined} />
           {chevron}
         </MenuButton>
@@ -161,7 +165,10 @@ export function EffortPicker({
               <MenuRadioGroup
                 value={section.current ?? ""}
                 onValueChange={(next) => {
-                  section.onPick(next);
+                  // Base UI reports a press on the checked row too: a section's pick is a switch, so
+                  // that press must change nothing (Fast would go off, Ultracode's Off would send
+                  // Extra High).
+                  if (next !== section.current) section.onPick(next);
                   setOpen(false);
                 }}
               >

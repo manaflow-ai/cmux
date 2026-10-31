@@ -28,6 +28,8 @@ import { registerPicker } from "./pickerOpeners";
 import { OnNewTab } from "./newTabComposer";
 import { relevantModelSections } from "./relevantModels";
 import { QuickModelMenu, type QuickFamily, type QuickModel } from "./QuickModelMenu";
+import { QuickModelPanelMenu } from "./QuickModelPanel";
+import { useComposerLook } from "./composerLook";
 import type { PickerProfile } from "./pickerProfiles";
 import { useUiAnchor } from "../../ui/anchor";
 import { graphemePrefix } from "../../ui/initials";
@@ -477,6 +479,8 @@ export function ModelPicker(props: ModelPickerProps) {
   // The Default row's name follows the pane language (`sectionsFor`), so the model rows do too.
   const lang = usePaneLanguage();
   const newTab = useContext(OnNewTab);
+  // The Prototype look draws the model menu as a short menu and a Model panel (QuickModelPanel.tsx).
+  const prototype = useComposerLook() === "prototype";
   /// The chat's agent CLI has an update (hq#2569 #12): a row in the menu and the picker and a line
   /// in the chip's tooltip, never a banner over the chat. Never a dot on the chip: drawn between the
   /// model and its effort it read "Opus 5.5 • Medium" (Leo 2026-10-21: "WE FUCKING HATE THE DOT").
@@ -924,7 +928,17 @@ export function ModelPicker(props: ModelPickerProps) {
           entry.ids.includes(harness ?? "") ? props.model : undefined,
         ).map((model) => row(entry, model)),
       );
-    if (starred.length) list.push({ id: STARRED, name: starredText, starred: true, models: starred, more: [] });
+    // The Prototype look keeps Starred on the rail while it is empty, as T3 Code does (Lucas
+    // 2026-10-30: "add a star to see the starred models"); its list says how to star one.
+    if (starred.length || prototype)
+      list.push({
+        id: STARRED,
+        name: starredText,
+        starred: true,
+        models: starred,
+        more: [],
+        ...(starred.length ? {} : { note: t("picker.starredEmpty") }),
+      });
     for (const entry of startable) {
       const signedOutHere = loginFor(entry) !== undefined;
       const { shown, more } = signedOutHere
@@ -951,7 +965,8 @@ export function ModelPicker(props: ModelPickerProps) {
       const own = family;
       if (family.starred) {
         const models = family.models.filter((model) => model.family === current?.id);
-        return models.length ? [{ ...family, models }] : [];
+        if (models.length) return [{ ...family, models }];
+        return prototype ? [{ ...family, models, note: t("picker.starredEmpty") }] : [];
       }
       if (family.id === current?.id || family.note) return [own];
       return [{ ...own, models: [], more: [], fork: true }];
@@ -968,6 +983,7 @@ export function ModelPicker(props: ModelPickerProps) {
     loginFor,
     favorites,
     starredText,
+    prototype,
     harness,
     lang,
     props.model,
@@ -1193,6 +1209,7 @@ export function ModelPicker(props: ModelPickerProps) {
     const signIn = loginFor(entry) !== undefined ? t("harnesses.signedOut") : undefined;
     return [shared ? `${entry.name} (${entry.id})` : entry.name, folderNote(entry), signIn].filter(Boolean).join(" · ");
   };
+  const QuickMenuView = prototype ? QuickModelPanelMenu : QuickModelMenu;
   const chipFace = (
     <>
       <AgentMark agent={chipHarness} size={15} />
@@ -1240,7 +1257,7 @@ export function ModelPicker(props: ModelPickerProps) {
         // The compact menu's chip is its Base UI menu button (submenus need one); a press while
         // the full picker is open only closes it.
         <>
-          <QuickModelMenu
+          <QuickMenuView
             open={quickOpen}
             onOpenChange={(next) => {
               // A close is only ever the compact menu's own; a press on the chip while the full
@@ -1297,6 +1314,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 if (current) pickQuickToPrompt({ id, name: id, family: current.id, effort });
               },
               search: { find: quickSearch, pick: pickQuickToPrompt },
+              favorites: { has: (id: string) => favorites.has(id), toggle: toggleFavorite },
               ...(quickFamilies
                 ? {
                     families: {
@@ -1333,7 +1351,9 @@ export function ModelPicker(props: ModelPickerProps) {
                 data-label={detailShort}
               />
             )}
-          </QuickModelMenu>
+            {/* The Prototype look's chips each end in a chevron, as T3 Code's do. */}
+            {prototype && <ChevronIcon />}
+          </QuickMenuView>
         </>
       ) : (
         <>

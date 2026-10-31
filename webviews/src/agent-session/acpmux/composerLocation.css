@@ -141,8 +141,9 @@
 }
 @media (hover: hover) and (pointer: fine) {
   /* A location control is a text/icon affordance.  Its transparent hit area must not turn
-     into a full rounded pill on hover; the open state above remains the persistent menu cue. */
-  .acpmux-location-button.ui-ghost:hover {
+     into a full rounded pill on hover; the open state above remains the persistent menu cue, also
+     under the pointer (Lucas 2026-10-29: the pill went away while the pointer was on the open chip). */
+  .acpmux-location-button.ui-ghost:hover:not([aria-expanded="true"], [data-popup-open]) {
     background: transparent;
     color: var(--agent-text);
   }
@@ -938,11 +939,11 @@
 }
 
 /* plain: the content edge is the card's first column, the + glyph's box: 14 px in the chat's card (its
-   center 22 px in under the box's 8 px grid inset, composer-alignment-centers.test.ts), 23 px in the
-   New Tab's (its + since #25125: an 18 px glyph in a 28 px button 18 px in). A small ghost button's
-   icon ink sits 6 px in from its edge (ui/ghost.css). */
+   center 22 px in under the box's 8 px grid inset, composer-alignment-centers.test.ts), 13 px in the
+   New Tab's (an 18 px glyph in a 28 px button 8 px in, the + that starts the field's row). A small
+   ghost button's icon ink sits 6 px in from its edge (ui/ghost.css). */
 :root[data-top-strip="plain"] .acpmux-composer { --acpmux-top-strip-edge: 14px; }
-:root[data-top-strip="plain"] .nt-composer { --acpmux-top-strip-edge: 23px; }
+:root[data-top-strip="plain"] .nt-composer { --acpmux-top-strip-edge: 13px; }
 :root[data-top-strip="plain"] .acpmux-composer-strip,
 :root[data-top-strip="plain"] .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip {
   height: auto;
@@ -988,7 +989,7 @@
 /* tray: the location strip and the queue are one tray, set in by one inset from the card's sides and
    tucked --acpmux-tray-tuck under its top edge, where the card (raised over it) draws its whole rim.
    Its first ink (the folder icon, a queued prompt's text) sits on the card's content edge, the prompt's text
-   column: 16 px in the chat's card, 18 px in the New Tab's. In a light theme the fill is a small
+   column: 16 px in the chat's card, 13 px in the New Tab's. In a light theme the fill is a small
    step from the card's near-white surface; in a dark one the composer's tray tone. */
 :root[data-top-strip="tray"] :is(.acpmux-composer, .nt-composer) {
   --acpmux-tray-inset: 8px;
@@ -1000,7 +1001,12 @@
 }
 /* The same column as plain's (above): the + glyph's box in each card. */
 :root[data-top-strip="tray"] .acpmux-composer { --acpmux-top-strip-edge: 14px; }
-:root[data-top-strip="tray"] .nt-composer { --acpmux-top-strip-edge: 23px; }
+/* The New Tab's column is 13 px in: one inset step closer (7 px) keeps its padding at 0, never
+   below. */
+:root[data-top-strip="tray"] .nt-composer {
+  --acpmux-top-strip-edge: 13px;
+  --acpmux-tray-inset: 7px;
+}
 :root[data-top-strip="tray"] .acpmux-composer > .acpmux-composer-box,
 :root[data-top-strip="tray"] .nt-composer .nt-box { z-index: var(--layer-raised, 1); }
 /* A small ghost button's icon ink sits 6 px in from the button's edge (ui/ghost.css). */
@@ -1485,4 +1491,39 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   letter-spacing: var(--text-caption--letter-spacing);
+}
+
+/* The Prototype look's New Tab row (.nt-pickers in the box, Lucas 2026-10-29) names the mode and
+   spaces its chips as the chat's bar does. */
+.nt-composer[data-composer-look="prototype"] .nt-pickers {
+  --acpmux-row-inset: 6px;
+  --acpmux-row-icon-gap: 4px;
+}
+.nt-composer[data-composer-look="prototype"] .nt-pickers .acpmux-mode-text {
+  display: inline;
+  white-space: nowrap;
+}
+.nt-composer[data-composer-look="prototype"] .nt-pickers .acpmux-access-trigger {
+  position: relative;
+  width: auto;
+  gap: var(--acpmux-row-icon-gap);
+}
+.nt-composer[data-composer-look="prototype"] .nt-pickers .acpmux-chips .acpmux-picker-button {
+  gap: var(--acpmux-row-icon-gap);
+  padding-inline: var(--acpmux-row-inset);
+}
+/* The + that starts the field's row (every look's New Tab with its chips, Lucas 2026-10-30): its glyph
+   sits 22px in from the box, over the mode's shield in the quiet row under it, and the prompt starts
+   5px past the button's own inset ("way less" than the 36px it had). The field keeps the shell
+   glyph's column only while one shows. The row's gap goes, so the field keeps the row's old 8px to
+   the mic and Send after it. */
+.nt-input:has(.nt-split-plus) {
+  gap: 0;
+  padding-inline-start: var(--ds-space-2);
+}
+.nt-input:has(.nt-split-plus) .nt-field-slot {
+  margin-inline: 5px var(--ds-space-2, 8px);
+}
+.nt-input:has(.nt-split-plus) .nt-field-slot:not(:has(.nt-input-glyph)) .nt-field {
+  padding-inline-start: 0;
 }

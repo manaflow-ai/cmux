@@ -662,7 +662,10 @@ export function NewTabScreen(props: Props) {
   const foot = useRef<HTMLDivElement>(null);
   // The model picker uses one footer position in every New Tab template and composer look.
   const look = useComposerLook();
-  const split = props.chips !== undefined;
+  // The Prototype look puts the chips in the box's bottom row with +, the mic and Send, as its chat
+  // composer does: no quiet row under the box (Lucas 2026-10-29).
+  const prototype = look === "prototype";
+  const split = props.chips !== undefined && !prototype;
   // Footer look and template can change while this screen stays mounted.
   useRowFit(foot, `${split}:${plainFooter}:${look}`);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
@@ -1262,7 +1265,7 @@ export function NewTabScreen(props: Props) {
   const chooser = useRef<HTMLInputElement>(null);
   /// The Cards template (u2851): the field is a pill of its own and the chips sit under it. The
   /// split draws the chat composer's box instead.
-  const pill = template === "cards" && !split;
+  const pill = template === "cards" && !split && !prototype;
 
   const onPlusCommand = props.onPlusCommand;
   const plusSearchRows = useMemo(() => composerPlusSearchExtensions(t), [t]);
@@ -1295,7 +1298,7 @@ export function NewTabScreen(props: Props) {
       <Picker
         label={t("composer.add")}
         tooltip={t("composer.addTooltip")}
-        className={`acpmux-composer-plus acpmux-newtab-plus${split ? " nt-split-plus" : ""}`}
+        className={`acpmux-composer-plus acpmux-newtab-plus${split || prototype ? " nt-split-plus" : ""}`}
         button={<PlusIcon />}
         align="start"
         returnFocus={false}
@@ -1414,8 +1417,13 @@ export function NewTabScreen(props: Props) {
   // this page draws no context ring.
   const pickers = (
     <ChromeArea className="acpmux-chrome-area" items={[chrome.dictation]}>
-      <div className="nt-pickers" data-footer-look={plainFooter ? "plain" : undefined} onPointerDownCapture={touch}>
-        {!split && attachmentPicker}
+      <div
+        ref={prototype ? foot : undefined}
+        className="nt-pickers"
+        data-footer-look={plainFooter ? "plain" : undefined}
+        onPointerDownCapture={touch}
+      >
+        {!split && !prototype && attachmentPicker}
         {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
         switch is the one Enter reuses. */}
         {!split && Chips && (
@@ -1507,7 +1515,7 @@ export function NewTabScreen(props: Props) {
           bar with the agent's model chip, the mic and Send. The location strip with the project the
           chat starts in heads it, as text over the card (ComposerContext, the composer's own; hq#1957
           composer location strip; newtab/screen.css). */}
-      <div ref={setComposer} className="nt-composer" data-composer-look={look === "codex" ? "codex" : undefined}>
+      <div ref={setComposer} className="nt-composer" data-composer-look={look === "claude" ? undefined : look}>
         {authBlocksSend(targetAuth) && (
           <p className="acpmux-composer-remote-note" role="alert">
             {targetAuthText}
@@ -1532,8 +1540,9 @@ export function NewTabScreen(props: Props) {
           </output>
         )}
         {/* Above the box: the project and machine strip, in every look (Cards draws it under the
-            field). Leo 2026-10-29: "project and cloudness at the top ... and stop making them take
-            up so much space"; the quiet row under the box keeps the mode and the model. */}
+            field): Claude's and the Prototype's strip, Codex's tray. Leo 2026-10-29: "project and
+            cloudness at the top ... and stop making them take up so much space"; the quiet row under
+            the box keeps the mode and the model. */}
         {!pill && <div className="nt-above">{folderStrip}</div>}
         <div ref={setBox} className="ui-glass ui-glass-floats nt-box">
           {commandsOpen && (
@@ -1550,7 +1559,8 @@ export function NewTabScreen(props: Props) {
             Cursor rule (cx-d0d.80): the I-beam only over the text, the arrow elsewhere. */}
           {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the input inside is the control and takes the keyboard itself. */}
           <div className="nt-input" onMouseDown={focusFromRow}>
-            {split && attachmentPicker}
+            {/* The Prototype look's + also starts the field's row, before "Ask anything" (Lucas 2026-10-30). */}
+            {(split || prototype) && attachmentPicker}
             <div className="nt-field-slot">
               {(shell || sections.prompt) && (
                 <span
@@ -1623,8 +1633,9 @@ export function NewTabScreen(props: Props) {
           {command.input}
           {!pill && !split && pickers}
         </div>
-        {/* Claude Code's quiet row: the mode, model and effort; the box keeps the prompt, the mic
-            and Send. Folder and computer head the box (above). */}
+        {/* Claude Code's quiet row: the mode bottom left, the model and effort bottom right (Lucas
+            2026-10-30); the box keeps +, the prompt, the mic and Send on one line. Folder and
+            computer head the box (above). */}
         {split && Chips && (
           <div className="nt-foot" onPointerDownCapture={touch}>
             <ComposerFoot ref={foot} plain={plainFooter}>

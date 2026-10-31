@@ -87,7 +87,7 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     await box.click();
   };
 
-  test("New Tab: three dots, Claude Minimal by default; the second adds the pills, the third is Codex's look", async () => {
+  test("New Tab: four dots, Claude Minimal by default; the second adds the pills, the third is Codex's look", async () => {
     const context = await browser.newContext({ viewport: { width: 760, height: 600 } });
     const page = await context.newPage();
     await open(page, "agent-pane.new-tab", "minimal-default");
@@ -95,6 +95,7 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
       { value: "claude", name: "Claude Minimal", checked: true },
       { value: "claudeActions", name: "Claude + Quick Actions", checked: false },
       { value: "codex", name: "Codex Minimal", checked: false },
+      { value: "prototype", name: "Prototype", checked: false },
     ]);
     expect(await page.$(".nt-composer[data-composer-look]")).toBeNull();
     expect(await page.$(".nt-composer .nt-box .acpmux-model")).toBeNull();
@@ -166,11 +167,12 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     await pickDot(page, ".nt-style", "codex");
     await page.waitForSelector('.acpmux-newtab[data-composer-look="codex"]');
     expect(await page.$(".nt-screen")).toBeNull();
-    // The three dots, then the page's styles (Minimal among them), each marking its own pick.
+    // The four dots, then the page's styles (Minimal among them), each marking its own pick.
     expect(await dots(page, ".nt-look-dots")).toEqual([
       { value: "claude", name: "Claude Minimal", checked: false },
       { value: "claudeActions", name: "Claude + Quick Actions", checked: false },
       { value: "codex", name: "Codex Minimal", checked: true },
+      { value: "prototype", name: "Prototype", checked: false },
     ]);
     expect(await page.$(".nt-style:not(.nt-look-dots) input[value=classic]:checked")).not.toBeNull();
     expect(await page.$(".nt-style:not(.nt-look-dots) input[value=minimal]")).not.toBeNull();
@@ -204,6 +206,7 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     expect(await dots(page, `${form} .acpmux-look-dots`)).toEqual([
       { value: "claude", name: "Claude", checked: true },
       { value: "codex", name: "Codex", checked: false },
+      { value: "prototype", name: "Prototype", checked: false },
     ]);
 
     // The pointer in the bottom area's empty room, clear of the controls: the dots show.
@@ -368,7 +371,8 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     await settle();
     expect(await look()).toBe("codex");
     expect(await focused()).toBe("dot:codex");
-    await page.keyboard.press("ArrowRight");
+    // Back to Claude's (Right from Codex's now reaches the Prototype's dot).
+    await page.keyboard.press("ArrowLeft");
     await settle();
     expect(await look()).toBe("claude");
     expect(await focused()).toBe("dot:claude");

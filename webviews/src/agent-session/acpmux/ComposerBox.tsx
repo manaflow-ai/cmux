@@ -125,7 +125,10 @@ export function ComposerBox({
   const { plainFooter } = useComposerSettings();
   const quietRow = useQuietRow();
   const look = useComposerLook();
-  const claudeGrid = look !== "codex";
+  // Claude's compact grid puts +, the prompt, the mic and Send on one line; its chips live in the
+  // quiet row. The Prototype keeps its chips in the box, so it takes the bar row under the prompt,
+  // as Codex's look does (Lucas 2026-10-30: the chips stood on the prompt's line, squeezed to icons).
+  const claudeGrid = look === "claude";
   // Footer placement and look can change from Settings while this component stays mounted. Include
   // both in the fit key so the live row is measured again before the new form paints.
   const bar = useRef<HTMLDivElement>(null);
@@ -218,8 +221,8 @@ export function ComposerBox({
         </ContextMenu>
         {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
         <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
-          {/* The model group stays in ComposerFoot for both looks. Claude keeps its compact box grid
-              for +, prompt, mic and Send; Codex keeps its own bar layout. */}
+          {/* The model group stays in ComposerFoot in Claude's and Codex's looks. Claude keeps its
+              compact box grid for +, prompt, mic and Send; Codex and the Prototype keep the bar row. */}
           <div
             ref={quietRow ? undefined : bar}
             className={claudeGrid ? "acpmux-composer-bar acpmux-composer-inner" : "acpmux-composer-bar"}
