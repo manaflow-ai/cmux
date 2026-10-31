@@ -149,6 +149,7 @@ extension AgentTabStore {
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
         // The environment picker's Cloud machines: the account's, with Open and Resume (`cloudMachine.*`).
         tabs.cloudMachines.wire(services)
+        tabs.remoteControl = services.iphone.remoteControl
         // The composer strip's machine dot: the sidebar header's same link state; using a machine
         // that is down runs its header's Reconnect.
         tabs.machineLink.state = { [weak tabs, weak services] view in

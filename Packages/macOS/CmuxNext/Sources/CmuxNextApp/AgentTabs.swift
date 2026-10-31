@@ -210,6 +210,8 @@ final class AgentTabStore {
     let readAloud = AgentPaneReadAloud()
     /// The Cloud machines each page's environment picker lists (`cloudMachine.*`); the app's peer approver for every host and page.
     let cloudMachines = AgentPaneCloudMachines()
+    /// The iPhone host's Remote Control switch, which every page's Session Info shows (set by the wiring).
+    var remoteControl: AgentPaneRemoteControl?
     let peerApprover: AgentPanePeerApprover?
     /// The device chats every page's New Tab cards show (``AgentPageChats``).
     let pageChats = AgentPageChats()
@@ -560,7 +562,7 @@ final class AgentTabStore {
     private func makeView(_ model: AgentPaneModel) -> AgentPaneView? {
         AgentPaneNewTabFrame.shared.pageMade(model)
         model.linkScheme = linkScheme
-        (model.readAloud, model.cloudMachines, model.transport.peerApprover) = (readAloud, cloudMachines, peerApprover)
+        (model.readAloud, model.cloudMachines, model.remoteControl, model.transport.peerApprover) = (readAloud, cloudMachines, remoteControl, peerApprover)
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value || AgentPaneTunables.chromium.value, openPanel: openPanel) else { return nil }
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current
