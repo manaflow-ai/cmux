@@ -43,6 +43,7 @@ pub mod reaction_wake;
 mod recover;
 mod replies;
 mod reply_ledger;
+mod screen;
 pub(crate) use browser_card::is_card_key;
 pub use outcome_ledger::UNTOLD_TAG;
 pub use reply_ledger::{MAX_REPLY_TRIES, NO_REPLY_TAG, REPLY_RETRY_WAITS};
@@ -576,6 +577,9 @@ pub struct Settings {
     /// prefix). The session runs with Claude Code's own cache marks.
     /// `CHIEF_KEEP_TURN_SESSION=0` turns it off.
     pub keep_turn_session: bool,
+    /// `$MUX_HOME/optchat/screen` (Share Screen with Chief, `screen_share.rs`):
+    /// its inbox becomes a note at each turn start. None: not read.
+    pub screen_share: Option<PathBuf>,
 }
 
 /// The longest a turn waits for view lines that are still building

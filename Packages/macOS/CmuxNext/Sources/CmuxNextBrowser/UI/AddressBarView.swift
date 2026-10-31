@@ -360,6 +360,16 @@ public final class AddressBarView: NSView {
         window?.makeFirstResponder(field)
     }
 
+    /// The focus coordinator's return to a tab left from its address bar
+    /// (Chromium `OmniboxViewViews::OnTabChanged`): focuses the field with
+    /// the selection it had when focus left, not all selected.
+    public func restoreFocus() {
+        guard field.currentEditor() == nil else { return }
+        pendingFocusSource = .programmatic
+        defer { pendingFocusSource = nil }
+        window?.makeFirstResponder(field)
+    }
+
     /// Opt-Cmd-F (Chrome's Search the Web): a search with the default
     /// engine in the focused field ("Search Google" in the chip, empty text).
     /// Called after the focus coordinator focused the field; a focus that

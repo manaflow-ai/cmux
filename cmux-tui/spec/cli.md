@@ -1057,6 +1057,8 @@ cmux screen group <group> update [--icon <icon>|--clear-icon] ...
 cmux tab group saved list | saved <saved> delete|reopen --pane <id>
 cmux workspace group list [--room <room>]
 cmux workspace group create --name <name> [--color <c>] [--room <room>] [--index <n>] [--collapse]
+cmux workspace group create --remote <host> [--name <name>]   # app: New Remote Group (remote.newGroup)
+cmux workspace group create --parent <group> --name <name>    # app: New Subgroup (workspaceGroup.newSubgroup)
 cmux workspace group remove --workspace <ws>
 cmux workspace group <group> update|delete|move|add ...
 ```

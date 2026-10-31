@@ -771,6 +771,10 @@ path = "tests/test_pr_checks_base_only.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ui_review_advisory.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_gh_call_log.py"
 lane = "linux-guard"
 
@@ -2305,3 +2309,7 @@ lane = "linux-guard"
 path = "tests/test_devbox_bubblewrap.py"
 lane = "manual"
 reason = "Run by hand (cmux-ci) before changing the devbox bubblewrap recipe: it builds the Dockerfile's devtools and bubblewrap layers in Docker and runs an unprivileged sandbox; no new CI tests (CLAUDE.md, Verification)."
+
+[[test]]
+path = "tests/test_chromium_staleness.py"
+lane = "linux-guard"
