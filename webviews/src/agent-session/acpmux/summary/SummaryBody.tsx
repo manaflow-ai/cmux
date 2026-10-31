@@ -1,6 +1,5 @@
-import React, { type ReactNode } from "react";
+import React, { useMemo, type ReactNode } from "react";
 import { Counts } from "../changes/Counts";
-import { changedByTools } from "../changes/turnCheckpoint";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -10,6 +9,7 @@ import { projectPathAllowed, type SessionSummary } from "./sessionSummary";
 import { SourcesAddMenu, type ChatToolsControl } from "./SourcesAddMenu";
 import { SubagentStack } from "./SubagentStack";
 import { SummarySection } from "./SummarySection";
+import { summaryOutputLookup } from "./summaryOutputLookup";
 import { SummaryTasks } from "./SummaryTasks";
 import { WorkflowSummaries, WorkflowSummaryRow, type WorkflowActions } from "./WorkflowSummary";
 import type { WorkflowSummary } from "./workflow";
@@ -96,19 +96,9 @@ export function SummaryBody({
   // A file the last turn changed opens that turn's diff, also when an earlier turn's edit tool made
   // it an output: its last change is the one to show.
   const lastTurn = changes?.files ?? [];
-  const named = new Set(summary.outputs.map((output) => output.path));
-  // The output a last-turn file is: the one with its path, else (a checkpoint file, under the repository
-  // root) the shortest output path ending in its path, so `index.ts` in one folder never takes another
-  // folder's `index.ts`, nor a root `package.json` a package's.
-  const outputOf = (file: (typeof lastTurn)[number]) =>
-    named.has(file.path)
-      ? file.path
-      : summary.outputs
-          .filter((output) => changedByTools(file, [output]))
-          .reduce<string | undefined>(
-            (best, output) => (!best || output.path.length < best.length ? output.path : best),
-            undefined,
-          );
+  // The index follows the outputs' own revision, even when a live turn updates
+  // unrelated rows or a checkpoint arrives while the Summary is open.
+  const outputOf = useMemo(() => summaryOutputLookup(summary.outputs), [summary.outputs]);
   const turnOf = new Map<string, (typeof lastTurn)[number]>();
   const checkpointOnly: (typeof lastTurn)[number][] = [];
   for (const file of lastTurn) {
