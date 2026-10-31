@@ -56,7 +56,10 @@ extension RenderMotionHitTestTests {
     /// a press on the left overlay column's glass, off its pane, reaches no strip pane under the glass.
     @Test func anOverlayGlassKeepsItsPressWhileADockGrowsIn() async throws {
         try await Render.withMotion {
-            let fixture = Screen(Self.overlaid, focused: "p1")
+            // The overlay's glass reaches half the strip gap past its pane. The default look (pane separation
+            // `dividers`) has no strip gap, so its glass would be its pane and no press could land off the pane:
+            // pin a column gap so the glass this test presses exists whatever the host's design settings are.
+            let fixture = Screen(Self.overlaid, focused: "p1", columnGap: 12)
             defer { fixture.close() }
             try #require(fixture.window.screen != nil, "the window is on no screen: nothing animates")
             let clock = try #require(fixture.root.layer)
