@@ -254,8 +254,9 @@
 /* New Tab's row (.nt-pickers) takes the same tokens, so Codex's look spaces both rows alike. */
 :is(.acpmux-composer-bar, .nt-pickers) {
   --acpmux-row-inset: 6px;
-  /* Model and effort draw 16 px apart (inset + gap + inset), the same distance Interrupt, mic
-     and Send draw apart with the trailing cluster's own 4 px gap below. */
+  /* Model and effort draw 16 px apart (inset + gap + inset). Interrupt, the mic and Send draw
+     one group gap apart (22 px, as Claude desktop's ↵ and mic and Codex's mic and Send do): the
+     trailing cluster has no gap of its own (Leo 2026-10-31, design/composer.md rule 11). */
   --acpmux-row-gap: 4px;
   --acpmux-row-group-gap: 10px;
   --acpmux-row-icon-gap: 4px;
@@ -450,7 +451,7 @@
 }
 /* The trailing cluster takes the row's free space on its leading side, in either direction. */
 .acpmux-composer-bar .acpmux-composer-actions {
-  gap: 4px;
+  gap: var(--acpmux-row-group-gap);
   margin-left: 0;
   margin-inline-start: auto;
 }

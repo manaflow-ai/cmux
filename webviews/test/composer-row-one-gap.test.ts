@@ -19,7 +19,7 @@ import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 type Ink = { name: string; left: number; right: number; cy: number };
-type Row = { box: { left: number; right: number; bottom: number }; controls: Ink[] };
+type Row = { box: { left: number; right: number; bottom: number }; controls: Ink[]; unit: number };
 
 await requireBrowserLane("composer-row-one-gap.test.ts", async () => {
   if (!(await probeEngineOrSkip("composer-row-one-gap", "chromium", chromium))) return;
@@ -117,7 +117,12 @@ await requireBrowserLane("composer-row-one-gap.test.ts", async () => {
     });
     controls.sort((a, b) => a.left - b.left);
     const r = box.getBoundingClientRect();
-    return { box: { left: r.left, right: r.right, bottom: r.bottom }, controls };
+    // The gap the tokens give: each control's inset on either side of the row's one gap.
+    const tokens = getComputedStyle(row);
+    const unit =
+      2 * parseFloat(tokens.getPropertyValue("--acpmux-row-inset")) +
+      parseFloat(tokens.getPropertyValue("--acpmux-row-group-gap"));
+    return { box: { left: r.left, right: r.right, bottom: r.bottom }, controls, unit };
   }
 
   const open = async (url: string, width: number, ready: string) => {
@@ -134,7 +139,7 @@ await requireBrowserLane("composer-row-one-gap.test.ts", async () => {
   };
 
   /** The row's problems: uneven gaps (the widest one is the flexible gap), uneven insets, off-center. */
-  const check = (name: string, row: Row | null, { insets = true, flex = true } = {}) => {
+  const check = (name: string, row: Row | null, { insets = true, flex = true, unit = true } = {}) => {
     if (!row) return [`${name}: no row`];
     const { controls, box } = row;
     const problems: string[] = [];
@@ -147,6 +152,9 @@ await requireBrowserLane("composer-row-one-gap.test.ts", async () => {
     const list = fixed.map(({ between, gap }) => `${between} ${gap.toFixed(1)}`).join(", ");
     const values = fixed.map(({ gap }) => gap);
     if (values.length > 1 && Math.max(...values) - Math.min(...values) > 1) problems.push(`${name}: uneven gaps: ${list}`);
+    // And that gap is the tokens' (inset + group gap + inset), the same in every look's row.
+    if (unit && values.some((gap) => Math.abs(gap - row.unit) > 1))
+      problems.push(`${name}: gaps are not the tokens' ${row.unit.toFixed(1)} px: ${list}`);
     if (insets && controls.length) {
       const lead = controls[0]!.left - box.left;
       const trail = box.right - controls.at(-1)!.right;
@@ -203,6 +211,13 @@ await requireBrowserLane("composer-row-one-gap.test.ts", async () => {
           ".acpmux-composer-foot .acpmux-model",
         );
         try {
+          // A draft brings Send in beside the mic, so the box's trailing cluster has two controls.
+          await page.locator(".acpmux-composer-box [contenteditable='true'], .acpmux-composer-box textarea").first().click();
+          await page.keyboard.type("Also cover the 503 path");
+          await page.locator(".acpmux-composer-box .acpmux-send:not(.acpmux-cancel)").waitFor();
+          await page.evaluate(
+            () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+          );
           const inner = await page.evaluate(measure, [".acpmux-composer-box", ".acpmux-composer-bar"] as [
             string,
             string,
@@ -213,7 +228,7 @@ await requireBrowserLane("composer-row-one-gap.test.ts", async () => {
           const problems = check(`claude box ${width}`, box);
           // The quiet row under the box keeps one gap between its controls; its column is the box's
           // (composer-alignment-centers.test.ts owns where it starts).
-          problems.push(...check(`claude foot ${width}`, foot, { insets: false }));
+          problems.push(...check(`claude foot ${width}`, foot, { insets: false, unit: false }));
           expect(problems).toEqual([]);
         } finally {
           await page.close();
