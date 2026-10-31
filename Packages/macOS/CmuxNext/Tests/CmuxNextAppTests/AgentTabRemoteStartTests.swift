@@ -30,9 +30,23 @@ struct AgentTabRemoteStartTests {
         #expect(request["model"] as? String == "chosen-model")
     }
 
+    /// A chat with no folder of its own starts in the machine's work folder, as its daemon lists
+    /// it (`agent-session-folders`), never the refusal "open a terminal there first".
+    @Test func aChatWithNoFolderStartsInTheMachinesWorkFolder() async throws {
+        let request = try await start(harness: nil, model: nil, seedCwd: nil, expectedCwd: "/home/cmux/work")
+        #expect(request["harness"] as? String == "claude")
+    }
+
+    @Test func theFolderListIsTheWorkspacesThenTheMachinesEachOnce() {
+        let folders = AgentTabRemoteStart.folders(listed: ["/srv/app", "/home/cmux/work"],
+                                                  machine: ["/home/cmux/work", "/home/cmux/work/repo"])
+        #expect(folders == ["/srv/app", "/home/cmux/work", "/home/cmux/work/repo"])
+    }
+
     /// Exercise the tab store's first-Send route through the real attach client, including
     /// capability negotiation, and inspect the frame received by the remote daemon.
-    private func start(harness: String?, model: String?) async throws -> [String: Any] {
+    private func start(harness: String?, model: String?, seedCwd: String? = "/home/dev/project",
+                       expectedCwd: String = "/home/dev/project") async throws -> [String: Any] {
         let store = DaemonStore()
         var tab = TabSnapshot(surface: 7, kind: .conversation, title: "New chat")
         tab.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "registry:cloud-fixture", harness: "claude"))
@@ -44,7 +58,7 @@ struct AgentTabRemoteStartTests {
             "CMUX_NEXT_AGENT_PANE_MOCK": "1",
         ], showcase: true)
         tabs.lookup = { key in store.tab(id: key)?.agentSession.map { ($0, store) } }
-        tabs.remoteSeeds[key] = AgentPaneSeedSource(AgentPaneSeed(cwd: "/home/dev/project", harness: "claude", model: "claude-seed-model"))
+        tabs.remoteSeeds[key] = AgentPaneSeedSource(AgentPaneSeed(cwd: seedCwd, harness: "claude", model: "claude-seed-model"))
 
         let daemon = try RemoteStartDaemon()
         async let received = daemon.firstStart()
@@ -55,13 +69,14 @@ struct AgentTabRemoteStartTests {
         let data = try await received
         let request = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect(request["surface"] as? Int == 7)
-        #expect(request["cwd"] as? String == "/home/dev/project")
+        #expect(request["cwd"] as? String == expectedCwd)
         #expect(request["vm_kind"] as? String == "owner")
         return request
     }
 }
 
-/// One bounded socket connection, answering the handshake and a successful remote start.
+/// Bounded socket connections (a folder lookup's, then the start's), answering the handshake, the
+/// machine's folders and a successful remote start.
 /// Blocking socket reads run on a dedicated thread; only received bytes cross back to the test.
 private nonisolated final class RemoteStartDaemon: Sendable {
     let path: String
@@ -112,9 +127,16 @@ private nonisolated final class RemoteStartDaemon: Sendable {
     }
 
     private static func serve(_ listener: Int32, until deadline: Date) -> Data? {
-        guard readable(listener, until: deadline) else { return nil }
-        let client = accept(listener, nil, nil)
-        guard client >= 0 else { return nil }
+        while readable(listener, until: deadline) {
+            let client = accept(listener, nil, nil)
+            guard client >= 0 else { return nil }
+            if let line = serveClient(client, until: deadline) { return line }
+        }
+        return nil
+    }
+
+    /// One connection until it closes (nil) or sends its start (that line).
+    private static func serveClient(_ client: Int32, until deadline: Date) -> Data? {
         defer { Darwin.close(client) }
         var noSignal: Int32 = 1
         _ = setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size))
@@ -134,8 +156,9 @@ private nonisolated final class RemoteStartDaemon: Sendable {
                 case "identify":
                     data = ["app": "cmux-tui", "protocol": 12, "generation": "remote-start-fixture", "capabilities": [
                         "agent-session-attach-v1", "agent-session-start-v1",
-                        "agent-session-start-model-v1", "agent-session-start-vm-kind-v1",
+                        "agent-session-start-model-v1", "agent-session-start-vm-kind-v1", "agent-session-folders-v1",
                     ]]
+                case "agent-session-folders": data = ["default": "/home/cmux/work", "folders": ["/home/cmux/work"]]
                 case "agent-session-start": data = ["session": "remote-session"]
                 default: data = [:]
                 }
