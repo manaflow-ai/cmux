@@ -54,6 +54,20 @@ import Testing
         #expect(host.measured == 0, "a closed page was asked for its scroll")
     }
 
+    /// Review of #22919 at c99b21a, finding 1: the engine can close the page while the save asks it
+    /// for its scroll (a quit's engine stop ends the pending page question at once). The tab was
+    /// open when the save began, but its back/forward list is gone when the save reads it, so the
+    /// session must not be written over the good record either.
+    @Test func aPageClosedWhileItIsMeasuredHasNoSessionToSave() async throws {
+        let machine = Self.loaded(Self.tall)
+        let host = Host(state: machine.state)
+        host.closesWhenMeasured = true
+        let session = BrowserRestoredSession { host }
+        #expect(await session.savedSession(measuringScroll: true) == nil,
+                "a page closed during its scroll measure gave a session that would replace its good record")
+        #expect(host.measured == 1)
+    }
+
     @Test(arguments: ["1500", " 12.6 "]) func aReportPayloadIsAPosition(_ payload: String) {
         #expect(BrowserScrollReport.y(fromPayload: payload) == Double(payload.trimmingCharacters(in: .whitespaces))?.rounded())
     }
@@ -76,6 +90,8 @@ import Testing
         let state: BrowserTabState
         var measured = 0
         var closed = false
+        /// The engine closes the page while it answers the scroll question.
+        var closesWhenMeasured = false
         init(state: BrowserTabState) { self.state = state }
         var isClosed: Bool { closed }
         var nativeHistory: (back: Bool, forward: Bool) { (false, false) }
@@ -84,6 +100,7 @@ import Testing
         func applyHistoryAvailability(canGoBack: Bool, canGoForward: Bool) {}
         func currentScrollY() async -> Double? {
             measured += 1
+            if closesWhenMeasured { closed = true }
             return nil
         }
         func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue { .null }
