@@ -452,11 +452,12 @@ public final class DaemonService {
         if let connectionPresence { connection.heartbeat.follow(connectionPresence) }
         self.connection = connection
         let recovery = recovery
+        let mainWork = mainWork
         connection.observeAnswering { [weak connection] answering in
-            // task-owner: one hop to main per heartbeat edge or unanswered ask; nothing to cancel. On main it reads the
-            // connection's answering again, so hops that land out of order never leave a stale state; an unanswered
-            // ask that still holds probes the owner once more.
-            Task { @MainActor in
+            // One visible main task per heartbeat edge or unanswered ask (at most one per heartbeat interval). On main
+            // it reads the connection's answering again, so posts that land out of order never leave a stale state;
+            // an unanswered ask that still holds probes the owner once more.
+            mainWork.post(.visible, owner: "DaemonRecovery.answering") {
                 guard let connection else { return }
                 let now = connection.daemonAnswering
                 if now == answering || now { recovery.noteDaemonAnswering(now) }
