@@ -331,6 +331,8 @@ export function ComposerContext({
       ? undefined
       : folders[0]?.id;
   const currentComputer = computers.find((computer) => computer.id === selectedComputer) ?? computers[0];
+  // A started chat's picker lists only where it runs, with that machine's warning too.
+  const currentPickerComputer = pickerComputers.find((computer) => computer.id === selectedComputer) ?? pickerComputers[0];
   // The machine the pick waits for, once acpmux lists it ready: its own row, not the account's.
   const arrived =
     waiting && !waitFailed
@@ -559,7 +561,7 @@ export function ComposerContext({
                   />
                 )
               }
-              environments={offload && currentComputer ? [currentComputer] : pickerComputers}
+              environments={offload && currentPickerComputer ? [currentPickerComputer] : pickerComputers}
               current={selectedComputer}
               onPick={pickEnvironment}
               {...(offload && onOffload ? { offload, onOffload } : {})}

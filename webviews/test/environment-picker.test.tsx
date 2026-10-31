@@ -596,6 +596,21 @@ test("a started Cloud chat: the picker shows its machine and Bring Back Local", 
   expect(calls).toEqual([["offload", "bringBack"]]);
 });
 
+test("a started Cloud chat's picker keeps its machine's load warning", async () => {
+  const { setComposerSettings, DEFAULT_COMPOSER } = await import("../src/agent-session/acpmux/composerSettings");
+  setComposerSettings(DEFAULT_COMPOSER);
+  await mount(true, {
+    ...startedOn("cloud"),
+    onOffload: () => {},
+    peerResources: { "build-cloud": { ramFreeGB: 8, coresBusy: 14, cores: 10, busy: true, lowMemory: false } },
+  });
+  await openPicker();
+  expect(machineRows()).toHaveLength(1);
+  expect(machineRows()[0]!.querySelector('.acpmux-env-state[data-warning="true"]')?.textContent).toBe(
+    t("composer.machineHighLoad", { busy: 14, cores: 10 }),
+  );
+});
+
 test("Return on a search never moves a chat by itself", async () => {
   const { calls } = await mountStarted("local");
   await openPicker();
