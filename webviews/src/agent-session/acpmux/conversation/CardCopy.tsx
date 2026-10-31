@@ -17,6 +17,11 @@ import "./CardCopy.css";
 /// `quiet`, a 12px glyph at 30%; `word`, the default glyph that says "Copied" beside its check.
 export type CardCopyLook = "faint" | "quiet" | "word";
 export const CardCopyLookContext = createContext<CardCopyLook>("faint");
+/// True inside a message whose opened card holds its Copy in the corner (IncomingMessageCard.tsx): the
+/// message's hover row then draws no Copy of its own, so an opened message has one Copy, never two
+/// (leo-workspace design/chat-transcript.md, "Each message has one Copy control"; Leo, 2026-10-27:
+/// "why are there two copy-paste symbols? I mean, two copy symbols").
+export const CardCopyShownContext = createContext(false);
 /// What puts the text on the clipboard: the page's clipboard, or a gallery stage's stand-in.
 export const CardCopyWriterContext = createContext<(text: string) => Promise<boolean>>(copyTextResult);
 

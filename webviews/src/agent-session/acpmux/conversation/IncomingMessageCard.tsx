@@ -37,7 +37,7 @@ import { FindReveal } from "./chatFind";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { Bot, ChevronRight, TerminalSquare } from "./icons";
 import { Markdown } from "./Markdown";
-import { CardCopy } from "./CardCopy";
+import { CardCopy, CardCopyShownContext } from "./CardCopy";
 import { AgentMark, knownMark } from "../../shared/AgentMark";
 import { useSenderChat, useSenderPlace } from "../subagents/subsessions";
 import { useAgentAvatar } from "../agentAvatar";
@@ -247,7 +247,8 @@ export function IncomingMessageLine({
               {t("message.reply")}
             </button>
           )}
-          {actions}
+          {/* Opened, the card's corner holds the message's Copy: the row draws none (CardCopy.tsx). */}
+          <CardCopyShownContext.Provider value={open && text.trim() !== ""}>{actions}</CardCopyShownContext.Provider>
         </span>
       }
     >
