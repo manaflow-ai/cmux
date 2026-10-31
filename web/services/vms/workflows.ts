@@ -1,4 +1,5 @@
 import { compileNetworkPolicy, storedNetworkPolicy, type NetworkPolicy, type NetworkRulePlan } from "./networkPolicy";
+import { DELETED_ACCOUNT_ACTOR_ID } from "../auth/deletedAccount";
 import { createHash, randomUUID } from "node:crypto";
 import {
   applyVmResourceUsage,
@@ -17,7 +18,7 @@ import * as Option from "effect/Option";
 import { eq } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { cloudVms } from "../../db/schema";
-import { hasProviderTlsRuleLimitCause, ProviderGuestUnresponsiveError, ProviderStateConflictError, type CreateOptions } from "./drivers/types";
+import { hasProviderTlsRuleLimitCause, ProviderGuestUnresponsiveError, ProviderStateConflictError, type CreateOptions, type ProviderCustomer } from "./drivers/types";
 import { isVmProviderHang, withVmAnswerDeadline, withVmRouteDeadline, type VmRouteDeadline } from "./routeDeadline";
 import * as Layer from "effect/Layer";
 import type {
@@ -162,7 +163,7 @@ import { guestPromptInstallCommand, vmPromptIdentity } from "./guestPrompt";
 import { scheduleGuestVmKindRecord } from "./guestVmKind";
 import { vmAgentUpdatesFromRow, type VmAgentUpdatesSetting } from "./agentUpdates";
 import { guestAgentUpdatesCommand } from "./guestAgentUpdates";
-import { vmKindForCaller } from "./vmKind";
+import { vmKindForCaller, vmKindForCallerNeedsMembers } from "./vmKind";
 import {
   VM_API_ACTIVITY_MIN_INTERVAL_MS,
   VM_IDLE_PAUSE_MINUTES_KEY,
@@ -1428,6 +1429,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
       "provider_create",
       providers.create(input.provider, {
         image: input.image,
+        customer: vmProviderCustomer(create.vm) ?? undefined,
         forked: resumesLiveMachine(input.origin),
         // The display label is reserved with the row before provider work starts.
         // Passing it here makes the first guest prompt correct and removes the
@@ -1948,6 +1950,7 @@ function finishBaseCreate(
       "provider_create",
       providers.create(input.provider, {
         image: input.image,
+        customer: vmProviderCustomer(create.vm) ?? undefined,
         imageSize: input.imageSize,
         runtimeBudgetSeconds: input.runtimeBudgetSeconds,
         displayName: create.vm.slug ?? undefined,
@@ -3910,6 +3913,14 @@ function pauseWokenMachine(
   });
 }
 
+/**
+ * The provider customer a machine is tagged with: its owner's account id, or
+ * null for a deleted account's machine that a shared team kept.
+ */
+export function vmProviderCustomer(vm: Pick<CloudVmRow, "userId">): ProviderCustomer | null {
+  return vm.userId === DELETED_ACCOUNT_ACTOR_ID ? null : { customerId: vm.userId };
+}
+
 function resumeAfterLostRace(
   providers: VmProviderGatewayShape,
   vm: CloudVmRow,
@@ -3920,7 +3931,7 @@ function resumeAfterLostRace(
   return Effect.gen(function* () {
     // The re-pause zeroed a Go machine's runtime budget; give it back first.
     if (vm.billingPlanId === "go" && !(yield* restoreGoRuntimeBudget(providers, vm, providerVmId))) return;
-    yield* resume(vm.provider, providerVmId).pipe(
+    yield* resume(vm.provider, providerVmId, { customer: vmProviderCustomer(vm) }).pipe(
       Effect.timeout(PAUSE_OPERATION_TIMEOUT_MS),
       Effect.tapError((cause) => Effect.logWarning("Could not resume a machine a re-pause raced", {
         event: "cloud_vm.repause_race.resume_failed",
@@ -4077,7 +4088,7 @@ function resumeAndWaitRunning(
   return Effect.gen(function* () {
     const resume = providers.resume;
     if (!resume) return;
-    const handle = yield* resume(vm.provider, providerVmId).pipe(Effect.tapError(() => bestEffortPause(providers, vm, providerVmId)));
+    const handle = yield* resume(vm.provider, providerVmId, { customer: vmProviderCustomer(vm) }).pipe(Effect.tapError(() => bestEffortPause(providers, vm, providerVmId)));
     if (handle.status === "running") return;
     const settled = yield* waitForRunningStatus(providers, vm, providerVmId);
     if (settled) return;
@@ -5712,11 +5723,14 @@ export function openVmCmuxRemote(input: {
   /** Runs best-effort guest work after the response (the route passes `runAfterResponse`). */
   readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
   readonly modelPlane?: VmModelPlaneRevoker;
+  /** Reads the owner team's members for the caller's `vmKind` (see callerVmKind). */
+  readonly teamDirectory?: VmTeamDirectory;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
+    const vmKind = yield* Effect.fork(callerVmKind(vm, input.userId, input.teamDirectory));
     const supportedTransports = providers.attachTransports?.(vm.provider);
     if (supportedTransports && !supportedTransports.includes("cmux-remote")) {
       return yield* Effect.fail(new VmAttachTransportUnsupportedError({
@@ -5791,7 +5805,7 @@ export function openVmCmuxRemote(input: {
       yield* scheduleGuestAgentUpdates(providers, vm, "latest", input.deferAfterResponse);
     }
     // The caller's own sandbox opt-out reads this; see vmKindForCaller.
-    return { ...endpoint, vmKind: vmKindForCaller(vm, input.userId) };
+    return { ...endpoint, vmKind: yield* Fiber.join(vmKind) };
   });
 }
 
@@ -5885,7 +5899,26 @@ type OpenAttachEndpointInput = {
   /** Caller's CURRENT billing plan; used for the free access window. */
   readonly callerPlanId?: string | null;
   readonly modelPlane?: VmModelPlaneRevoker;
+  /** Reads the owner team's members for the caller's `vmKind` (see callerVmKind). */
+  readonly teamDirectory?: VmTeamDirectory;
 };
+
+/**
+ * The caller's `vmKind` for `vm` (vmKindForCaller). Stack is asked for the
+ * owner team's members only when the answer depends on them (a machine the
+ * caller created on a Stack team), with the bounded read resolveVmGuestKind
+ * uses. With no directory, or a failed or timed-out read, the list is unknown
+ * and the answer is `team`. The routes start it as soon as the machine is
+ * known, so the read overlaps the endpoint open.
+ */
+function callerVmKind(vm: CloudVmRow, userId: string, directory: VmTeamDirectory | undefined) {
+  if (!directory || !vmKindForCallerNeedsMembers(vm, userId)) {
+    return Effect.succeed(vmKindForCaller(vm, userId));
+  }
+  return listTeamMemberIdsWithTimeout(directory, vm.ownerTeamId).pipe(
+    Effect.map((members) => vmKindForCaller(vm, userId, members)),
+  );
+}
 
 export function openAttachEndpoint(input: OpenAttachEndpointInput) {
   return Effect.gen(function* () {
@@ -6045,6 +6078,7 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
+    const vmKind = yield* Effect.fork(callerVmKind(vm, input.userId, input.teamDirectory));
     // A provider that only runs the cmux-tui daemon cannot serve the legacy
     // websocket/SSH attach at all; say so before waking or mutating anything.
     const supportedTransports = providers.attachTransports?.(vm.provider);
@@ -6122,7 +6156,7 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
         },
       })
       : undefined;
-    return { endpoint, session, vmKind: vmKindForCaller(vm, input.userId) };
+    return { endpoint, session, vmKind: yield* Fiber.join(vmKind) };
   });
 }
 

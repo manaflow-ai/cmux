@@ -4268,3 +4268,46 @@ class LiveIdleRunners(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TruncatedSnapshotTests(unittest.TestCase):
+    """A janitor sweep that listed part of the queue (queue_janitor.listing_state()) is no view of it:
+    on 2026-10-30 a sweep listed 300 of 1,138 queued runs, and its pools read the rest as nothing queued."""
+
+    def test_a_truncated_snapshot_is_a_problem_and_a_complete_one_is_not(self):
+        fresh = backlog()
+        self.assertEqual(pool.snapshot_problem(fresh, NOW), "")  # written before the key existed
+        self.assertEqual(pool.snapshot_problem(dict(fresh, truncated=False, listed=9, total=9), NOW), "")
+        for value in (True, 1, "yes", None):
+            with self.subTest(truncated=value):
+                problem = pool.snapshot_problem(dict(fresh, truncated=value, listed=300, total=1138), NOW)
+                self.assertIn("truncated", problem)
+        self.assertIn("300 of 1138", pool.snapshot_truncated(dict(fresh, truncated=True, listed=300, total=1138)))
+
+    def test_decide_keeps_the_default_on_a_truncated_snapshot(self):
+        # An empty large pool would take the run (test_placed_runs_and_a_narrower_pick_for_e2e); truncated, it
+        # may hold the demand the sweep never listed, so the default keeps its say.
+        snap = backlog(small=0, large=0, old=0)
+        snap["pools"][LARGE]["running"] = 0
+        args = dict(now=NOW, xcode_pins=PINS)
+        self.assertEqual(pool.decide(snap, pool.Settings(), **args).runner, LARGE)
+        choice = pool.decide(dict(snap, truncated=True, listed=300, total=1138), pool.Settings(), **args)
+        self.assertEqual(choice.runner, "")
+        self.assertIn("truncated", choice.reason)
+
+    def test_the_e2e_and_ios_load_reads_a_truncated_snapshot_as_none(self):
+        class Client:
+            def __init__(self, snapshot):
+                self.snap = snapshot
+
+            def snapshot(self, *, now):
+                return self.snap
+
+            def runs_since(self, workflow, since, **filters):
+                return []
+
+            def pull_request_runs_since(self, since, *, exclude_run_id):
+                return 0
+
+        self.assertIsNotNone(e2e_pool.measure_load(Client(backlog()), now=NOW, exclude_run_id=None))
+        self.assertIsNone(e2e_pool.measure_load(Client(dict(backlog(), truncated=True)), now=NOW, exclude_run_id=None))

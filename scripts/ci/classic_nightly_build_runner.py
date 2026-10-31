@@ -22,7 +22,12 @@ FIRST (a label among those two, or its size, `6vcpu` or `12vcpu`) puts that labe
 and verify jobs of main's nightly
 and the DEV publisher's Mac jobs keep 6 vCPU, their old pinned default, while it moves. With
 ENABLED unset the trusted pick is skipped and only `cloud` is read. `alternate` is the other label,
-for a re-run.
+for a re-run, unless the snapshot shows it stalled or dead: then it is `cloud` itself.
+A label the snapshot shows dead (simple_pool_picker.blacksmith_dead(): nothing running and no job started on it
+for an hour; a snapshot up to six hours old still proves it) is never picked nor offered as `alternate` while
+another label shows life. The stall rule alone could not tell it from a busy label: on 2026-10-30 every DEV
+daily re-run (verify, tip-dmg-build) took the 12 vCPU `alternate` and queued there for hours while that label
+had started nothing for about a day.
 `classic_nightly_build_runner.py prepare` prints only `trusted`, read once with no wait, and false
 when the list cannot be read: prepare-nightly-variant (no secrets) takes the same pinned tuple while
 that mini is idle right after the build, else its Blacksmith label. Its three legs ran about 1 min
@@ -109,12 +114,25 @@ def candidates(first: str = "") -> tuple[str, ...]:
     return (first, *(label for label in CANDIDATES if label != first)) if first in CANDIDATES else CANDIDATES
 
 
+def dead_labels(evidence: Mapping[str, Any] | None, now: dt.datetime) -> set[str]:
+    """The candidates the snapshot (`evidence`, fresh or not) shows dead, or none when it shows every one dead:
+    with no label showing life it says nothing to choose by, and the caller's own order holds."""
+    return picker.dead_macos_26(evidence, now) & set(CANDIDATES)
+
+
 def blacksmith_route(snapshot: Mapping[str, Any] | None, now: dt.datetime,
-                     first: str = "") -> tuple[str, str]:
-    """(the first Blacksmith macOS 26 label whose queue moves, why)."""
+                     first: str = "", evidence: Mapping[str, Any] | None = None) -> tuple[str, str]:
+    """(the first Blacksmith macOS 26 label whose queue moves, why).
+
+    `snapshot` is a fresh snapshot (None when there is none); `evidence` a readable one too old for the stall rule,
+    read only for dead labels (dead_labels())."""
     order = candidates(first)
-    if not isinstance(snapshot, Mapping) or not isinstance(snapshot.get("pools"), Mapping):
-        return order[0], f"no fresh pool snapshot, so `{order[0]}`"
+    fresh = isinstance(snapshot, Mapping) and isinstance(snapshot.get("pools"), Mapping)
+    dead = dead_labels(snapshot if fresh else evidence, now)
+    if not fresh:
+        label = next(label for label in order if label not in dead)
+        return label, f"no fresh pool snapshot, so `{label}`" + (
+            f", past dead `{order[0]}`" if label != order[0] else "")
     pools = snapshot["pools"]
     try:
         generated = dt.datetime.fromisoformat(str(snapshot.get("generated_at")).replace("Z", "+00:00"))
@@ -130,19 +148,36 @@ def blacksmith_route(snapshot: Mapping[str, Any] | None, now: dt.datetime,
             return 0.0
 
     stuck = [label for label in order
-             if picker.blacksmith_stalled(int(field(label, "queued")), field(label, "oldest_queued_minutes") + age)]
+             if picker.blacksmith_stalled(int(field(label, "queued")), field(label, "oldest_queued_minutes") + age)
+             or label in dead]
     moving = [label for label in order if label not in stuck]
     if not moving:
-        return SMALL, f"every Blacksmith macOS 26 label is stalled; `{SMALL}` has the most slots"
-    return moving[0], f"`{moving[0]}`" + (f", past stalled `{stuck[0]}`" if moving[0] != order[0] else "")
+        # A busy label still starts jobs; a dead one starts none.
+        label = SMALL if SMALL not in dead else next(label for label in order if label not in dead)
+        return label, (f"every Blacksmith macOS 26 label is stalled; `{label}` "
+                       + ("has the most slots" if label == SMALL else f"still starts jobs (`{SMALL}` is dead)"))
+    return moving[0], f"`{moving[0]}`" + (f", past {'dead' if stuck[0] in dead else 'stalled'} `{stuck[0]}`"
+                                          if moving[0] != order[0] else "")
 
 
-def alternate(label: str) -> str:
-    """The other Blacksmith macOS 26 label. The jobs take it on an attempt later than the one that made
-    the pick (`attempt`): a re-run of failed jobs keeps the pick job's outputs, and GitHub never
+def alternate(label: str, snapshot: Mapping[str, Any] | None = None, now: dt.datetime | None = None,
+              evidence: Mapping[str, Any] | None = None) -> str:
+    """The other Blacksmith macOS 26 label, unless the snapshot shows it stalled (`snapshot`, fresh) or dead
+    (`snapshot` or `evidence`, dead_labels()): then `label` itself. The jobs take it on an attempt later than the
+    one that made the pick (`attempt`): a re-run of failed jobs keeps the pick job's outputs, and GitHub never
     re-routes a queued job, so the re-run leaves the label that stalled after the pick. A re-run of all
-    jobs runs the picker again, and that attempt takes the fresh pick."""
-    return next(other for other in CANDIDATES if other != label) if label in CANDIDATES else SMALL
+    jobs runs the picker again, and that attempt takes the fresh pick. With no snapshot at all the other label
+    is unverified and still offered (the behaviour before the snapshot existed)."""
+    if label not in CANDIDATES:
+        return SMALL
+    other = next(other for other in CANDIDATES if other != label)
+    now = now or dt.datetime.now(dt.timezone.utc)
+    fresh = isinstance(snapshot, Mapping) and isinstance(snapshot.get("pools"), Mapping)
+    if other in dead_labels(snapshot if fresh else evidence, now):
+        return label
+    if fresh and blacksmith_route(snapshot, now, other)[0] != other:
+        return label
+    return other
 
 
 def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
@@ -186,28 +221,31 @@ def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
                 handle.write(f"\nNightly prepare runner:\n- {line}\n")
         return 0
     now += dt.timedelta(seconds=max(0.0, clock() - started))
-    snapshot = None
+    snapshot = evidence = None
     snapshot_token = env.get("SNAPSHOT_TOKEN", "")
     if snapshot_token and repo:
         try:
             if read_snapshot is not None:
-                snapshot = read_snapshot(snapshot_token, repo)
+                snapshot = evidence = read_snapshot(snapshot_token, repo)
             else:
                 import pr_runner_pool  # noqa: PLC0415
 
-                snapshot = pr_runner_pool.GitHub(snapshot_token, repo).snapshot(now=now)
+                snapshot = evidence = pr_runner_pool.GitHub(snapshot_token, repo).snapshot(now=now)
                 if snapshot is not None and pr_runner_pool.snapshot_problem(snapshot, now):
+                    # Too old for the stall rule; still read for dead labels (blacksmith_dead()).
                     snapshot = None
         except Exception as error:  # noqa: BLE001 - the default label keeps its say
             print(f"::warning title=classic nightly build runner::could not read the pool snapshot ({str(error)[:200]})")
-    blacksmith, blacksmith_why = blacksmith_route(snapshot, now, (env.get("FIRST") or "").strip())
+    evidence = evidence if isinstance(evidence, Mapping) else None
+    blacksmith, blacksmith_why = blacksmith_route(snapshot, now, (env.get("FIRST") or "").strip(), evidence)
+    other = alternate(blacksmith, snapshot, now, evidence)
     lines = [f"trusted: {'yes' if trusted else 'no'} ({trusted_why})", f"blacksmith: {blacksmith} ({blacksmith_why})"]
     for line in lines:
         print(f"classic nightly build runner: {line}")
     if env.get("GITHUB_OUTPUT"):
         with open(env["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
             handle.write(f"trusted={'true' if trusted else 'false'}\ncloud={blacksmith}\n"
-                         f"alternate={alternate(blacksmith)}\nattempt={(env.get('GITHUB_RUN_ATTEMPT') or '1').strip()}\n")
+                         f"alternate={other}\nattempt={(env.get('GITHUB_RUN_ATTEMPT') or '1').strip()}\n")
     if env.get("GITHUB_STEP_SUMMARY"):
         with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
             handle.write("\nNightly build runner:\n" + "".join(f"- {line}\n" for line in lines))
