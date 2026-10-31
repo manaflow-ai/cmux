@@ -174,7 +174,7 @@ final class CreationInputCoordinator {
         guard let machine = lane.machine, let (tab, pane) = services.locateTab(lane.tab, onMachine: machine), tab.kind == .pty else {
             return Self.logger.notice("\(events.count, privacy: .public) held key(s) went with their closed terminal")
         }
-        let (inputs, skipped) = HeldKeyInput.inputs(for: events), surface = tab.surface
+        let (inputs, skipped) = HeldKeyInput.inputs(for: events, optionAsAlt: GhosttyRuntime.shared.optionAsAltValue), surface = tab.surface
         if skipped > 0 { Self.logger.error("\(skipped, privacy: .public) held key(s) have no daemon key name") }
         services.daemon(for: pane).send("send-key") { connection in
             for input in inputs {

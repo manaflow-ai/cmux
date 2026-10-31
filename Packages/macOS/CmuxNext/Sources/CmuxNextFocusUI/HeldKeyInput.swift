@@ -8,11 +8,12 @@ public enum HeldKeyInput: Equatable, Sendable {
     case key(String)
 
     /// The inputs of `events`, in order, consecutive text merged. A key with no daemon name (a key code this table does
-    /// not know, typed with Control) is left out; the count of left-out keys is `skipped`.
-    public static func inputs(for events: [NSEvent]) -> (inputs: [HeldKeyInput], skipped: Int) {
+    /// not know, typed with Control) is left out; the count of left-out keys is `skipped`. `optionAsAlt`: Ghostty's
+    /// `macos-option-as-alt` (`true`, `left`, `right`; anything else: Option types what macOS composed).
+    public static func inputs(for events: [NSEvent], optionAsAlt: String?) -> (inputs: [HeldKeyInput], skipped: Int) {
         var inputs: [HeldKeyInput] = [], skipped = 0
         for event in events {
-            guard let input = HeldKeyInput(event) else {
+            guard let input = HeldKeyInput(event, optionAsAlt: optionAsAlt) else {
                 skipped += 1
                 continue
             }
@@ -25,10 +26,14 @@ public enum HeldKeyInput: Equatable, Sendable {
         return (inputs, skipped)
     }
 
-    /// `event` as the daemon takes it: a named key (Return, an arrow, F5) or a chord with Control, Command, or Option
-    /// on a named key is a `key`; other typing (Option included: what macOS composed) is `text`.
-    public init?(_ event: NSEvent) {
+    /// `event` as the daemon takes it: a named key (Return, an arrow, F5), a chord with Control or Command, or an Option
+    /// key that `optionAsAlt` makes Alt (ESC and the base key, as the view's encoder sends) is a `key`; other typing
+    /// (Option included when it is not Alt: what macOS composed) is `text`.
+    public init?(_ event: NSEvent, optionAsAlt: String?) {
         let flags = event.modifierFlags
+        let side = flags.rawValue & (Self.leftOption | Self.rightOption)
+        let altKey = flags.contains(.option) && (optionAsAlt == "true" || (optionAsAlt == "left" && side & Self.leftOption != 0)
+            || (optionAsAlt == "right" && side & Self.rightOption != 0))
         var mods: [String] = []
         if flags.contains(.command) { mods.append("cmd") }
         if flags.contains(.control) { mods.append("ctrl") }
@@ -36,6 +41,13 @@ public enum HeldKeyInput: Equatable, Sendable {
         if flags.contains(.shift) { mods.append("shift") }
         if let name = Self.names[event.keyCode] {
             self = .key((mods + [name]).joined(separator: "+"))
+            return
+        }
+        if flags.isDisjoint(with: [.command, .control]), altKey {
+            // Alt and the key as typed without Option (Shift kept in the character: `alt+A`).
+            guard let base = event.charactersIgnoringModifiers, base.count == 1, base.unicodeScalars.allSatisfy({ $0.isASCII && $0.value > 0x20 })
+            else { return nil }
+            self = .key("alt+" + base)
             return
         }
         if flags.isDisjoint(with: [.command, .control]) {
@@ -48,6 +60,10 @@ public enum HeldKeyInput: Equatable, Sendable {
               character.unicodeScalars.allSatisfy({ $0.isASCII && $0.value > 0x20 }) else { return nil }
         self = .key((mods + [character]).joined(separator: "+"))
     }
+
+    /// The device bits of the left and right Option keys in `NSEvent.ModifierFlags` (IOKit's NX_DEVICELALTKEYMASK and
+    /// NX_DEVICERALTKEYMASK).
+    private static let leftOption: UInt = 0x20, rightOption: UInt = 0x40
 
     /// The daemon's names (`key_input_from_chord`) of keys typed by key code.
     private static let names: [UInt16: String] = [
