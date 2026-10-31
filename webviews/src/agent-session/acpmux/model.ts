@@ -312,8 +312,13 @@ export type AcpmuxRow = {
   /// A turn summary whose turn draws a "Worked for" line (conversation/turns.ts), so its
   /// footer need not repeat the time and count.
   folded?: boolean;
+  /// A Worked-for row's actual open state, including a provisional key from paged history.
+  foldOpen?: boolean;
   /// Work shown inside an open "Worked for": its turn has ended.
   settled?: boolean;
+  /// A reply to the person (not a short note) shown inside an open "Worked for": settled, yet it
+  /// keeps its own action row (hasReplyActions; conversation/turns.ts shapeTurn).
+  foldedReply?: boolean;
   /// A run of finished tool calls folded under one summary line (Debug toggle
   /// `agentPane.debug.codexToolRuns`, on by default; conversation/turns.ts `codexRuns`,
   /// conversation/toolRunSummary.ts).
@@ -1114,7 +1119,7 @@ export const hasReplyActions = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   next !== undefined &&
   !isBeforeFooter(row, next) &&
   row.streaming !== true &&
-  row.settled !== true &&
+  (row.settled !== true || row.foldedReply === true) &&
   (row.text ?? "").trim().length > 0;
 export const isBeforeFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   row.kind === "assistant" &&

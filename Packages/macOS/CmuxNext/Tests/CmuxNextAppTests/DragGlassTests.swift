@@ -5,6 +5,7 @@ import CmuxNextBridge
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// Leo, 2026-10-19: "the dragged workspaces and dragged tabs turning from glassy to solid themed is
@@ -12,7 +13,7 @@ import Testing
 /// window's art and tint (`WindowBackdrop.dragsOnGlass`), not a flat theme card; a lifted sidebar row
 /// is the overlay glass (`DragLiftView`) and its ghost keeps it; a window opened for a torn-off
 /// workspace or tab gets the same backdrop as the window it left.
-@MainActor @Suite(.serialized) struct DragGlassTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct DragGlassTests {
     /// Runs `body` with the app theme translucent and frosted, as cmux.json's
     /// `appearance.backgroundOpacity` 0.65 and `backgroundBlur` "frosted" make it.
     func translucent<T>(_ body: () throws -> T) rethrows -> T {
@@ -62,6 +63,7 @@ import Testing
     @Test func theDragGhostStandsOnGlassFromItsFirstFrame() throws {
         let ghost = TabDragGhostPanel(tabImage: nil, tabSize: CGSize(width: 160, height: 28),
                                       grabOffset: CGPoint(x: 20, y: 14), aspect: 1.6, scale: 2, onGlass: true)
+        defer { ghost.panel.closeAfterTest() }
         ghost.render(TabDragGhostMotion(rect: CGRect(x: 100, y: 100, width: 160, height: 28), cardness: 0))
         let root = try #require(ghost.panel.contentView)
         let glass = try #require(root.subviews.first { $0 is GlassPanelView })
@@ -70,6 +72,7 @@ import Testing
 
         let solid = TabDragGhostPanel(tabImage: nil, tabSize: CGSize(width: 160, height: 28),
                                       grabOffset: CGPoint(x: 20, y: 14), aspect: 1.6, scale: 2, onGlass: false)
+        defer { solid.panel.closeAfterTest() }
         solid.render(TabDragGhostMotion(rect: CGRect(x: 100, y: 100, width: 160, height: 28), cardness: 0))
         let solidGlass = try #require(solid.panel.contentView?.subviews.first { $0 is GlassPanelView })
         #expect(solidGlass.alphaValue == 0, "an opaque window's tab image carries its own card")
@@ -150,6 +153,7 @@ import Testing
                                                  image: nil, imageOnGlass: onGlass)
                 #expect(session.beginWorkspaces(handoff, from: controller))
                 let ghost = try #require(session.drag?.ghost)
+                defer { ghost.panel.closeAfterTest() }
                 #expect(ghost.onGlass == onGlass, "the ghost stands on the glass its image was drawn for")
                 session.finish(commit: false)
                 session.finishLanding()
