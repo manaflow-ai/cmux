@@ -12788,13 +12788,13 @@
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "**Pritisnite `%@` da odete bilo gdje.** Skače na bilo koji otvoreni radni prostor, karticu ili agenta, pa je to prva prečica koju treba naučiti."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "**Tryk på `%@` for at gå hvor som helst.** Den hopper til ethvert åbent arbejdsområde, fane eller agent, så det er den første genvej, du skal lære."
           }
         },
@@ -12818,7 +12818,7 @@
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "**Premi `%@` per andare ovunque.** Passa a qualsiasi spazio di lavoro, scheda o agente aperto, quindi è la prima scorciatoia da imparare."
           }
         },
@@ -12830,7 +12830,7 @@
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "**ចុច `%@` ដើម្បីទៅកន្លែងណាក៏បាន។** វាលោតទៅកន្លែងធ្វើការ ផ្ទាំង ឬភ្នាក់ងារដែលបើកណាមួយ ដូច្នេះវាជាផ្លូវកាត់ដំបូងដែលត្រូវរៀន។"
           }
         },
@@ -12842,49 +12842,49 @@
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "**Trykk `%@` for å gå hvor som helst.** Den hopper til ethvert åpent arbeidsområde, fane eller agent, så det er den første snarveien du bør lære."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "**Naciśnij `%@`, aby przejść gdziekolwiek.** Przenosi do dowolnej otwartej przestrzeni roboczej, karty lub agenta, więc to pierwszy skrót, którego warto się nauczyć."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "**Pressione `%@` para ir a qualquer lugar.** Ele leva a qualquer espaço de trabalho, aba ou agente aberto, então é o primeiro atalho para aprender."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "**Нажмите `%@`, чтобы перейти куда угодно.** Это открывает любое рабочее пространство, вкладку или агента, поэтому это первое сочетание клавиш, которое стоит запомнить."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "**กด `%@` เพื่อไปที่ใดก็ได้** ใช้ข้ามไปยังเวิร์กสเปซ แท็บ หรือเอเจนต์ที่เปิดอยู่ จึงเป็นคีย์ลัดแรกที่ควรเรียนรู้"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "**Her yere gitmek için `%@` tuşuna basın.** Açık olan herhangi bir çalışma alanına, sekmeye veya ajana atlar; öğrenilecek ilk kısayol budur."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "**Натисніть `%@`, щоб перейти куди завгодно.** Це відкриває будь-який робочий простір, вкладку чи агента, тож це перше сполучення клавіш, яке варто запам'ятати."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "**Nhấn `%@` để đi đến bất cứ đâu.** Phím này chuyển đến mọi không gian làm việc, tab hoặc tác tử đang mở, nên đây là phím tắt đầu tiên cần học."
           }
         },
@@ -12920,13 +12920,13 @@
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Još prečica:"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Flere genveje:"
           }
         },
@@ -12950,7 +12950,7 @@
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Altre scorciatoie:"
           }
         },
@@ -12962,7 +12962,7 @@
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "ផ្លូវកាត់ផ្សេងទៀត៖"
           }
         },
@@ -12974,49 +12974,49 @@
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Flere snarveier:"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Więcej skrótów:"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Mais atalhos:"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Другие сочетания клавиш:"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "คีย์ลัดอื่นๆ:"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Diğer kısayollar:"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Інші сполучення клавіш:"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Thêm phím tắt:"
           }
         },
@@ -13052,13 +13052,13 @@
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Šta me možete pitati:"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ting, du kan bede mig om:"
           }
         },
@@ -13082,7 +13082,7 @@
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Cose che puoi chiedermi:"
           }
         },
@@ -13094,7 +13094,7 @@
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "អ្វីដែលអ្នកអាចសួរខ្ញុំ៖"
           }
         },
@@ -13106,49 +13106,49 @@
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ting du kan spørre meg om:"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "O co możesz mnie poprosić:"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Coisas que você pode me pedir:"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "О чём можно меня попросить:"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "สิ่งที่คุณขอให้ฉันทำได้:"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Benden isteyebilecekleriniz:"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Про що можна мене попросити:"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Những điều bạn có thể nhờ tôi:"
           }
         },
@@ -13184,13 +13184,13 @@
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "- Pokreni Claude Code agenta da popravi neuspjele testove u mom repozitoriju\n- Na čemu moji agenti trenutno rade?\n- Otvori localhost:3000 u pregledniku i reci mi šta ne radi\n- Pokreni tri Codex agenta na ovim problemima, svakog u svom radnom prostoru"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "- Start en Claude Code-agent, der retter de fejlende tests i mit repo\n- Hvad arbejder mine agenter på lige nu?\n- Åbn localhost:3000 i en browser, og fortæl mig, hvad der er galt\n- Kør tre Codex-agenter på disse issues, hver i sit eget arbejdsområde"
           }
         },
@@ -13214,7 +13214,7 @@
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "- Avvia un agente Claude Code per correggere i test che falliscono nel mio repo\n- Su cosa stanno lavorando i miei agenti adesso?\n- Apri localhost:3000 in un browser e dimmi cosa non funziona\n- Esegui tre agenti Codex su queste issue, ognuno nel proprio spazio di lavoro"
           }
         },
@@ -13226,7 +13226,7 @@
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "- ចាប់ផ្ដើមភ្នាក់ងារ Claude Code ដើម្បីជួសជុលតេស្តដែលបរាជ័យក្នុង repo របស់ខ្ញុំ\n- តើភ្នាក់ងាររបស់ខ្ញុំកំពុងធ្វើអ្វីឥឡូវនេះ?\n- បើក localhost:3000 ក្នុងកម្មវិធីរុករក ហើយប្រាប់ខ្ញុំថាអ្វីខូច\n- ដំណើរការភ្នាក់ងារ Codex បីលើបញ្ហាទាំងនេះ ម្នាក់ៗក្នុងកន្លែងធ្វើការរបស់ខ្លួន"
           }
         },
@@ -13238,49 +13238,49 @@
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "- Start en Claude Code-agent som fikser testene som feiler i repoet mitt\n- Hva jobber agentene mine med akkurat nå?\n- Åpne localhost:3000 i en nettleser og fortell meg hva som er galt\n- Kjør tre Codex-agenter på disse sakene, hver i sitt eget arbeidsområde"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "- Uruchom agenta Claude Code, który naprawi nieprzechodzące testy w moim repozytorium\n- Nad czym teraz pracują moi agenci?\n- Otwórz localhost:3000 w przeglądarce i powiedz mi, co nie działa\n- Uruchom trzech agentów Codex do tych zgłoszeń, każdego w osobnej przestrzeni roboczej"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "- Inicie um agente do Claude Code para corrigir os testes que estão falhando no meu repositório\n- No que meus agentes estão trabalhando agora?\n- Abra localhost:3000 em um navegador e me diga o que está quebrado\n- Rode três agentes do Codex nessas issues, cada um em seu próprio espaço de trabalho"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "- Запусти агента Claude Code, чтобы починить падающие тесты в моём репозитории\n- Над чем сейчас работают мои агенты?\n- Открой localhost:3000 в браузере и скажи, что сломано\n- Запусти трёх агентов Codex по этим задачам, каждого в своём рабочем пространстве"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "- เริ่มเอเจนต์ Claude Code เพื่อแก้เทสต์ที่ล้มเหลวใน repo ของฉัน\n- ตอนนี้เอเจนต์ของฉันกำลังทำอะไรอยู่?\n- เปิด localhost:3000 ในเบราว์เซอร์แล้วบอกฉันว่าอะไรเสีย\n- รันเอเจนต์ Codex สามตัวกับ issue เหล่านี้ แต่ละตัวในเวิร์กสเปซของตัวเอง"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "- Depomdaki başarısız testleri düzeltmesi için bir Claude Code ajanı başlat\n- Ajanlarım şu anda ne üzerinde çalışıyor?\n- localhost:3000'i bir tarayıcıda aç ve neyin bozuk olduğunu söyle\n- Bu sorunlar için her biri kendi çalışma alanında üç Codex ajanı çalıştır"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "- Запусти агента Claude Code, щоб виправити тести, що падають, у моєму репозиторії\n- Над чим зараз працюють мої агенти?\n- Відкрий localhost:3000 у браузері й скажи, що зламано\n- Запусти трьох агентів Codex на ці задачі, кожного у власному робочому просторі"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "- Khởi động một tác tử Claude Code để sửa các bài kiểm thử đang lỗi trong repo của tôi\n- Các tác tử của tôi đang làm gì lúc này?\n- Mở localhost:3000 trong trình duyệt và cho tôi biết cái gì bị hỏng\n- Chạy ba tác tử Codex cho các issue này, mỗi tác tử trong không gian làm việc riêng"
           }
         },
@@ -13316,13 +13316,13 @@
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Pitajte me bilo šta o cmux-u: kako radi neka funkcija, upravljanje vašim agentima za kodiranje ili vašim preglednicima. Pišite ispod da počnete."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Spørg mig om alt i cmux: hvordan en funktion virker, styring af dine kodeagenter eller dine browsere. Skriv nedenfor for at starte."
           }
         },
@@ -13346,7 +13346,7 @@
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Chiedimi qualsiasi cosa su cmux: come funziona una funzione, come gestire i tuoi agenti di programmazione o i tuoi browser. Scrivi qui sotto per iniziare."
           }
         },
@@ -13358,7 +13358,7 @@
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "សួរខ្ញុំអ្វីក៏បានអំពី cmux៖ របៀបដែលមុខងារមួយដំណើរការ ការគ្រប់គ្រងភ្នាក់ងារសរសេរកូដរបស់អ្នក ឬកម្មវិធីរុករករបស់អ្នក។ វាយខាងក្រោមដើម្បីចាប់ផ្ដើម។"
           }
         },
@@ -13370,49 +13370,49 @@
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Spør meg om hva som helst i cmux: hvordan en funksjon virker, styring av kodeagentene dine eller nettleserne dine. Skriv nedenfor for å begynne."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Pytaj mnie o wszystko w cmux: jak działa dana funkcja, jak zarządzać agentami programistycznymi albo przeglądarkami. Napisz poniżej, aby zacząć."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Pergunte qualquer coisa sobre o cmux: como um recurso funciona, como gerenciar seus agentes de código ou seus navegadores. Digite abaixo para começar."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Спрашивайте меня о чём угодно в cmux: как работает функция, как управлять агентами для кода или браузерами. Напишите ниже, чтобы начать."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "ถามฉันได้ทุกเรื่องเกี่ยวกับ cmux ไม่ว่าจะเป็นวิธีใช้ฟีเจอร์ การจัดการเอเจนต์เขียนโค้ด หรือเบราว์เซอร์ของคุณ พิมพ์ด้านล่างเพื่อเริ่มต้น"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "cmux hakkında bana her şeyi sorabilirsiniz: bir özelliğin nasıl çalıştığını, kodlama ajanlarınızı veya tarayıcılarınızı yönetmeyi. Başlamak için aşağıya yazın."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Питайте мене про будь-що в cmux: як працює функція, як керувати агентами для коду або браузерами. Напишіть нижче, щоб почати."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Hãy hỏi tôi bất cứ điều gì về cmux: một tính năng hoạt động thế nào, quản lý các tác tử lập trình hay trình duyệt của bạn. Nhập bên dưới để bắt đầu."
           }
         },
