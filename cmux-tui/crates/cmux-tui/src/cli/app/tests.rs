@@ -1578,3 +1578,66 @@ fn workspace_group_create_without_remote_or_parent_stays_with_the_daemon() {
         parse(&args(&["workspace", "group", "create", "--remote", "a", "--color", "red"])).is_err()
     );
 }
+
+/// u18462: `cmux open --as-text FILE` (alias `--source`) asks the app to open
+/// HTML, SVG and Markdown as their source in the code editor; a plain open
+/// sends no `as_text`, and the flag never applies to URLs from stdin or --link.
+#[test]
+fn open_as_text_sends_as_text_with_the_files() {
+    let environment = std::collections::HashMap::new();
+    for flag in ["--as-text", "--source"] {
+        let AppCommand::Open { requests, .. } = parse_open_with(
+            &args(&[flag, "/tmp/site/index.html", "/tmp/site/README.md"]),
+            false,
+            &environment,
+            &mut std::io::empty(),
+        )
+        .unwrap() else {
+            panic!("expected open command")
+        };
+        assert_eq!(requests.len(), 1, "{flag}");
+        assert_eq!(requests[0].method, "file.open");
+        assert_eq!(requests[0].params["as_text"], json!(true), "{flag}");
+        assert_eq!(
+            requests[0].params["paths"],
+            json!(["/tmp/site/index.html", "/tmp/site/README.md"])
+        );
+    }
+    let AppCommand::Open { requests, .. } = parse_open_with(
+        &args(&["/tmp/site/index.html"]),
+        false,
+        &environment,
+        &mut std::io::empty(),
+    )
+    .unwrap() else {
+        panic!("expected open command")
+    };
+    assert!(requests[0].params.get("as_text").is_none());
+    assert!(
+        parse_open_with(
+            &args(&["--as-text", "-"]),
+            false,
+            &environment,
+            &mut "https://a.example/\n".as_bytes()
+        )
+        .is_err()
+    );
+    assert!(
+        parse_open_with(
+            &args(&["--as-text", "--link", "https://a.example/"]),
+            false,
+            &environment,
+            &mut std::io::empty()
+        )
+        .is_err()
+    );
+    assert!(
+        parse_open_with(
+            &args(&["--as-text=yes", "/tmp/a.html"]),
+            false,
+            &environment,
+            &mut std::io::empty()
+        )
+        .is_err()
+    );
+}
