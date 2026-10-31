@@ -132,7 +132,7 @@ final class DeclarativePopupHost {
         guard let placed = popup.show(size: NSSize(width: next.width * scale, height: content.contentHeight),
                                       anchor: anchor, in: window, preferred: next.side == .top ? .above : .below,
                                       trailing: sideBySide ? false : next.align == .end, makeKey: opening,
-                                      entrance: false, sideBySide: sideBySide) else { model = nil; return ["shown": false] }
+                                      sideBySide: sideBySide) else { model = nil; return ["shown": false] }
         content.setFrameSize(NSSize(width: content.superview?.bounds.width ?? placed.frame.width,
                                    height: content.contentHeight))
         content.layoutSubtreeIfNeeded()
