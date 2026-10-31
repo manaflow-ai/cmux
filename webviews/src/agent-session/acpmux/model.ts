@@ -1432,8 +1432,8 @@ export const onlyQuietThoughts = (row: AcpmuxRow) =>
 /**
  * UserBubble renders this narrow class as literal spans. Keep the fast path deliberately
  * conservative: anything whose Markdown meaning could differ from its source stays on the
- * parser-backed estimator until the DOM can measure it. It is a superset of PromptText's
- * PROMPT_MARKDOWN characters (`$` included), so a row PromptText sends to Markdown never lands here.
+ * parser-backed estimator until the DOM can measure it. Every Markdown marker promptMarkdown.ts
+ * looks for (`$` too) is excluded here, so a row PromptText sends to Markdown never lands here.
  */
 const PLAIN_MARKDOWN_CHARS = "\\`*_~<>[]{}#|&/$";
 
