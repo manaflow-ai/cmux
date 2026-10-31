@@ -13,7 +13,7 @@ import CmuxNextAgentPane
 /// ends, giving its keys back in order to whatever has focus, when
 /// - its pane no longer shows a New Tab page (the page was left or became a chat) or left the
 ///   window,
-/// - another opening begins, or
+/// - another opening begins (a creation that moves focus too: `CreationInputCoordinator.begin`), or
 /// - `holdLimit` passed since Cmd-T (one deadline per opening, also checked on each key, each
 ///   opening and each focus settle).
 @MainActor
@@ -306,8 +306,8 @@ final class NewTabInputCoordinator {
     /// The New Tab page `tab` this hold opened closed before the daemon made it: its held keys go with it.
     func drop(tab: String, in window: NSWindow?) { if let window, let entry = entry(for: window), entry.pane?.currentTabKey == tab { entry.buffer.discard(); release(entry, why: "closed before created") } }
 
-    /// The opening failed: its keys go on to whatever has focus.
-    func cancel(in window: NSWindow?) { if let window { release(in: window, why: "open failed") } }
+    /// The opening failed, or a creation that moves focus took the window's keys: its keys go on to whatever has focus.
+    func cancel(in window: NSWindow?, why: String = "open failed") { if let window { release(in: window, why: why) } }
 
     func capture(_ event: NSEvent, in keyWindow: NSWindow?) -> Bool {
         // A Chromium page window is a child of the shell, whose number keys the hold.
@@ -390,10 +390,7 @@ final class NewTabInputCoordinator {
     }
 
     /// Whether `window` holds keys for an opening (debug and tests).
-    func isHolding(in window: NSWindow?) -> Bool {
-        guard let window else { return false }
-        return buffers[window.windowNumber] != nil
-    }
+    func isHolding(in window: NSWindow?) -> Bool { window.map { buffers[$0.windowNumber] != nil } ?? false }
 }
 
 /// The shown native New Tab page under `view`, depth first.

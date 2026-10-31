@@ -56,6 +56,8 @@ final class CreationInputCoordinator {
     /// script or agent run without `focus`), which leaves the keys where they are.
     func begin(in window: NSWindow?, generation: UInt64?, earlyTab: String? = nil, tab: String? = nil) -> CreationInputBuffer.Ticket? {
         guard let window, let generation, ActionRunScope.viewChangeAllowed() else { return nil }
+        // This creation takes the window's keys: Cmd-N's New Tab hold there ends first (Ctrl-` hid its page, P0 STATUS 1729).
+        router?.newTabInputCoordinator.cancel(in: window, why: "a creation took the keys")
         return buffer(in: window).open(generation: generation, earlyTab: earlyTab, tab: tab)
     }
 
