@@ -16,13 +16,17 @@ public enum QuitFailureAnswer: Equatable, Sendable {
 /// terminals vanish under a turn that still runs. A step of the end that fails is shown
 /// with Retry and Quit Anyway (`confirmFailures`); the quit never goes on
 /// silently past one. Keep never touches the daemon. A save step past its
-/// limit keeps running; the quit waits for it before the sessions end (an
-/// End quit, at most ``endQuitSaveWait``) and before the browser engines
-/// stop (at most what is left of its deadline). The browser engines stop
-/// last: Chromium's own Mac shutdown watchdog ends the process with exit
-/// code 2 when CefShutdown runs past 10 s (a loaded machine), so nothing the
-/// user asked for may come after it. Only Cloud's credential cleanup may
-/// still run then, until AppKit's reply.
+/// limit keeps running. An End quit waits for it before its sessions end, at
+/// most ``endQuitSaveWait``; its deadline is armed only as the engines stop,
+/// so a save still late then runs on beside the engine stop. A keep quit
+/// waits for it before the browser engines stop, for what its deadline
+/// leaves less ``QuitDeadline/engineCloseWait`` and the reply margin. The
+/// browser engines stop last: Chromium's own Mac shutdown watchdog ends the
+/// process with exit code 2 when CefShutdown runs past 10 s (a loaded
+/// machine), so nothing the user asked for may come after it. Before
+/// AppKit's reply the quit waits for every step still running (Cloud's
+/// credential cleanup, a save the engine reserve cut short), for what is
+/// left of the deadline less the reply margin.
 public struct QuitSteps {
     /// Writes "Don't ask again"'s setting; run under ``QuitSaveSteps/rememberLimit``.
     public var remember: @MainActor (QuitBehavior) async -> Void
@@ -80,9 +84,12 @@ public struct QuitSteps {
                 failures = await endLocalAgents() + endLocalSessions()
             }
         }
-        // A save past its limit lands before the browser engines stop: a closed page answers with no
-        // back/forward list, so a late browser-records save would keep only its shown page.
-        await limiter.finishOverruns(within: timeLeft() ?? .zero, excluding: [QuitSaveSteps.cloudStepName])
+        // A save past its limit gets what the deadline leaves less the engines' close wait, so
+        // Chromium still closes its pages and CefShutdown flushes cookies and storage. A save
+        // still late then runs on beside the engine stop; a closed page has no session to save,
+        // so a late browser-records save writes nothing over its good record.
+        let beforeEngines = (timeLeft() ?? .zero) - QuitDeadline.engineCloseWait
+        await limiter.finishOverruns(within: max(.zero, beforeEngines), excluding: [QuitSaveSteps.cloudStepName])
         await stopBrowserEngines()
         // Cloud's credential cleanup (and a save the deadline already cut short) gets what is left
         // of the deadline before AppKit's reply ends the process.

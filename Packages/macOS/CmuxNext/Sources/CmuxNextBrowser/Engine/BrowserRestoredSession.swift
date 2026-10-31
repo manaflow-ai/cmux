@@ -109,9 +109,12 @@ class BrowserRestoredSession {
     }
 
     /// The tab's entries as they are saved, with the scroll positions it
-    /// knows; `measuringScroll` also asks the shown page.
+    /// knows; `measuringScroll` also asks the shown page. Nil once its engine
+    /// closed the page (a quit's engine stop): it has no back/forward list
+    /// then, so its session would keep only the shown page over the good
+    /// record written after each navigation.
     func savedSession(measuringScroll: Bool) async -> BrowserSavedSession? {
-        guard let tab else { return nil }
+        guard let tab, !tab.isClosed else { return nil }
         // Where the page said its scrolling settled (no page question): a crash after it keeps it.
         // Not while a restore still scrolls the page back: its load reports the top first.
         if pendingScrollY == nil, restoringEntry == nil, let report = tab.state.scrollReport {
