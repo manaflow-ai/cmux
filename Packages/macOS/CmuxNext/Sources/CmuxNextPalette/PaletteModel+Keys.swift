@@ -241,11 +241,13 @@ extension PaletteModel {
 
     static let pageStep = 8
 
-    /// The rows on screen navigation may select: not an older query's answer still shown as a stand-in.
+    /// The rows on screen navigation may select: the reducer's rows, never an older query's answer still shown
+    /// as a stand-in (compared by id: on a full page the two lists can hold the same number of rows).
     var selectableRows: [PaletteRow] {
-        guard let top = nav.top, top.rows.count != rows.count else { return rows }
+        guard let top = nav.top else { return rows }
         let ids = Set(top.rows.map(\.id))
-        return rows.filter { ids.contains($0.id) }
+        let rows = self.rows
+        return rows.allSatisfy { ids.contains($0.id) } ? rows : rows.filter { ids.contains($0.id) }
     }
 
     func moveSelection(by delta: Int, wrap: Bool) {

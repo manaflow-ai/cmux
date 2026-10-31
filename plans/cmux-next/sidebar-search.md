@@ -50,14 +50,19 @@ A contributed page that answers its own queries (agent chats, `PaletteContribute
 asked once per typed query instead, in a later main-thread turn than the key's (its choice history
 is encoded off the main thread, and acpmux's request on the connection's queue). Each answer that
 lands is joined to the ranked rows on the main thread (one delivery and one frame per answer).
-- Search: the chats show after the best ranked section, at most their best 10 rows (taken from the
-  weakest ranked rows when the 400-row page is full). Return runs the best ranked row of the current
-  query; with no ranked row it waits for the chats answer, at most 1.5 s.
-- Chats & agents: the chats lead the page, and its rows are not final until acpmux answers (at most
-  1.5 s), so Return runs the best chat as the chats page does.
+- Search: the chats show after the best ranked section, with every row the ranked rows leave under
+  the 400-row page and at least their best 10 (taken from the weakest ranked rows when the page is
+  full). A cut answer ends with a row that says how many more chats match and opens the Agent Chats
+  page with the same query. Return runs the best ranked row of the current query; with no ranked row
+  it waits for the chats answer.
+- Chats & agents: the chats lead the page, and its rows are not final until acpmux answers, so Return
+  runs the best chat as the chats page does.
+- No timer: every request ends with rows, with none (acpmux refused it, its index is not ready
+  (`ready: false`), it is not connected, or no chat matches), or when the query moves on. An empty end
+  takes an older query's chats off and the rows stop waiting. When acpmux connects or its index
+  fills the window, the shown query is asked again.
 - An older query's chats stay on screen only as stand-ins until the new answer replaces them: no key,
-  click or Return selects them. An answer that ends empty (acpmux refused it, is not connected, or no
-  chat matches) takes them off at once, and the rows stop waiting.
+  click or Return selects them.
 
 A contributed row keeps its own section when it has one (Search Tabs' "Open" / "Closed");
 otherwise it takes the contribution's section (its page title). Providers are shown only

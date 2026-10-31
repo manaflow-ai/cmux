@@ -37,14 +37,37 @@ public struct AgentChatsPalettePage {
         self.open = open
     }
 
-    public func page() -> PalettePageSpec {
-        PalettePageSpec(id: "agentChats", title: AgentChatsPaletteStrings.title, placeholder: AgentChatsPaletteStrings.placeholder,
-                        symbol: "bubble.left.and.bubble.right", providers: [],
-                        onCancel: { [windows] in windows?.close(Self.window) },
-                        queryResults: { [windows, history, open] query in
-                            Self.answers(query, windows: windows, history: history, open: open)
-                        },
-                        filtersByQuery: false)
+    /// The page, starting with `initialQuery` typed (the more row of Search opens it with Search's query).
+    public func page(initialQuery: String = "") -> PalettePageSpec {
+        var spec = PalettePageSpec(id: "agentChats", title: AgentChatsPaletteStrings.title, placeholder: AgentChatsPaletteStrings.placeholder,
+                                   symbol: "bubble.left.and.bubble.right", providers: [], initialQuery: initialQuery,
+                                   onCancel: { [windows] in windows?.close(Self.window) },
+                                   queryResults: { [windows, history, open] query in
+                                       Self.answers(query, windows: windows, history: history, open: open)
+                                   },
+                                   filtersByQuery: false)
+        // Search cuts the chats to its share: this row says how many more match and opens this page with the query.
+        spec.moreRow = { [self, windows] notShown, query in
+            let window = windows?.window(Self.window)
+            let answered = window?.rows.count ?? 0
+            let hidden = notShown + max(0, (window?.total ?? answered) - answered)
+            return Self.moreInSearch(hidden: hidden, page: self.page(initialQuery: query))
+        }
+        // acpmux connected, or its index came ready: the shown query is asked again.
+        spec.onSourceChange = { [windows] changed in
+            let token = FollowToken()
+            windows?.followAvailability(token) { changed() }
+            return token
+        }
+        return spec
+    }
+
+    /// Search's row for the chats it does not show: how many more match; it opens `page` (this page with the query).
+    static func moreInSearch(hidden: Int, page: PalettePageSpec) -> PaletteItem {
+        let text = AgentChatsPaletteStrings.moreInSearch(hidden)
+        return PaletteItem(id: "agentChats.moreInSearch", title: text, symbol: "ellipsis.circle",
+                           primary: PaletteCommand(id: "open", title: AgentChatsPaletteStrings.title, symbol: "return",
+                                                   effect: .push(page)))
     }
 
     /// The window's rows for `query`: acpmux's first answer to its spec, then the stream ends (the
@@ -164,6 +187,12 @@ struct AgentChatsPaletteStrings {
     static func moreChats(_ more: Int, bundle: Bundle = .module, locale: Locale = .current) -> String {
         String(localized: "handlers.agentChats.moreChats", defaultValue: "\(more) more chats. Type to search.",
                bundle: bundle, locale: locale)
+    }
+
+    /// Search's row for the `hidden` matching chats it does not show (it opens the chats page with the query).
+    static func moreInSearch(_ hidden: Int, bundle: Bundle = .module, locale: Locale = .current) -> String {
+        String(format: String(localized: "handlers.agentChats.moreInSearch", defaultValue: "More matching chats: %lld",
+                              bundle: bundle, locale: locale), locale: locale, Int64(hidden))
     }
 
     /// The row under a page that shows only the best `shown` of `total` matching chats.

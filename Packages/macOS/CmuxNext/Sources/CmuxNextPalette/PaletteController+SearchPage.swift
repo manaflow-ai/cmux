@@ -76,7 +76,8 @@ extension PaletteController {
             if let results = page.queryResults {
                 // In the Chats & agents scope the chats are the main content (`leads`); in Search one block of many.
                 answers.append(PaletteContributedAnswers(section: section, leads: showsItemsForEmptyQuery,
-                                                         results: results, close: page.onCancel))
+                                                         results: results, close: page.onCancel, moreRow: page.moreRow,
+                                                         onSourceChange: page.onSourceChange))
                 continue
             }
             for provider in page.providers {

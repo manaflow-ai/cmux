@@ -145,6 +145,7 @@ extension PaletteModel {
             deliver([PaletteResultSection(section: .results, rows: [PaletteRow(item: item, highlights: [], score: 0)])],
                     to: state, generation: generation)
         case .list(let page):
+            followSources(state, page: page)
             if let queryResults = page.queryResults {
                 searchQueryResults(state, results: queryResults, generation: generation)
                 return

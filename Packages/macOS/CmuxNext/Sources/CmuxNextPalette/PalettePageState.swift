@@ -36,6 +36,8 @@ final class PageState {
     /// The answers `answeredQuery` still waits for, within their bound (`PaletteContributedAnswers.holdLimit`).
     var awaitedAnswers = Set<String>()
     var answerTasks: [Task<Void, Never>] = []
+    /// The page's source-change subscriptions (`PalettePageSpec.onSourceChange`), held while it is open.
+    var sourceTokens: [AnyObject] = []
     /// The ranked rows last delivered, before the answers join them, and that delivery's generation
     /// and marks: an answer shows again with them only when they are the current query's.
     var rankedSections: [PaletteResultSection]?
@@ -164,6 +166,7 @@ final class PageState {
         for task in tasks { task.cancel() }
         tasks = []
         cancelAnswers()
+        sourceTokens = []
     }
 
     /// Ends the contributed answers' streams and drops their rows (the page is left).
@@ -183,6 +186,17 @@ final class PageState {
     /// The answer sections for the current query, and the stand-ins (an older query's answers still on screen).
     var currentAnswers: [PaletteResultSection] { answerSections.filter { answerQueries[$0.key] == query }.map(\.value) }
     var standInAnswers: [PaletteResultSection] { answerSections.filter { answerQueries[$0.key] != query }.map(\.value) }
+    /// Each contributed page's more row for `query` (`PalettePageSpec.moreRow`), by answer section id.
+    func moreRows(forQuery query: String) -> [String: (_ notShown: Int) -> PaletteItem] {
+        guard case .list(let page) = kind else { return [:] }
+        var rows: [String: (_ notShown: Int) -> PaletteItem] = [:]
+        for answer in page.contributedAnswers {
+            guard let more = answer.moreRow else { continue }
+            rows[answer.section.id] = { more($0, query) }
+        }
+        return rows
+    }
+
     /// Whether the current query waits for a leading answer (its main content).
     var awaitsLead: Bool { !awaitedAnswers.isDisjoint(with: leadingAnswers) }
 }

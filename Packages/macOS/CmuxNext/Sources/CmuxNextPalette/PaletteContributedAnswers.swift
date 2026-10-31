@@ -9,23 +9,25 @@ struct PaletteContributedAnswers {
     let section: PaletteSection
     /// The page's main content (the Chats & agents scope's chats): asked for the empty query too,
     /// shown first, and its query's rows are not final until it answers, so a Return waits for it as
-    /// on the page itself. Otherwise (Search) it is asked for typed queries only, shows after the
-    /// best ranked section and never holds the rows from being final.
+    /// on the page itself. Otherwise (Search) it is asked for typed queries only and shows after the
+    /// best ranked section; it holds the rows from being final only while the query has no ranked row.
     let leads: Bool
     /// The page's answers for a query (`PalettePageSpec.queryResults`).
     let results: @MainActor (String) -> AsyncStream<[PaletteItem]>
     /// The page's cancel (`PalettePageSpec.onCancel`): it releases what its queries hold (acpmux's window).
     let close: (@MainActor () -> Void)?
+    /// The row Search shows when it cuts the answer (`PalettePageSpec.moreRow`).
+    let moreRow: (@MainActor (_ notShown: Int, _ query: String) -> PaletteItem)?
+    /// The page's source-change subscription (`PalettePageSpec.onSourceChange`).
+    let onSourceChange: (@MainActor (@escaping @MainActor () -> Void) -> AnyObject)?
 
     /// Every Search page shows at most this many rows (the ranker's `rowLimit`, `PaletteRanker.rank`).
     static let pageRowLimit = 400
-    /// The rows an answer that does not lead always shows in Search (its best ones), taken from the weakest
-    /// ranked rows when the page is full: a one-letter query that fills the page still shows the best chats.
+    /// The fewest rows an answer that does not lead shows in Search (its best ones). It gets every row the
+    /// ranked rows leave under `pageRowLimit`, and at least these, taken from the weakest ranked rows: a
+    /// one-letter query that fills the page still shows the best chats. A cut answer ends with its page's
+    /// `moreRow`, which says how many more match and opens the page with the query.
     static let searchShare = 10
-    /// How long a query's Return waits for an answer still in flight (acpmux answers in a few ms; a refused
-    /// or disconnected request ends at once). Past it the rows are final without the answer, which still shows
-    /// when it lands.
-    static let holdLimit: Duration = .milliseconds(1500)
 }
 
 extension PaletteModel {
@@ -51,6 +53,8 @@ extension PaletteModel {
             }
             state.awaitedAnswers.insert(section.id)
             // task-owner: the page state's answerTasks; cancelled by the next query or when the page is left
+            // Every request ends: with rows, with none (refused, not ready, not connected, no match), or when the
+            // query moves on; so the rows wait for it with no timer.
             state.answerTasks.append(Task { [weak self, weak state] in
                 guard let current = state, current.answeredQuery == query else { return }
                 let answers = contribution.results(query)
@@ -76,12 +80,19 @@ extension PaletteModel {
                 state.awaitedAnswers.remove(section.id)
                 self.redeliverAnswers(state)
             })
-            // task-owner: the page state's answerTasks; the bound on how long the query's rows wait for this answer
-            state.answerTasks.append(Task { [weak self, weak state] in
-                // wakeup-allow: one one-shot bound per asked query; it decides only when the rows stop waiting, never whether the answer shows
-                guard (try? await Task.sleep(for: PaletteContributedAnswers.holdLimit)) != nil else { return }
-                guard let self, let state, state.answeredQuery == query, state.awaitedAnswers.remove(section.id) != nil else { return }
-                self.redeliverAnswers(state)
+        }
+    }
+
+    /// Subscribes to the page's sources (its own `queryResults` and its contributed answers): when one can
+    /// answer again (acpmux connected, its index ready), the shown query is asked again. Once per page state.
+    func followSources(_ state: PageState, page: PalettePageSpec) {
+        guard state.sourceTokens.isEmpty else { return }
+        let subscriptions = [page.onSourceChange] + page.contributedAnswers.map(\.onSourceChange)
+        for subscribe in subscriptions.compactMap({ $0 }) {
+            state.sourceTokens.append(subscribe { [weak self, weak state] in
+                guard let self, let state, self.pages[state.levelID] === state else { return }
+                state.answeredQuery = nil
+                self.search(state)
             })
         }
     }
@@ -109,20 +120,39 @@ extension PaletteModel {
         let rankedRows = ranked.reduce(0) { $0 + $1.rows.count }
         let held = state.awaitsLead || (rankedRows == 0 && !state.awaitedAnswers.isEmpty)
         guard !current.isEmpty || !standIns.isEmpty else { return (ranked, ranked, held) }
-        let shown = withAnswers(ranked, answers: current + standIns, leading: state.leadingAnswers)
-        let selectable = standIns.isEmpty ? shown : withAnswers(ranked, answers: current, leading: state.leadingAnswers)
+        let more = state.moreRows(forQuery: state.query)
+        let shown = withAnswers(ranked, answers: current + standIns, leading: state.leadingAnswers, more: more)
+        let selectable = standIns.isEmpty ? shown
+            : withAnswers(ranked, answers: current, leading: state.leadingAnswers, more: more)
         return (shown, selectable, held)
     }
 
     /// `ranked` with the answers: a leading answer first, any other after the best ranked section (where
-    /// the ranker put the best row) with its best `searchShare` rows. The ranked rows give up their weakest
-    /// rows so the page keeps to `pageRowLimit`.
-    static func withAnswers(_ ranked: [PaletteResultSection], answers: [PaletteResultSection],
-                            leading: Set<String>) -> [PaletteResultSection] {
+    /// the ranker put the best row) with every row the ranked rows leave under `pageRowLimit` and at least
+    /// `searchShare`. A cut answer keeps its best rows and ends with `more` (its page's row that says how many
+    /// more match). The ranked rows give up their weakest rows so the page keeps to `pageRowLimit`.
+    static func withAnswers(_ ranked: [PaletteResultSection], answers: [PaletteResultSection], leading: Set<String>,
+                            more: [String: (_ notShown: Int) -> PaletteItem] = [:]) -> [PaletteResultSection] {
         let ordered = answers.sorted { ($0.section.order, $0.section.id) < ($1.section.order, $1.section.id) }
         let leads = ordered.filter { leading.contains($0.section.id) }
-        let others = ordered.filter { !leading.contains($0.section.id) }.map {
-            PaletteResultSection(section: $0.section, rows: Array($0.rows.prefix(PaletteContributedAnswers.searchShare)))
+        var room = PaletteContributedAnswers.pageRowLimit - ranked.reduce(0) { $0 + $1.rows.count }
+            - leads.reduce(0) { $0 + $1.rows.count }
+        var others: [PaletteResultSection] = []
+        for answer in ordered where !leading.contains(answer.section.id) {
+            let share = max(PaletteContributedAnswers.searchShare, room)
+            var rows = answer.rows
+            // The page's own notices (disabled rows: "the best 200 of N") stay while nothing is cut.
+            let entries = rows.filter(\.item.isEnabled)
+            if entries.count > share {
+                rows = Array(entries.prefix(share))
+                if let more = more[answer.section.id] {
+                    var item = more(entries.count - share)
+                    if item.section.id == PaletteSection.results.id { item.section = answer.section }
+                    rows.append(PaletteRow(item: item, highlights: [], score: 0))
+                }
+            }
+            room -= rows.count
+            others.append(PaletteResultSection(section: answer.section, rows: rows))
         }
         let answerRows = (leads + others).reduce(0) { $0 + $1.rows.count }
         let kept = trimmed(ranked, to: max(0, PaletteContributedAnswers.pageRowLimit - answerRows))

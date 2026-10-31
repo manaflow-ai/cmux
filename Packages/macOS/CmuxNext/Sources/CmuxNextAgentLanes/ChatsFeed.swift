@@ -26,7 +26,8 @@ public final class ChatsFeed {
     private var reconnect: Task<Void, Never>?
     private var requestID = 2
     /// The open window requests by JSON-RPC id, so an error answer names its window.
-    private var windowRequests: [Int: String] = [:]
+    /// Each window request in flight: its window and the spec generation it sent.
+    private var windowRequests: [Int: (window: String, generation: UInt64?)] = [:]
     private var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30))
 
     /// - Parameters:
@@ -86,8 +87,9 @@ public final class ChatsFeed {
         case indexChanged
         /// A window's rows or row diff (`_acpmux/chats_window_changed`).
         case window(AcpmuxChatWindows.Update)
-        /// The answer to request `id` (a window's open or close), and whether it is an error.
-        case answered(id: Int, failed: Bool)
+        /// The answer to request `id` (a window's open or close): whether it is an error, and whether acpmux
+        /// answered `ready: false` (its index has not started; the window fills when it does).
+        case answered(id: Int, failed: Bool, notReady: Bool)
         /// The daemon dropped a notification or the watch lagged: every window and observer again.
         case lagged
 
@@ -97,7 +99,9 @@ public final class ChatsFeed {
                 if id == 2, message["result"] is [String: Any] {
                     self = .watching
                 } else {
-                    self = .answered(id: id, failed: message["error"] != nil)
+                    let result = message["result"] as? [String: Any]
+                    self = .answered(id: id, failed: message["error"] != nil,
+                                     notReady: result?["ready"] as? Bool == false && result?["stale"] == nil)
                 }
                 return
             }
@@ -153,8 +157,13 @@ public final class ChatsFeed {
                 changed = true
             case .window(let update):
                 windows.apply(update)
-            case .answered(let id, let failed):
-                if let window = windowRequests.removeValue(forKey: id), failed { windows.requestFailed(window) }
+            case .answered(let id, let failed, let notReady):
+                guard let request = windowRequests.removeValue(forKey: id) else { break }
+                if failed {
+                    windows.requestFailed(request.window, generation: request.generation)
+                } else if notReady {
+                    windows.requestNotReady(request.window, generation: request.generation)
+                }
             case .lagged:
                 windows.resync()
                 changed = true
@@ -175,7 +184,9 @@ public final class ChatsFeed {
     /// main thread does no JSON work and the requests keep their order.
     private func send(_ method: String, _ params: [String: any Sendable], on connection: AgentActivityLineConnection) {
         requestID += 1
-        if method == "_acpmux/chats_window", let window = params["window"] as? String { windowRequests[requestID] = window }
+        if method == "_acpmux/chats_window", let window = params["window"] as? String {
+            windowRequests[requestID] = (window, params["gen"] as? UInt64)
+        }
         let id = requestID
         connection.send {
             let request: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method, "params": params as [String: Any]]

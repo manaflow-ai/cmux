@@ -85,13 +85,16 @@ public final class AcpmuxChatWindows {
         /// connection dropped while it was in flight), while their owner lives.
         @ObservationIgnored private var refusals: [(owner: () -> AnyObject?, refused: @MainActor () -> Void)] = []
 
-        /// Calls `changed` with the rows after each message of this window, while `owner` lives.
+        /// Calls `changed` with the rows after each message of this window, while `owner` lives. Followers whose
+        /// owner is gone are dropped here too, so one query per key never grows the list.
         public func follow(_ owner: AnyObject, _ changed: @escaping @MainActor ([AcpmuxChat]) -> Void) {
+            followers.removeAll { $0.owner() == nil }
             followers.append(({ [weak owner] in owner }, changed))
         }
 
         /// Calls `refused` when acpmux will not answer this window's current request, while `owner` lives.
         public func followRefusal(_ owner: AnyObject, _ refused: @escaping @MainActor () -> Void) {
+            refusals.removeAll { $0.owner() == nil }
             refusals.append(({ [weak owner] in owner }, refused))
         }
 
@@ -156,6 +159,10 @@ public final class AcpmuxChatWindows {
     private var awaitingFull: Set<String> = []
     /// Windows whose last request acpmux refused (busy): asked again at the next ``retryFailed()``.
     private var failed: Set<String> = []
+    /// Windows whose request acpmux answered `ready: false` (its index has not started): they fill when it does.
+    private var notReady: Set<String> = []
+    /// Called when acpmux can answer again (``followAvailability(_:_:)``).
+    private var availability: [(owner: () -> AnyObject?, changed: @MainActor () -> Void)] = []
     /// The rows the last applied message installed (decoded values taken), for tests and the
     /// debug counters: one changed chat is one row.
     public private(set) var lastTouchedRows = 0
@@ -187,6 +194,7 @@ public final class AcpmuxChatWindows {
         generations[id, default: 0] += 1
         awaitingFull.remove(id)
         failed.remove(id)
+        notReady.remove(id)
         models[id]?.set(rows: [])
         send?("_acpmux/chats_window_close", ["window": id, "gen": generations[id] ?? 0])
     }
@@ -197,6 +205,7 @@ public final class AcpmuxChatWindows {
         self.send = send
         for model in models.values { model.revision = 0 }
         resync()
+        becameAvailable()
     }
 
     /// The connection is gone: windows keep their rows until the next one answers.
@@ -219,18 +228,34 @@ public final class AcpmuxChatWindows {
         for spec in specs.values.sorted(by: { $0.window < $1.window }) { ask(spec) }
     }
 
-    /// acpmux refused the request of generation `generation` of window `id`.
+    /// acpmux refused the request of generation `generation` of window `id`. A refusal of an older spec than
+    /// the window's current one says nothing about the current request, so it is ignored.
     public func requestFailed(_ id: String, generation: UInt64?) {
+        guard generation == nil || generation == generations[id] else { return }
         requestFailed(id)
     }
 
     /// acpmux answered the request of generation `generation` of window `id` with `ready: false`: its index
-    /// has not started, and the window fills when it does.
-    public func requestNotReady(_ id: String, generation: UInt64?) {}
+    /// has not started, and the window fills when it does. Until then the window's request gets no rows, so
+    /// its readers end now (as on a refusal) and are told to ask again when the rows come
+    /// (``followAvailability(_:_:)``). An older spec's answer is ignored.
+    public func requestNotReady(_ id: String, generation: UInt64?) {
+        guard specs[id] != nil, generation == nil || generation == generations[id] else { return }
+        notReady.insert(id)
+        models[id]?.refused()
+    }
 
-    /// Calls `changed` when acpmux can answer again (a connection came, or an index that was not ready answered),
-    /// while `owner` lives.
-    public func followAvailability(_ owner: AnyObject, _ changed: @escaping @MainActor () -> Void) {}
+    /// Calls `changed` when acpmux can answer again (a connection came, or an index that was not ready filled a
+    /// window), while `owner` lives.
+    public func followAvailability(_ owner: AnyObject, _ changed: @escaping @MainActor () -> Void) {
+        availability.removeAll { $0.owner() == nil }
+        availability.append(({ [weak owner] in owner }, changed))
+    }
+
+    private func becameAvailable() {
+        availability.removeAll { $0.owner() == nil }
+        for observer in availability { observer.changed() }
+    }
 
     /// acpmux answered window `id`'s request with an error: a busy daemon is asked again at the next
     /// ``retryFailed()`` (the next index change or reconnect), never on a timer.
@@ -277,6 +302,8 @@ public final class AcpmuxChatWindows {
         model.set(rows: rows, total: update.total)
         answeredGeneration[update.window] = generations[update.window]
         model.answered()
+        // The index that was not ready filled this window: a reader that ended on `ready: false` asks again.
+        if update.full, notReady.remove(update.window) != nil { becameAvailable() }
     }
 
     /// Whether `spec` is its window's current spec and acpmux answered it (the rows are `spec`'s). A

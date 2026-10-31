@@ -29,6 +29,8 @@ extension PaletteModel {
     func leave(_ state: PageState) {
         let wasHighlighted = state.highlightedItemID != nil
         state.highlightedItemID = nil
+        // A left page asks its sources nothing more.
+        state.sourceTokens = []
         guard case .list(let page) = state.kind else { return }
         // A contributed page's queries hold its source (acpmux's window) open however the page is left.
         if !page.contributedAnswers.isEmpty {
