@@ -53,7 +53,7 @@ enum CloudCreationRows {
             // Paused never reads failed: "Paused (idle)" or "Paused"; an attach resumes it.
             header.status = idle ? .pausedIdle : .paused
         } else if let failure = stage.failure, header.status == .connecting || header.status == .offline {
-            header.status = .failed
+            header.status = session.stageInput.isDisconnect ? .disconnected : .failed
             header.detail = failure
         }
         header.detail = withUpdate(header.detail, DaemonUpdateBoard.shared.targets[CloudMachineUpdateTarget.id(session.machineID)],
@@ -70,7 +70,7 @@ enum CloudCreationRows {
         let line = DaemonUpdateBoard.line(event.state)
         switch event.state {
         // "Update it to turn on every feature" would ask for what cannot happen: what still works instead.
-        case .updating, .retrying, .cannotUpdate: return line
+        case .updating, .retrying, .offline, .cannotUpdate: return line
         case .failed where event.build.map { build in DaemonBuildCommit(compatibility?.buildCommit)?.sameCommit(build) == true } == true:
             return detail
         case .updated, .failed: return [detail, line].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")

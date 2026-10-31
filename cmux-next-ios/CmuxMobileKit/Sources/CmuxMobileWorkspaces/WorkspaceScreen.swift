@@ -26,7 +26,7 @@ extension TabsKitTheme {
 
 /// A workspace: its tabs in the Safari-style TabsKit chrome, opened on the
 /// last tab used on this device. Pushed full screen from the Workspaces
-/// list with the root tab bar and navigation bar hidden (SPEC 3.1: full
+/// list with the navigation bar hidden and, by the shell, the root tab bar (SPEC 3.1: full
 /// screen surfaces own the bottom edge). Ways back to the list: the
 /// toolbar's back chevron (a tab without page history), the system edge
 /// swipe, the grid's leading back circle, and "All Workspaces" in the page menu.
@@ -79,7 +79,6 @@ public struct WorkspaceScreen: View {
             }
             .background(theme.colors.bg.color.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
-            .toolbar(.hidden, for: .tabBar)
             .background(InteractivePopEnabler())
             // Search Agent Chats, Screens, Panes and a tab group's pages, and Fork Conversation…'s destinations.
             .modifier(WorkspacePages(source: source))
@@ -122,6 +121,7 @@ public struct WorkspaceScreen: View {
                 Button("Rename") {
                     if let id = renameID { Task { await source.rename(id, to: renameText) } }
                 }
+                    .keyboardShortcut(.defaultAction)
             }
             .modifier(TabMoveAndGroupSheets(source: source))
             // Closing a tab with a running program asks first (Codex QA F9).
