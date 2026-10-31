@@ -777,9 +777,8 @@ button.cv-subagent > :last-child {
 }
 /* The line and, on hover or focus, its Restart (SubagentDoneLine.tsx), the hover row's compact
    button (conversation/MessageActions.tsx): hidden, it keeps its room, so pointing moves nothing. */
-/* The row keeps the tool rows' gap and trailing column (conversation.css `.cv-tool`): the line's
-   button as wide as its words, its hover buttons after it, then the duration pushed to the
-   trailing column and the chevron in the disclosure slot, on the same x as every tool row's. */
+/* The row keeps the tool rows' gap (conversation.css `.cv-tool`): the line's button as wide as its
+   words and its chevron, its hover buttons after it, then the duration at the row's right edge. */
 .cv-tool.cv-subagent-done-row {
   position: relative;
   isolation: isolate;
@@ -787,33 +786,21 @@ button.cv-subagent > :last-child {
   min-width: 0;
 }
 /* The open button is the line's one control: its hit area spans the row, under the words, so a
-   click on the duration, the chevron or the gap between opens it, while Restart, Retry and the
-   ⋯ menu sit above it as their own buttons. The duration and the chevron only draw. */
+   click on the duration or the gap before it opens it, while Restart, Retry and the ⋯ menu sit
+   above it as their own buttons. The duration and the chevron only draw. */
 .cv-subagent-done-row > .cv-subagent-done::before {
   content: "";
   position: absolute;
   inset: 0;
   z-index: -1;
 }
-.cv-subagent-done-row > .cv-subagent-done__trail,
-.cv-subagent-done-row > .cv-tool__chevron {
+.cv-subagent-done-row > .cv-subagent-done__trail {
   pointer-events: none;
 }
 .cv-subagent-done-row > .cv-subagent-done {
-  grid-template-columns: var(--cv-glyph-slot) minmax(0, 1fr);
   width: auto;
   min-width: 0;
   flex: 0 1 auto;
-}
-.cv-subagent-done-row > .cv-subagent-done__trail {
-  flex: none;
-  margin-inline-start: auto;
-}
-.cv-subagent-done-row > .cv-tool__chevron {
-  flex: none;
-}
-.cv-subagent-done-row > .cv-tool__chevron.is-idle {
-  visibility: hidden;
 }
 .cv-subagent-done-row[data-state="failed"] .cv-subagent-done__time {
   color: var(--agent-status-failure);

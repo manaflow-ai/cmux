@@ -7,10 +7,11 @@
 // does not. A click opens the subagent's view, its whole run. On hover, a subagent that did not
 // finish offers Restart, which asks the chat to run it again with its prompt (restart.ts), in the
 // hover row's buttons (conversation/MessageActions.tsx). The line keeps the transcript's one row
-// grammar (design/chat-transcript.md "One row grammar"): the icon and the sentence, then the
-// trailing column, its duration, then the chevron, so the duration and the chevron line up with
-// the rows around it (Leo 2026-10-29: "this ui isn't consistent :("). The open button is the
-// line's one control: the duration and the chevron only draw, and its hit area reaches them.
+// grammar (design/chat-transcript.md "One row grammar"): the icon and the sentence, the chevron
+// right after its words as every disclosure caret sits (#28018), then the duration at the row's
+// right edge, never in the sentence (Leo 2026-10-29: "this ui isn't consistent :("). The open
+// button is the line's one control: the chevron inside it only draws, and its hit area reaches
+// the duration.
 //
 // While acpmux waits to retry it (retryState.ts), the line reads "Retrying (2/4) after a capacity
 // error" with the turning ring. A failed one offers Retry, inline and in its ⋯ menu: acpmux runs
@@ -133,6 +134,8 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
           <span className="cv-tool__text" title={whole}>
             {parts.join(" · ")}
           </span>
+          {/* Only drawn, inside the one control: a line that opens nothing has none. */}
+          {open && <ChevronRight size={14} strokeWidth={1.2} className="cv-tool__chevron" />}
         </button>
         {inline}
         {shown?.key && <output className="cv-subagent-done__note">{t(shown.key)}</output>}
@@ -171,16 +174,12 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
             )}
           </span>
         )}
-        <span className="cv-tool__trail cv-subagent-done__trail">
-          {!waiting && <span className="cv-command__meta cv-subagent-done__time">{time}</span>}
-        </span>
-        {/* The chevron only draws: the line's one control is the open button above, whose hit area
-            spans the row (subagents.css `.cv-subagent-done::before`), so a click on the chevron or
-            the duration opens it and nothing else is clickable or focusable. Its column holds on a
-            line that opens nothing, so the columns still line up. */}
-        <span className={`cv-tool__chevron cv-subagent-done__chevron${open ? "" : " is-idle"}`} aria-hidden>
-          <ChevronRight size={14} strokeWidth={1.2} />
-        </span>
+        {/* Only drawn: the open button's hit area (subagents.css `.cv-subagent-done::before`) reaches it. */}
+        {!waiting && (
+          <span className="cv-tool__trail cv-subagent-done__trail">
+            <span className="cv-command__meta cv-subagent-done__time">{time}</span>
+          </span>
+        )}
       </div>
     </div>
   );

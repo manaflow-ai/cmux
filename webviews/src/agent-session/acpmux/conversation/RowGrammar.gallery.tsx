@@ -3,7 +3,8 @@
 // Four row kinds side by side, each drawn by its real component: a SendMessage call
 // (MessageCard.tsx), a shell `acpmux send` (SentMessageLine.tsx), "Ran 2 commands"
 // (ToolGroupRow.tsx) and "Subagent finished" (SubagentDoneLine.tsx). Every one is the tool rows'
-// grid: icon, sentence, then the trailing column (status, then duration), then the chevron.
+// row: icon, sentence with its chevron inline after it (#28018), then the status or duration at
+// the row's right edge.
 // The variants compare the recipient's one look: the chip (shipped), a link, plain text.
 import { useLayoutEffect, type ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
@@ -129,7 +130,7 @@ export default componentEntry<Props>({
   variants: {
     chip: {
       props: { recipient: "chip" },
-      note: 'Shipped. Both sends read "Sent to" with the recipient as the one chip, the first line muted and cut with one ellipsis; status ("Queued") and duration ("2m 28s") share the trailing column before the chevron, which sits on one x in all four rows.',
+      note: 'Shipped. Both sends read "Sent to" with the recipient as the one chip, the first line muted and cut with one ellipsis; each chevron follows its label inline, and status ("Queued") or duration ("2m 28s") sits at the row's right edge, never in the sentence.',
     },
     link: {
       props: { recipient: "link" },

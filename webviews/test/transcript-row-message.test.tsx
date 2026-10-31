@@ -238,20 +238,18 @@ test("the recipient is the Agent call's description for its agentId, or a short 
   expect(host.querySelector(".cv-agentmsg__name")?.hasAttribute("title")).toBe(false);
 });
 
-test("Copy is in the line's hover row at the sentence's end; the status word, then the chevron, close the line", async () => {
+test("Copy is in the line's hover row, after the status word, not over the line's words", async () => {
   await render(send("completed", "", 'tell-coordinator "first line\\nsecond line"'));
   const line = host.querySelector(".cv-agentmsg__line")!;
-  const sentence = line.querySelector(":scope > .cv-agentmsg__sentence")!;
-  const actions = sentence.querySelector(":scope > .cv-sent-actions")!;
+  const actions = line.querySelector(":scope > .cv-sent-actions")!;
   expect(actions).not.toBeNull();
   expect(actions.querySelector("button")?.getAttribute("aria-label")).toBe("Copy");
-  // The sentence's last child: the words, chip and preview come before it.
-  expect(sentence.lastElementChild).toBe(actions);
-  // The row grammar's trailing column (status), then the chevron, end the line.
-  const trail = line.querySelector(":scope > .cv-tool__trail")!;
-  expect(trail.querySelector(".cv-message__status")).not.toBeNull();
-  expect(trail.nextElementSibling?.classList.contains("cv-tool__chevron")).toBe(true);
-  expect(line.lastElementChild?.classList.contains("cv-tool__chevron")).toBe(true);
+  // The line's last child: the words, chip, preview and status word all come before it.
+  expect(line.lastElementChild).toBe(actions);
+  // The status word sits in the line's trailing column; the chevron stays inline in the toggle.
+  expect(actions.previousElementSibling?.matches(".cv-tool__trail")).toBe(true);
+  expect(actions.previousElementSibling?.querySelector(".cv-message__status")).not.toBeNull();
+  expect(line.querySelector(".cv-agentmsg__toggle > .cv-tool__chevron")).not.toBeNull();
 });
 
 test("the shared row draws a received message too: the caller's icon, a chip that opens the chat, end actions", async () => {
@@ -289,7 +287,7 @@ test("the shared row draws a received message too: the caller's icon, a chip tha
   const row = host.querySelector(".cv-agentmsg")!;
   expect(row.getAttribute("data-direction")).toBe("received");
   expect(row.querySelector(".cv-agentmsg__icon [data-testid=harness-mark]")).not.toBeNull();
-  expect(row.querySelector(".cv-agentmsg__line > .cv-agentmsg__sentence > .reply")?.textContent).toBe("Reply");
+  expect(row.querySelector(".cv-agentmsg__line > .reply")?.textContent).toBe("Reply");
   // First line only, its Markdown marks dropped.
   expect(row.querySelector(".cv-agentmsg__preview")?.textContent).toBe("Done: the grid fix is on cmux/grid-fix.");
   await act(async () => host.querySelector<HTMLButtonElement>("button.cv-agentmsg__name")!.click());

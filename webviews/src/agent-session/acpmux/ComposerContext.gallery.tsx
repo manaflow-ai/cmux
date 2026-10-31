@@ -105,10 +105,12 @@ const openFolder: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-location-menu [role="option"]'));
 };
 
-// Leo's list (hq#1957 composer location strip): three checkouts of cmux, each named "cmux".
+// Leo's list (hq#1957 composer location strip): three checkouts of cmux, each named "cmux", in no
+// worktree home the pickers know (a lane's own `wt/lanes/<lane>/cmux` folds under cmux instead:
+// projectRepos.ts), so each keeps its row and is named apart.
 const worktrees: Project[] = [
-  { cwd: "/Users/you/wt/lanes/cg-lane-adopt/cmux", label: "cmux" },
-  { cwd: "/Users/you/wt/lanes/fleet-ci/cmux", label: "cmux" },
+  { cwd: "/Users/you/clones/cg-lane-adopt/cmux", label: "cmux" },
+  { cwd: "/Users/you/clones/fleet-ci/cmux", label: "cmux" },
   { cwd: "/Users/you/src/cmux", label: "cmux" },
   { cwd: "/Users/you/src/atlas-web", label: "atlas-web" },
   { cwd: "/Users/you/src/relay", label: "relay" },
@@ -821,6 +823,49 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
           hostKind: "local",
           branch: "feature/composer-context-gallery",
         },
+      },
+    },
+    "started-browse-error-tray": {
+      note: "Tray style keeps the folder chooser recovery row below the raised composer, with Retry and Dismiss visible.",
+      props: {
+        ...baseProps,
+        started: true,
+        summary: {
+          sessionId: "gallery-started-browse-error-tray",
+          harness: "claude",
+          cwd: projects[0]!.cwd,
+          host: "This Mac",
+          hostKind: "local",
+        },
+        onNewChat: () => undefined,
+        onBrowseFolder: () => Promise.reject(new Error("Folder access was denied.")),
+      },
+      play: async (ctx) => {
+        ctx.document.documentElement.setAttribute("data-top-strip", "tray");
+        await ctx.click({ role: "button", name: "Folder" });
+        await ctx.click({ selector: ".acpmux-location-choose:last-child" });
+        await ctx.waitFor(() => ctx.document.querySelector('[role="alert"]'));
+      },
+    },
+    "started-browse-error": {
+      note: "A refused folder chooser leaves a started chat in place with a localized reason and direct Retry and Dismiss actions.",
+      props: {
+        ...baseProps,
+        started: true,
+        summary: {
+          sessionId: "gallery-started-browse-error",
+          harness: "claude",
+          cwd: projects[0]!.cwd,
+          host: "This Mac",
+          hostKind: "local",
+        },
+        onNewChat: () => undefined,
+        onBrowseFolder: () => Promise.reject(new Error("Folder access was denied.")),
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Folder" });
+        await ctx.click({ selector: ".acpmux-location-choose:last-child" });
+        await ctx.waitFor(() => ctx.document.querySelector('[role="alert"]'));
       },
     },
   },
