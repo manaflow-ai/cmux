@@ -455,11 +455,17 @@ impl ExpiryPass {
         self.failed |= !cleared;
         match next {
             Some(Some(deadline)) => {
-                // A successful clear removes every row due at `cleared_at_ms`
-                // (`status_meta::owned_entries`), so a deadline at or before
-                // it is a row the clear did not remove and will not remove on
-                // the next pass either: a failure, never a 1 ms retry.
-                if deadline <= cleared_at_ms {
+                // A backstop: a successful clear removes every row due at
+                // `cleared_at_ms` (`status_meta::owned_entries` and
+                // `remove_entries` share the predicate), so no known path
+                // leaves one. A deadline at or before it is a row the clear
+                // did not remove and will not remove on the next pass
+                // either: a failure, never a 1 ms retry.
+                if cleared && deadline <= cleared_at_ms {
+                    eprintln!(
+                        "cmux-tui: status expiry left deadline {deadline} due \
+                         (cleared up to {cleared_at_ms}); retrying later"
+                    );
                     self.failed = true;
                 }
                 self.next = Some(self.next.map_or(deadline, |current| current.min(deadline)));
@@ -477,7 +483,7 @@ impl ExpiryPass {
     /// arrives). `failures` counts passes in a row that failed.
     fn wait(mut self, failures: &mut u32, now_ms: u64) -> Option<Duration> {
         // After a failure the expired row stays; retry with a growing delay
-        // (1 s to about 4 min) instead of spinning on a past deadline.
+        // (2 s to about 4 min) instead of spinning on a past deadline.
         *failures = if self.failed { failures.saturating_add(1) } else { 0 };
         if *failures > 0 {
             self.next = Some(now_ms.saturating_add(1_000u64 << (*failures).min(8)));

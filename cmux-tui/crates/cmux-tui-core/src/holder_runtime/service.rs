@@ -508,6 +508,12 @@ impl HolderService {
                     std::thread::Builder::new().name("holder-restart".into()).spawn(move || {
                         if !delay.is_zero() {
                             std::thread::sleep(delay);
+                            // Another daemon took the holder meanwhile: this
+                            // one is on its way out and keeps its terminals,
+                            // as on its own Superseded end.
+                            if service.superseded.load(Ordering::Acquire) {
+                                return;
+                            }
                         }
                         if let Err(error) = service.link() {
                             // No holder streams their output any more: their
@@ -871,9 +877,11 @@ mod tests {
         let relinks = accepted.load(Ordering::Acquire);
 
         // Stop relinking before the stand-in stops answering: a connect that
-        // fails would launch a real holder.
+        // fails would launch a real holder. A relink checks `superseded`
+        // under `connecting` and holds it through its connect, so once this
+        // takes the lock no relink can connect again.
         service.superseded.store(true, Ordering::Release);
-        std::thread::sleep(Duration::from_millis(200));
+        drop(service.connecting.lock().recover_poison());
         stop.store(true, Ordering::Release);
         drop(UnixStream::connect(&socket));
         stand_in.join().unwrap();
