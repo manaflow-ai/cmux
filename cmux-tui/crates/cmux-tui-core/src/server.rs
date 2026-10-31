@@ -190,6 +190,8 @@ mod conversations;
 mod detached_terminals;
 mod feed_local;
 mod frontend_browser_history;
+#[cfg(fuzzing)]
+pub mod fuzz_seam;
 mod history_search;
 mod home;
 mod icon_assets;

@@ -1,0 +1,66 @@
+# Wire and protocol fuzzing of the cmux-tui daemon (fuzz catalog row c), with
+# the live concurrent-client test (live/) and the loom models of the daemon's
+# lock and queue code (loom/, row i). Its own workspace and lockfile: nothing in
+# the cmux-tui workspace builds it, and no CI job runs it. Runs go through the
+# Linux build pool as job specs (fuzz/run-fleet.sh, fuzz/verdict.py).
+#
+#   cargo +nightly fuzz run control_line          (from cmux-tui/fuzz, on a fleet VM)
+#   cargo +nightly fuzz run host_frame -- -max_total_time=600
+[package]
+name = "cmux-tui-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+members = [".", "live", "loom"]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+bytes = "1"
+cmux-tui-core = { path = "../crates/cmux-tui-core" }
+cmux-remote = { path = "../crates/cmux-remote" }
+cmux-remote-protocol = { path = "../crates/cmux-remote-protocol" }
+
+# The daemon's own control-line parse: the size check, the API-revision
+# upgrade, the cmux.protocol/2 envelope and catalog validation, the legacy
+# request (cmux-tui-core server/fuzz_seam.rs).
+[[bin]]
+name = "control_line"
+path = "fuzz_targets/control_line.rs"
+test = false
+doc = false
+bench = false
+
+# The terminal-host CMTH frame decoder (incremental and blocking reads must
+# agree on every chunking) and the payload decoders behind it.
+[[bin]]
+name = "host_frame"
+path = "fuzz_targets/host_frame.rs"
+test = false
+doc = false
+bench = false
+
+# The remote event stream: CMXL line packets, reordered, duplicated,
+# truncated and interleaved, into the client's line assembler.
+[[bin]]
+name = "event_stream"
+path = "fuzz_targets/event_stream.rs"
+test = false
+doc = false
+bench = false
+
+# The remote session wire frame (cmux-remote-protocol WireFrame).
+[[bin]]
+name = "remote_frame"
+path = "fuzz_targets/remote_frame.rs"
+test = false
+doc = false
+bench = false
+
+[profile.release]
+debug = 1

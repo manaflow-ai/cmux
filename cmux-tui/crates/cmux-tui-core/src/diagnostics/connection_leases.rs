@@ -16,8 +16,21 @@
 //! the pool. It is still served to the end; only its slot is counted in the
 //! pool instead of the limit. Linux reports it once both halves are closed.
 
+// The loom model of admission (cmux-tui/fuzz/loom/tests/admission.rs) builds
+// this file with loom's atomics and the model's `Arc`/`Weak`, whose reference
+// counts are loom atomics (loom has no `Weak`, and cannot see the ordering std
+// `Arc`'s count gives the last drop). The model's lease list is a loom lock
+// (its `lock()` returns the same `LockResult`), since `Weak::upgrade` runs
+// while it is held.
+#[cfg(loom)]
+use super::loom_arc::{Arc, Weak};
+#[cfg(loom)]
+use loom::sync::atomic::{AtomicBool, Ordering};
+use std::sync::PoisonError;
+#[cfg(not(loom))]
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, PoisonError, Weak};
+#[cfg(not(loom))]
+use std::sync::{Arc, Weak};
 
 use super::ConnectionStats;
 
@@ -55,7 +68,7 @@ impl ConnectionLease {
 
 impl Drop for ConnectionLease {
     fn drop(&mut self) {
-        if *self.hung_up.get_mut() {
+        if self.hung_up.load(Ordering::Acquire) {
             self.stats.hung_up.fetch_sub(1, Ordering::AcqRel);
         } else {
             self.stats.release();
@@ -64,6 +77,36 @@ impl Drop for ConnectionLease {
 }
 
 impl ConnectionStats {
+    /// Claims a slot if fewer than `limit` connections are active.
+    /// At the limit it first takes back the slots of clients that hung up
+    /// (`reclaim_hung_up`): a connection thread parked on the registry lock
+    /// outlives its client, and those threads held every slot while the app
+    /// was refused (#27669).
+    pub fn try_claim(&self, limit: u64) -> bool {
+        let claim = |count: u64| (count < limit).then_some(count + 1);
+        let mut claimed = self.active.fetch_update(Ordering::AcqRel, Ordering::Acquire, claim);
+        if claimed.is_err() && self.reclaim_hung_up(limit) > 0 {
+            claimed = self.active.fetch_update(Ordering::AcqRel, Ordering::Acquire, claim);
+        }
+        match claimed {
+            Ok(previous) => {
+                // Use the count this claim produced, not a later reload: a
+                // release in between would under-report the peak.
+                self.peak.fetch_max(previous + 1, Ordering::Relaxed);
+                self.accepted.fetch_add(1, Ordering::Relaxed);
+                true
+            }
+            Err(_) => {
+                self.refused.fetch_add(1, Ordering::Relaxed);
+                false
+            }
+        }
+    }
+
+    pub fn release(&self) {
+        self.active.fetch_sub(1, Ordering::AcqRel);
+    }
+
     /// Moves every watched connection whose client closed into the hung-up
     /// pool (while it has room) and frees its slot. Returns the slots freed.
     pub(super) fn reclaim_hung_up(&self, limit: u64) -> u64 {
