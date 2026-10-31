@@ -10618,7 +10618,7 @@ function AcpmuxPane() {
   const previewRoom = useComputerUsePreviewRoom();
   const previewShown = computerUsePreview !== null && previewRoom && !quick && !diffView && !inspectorOpen;
   const inspectorPushes = useChatDisplay().inspector === "push";
-  const previewBeside = previewShown && !(inspector.shown && inspectorPushes);
+  const previewBeside = previewShown && !inspector.shown;
   // What the chat waits on the person for: the running turn's line says it, never "Thinking".
   const waiting = chatWaitsOn({
     trust: trustAsk.ask,
