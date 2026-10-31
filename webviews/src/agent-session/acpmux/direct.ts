@@ -2361,6 +2361,7 @@ export class AcpmuxDirectClient {
     this.streamingActivity = undefined;
     this.planRow = undefined;
     this.optimisticPromptRows.clear();
+    this.promptRowKeys.clear();
     this.optimisticPromptTexts.clear();
     this.optimisticPromptAttachments.clear();
     this.optimisticPromptParts.clear();
