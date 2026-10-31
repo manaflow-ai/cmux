@@ -1057,10 +1057,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
             .prefix(rasterizer.limit)
         for (_, tab) in agents {
             let feed = cardFeed(tab, workspace)
-            var key = template
-            key.turns = feed.turns
-            key.topInset = lastInsets.top + 8
-            key.bottomInset = WorkspaceTabPage.bottomInset(surface: surface(tab.id), insets: lastInsets, pageHeight: pageHeight)
+            let key = AgentCardRasterKey.current(
+                feed, colorScheme: template.colorScheme, page: template.page, visibleHeight: template.visibleHeight,
+                topInset: lastInsets.top + 8,
+                bottomInset: WorkspaceTabPage.bottomInset(surface: surface(tab.id), insets: lastInsets, pageHeight: pageHeight),
+                scale: template.scale)
             if !rasterizer.isDone(feed, key) { return (feed, key) }
         }
         return nil

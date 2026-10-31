@@ -272,7 +272,7 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
     }
 
     /// A tap region's action, from a tap or an assistive technology's activation.
-    fileprivate func perform(_ hit: ChatNativeLayout.Hit) {
+    func perform(_ hit: ChatNativeLayout.Hit) {
         if case .copyAnswer(let index) = hit, index < symbols.count {
             let view = symbols[index]
             let original = view.image

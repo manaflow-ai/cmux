@@ -48,6 +48,17 @@ struct AgentCardRasterKey: Equatable {
     }
 }
 
+extension AgentCardRasterKey {
+    /// The key a card for `feed` asks for now: a built card's (`AgentTabCard`) and one drawn
+    /// before it is built (`WorkspaceTabsSource.nextAgentCardAhead`).
+    @MainActor
+    static func current(_ feed: AgentCardFeed, colorScheme: ColorScheme, page: CGSize, visibleHeight: CGFloat,
+                        topInset: CGFloat, bottomInset: CGFloat, scale: CGFloat) -> AgentCardRasterKey {
+        AgentCardRasterKey(turns: feed.turns, colorScheme: colorScheme, page: page, visibleHeight: visibleHeight,
+                           topInset: topInset, bottomInset: bottomInset, scale: scale)
+    }
+}
+
 /// Agent cards drawn once as pictures. A chat's preview is a full page of
 /// transcript (markdown, edits, attachments) and cost about 45 ms to build,
 /// so a grid card that scrolled into view (or came back after it was
@@ -188,9 +199,9 @@ struct AgentTabCard: View {
     static let cardAspect: CGFloat = 249.3 / 177.0
 
     var body: some View {
-        let key = AgentCardRasterKey(turns: feed.turns, colorScheme: colorScheme, page: page,
-                                     visibleHeight: min(page.height, page.width * Self.cardAspect),
-                                     topInset: topInset, bottomInset: bottomInset, scale: displayScale * cardScale)
+        let key = AgentCardRasterKey.current(feed, colorScheme: colorScheme, page: page,
+                                             visibleHeight: min(page.height, page.width * Self.cardAspect),
+                                             topInset: topInset, bottomInset: bottomInset, scale: displayScale * cardScale)
         Group {
             // The picture, also while a newer one waits for the grid to rest:
             // building a card never lays out a page of transcript then.

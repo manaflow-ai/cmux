@@ -38,8 +38,8 @@ public final class WorkspaceSync {
     @ObservationIgnored private var queued: [QueuedEvent] = []
     /// Events received before the latest snapshot request are covered by it.
     /// Events received during capture must replay, even before its reply:
-    /// the daemon writes subscription events from a separate thread.
-    @ObservationIgnored private var snapshotSequence: UInt64 = 0
+    /// the daemon writes subscription events from a separate thread. Tests set it.
+    @ObservationIgnored var snapshotSequence: UInt64 = 0
     /// Coarse changes can affect arrangement as well as the tree. Their
     /// coverage starts before the arrangement requests, not before the list.
     @ObservationIgnored private var arrangementSequence: UInt64 = 0
@@ -219,6 +219,9 @@ public final class WorkspaceSync {
     }
 
     func handle(_ event: DaemonEvent) { enqueue(event, sequence: nil) }
+
+    /// An event at a wire position, as the daemon's stream delivers it (tests).
+    func handle(_ event: DaemonEvent, sequence: UInt64) { enqueue(event, sequence: sequence) }
 
     private func enqueue(_ event: DaemonEvent, sequence: UInt64?) {
         guard event != .other else { return }

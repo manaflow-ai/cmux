@@ -779,6 +779,10 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// throughout. Tests set it.
     var reducesMotion: () -> Bool = { UIAccessibility.isReduceMotionEnabled }
 
+    /// The transcript's list and whether a tapped disclosure's line is held (tests).
+    var transcriptList: ChatTranscriptList { list }
+    var isHoldingFold: Bool { foldHolding }
+
     private func scroll(to target: CGPoint, animated: Bool) {
         if animated, !reducesMotion() {
             // A long jump animated the offset across pages SwiftUI had not drawn yet (a

@@ -704,6 +704,20 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         queueWarmUp(ids)
     }
 
+    // MARK: Inspection (tests)
+
+    /// Row `id`'s cell, when it is on screen.
+    func cell(for id: String) -> UICollectionViewCell? {
+        dataSource.indexPath(for: id).flatMap { collectionView.cellForItem(at: $0) }
+    }
+
+    /// The rows whose cells are on screen, top first.
+    var visibleRowIDs: [String] {
+        collectionView.indexPathsForVisibleItems.sorted().compactMap { dataSource.itemIdentifier(for: $0) }
+    }
+
+    func row(_ id: String) -> ChatRow? { rows[id] }
+
     // MARK: Warm-up
 
     /// Row kinds whose first draw happened (or was warmed): a kind's first cell made its labels'

@@ -1336,4 +1336,17 @@ final class Seen: @unchecked Sendable {
         #expect(sync.activity[6] != nil)
         #expect(sync.titleEventsIgnored == 1)
     }
+
+    /// Review P1 (#27664): a title event the latest snapshot already covers is dropped. It was
+    /// recorded as the surface's last title first, so the next real event with the same text
+    /// was taken for a repeat and never counted as activity.
+    @Test func aCoveredTitleEventDoesNotHideTheNextRealOne() {
+        let sync = WorkspaceSync(deviceID: "d", deviceName: "iPhone")
+        sync.snapshotSequence = 10
+        sync.handle(.titleChanged(surface: 5, title: "vim"), sequence: 9)
+        #expect(sync.activity[5] == nil, "an event the snapshot covers is not activity")
+        sync.handle(.titleChanged(surface: 5, title: "vim"), sequence: 11)
+        #expect(sync.activity[5] != nil, "the real event after the snapshot is activity")
+        #expect(sync.titleEventsIgnored == 0)
+    }
 }
