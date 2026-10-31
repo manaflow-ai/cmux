@@ -15,7 +15,9 @@ export function isVisiblyEmptyMessage(row: AcpmuxRow): boolean {
   if (row.incoming?.kind === "hidden") return true;
   if (!isVisiblyEmptyText(row.text)) return false;
   return (
+    !row.received &&
     !row.images?.length &&
+    !row.inlineParts?.length &&
     !row.pasted?.length &&
     !row.retryAttachments?.length &&
     !row.incoming &&

@@ -62,6 +62,21 @@ test("empty and zero-width assistant messages between tool groups add no row or 
   expect(layoutConversation(shaped, 760).totalHeight).toBe(layoutConversation(normal, 760).totalHeight);
 });
 
+test("an empty completed notification turn has no footer, while a failed one keeps recovery UI", () => {
+  const hidden = row("hidden", "user", { incoming: { kind: "hidden" } as never });
+  const empty = [hidden, row("empty", "assistant", { text: "\u200B" }), summary()];
+  expect(turnView(empty, new Set())).toEqual([]);
+  const failed = [hidden, row("failed", "assistant", { text: "" }), summary("failed")];
+  expect(turnView(failed, new Set()).map((entry) => entry.kind)).toEqual(["turnSummary"]);
+});
+
+test("an attachment-only prompt is still visible when its text is empty", () => {
+  const attachment = row("attachment", "user", {
+    inlineParts: [{ kind: "file", name: "notes.txt", blockIndex: 1 }] as never,
+  });
+  expect(turnView([attachment, summary()], new Set()).map((entry) => entry.id)).toContain("attachment");
+});
+
 test("a turn stopped mid-tool folds its work under the stop line", () => {
   const rows = [row("u", "user"), text("interim"), tool("build"), summary("cancelled")];
   expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "turnSummary:end"]);

@@ -561,7 +561,7 @@ function shapeTurn(
   const body = turn.slice(0, end).filter((row) => !isVisiblyEmptyMessage(row));
   // Notification turns can contain an empty assistant segment and a summary solely for
   // bookkeeping. With no visible prompt or work, omit the whole turn, including its footer.
-  if (isVisiblyEmptyMessage(user) && body.length === 0) return [];
+  if (isVisiblyEmptyMessage(user) && body.length === 0 && summary.status === "completed") return [];
   const final = answerAt(body);
   const answer = final >= 0 ? body[final] : undefined;
   const shaped: AcpmuxRow[] = [];
