@@ -3,7 +3,7 @@ import CmuxNextPages
 import Foundation
 import os
 
-private let terminationLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.webview")
+nonisolated private let terminationLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.webview")
 
 /// The agent pages that ended in one web content process termination (cmux issue 28710).
 ///
