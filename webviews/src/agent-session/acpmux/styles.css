@@ -131,6 +131,9 @@
    than it scrolls here rather than going past the window's edge as a flat native list. It draws
    outside the composer's glass (Picker overBackdrop), so its own glass frosts the pills behind it. */
 .acpmux-composer-plus .acpmux-menu{--popup-scroll-cap:360px;width:min(340px,calc(100vw - 16px));min-width:0;max-height:min(360px,calc(100vh - 16px))}
+/* It opens over the project and machine pills above New Tab's box: a denser tint than a plain popup's
+   60% (still glass, under the menus' 0.9 ceiling), so under the blur they read as frost, not text. */
+.acpmux-composer-plus .acpmux-menu.ui-glass{--glass-tint:color-mix(in srgb,var(--glass-surface) 86%,transparent)}
 /* A row is one line: the icon, the title, a gap, then the muted description, which alone truncates. */
 .acpmux-composer-plus .acpmux-menu-text{flex-direction:row;align-items:baseline;gap:var(--ds-space-2,8px)}
 .acpmux-composer-plus .acpmux-menu-label{flex:0 1 auto;min-width:0}

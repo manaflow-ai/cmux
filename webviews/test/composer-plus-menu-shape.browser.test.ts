@@ -107,10 +107,9 @@ await requireBrowserLane("composer-plus-menu-shape.browser.test.ts", async () =>
       const pills = [...document.querySelectorAll(".nt-above .acpmux-composer-strip button")]
         .map(box)
         .filter((pill) => pill.height > 0);
-      const alpha = /rgba?\(([^)]+)\)/
-        .exec(css.backgroundColor)?.[1]
-        ?.split(/[,/ ]+/)
-        .filter(Boolean)[3];
+      // The fill's alpha: `rgba(r, g, b, a)` or `color(srgb r g b / a)`; none written is opaque.
+      const written = /(?:,|\/)\s*([\d.]+)(%?)\s*\)\s*$/.exec(css.backgroundColor);
+      const alpha = written ? Number.parseFloat(written[1]!) / (written[2] ? 100 : 1) : 1;
       return {
         popup: box(popup),
         maxHeight: css.maxHeight,
@@ -118,7 +117,7 @@ await requireBrowserLane("composer-plus-menu-shape.browser.test.ts", async () =>
         overflowY: css.overflowY,
         headers: popup.querySelectorAll(".acpmux-menu-header").length,
         backdrop: css.backdropFilter || css.getPropertyValue("-webkit-backdrop-filter"),
-        alpha: alpha === undefined ? 1 : Number.parseFloat(alpha),
+        alpha,
         root,
         rows,
         pills,
@@ -164,7 +163,27 @@ await requireBrowserLane("composer-plus-menu-shape.browser.test.ts", async () =>
     for (const id of ["add.mode.plan", "add.goal", "add.mention", "files.search"])
       expect(rows.some((row) => row.id === id)).toBe(true);
     await page.click(`${STATES.chat.plus} [data-value="add.commands"]`);
-    await page.waitForSelector(".acpmux-slash-menu");
+    const slash = await page
+      .waitForSelector(".acpmux-slash-menu", { state: "attached", timeout: 5_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (!slash)
+      console.log(
+        `composer-plus-menu-shape: no slash list after Skills… ${JSON.stringify(
+          await page.evaluate(() => {
+            const active = document.activeElement;
+            const selection = document.getSelection();
+            return {
+              active: active ? `${active.tagName}.${active.className}` : null,
+              prompt: document.querySelector(".acpmux-composer-prompt")?.textContent ?? null,
+              caret: selection?.anchorOffset ?? null,
+              plusOpen: !!document.querySelector(".acpmux-composer-plus .acpmux-menu"),
+              escaped: document.querySelector("[data-escaped]")?.className ?? null,
+            };
+          }),
+        )}`,
+      );
+    expect(slash).toBe(true);
     await page.close();
   });
 
@@ -219,7 +238,8 @@ await requireBrowserLane("composer-plus-menu-shape.browser.test.ts", async () =>
     }
     // Its own glass frosts what is behind it: no backdrop root around it, and a blur or an opaque fill.
     expect(menu.root).toBe("");
-    expect(menu.alpha >= 0.9 || /blur/.test(menu.backdrop)).toBe(true);
+    // Opaque, or glass dense enough over its blur that the pills read as frost, not text.
+    expect(menu.alpha >= 0.9 || (/blur/.test(menu.backdrop) && menu.alpha >= 0.8)).toBe(true);
     await page.close();
   });
 });
