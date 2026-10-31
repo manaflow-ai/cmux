@@ -71,7 +71,8 @@ test("a Cloud start's copy, under its own chats/<key>/<attempt> place, is this f
   expect(withoutStartPlace(started)).toBe("/home/cmux/work/paint-33f597");
   expect(folderRunLocation(folder, [local(folder, 1), cloud(started, 2)])).toBe("cloud");
   // From a folder inside the checkout, under the other work root.
-  expect(folderRunLocation(folder, [local(folder, 1), cloud("/root/work/chats/k/a1/src-75be44/paint", 2)])).toBe("cloud");
+  const inside = "/root/work/chats/k/a1/src-75be44/paint";
+  expect(folderRunLocation(folder, [local(folder, 1), cloud(inside, 2)])).toBe("cloud");
   // Another folder's start is not this one's; a short chats/ path is left as it is.
   expect(folderRunLocation(folder, [cloud("/home/cmux/work/chats/k/a1/other-123456", 2)])).toBeUndefined();
   expect(withoutStartPlace("/home/cmux/work/chats/k")).toBe("/home/cmux/work/chats/k");
