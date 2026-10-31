@@ -41,7 +41,7 @@ moved. owned_pool_rescue.py may re-run a refused
 job first; the attempt check then skips, and GitHub refuses a second re-run of
 a run in progress. A cancelled run is reported, never re-run: the rescue
 cancels a stuck run before its own full re-run, and a re-run of failed jobs
-here would pre-empt it.
+here would pre-empt it. A timed-out run is reported but not re-run either.
 
 A code or unknown job's failed steps also give its concrete failures
 (extract_failures: failed tests with file:line, bun's failed web tests with
@@ -1070,7 +1070,8 @@ def rerun_decision(report: Mapping, latest: Mapping | Callable[[], Mapping]) -> 
         return False, ("Not re-run automatically: " + ", ".join(f"`{n}`" for n in blockers[:5])
                        + (" is not a machine failure." if len(blockers) == 1 else " are not machine failures."))
     if report.get("conclusion") != "failure":
-        return False, "Every failure is a machine failure; a cancelled run is not re-run automatically."
+        stopped = "timed-out" if report.get("conclusion") == "timed_out" else "cancelled"
+        return False, f"Every failure is a machine failure; a {stopped} run is not re-run automatically."
     if callable(latest):
         latest = latest()
     if int(latest.get("run_attempt") or 0) != report["attempt"] or latest.get("status") != "completed":
@@ -1287,7 +1288,7 @@ def main(argv: list[str]) -> int:
         print(json.dumps(result))
         print(f"api calls: {gh.calls} (read token: {gh.read_calls})")
         return 0
-    if run.get("conclusion") not in ("success", "failure", "cancelled"):
+    if run.get("conclusion") not in ("success", "failure", "cancelled", "timed_out"):
         print(f"run {run.get('id')} concluded {run.get('conclusion')}; nothing to attribute")
         return 0
     # A green run's jobs are read too (no logs): its macOS jobs may never have run. Into
