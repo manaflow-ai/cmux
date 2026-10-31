@@ -215,9 +215,14 @@ impl Mux {
     /// Every running terminal of this owner with the facts
     /// [`pick_reclaim`] judges.
     fn reclaim_candidates(&self) -> Vec<ReclaimCandidate> {
-        let kept = self.workspace_registry.lock().unwrap().kept_terminals().unwrap_or_default();
+        let kept = self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .kept_terminals()
+            .unwrap_or_default();
         let rows: Vec<(String, Vec<SurfaceId>, Arc<Surface>)> = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             let mut by_terminal: HashMap<TerminalPublicId, Vec<SurfaceId>> = HashMap::new();
             for (surface, content) in &state.resource_indexes.content_ids {
                 if let ContentPublicId::Terminal(id) = content {
