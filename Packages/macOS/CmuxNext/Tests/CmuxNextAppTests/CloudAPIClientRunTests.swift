@@ -257,12 +257,12 @@ struct CloudAPIClientRunTests {
 /// it off. Waiting on or cancelling a run that exists stays open, so its VM is never stranded.
 @Suite struct RunMethodsFeaturePolicyTests {
     @Test func onlyANewRunIsACloudFeatureMethod() {
-        #expect(ControlMethod.policyFeature(of: "runs.sandbox.create") == .cloud)
-        #expect(ControlMethod.policyRefusal("runs.sandbox.create", disabled: [.cloud])?.code == "feature.disabled")
-        #expect(ControlMethod.policyRefusal("runs.sandbox.create", disabled: []) == nil)
+        #expect(ActionFeature(controlMethod: "runs.sandbox.create") == .cloud)
+        #expect(ControlError.policyRefusal("runs.sandbox.create", disabled: [.cloud])?.code == "feature.disabled")
+        #expect(ControlError.policyRefusal("runs.sandbox.create", disabled: []) == nil)
         for method in ["runs.wait", "runs.cancel"] {
-            #expect(ControlMethod.policyFeature(of: method) == nil)
-            #expect(ControlMethod.policyRefusal(method, disabled: [.cloud]) == nil)
+            #expect(ActionFeature(controlMethod: method) == nil)
+            #expect(ControlError.policyRefusal(method, disabled: [.cloud]) == nil)
         }
     }
 }

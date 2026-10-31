@@ -55,9 +55,9 @@ import Testing
     }
 
     @Test func authTokenIsACloudFeatureMethod() {
-        #expect(ControlMethod.policyFeature(of: "auth.token") == .cloud)
-        #expect(ControlMethod.policyFeature(of: "auth.status") == nil)
-        #expect(ControlMethod.policyRefusal("auth.token", disabled: [.cloud])?.code == "feature.disabled")
+        #expect(ActionFeature(controlMethod: "auth.token") == .cloud)
+        #expect(ActionFeature(controlMethod: "auth.status") == nil)
+        #expect(ControlError.policyRefusal("auth.token", disabled: [.cloud])?.code == "feature.disabled")
         let method = ControlMethod.authToken(disabledFeatures: { [] }, isSignedIn: { true }, mint: { _ in throw AuthTokenRefusal(code: "no_team") })
         #expect(method.name == "auth.token")
     }

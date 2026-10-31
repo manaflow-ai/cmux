@@ -39,7 +39,7 @@ extension ControlMethod {
     /// token from the app's signed-in session, so `export CMUX_TOKEN=$(cmux auth token)` works
     /// for the platform API and the hosted MCP. No refresh token and no session leave the app.
     /// Any process this socket admits can ask, as it can already drive Cloud through the app;
-    /// off with Cloud (`policyFeature`). Nothing here logs the token.
+    /// off with Cloud (`ActionFeature(controlMethod:)`). Nothing here logs the token.
     public static func authToken(
         disabledFeatures: @escaping @MainActor @Sendable () -> Set<ActionFeature>,
         isSignedIn: @escaping @MainActor @Sendable () -> Bool,
@@ -47,7 +47,7 @@ extension ControlMethod {
     ) -> ControlMethod {
         .async("auth.token") { call in
             let (disabled, signedIn) = await MainActor.run { (disabledFeatures(), isSignedIn()) }
-            if let refusal = policyRefusal("auth.token", disabled: disabled) { throw refusal }
+            if let refusal = ControlError.policyRefusal("auth.token", disabled: disabled) { throw refusal }
             guard signedIn else { throw authTokenError(AuthTokenRefusal(code: "not_signed_in"), team: nil) }
             let team = try authTokenTeam(call.params)
             do {

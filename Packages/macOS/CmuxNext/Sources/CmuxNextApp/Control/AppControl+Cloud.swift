@@ -26,7 +26,7 @@ extension AppControl {
                 ]))
             },
             .mainActor("cloud.machines") { _ in
-                if let refusal = ControlMethod.policyRefusal("cloud.machines", disabled: services.registry.disabledFeatures) { throw refusal }
+                if let refusal = ControlError.policyRefusal("cloud.machines", disabled: services.registry.disabledFeatures) { throw refusal }
                 let rows: [JSONValue] = services.machines.cloud.map { .object(Self.cloudMachineRow($0, services.machines)) }
                 return .value(.object(["machines": .array(rows), "loaded": .bool(services.cloud.hasLoadedCurrentMachines),
                                        "creations": .array(services.cloud.creations.controlRows),
@@ -34,7 +34,7 @@ extension AppControl {
             },
             // `cmux automation --target cloud`: one Cloud automation op as the signed-in user (CloudAutomationRelay).
             .async("cloud.automation") { [relay = CloudAutomationRelay.signedIn(services.cloud.auth), registry = services.registry] call in
-                if let refusal = await MainActor.run(body: { ControlMethod.policyRefusal("cloud.automation", disabled: registry.disabledFeatures) }) { throw refusal }
+                if let refusal = await MainActor.run(body: { ControlError.policyRefusal("cloud.automation", disabled: registry.disabledFeatures) }) { throw refusal }
                 let reply = await relay.forward(try JSONSerialization.data(withJSONObject: JSONValue.object(call.params).foundationObject))
                 return JSONValue(foundation: try JSONSerialization.jsonObject(with: reply)) ?? .null
             }.withDeadline(.fixed(.seconds(30))),
@@ -61,7 +61,7 @@ extension AppControl {
             .async("debug.cloud.link_ensure") { [weak services] _ in
                 let found = await MainActor.run { () -> (CloudService?, ControlError?) in
                     guard let services else { return (nil, nil) }
-                    return (services.cloud, ControlMethod.policyRefusal("debug.cloud.link_ensure", disabled: services.registry.disabledFeatures))
+                    return (services.cloud, ControlError.policyRefusal("debug.cloud.link_ensure", disabled: services.registry.disabledFeatures))
                 }
                 if let refusal = found.1 { throw refusal }
                 guard let cloud = found.0 else { return .null }
@@ -85,6 +85,9 @@ extension AppControl {
     /// One Cloud machine's row of `cloud.machines` (and of the Cloud
     /// diagnostics' details): its record, stage, daemon link state and the
     /// capability negotiation of its daemon.
+    /// The daemon capability that serves file ops over a Cloud machine's home (cmux-tui `FS_CAPABILITY`).
+    static let cloudFileOpsCapability = "fs-v1"
+
     static func cloudMachineRow(_ session: CloudMachineSession, _ machines: MachineRegistry) -> [String: JSONValue] {
         let store = session.daemon.store
         let state: String = switch store.connectionState {
@@ -93,7 +96,17 @@ extension AppControl {
         case .disconnected: "disconnected"
         case .failed(let reason): "failed: \(reason)"
         }
-        let compat = machines.compatibility(of: session.daemon)
+        var compat = machines.compatibility(of: session.daemon)
+        // File ops (`fs-v1`) are what Move to Cloud and a Cloud chat's first send copy the folder
+        // with. A Cloud machine's daemon serves them only when it knows its model plane identity,
+        // so their absence is not an optional extra there: say so here, before a sync fails on it.
+        // Nil before the daemon answers.
+        let fileOps = session.daemon.identity.map { _ in session.daemon.supports(Self.cloudFileOpsCapability) }
+        if fileOps == false, var known = compat, known.level != .incompatible {
+            if !known.missingOptional.contains(Self.cloudFileOpsCapability) { known.missingOptional.append(Self.cloudFileOpsCapability) }
+            known.level = .limited
+            compat = known
+        }
         return [
             "id": .string(session.machineID),
             // The id its daemon has in the machine catalog (`machine list --catalog`),
@@ -118,6 +131,7 @@ extension AppControl {
             "compatibility": compat.map { .string($0.level.rawValue) } ?? .null,
             "missing_required": .array((compat?.missingRequired ?? []).map(JSONValue.string)),
             "missing_features": .array((compat?.missingOptional ?? []).map(JSONValue.string)),
+            "file_ops": fileOps.map(JSONValue.bool) ?? .null,
             "workspaces": .array(store.workspaces.map { .object(["id": .string($0.id), "name": .string($0.displayName)]) }),
         ]
     }
@@ -169,7 +183,7 @@ extension AppControl {
     /// mid-run never strands a billable VM without its receipt or its cancel.
     nonisolated private static func runsAPI(_ services: AppServices, newRun: Bool) async throws -> CloudAPIClient {
         try await MainActor.run {
-            if newRun, let refusal = ControlMethod.policyRefusal("runs.sandbox.create", disabled: services.registry.disabledFeatures) { throw refusal }
+            if newRun, let refusal = ControlError.policyRefusal("runs.sandbox.create", disabled: services.registry.disabledFeatures) { throw refusal }
             guard !newRun || services.settings?.snapshot.previewFeatures == true else {
                 throw ControlError(code: "labs_off", message: String(localized: "runs.error.labsOff", defaultValue: "Sandboxed runs are a preview. Turn on Settings > Advanced > Labs > Show Preview Features.", table: "Runs", bundle: .module))
             }
