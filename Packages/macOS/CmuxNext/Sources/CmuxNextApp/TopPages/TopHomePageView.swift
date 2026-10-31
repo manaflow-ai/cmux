@@ -521,14 +521,8 @@ final class TopHomePageView: NSView {
         return true
     }
 
-    /// A New Message draft is open: its page on screen, or kept with its row while another
-    /// conversation shows.
-    var hasNewMessageDraft: Bool { newMessage != nil }
-
-    /// Close New Message (`home.closeNewMessage`: the draft row's x, Escape in an empty To:, the
-    /// palette, the CLI, MCP): the draft, its page and its row go, whatever was typed, as
-    /// Messages' x does. Back on screen is the conversation shown before; the keyboard moves
-    /// there only when the page had it.
+    /// `home.closeNewMessage`: the draft, its page and its row go, whatever was typed (Messages' x);
+    /// the conversation shown before comes back, with the keyboard only when the page had it.
     func closeNewMessage() {
         guard let page = newMessage else { return }
         let (wasShowing, hadKeyboard) = (!page.isHidden, (window?.firstResponder as? NSView)?.isDescendant(of: page) == true)
