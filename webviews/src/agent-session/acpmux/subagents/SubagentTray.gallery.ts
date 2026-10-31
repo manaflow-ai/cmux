@@ -356,7 +356,7 @@ export default agentPaneEntry({
       snapshot: panel(116),
     },
     "workflow-progress": {
-      note: "A workflow reports completed/started agents, failures, queued agents and token usage in the default tray.",
+      note: "A workflow reports completed/started agents, failures and queued agents in the default tray (its token usage is the Inspector's).",
       play: trayLines(1),
       snapshot: chat(
         [
@@ -366,7 +366,7 @@ export default agentPaneEntry({
               agent("Review modules", 1.8, "running", {
                 kind: "workflow",
                 action: "Review",
-                agents: { done: 37, started: 101, failed: 2, queued: 4 },
+                agents: { done: 1037, started: 10101, failed: 212, queued: 1450 },
                 tokens: 1_200_000,
                 phases: [{ index: 0, title: "Review" }],
                 workflowAgents: new Map([
