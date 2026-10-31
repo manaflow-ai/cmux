@@ -131,3 +131,15 @@ test("a send completing after refresh clears the visible command", async () => {
   await setImmediate()
   assert.equal(app.input().value, "")
 })
+
+test("a send completing keeps a newer draft typed while it was pending", async () => {
+  const app = await board()
+  const release = app.holdWrite()
+  const input = app.input()
+  input.value = "echo the first command"
+  app.submit()
+  input.value = "echo the next draft"
+  release()
+  await setImmediate()
+  assert.equal(app.input().value, "echo the next draft")
+})

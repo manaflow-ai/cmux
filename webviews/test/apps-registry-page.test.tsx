@@ -134,6 +134,37 @@ test("a listing already installed at an older version offers its newer version",
   expect(board.querySelector(".apps-button.primary")?.textContent).toBe("store.registry.getVersion 0.2.0");
 });
 
+test("an uninstalled cached listing downloads the approved version before installing", async () => {
+  const data = { ...sampleApps(), registry: sampleRegistry(person) };
+  const bundle = data.registry.bundles["sample-studio/workspace-board"]!;
+  // A declined install or uninstall leaves the downloaded package in the catalog.
+  data.details[bundle.id] = { ...bundle, latest_version: "0.1.0", installed: false };
+  const provider = new MockAppsProvider(data);
+  store = new AppsStore(provider, "#/discover?layout=grid");
+  const current = store;
+  act(() => {
+    root = createRoot(host);
+    root.render(
+      <UiProvider container={host}>
+        <AppsPage store={current} strings={strings} />
+      </UiProvider>,
+    );
+  });
+  await settle();
+  const board = host.querySelector<HTMLElement>('[data-registry-app="sample-studio/workspace-board"]')!;
+  expect(board.textContent).toContain("0.2.0");
+  provider.calls.length = 0;
+
+  await act(async () => board.querySelector<HTMLButtonElement>(".apps-card-actions button")!.click());
+  await settle();
+
+  const getIndex = provider.calls.findIndex((call) => call.op === RegistryOps.get);
+  expect(getIndex).toBeGreaterThanOrEqual(0);
+  expect(provider.calls[getIndex]?.params).toEqual({ app: bundle.id, version: "0.2.0" });
+  expect(provider.calls.findIndex((call) => call.op === AppsOps.install)).toBeGreaterThan(getIndex);
+  expect(provider.installed[bundle.id]?.version).toBe("0.2.0");
+});
+
 test("Submit for Review is on local apps only and prefills the first publisher", async () => {
   const { provider, page } = await mount("#/installed", person);
   const toggles = [...page.querySelectorAll<HTMLButtonElement>(".apps-submit-toggle")];
