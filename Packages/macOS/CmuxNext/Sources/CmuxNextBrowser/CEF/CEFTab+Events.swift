@@ -189,7 +189,7 @@ extension CEFTab {
                                                     userGesture: gesture == .agent)
             return try await result.value()
         }
-        var params: [String: Any] = ["expression": script, "returnByValue": true, "awaitPromise": true]
+        var params: [String: any Sendable] = ["expression": script, "returnByValue": true, "awaitPromise": true]
         // An agent's script runs as a user gesture: its `cmux browser click` on a target=_blank
         // link or a window.open button opens the tab instead of hitting the popup blocker
         // (browser use thread, 2026-10-19). cmux's own scripts never do (`BrowserScriptGesture`).
@@ -205,8 +205,9 @@ extension CEFTab {
             }
             params["contextId"] = context
         }
-        let json = try await runtime.devTools(browserID, method: "Runtime.evaluate", params: params)
-        return try CEFDevToolsResult.evaluation(json)
+        // An agent's script and its value can be megabytes: encoded and parsed off the main actor.
+        let json = try await runtime.devTools(browserID, method: "Runtime.evaluate", payload: params)
+        return try await CEFDevToolsResult.parsedEvaluation(json)
     }
 
     /// Applies a page title now, or keeps the latest for the end of the
@@ -226,11 +227,12 @@ extension CEFTab {
         }
     }
 
-    /// Runs a DevTools protocol method on this tab in process (diagnostics
-    /// and trusted-input tests). Returns the method's JSON result.
+    /// Runs a DevTools protocol method on this tab in process (an app page's script batches and replies,
+    /// diagnostics, trusted-input tests). Returns the method's JSON result. Large parameters are encoded off the
+    /// main actor, in this tab's call order.
     public func devTools(method: String, params: [String: any Sendable]) async throws -> String {
         guard let browserID, !isClosed else { throw BrowserTabError.closed }
-        return try await runtime.devTools(browserID, method: method, params: params)
+        return try await runtime.devTools(browserID, method: method, payload: params)
     }
 
     // MARK: Find

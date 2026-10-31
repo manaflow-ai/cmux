@@ -56,6 +56,7 @@ import Testing
         Task { _ = try? await tab.devTools(method: "Network.clearBrowserCache", params: [:]) }
         await rig.until { Recorder.sent(methods).count == 3 }
         #expect(Recorder.sent(methods).map(\.method) == ["Runtime.evaluate", "Page.setWebLifecycleState", "Network.clearBrowserCache"])
+        #expect(rig.runtime.devToolsOrder.waiting(Rig.browser) == 0, "the line empties")
     }
 
     @Test func aSmallCallStillGoesInItsCallersFirstTurn() async throws {
