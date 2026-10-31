@@ -70,6 +70,7 @@ export function SectionList({ current, onSelect }: { current: string | null; onS
             key={section.id}
             className="sidebar-section"
             data-sidebar-section={section.id}
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a labelled run of navigation links, not form controls (fieldset) or a disclosure (details).
             role="group"
             aria-labelledby={section.title ? headerId : undefined}
           >
