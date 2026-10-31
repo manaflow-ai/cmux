@@ -60,7 +60,12 @@ describe("acpmuxSend", () => {
   });
 
   test("an expansion in the prompt leaves the text unknown; in the session, no send", () => {
-    expect(read(`acpmux send --no-wait lane "$(cat /tmp/report.md)"`)).toEqual({ target: "lane", noWait: true });
+    // The file it reads is named, so the row can say where the words came from.
+    expect(read(`acpmux send --no-wait lane "$(cat /tmp/report.md)"`)).toEqual({
+      target: "lane",
+      file: "/tmp/report.md",
+      noWait: true,
+    });
     expect(read('acpmux send lane "PR $PR merged"')).toEqual({ target: "lane", noWait: false });
     expect(read("acpmux send lane `cat x`")).toEqual({ target: "lane", noWait: false });
     expect(read('acpmux send "$LANE" hi')).toBeUndefined();
@@ -106,12 +111,12 @@ describe("acpmuxSend", () => {
     // An escape echo may turn into a character (zsh, bash -e) is not read as typed.
     expect(read("echo -e 'a\\nb' | acpmux send lane -")).toEqual({ target: "lane", noWait: false });
     expect(read("cat <<'EOF' | acpmux send lane\nvia cat\nEOF")?.text).toBe("via cat\n");
-    expect(read("acpmux send lane - < /tmp/note.md")).toEqual({ target: "lane", noWait: false });
+    expect(read("acpmux send lane - < /tmp/note.md")).toEqual({ target: "lane", file: "/tmp/note.md", noWait: false });
     // A same-turn literal write is safe to display without reading the filesystem. The writer is
     // still counted as other work, and a later unrelated command cannot provide its body.
     expect(
       read("cat > /tmp/message.md <<'EOF'\n# Review\n\n- pass\nEOF\nacpmux send --no-wait lane - < /tmp/message.md"),
-    ).toEqual({ target: "lane", noWait: true, others: 1 });
+    ).toEqual({ target: "lane", file: "/tmp/message.md", noWait: true, others: 1 });
     expect(read("acpmux send lane - < /tmp/message.md")).toEqual({ target: "lane", noWait: false });
     // The last stdin redirect wins; a writer whose stdout goes elsewhere feeds nothing.
     expect(read("acpmux send lane - <<EOF < /tmp/message\nbody\nEOF")).toEqual({ target: "lane", noWait: false });
@@ -285,8 +290,9 @@ describe("acpmuxSend", () => {
       text: "done",
       noWait: false,
     });
-    // The text from a file on stdin: the target only.
+    // The text from a file on stdin: the target and the file.
     expect(read("acpmux send --no-wait --from net-retries coord-deputy - < /tmp/report.md")).toEqual({
+      file: "/tmp/report.md",
       target: "coord-deputy",
       noWait: true,
     });
@@ -342,12 +348,14 @@ describe("acpmuxSend", () => {
     expect(read("acpmux send lane - <<EOF\nfirst \\\nsecond\nEOF")).toEqual({ target: "lane", noWait: false });
     expect(read("cat > /tmp/message >> /tmp/other <<'EOF'\nambiguous\nEOF\nacpmux send lane - < /tmp/message")).toEqual(
       {
+      file: "/tmp/message",
         target: "lane",
         noWait: false,
         others: 1,
       },
     );
     expect(read("cat > /tmp/message 1>&2 <<'EOF'\nredirected\nEOF\nacpmux send lane - < /tmp/message")).toEqual({
+      file: "/tmp/message",
       target: "lane",
       noWait: false,
       others: 1,
