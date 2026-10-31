@@ -126,7 +126,7 @@
 .acpmux-chat-gallery-image:focus-visible{outline:2px solid var(--agent-accent-soft);outline-offset:2px}
 .acpmux-chat-gallery-title{display:block;padding:8px;border:var(--cmux-hairline, .5px) solid var(--agent-border);border-radius:8px;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
-.acpmux-pr-fallback{display:flex;min-width:0;padding-inline:var(--cv-inset)}
+.acpmux-pr-fallback{display:flex;min-width:0;padding-inline:var(--cv-inset) var(--cv-inset-end,var(--cv-inset))}
 /* Links share the message's existing line; the popover is portaled out of transcript flow. */
 .acpmux-pr-dock {
   position: relative;
@@ -244,9 +244,8 @@ html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
   opacity: 0;
 }
 /* Retained gallery comparisons, isolated from the selected inline treatment. */
-.acpmux-pr-comparison{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 6px;font-size:var(--text-control);line-height:18px;letter-spacing:var(--text-control--letter-spacing)}
+.acpmux-pr-comparison{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:0 var(--acpmux-stack-end,var(--cv-inset-end,var(--cv-inset))) 0 var(--acpmux-stack-start,var(--cv-inset));font-size:var(--text-control);line-height:18px;letter-spacing:var(--text-control--letter-spacing)}
 .acpmux-quick .acpmux-pr-comparison{padding:6px 8px 0}
-.acpmux-pr-comparison[data-mode="compact"]{padding-bottom:4px}
 .acpmux-pr-comparison__compact{display:flex;align-items:center}
 .acpmux-pr-comparison__list{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0;max-width:100%}
 /* Inline expansion grows the measured composer stack, reserving transcript room for every chip. */
@@ -282,9 +281,9 @@ html[data-pr-dock-layout="beside"] .acpmux-pr-comparison[data-mode="compact"] .a
 .acpmux-pr-comparison__more:hover{background:var(--acpmux-composer-hover);color:var(--agent-text)}
 .acpmux-pr-comparison__more:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 /* The recap card above the composer (RecapCard.tsx): when the last turn ended on a question, the answer's last paragraph muted and clamped to three lines, the question, then Yes (accent) and Not now (quiet), × at the top right. On the composer's column and tray, as the pull request bars are. */
-.acpmux-recap{padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 6px;font-size:var(--text-control);line-height:var(--text-control--line-height);letter-spacing:var(--text-control--letter-spacing)}
+.acpmux-recap{padding:0 var(--acpmux-stack-end,var(--cv-inset-end,var(--cv-inset))) 0 var(--acpmux-stack-start,var(--cv-inset));font-size:var(--text-control);line-height:var(--text-control--line-height);letter-spacing:var(--text-control--letter-spacing)}
 .acpmux-quick .acpmux-recap{padding:6px 8px 0}
-.acpmux-recap__card{position:relative;padding:10px 36px 10px 12px;border:var(--cmux-hairline, .5px) solid var(--agent-border);border-radius:12px;background:var(--acpmux-composer-tray);color:var(--agent-text)}
+.acpmux-recap__card{position:relative;padding:10px 36px 10px 12px;border:var(--cmux-hairline, .5px) solid var(--agent-border);border-radius:var(--acpmux-composer-radius,12px);background:var(--acpmux-composer-tray);color:var(--agent-text)}
 .acpmux-recap__summary{margin:0 0 6px;color:var(--agent-muted);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden;overflow-wrap:anywhere}
 .acpmux-recap__question{margin:0;overflow-wrap:anywhere}
 .acpmux-recap__actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}

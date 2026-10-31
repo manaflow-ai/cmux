@@ -436,7 +436,8 @@ button.cv-subagent > :last-child {
   box-sizing: border-box;
   padding: 0;
   overflow: hidden;
-  border-radius: 10px;
+  /* The composer box's corner (composerLocation.css), so the tray over it shares the box's radius. */
+  border-radius: var(--acpmux-composer-radius, 12px);
   background: color-mix(in srgb, var(--agent-text) 8%, transparent);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
   color: var(--agent-text);
@@ -753,9 +754,12 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__tail button:focus-visible {
   color: var(--agent-text);
 }
+/* In the transcript (a Labs placement), on the transcript column's two edges, the end one the
+   column's own (--cv-inset-end, beside the computer use preview); the transcript's gap to the bottom
+   stack is the stack's token, never a margin of its own. */
 .acpmux-running-tray[data-placement="after-latest-message"] {
   flex: none;
-  margin: 0 var(--cv-inset) 8px;
+  margin: 0 var(--cv-inset-end, var(--cv-inset)) var(--acpmux-stack-gap, 0px) var(--cv-inset);
 }
 .acpmux-agent-card__state[data-status="failed"] {
   color: var(--agent-status-failure);

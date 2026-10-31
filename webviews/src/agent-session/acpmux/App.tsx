@@ -444,6 +444,13 @@ import {
   legacyPullRequestDockMode,
 } from "./summary/PullRequestDock";
 import { PullRequestHostVisibility, usePullRequestPlacement } from "./summary/pullRequestPlacement";
+import type { SummaryPullRequest } from "./summary/transcriptPullRequests";
+import {
+  PullRequestCountInStack,
+  PullRequestList,
+  PullRequestStackProvider,
+  pullRequestControlLook,
+} from "./summary/PullRequestStack";
 import { pullRequestRows as prSourceRows } from "./summary/pullRequestRows";
 import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
 import { RecapCard, useRecapCard } from "./RecapCard";
@@ -4803,6 +4810,9 @@ export function NewTabComposerChips({
 }
 
 /// The chat's own composer chips, as the pane draws them under a chat (tests drive them directly).
+/// No pull requests: a stable empty list for the Quick Composer and a new chat.
+const NO_PULL_REQUESTS: readonly SummaryPullRequest[] = [];
+
 export function ChatComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
   return <DefaultComposerChips snapshot={snapshot} />;
 }
@@ -7784,6 +7794,14 @@ function AcpmuxPane() {
         </SubagentClockContext.Provider>
       </BackgroundTaskOutputContext.Provider>
     ) : null;
+  // The chat's pull requests, one "N PRs" row in the bottom stack (summary/PullRequestStack.tsx),
+  // counted from the rows the transcript's per-message pills read.
+  const stackPullRequests = useTranscriptPullRequests(snapshot.rows, githubRepository ?? undefined);
+  // Where the folded count sits: the quiet row, or a gallery comparison's place; the tray's header
+  // line only while the tray shows there.
+  const prControlLook = pullRequestControlLook();
+  const prControlPlacement =
+    prControlLook === "tray" && !(trayPlacement === "tray" && trayNode) ? "quiet" : prControlLook;
   /// The composer's prompt, which dictation writes into.
   const prompt = useRef<MarkdownFieldHandle>(null);
   /// The composer itself, which takes back prompts a harness switch held; prompts handed back
@@ -11107,7 +11125,14 @@ function AcpmuxPane() {
     <SubagentPaneFooter chat={chatName} />
   ) : (
     !reviewing && (
-      <>
+      // The chat's pull requests (summary/PullRequestStack.tsx): the "N PRs" count in the composer's
+      // quiet row and the chips it opens over the composer, both inside the composer's own element,
+      // so neither shows where the composer does not (a handoff review, the Sandboxed receipt).
+      <PullRequestStackProvider
+        prs={quick || freshView ? NO_PULL_REQUESTS : stackPullRequests}
+        sessionId={shownSessionId}
+        placement={prControlPlacement}
+      >
         {legacyPullRequestDockMode() && (
           <LegacyPullRequestDock
             key={snapshot.sessionId}
@@ -11264,7 +11289,12 @@ function AcpmuxPane() {
         </Notice>
         {/* The tray (subagents/SubagentTray.tsx): in the bottom stack, right above the composer, every
           running or recently ended subagent, background command and started chat, one card each. */}
+        {/* A gallery comparison's count on the tray's header line (PullRequestCountInStack). */}
+        <PullRequestCountInStack at="tray" />
         {trayPlacement === "tray" && trayNode}
+        {/* The chips the "N PRs" count opens, right over the composer. */}
+        <PullRequestList />
+        <PullRequestCountInStack at="above" />
         {/* The agents pill (subagents/AgentsPill.tsx), with the tray off (Debug Settings): in the bottom
           stack, right above the composer, while the turn works; an agent a cancel or a reconnect left
           "running" shows none. */}
@@ -11583,7 +11613,7 @@ function AcpmuxPane() {
             onEdit={(command) => ignoreFailure(callNative("pane.edit", { command }))}
           />
         </ImageViewerContext.Provider>
-      </>
+      </PullRequestStackProvider>
     )
   );
   // A handshake that still waits for acpmux: once it has waited long, one line says how long, with

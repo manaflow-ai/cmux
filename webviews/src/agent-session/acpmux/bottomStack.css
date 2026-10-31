@@ -50,16 +50,277 @@
 .acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer > * {
   pointer-events: auto;
 }
+/* One column, one gap, nothing removed (ui-think-tank's rule on Leo's bottom-stack complaints, Leo
+   2026-10-30: "the stupid right indent misalignemnt"). Every part over the composer takes the
+   composer box's two edges: --acpmux-stack-start and --acpmux-stack-end are the composer's own
+   insets (--cv-inset, and --cv-inset-end where the pane sets it), less the box's narrow outset
+   (composerLocation.css: under 298px of column the box and its quiet row reach 8px past the column on
+   each side, so every part over it does too). The composer's container query cannot reach its
+   siblings, so the outset is the same step written out: the column is the dock's width less the two
+   insets, and the clamp turns 0 into the outset once that column is under 297.5px. Percentages in
+   these resolve where a part uses them, against the dock, as the composer's own padding does. The
+   stack owns the spacing: one token, --acpmux-stack-gap, between parts, none under the last (it sits
+   on the box), and no part keeps an outer margin or bottom padding of its own.
+   test/agent-pane-stack-edges.test.ts measures every part at 1100, 420 and 280px. */
+.acpmux-dock {
+  --acpmux-stack-outset: clamp(
+    0px,
+    calc((297.5px - (100% - var(--cv-inset) - var(--cv-inset-end, var(--cv-inset)))) * 1000),
+    var(--acpmux-composer-narrow-outset, 8px)
+  );
+  --acpmux-stack-start: calc(var(--cv-inset) - var(--acpmux-stack-outset));
+  --acpmux-stack-end: calc(var(--cv-inset-end, var(--cv-inset)) - var(--acpmux-stack-outset));
+}
 .acpmux-dock > .acpmux-agents-pill-anchor {
   position: relative;
   flex: none;
   display: flex;
-  padding: 0 var(--cv-inset-end, var(--cv-inset)) 8px var(--cv-inset);
+  padding: 0 var(--acpmux-stack-end) 0 var(--acpmux-stack-start);
 }
 /* The tray of running subagents and background commands (subagents/SubagentTray.tsx), aligned
    with the composer card; in a short pane it gives up its height like the parts below. */
 .acpmux-dock > .acpmux-running-tray {
-  margin: 0 var(--cv-inset-end, var(--cv-inset)) 0 var(--cv-inset);
+  margin: 0 var(--acpmux-stack-end) 0 var(--acpmux-stack-start);
+}
+/* The parts on the rule (the tray, the pull requests, the recap, the agents pill, the host's line,
+   the gallery's legacy bars): the stack's token under each that another part follows. */
+.acpmux-dock
+  > :is(
+    .acpmux-running-tray,
+    .acpmux-pr-stack,
+    .acpmux-pr-count-host,
+    .acpmux-recap,
+    .acpmux-agents-pill-anchor,
+    .acpmux-host-line,
+    .acpmux-pr-comparison
+  ):has(+ :not(.acpmux-composer)) {
+  margin-bottom: var(--acpmux-stack-gap);
+}
+/* The cards over the composer: the running tray and the chat's opened pull requests
+   (summary/PullRequestStack.tsx) (Leo, 2026-10-30: "the stupid fucking gap at the bottom plus the
+   stupid right indent misalignemnt"). Every one takes the composer card's two edges (--cv-inset, and
+   --cv-inset-end where the pane sets it) and stands --acpmux-stack-gap over the next. The selected
+   look is one glass stack: no gap, and where two parts meet neither rounds and only the lower one
+   draws the hairline, as the queue meets the card (composerLocation.css), so the tray, the opened
+   pull requests and the composer read as one surface with one rim and no notch between rounded
+   corners. The gallery's `cards` look (bottomStackStyles.gallery.ts, data-bottom-stack) keeps
+   separate cards one 4px step apart. test/agent-pane-bottom-stack-edges.test.ts measures the edges
+   and gaps. */
+.acpmux-dock {
+  --acpmux-stack-gap: 0px;
+}
+:root[data-bottom-stack="cards"] .acpmux-dock {
+  --acpmux-stack-gap: var(--ds-space-1, 4px);
+}
+.acpmux-dock > .acpmux-pr-stack {
+  margin: 0 var(--acpmux-stack-end) var(--acpmux-stack-gap) var(--acpmux-stack-start);
+}
+.acpmux-dock > .acpmux-running-tray:has(+ :is(.acpmux-pr-stack, .acpmux-composer)) {
+  margin-bottom: var(--acpmux-stack-gap);
+}
+:root:not([data-bottom-stack="cards"]) .acpmux-dock > .acpmux-running-tray + .acpmux-pr-stack {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+:root:not([data-bottom-stack="cards"])
+  .acpmux-dock
+  > :is(.acpmux-pr-stack, .acpmux-running-tray):has(+ :is(.acpmux-pr-stack, .acpmux-composer)) {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  /* The sides and the top only: the part under it draws the hairline where they meet. */
+  box-shadow:
+    inset 0 var(--cmux-hairline, 0.5px) 0 var(--acpmux-composer-edge, transparent),
+    inset var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-composer-edge, transparent),
+    inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--acpmux-composer-edge, transparent);
+}
+:root:not([data-bottom-stack="cards"]) .acpmux-dock > .acpmux-running-tray + .acpmux-pr-stack:has(+ .acpmux-composer) {
+  box-shadow:
+    inset var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-composer-edge, transparent),
+    inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--acpmux-composer-edge, transparent),
+    inset 0 var(--cmux-hairline, 0.5px) 0 var(--acpmux-composer-edge, transparent);
+}
+/* The recap's card joins the glass the same way: square where it meets the part under it, which
+   draws the hairline there, and that part squares its top. */
+:root:not([data-bottom-stack="cards"])
+  .acpmux-dock
+  > .acpmux-recap:has(+ :is(.acpmux-running-tray, .acpmux-pr-stack, .acpmux-composer))
+  > .acpmux-recap__card {
+  border-bottom-width: 0;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+:root:not([data-bottom-stack="cards"]) .acpmux-dock > .acpmux-recap + :is(.acpmux-running-tray, .acpmux-pr-stack) {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+/* The composer's first part (the queue, else the card) squares its top under the stack. */
+:root:not([data-bottom-stack="cards"])
+  .acpmux-dock
+  > :is(.acpmux-pr-stack, .acpmux-running-tray, .acpmux-recap)
+  + .acpmux-composer
+  > :is(.acpmux-composer-queue, .acpmux-composer-box:not(.acpmux-composer-queue ~ *)) {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+:root:not([data-bottom-stack="cards"])
+  .acpmux-dock
+  > :is(.acpmux-pr-stack, .acpmux-running-tray, .acpmux-recap)
+  + .acpmux-composer
+  > .acpmux-composer-box:not(.acpmux-composer-queue ~ *)::before {
+  border-radius: inherit;
+}
+/* The folded "N PRs" count (PullRequestCount): one button sized to its mark, its words and its
+   chevron, never a row of its own (Leo, 2026-10-30: "BUT IF IT'S ONLY N PRS DON'T FUCKIGN TAKE THE
+   ENTIRE ROW AND FUCKING BLANK IT OUT"). Its highlight is its own pill, as the quiet row's chips'
+   (composerLocation.css); it opens the chips on the click, with no fade. */
+.acpmux-pr-count {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-1, 4px);
+  height: 24px;
+  padding: 0 var(--ds-space-2, 8px);
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--agent-muted);
+  font: inherit;
+  font-size: var(--text-control);
+  letter-spacing: var(--text-control--letter-spacing);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.acpmux-pr-count:hover:enabled,
+.acpmux-pr-count[aria-expanded="true"] {
+  background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
+  color: var(--agent-text);
+}
+.acpmux-pr-count:disabled {
+  cursor: default;
+}
+.acpmux-pr-count:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+/* In the quiet row (the selected place): right after the permission mode, on the row's left, which
+   takes the mode's push to the right edge over from it; the model and the ring stay right. */
+.acpmux-composer-foot:has(.acpmux-pr-count) .acpmux-access {
+  margin-inline-end: 0;
+}
+.acpmux-composer-foot .acpmux-pr-count {
+  order: -1;
+  margin-inline-end: auto;
+}
+/* The gallery comparisons' hosts in the stack (PullRequestCountInStack). `tray`: on the running
+   tray's header line, trailing, before its time, laid over the line (a host of no height right over
+   the tray), so it adds no row; with no tray it falls back to the quiet row (App.tsx). `above`: a
+   bare line over the composer's left edge, with no row background (it adds its own height). */
+.acpmux-dock > .acpmux-pr-count-host {
+  position: relative;
+  flex: none;
+  margin: 0 var(--acpmux-stack-end) 0 var(--acpmux-stack-start);
+  pointer-events: none;
+}
+.acpmux-dock > .acpmux-pr-count-host > .acpmux-pr-count {
+  pointer-events: auto;
+}
+.acpmux-dock > .acpmux-pr-count-host[data-placement="tray"] {
+  height: 0;
+  z-index: var(--layer-raised, 1);
+}
+.acpmux-dock > .acpmux-pr-count-host[data-placement="tray"] > .acpmux-pr-count {
+  position: absolute;
+  top: var(--ds-space-1, 4px);
+  /* Left of the header's time track (subagents.css): its 8px padding, the 24px Stop track, the
+     96px status track and the 80px time track with their 8px gaps, 224px in all. */
+  right: calc(7 * var(--ds-space-6, 32px));
+}
+.acpmux-dock > .acpmux-pr-count-host[data-placement="above"] {
+  display: flex;
+  padding-bottom: var(--ds-space-1, 4px);
+}
+/* The opened chips: the tray's glass, rim and type (subagents.css), in the stack's flow right over
+   the composer. Opened on the click, drawn at once: none of the stack's rise-on-mount (at the end of
+   this sheet). Past five rows the list scrolls in place. */
+.acpmux-pr-stack {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: clip;
+  border-radius: var(--acpmux-composer-radius, 12px);
+  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
+  color: var(--agent-text);
+  font-family: var(--cv-font);
+  font-size: var(--text-control);
+  line-height: 18px;
+  letter-spacing: var(--text-control--letter-spacing);
+}
+.acpmux-pr-stack .acpmux-summary-row {
+  border-radius: 0;
+  background: none;
+  cursor: pointer;
+}
+.acpmux-pr-stack .acpmux-summary-row:hover {
+  background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
+}
+.acpmux-pr-stack__chip {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.acpmux-pr-stack__menu {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+/* The row is the link alone: no control repeats on every row. Its own menu dismisses it. */
+.acpmux-pr-stack__menu > .acpmux-pr-stack__link {
+  flex: 1;
+  min-width: 0;
+}
+.acpmux-pr-stack__mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  color: var(--agent-muted);
+}
+.acpmux-pr-stack__link[data-state="open"] .acpmux-pr-stack__mark,
+.acpmux-pr-stack__link[data-state="draft"] .acpmux-pr-stack__mark {
+  color: var(--agent-status-success);
+}
+.acpmux-pr-stack__link[data-state="merged"] .acpmux-pr-stack__mark {
+  color: var(--agent-status-merged);
+}
+.acpmux-pr-stack__link[data-state="closed"] .acpmux-pr-stack__mark {
+  color: var(--agent-status-failure);
+}
+.acpmux-pr-stack__list {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: calc(5 * var(--ds-control-row, 28px));
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+}
+.acpmux-pr-stack__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-pr-stack__number {
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-pr-stack__repo {
+  margin-left: var(--ds-space-1, 4px);
+  color: var(--agent-muted);
+}
+.acpmux-pr-stack__title {
+  margin-left: var(--ds-space-2, 8px);
 }
 .acpmux-dock > .acpmux-composer {
   display: flex;
@@ -151,6 +412,7 @@
    keeps, so the composer card stays in view. */
 .acpmux-dock > .acpmux-composer > .acpmux-composer-queue,
 .acpmux-dock > .acpmux-pr-dock,
+.acpmux-dock > .acpmux-pr-stack,
 .acpmux-dock > .acpmux-running-tray,
 .acpmux-dock > .acpmux-asks-stack {
   flex: 0 1 auto;
@@ -158,6 +420,11 @@
   overflow-y: auto;
   /* The stack is a no-scroll zone (wheelPassThrough.ts): reaching a part's end scrolls nothing else. */
   overscroll-behavior: contain;
+}
+/* The opened pull requests never scroll as a whole: their list scrolls. */
+.acpmux-dock > .acpmux-pr-stack {
+  overflow: clip;
+  min-height: var(--ds-control-row, 28px);
 }
 /* The tray never scrolls as a whole: its header and View all stay pinned and only its list scrolls
    (subagents.css). As the stack's own scroller it scrolled its header out of view in a short pane.
@@ -210,4 +477,9 @@
    cut there. */
 .acpmux-composer-queue > li {
   --ui-enter-distance: 0px;
+}
+/* The chat's opened pull requests open on the click and are drawn at once, with no rise or fade
+   (Leo, 2026-10-24: "You click, you get a response, period"); after the rule above, which it wins. */
+.acpmux-dock > :is(.acpmux-pr-stack, .acpmux-pr-count-host) {
+  animation: none;
 }
