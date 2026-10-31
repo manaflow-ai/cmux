@@ -9,6 +9,8 @@ import CmuxNextCompat
 ///
 /// - Coalesced: a write that is still queued is replaced by a newer one, and
 ///   bytes equal to what is already on disk are not written again.
+/// - The bytes are made on the queue (`submit(encoding:)`): making them reads
+///   the crash context's footprint, a system call the main thread never makes.
 /// - Atomic without fsync: a temporary file in the same folder, then
 ///   rename(2). The marker only has to survive the end of this process
 ///   (SIGKILL, a crash): data in the kernel's file cache does. Only a power
@@ -21,12 +23,18 @@ import CmuxNextCompat
 ///   one-shot `DemandTimer`).
 nonisolated final class RunMarkerFile: Sendable {
     typealias Writer = @Sendable (Data, URL) throws -> Void
+    /// Makes the bytes to write; nil when they cannot be made (nothing is written).
+    typealias Encode = @Sendable () -> Data?
 
     let url: URL
     let signalURL: URL
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.run-marker", qos: .utility)
     private let writer: Writer
     private let state = Mutex(State())
+    /// Held for one disk write and for close's unlinks, never while bytes are made: close waits for at most one
+    /// in-flight write, never for an encode (which reads the kernel), and no write lands after the unlinks.
+    // concurrency-allow: held only for one write of about 100 bytes (no fsync) or two unlinks, at exit.
+    private let fileLock = Mutex(())
 
     private struct Waiter {
         var id: UInt64
@@ -35,8 +43,8 @@ nonisolated final class RunMarkerFile: Sendable {
     }
 
     private struct State {
-        /// The newest bytes asked for and their ticket.
-        var latest: Data?
+        /// The newest bytes asked for (made on the queue) and their ticket; nil once a drain took them.
+        var latest: Encode?
         var latestTicket: UInt64 = 0
         /// The bytes on disk and the newest ticket they satisfy.
         var written: Data?
@@ -58,10 +66,19 @@ nonisolated final class RunMarkerFile: Sendable {
     /// once these bytes, or newer ones, are written.
     @discardableResult
     func submit(_ data: Data) -> UInt64 {
+        submit(encoding: { data })
+    }
+
+    /// Asks for the bytes `encode` makes on disk; returns at once. `encode` runs on the writer queue, never on
+    /// the caller's thread: making the bytes may read the kernel (the marker's footprint). A newer submit
+    /// replaces one whose bytes are not made yet. The ticket is satisfied once these bytes, or newer ones, are
+    /// written.
+    @discardableResult
+    func submit(encoding encode: @escaping Encode) -> UInt64 {
         let ticket: UInt64? = state.withLock { state in
             guard !state.closed else { return nil }
             state.latestTicket &+= 1
-            state.latest = data
+            state.latest = encode
             return state.latestTicket
         }
         guard let ticket else { return 0 }
@@ -96,8 +113,8 @@ nonisolated final class RunMarkerFile: Sendable {
             return state.waiters
         }
         for waiter in waiters { waiter.continuation.resume(returning: true) }
-        // concurrency-allow: at exit only; waits for at most one in-flight write (no fsync) before two unlinks.
-        queue.sync {
+        // At exit only: waits for at most one in-flight write (no fsync), never for bytes being made.
+        fileLock.withLock { _ in
             unlink(url.path)
             unlink(signalURL.path)
         }
@@ -106,25 +123,43 @@ nonisolated final class RunMarkerFile: Sendable {
     /// Disk writes done so far (tests).
     var writeCount: Int { state.withLock { $0.writes } }
 
+    /// Returns once every drain queued before the call has run (tests).
+    func drained() async {
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in queue.async { done.resume() } }
+    }
+
     private func drain() {
-        let job: (Data, UInt64)? = state.withLock { state in
+        let job: (Encode, UInt64)? = state.withLock { state in
             guard !state.closed, let latest = state.latest else { return nil }
-            if latest == state.written {
-                complete(&state, ticket: state.latestTicket)
-                return nil
-            }
+            state.latest = nil
             return (latest, state.latestTicket)
         }
-        guard let (data, ticket) = job else { return resumeFinished() }
-        do {
-            try writer(data, url)
-            state.withLock { state in
-                state.written = data
-                state.writes += 1
-                complete(&state, ticket: ticket)
+        guard let (encode, ticket) = job else { return resumeFinished() }
+        // Made outside both locks: a submit while they are made queues the next drain.
+        guard let data = encode() else {
+            // Nothing to write for this ticket (the encode failed and logged): its waiter does not wait it out.
+            state.withLock { complete(&$0, ticket: ticket) }
+            return resumeFinished()
+        }
+        let unchanged = state.withLock { state in
+            guard data == state.written else { return false }
+            complete(&state, ticket: ticket)
+            return true
+        }
+        guard !unchanged else { return resumeFinished() }
+        fileLock.withLock { _ in
+            // Closed while the bytes were made: the file is gone on purpose; write nothing.
+            guard !state.withLock({ $0.closed }) else { return }
+            do {
+                try writer(data, url)
+                state.withLock { state in
+                    state.written = data
+                    state.writes += 1
+                    complete(&state, ticket: ticket)
+                }
+            } catch {
+                // The next submit tries again; a waiter gets its deadline.
             }
-        } catch {
-            // The next submit tries again; a waiter gets its deadline.
         }
         resumeFinished()
     }
