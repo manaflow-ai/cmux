@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "build": "4121347027401",
+  "notes": "notes/4121347027401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 25223,
+      "title": "Inspector: \"Save environment\" instead of a bare \"Save\" on the machine row",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29115,
+      "title": "Device hub: close code 4003 (signed out) stops the reconnect",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28799,
+      "title": "Forget and Devices Remove each take out both the SSH machine and its acpmux peer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28563,
+      "title": "cmux NEXT tests: Group by Status and pane zoom tests follow the lane-status default and the bar overflow (base reds)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28561,
+      "title": "cmux NEXT sidebar: a row with no window snaps its corner badge to whole points",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27651,
+      "title": "fix(palette): cancel deferred tab closes after navigation changes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29464,
+      "title": "base red: RightColumnPlacement is a struct, the namespace lint's safe rewrite",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29461,
+      "title": "measure: devtools-calls keeps one build on disk at a time",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27162,
+      "title": "Fix classic sign-in callbacks through the cmux browser",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28939,
+      "title": "cmux NEXT: closing a workspace that is already gone is no refusal (one toast for a batch close)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
