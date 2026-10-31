@@ -21,44 +21,68 @@ def sh(cmd, cwd, log):
         return subprocess.run(cmd, cwd=cwd, stdout=f, stderr=subprocess.STDOUT).returncode
 
 
-def build(label, sha, tag, out):
-    """The bench app of `sha`, built in a worktree of this checkout, then held in the step (hold)."""
+def fetch_all(builds):
+    """Every arm's exact commit in this checkout, fetched by id before any build (a fleet step's checkout is shallow
+    and has only its own ref). One that cannot be fetched fails the step now, not after 25-minute builds."""
+    for label, sha, _tag in builds:
+        have = subprocess.run(["git", "cat-file", "-e", f"{sha}^{{commit}}"], cwd=ROOT,
+                              stderr=subprocess.DEVNULL).returncode == 0
+        if not have:
+            for depth in (["--depth", "1"], []):
+                got = subprocess.run(["git", "fetch", "--no-tags", *depth, REPO_URL, sha], cwd=ROOT,
+                                     capture_output=True, text=True)
+                if got.returncode == 0:
+                    break
+            else:
+                sys.exit(f"AB-FETCH {label} {sha}: not fetchable from {REPO_URL}: {got.stderr.strip()[-400:]}")
+        print(f"AB-FETCH {label} {sha[:12]}: {'here' if have else 'fetched'}", flush=True)
+
+
+def run_logged(cmd, cwd, env, log, label):
+    """Runs `cmd` into `log`, printing one AB-BUILD heartbeat line every 2 minutes so the controller's silent-output
+    limit (45 min) never takes a long build for a hung step (job deef8936797d8cd32aa495fc)."""
+    start = time.time()
+    with open(log, "a") as f:
+        proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=f, stderr=subprocess.STDOUT)
+        while proc.poll() is None:
+            time.sleep(5)  # harness poll of its own child process
+            if int(time.time() - start) % 120 < 5:
+                print(f"AB-BUILD {label}: building, {time.time() - start:.0f} s", flush=True)
+    return proc.returncode
+
+
+def build(label, sha, tag, out, derived):
+    """The bench app of `sha`, built in this checkout (switched to `sha`) into the one shared DerivedData `derived`,
+    then copied into the step (hold). Building every arm at one source path into one DerivedData lets Xcode reuse
+    what did not change between arms; a per-arm worktree and per-tag DerivedData built each arm cold (1506 s on
+    cmux19, job deef8936797d8cd32aa495fc)."""
     cache_root = os.environ.get("CI_SHARED_CACHE_DIR")
     log = os.path.join(out, f"build-{label}.log")
-    wt = os.path.join(ROOT, ".build", f"newtab-ab-{label}")
     start = time.time()
-    if not os.path.isdir(wt):
-        # A fleet step's checkout is shallow and has only its own ref: fetch the arm's exact commit by its id
-        # from the repository URL (the checkout's remote may have another name, or none).
-        have = subprocess.run(["git", "cat-file", "-e", f"{sha}^{{commit}}"], cwd=ROOT).returncode == 0
-        if not have and sh(["git", "fetch", "--no-tags", "--depth", "1", REPO_URL, sha], ROOT, log) != 0:
-            sh(["git", "fetch", "--no-tags", REPO_URL, sha], ROOT, log)
-        if sh(["git", "worktree", "add", "--force", "--detach", wt, sha], ROOT, log) != 0:
-            print(open(log).read()[-2000:], flush=True)
-            sys.exit(f"AB-BUILD {label}: no worktree of {sha} (see {log})")
+    ghostty_before = subprocess.run(["git", "rev-parse", "HEAD:ghostty"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    if sh(["git", "checkout", "--quiet", "--force", "--detach", sha], ROOT, log) != 0:
+        print(open(log).read()[-2000:], flush=True)
+        sys.exit(f"AB-BUILD {label}: could not check out {sha} (see {log})")
+    if subprocess.run(["git", "rev-parse", "HEAD:ghostty"], cwd=ROOT, capture_output=True, text=True).stdout.strip() != ghostty_before:
+        shutil.rmtree(os.path.join(ROOT, "GhosttyKit.xcframework"), ignore_errors=True)  # another ghostty: its own prebuilt
     for sub in ("ghostty", "ghostty-next"):
-        if not os.path.exists(os.path.join(wt, sub, ".git")):
-            sh(["git", "submodule", "update", "--init", "--depth", "1", sub], wt, log)
-    if not os.path.exists(os.path.join(wt, "GhosttyKit.xcframework", "Info.plist")):
+        sh(["git", "submodule", "update", "--init", "--depth", "1", sub], ROOT, log)
+    if not os.path.exists(os.path.join(ROOT, "GhosttyKit.xcframework", "Info.plist")):
         env_cache = os.environ.get("GHOSTTYKIT_ARCHIVE_CACHE_DIR") or (os.path.join(cache_root, "ghosttykit-archives") if cache_root else "")
         env = dict(os.environ, **({"GHOSTTYKIT_ARCHIVE_CACHE_DIR": env_cache} if env_cache else {}))
         with open(log, "a") as f:
-            subprocess.run(["./scripts/download-prebuilt-ghosttykit.sh"], cwd=wt, stdout=f, stderr=subprocess.STDOUT, env=env)
+            subprocess.run(["./scripts/download-prebuilt-ghosttykit.sh"], cwd=ROOT, stdout=f, stderr=subprocess.STDOUT, env=env)
     env = dict(os.environ, CMUX_DEV_BACKEND_MODE="local")
-    proc = subprocess.run(["./scripts/reload.sh", "--tag", tag, "--config", "bench"], cwd=wt, env=env,
-                          capture_output=True, text=True)
-    open(log, "a").write(proc.stdout + proc.stderr)
-    lines = proc.stdout.splitlines()
+    code = run_logged(["./scripts/reload.sh", "--tag", tag, "--config", "bench", "--derived-data", derived], ROOT, env, log, label)
+    text = open(log).read()
+    lines = text.splitlines()
     app = next((lines[i + 1].strip() for i in range(len(lines) - 1) if lines[i].startswith("App path:")), None)
-    if not app or not os.path.isdir(app):
-        print("\n".join([l for l in (proc.stdout + proc.stderr).splitlines() if "error" in l][:40]), flush=True)
-        print((proc.stdout + proc.stderr)[-3000:], flush=True)
-        sys.exit(f"AB-BUILD {label}: reload.sh printed no app path (see {log})")
+    if code != 0 or not app or not os.path.isdir(app):
+        print("\n".join([l for l in lines if "error" in l][:40]), flush=True)
+        print(text[-3000:], flush=True)
+        sys.exit(f"AB-BUILD {label}: reload.sh exit {code}, app path {app!r} (see {log})")
     print(f"AB-BUILD {label} {sha[:12]} tag {tag}: built in {time.time() - start:.0f} s: {app}", flush=True)
-    held = hold(label, app, out)
-    shutil.rmtree(wt, ignore_errors=True)
-    subprocess.run(["git", "worktree", "prune"], cwd=ROOT)
-    return held
+    return hold(label, app, out)
 
 
 def free_gib():
@@ -67,17 +91,14 @@ def free_gib():
 
 
 def hold(label, app, out):
-    """Moves a built app out of its DerivedData into the step's out folder and deletes that DerivedData: a mini
-    holds one bench build's intermediates at a time (reload.sh wants 40 GiB free; three builds side by side do not
-    fit on a 228 GB mini, 2026-10-31 job a861baa35e87bb620f0d0729)."""
+    """Copies a built app into the step's out folder: the next arm builds into the same DerivedData, which replaces
+    this one's products. One DerivedData for every arm keeps the disk to one build's intermediates (reload.sh wants
+    40 GiB free; per-arm DerivedData did not fit, job a861baa35e87bb620f0d0729)."""
     dest_dir = os.path.join(out, "apps", label)
     os.makedirs(dest_dir, exist_ok=True)
     dest = os.path.join(dest_dir, os.path.basename(app))
     if subprocess.run(["ditto", app, dest]).returncode != 0:
         sys.exit(f"AB-BUILD {label}: could not copy {app}")
-    derived = app.split("/Build/Products/")[0] if "/Build/Products/" in app else None
-    if derived and os.path.basename(derived).startswith("cmux-") and "/DerivedData/" in derived:
-        shutil.rmtree(derived, ignore_errors=True)
     print(f"AB-HOLD {label}: {dest}; {free_gib():.0f} GiB free", flush=True)
     return dest
 
@@ -96,14 +117,26 @@ def main(opts, argv):
     raw = subprocess.run(["git", "cat-file", "-p", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout
     parents = re.findall(r"^parent ([0-9a-f]{40})$", raw, re.M)
     print(f"AB-STEP head {head[:12]} parents {[p[:12] for p in parents]}", flush=True)
-    for label, sha, tag in builds:
-        # The step's own app (instant-new-surfaces.sh built it) serves the build whose commit is the step's parent:
-        # the step's commit adds only these two harness files to it.
-        if opts.app and sha in [head, *parents] and tag == opts.tag:
-            print(f"AB-BUILD {label} {sha[:12]}: the step's own app {opts.app}", flush=True)
-            apps[label] = hold(label, os.path.abspath(opts.app.rstrip("/")), out)
-        else:
-            apps[label] = build(label, sha, tag, out)
+    own = [b for b in builds if opts.app and b[1] in [head, *parents] and b[2] == opts.tag]
+    fetch_all([b for b in builds if b not in own])
+    # The segments run this harness from a copy: the builds below switch this checkout to each arm's commit.
+    harness = os.path.join(out, "harness")
+    shutil.copytree(HERE, harness, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__"))
+    # Every built arm reuses the step's own DerivedData (warm for this checkout's path), one build at a time.
+    own_app = os.path.abspath(opts.app.rstrip("/")) if opts.app else ""
+    derived = own_app.split("/Build/Products/")[0] if "/Build/Products/" in own_app else os.path.join(out, "DerivedData")
+    try:
+        # The step's own app is copied out first: a built arm replaces the products of the DerivedData it shares.
+        for label, sha, tag in own + [b for b in builds if b not in own]:
+            # The step's own app (instant-new-surfaces.sh built it) serves the build whose commit is the step's
+            # parent: the step's commit adds only the harness files to it.
+            if (label, sha, tag) in own:
+                print(f"AB-BUILD {label} {sha[:12]}: the step's own app {opts.app}", flush=True)
+                apps[label] = hold(label, own_app, out)
+            else:
+                apps[label] = build(label, sha, tag, out, derived)
+    finally:
+        subprocess.run(["git", "checkout", "--quiet", "--force", "--detach", head], cwd=ROOT)
     passthrough = []
     skip = {"--ab", "--ab-rounds", "--app", "--tag", "--json", "--out"}
     it = iter(argv[1:])
@@ -121,7 +154,7 @@ def main(opts, argv):
             seg_json = os.path.join(out, f"seg-{label}-{rnd}.json")
             seg_out = os.path.join(out, f"seg-{label}-{rnd}")
             os.makedirs(seg_out, exist_ok=True)
-            cmd = [sys.executable, os.path.join(HERE, "instant-new-surfaces-bench.py"), "--tag", tag, "--app", apps[label],
+            cmd = [sys.executable, os.path.join(harness, "instant-new-surfaces-bench.py"), "--tag", tag, "--app", apps[label],
                    "--out", seg_out, "--json", seg_json, "--segment", *passthrough]
             print(f"AB-SEGMENT round {rnd} {label}: {' '.join(cmd[2:])}", flush=True)
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
