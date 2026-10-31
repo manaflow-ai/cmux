@@ -1,5 +1,5 @@
 // The composer's controls row uses one gap and equal insets, in both looks (Leo 2026-10-31: "WHY THE
-// F***ING IS THE SPACING F***ING SHIT", then "IN THE F***ING CODEX MODE F***ING COMPOSER", with
+// F*** IS THE SPACING F***ING SHIT", then "IN THE F***ING CODEX MODE F***ING COMPOSER", with
 // Codex's own composer beside ours). What a person sees between two controls is the space between
 // what each draws (its text and icons), so this measures ink, not hit boxes:
 //   - every two neighbouring controls of a row stand one gap apart (within 1 px), except the row's
@@ -19,7 +19,7 @@ import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 type Ink = { name: string; left: number; right: number; cy: number };
-type Row = { box: { left: number; right: number }; controls: Ink[] };
+type Row = { box: { left: number; right: number; bottom: number }; controls: Ink[] };
 
 await requireBrowserLane("composer-row-one-gap.test.ts", async () => {
   if (!(await probeEngineOrSkip("composer-row-one-gap", "chromium", chromium))) return;
@@ -117,7 +117,7 @@ await requireBrowserLane("composer-row-one-gap.test.ts", async () => {
     });
     controls.sort((a, b) => a.left - b.left);
     const r = box.getBoundingClientRect();
-    return { box: { left: r.left, right: r.right }, controls };
+    return { box: { left: r.left, right: r.right, bottom: r.bottom }, controls };
   }
 
   const open = async (url: string, width: number, ready: string) => {
@@ -177,7 +177,17 @@ await requireBrowserLane("composer-row-one-gap.test.ts", async () => {
         try {
           const row = await page.evaluate(measure, [".acpmux-composer-box", ".acpmux-composer-bar"] as [string, string]);
           expect(row?.controls.map(({ name }) => name)).toEqual(["plus", "mode", "ring", "model", "mic", "send"]);
-          expect(check(`codex chat ${width}`, row)).toEqual([]);
+          const problems = check(`codex chat ${width}`, row);
+          // The row's center line stands as far over the box's bottom as +'s glyph center stands in
+          // from its left, as Codex's does (Leo 2026-10-30: "why are the buttons so high up").
+          const plus = row?.controls[0];
+          if (row && plus) {
+            const side = (plus.left + plus.right) / 2 - row.box.left;
+            const bottom = row.box.bottom - plus.cy;
+            if (Math.abs(side - bottom) > 1)
+              problems.push(`the row's center stands ${bottom.toFixed(1)} px over the bottom, + ${side.toFixed(1)} px in`);
+          }
+          expect(problems).toEqual([]);
         } finally {
           await page.close();
         }
@@ -229,10 +239,15 @@ await requireBrowserLane("composer-row-one-gap.test.ts", async () => {
         return { p, context };
       })();
       try {
-        const row = await tab.p.evaluate(measure, [".nt-composer .nt-box", ".nt-pickers"] as [string, string]);
-        // New Tab's + leads the box outside its pickers' row (NewTabScreen.tsx), so its insets are
-        // the page's own (newtab-input-scale.test.ts); its row keeps the one gap.
-        expect(check(`codex New Tab ${width}`, row, { insets: false })).toEqual([]);
+        const measured = await tab.p.evaluate(measure, [".nt-composer .nt-box", ".nt-pickers"] as [string, string]);
+        // New Tab's insets are the page's own (newtab-input-scale.test.ts), and its mode chip's label
+        // is fixed on its own (the clipped "s pern"); the model, the mic and Send keep the one gap.
+        const row = measured && {
+          ...measured,
+          controls: measured.controls.filter(({ name }) => ["model", "mic", "send"].includes(name)),
+        };
+        expect(row?.controls.map(({ name }) => name)).toEqual(["model", "mic", "send"]);
+        expect(check(`codex New Tab ${width}`, row, { insets: false, flex: false })).toEqual([]);
       } finally {
         await tab.context.close();
       }

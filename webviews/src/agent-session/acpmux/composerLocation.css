@@ -251,7 +251,8 @@
    outside it. The + glyph and Send's disc sit --acpmux-row-edge from the card's sides (the
    leading padding gives + its inset back).
    test/composer-row-rhythm.test.ts measures it. */
-.acpmux-composer-bar {
+/* New Tab's row (.nt-pickers) takes the same tokens, so Codex's look spaces both rows alike. */
+:is(.acpmux-composer-bar, .nt-pickers) {
   --acpmux-row-inset: 6px;
   /* Model and effort draw 16 px apart (inset + gap + inset), the same distance Interrupt, mic
      and Send draw apart with the trailing cluster's own 4 px gap below. */
@@ -259,6 +260,8 @@
   --acpmux-row-group-gap: 10px;
   --acpmux-row-icon-gap: 4px;
   --acpmux-row-edge: 12px;
+}
+.acpmux-composer-bar {
   min-height: 52px;
   height: auto;
   gap: var(--acpmux-row-group-gap);
