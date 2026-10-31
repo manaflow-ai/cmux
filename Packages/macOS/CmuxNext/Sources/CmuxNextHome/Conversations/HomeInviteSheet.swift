@@ -36,6 +36,8 @@ public final class HomeInviteSheet: HomeSheetController, NSTextFieldDelegate {
         stack.addArrangedSubview(pendingList)
     }
 
+    override var initialResponder: NSView? { email }
+
     public override func viewDidAppear() {
         super.viewDidAppear()
         view.window?.makeFirstResponder(email)
