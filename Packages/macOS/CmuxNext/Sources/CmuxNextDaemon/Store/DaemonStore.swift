@@ -150,8 +150,6 @@ public final class DaemonStore: StateResourceQueries {
     /// Creates waiting for the daemon's pane of a stand-in whose own create is in flight
     /// (``daemonTarget(_:)``), resumed by the reconcile that resolves them.
     @ObservationIgnored var standInWaits: [StandInWait] = []
-    /// Cmd-N stand-in panes whose workspace create succeeded, newest last (``noteIntentLeft(_:rejected:)``).
-    @ObservationIgnored var adoptedStandIns: [(pane: PaneID, key: WorkspaceKey)] = []
     /// True while daemon state applies to the confirmed records (the
     /// intent overlay is undone).
     @ObservationIgnored var overlayLifted = false

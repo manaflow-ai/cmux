@@ -96,13 +96,18 @@ extension DaemonStore {
         return .createdWorkspace(key: provisional.key, inserted: inserted)
     }
 
-    /// The daemon's pane that took Cmd-N's stand-in pane over: in the daemon's workspace `key`, the pane that holds a
-    /// daemon tab (the first tab, so a create there lands after the New Tab page, as pressed), its screen's active
-    /// pane first. Nil while the daemon's workspace holds no tab yet (the stand-in still shows).
+    /// The daemon's pane that took Cmd-N's stand-in pane over: in the daemon's workspace `key`, the pane that holds the
+    /// daemon's first tab (the New Tab page the stand-in showed), so a create pressed on the stand-in lands where it was
+    /// pressed, after that page. Before the first tab is known (or once it left), the screen's active pane that holds a
+    /// daemon tab. Nil while the daemon's workspace holds no tab yet (the stand-in still shows).
     static func adoptedPane(of key: WorkspaceKey, in store: DaemonStore) -> PaneID? {
         guard let workspace = store.workspacesByKey[key], !workspace.isProvisional else { return nil }
         func adopted(_ pane: PaneModel) -> Bool {
             pane.handle.rawValue < ProvisionalPane.firstHandle && pane.tabs.contains { !ProvisionalTab.isProvisional(surface: $0.surface) }
+        }
+        if let firstTab = firstTab(of: key, workspace: workspace, in: store), let tab = store.tabsBySurface[firstTab],
+           let pane = store.pane(holding: tab), adopted(pane) {
+            return pane.handle
         }
         let screens = workspace.screens.filter(\.isActive) + workspace.screens.filter { !$0.isActive }
         for screen in screens {
@@ -110,6 +115,17 @@ extension DaemonStore {
             if let pane = screen.panes.first(where: adopted) { return pane.handle }
         }
         return nil
+    }
+
+    /// The daemon's surface of Cmd-N's first tab for workspace `key`: its pending intent's confirmed created tab, or
+    /// what the workspace recorded when that intent left the log.
+    private static func firstTab(of key: WorkspaceKey, workspace: WorkspaceModel, in store: DaemonStore) -> SurfaceID? {
+        for entry in store.intentLog.entries {
+            if case .createWorkspace(let provisional, _) = entry.kind, provisional.key == key {
+                return entry.createdConfirmed ? entry.createdSurface : nil
+            }
+        }
+        return workspace.tookOverStandIn?.firstTab
     }
 
     static func undo(key: WorkspaceKey, inserted: Bool, in store: DaemonStore) {
