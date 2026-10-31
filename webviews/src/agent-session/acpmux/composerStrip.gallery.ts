@@ -96,7 +96,8 @@ export default agentPaneEntry({
       snapshot: noChat([]),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-box"));
-        if (ctx.document.querySelector(".acpmux-composer-strip")) throw new Error("an opening chat drew the new chat strip"); // strip-guard
+        if (ctx.document.querySelector(".acpmux-composer-strip"))
+          throw new Error("an opening chat drew the new chat strip");
       },
     },
     "existing-attaching": {
@@ -105,7 +106,8 @@ export default agentPaneEntry({
       snapshot: noChat([]),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-box"));
-        if (ctx.document.querySelector(".acpmux-composer-strip")) throw new Error("an attaching chat drew the new chat strip"); // strip-guard
+        if (ctx.document.querySelector(".acpmux-composer-strip"))
+          throw new Error("an attaching chat drew the new chat strip");
       },
     },
     "long-folder": {
