@@ -19,13 +19,19 @@ The budget: a warm open commits within one 60 Hz frame (key p90 <= 16 ms).
 --search-keys WORD times typed keys on Search instead (palette-key, PaletteModel.search): from the terminal tab it
 opens Search (Cmd-Shift-A) --rounds times and types WORD one key at a time through `debug.key` (target palette).
 Per key: rpc_ms, the synchronous `debug.key` round trip (the main thread's whole handling of the key, its search()
-turn included), and the longest main-thread stall while the word is typed (`debug.hangs`). Budget: key p95 <= 4 ms
-(the `// perf-hot: 4ms palette-key` budget of PaletteModel.search) is reported, never gated.
+turn included); the always-on signposts key.palette_query_rows (the query's edit to the commit of the frame that
+first shows its final ranked rows) and key.palette_query_answer (to the frame that first shows the agent chats'
+answer for it, with its row count), read with perf-signposts.py's `log stream` recording (a Release or bench build
+has them too); and the longest main-thread stall while the word is typed (`debug.hangs`). Each as p50/p95/p99/max.
+The key p95 <= 4 ms budget (`// perf-hot: 4ms palette-key`) is reported, never gated.
+--seed-chats N gives the app's acpmux a store of N stored chats titled "Idle-cost chat <i>" (idle_cost_load: two
+template chats made by the bundle's acpmux on a peer daemon, then copies), so type a word they match ("idle cost").
+--stress builds the STRESS session (perf-stress-session.py) before typing.
 
 Usage: palette-open-stages.py --tag <tag> --app PATH [--rounds 10] [--interval 0.35] [--out DIR] [--json PATH]
-                              [--search-keys WORD]
+                              [--search-keys WORD] [--seed-chats N] [--stress]
 """
-import argparse, glob, json, os, re, signal, socket, statistics, subprocess, sys, tempfile, time
+import argparse, glob, importlib.util, json, os, re, signal, socket, statistics, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, bundle_id  # noqa: E402
@@ -40,6 +46,8 @@ parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json", help="write the samples here")
 parser.add_argument("--no-gate", action="store_true", help="report only; exit 0 when every open was timed")
 parser.add_argument("--search-keys", help="time typed keys of this word on Search (Cmd-Shift-A), not palette opens")
+parser.add_argument("--seed-chats", type=int, default=0, help="stored chats in the app's acpmux store (--search-keys)")
+parser.add_argument("--stress", action="store_true", help="build the STRESS session before typing (--search-keys)")
 opts = parser.parse_args()
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
@@ -161,7 +169,8 @@ def one_open(params):
 
 
 def search_typing(word):
-    """Opens Search and types WORD a key at a time: each key's debug.key round trip (ms) and the typing's longest stall."""
+    """Opens Search and types WORD a key at a time: each key's debug.key round trip (ms), the query frames
+    (the signposts are recorded around all rounds) and the typing's longest stall."""
     rpc("debug.key", {"key": "a", "modifiers": ["command", "shift"]})
     time.sleep(opts.interval)  # test harness: Search opens and its first rows land
     rpc("debug.hangs", {"clear": True})
@@ -171,6 +180,7 @@ def search_typing(word):
         rpc("debug.key", {"key": "space" if char == " " else char, "target": "palette"})
         keys.append(round((time.monotonic() - started) * 1000, 3))
         time.sleep(0.12)  # test harness: a typing pace; the key's rank and answers land between keys
+    time.sleep(0.4)  # test harness: the last key's answer lands
     hangs = rpc("debug.hangs") or {}
     closed = rpc("debug.key", {"key": "escape", "target": "palette"})
     if isinstance(closed, dict) and closed.get("error"):
@@ -180,24 +190,74 @@ def search_typing(word):
     return keys, hangs.get("max_ms")
 
 
+def distribution(values):
+    return {"n": len(values), "p50": round(pct(values, 0.5), 3), "p95": round(pct(values, 0.95), 3),
+            "p99": round(pct(values, 0.99), 3), "max": round(max(values), 3)} if values else {"n": 0}
+
+
+def load_signposts():
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-signposts.py")
+    spec = importlib.util.spec_from_file_location("perf_signposts", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def search_report(word):
     print(f"\n== Search typed keys: {word!r}, {opts.rounds} rounds", flush=True)
     search_typing(word)  # warm
+    signposts = load_signposts()
+    recording = signposts.Recording(app.pid, ["key"])
     keys, stalls = [], []
-    for _ in range(opts.rounds):
-        times, stall = search_typing(word)
-        keys += times
-        if stall is not None:
-            stalls.append(stall)
+    try:
+        for _ in range(opts.rounds):
+            times, stall = search_typing(word)
+            keys += times
+            if stall is not None:
+                stalls.append(stall)
+    finally:
+        parsed = signposts.parse(recording.stop(), None)
+    intervals = [i for i in parsed["intervals"] if not i.get("missed")]
+    rows = [i["ms"] for i in intervals if i["name"] == "key.palette_query_rows"]
+    answered = [i for i in intervals if i["name"] == "key.palette_query_answer"]
+    answers = [i["ms"] for i in answered]
+    answer_rows = [int((i.get("end_fields") or {}).get("rows") or 0) for i in answered]
+    print(f"  signposts: {len(parsed['intervals'])} paired, {parsed['unpaired']} unpaired (queries typed past), "
+          f"{parsed['lost']} lost", flush=True)
     if not keys:
         row("Search typed keys", "keys timed", "none", False)
         return {}
-    line = {"n": len(keys), "p50": round(pct(keys, 0.5), 3), "p95": round(pct(keys, 0.95), 3), "max": round(max(keys), 3),
-            "stall_max_ms": max(stalls) if stalls else None}
-    print(f"  Search key rpc ms: n={line['n']} p50={line['p50']} p95={line['p95']} max={line['max']} "
-          f"stall_max={line['stall_max_ms']}", flush=True)
-    row("Search typed keys", "key rpc p95 <= 4 ms (report only)", f"p95 {line['p95']} ms, {line['n']} keys", True)
-    return {"table": line, "samples": keys, "stalls": stalls}
+    table = {"key_rpc": distribution(keys), "key_to_rows_frame": distribution(rows),
+             "key_to_answer_frame": distribution(answers), "stall_max_ms": max(stalls) if stalls else None,
+             "answers": len(answers), "answer_rows_mean": round(sum(answer_rows) / len(answer_rows), 1) if answer_rows else 0}
+    for name in ("key_rpc", "key_to_rows_frame", "key_to_answer_frame"):
+        d = table[name]
+        cells = " ".join(f"{k}={d[k]}" for k in ("n", "p50", "p95", "p99", "max") if k in d)
+        print(f"  Search {name} ms: {cells}", flush=True)
+    print(f"  answers landed: {table['answers']} (mean {table['answer_rows_mean']} chat rows); "
+          f"stall_max={table['stall_max_ms']}", flush=True)
+    row("Search typed keys", "key rpc p95 <= 4 ms (report only)",
+        f"p95 {table['key_rpc'].get('p95')} ms, {len(keys)} keys", True)
+    if opts.seed_chats:
+        row("Search chats answers", "acpmux answered typed queries", f"{len(answers)} answers", bool(answers))
+    return {"table": table, "samples": keys, "rows": rows, "answers": answers, "stalls": stalls}
+
+
+def seed_chats(count):
+    """An acpmux store of `count` stored chats for the app (idle_cost_load's seeding); its ACPMUX_HOME."""
+    import idle_cost_load as icl  # noqa: E402  (PeerDaemon, read_chat, seed_store)
+    root = os.path.join(SCRATCH, "chats")
+    os.makedirs(root, exist_ok=True)
+    peer = icl.PeerDaemon(APP, root, os.path.join(os.path.dirname(os.path.abspath(__file__)), "idle_cost_agent.py"))
+    peer.start()
+    try:
+        answered, closed = peer.templates()
+    finally:
+        peer.stop()
+    home = os.path.join(root, "acpmux")
+    seeded = icl.seed_store(home, count, 0.6, answered, closed)
+    print(f"seeded chats: {json.dumps(seeded)}", flush=True)
+    return home
 
 
 def summarize(label, samples):
@@ -250,6 +310,8 @@ def main():
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
            "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1400,900"}
+    if opts.search_keys and opts.seed_chats:
+        env["ACPMUX_HOME"] = seed_chats(opts.seed_chats)
     # One launch path (bench_launch.py): socket in the state folder, bench env, a clear reason when it does not come up.
     launcher = BenchApp(APP, out=opts.out, log_name=f"app-{TAG}.log", window=None, screen=None, teardown=False, env=env)
     try:
@@ -273,7 +335,14 @@ def main():
         return
     time.sleep(2)  # test harness: shell prompt
     if opts.search_keys:
-        report = {"tag": TAG, "search_keys": search_report(opts.search_keys)}
+        if opts.stress:
+            path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-stress-session.py")
+            spec = importlib.util.spec_from_file_location("perf_stress_session", path)
+            stress = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(stress)
+            summary = stress.Stress(rpc).build()
+            print("STRESS-SESSION", json.dumps(summary)[:600], flush=True)
+        report = {"tag": TAG, "stress": opts.stress, "seed_chats": opts.seed_chats, "search_keys": search_report(opts.search_keys)}
         if opts.json:
             with open(opts.json, "w") as handle:
                 json.dump(report, handle, indent=1)
