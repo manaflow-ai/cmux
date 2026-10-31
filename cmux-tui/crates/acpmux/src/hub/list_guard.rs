@@ -205,7 +205,12 @@ impl Snapshot {
         let picked = super::session_pages::session_list_reply(keys.clone(), &filters)?;
         let rows =
             picked.get("sessions").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
-        let at = |key: &Value| key.get("at").and_then(Value::as_u64).unwrap_or_default() as usize;
+        let at = |key: &Value| {
+            key.get("at")
+                .and_then(Value::as_u64)
+                .and_then(|n| usize::try_from(n).ok())
+                .unwrap_or_default()
+        };
         let row = |key: &Value| -> std::borrow::Cow<'_, str> {
             let text = spans.get(at(key)).and_then(|span| text.get(span.clone()));
             match text {
@@ -215,7 +220,7 @@ impl Snapshot {
             }
         };
         let whole = cursor.is_none() && {
-            let bytes: usize = rows.iter().map(|key| row(key).len() + 1).sum();
+            let bytes: usize = rows.iter().map(|key| row(key).len().saturating_add(1)).sum();
             bytes <= budget
         };
         let (page, next) = if whole {
@@ -267,7 +272,11 @@ impl Snapshot {
             if n > 0 {
                 text.push(',');
             }
-            let at = key["at"].as_u64().unwrap_or_default() as usize;
+            let at = key
+                .get("at")
+                .and_then(Value::as_u64)
+                .and_then(|n| usize::try_from(n).ok())
+                .unwrap_or_default();
             text.push_str(
                 self.spans.get(at).and_then(|span| self.whole.get(span.clone())).unwrap_or("null"),
             );

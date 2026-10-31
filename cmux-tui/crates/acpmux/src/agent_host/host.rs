@@ -1067,7 +1067,8 @@ impl State {
                 self.on_line(msg).await;
                 // Behind every line of it: the writer answers once they are written.
                 // Its stdin writer stopped (the harness's stdin closed): never written.
-                self.orphan.unwritten += usize::from(receipt.is_some());
+                self.orphan.unwritten =
+                    self.orphan.unwritten.saturating_add(usize::from(receipt.is_some()));
                 if let Some(receipt) = receipt
                     && self.stdin_tx.send(Stdin::Receipt(receipt)).is_err()
                 {

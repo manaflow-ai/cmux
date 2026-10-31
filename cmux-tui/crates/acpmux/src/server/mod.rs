@@ -1842,7 +1842,7 @@ mod agent_messages;
 mod app_reply;
 mod client_request;
 mod clock_text;
-pub(crate) use clock_text::iso;
+pub(crate) use clock_text::{civil_from_days, iso};
 mod change_kind;
 mod chats;
 pub mod conn_auth;

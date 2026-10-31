@@ -384,9 +384,9 @@ fn first_pr(line: &str) -> Option<u64> {
         n.parse::<u64>().ok().filter(|n| *n > 0)
     };
     let mut best: Option<(usize, u64)> = None;
-    for (marker, skip) in [("#", 1), ("pull/", 5)] {
+    for marker in ["#", "pull/"] {
         for (i, _) in line.match_indices(marker) {
-            if let Some(n) = line.get(i + skip..).and_then(digits)
+            if let Some(n) = line.get(i..).and_then(|s| s.strip_prefix(marker)).and_then(digits)
                 && best.is_none_or(|(at, _)| i < at)
             {
                 best = Some((i, n));

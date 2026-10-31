@@ -186,7 +186,7 @@ fn usage(row: &Value) -> [String; 7] {
     let stats = &row["usageStats"];
     let tokens = |n: u64| match n {
         n if n >= 999_500 => format!("{:.1}M", n as f64 / 1e6),
-        n if n >= 1_000 => format!("{}k", (n + 500) / 1000),
+        n if n >= 1_000 => format!("{}k", n.saturating_add(500) / 1000),
         n => n.to_string(),
     };
     let unknown = || "?".to_owned();

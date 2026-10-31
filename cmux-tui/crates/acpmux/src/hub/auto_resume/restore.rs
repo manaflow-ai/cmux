@@ -206,7 +206,7 @@ impl Hub {
             {
                 let delay = staggered(delay, &session.id);
                 let recovered = RetrySummary {
-                    attempt: (done + 1) as u64,
+                    attempt: done.saturating_add(1) as u64,
                     of: delays.len() as u64,
                     reason,
                     next_at: last.at.saturating_add(delay),
@@ -304,7 +304,8 @@ impl Hub {
                 trust_gate: trust_gate || control == Control::Web,
                 error: &error,
             };
-            hub.auto_resume(&session, cut, retry.attempt as usize).await;
+            hub.auto_resume(&session, cut, usize::try_from(retry.attempt).unwrap_or(usize::MAX))
+                .await;
         });
     }
 }
