@@ -302,6 +302,7 @@ nonisolated struct ComputerUseHelperStaging: Sendable {
         var copyCode: SecStaticCode?
         guard SecStaticCodeCreateWithPath(copy as CFURL, [], &copyCode) == errSecSuccess, let copyCode else { return false }
         let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode)
+        // concurrency-allow: only the `upstream` verify operation calls it, and only the @concurrent existingCopy(named:) and stage(_:) run that, never main
         return SecStaticCodeCheckValidity(copyCode, flags, requirement) == errSecSuccess
     }
 }

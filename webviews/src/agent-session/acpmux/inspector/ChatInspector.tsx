@@ -68,7 +68,7 @@ import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { ConnectorsSection } from "./ConnectorsSection";
 import { ContextSection } from "./ContextSection";
 import { EnvironmentSection, type AccessGrant, type ProjectRowLook } from "./EnvironmentSection";
-import { InspectorGroup } from "./InspectorGroup";
+import { InspectorSectionList } from "./InspectorGroup";
 import { InspectorSection } from "./InspectorSection";
 import { SourcesSection } from "./SourcesSection";
 import { SUBAGENT_HEADER, SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
@@ -272,6 +272,7 @@ export function useChatInspector({
   beside,
   wide = false,
   onReconnectMcp,
+  remoteControl,
   onCompact,
 }: {
   snapshot: AcpmuxSnapshot;
@@ -336,6 +337,8 @@ export function useChatInspector({
   subagent?: SubagentScope;
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
   onReconnectMcp?: (server: string) => Promise<unknown>;
+  /// Environment's Remote Control switch (App.tsx, remoteControl.ts): absent, no row.
+  remoteControl?: { on: boolean; set: (on: boolean) => void };
   /// Sends the chat's agent its `/compact` (Context's Compact); unset where Compact cannot reach.
   onCompact?: () => void;
 }): {
@@ -471,6 +474,7 @@ export function useChatInspector({
         onOpenFolder={onOpenFolder}
         onSaveEnvironment={onSaveEnvironment}
         onReconnectMcp={onReconnectMcp}
+        remoteControl={remoteControl}
         onCompact={onCompact}
         onOpenDocument={onOpenDocument}
         onShowCall={onShowCall}
@@ -522,6 +526,7 @@ function InspectorPresence({
   onOpenFolder,
   onSaveEnvironment,
   onReconnectMcp,
+  remoteControl,
   onCompact,
   onOpenDocument,
   onShowCall,
@@ -569,6 +574,7 @@ function InspectorPresence({
   onOpenFolder?: (path: string) => void;
   onSaveEnvironment?: () => Promise<unknown>;
   onReconnectMcp?: (server: string) => Promise<unknown>;
+  remoteControl?: { on: boolean; set: (on: boolean) => void };
   onCompact?: () => void;
   onOpenDocument?: (artifact: Artifact) => void;
   onShowCall?: (toolCallId: string) => boolean;
@@ -747,6 +753,7 @@ function InspectorPresence({
         // Save keeps the chat's machine and folder, not a subagent's.
         onSaveEnvironment={scope ? undefined : onSaveEnvironment}
         onReconnectMcp={onReconnectMcp}
+        remoteControl={scope ? undefined : remoteControl}
         // Compact ends the chat's context, not a subagent's.
         onCompact={scope ? undefined : onCompact}
         working={snapshot.isWorking}
@@ -1268,16 +1275,19 @@ export function ChatInspector({
   return (
     <div ref={body} className="acpmux-chat-inspector__body" data-layout={layout}>
       {banner}
-      {/* Where it runs. */}
-      <InspectorGroup group="about" sections={{ environment, context, connectors }} />
-      {/* What it made. */}
-      {(changes || sourcesSection || outputsSection) && (
-        <InspectorGroup group="made" sections={{ changes, sources: sourcesSection, outputs: outputsSection }} />
-      )}
-      {/* What it runs. */}
-      {(subagentsSection || tasks) && (
-        <InspectorGroup group="running" sections={{ subagents: subagentsSection, tasks }} />
-      )}
+      {/* Where it runs, what it made, what it runs: one order the person drags (InspectorGroup.tsx). */}
+      <InspectorSectionList
+        sections={{
+          environment,
+          context,
+          connectors,
+          changes,
+          sources: sourcesSection,
+          outputs: outputsSection,
+          subagents: subagentsSection,
+          tasks,
+        }}
+      />
       {gallery && (
         <GalleryDialog
           rows={rows}
