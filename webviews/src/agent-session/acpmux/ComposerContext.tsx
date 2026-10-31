@@ -648,8 +648,9 @@ function availableComputers(
   peerStates: Record<string, string>,
   peerResources: Record<string, MachineResources>,
 ): Computer[] {
-  const localLabel =
-    localName || (summary?.hostKind === "local" && summary.host ? summary.host : t(CONTEXT_LABELS.local));
+  // Only the host names this Mac. A local chat's `host` is the daemon's own machine, which for a tab on
+  // another machine's daemon is that machine, never this Mac (design/environment-picker.md rule 1).
+  const localLabel = localName || t(CONTEXT_LABELS.local);
   const computers: Computer[] = [{ id: "local", label: localLabel, kind: "local" }];
   const current = summary ? [summary] : [];
   for (const machine of knownMachines(peers, sessions, peerKinds, current, peerConnected, peerStates)) {
