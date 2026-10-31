@@ -9,6 +9,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode};
@@ -126,10 +127,14 @@ pub(super) fn info_text(detail: &Value) -> String {
         for scope in scopes {
             out.push_str(&format!(
                 "  {} ({}{}): {}\n",
-                scope["scope"].as_str().unwrap_or(""),
-                scope["risk"].as_str().unwrap_or(""),
-                if scope["optional"] == true { ", optional" } else { "" },
-                scope["reason"].as_str().unwrap_or(""),
+                scope.get("scope").and_then(Value::as_str).unwrap_or(""),
+                scope.get("risk").and_then(Value::as_str).unwrap_or(""),
+                if scope.get("optional").and_then(Value::as_bool) == Some(true) {
+                    ", optional"
+                } else {
+                    ""
+                },
+                scope.get("reason").and_then(Value::as_str).unwrap_or(""),
             ));
         }
     }
@@ -192,16 +197,16 @@ fn run(global: &GlobalArgs, request: &Request) -> i32 {
                 return Err("the daemon closed the connection".into());
             }
             let Ok(value) = serde_json::from_str::<Value>(&reply) else { continue };
-            if value["id"] != "apps-list-1" {
+            if value.get("id").and_then(Value::as_str) != Some("apps-list-1") {
                 continue;
             }
-            if value["ok"] == true {
-                return Ok(value["data"].clone());
+            if value.get("ok").and_then(Value::as_bool) == Some(true) {
+                return Ok(value.get("data").cloned().unwrap_or(Value::Null));
             }
             return Err(format!(
                 "{}: {}",
-                value["error_code"].as_str().unwrap_or("error"),
-                value["error"].as_str().unwrap_or("")
+                value.get("error_code").and_then(Value::as_str).unwrap_or("error"),
+                value.get("error").and_then(Value::as_str).unwrap_or("")
             ));
         }
     };
@@ -210,7 +215,7 @@ fn run(global: &GlobalArgs, request: &Request) -> i32 {
         Request::List { installed, query } => {
             let mut args = json!({"limit": 200});
             if let Some(query) = query {
-                args["query"] = json!(query);
+                args.set("query", json!(query));
             }
             answer("cmux.apps.catalog.list", args).map(|catalog| {
                 let rows = rows(&catalog, *installed);
