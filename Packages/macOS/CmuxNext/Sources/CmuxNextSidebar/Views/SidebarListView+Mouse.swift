@@ -16,7 +16,18 @@ extension SidebarListViewComponents {
         if groupEditor.isVisible { groupEditor.hide() }
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
-        guard let row = clickHit(at: point) else {
+        let hit = clickHit(at: point)
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        // A double-click on a group's name renames it in place; its first click's fold never ran, so no row moves.
+        if case let .group(group)? = hit?.key, event.clickCount == 2, flags.isEmpty, isOnGroupName(group, at: point),
+           groupNameClick.take(group) {
+            press = nil
+            SidebarGroupKeys(list: self).setFocus(group, ring: false)
+            inlineRename.begin(.group(group), inPlace: true)
+            return
+        }
+        groupNameClick.flush()
+        guard let row = hit else {
             press = nil
             // Empty space: a double-click makes a workspace there.
             if event.clickCount == 2, event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
@@ -26,7 +37,6 @@ extension SidebarListViewComponents {
             return
         }
         var press = Press(key: row.key, point: point)
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let tabFold = lastTabFold
         lastTabFold = nil
         switch row.key {
@@ -150,8 +160,16 @@ extension SidebarListViewComponents {
                 // expands it; the more button and a right-click open the editor and the menu.
                 // The fold draws itself (`foldGroup`, the group's rows only): no list reload after it. It is the
                 // user's own change, so it moves on the spring (calm-sidebar-movement).
-                model.noteUserIntent()
-                model.send(.toggleCollapse(.group(group)))
+                let fold: @MainActor () -> Void = { [weak self] in
+                    self?.model.noteUserIntent()
+                    self?.model.send(.toggleCollapse(.group(group)))
+                }
+                // On the name, the fold waits for a possible second click (a rename in place, `SidebarGroupNameClick`).
+                if event.clickCount == 1, isOnGroupName(group, at: press.point) {
+                    groupNameClick.schedule(group, fold: fold)
+                } else {
+                    fold()
+                }
                 return
             }
         case let .section(section):
@@ -173,6 +191,11 @@ extension SidebarListViewComponents {
             break
         }
         reload(animated: true)
+    }
+    /// Whether `point` (list coordinates) is on group `group`'s name or icon.
+    func isOnGroupName(_ group: GroupID, at point: NSPoint) -> Bool {
+        guard let header = rowViews[.group(group)] as? GroupHeaderRowView else { return false }
+        return header.convert(header.nameHitFrame, to: self).contains(point)
     }
     // MARK: - Middle click (MIDDLE-CLICK-CLOSES-WORKSPACE; SidebarMiddleClick)
     override func otherMouseDown(with event: NSEvent) { if !middleClick.down(event, in: self) { super.otherMouseDown(with: event) } }
