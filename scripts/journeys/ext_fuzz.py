@@ -1176,5 +1176,51 @@ def cond_fuzz_daemon_agrees(j, want, cache):
     return not found, {"problems": [d for _, d in found]}
 
 
-STEPS = {"fuzz_run": step_fuzz_run}
+def step_fuzz_crash_reports(j, step):
+    """Reads the mini's crash reports of the last HOURS (default 12) under ~/Library/Logs/DiagnosticReports (the lease's
+    account, which runs every capture app) and writes diag-crashes.json beside result.json: per report its file, app
+    name, bundle id, version, the build's tag from the app path, the crash time, the exception, the crashing thread's
+    top FRAMES frames, and the fuzz's own leases of that mini. Only reads; nothing is changed or sent anywhere."""
+    import glob
+    import os
+    hours, frames = float(step.get("hours", 12)), int(step.get("frames", 16))
+    root = os.path.expanduser("~/Library/Logs/DiagnosticReports")
+    cutoff = time.time() - hours * 3600
+    out = []
+    for path in sorted(glob.glob(os.path.join(root, "**", "*.ips"), recursive=True)):
+        try:
+            if os.path.getmtime(path) < cutoff:
+                continue
+            text = open(path, errors="replace").read()
+        except OSError:
+            continue
+        head, _, body = text.partition("\n")
+        try:
+            meta = json.loads(head)
+        except ValueError:
+            meta = {}
+        try:
+            crash = json.loads(body)
+        except ValueError:
+            crash = {}
+        rec = {"file": os.path.basename(path), "app": meta.get("app_name") or meta.get("name"),
+               "bundle": meta.get("bundleID"), "version": meta.get("app_version"), "build": meta.get("build_version"),
+               "time": meta.get("timestamp"), "bug_type": meta.get("bug_type"),
+               "path": (crash.get("procPath") or "")[:300], "pid": crash.get("pid"),
+               "exception": crash.get("exception"), "termination": crash.get("termination"),
+               "launched": crash.get("procLaunch"), "crashed": crash.get("captureTime")}
+        threads = crash.get("threads") or []
+        images = crash.get("usedImages") or []
+        hit = next((t for t in threads if t.get("triggered")), None)
+        if hit is not None:
+            rec["thread"] = {"name": hit.get("name"), "queue": hit.get("queue"), "frames": [
+                {"image": (images[f.get("imageIndex")] or {}).get("name") if isinstance(f.get("imageIndex"), int)
+                 and f.get("imageIndex") < len(images) else None, "symbol": f.get("symbol"),
+                 "offset": f.get("imageOffset")} for f in (hit.get("frames") or [])[:frames]]}
+        out.append(rec)
+    (j.out / "diag-crashes.json").write_text(json.dumps(out, indent=1, default=str) + "\n")
+    return {"reports": len(out), "apps": sorted({str(r.get("app")) for r in out})}
+
+
+STEPS = {"fuzz_run": step_fuzz_run, "fuzz_crash_reports": step_fuzz_crash_reports}
 CONDITIONS = {"fuzz_clean": ("app", cond_fuzz_clean), "fuzz_daemon_agrees": ("daemon", cond_fuzz_daemon_agrees)}
