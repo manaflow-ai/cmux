@@ -225,17 +225,34 @@ fn accept_loop(host: &Arc<Host>, listener: &TcpListener) {
     accept_each(|| incoming.next(), std::thread::sleep, |stream| accept_one(host, stream));
 }
 
+/// First and longest wait after an accept error that can persist, as the
+/// daemon's own accept loops (cmux-tui-core server.rs `ACCEPT_RETRY_*`).
+const ACCEPT_RETRY_INITIAL: Duration = Duration::from_millis(10);
+const ACCEPT_RETRY_MAX: Duration = Duration::from_secs(1);
+
 /// Hand every accepted connection to `serve` until `accept` answers `None`.
-/// `wait` sleeps between accepts that fail.
+/// Resource exhaustion (EMFILE, ENFILE, ENOBUFS) persists across accepts,
+/// and an immediate retry ran the listener thread at 100% CPU until
+/// descriptors freed up: `wait` spaces those retries with a growing delay.
+/// A per-connection error needs none, because the next accept blocks.
 fn accept_each<S>(
     mut accept: impl FnMut() -> Option<io::Result<S>>,
-    _wait: impl FnMut(Duration),
+    mut wait: impl FnMut(Duration),
     mut serve: impl FnMut(S),
 ) {
+    let mut backoff = cmux_tui_core::backoff::Backoff::new(ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX);
     while let Some(accepted) = accept() {
         match accepted {
-            Ok(stream) => serve(stream),
-            Err(e) => eprintln!("cmux host: accept failed: {e}"),
+            Ok(stream) => {
+                backoff.reset();
+                serve(stream);
+            }
+            Err(e) => {
+                eprintln!("cmux host: accept failed: {e}");
+                if cmux_tui_core::backoff::accept_error_needs_backoff(&e) {
+                    wait(backoff.next_delay());
+                }
+            }
         }
     }
 }
