@@ -31,6 +31,10 @@ await requireBrowserLane("picker-row-geometry.test.ts", async () => {
   const CASES: PickerRowCase[] = [
     { ...project, name: "project picker", variant: "open-current" },
     { ...project, name: "project picker, a folder titled by its path", variant: "open-path-titled" },
+    // The agent chat's (new chat hero's) picker, Leo: "why is this all misaligned in the agent chat
+    // project selectin". Do not work in a project (checked), New project and app-icon projects.
+    { ...project, name: "agent chat project picker, app icons", variant: "open-app-icons" },
+    { ...project, name: "agent chat project picker, lane worktrees", variant: "lane-worktrees" },
     {
       name: "environment picker",
       entry: "agent-pane.composer-context",

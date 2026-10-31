@@ -275,6 +275,8 @@ public final class AgentPaneModel {
 
     /// The app's one Read aloud voice (``AgentPaneReadAloud``); nil refuses the page's speaker.
     @ObservationIgnored public var readAloud: AgentPaneReadAloud?
+    /// The app's Cloud machines for `cloudMachine.*` (``AgentPaneCloudMachines``); nil refuses every method.
+    @ObservationIgnored public var cloudMachines: AgentPaneCloudMachines?
     /// Asks the user to confirm a config option that is not free (the view's native sheet).
     @ObservationIgnored public var onConfirmMode: (@MainActor (_ asked: AgentPaneModeConfirmation, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
 
@@ -453,7 +455,7 @@ public final class AgentPaneModel {
             }
         case .sandboxState(let wait):
             return await sandboxRuns.state(wait: wait)
-        case .cloudMachine(let request): return await request.reply(.shared, gestures: transport.gestures)
+        case .cloudMachine(let request): return await request.reply(cloudMachines, gestures: transport.gestures)
         case .cloudCredentialTransfer(let request):
             guard remoteChat, newTab == nil, sessionId == request.sessionID else {
                 return AgentPaneReply.failure(code: "unavailable", message: "Credential setup is unavailable for this chat.")
@@ -532,7 +534,10 @@ public final class AgentPaneModel {
         case .computerUsePreview(let action): return AgentPaneComputerUsePreview.respond(action, in: self)
         case .upload(let files): return await AgentPaneUpload.respond(files, in: self)
         case .uploadStage(let stage):
-            guard let stager = onUploadStage?(), let sessionId else { return Self.unsupported("chat.upload.stage") }
+            // A chat with no session yet (a new chat, the New Tab page) stages too: its stager says
+            // whether it can take one. Refusing it as unsupported told the page this host is too old
+            // to stream, so a recording over the one-frame size failed with Retry (#28647).
+            guard let stager = onUploadStage?() else { return Self.unsupported("chat.upload.stage") }
             if case .begin(_, _, let batchToken, _) = stage, batchToken == nil, !transport.gestures.consume() { return Self.transportFailure(.gestureRequired) }
             return await stager(stage, sessionId)
         case .unsupported(let method): return Self.unsupported(method)
