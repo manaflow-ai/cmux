@@ -722,6 +722,21 @@ impl Started {
     }
 }
 
+/// Entry `h` as the frame it is sent and kept as (encoded once), and whether a next daemon
+/// needs it (`orphan::needs_a_daemon`). An entry over the frame limit (a writer stop would
+/// lose it) is kept as what [`over_frame_limit`] puts in its place, or, when that is over
+/// the limit too (an answer whose id alone is), as a stderr note. Never an empty frame:
+/// None only if even the note cannot be encoded.
+fn encode_entry(h: u64, entry: &Entry, max: usize) -> Option<(Arc<[u8]>, bool)> {
+    let encode = |e: &Entry| {
+        super::encode_frame_within(&super::EntryFrame::Entry { h, e }, max)
+            .map(|bytes| (bytes, orphan::needs_a_daemon(e)))
+    };
+    encode(entry)
+        .or_else(|| encode(&over_frame_limit(h, entry)))
+        .or_else(|| encode(&over_frame_limit_note(h)))
+}
+
 /// What is kept in place of entry `h` when its frame is over the limit: an answer becomes
 /// an error answer with its id, so the request it answers is not left waiting; anything
 /// else becomes a stderr note.
@@ -732,6 +747,10 @@ fn over_frame_limit(h: u64, entry: &Entry) -> Entry {
         let err = crate::rpc::RpcError::internal("agent answer was over the frame limit");
         return Entry::In { msg: Message::err(id.clone(), err).into_value() };
     }
+    over_frame_limit_note(h)
+}
+
+fn over_frame_limit_note(h: u64) -> Entry {
     Entry::Err { line: format!("[entry {h} over the frame limit dropped]") }
 }
 
@@ -749,22 +768,18 @@ impl State {
     /// Number and retain one entry, and send it to a resumed controller.
     fn push(&mut self, entry: Entry) {
         self.orphan.note_entry(&entry);
-        let needed = orphan::needs_a_daemon(&entry);
-        self.next_h += 1;
-        let h = self.next_h;
+        let h = self.next_h + 1;
+        // One serialization per entry: the bytes are sent and kept (perf100: the entry was
+        // serialized to weigh it, copied to send it and serialized again to write it).
+        let Some((bytes, needed)) = encode_entry(h, &entry, super::MAX_FRAME) else {
+            // Not even a one-line note fits a frame: nothing to number, send or keep.
+            tracing::warn!(h, "an agent host entry and its note are over the frame limit");
+            return;
+        };
+        self.next_h = h;
         if matches!(entry, Entry::Exit { .. }) {
             self.exit_h = Some(h);
         }
-        // One serialization per entry: the bytes are sent and kept (perf100: the entry was
-        // serialized to weigh it, copied to send it and serialized again to write it).
-        let bytes = super::encode_frame(&super::EntryFrame::Entry { h, e: &entry })
-            .or_else(|| {
-                // Over the frame limit (a writer stop would lose it): an answer is answered
-                // with an error in its place, anything else is kept as a stderr note.
-                let e = over_frame_limit(h, &entry);
-                super::encode_frame(&super::EntryFrame::Entry { h, e: &e })
-            })
-            .unwrap_or_else(|| Arc::from(&[][..]));
         let weight = bytes.len() + 32;
         if let Some(c) = self.controller.as_ref().filter(|c| c.resumed)
             && c.tx.send_encoded(bytes.clone()).is_err()
@@ -1268,6 +1283,29 @@ mod tests {
         // SAFETY: signal 0 to this test's own child only checks existence.
         assert_eq!(unsafe { libc::kill(pid, 0) }, 0, "the leader was reaped by the wait");
         assert_eq!(child.wait().unwrap().code(), Some(3), "the exit status is kept for the reaper");
+    }
+
+    /// An entry too big for one frame is kept as a frame that fits, never as an empty one:
+    /// an answer whose id alone is over the limit becomes a stderr note, which a next daemon
+    /// does not need.
+    #[test]
+    fn an_entry_whose_replacement_is_over_the_limit_too_is_kept_as_a_note() {
+        use super::{Entry, encode_entry};
+        let answer = Entry::In { msg: serde_json::json!({"id": "x".repeat(300), "result": {}}) };
+        let (bytes, needed) = encode_entry(5, &answer, 200).expect("a note fits");
+        assert!(!needed, "a stderr note keeps no orphaned host waiting");
+        let body: serde_json::Value = serde_json::from_slice(&bytes[4..]).unwrap();
+        assert_eq!(body["h"], 5);
+        assert_eq!(body["e"]["line"], "[entry 5 over the frame limit dropped]", "{body}");
+
+        let small = Entry::In { msg: serde_json::json!({"id": 1, "result": "y".repeat(300)}) };
+        let (bytes, needed) = encode_entry(6, &small, 200).expect("the error answer fits");
+        assert!(needed, "an answer is logged by a next daemon");
+        let body: serde_json::Value = serde_json::from_slice(&bytes[4..]).unwrap();
+        assert_eq!(body["e"]["msg"]["id"], 1, "{body}");
+        assert!(body["e"]["msg"]["error"].is_object(), "{body}");
+
+        assert!(encode_entry(7, &small, 20).is_none(), "nothing fits: no empty frame");
     }
 
     /// An entry too big for one frame is replaced, not dropped with its connection: an

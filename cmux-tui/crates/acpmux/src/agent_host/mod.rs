@@ -747,8 +747,16 @@ pub fn write_record_atomic(_path: &Path, _record: &HostRecord) -> Result<()> {
 /// `frame` as the bytes `write_frame` writes (length prefix and JSON), encoded once so
 /// it can be sent and kept without another copy. None when it is over the limit.
 pub fn encode_frame<T: Serialize>(frame: &T) -> Option<std::sync::Arc<[u8]>> {
+    encode_frame_within(frame, MAX_FRAME)
+}
+
+/// [`encode_frame`] with a body of at most `max` bytes.
+pub(crate) fn encode_frame_within<T: Serialize>(
+    frame: &T,
+    max: usize,
+) -> Option<std::sync::Arc<[u8]>> {
     let body = serde_json::to_vec(frame).ok()?;
-    if body.len() > MAX_FRAME {
+    if body.len() > max {
         return None;
     }
     let mut buf = Vec::with_capacity(body.len() + 4);
