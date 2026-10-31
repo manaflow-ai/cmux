@@ -329,6 +329,52 @@ test("with running and finished workflows, each group says how many it holds", (
   expect(text(html)).toContain("1 finished demo-name-tournament");
 });
 
+test("workflow phases and agent rows stay mounted when a run finishes or resumes", async () => {
+  dom = new JSDOM("<!doctype html><main id=root></main>", { url: "http://localhost/" });
+  for (const [key, value] of Object.entries({
+    window: dom.window,
+    document: dom.window.document,
+    HTMLElement: dom.window.HTMLElement,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  })) {
+    saved.set(key, scope[key]);
+    scope[key] = value;
+  }
+  const workflow = summaries("running")[0]!;
+  const container = dom.window.document.getElementById("root")!;
+  root = createRoot(container);
+  const render = (workflows: (typeof workflow)[]) =>
+    act(async () => root!.render(<WorkflowTasks workflows={workflows} onOpenWorkflowAgent={() => undefined} />));
+  await render([workflow]);
+  const phase = container.querySelector<HTMLButtonElement>("button[aria-expanded='true']")!;
+  const agent = container.querySelector<HTMLButtonElement>(".acpmux-workflow-agent button")!;
+  agent.focus();
+
+  const ended = {
+    ...workflow,
+    state: "completed" as const,
+    agents: workflow.agents.map((entry) => ({ ...entry, state: "completed" as const, lastMessage: "Result ready" })),
+  };
+  await render([ended]);
+  expect(container.querySelector("button[aria-expanded='true']") === phase).toBe(true);
+  expect(container.querySelector(".acpmux-workflow-agent button") === agent).toBe(true);
+  expect(dom.window.document.activeElement === agent).toBe(true);
+  expect(agent.textContent).toContain("Result ready");
+  expect(agent.textContent).toContain("Done");
+
+  // Adding a running group and resuming this run must not reset its disclosure either.
+  const sibling = { ...workflow, id: "another-run", title: "Another run" };
+  await render([ended, sibling]);
+  expect(container.querySelector("[aria-label='demo-name-tournament'] button[aria-expanded='true']") === phase).toBe(true);
+  await act(async () => phase.click());
+  expect(phase.getAttribute("aria-expanded")).toBe("false");
+  await render([workflow, sibling]);
+  expect(
+    container.querySelector("[aria-label='demo-name-tournament'] .acpmux-workflow-phase:nth-child(2) button") === phase,
+  ).toBe(true);
+  expect(phase.getAttribute("aria-expanded")).toBe("false");
+});
+
 test("blocked and skipped agents count as ended without finishing, never as unknown", () => {
   const nodes = workflowFixture("running", NOW).map((node) => {
     const agents = new Map(node.workflowAgents);
