@@ -3765,6 +3765,9 @@ mod lone_width;
 #[path = "cli/new_terminal_cwd.rs"]
 mod new_terminal_cwd;
 #[cfg(unix)]
+#[path = "cli/newtab_agent_identity.rs"]
+mod newtab_agent_identity;
+#[cfg(unix)]
 #[path = "cli/remote_update_need.rs"]
 mod remote_update_need;
 #[path = "cli/settings_owner.rs"]

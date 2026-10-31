@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { act } from "react";
+import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { noChat } from "../../../gallery/fixtures/acpmux";
+import { ClosedList } from "./ClosedList";
 import { NewTabScreen } from "./NewTabScreen";
 import { registerHarnessesPage } from "../harnesses/harnessesPage";
 
@@ -102,6 +103,58 @@ test("New Tab exposes the chat composer attachment menu", async () => {
   expect(container.querySelector('.acpmux-newtab-plus [data-value="attach"]')).toBeTruthy();
 });
 
+test("New Tab + offers Search chats and Search pages as app actions, and no Search files", async () => {
+  const ran: string[] = [];
+  const render = async (onPlusCommand?: (id: string) => Promise<unknown>) =>
+    act(async () => {
+      root!.render(
+        <NewTabScreen
+          snapshot={noChat()}
+          onAsk={() => {}}
+          onOpen={() => {}}
+          onSearch={() => {}}
+          onShell={() => {}}
+          onJump={() => {}}
+          onOpenSession={() => {}}
+          onShowAll={() => {}}
+          {...(onPlusCommand ? { onPlusCommand } : {})}
+        />,
+      );
+    });
+  await render();
+  const add = () => container.querySelector<HTMLButtonElement>(".acpmux-newtab-plus .acpmux-picker-button")!;
+  await act(async () => add().click());
+  // A host that cannot run them gets no rows that would do nothing.
+  expect(container.querySelector('.acpmux-newtab-plus [data-value="history.search"]')).toBeNull();
+  await act(async () => add().click());
+
+  await render(async (id) => ran.push(id));
+  for (const id of ["agentPane.searchChats", "history.search"]) {
+    await act(async () => add().click());
+    expect(container.querySelector('.acpmux-newtab-plus [data-value="searchFiles"]')).toBeNull();
+    expect(container.querySelector('.acpmux-newtab-plus [data-value="files.search"]')).toBeNull();
+    const row = container.querySelector<HTMLElement>(`.acpmux-newtab-plus [data-value="${id}"]`);
+    expect(row).toBeTruthy();
+    await act(async () => {
+      row!.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    });
+  }
+  expect(ran).toEqual(["agentPane.searchChats", "history.search"]);
+  expect(container.querySelector(".acpmux-switch-notice")).toBeNull();
+
+  // The app refused it: the page says so instead of nothing happening (New Tab shows no transcript).
+  await render(() => Promise.reject(new Error("unavailable")));
+  await act(async () => add().click());
+  const pages = container.querySelector<HTMLElement>('.acpmux-newtab-plus [data-value="history.search"]')!;
+  await act(async () => {
+    pages.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+  });
+  await act(async () => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+  expect(container.querySelector(".acpmux-switch-notice [role=alert]")?.textContent).toBe(
+    "Search pages isn't available for this chat",
+  );
+});
+
 const firstRunProps = {
   snapshot: noChat([], { catalog: [] }),
   onAsk: () => {},
@@ -112,6 +165,65 @@ const firstRunProps = {
   onOpenSession: () => {},
   onShowAll: () => {},
 };
+
+test("cancelling a saved environment browse keeps the New Tab project", async () => {
+  let resolveBrowse!: (folder: string | undefined) => void;
+  let browseRequest: { deferPick?: boolean } | undefined;
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        cwd="/Users/you/src/cmux"
+        projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
+        environments
+        savedEnvironments={{
+          list: async () => [],
+          save: async (environment) => ({ ...environment, id: "saved", updatedAt: 1 }),
+          remove: async () => {},
+        }}
+        onBrowseProject={(request) => {
+          browseRequest = request;
+          return new Promise<string | undefined>((resolve) => {
+            resolveBrowse = resolve;
+          });
+        }}
+      />,
+    );
+  });
+
+  const environmentButton = container.querySelector<HTMLButtonElement>(
+    '.acpmux-location-picker[data-kind="computer"] .acpmux-location-button',
+  );
+  expect(environmentButton).toBeTruthy();
+  await act(async () => environmentButton!.click());
+  const create = [...document.querySelectorAll<HTMLElement>(".acpmux-menu-item")].find((item) =>
+    item.textContent?.includes("Create environment"),
+  );
+  expect(create).toBeTruthy();
+  await act(async () => create!.click());
+
+  const before = container.querySelector(".nt-location")?.textContent;
+  const folderButton = container.querySelector<HTMLButtonElement>(".acpmux-env-panel .acpmux-location-button");
+  expect(folderButton).toBeTruthy();
+  await act(async () => folderButton!.click());
+  const chooseFolder = document.querySelector<HTMLElement>("[data-choose]");
+  expect(chooseFolder).toBeTruthy();
+  await act(async () => chooseFolder!.click());
+  expect(browseRequest?.deferPick).toBe(true);
+
+  const cancel = [...container.querySelectorAll<HTMLButtonElement>(".acpmux-env-footer button")].find(
+    (button) => button.textContent?.trim() === "Cancel",
+  );
+  expect(cancel).toBeTruthy();
+  await act(async () => cancel!.click());
+  expect(container.querySelector(".acpmux-env-panel")).toBeNull();
+
+  await act(async () => {
+    resolveBrowse("/Users/you/src/other");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(container.querySelector(".nt-location")?.textContent).toBe(before);
+});
 
 test("a fresh New Tab exposes the no-project path in its environment card", async () => {
   let browsed = 0;
@@ -345,4 +457,113 @@ test("a page that goes with an unsent draft hands it over; an untouched page han
   await act(async () => input.dispatchEvent(new dom!.window.Event("change", { bubbles: true })));
   await act(async () => root!.render(<main />));
   expect(left).toEqual([["", [expect.objectContaining({ path: "/tmp/notes.txt" })]]]);
+});
+
+test("keeps a changed machine choice while browse settles, then permits retry", async () => {
+  const replies: { resolve(folder: string): void; reject(error: Error): void }[] = [];
+  await act(async () => {
+    root!.render(
+      <StrictMode>
+        <NewTabScreen
+          snapshot={noChat([], { peers: ["test-machine"], peerKinds: { "test-machine": "ssh" } })}
+          environments
+          projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
+          onBrowseProject={() =>
+            new Promise<string | undefined>((resolve, reject) => replies.push({ resolve, reject }))
+          }
+          onAsk={() => {}}
+          onOpen={() => {}}
+          onSearch={() => {}}
+          onShell={() => {}}
+          onJump={() => {}}
+          onOpenSession={() => {}}
+          onShowAll={() => {}}
+        />
+      </StrictMode>,
+    );
+  });
+
+  const browse = async () => {
+    await act(async () => container.querySelector<HTMLButtonElement>(".nt-location .acpmux-location-button")!.click());
+    await act(async () => document.querySelector<HTMLElement>("[data-choose]")!.click());
+  };
+  const machine = async (kind: string) => {
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-kind="computer"] button')!.click());
+    await act(async () => document.querySelector<HTMLElement>(`.acpmux-env-row[data-kind="${kind}"]`)!.click());
+  };
+  await browse();
+  expect(replies).toHaveLength(1);
+  await machine("ssh");
+  await machine("local");
+  await browse();
+  expect(replies).toHaveLength(1);
+  await act(async () => replies[0]!.resolve("/Users/you/src/stale"));
+  expect(container.querySelector(".nt-location")?.textContent).not.toContain("stale");
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  await browse();
+  expect(replies).toHaveLength(2);
+  await act(async () => replies[1]!.reject(new Error("Folder access was denied.")));
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("Folder access was denied.");
+  expect(container.querySelectorAll(".acpmux-folder-choice-button")).toHaveLength(2);
+  await machine("ssh");
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+});
+
+test("keeps the project chooser open when a second Add Project browse is already pending", async () => {
+  let resolveBrowse!: (folder: string | undefined) => void;
+  let calls = 0;
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        pageWidgets={new Set(["projects"])}
+        projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
+        onBrowseProject={(request) => {
+          expect(request?.deferPick).toBe(true);
+          calls += 1;
+          return new Promise<string | undefined>((resolve) => {
+            resolveBrowse = resolve;
+          });
+        }}
+      />,
+    );
+  });
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-env .acpmux-project-button")!.click());
+  const add = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
+    row.textContent?.includes("New project"),
+  );
+  expect(add).toBeTruthy();
+  await act(async () => add!.click());
+  const pick = async (label: string) => {
+    const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
+      row.textContent?.includes(label),
+    );
+    expect(option).toBeTruthy();
+    await act(async () => option!.click());
+  };
+  await pick("This Mac");
+  await pick("Local folder");
+  expect(calls).toBe(1);
+  expect(document.querySelector('[data-add-project-step="source"]')).toBeTruthy();
+  // Back and re-enter while the first native chooser remains pending. Busy is not cancellation.
+  await act(async () => document.querySelector<HTMLButtonElement>(".acpmux-add-project-heading button")!.click());
+  await pick("This Mac");
+  await pick("Local folder");
+  expect(calls).toBe(1);
+  expect(document.querySelector('[data-add-project-step="source"]')).toBeTruthy();
+  await act(async () => resolveBrowse("/Users/you/src/new"));
+});
+
+test("a closed agent chat uses the semantic agent glyph and preserves its title", async () => {
+  await act(async () => {
+    root!.render(
+      <ClosedList
+        items={[{ id: "closed:chat", kind: "agent", title: "Pinned chat", closedAt: 1, available: true }]}
+        onReopen={() => {}}
+      />,
+    );
+  });
+
+  expect(container.querySelector('.nt-row-glyph[data-kind="agent"] svg[data-icon="agent.chat"]')).toBeTruthy();
+  expect(container.querySelector(".nt-row-title")?.textContent).toBe("Pinned chat");
 });

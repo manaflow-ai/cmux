@@ -53,17 +53,23 @@ export function harnessRows(
     .map((entry): HarnessRow => {
       const harness = entry.acpmuxHarness ?? entry.id;
       const checked = health[harness];
+      // Health carries the account-home-qualified command; catalog auth.login
+      // is the unqualified fallback while health has not answered.
       const login =
-        acpmux.find((candidate) => candidate.id === harness)?.auth?.login || checked?.login?.trim() || undefined;
+        checked?.login?.trim() || acpmux.find((candidate) => candidate.id === harness)?.auth?.login || undefined;
       const status: HarnessStatus = !entry.installed
         ? checking
           ? "checking"
           : "notInstalled"
-        : checked?.auth === "signedOut" && login
-          ? "signIn"
-          : entry.unavailable
-            ? "unavailable"
-            : "ready";
+        : !checked
+          ? "checking"
+          : checked.auth === "signedOut"
+            ? "signIn"
+            : // Ready only on evidence of a sign-in: an answer without one (no `auth`, unknown, or a
+              // state this page does not know) is not ready, and the row offers its fix instead.
+              checked.auth !== "signedIn" || entry.unavailable
+              ? "unavailable"
+              : "ready";
       return {
         harness,
         name: entry.name,
@@ -75,8 +81,9 @@ export function harnessRows(
         ...(INSTALL_COMMANDS[harness] ? { install: INSTALL_COMMANDS[harness] } : {}),
       };
     });
-  return [
-    ...rows.filter((row) => row.status !== "notInstalled" && row.status !== "checking"),
-    ...rows.filter((row) => row.status === "notInstalled" || row.status === "checking"),
-  ];
+  // Group by installation, not asynchronously resolved health, so a check never moves a row.
+  const installed = new Set(
+    catalog.harnesses.filter((entry) => entry.installed).map((entry) => entry.acpmuxHarness ?? entry.id),
+  );
+  return [...rows.filter((row) => installed.has(row.harness)), ...rows.filter((row) => !installed.has(row.harness))];
 }

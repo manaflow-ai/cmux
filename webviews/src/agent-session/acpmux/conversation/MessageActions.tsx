@@ -314,8 +314,9 @@ export function SentActions({ text }: { text: string }) {
 }
 
 /// The row at the end of another agent's message line (IncomingMessageCard.tsx IncomingMessageLine):
-/// its age, Copy, Retry and Pin. No read receipt: the message is the agent's to read.
-export function ReceivedActions({ row, text }: { row: AcpmuxRow; text: string }) {
+/// its age, Copy, Retry and Pin, then `more` (a waiting steer's ⋯, QueuedMessageCard.tsx) in the
+/// same group, never a second one beside it. No read receipt: the message is the agent's to read.
+export function ReceivedActions({ row, text, more }: { row: AcpmuxRow; text: string; more?: ReactNode }) {
   return (
     <>
       <span className="cv-received-actions">
@@ -324,6 +325,7 @@ export function ReceivedActions({ row, text }: { row: AcpmuxRow; text: string })
           <MessageCopy text={text} />
           <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
           <PinButton rowId={row.id} />
+          {more}
         </MessageFooterRow>
       </span>
       <PullRequestDock />
