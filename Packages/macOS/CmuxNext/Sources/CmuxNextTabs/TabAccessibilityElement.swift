@@ -116,9 +116,15 @@ extension TabCell {
     func setCloseButtonRect(_ drawn: CGRect?, pill: CGRect) {
         closeButtonRect = drawn
         let m = metrics, side = m.closeButtonSize
-        let hoverRect = item.isClosable && !item.isPinned && visibility != .hidden
-            ? CGRect(x: pixel(pill.width - m.contentTrailingInset - side), y: pixel(pill.height / 2 - side / 2), width: side, height: side)
-            : nil
+        // Point the hidden accessibility child where the close glyph will
+        // actually appear on hover, including the centered pinned/narrow swap.
+        // A protected or transition-hidden tab has no close child.
+        let hover = TabChromeVisibility.resolve(
+            width: layer.bounds.width, isPinned: item.isPinned, isSelected: isSelected,
+            isHovered: true, isClosable: item.isClosable, style: style, metrics: m)
+        let hoverRect = hover.closeButtonOriginX(pillWidth: pill.width, metrics: m).map { x in
+            CGRect(x: pixel(x), y: pixel(pill.height / 2 - side / 2), width: side, height: side)
+        }
         let rect = drawn ?? hoverRect
         guard let rect else { return accessibility.closeButton.setAccessibilityFrameInParentSpace(.zero) }
         let height = layer.bounds.height

@@ -43,6 +43,14 @@ struct CloudStartChatMachineTests {
         #expect(CloudStartChat.pick([Self.machine("vm-c", "cloud-chats", by: Self.teammate)], user: Self.me, used: []) == nil)
     }
 
+    @Test(arguments: [CloudMachine.Status.pausing, .starting, .deleting], [true, false])
+    func aChangingMachineIsSkippedEvenWhenMarkedForChats(status: CloudMachine.Status, connected: Bool) {
+        let changing = Self.machine("vm-changing", "cloud-chats", status: status, connected: connected)
+        let free = Self.machine("vm-free", "spare")
+        #expect(CloudStartChat.pick([changing, free], user: Self.me, used: []) == "vm-free")
+        #expect(CloudStartChat.pick([changing], user: Self.me, used: []) == nil)
+    }
+
     @Test func laneShellVMsAreNeverPicked() {
         let lanes = [Self.machine("vm-1", "fs-lane-3"), Self.machine("vm-2", "lane-vm-1"), Self.machine("vm-3", "LANE-VM-12")]
         #expect(CloudStartChat.pick(lanes, user: Self.me, used: []) == nil)
