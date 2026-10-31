@@ -59,6 +59,15 @@ pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::
     crate::hub::admission::Ask { force, can_force, person, who, local: !web, peers, name }
 }
 
+/// A peer request's `reply` with what its `wait` saw (`Hub::wait_for_peer`) as `wait`; none
+/// without one.
+fn with_wait(mut reply: Value, waited: Value) -> Value {
+    if !waited.is_null() {
+        reply.set("wait", waited);
+    }
+    reply
+}
+
 /// The create's name, as `session/new` and `session/fork` read it.
 fn create_name(params: &Value) -> Option<String> {
     mux_meta(params)
@@ -861,6 +870,13 @@ async fn dispatch_request(
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
                 "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, SESSION_RESUME_FEATURE], "trustGate": true}}
             });
+            // Large messages go compressed from here on (`frame_compress.rs`).
+            if conn.wire.as_ref().is_some_and(|wire| wire.enabled()) {
+                reply.set_path(
+                    &["_meta", "acpmux", "compression"],
+                    json!(crate::frame_compress::ZLIB),
+                );
+            }
             // Only a local client can use the app launcher's bundled CLI.
             if conn.origin == Origin::Local
                 && let Ok(path) = std::env::var(crate::login_env::BUNDLED_CLI_ENV)
@@ -1687,8 +1703,8 @@ async fn dispatch_request(
         crate::catalog::RPC_GET => Ok(hub.catalog.get()),
         crate::catalog::RPC_REFRESH => Ok(hub.catalog.refresh(false).await),
         "_acpmux/peer_add" => {
-            hub.add_peer_from(&params).await?;
-            Ok(json!({"peers": hub.peers()}))
+            let waited = hub.add_peer_from(&params).await?;
+            Ok(with_wait(json!({"peers": hub.peers()}), waited))
         }
         // A peer that lasts as long as this connection (`hub/peer_lease.rs`):
         // the unix socket only (`remote_guard.rs`).
@@ -1707,11 +1723,12 @@ async fn dispatch_request(
                 hub.lease_peer(&name, &url, token, text("peerToken"), vm_boundary, &cfg)?
             };
             conn.hold_peer_lease(hub, lease);
-            if wait {
-                let _ =
-                    tokio::time::timeout(crate::hub::PEER_SETTLE_BUDGET, settled.changed()).await;
-            }
-            Ok(json!({"lease": name, "peers": hub.peers()}))
+            let waited = if wait {
+                hub.wait_for_peer(&name, &mut settled, crate::hub::PEER_SETTLE_BUDGET).await
+            } else {
+                Value::Null
+            };
+            Ok(with_wait(json!({"lease": name, "peers": hub.peers()}), waited))
         }
         "_acpmux/peer_reconnect" => {
             let name = str_param(&params, "name")
@@ -1719,8 +1736,8 @@ async fn dispatch_request(
             let wait = params.get("wait").and_then(Value::as_bool).unwrap_or(false);
             // A link that is open stays up unless the caller forces it (`host reconnect`).
             let force = params.get("force").and_then(Value::as_bool).unwrap_or(false);
-            hub.reconnect_peer_with(name, wait, force).await?;
-            Ok(json!({"peers": hub.peers()}))
+            let waited = hub.reconnect_peer_with(name, wait, force).await?;
+            Ok(with_wait(json!({"peers": hub.peers()}), waited))
         }
         "_acpmux/peer_remove" => {
             let name = str_param(&params, "name")

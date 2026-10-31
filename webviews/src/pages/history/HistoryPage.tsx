@@ -4,6 +4,7 @@
 import { useState, useSyncExternalStore, type KeyboardEvent, type MouseEvent } from "react";
 import { PageMenu, type PageMenuItem } from "../shared/PageMenu";
 import type { Strings } from "../shared/i18n";
+import { useLasting } from "../../ui/lasting";
 import { KindIcon } from "./KindIcon";
 import {
   BadgeLabel,
@@ -48,6 +49,10 @@ export function HistoryPage({
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [menu, setMenu] = useState<OpenMenu | null>(null);
   const { t, language } = strings;
+  // A lost history owner shows nothing until it lasts past the grace (a launch, a daemon restart:
+  // the store re-reads once the link is back); then the disconnected line.
+  const down = snap.connection === "disconnected";
+  const downLasting = useLasting(down);
   const flat = flatten(snap.groups);
 
   const open = (entry: HistoryEntry | undefined, newTab = false) => {
@@ -173,7 +178,7 @@ export function HistoryPage({
           {snap.error}
         </p>
       ) : null}
-      {snap.connection === "disconnected" ? (
+      {down && !downLasting ? null : down ? (
         <output className="history-empty">{t("page.disconnected")}</output>
       ) : snap.groups.length === 0 ? (
         <div className="history-empty">{snap.loading ? "" : t(snap.text ? "page.emptySearch" : "page.empty")}</div>

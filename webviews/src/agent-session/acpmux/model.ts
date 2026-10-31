@@ -850,7 +850,14 @@ export type AcpmuxSnapshot = {
   commands?: SlashCommand[];
   /** A harness switch the pane draws ahead of acpmux (harnessSwitch.ts): starting, applying to
    * the next turn while one streams (deferred), or failed with acpmux's reason. */
-  switching?: { harness: string; name: string; phase: "starting" | "deferred" | "failed"; error?: string };
+  switching?: {
+    harness: string;
+    name: string;
+    phase: "starting" | "deferred" | "failed";
+    error?: string;
+    /// The start refusal's code, for the failed card's one-click way out (startRefusal.ts).
+    code?: string;
+  };
   /** A `cmux://session/<id>` link named this session and the daemon has none: the pane says so
    * instead of showing another chat. Unset once a session is selected. */
   missingSession?: string;
@@ -1432,8 +1439,8 @@ export const onlyQuietThoughts = (row: AcpmuxRow) =>
 /**
  * UserBubble renders this narrow class as literal spans. Keep the fast path deliberately
  * conservative: anything whose Markdown meaning could differ from its source stays on the
- * parser-backed estimator until the DOM can measure it. It is a superset of PromptText's
- * PROMPT_MARKDOWN characters (`$` included), so a row PromptText sends to Markdown never lands here.
+ * parser-backed estimator until the DOM can measure it. Every Markdown marker promptMarkdown.ts
+ * looks for (`$` too) is excluded here, so a row PromptText sends to Markdown never lands here.
  */
 const PLAIN_MARKDOWN_CHARS = "\\`*_~<>[]{}#|&/$";
 
