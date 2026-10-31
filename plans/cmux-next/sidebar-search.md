@@ -38,12 +38,15 @@ characters are scarce). Its page reuses the providers the other pages already ha
 | Commands | `RegistryPaletteProvider` | every catalog action (same rows as Cmd-Shift-P) |
 | Apps | `sources.extraProviders` | installed apps and their commands |
 | Browser History, Recently Closed, Command History, Agent Sessions | App contributions: the history store by kind (`HistoryPalettePages.searchContributions`), one section each | page visits (title, URL), closed tabs/screens/workspaces, terminal commands, agent sessions; the location trail is left out (the open tabs are listed themselves) |
-| Agent chats | App contribution: `agentPane.searchChats` page providers | acpmux chats from the Recents feed (open or not) |
+| Agent chats | App contribution: the `agentPane.searchChats` page's own query (`queryResults`, `PaletteContributedAnswers`) | acpmux searches its own index for each typed query (open chats or not); the Chats & agents scope also lists the newest before typing. Its rows show in the order acpmux ranked them, not through the ranker |
 
 New code is only composition: `PaletteSources.searchContributions` (a list of the App's
 pages that join Search, each under its own section) and `PaletteController.searchPage()`.
 Every provider still returns its candidate set once; the palette's `PaletteSearcher` ranks
-off the main actor per keystroke, as it does for every page. Nothing new runs on the main
+off the main actor per keystroke, as it does for every page. A contributed page that answers
+its own queries (agent chats) is asked once per typed query instead, and its answer lands in a
+later turn beside the ranked rows; it never holds the rows from being final, so Return never
+waits for it. Nothing new runs on the main
 thread per keystroke, and the search page opens from the last snapshot in the first frame.
 
 A contributed row keeps its own section when it has one (Search Tabs' "Open" / "Closed");

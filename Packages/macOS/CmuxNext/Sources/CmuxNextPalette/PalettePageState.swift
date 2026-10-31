@@ -25,6 +25,13 @@ final class PageState {
     var answeringSearch: Int?
     var answersQuery: Bool { answeringSearch != nil }
     var tasks: [Task<Void, Never>] = []
+    /// The query the page's contributed answers last asked for (`PaletteContributedAnswers`).
+    var answeredQuery: String?
+    /// Each contributed answer's rows for `answeredQuery`, by section id.
+    var answerSections: [String: PaletteResultSection] = [:]
+    var answerTasks: [Task<Void, Never>] = []
+    /// The ranked rows last delivered, before the answers join them.
+    var rankedSections: [PaletteResultSection]?
     /// Rows last shown on this page, restored instantly when the page comes
     /// back into view (popping) while a fresh search runs.
     var lastSections: [PaletteResultSection]?
@@ -146,5 +153,13 @@ final class PageState {
     func cancel() {
         for task in tasks { task.cancel() }
         tasks = []
+        cancelAnswers()
+    }
+
+    /// Ends the contributed answers' streams and drops their rows.
+    func cancelAnswers() {
+        for task in answerTasks { task.cancel() }
+        answerTasks = []
+        answerSections = [:]
     }
 }

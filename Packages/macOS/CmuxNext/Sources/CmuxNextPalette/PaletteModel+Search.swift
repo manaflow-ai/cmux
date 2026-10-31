@@ -149,6 +149,7 @@ extension PaletteModel {
                 searchQueryResults(state, results: queryResults, generation: generation)
                 return
             }
+            askContributions(state, page: page)
             // A typed query searches every row: the open's deferred providers load first.
             if !state.query.allSatisfy(\.isWhitespace), deferredLoads.contains(where: { $0.state === state }) {
                 flushDeferredLoads()
@@ -278,6 +279,9 @@ extension PaletteModel {
     func deliver(_ sections: [PaletteResultSection], to state: PageState, generation: Int, provisional: Bool = false,
                  complete: Bool = true) {
         guard pages[state.levelID] === state, state.generation == generation else { return }
+        // The contributed answers join the ranked rows (`PaletteContributedAnswers`); they hold nothing final.
+        state.rankedSections = sections
+        let sections = state.answerSections.isEmpty ? sections : Self.withAnswers(sections, answers: Array(state.answerSections.values))
         state.lastSections = sections
         state.awaitsRank = provisional
         if !provisional { recordShownDeferredItems(sections, on: state) }
