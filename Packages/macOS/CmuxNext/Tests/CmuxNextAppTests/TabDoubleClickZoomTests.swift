@@ -199,6 +199,9 @@ typealias ZoomStripID = CmuxNextTabs.TabID
         harness.model.tabs[0].audio = audio
         harness.strip.sync(fromModel: true, animating: false)
         harness.setZoomed(true)
+        // A real pointer enters the tab before pressing its badge; reveal the close button
+        // before measuring, so its appearance cannot move the trailing controls on release.
+        TabStripDebug.pointerMoved(in: harness.strip, to: harness.strip.convert(try harness.body(tab), from: nil))
         let point = try harness.zoomButton(tab)
         harness.click(point)
         harness.setZoomed(false)
