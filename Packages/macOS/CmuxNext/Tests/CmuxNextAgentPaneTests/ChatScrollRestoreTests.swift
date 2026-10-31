@@ -71,4 +71,27 @@ struct ChatScrollRestoreTests {
     @Test func anOpWithoutAChatIsRefused() async throws {
         await #expect(throws: PageError.self) { _ = try await Self.call("chat.scrollAnchor.get", [:]) }
     }
+
+    @Test func bothPagePathsRefuseScrollSavesAfterTheFinalDrain() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "scroll-anchors-quit-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            AgentPaneScrollAnchors.shared = nil
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let work = BackgroundWork(label: "test.scroll-anchors-quit")
+        let anchors = AgentPaneScrollAnchors(directory: directory, work: work)
+        AgentPaneScrollAnchors.shared = anchors
+        _ = try await Self.call("chat.scrollAnchor", ["sessionId": .string("s-1"), "rowId": .string("before"), "offset": .number(4)])
+        await AgentPanePersistenceQuit(drafts: nil, anchors: anchors, work: work).drain()
+
+        await #expect(throws: PageError.closed) {
+            _ = try await Self.call("chat.scrollAnchor", ["sessionId": .string("s-1"), "rowId": .string("late-page"), "offset": .number(9)])
+        }
+        let late = try #require(AgentPaneBridge.chatPlaceReply(for: ["method": "chat.scrollAnchor", "params": ["sessionId": "s-1", "rowId": "late-bridge", "offset": 12]] as [String: Any]))
+        #expect(late["ok"] as? Bool == false, "WebKit must refuse the same late save as the page provider")
+        await work.shutdown() // drain the unfixed implementation before inspecting its disk state
+        let restored = AgentPaneScrollAnchors(directory: directory, work: work)
+        #expect(restored.anchor(for: "s-1") == AgentPaneScrollAnchor(rowId: "before", offset: 4))
+    }
 }

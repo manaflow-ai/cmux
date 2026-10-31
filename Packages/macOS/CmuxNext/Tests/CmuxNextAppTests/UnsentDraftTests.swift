@@ -46,6 +46,27 @@ struct UnsentDraftTests {
         withExtendedLifetime(drafts) {}
     }
 
+    @Test func aDraftDuringEngineStopIsRefusedAfterTheFinalDrain() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "unsent-drafts-quit-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: AgentUnsentDrafts.fileName)
+        let work = BackgroundWork(label: "test.unsent-drafts-quit")
+        let drafts = AgentUnsentDrafts(file: file, work: work)
+        let model = AgentPaneModel(host: MockAgentPaneHost())
+        drafts.wire(model) { "tab-1" }
+        let accepted = await model.respond(to: Self.request("chat.unsentDraft", ["text": "before engine stop"]))
+        #expect(accepted["ok"] as? Bool == true)
+        await AgentPanePersistenceQuit(drafts: drafts, anchors: nil, work: work).drain()
+
+        // CEF shutdown can now suspend while the WebKit bridge still pumps page requests.
+        let late = await model.respond(to: Self.request("chat.unsentDraft", ["text": "after the final drain"]))
+        #expect(late["ok"] as? Bool == false, "a save cannot be acknowledged after the quit's last drain")
+        await work.shutdown() // test cleanup also drains the unfixed implementation's late save
+        let relaunched = AgentUnsentDrafts(file: file, work: nil)
+        #expect(await relaunched.seed(for: "tab-1", session: nil)?.take()?.draft == "before engine stop")
+    }
+
     /// #25852 (threading item 1, main-thread blocking): a draft holds up to a million characters and is saved
     /// on every settled edit; its encode and write run on the files lane, never on the main thread, and the
     /// quit's `BackgroundWork.shutdown()` still puts the last edit on disk.
