@@ -114,7 +114,10 @@ struct AgentChatUploads {
         Task { @MainActor in
             // wakeup-allow: one-shot stage expiry; a later chunk refreshes the expiry date.
             try? await Task.sleep(for: .seconds(10 * 60))
-            if let expired = stages[token], expired.expires <= Date() { stages.removeValue(forKey: token); try? FileManager.default.removeItem(at: expired.folder) }
+            guard let expired = stages[token], expired.expires <= Date() else { return }
+            stages.removeValue(forKey: token)
+            let folder = expired.folder
+            await Task.detached { try? FileManager.default.removeItem(at: folder) }.value
         }
     }
 
