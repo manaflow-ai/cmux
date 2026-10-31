@@ -71,6 +71,24 @@ describe("app registry bundle hash", () => {
     expect(compareSemver("1.10.0", "1.9.0")).toBe(1)
     expect(compareSemver("1.0.0+a", "1.0.0")).toBe(0)
   })
+  it("orders numeric components exactly beyond the JavaScript integer limit", () => {
+    const lower = "9007199254740992"
+    const higher = "9007199254740993"
+    for (const [a, b] of [
+      [`1.${higher}.0`, `1.${lower}.0`],
+      [`${higher}.0.0`, `${lower}.0.0`],
+      [`1.0.${higher}`, `1.0.${lower}`],
+      [`1.0.0-${higher}`, `1.0.0-${lower}`],
+      ["1.0.0-999999999999999999999999", "1.0.0-100000000000000000000000"],
+    ] as const) {
+      expect(compareSemver(a, b)).toBe(1)
+      expect(compareSemver(b, a)).toBe(-1)
+    }
+    expect(compareSemver("1.0.0-9007199254740992.a", "1.0.0-9007199254740992.b")).toBe(-1)
+    // Treat the leading zeroes the existing prerelease regex accepts as the same numeric value.
+    expect(compareSemver("1.0.0-01.a", "1.0.0-1.b")).toBe(-1)
+  })
+
 })
 
 describe("app registry submit", () => {
@@ -119,6 +137,24 @@ describe("app registry submit", () => {
     expect((await decide("app_reviewer_1", rejected.body.submission.id, "reject", "the pane reads too much")).status).toBe(200)
     // A rejected version may be submitted again.
     expect((await submit("app_dev_erin", bundle("erin/clock", "1.3.0"))).status).toBe(201)
+  })
+
+  it("accepts and publishes a version beyond JavaScript's integer precision", async () => {
+    const app = "precision/pane"
+    const user = "app_dev_precision"
+    const lower = "1.9007199254740992.0"
+    const higher = "1.9007199254740993.0"
+    const first = await submit(user, bundle(app, lower))
+    expect(first.status).toBe(201)
+    expect((await decide("app_reviewer_1", first.body.submission.id, "approve")).status).toBe(200)
+    const next = await submit(user, bundle(app, higher))
+    expect(next.status).toBe(201)
+    expect((await decide("app_reviewer_2", next.body.submission.id, "approve")).status).toBe(200)
+    const versions = (await call("/apps/precision/pane")).body
+    expect(versions.latest).toBe(higher)
+    expect(versions.versions.map((v: any) => v.version)).toEqual([higher, lower])
+    const listing = (await call("/listings?query=precision")).body.listings
+    expect(listing).toEqual([expect.objectContaining({ app, version: higher })])
   })
 
   it("enforces the file count, the decoded size and safe paths", async () => {
