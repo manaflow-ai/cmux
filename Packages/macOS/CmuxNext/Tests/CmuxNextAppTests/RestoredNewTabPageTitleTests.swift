@@ -57,7 +57,7 @@ struct RestoredNewTabPageTitleTests {
         let file = FileManager.default.temporaryDirectory.appending(path: "unsent-drafts-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: file) }
         try JSONEncoder().encode([page.id: "fix the flaky upload test"]).write(to: file)
-        tabs.unsentDrafts = AgentUnsentDrafts(file: file)
+        tabs.unsentDrafts = AgentUnsentDrafts(file: file, work: nil)
         #expect(TabTitleResolver(agentTabs: tabs).title(page) == AgentChatTabTitle.untitled(page.agentSession))
         #expect(!SidebarBridge.newTabPages(tabs, in: store).contains(page.id))
     }

@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -152,16 +153,19 @@ struct AgentPaneStateFileTests {
         #expect((try? Data(contentsOf: url)) == Data("quit".utf8))
     }
 
-    @Test func unsentDraftsAndScrollPlacesSurviveAFreshStore() throws {
+    @Test func unsentDraftsAndScrollPlacesSurviveAFreshStore() async throws {
         let directory = try Self.directory()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let drafts = AgentUnsentDrafts(directory: directory)
+        let work = BackgroundWork(label: "test.agent-pane-state")
+        let drafts = AgentUnsentDrafts(directory: directory, work: work)
         drafts.set("first", for: "tab-1")
         drafts.set("second", for: "tab-1")
-        let relaunched = AgentUnsentDrafts(directory: directory)
+        await drafts.flushed()
+        let relaunched = AgentUnsentDrafts(directory: directory, work: work)
         #expect(relaunched.hasDraft("tab-1"))
-        let anchors = AgentPaneScrollAnchors(directory: directory)
+        let anchors = AgentPaneScrollAnchors(directory: directory, work: work)
         anchors.remember(AgentPaneScrollAnchor(rowId: "row-3", offset: 4), for: "s-1")
-        #expect(AgentPaneScrollAnchors(directory: directory).anchor(for: "s-1") == AgentPaneScrollAnchor(rowId: "row-3", offset: 4))
+        await anchors.flushed()
+        #expect(AgentPaneScrollAnchors(directory: directory, work: work).anchor(for: "s-1") == AgentPaneScrollAnchor(rowId: "row-3", offset: 4))
     }
 }

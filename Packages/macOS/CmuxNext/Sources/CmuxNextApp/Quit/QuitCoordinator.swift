@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
@@ -230,6 +231,8 @@ final class QuitCoordinator {
                 #if DEBUG || CMUX_BENCH_HOOKS
                 if self?.wedgesEngineStop == true { deadline.wedgeMainThread(self?.watchdog) }
                 #endif
+                // Persist accepted drafts and scroll places under the armed deadline, then drain blockShutdown work.
+                await AgentPanePersistenceQuit(drafts: services.agentTabs.unsentDrafts, anchors: AgentPaneScrollAnchors.shared, work: services.work).drain()
                 // An app quit closes every page without its beforeunload
                 // (`cmux_shim_close_all` answers any question with Leave).
                 await services.cache.cef.shutdown(timeout: QuitDeadline.engineCloseWait)

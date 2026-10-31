@@ -1,5 +1,7 @@
+import CmuxNextCompat
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -27,22 +29,69 @@ struct ChatScrollRestoreTests {
         }
 
         // This run: the reader scrolls chat s-1 up and it rests on row user-42.
-        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
+        await AgentPaneScrollAnchors.shared?.flushed()  // the last store\'s saves are on disk
+        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory, work: BackgroundWork(label: "test.scroll-anchors"))
         _ = try await Self.call("chat.scrollAnchor", ["sessionId": .string("s-1"), "rowId": .string("user-42"), "offset": .number(120.5)])
 
         // The next run (after kill -9 or a reboot) reads it back from disk for that chat only.
-        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
+        await AgentPaneScrollAnchors.shared?.flushed()  // the last store\'s saves are on disk
+        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory, work: BackgroundWork(label: "test.scroll-anchors"))
         let place = try await Self.call("chat.scrollAnchor.get", ["sessionId": .string("s-1")])
         #expect(place == .object(["rowId": .string("user-42"), "offset": .number(120.5)]))
         #expect(try await Self.call("chat.scrollAnchor.get", ["sessionId": .string("s-2")]) == .null)
 
         // Back at the latest message: the place is forgotten, so the chat opens following the reply.
         _ = try await Self.call("chat.scrollAnchor", ["sessionId": .string("s-1"), "rowId": .null, "offset": .number(0)])
-        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
+        await AgentPaneScrollAnchors.shared?.flushed()  // the last store\'s saves are on disk
+        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory, work: BackgroundWork(label: "test.scroll-anchors"))
         #expect(try await Self.call("chat.scrollAnchor.get", ["sessionId": .string("s-1")]) == .null)
+    }
+
+    /// #25852 (threading item 1, main-thread blocking): a settled scroll's save is encoded and written on the
+    /// files lane, never on the main thread.
+    @Test func aChatsPlaceIsSavedOffTheMainThread() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "scroll-anchors-main-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            AgentPaneScrollAnchors.shared = nil
+            try? FileManager.default.removeItem(at: directory)
+        }
+        // concurrency-allow: test recorder written by the lane thread, read after flushed() (lock carve-out).
+        let onMain = Mutex<[Bool]>([])
+        let anchors = AgentPaneScrollAnchors(directory: directory, work: BackgroundWork(label: "test.scroll-anchors")) { url, data in
+            onMain.withLock { $0.append(Thread.isMainThread) }
+            StateFileWriter.disk(url, data)
+        }
+        AgentPaneScrollAnchors.shared = anchors
+        _ = try await Self.call("chat.scrollAnchor", ["sessionId": .string("s-9"), "rowId": .string("user-1"), "offset": .number(4)])
+        await anchors.flushed()
+        #expect(onMain.withLock { $0 } == [false], "a place was written on the main thread")
     }
 
     @Test func anOpWithoutAChatIsRefused() async throws {
         await #expect(throws: PageError.self) { _ = try await Self.call("chat.scrollAnchor.get", [:]) }
+    }
+
+    @Test func bothPagePathsRefuseScrollSavesAfterTheFinalDrain() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "scroll-anchors-quit-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            AgentPaneScrollAnchors.shared = nil
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let work = BackgroundWork(label: "test.scroll-anchors-quit")
+        let anchors = AgentPaneScrollAnchors(directory: directory, work: work)
+        AgentPaneScrollAnchors.shared = anchors
+        _ = try await Self.call("chat.scrollAnchor", ["sessionId": .string("s-1"), "rowId": .string("before"), "offset": .number(4)])
+        await AgentPanePersistenceQuit(drafts: nil, anchors: anchors, work: work).drain()
+
+        await #expect(throws: PageError.closed) {
+            _ = try await Self.call("chat.scrollAnchor", ["sessionId": .string("s-1"), "rowId": .string("late-page"), "offset": .number(9)])
+        }
+        let late = try #require(AgentPaneBridge.chatPlaceReply(for: ["method": "chat.scrollAnchor", "params": ["sessionId": "s-1", "rowId": "late-bridge", "offset": 12]] as [String: Any]))
+        #expect(late["ok"] as? Bool == false, "WebKit must refuse the same late save as the page provider")
+        await work.shutdown() // drain the unfixed implementation before inspecting its disk state
+        let restored = AgentPaneScrollAnchors(directory: directory, work: work)
+        #expect(restored.anchor(for: "s-1") == AgentPaneScrollAnchor(rowId: "before", offset: 4))
     }
 }
