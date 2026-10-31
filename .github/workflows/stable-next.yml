@@ -23,9 +23,17 @@ name: cmux NEXT Stable
 #   smoke-26      the same UI tests on Blacksmith macOS 26 (the basic sanity on 26)
 #   soak          the build is still on the cmux NEXT feed, was never pulled, has no fail verdict,
 #                 and Sentry saw no new unhandled issue first seen in its release
-# Signing and notarization stay on Blacksmith macOS 26 like the nightly's: the Developer ID
-# certificate, notary key and Sparkle key never reach an owned Mac. No job here uses an M6 mini:
-# owned macOS jobs take CI_SIDE_LANE_RUNNER (the std class, M4 Pro) and refuse any other chip.
+# Runners (no M6 mini; every owned macOS job also refuses an M6 chip at its first step):
+#   swift-suites, perf-budgets  vars.CI_COMPILE_CHECK_GATEWAY (glaeda-gateway: M4 Pro minis that only
+#                 submit fleet steps and stream them; the work runs on macos-27 + ram48 fleet workers)
+#   smoke-27      attempt 1: glaeda-gui-std (the owned M4 Pro GUI pool with a console session that
+#                 cmux-next's own UI suites use); a re-run (the owned-pool rescue) takes Blacksmith,
+#                 where its macOS 27 check fails it, and the next hourly tick starts a fresh run
+#   sign          a publish run: Blacksmith macOS 26, so the Developer ID certificate, notary key and
+#                 Sparkle key never reach an owned Mac; a dry run (ad hoc, no secret): the GUI pool
+#                 on attempt 1, else Blacksmith
+#   smoke-26      Blacksmith macOS 26
+# The std side lane (CI_SIDE_LANE_RUNNER) is not used: PR side lanes fill it (54 queued on 2026-10-31).
 #
 # This workflow adds no job to any push, pull request or nightly run (repo rule: no new gates there).
 # It runs only on its schedule, a dispatch, or a push to the stable-next-dry-run branch. A dry run
@@ -118,6 +126,14 @@ jobs:
           NIGHT_START: ${{ steps.window.outputs.night_start }}
         run: |
           set -euo pipefail
+          # A run whose jobs still wait for a runner 90 minutes after it started (an owned pool or the
+          # Blacksmith macOS lane not taking jobs) is cancelled, so it never holds the night; the next
+          # hourly tick dispatches a fresh run once the cancel has landed.
+          for id in $(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/stable-next.yml/runs?branch=nightly-next&status=queued&per_page=20" \
+              --jq "[.workflow_runs[] | select((now - (.run_started_at | fromdateiso8601)) > 5400) | .id] | .[]"); do
+            echo "::warning title=cmux NEXT Stable::run $id still waits for runners after 90 min; cancelling it"
+            gh run cancel "$id" -R "$GITHUB_REPOSITORY" || true
+          done
           runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/stable-next.yml/runs?branch=nightly-next&event=workflow_dispatch&created=%3E%3D$NIGHT_START&per_page=50" \
             --jq '[.workflow_runs[] | .status + ":" + (.conclusion // "")]')"
           active="$(jq '[.[] | select(startswith("completed") | not)] | length' <<<"$runs")"
@@ -289,7 +305,7 @@ jobs:
   swift-suites:
     needs: plan
     if: needs.plan.outputs.go == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_SIDE_LANE_RUNNER || 'glaeda-side-std-xcode-26.6' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_COMPILE_CHECK_GATEWAY || 'glaeda-gateway-xcode-26.6' }}
     # Two attempts of at most 2 h each plus 1 h queue each.
     timeout-minutes: 380
     permissions: {}
@@ -357,7 +373,7 @@ jobs:
   perf-budgets:
     needs: plan
     if: needs.plan.outputs.go == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_SIDE_LANE_RUNNER || 'glaeda-side-std-xcode-26.6' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_COMPILE_CHECK_GATEWAY || 'glaeda-gateway-xcode-26.6' }}
     timeout-minutes: 300
     permissions: {}
     steps:
@@ -389,7 +405,7 @@ jobs:
     if: needs.plan.outputs.go == 'true'
     # Publish runs sign with the release-next secrets; a dry run signs ad hoc with none.
     environment: ${{ github.ref == 'refs/heads/nightly-next' && github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' && 'release-next' || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.ref == 'refs/heads/nightly-next' && github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' && (vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') || github.run_attempt == 1 && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 180
     permissions:
       contents: read
@@ -554,7 +570,7 @@ jobs:
   smoke-27:
     needs: [plan, sign]
     if: needs.plan.outputs.go == 'true' && needs.sign.result == 'success'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_SIDE_LANE_RUNNER || 'glaeda-side-std-xcode-26.6' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     permissions:
       contents: read
