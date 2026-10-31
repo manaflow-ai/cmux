@@ -289,7 +289,7 @@ class SidebarItemRowView: NSView {
         }
         title.font = SidebarStyle.titleFont
         if style.isIconOnly {
-            let dot = SidebarStyle.dotSize
+            let dot = SidebarStyle.unreadDotSize
             badge.frame = NSRect(x: iconFrame.maxX - dot / 2, y: iconFrame.minY - dot / 2, width: dot, height: dot)
             title.frame = .zero
             return
@@ -360,7 +360,7 @@ class SidebarItemRowView: NSView {
         // The caption takes the tile's full width: a tile is narrow, and the
         // tiles' gap already separates neighboring captions.
         title.frame = NSRect(x: 0, y: wellFrame.maxY + Metrics.space1, width: b.width, height: th)
-        let dot = SidebarStyle.dotSize
+        let dot = SidebarStyle.unreadDotSize
         badge.frame = NSRect(x: wellFrame.maxX - dot / 2 - 1, y: wellFrame.minY - dot / 2 + 1, width: dot, height: dot)
         layoutActivity(onGlyph: wellFrame)
     }
