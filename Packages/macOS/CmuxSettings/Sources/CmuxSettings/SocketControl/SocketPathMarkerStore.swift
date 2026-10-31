@@ -46,10 +46,15 @@ public final class SocketPathMarkerStore: @unchecked Sendable {
 
     /// Records a live socket path in the current variant's marker files.
     ///
+    /// A marker that already holds exactly this payload is left in place. The
+    /// listener restarts on every wake with the same path, and the atomic
+    /// rewrite (directory create, protected temporary file, rename) ran on the
+    /// main thread each time (Sentry CMUXTERM-MACOS-3YNW).
+    ///
     /// - Parameter path: Absolute socket path to publish.
     public func record(_ path: String) {
         let payload = Data((path + "\n").utf8)
-        for filePath in markerPaths() {
+        for filePath in markerPaths() where !markerHolds(payload, at: filePath) {
             writeMarker(payload, to: filePath)
         }
     }
@@ -135,6 +140,20 @@ public final class SocketPathMarkerStore: @unchecked Sendable {
             return nil
         }
         return value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func markerHolds(_ payload: Data, at path: String) -> Bool {
+        guard payload.count <= Self.maximumMarkerBytes,
+              regularMarkerIdentity(at: path) != nil,
+              let handle = FileHandle(forReadingAtPath: path)
+        else {
+            return false
+        }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: Self.maximumMarkerBytes + 1) else {
+            return false
+        }
+        return data == payload
     }
 
     private func writeMarker(_ payload: Data, to path: String) {

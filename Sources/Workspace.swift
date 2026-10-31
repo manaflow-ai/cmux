@@ -517,7 +517,9 @@ extension Workspace {
                             panelId: panelId
                         )
                     }
-                    invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
+                    if invalidatedRestoredAgentFingerprintsByPanelId[panelId] != nil {
+                        invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
+                    }
                 }
             }
         }

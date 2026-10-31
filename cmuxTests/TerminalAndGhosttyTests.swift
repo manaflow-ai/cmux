@@ -5319,6 +5319,91 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         XCTAssertTrue(state.isHidden)
     }
 
+    /// Repeated attaches preserve visible state; real changes still apply.
+    func testRepeatedSurfaceAttachPreservesGeometryBackgroundAndBadge() async throws {
+        let surface = makeTrackedTerminalSurface()
+        let hostedView = surface.hostedView
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let contentView = try XCTUnwrap(window.contentView)
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+        hostedView.setVisibleInUI(true)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+
+        // Runtime creation is asynchronous in the app host. Until it exists the
+        // attach is not a re-attach and must keep running the geometry pass.
+        guard waitUntil(timeout: 8, description: "live runtime surface", { surface.surface != nil }) else {
+            return
+        }
+
+        // Settle: the first attaches bind the runtime surface and apply the
+        // initial fill and badge state.
+        hostedView.attachSurface(surface)
+        hostedView.attachSurface(surface)
+        XCTAssertTrue(
+            surface.isAttached(to: hostedView.surfaceView),
+            "The hosted surface must own a live runtime surface for this test"
+        )
+
+        let initialFrame = hostedView.surfaceView.frame
+        let initialBackground = hostedView.backgroundView.layer?.backgroundColor
+        let diagnostics = MobileHostDiagnostics.log
+        let unchangedMarker = UInt64.random(in: 1...UInt64.max)
+        let changedMarker = UInt64.random(in: 1...UInt64.max)
+
+        func recordDiagnosticMarker(_ traceID: UInt64) async {
+            let target = await diagnostics.processedCount() + 1
+            diagnostics.record(DiagnosticEvent(.error, traceID: traceID))
+            while await diagnostics.processedCount() < target {
+                await Task.yield()
+            }
+        }
+
+        await recordDiagnosticMarker(unchangedMarker)
+        for _ in 0..<5 {
+            hostedView.attachSurface(surface)
+            hostedView.syncKeyStateIndicator(text: surface.currentKeyStateIndicatorText)
+        }
+        XCTAssertEqual(hostedView.surfaceView.frame, initialFrame)
+        XCTAssertEqual(hostedView.backgroundView.layer?.backgroundColor, initialBackground)
+
+        hostedView.syncKeyStateIndicator(text: "copy")
+        hostedView.syncKeyStateIndicator(text: "copy")
+        XCTAssertEqual(hostedView.keyboardCopyModeBadgeLabel.stringValue, "copy")
+
+        hostedView.setBackgroundColor(.systemRed)
+        hostedView.setBackgroundColor(.systemRed)
+        XCTAssertEqual(hostedView.backgroundView.layer?.backgroundColor, NSColor.systemRed.cgColor)
+
+        hostedView.frame.size.width -= 40
+        hostedView.attachSurface(surface)
+        XCTAssertLessThan(hostedView.surfaceView.frame.width, initialFrame.width)
+        await recordDiagnosticMarker(changedMarker)
+
+        let events = await diagnostics.snapshot().events
+        let startIndex = try XCTUnwrap(events.firstIndex { $0.traceID == unchangedMarker })
+        let endIndex = try XCTUnwrap(events.firstIndex { $0.traceID == changedMarker })
+        let interval = events[(startIndex + 1)..<endIndex]
+        let layoutPasses = interval.filter {
+            $0.code == .terminalWorkStarted && $0.terminalWork?.phase == .layout
+        }
+        XCTAssertEqual(
+            layoutPasses.count,
+            1,
+            "unchanged attachments must skip geometry work; the width change must run one geometry pass"
+        )
+    }
+
     func testPreferredScrollerStyleChangePreservesSystemScrollbarStyle() {
         let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView

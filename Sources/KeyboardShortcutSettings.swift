@@ -2148,8 +2148,13 @@ struct ShortcutStroke: Equatable, Hashable {
         return modifiers
     }
 
+    func resolvedKeyCode() -> UInt16? {
+        if let keyCode { return keyCode }
+        return resolvedKeyCode(layoutCharacterProvider: KeyboardLayout.shortcutCharacterResolver())
+    }
+
     func resolvedKeyCode(
-        layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
+        layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String?
     ) -> UInt16? {
         if let keyCode {
             return keyCode
@@ -2175,7 +2180,7 @@ struct ShortcutStroke: Equatable, Hashable {
     }
 
     var carbonHotKeyRegistration: CarbonHotKeyRegistration? {
-        guard let keyCode = resolvedKeyCode() else { return nil }
+        guard let keyCode = keyCode ?? resolvedKeyCode() else { return nil }
         return CarbonHotKeyRegistration(keyCode: UInt32(keyCode), modifiers: carbonModifiers)
     }
 

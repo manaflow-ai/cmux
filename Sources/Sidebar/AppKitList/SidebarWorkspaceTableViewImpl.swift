@@ -12,6 +12,7 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
     private var pointerTrackingArea: NSTrackingArea?
     private(set) var lastPointerWindowLocation: NSPoint?
 
+
     /// Pointer location for hover recomputes that no event drove (content
     /// applies, menu close, viewport changes). Tracking events stop while a
     /// context menu or drag session runs, so the cached point can be where

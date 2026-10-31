@@ -1,6 +1,7 @@
 import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
+import Observation
 import CmuxTerminal
 import Testing
 #if canImport(cmux_DEV)
@@ -1153,6 +1154,30 @@ struct SurfaceCatalogTests {
         let secondLaunch = SurfaceCatalog(live: live)
         secondLaunch.restore(catalog.projectionRecords(forWorkspace: workspace), workspaceID: workspace)
         #expect(secondLaunch.projectionRecords(forWorkspace: workspace) == [record])
+    }
+
+    @Test("Session snapshots read pending restored projections without publishing a change")
+    func snapshotReadOfPendingProjectionsIsNotObservableMutation() {
+        let machine = SurfaceMachineID.device(SurfaceDeviceInstanceID(deviceID: UUID().uuidString, tag: "restore-read"))
+        let catalog = SurfaceCatalog(live: live)
+        let workspace = live.id()
+        let record = SurfaceProjectionRecord(
+            panelID: UUID(), resource: SurfaceResourceID(machine: machine, kind: .terminal, key: UUID().uuidString)
+        )
+        catalog.restore([record], workspaceID: workspace)
+        #expect(catalog.projectionRecords(forWorkspace: workspace) == [record])
+
+        final class Flag: @unchecked Sendable { var fired = false }
+        let changed = Flag()
+        withObservationTracking {
+            _ = catalog.pendingRestoredProjections
+        } onChange: {
+            changed.fired = true
+        }
+        for _ in 0..<3 {
+            #expect(catalog.projectionRecords(forWorkspace: workspace) == [record])
+        }
+        #expect(!changed.fired)
     }
 
     @Test("A disconnected Mac keeps the left-sidebar computer provenance until the projection is removed")

@@ -53,4 +53,38 @@ import Testing
 
         #expect(FileManager.default.fileExists(atPath: markerPath))
     }
+
+    @Test func recordingTheSamePathLeavesExistingMarkersInPlace() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-marker-rerecord-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = SocketPathMarkerStore(
+            bundleIdentifier: SocketPathMarkerFiles.stableBundleIdentifier,
+            environment: [:],
+            stateDirectory: root.appendingPathComponent("state", isDirectory: true),
+            legacyDirectory: root.appendingPathComponent("legacy", isDirectory: true),
+            tmpMarkerPath: root.appendingPathComponent("tmp-marker").path
+        )
+        let socketPath = "/tmp/cmux-marker-rerecord.sock"
+        store.record(socketPath)
+        let firstInodes = try store.markerPaths().map(inode(at:))
+
+        // A listener restart (e.g. after wake) publishes the same path again.
+        store.record(socketPath)
+        #expect(try store.markerPaths().map(inode(at:)) == firstInodes)
+
+        // A different path still rewrites every marker.
+        let otherPath = "/tmp/cmux-marker-rerecord-other.sock"
+        store.record(otherPath)
+        for markerPath in store.markerPaths() {
+            #expect(try String(contentsOfFile: markerPath, encoding: .utf8) == otherPath + "\n")
+        }
+        #expect(try store.markerPaths().map(inode(at:)) != firstInodes)
+    }
+
+    private func inode(at path: String) throws -> UInt64 {
+        let attributes = try FileManager.default.attributesOfItem(atPath: path)
+        return try #require((attributes[.systemFileNumber] as? NSNumber)?.uint64Value)
+    }
 }

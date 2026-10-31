@@ -61,6 +61,15 @@ public final class WorkstreamStore {
     /// carries forward prompt/preamble context from nearby telemetry rows.
     private var lastContextByWorkstream: [String: WorkstreamContext] = [:]
 
+    /// Request identity index for ``ingestReturningItem(_:)``: the absolute
+    /// sequence of the newest live item carrying each actionable request ID.
+    /// `items[sequence - itemSequenceBase]` is that item. Retries look the
+    /// identity up here instead of scanning the whole ring on the main actor.
+    private var requestItemSequences: [String: Int] = [:]
+    /// Absolute sequence of `items[0]`. Ring eviction moves it forward and a
+    /// prepended history page moves it back, so stored sequences stay valid.
+    private var itemSequenceBase = 0
+
     /// Creates a store for Feed workstream items.
     ///
     /// - Parameters:
@@ -121,6 +130,7 @@ public final class WorkstreamStore {
             revision = (try? await persistence.loadRevision()) ?? 0
             if let loaded = try? await persistence.loadLatest(limit: min(initialLoadLimit, ringCapacity)) {
                 items = loaded.map(normalizedWorkstreamItem)
+                rebuildRequestIndex()
                 if let page = try? await persistence.loadPage(limit: min(initialLoadLimit, ringCapacity)) {
                     hasMorePersistedItems = page.hasMoreBefore
                     oldestLoadedPersistenceOffset = page.startOffset
@@ -169,6 +179,14 @@ public final class WorkstreamStore {
         }
         if !olderItems.isEmpty {
             items.insert(contentsOf: olderItems, at: 0)
+            itemSequenceBase -= olderItems.count
+            // Live entries already name newer items; an older page only
+            // fills identities that are absent, newest first.
+            for (offset, item) in olderItems.enumerated().reversed() {
+                guard let requestID = item.payload.requestID, !requestID.isEmpty,
+                      requestItemSequences[requestID] == nil else { continue }
+                requestItemSequences[requestID] = itemSequenceBase + offset
+            }
         }
         self.oldestLoadedPersistenceOffset = page.startOffset ?? oldestLoadedPersistenceOffset
         hasMorePersistedItems = page.hasMoreBefore
@@ -287,9 +305,37 @@ public final class WorkstreamStore {
 
     private func insert(_ item: WorkstreamItem) {
         items.append(item)
+        if let requestID = item.payload.requestID, !requestID.isEmpty {
+            requestItemSequences[requestID] = itemSequenceBase + items.count - 1
+        }
         if items.count > ringCapacity {
             let overflow = items.count - ringCapacity
+            for (offset, evicted) in items.prefix(overflow).enumerated() {
+                guard let requestID = evicted.payload.requestID,
+                      requestItemSequences[requestID] == itemSequenceBase + offset else { continue }
+                requestItemSequences.removeValue(forKey: requestID)
+            }
             items.removeFirst(overflow)
+            itemSequenceBase += overflow
+        }
+    }
+
+    /// The newest live item carrying `requestID`, in O(1).
+    func latestItem(forRequestID requestID: String) -> WorkstreamItem? {
+        guard let sequence = requestItemSequences[requestID] else { return nil }
+        let index = sequence - itemSequenceBase
+        guard items.indices.contains(index), items[index].payload.requestID == requestID else {
+            return nil
+        }
+        return items[index]
+    }
+
+    private func rebuildRequestIndex() {
+        itemSequenceBase = 0
+        requestItemSequences.removeAll(keepingCapacity: true)
+        for (index, item) in items.enumerated() {
+            guard let requestID = item.payload.requestID, !requestID.isEmpty else { continue }
+            requestItemSequences[requestID] = index
         }
     }
 

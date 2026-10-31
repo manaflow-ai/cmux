@@ -107,7 +107,7 @@ struct CloudWelcomeMediaCarousel: View {
     private static let dotSize: CGFloat = 6
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var duration: Double = fallbackDuration
+    @State private var duration: Double?
     @State private var durationLoadFailed = false
     @State private var isHoveringMedia = false
     @State private var hoveredRow: String?
@@ -520,8 +520,8 @@ struct CloudWelcomeMediaCarousel: View {
     /// what is on screen; the wall clock for a GIF or a placeholder.
     private func progress(at date: Date) -> Double {
         if reduceMotion || !autoplays { return 1 }
-        if let fraction = playback.fraction(at: date) { return fraction }
-        return min(playback.elapsed(at: date) / max(duration, 0.1), 1)
+        if let fraction = playback.fraction(at: date, duration: duration) { return fraction }
+        return min(playback.elapsed(at: date) / max(duration ?? Self.fallbackDuration, 0.1), 1)
     }
 
     // MARK: Caption
@@ -547,7 +547,7 @@ struct CloudWelcomeMediaCarousel: View {
         let slide: String
         let revision: Int
         let isPaused: Bool
-        let duration: Double
+        let duration: Double?
         let movieFailed: Bool
     }
 
@@ -591,7 +591,7 @@ struct CloudWelcomeMediaCarousel: View {
         let slideID = currentSlide.id
         let slideIndex = index
         let revision = playback.revision
-        let remaining = duration - playback.elapsed(at: Date())
+        let remaining = (duration ?? Self.fallbackDuration) - playback.elapsed(at: Date())
         if remaining > 0 {
             guard await playback.waitForAdvance(after: remaining) else { return }
         }
@@ -616,7 +616,7 @@ struct CloudWelcomeMediaCarousel: View {
 
     /// The slide stays up for one play of its clip.
     private func loadDuration() async {
-        duration = Self.fallbackDuration
+        duration = nil
         durationLoadFailed = false
         guard let url = mediaURL(currentSlide) else { return }
         if url.pathExtension.lowercased() == "gif" {
@@ -893,9 +893,6 @@ extension CloudWelcomeMediaCarousel {
         /// thread for seconds inside a TimelineView body.
         private(set) var playhead: Playhead?
         @ObservationIgnored private var playheadObservation: CloudWelcomePlayheadObservation?
-        /// Every looped item shares the template's duration, so it is read from
-        /// the player only until it is known, never on each loop wrap.
-        @ObservationIgnored private var movieDuration: Double?
         private(set) var index = 0
         private var manuallyPaused = false
         private var reduceMotion = false
@@ -970,7 +967,6 @@ extension CloudWelcomeMediaCarousel {
             playheadObservation?.cancel()
             playheadObservation = nil
             playhead = nil
-            movieDuration = nil
         }
 
         /// AVFoundation calls back on the main queue a few times a second and
@@ -978,7 +974,6 @@ extension CloudWelcomeMediaCarousel {
         private func observePlayhead(of player: AVPlayer) {
             playheadObservation?.cancel()
             playhead = nil
-            movieDuration = nil
             let interval = CMTime(seconds: Self.playheadSampleInterval, preferredTimescale: 600)
             let observed = ObjectIdentifier(player)
             let token = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
@@ -986,11 +981,8 @@ extension CloudWelcomeMediaCarousel {
                 MainActor.assumeIsolated {
                     guard let self, let player = self.player, ObjectIdentifier(player) == observed else { return }
                     let rate = player.timeControlStatus == .playing ? Double(player.rate) : 0
-                    let duration = self.movieDuration ?? player.currentItem?.duration.seconds ?? .nan
-                    if duration.isFinite, duration > 0 { self.movieDuration = duration }
                     self.recordPlayhead(
                         seconds: time.seconds,
-                        duration: duration,
                         rate: rate,
                         at: Date()
                     )
@@ -1002,12 +994,12 @@ extension CloudWelcomeMediaCarousel {
         static let playheadSampleInterval: Double = 0.25
 
         /// Stores one playhead sample; the pager extrapolates between samples.
-        func recordPlayhead(seconds: Double, duration: Double, rate: Double, at date: Date) {
-            guard seconds.isFinite, duration.isFinite, duration > 0 else {
+        func recordPlayhead(seconds: Double, rate: Double, at date: Date) {
+            guard seconds.isFinite, rate.isFinite else {
                 playhead = nil
                 return
             }
-            playhead = Playhead(seconds: seconds, duration: duration, rate: rate, sampledAt: date)
+            playhead = Playhead(seconds: seconds, rate: rate, sampledAt: date)
         }
 
         func didFinish(_ candidate: AVPlayer) {
@@ -1089,9 +1081,9 @@ extension CloudWelcomeMediaCarousel {
 
         /// How far through its current play the movie is, or nil without one.
         /// Reads only the cached sample, never the player.
-        func fraction(at date: Date) -> Double? {
-            guard player != nil else { return nil }
-            return playhead?.fraction(at: date)
+        func fraction(at date: Date, duration: Double?) -> Double? {
+            guard player != nil, let duration, duration.isFinite, duration > 0 else { return nil }
+            return playhead?.fraction(at: date, duration: duration)
         }
     }
 
@@ -1099,11 +1091,10 @@ extension CloudWelcomeMediaCarousel {
     /// rate the movie was playing when it was taken.
     struct Playhead: Equatable {
         let seconds: Double
-        let duration: Double
         let rate: Double
         let sampledAt: Date
 
-        func fraction(at date: Date) -> Double {
+        func fraction(at date: Date, duration: Double) -> Double {
             let now = seconds + max(date.timeIntervalSince(sampledAt), 0) * rate
             return min(max(now / duration, 0), 1)
         }
@@ -1111,9 +1102,7 @@ extension CloudWelcomeMediaCarousel {
 }
 
 /// Owns a periodic playhead observer and removes it when the playback model
-/// moves to another movie or is released. It keeps the player alive until
-/// then: AVFoundation requires every periodic observer to be removed from the
-/// player that added it.
+/// moves to another movie or is released.
 private final class CloudWelcomePlayheadObservation {
     private let player: AVPlayer
     private var token: Any?

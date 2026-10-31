@@ -1,4 +1,5 @@
 import AppKit
+import ObjectiveC.runtime
 import CmuxFoundation
 import CmuxNotifications
 import SwiftUI
@@ -9,6 +10,34 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+@MainActor
+private enum SidebarTableHeightNoteProbe {
+    static var callback: ((NSTableView, IndexSet) -> Void)?
+    private static var installed = false
+
+    static func install() {
+        guard !installed,
+              let original = class_getInstanceMethod(
+                  NSTableView.self,
+                  #selector(NSTableView.noteHeightOfRows(withIndexesChanged:))
+              ),
+              let replacement = class_getInstanceMethod(
+                  NSTableView.self,
+                  #selector(NSTableView.cmuxTest_noteHeightOfRows(withIndexesChanged:))
+              ) else { return }
+        method_exchangeImplementations(original, replacement)
+        installed = true
+    }
+}
+
+private extension NSTableView {
+    @objc func cmuxTest_noteHeightOfRows(withIndexesChanged indexSet: IndexSet) {
+        SidebarTableHeightNoteProbe.callback?(self, indexSet)
+        // Swizzling makes this selector invoke AppKit's original implementation.
+        cmuxTest_noteHeightOfRows(withIndexesChanged: indexSet)
+    }
+}
 
 @Suite(.serialized)
 struct SidebarWorkspaceTableTests {
@@ -1780,6 +1809,107 @@ struct SidebarWorkspaceTableTests {
             AnyView(TestRowContent(token: contentToken, fixedHeight: fixedHeight))
         }
     }
+
+#if DEBUG
+    /// https://github.com/manaflow-ai/cmux/issues/22706: creating or closing a
+    /// workspace repaints every row (`accessibilityWorkspaceCount`) without
+    /// changing any height. Noting every repainted row made NSTableView
+    /// recompute its spans and resize, walking all loaded row views.
+    @Test
+    @MainActor
+    func listWideRepaintPreservesHeightsUntilContentChanges() async throws {
+        let environment = SidebarWorkspaceTableEnvironmentSnapshot(
+            colorScheme: .light,
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+        let workspaceIds = (0..<6).map { _ in UUID() }
+        let baseModels = workspaceIds.map {
+            SidebarWorkspaceRowSuspensionTests.makeModel(customDescription: "short", workspaceId: $0)
+        }
+        let longModel = SidebarWorkspaceRowSuspensionTests.makeModel(
+            customDescription: String(repeating: "a description long enough to wrap ", count: 8),
+            workspaceId: workspaceIds[2]
+        )
+        func makeRows(workspaceCount: Int, longDescriptionAt longIndex: Int? = nil) -> [SidebarWorkspaceTableRowConfiguration] {
+            (0..<6).map { index in
+                var model = index == longIndex ? longModel : baseModels[index]
+                model.index = index
+                model.isFirstRow = index == 0
+                model.accessibilityWorkspaceCount = workspaceCount
+                return SidebarWorkspaceTableRowConfiguration(
+                    workspaceRowModel: model,
+                    actions: SidebarWorkspaceRowSuspensionTests.makeActions(model: model),
+                    groupId: nil,
+                    isPinned: false,
+                    environment: environment
+                )
+            }
+        }
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 900),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer { window.close() }
+        // Size the clip view before the first apply, or that apply measures at
+        // width 0 and serves estimates; the first real-width pass would then
+        // note every row for a genuine estimate-to-measured height change.
+        container.layoutSubtreeIfNeeded()
+        controller.apply(
+            rows: makeRows(workspaceCount: 6),
+            actions: makeTableActions(),
+            workspaceIds: workspaceIds,
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        controller.performWidthRemeasureNow()
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+
+        SidebarTableHeightNoteProbe.install()
+        var noted = IndexSet()
+        SidebarTableHeightNoteProbe.callback = { table, indexes in
+            guard table === container.tableView else { return }
+            noted.formUnion(indexes)
+        }
+        defer { SidebarTableHeightNoteProbe.callback = nil }
+
+        let originalHeights = (0..<6).map { container.tableView.rect(ofRow: $0).height }
+        controller.apply(
+            rows: makeRows(workspaceCount: 7),
+            actions: makeTableActions(),
+            workspaceIds: workspaceIds,
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        #expect(noted.isEmpty)
+        #expect((0..<6).map { container.tableView.rect(ofRow: $0).height } == originalHeights)
+
+        noted.removeAll()
+        controller.apply(
+            rows: makeRows(workspaceCount: 7, longDescriptionAt: 2),
+            actions: makeTableActions(),
+            workspaceIds: workspaceIds,
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        #expect(noted == IndexSet(integer: 2))
+        let updatedHeights = (0..<6).map { container.tableView.rect(ofRow: $0).height }
+        #expect(updatedHeights[2] > originalHeights[2])
+        for row in [0, 1, 3, 4, 5] {
+            #expect(updatedHeights[row] == originalHeights[row])
+        }
+    }
+#endif
 
     @MainActor
     private func flushStagedTableMutations() async {

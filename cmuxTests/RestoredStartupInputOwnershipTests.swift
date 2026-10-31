@@ -1,6 +1,7 @@
 import CmuxWorkspaces
 import Combine
 import Foundation
+import Observation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -265,4 +266,46 @@ private final class RestoredStartupInputTransferTestPanel: Panel {
     func focus() {}
     func unfocus() {}
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {}
+}
+
+/// Session autosave reapplies each restored agent's current snapshot and resume
+/// state. Reapplying an unchanged value must not publish a change, or every
+/// autosave invalidates the SwiftUI views observing the lifecycle.
+@MainActor
+@Suite("Restored agent lifecycle unchanged writes")
+struct RestoredAgentLifecycleUnchangedWriteTests {
+    private final class Flag: @unchecked Sendable { var fired = false }
+
+    @Test("Reapplying the same snapshot and resume state publishes nothing")
+    func reapplyingUnchangedStateIsNotObservable() {
+        let panelId = UUID()
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "unchanged-\(UUID().uuidString)",
+            workingDirectory: "/tmp/cmux-restored-agent",
+            launchCommand: nil
+        )
+        let coordinator = RestoredAgentLifecycleCoordinator(dateProvider: { 1_788_868_000 })
+        coordinator.setSnapshot(snapshot, panelId: panelId)
+        coordinator.setResumeState(.manualResumeAvailable, panelId: panelId)
+
+        let changed = Flag()
+        withObservationTracking {
+            _ = coordinator.snapshotsByPanelId
+            _ = coordinator.resumeStatesByPanelId
+        } onChange: {
+            changed.fired = true
+        }
+        for _ in 0..<3 {
+            coordinator.setSnapshot(snapshot, panelId: panelId)
+            coordinator.setResumeState(.manualResumeAvailable, panelId: panelId)
+        }
+        #expect(!changed.fired)
+        #expect(coordinator.snapshotsByPanelId[panelId] == snapshot)
+
+        var renamed = snapshot
+        renamed.sessionId = "changed-\(UUID().uuidString)"
+        coordinator.setSnapshot(renamed, panelId: panelId)
+        #expect(changed.fired)
+    }
 }
