@@ -6,7 +6,7 @@
 //! size fed `vt_replay_bytes()` (the attach primitive) must show the same
 //! viewport text and cursor as the terminal.
 
-use ghostty_vt::{Callbacks, Terminal};
+use ghostty_vt::{Callbacks, SnapshotPhase, Terminal, reencode_ready};
 
 const SCROLLBACK: usize = 1 << 20;
 
@@ -146,4 +146,47 @@ fn e2_shrink() {
         }
     }
     panic!("E2 minimal stream ({} atoms) from 20x5: {shown}", atoms.len());
+}
+
+/// The snapshot path (`terminal-snapshot-v1`, what the macOS app uses when
+/// its GHOSTSNP version matches the host's): a COMPLETE snapshot restored
+/// into a fresh terminal must encode the same READY as the source. `None`
+/// when they match after every op; else the first op where they differ.
+fn snapshot_difference(start: (u16, u16), ops: &[Op]) -> Option<String> {
+    let mut term = Terminal::new(start.0, start.1, SCROLLBACK, Callbacks::default()).unwrap();
+    for (index, op) in ops.iter().enumerate() {
+        match op {
+            Op::Write(bytes) => term.vt_write(bytes),
+            Op::Resize(cols, rows) => term.resize(*cols, *rows, 8, 16).unwrap(),
+        }
+        let ready = term.encode_snapshot(SnapshotPhase::Ready).unwrap();
+        let complete = term.encode_snapshot(SnapshotPhase::Complete).unwrap();
+        let restored = reencode_ready(&complete).unwrap();
+        if restored != ready {
+            return Some(format!(
+                "step {index} at {}x{}: the restored READY ({} bytes) differs from the source READY ({} bytes)",
+                term.cols(),
+                term.rows(),
+                restored.len(),
+                ready.len()
+            ));
+        }
+    }
+    None
+}
+
+/// Probe: does E1 also break the snapshot path? Red here means the app's
+/// GHOSTSNP attach has the fault too; green means only the byte replay has it.
+#[test]
+fn e1_snapshot_path_probe() {
+    let ops = [Op::Write(b"00 0A0a  0A0AA AaAA0a"), Op::Write(b"\x1b[?7l")];
+    let difference = snapshot_difference((20, 5), &ops);
+    assert!(difference.is_none(), "E1 snapshot path: {}", difference.unwrap_or_default());
+}
+
+/// Probe: does E2 also break the snapshot path?
+#[test]
+fn e2_snapshot_path_probe() {
+    let difference = snapshot_difference((20, 5), &e2_ops());
+    assert!(difference.is_none(), "E2 snapshot path: {}", difference.unwrap_or_default());
 }
