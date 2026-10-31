@@ -100,6 +100,11 @@ pub const CAPABILITY: &str = "apps-v1";
 /// advertised with [`CAPABILITY`].
 pub const CANCEL_REQUEST_CAPABILITY: &str = "cancel-request-v1";
 
+/// The supervisor's sink id for the daemon event stream: no control
+/// connection has it (their ids count up from 1), so no disconnect removes it.
+#[cfg(unix)]
+const MUX_EVENTS_SINK: u64 = u64::MAX;
+
 /// The supervisor of one daemon, created on the first `apps-*` command.
 #[derive(Default)]
 pub(crate) struct AppsSlot {
@@ -119,7 +124,7 @@ impl AppsSlot {
                     .ok()
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(60);
-                Supervisor::new(
+                let supervisor = Supervisor::new(
                     supervisor::Config {
                         sources: catalog::Sources::from_env(state_dir.as_deref()),
                         state_dir,
@@ -132,7 +137,24 @@ impl AppsSlot {
                     },
                     Box::new(routing::MuxRouter::new(mux)),
                     Box::new(egress::HttpFetcher),
-                )
+                );
+                // A page relay calls the store through the v2 page router,
+                // which makes it no apps client: it hears `apps-changed`
+                // from `subscribe` (page-router.json `events`), so the open
+                // App Store page re-reads after an install made elsewhere.
+                let events = Arc::downgrade(mux);
+                supervisor.register_client(
+                    MUX_EVENTS_SINK,
+                    Arc::new(move |event: &serde_json::Value| {
+                        if event["event"] == "apps-changed"
+                            && let Some(mux) = events.upgrade()
+                        {
+                            mux.emit(crate::MuxEvent::AppsChanged(Arc::new(event.clone())));
+                        }
+                        true
+                    }),
+                );
+                supervisor
             })
             .clone()
     }
