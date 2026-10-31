@@ -455,13 +455,15 @@ export function ThreadMinimap({
           return box.top - node.getBoundingClientRect().top - LANDING_OFFSET;
         },
         SETTLE_FRAMES,
+        { explicit: true },
       );
     if (how === "scrub" || how === "click" || !row || reducedMotion()) {
       stopScroll(node);
       node.scrollTop = to;
       if (how !== "scrub") settle();
-    } else if (how === "step") animateScroll(node, target, STEP_MS, STEP_CURVE, settle);
-    else animateScroll(node, target, jumpDuration(to - node.scrollTop), JUMP_CURVE, settle);
+    } else if (how === "step") animateScroll(node, target, STEP_MS, STEP_CURVE, settle, undefined, { explicit: true });
+    else
+      animateScroll(node, target, jumpDuration(to - node.scrollTop), JUMP_CURVE, settle, undefined, { explicit: true });
     if (how === "click" || how === "bookmark") {
       if (row) highlightBubble(bubbleOf(row));
       // An unmounted row mounts once the transcript draws its new place.

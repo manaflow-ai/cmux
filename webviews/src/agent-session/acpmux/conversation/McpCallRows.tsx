@@ -9,9 +9,9 @@ import type { AcpmuxActivity } from "../model";
 import { stripsEnvelopeImages, toolImages } from "../toolImages";
 import { ChevronRight, Spinner, ToolGroup } from "./icons";
 import { menuPartRef } from "./menuParts";
-import { mcpCall, mcpLabel, McpNamesContext, mcpRawName, prettyOutput, prettyValue, type McpCall } from "./mcpCalls";
+import { mcpCall, mcpLabel, McpNamesContext, mcpOutputResult, mcpRawName, prettyValue, type McpCall } from "./mcpCalls";
 import { isFailed, isRunning } from "./toolGroups";
-import { OutputMore, useOutput } from "./toolOutput";
+import { ToolOutput } from "./ToolOutputBody";
 import { ToolImages } from "./ToolRow";
 import { useRowDisclosure, useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
@@ -165,8 +165,9 @@ function requestPresentation(request: string, alternatives: Readonly<Record<stri
   return parts;
 }
 
-/// The opened call: its request, then its response (only its end while long), each as a tight
-/// block; a block with nothing in it is left out. A sub-session card's Raw shows the same.
+/// The opened call: its request as a tight block, then its response in the same readable body as
+/// other tool outputs (ToolOutputBody.tsx: rendered Markdown or Raw, all lines on request); a part
+/// with nothing in it is left out. A sub-session card's Raw shows the same.
 export function McpCallDetails({
   id,
   call,
@@ -188,14 +189,10 @@ export function McpCallDetails({
 }) {
   const t = useT();
   const request = useMemo(() => prettyValue(call.args), [call]);
-  const response = useOutput(
-    useMemo(() => prettyOutput(output, strip), [output, strip]),
-    reveal,
-  );
+  const response = useMemo(() => mcpOutputResult(output, strip, call.tool), [output, strip, call.tool]);
   const requestBox = useMoreBelow<HTMLPreElement>(request);
-  const responseBox = useMoreBelow<HTMLPreElement>(response.shown);
   return (
-    <div id={id} className="cv-mcp-call" ref={menuPartRef({ output: response.text })}>
+    <div id={id} className="cv-mcp-call" ref={menuPartRef({ output: response?.text })}>
       <code className="cv-mcp-call__name selectable" data-find-skip>
         {raw}
       </code>
@@ -209,20 +206,12 @@ export function McpCallDetails({
           </pre>
         </div>
       )}
-      {response.text && (
+      {response && (
         <div className="cv-mcp-call__part">
           <div className="cv-mcp-call__head" data-find-skip>
             {t("tools.mcp.response")}
           </div>
-          <pre ref={responseBox} className="cv-mcp-call__body selectable">
-            {response.cut && (
-              <span className="cv-output-cut" aria-hidden="true">
-                …{"\n"}
-              </span>
-            )}
-            {response.shown}
-          </pre>
-          <OutputMore output={response} />
+          <ToolOutput result={response} reveal={reveal} />
         </div>
       )}
     </div>
