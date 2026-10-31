@@ -23,7 +23,11 @@ Oracles, after every op (fuzz_model has the pure parts):
                    AgentURLPolicy refuses, and no web page takes a tab to file:, data:, javascript: or chrome://;
   external_open    an agent op never opens another app (recorded: CMUX_NEXT_TEST_RECORD_EXTERNAL_OPENS=1);
   download_path    a download lands in the downloads folder under a plain name, or the app shows a prompt;
-  lost_tab         every Chromium tab the run opened and did not close is still in the topology.
+  lost_tab         every Chromium tab the run opened and did not close is still in the topology;
+  hang             no op runs past --op-deadline (default 300 s). Each op prints one line before it starts, so the
+                   last line names it; the watchdog then asks the app (system.ping off the main thread, debug.focus on
+                   it) and prints "BROWSER-FUZZ-VERDICT FAIL HANG at op N <op> ... (seed S)" when the app does not
+                   answer (a finding: the seed and the ops up to N are the repro), or NOVERDICT when the harness is stuck.
 
 A failure stops that seed, quits the app, and is shrunk (fuzz_model.ddmin, each try a fresh launch) within
 --shrink-replays; the run then goes on with the next seed until --minutes is spent. Each finding prints one line
@@ -57,6 +61,11 @@ import fuzz_model as model  # noqa: E402
 
 # A stall during a DevTools op names its owner, so the fuzz owner can send it on with its signature and seed.
 DEVTOOLS_OWNER = "the DevTools main-thread stall owner"
+
+
+# What runs now, for the watchdog thread and the signal handler (one run per process).
+LIVE: dict = {"session": None, "ops": [], "findings": [], "watch": None}
+WATCH_POLL_S = 5.0
 
 
 class Failure(Exception):
@@ -201,6 +210,7 @@ class Session:
                  "CMUX_NEXT_HANG_THRESHOLD_MS": "50"}
         self.started = time.time()
         self.pid, self.sock, self.scratch = bench_memory.launch(opts.app, {}, extra, direct=True)
+        LIVE["session"] = self
         self.home = os.path.join(self.scratch, "home")
         self.tabs: list[str] = []
         self.closed: set[str] = set()
@@ -717,8 +727,11 @@ class HarnessError(Exception):
     """The harness or the launch failed (not an oracle): no verdict from this run."""
 
 
-def run_ops(opts, site, ops: list[dict], run_token: str, log, label: str) -> tuple[Failure | None, dict, dict]:
+def run_ops(opts, site, ops: list[dict], run_token: str, log, label: str, seed: int = 0,
+            deadline: float | None = None) -> tuple[Failure | None, dict, dict]:
     """Runs `ops` on a fresh launch: the first fatal failure (or None), the run's counts, and its stalls by signature.
+    Each op prints one line before it starts (the controller stops a step silent for 45 min, and the last line names
+    the op that hung) and runs under the op watchdog; past `deadline` the seed stops between ops (counts.budget_stop).
     Raises HarnessError when the app did not launch or the harness itself broke."""
     import traceback
     try:
@@ -729,12 +742,27 @@ def run_ops(opts, site, ops: list[dict], run_token: str, log, label: str) -> tup
         raise HarnessError(f"the app did not launch: {str(error)[:800]}") from None
     try:
         session.settle_launch()
+        LIVE["ops"] = ops
+        watch = LIVE["watch"]
+        began = time.monotonic()
         for index, op in enumerate(ops):
+            if deadline is not None and time.monotonic() > deadline:
+                session.counts["budget_stop"] = index
+                print(f"browser-fuzz: {label}: the run budget ends the seed before op {index}/{len(ops)}", flush=True)
+                break
             filled = dict(op)
             if "url" in filled:
                 filled["url"] = filled["url"].replace("{origin}", site.origin)
+            print(f"browser-fuzz: {label} op {index}/{len(ops)} {op['op']} {(op.get('url') or '')[:100]} "
+                  f"(t+{time.monotonic() - began:.0f} s)", flush=True)
             log(f"{label} op {index}: {json.dumps(filled)[:240]}")
-            session.run_op(filled, index)
+            if watch:
+                watch.start(seed, index, op, label)
+            try:
+                session.run_op(filled, index)
+            finally:
+                if watch:
+                    watch.done()
         return None, dict(session.counts, notes=session.notes[-20:]), session.stalls
     except Failure as failure:
         return failure, dict(session.counts, notes=session.notes[-20:]), session.stalls
@@ -742,6 +770,77 @@ def run_ops(opts, site, ops: list[dict], run_token: str, log, label: str) -> tup
         raise HarnessError(f"{type(error).__name__}: {error}\n{traceback.format_exc()[-1500:]}") from None
     finally:
         session.close()
+        LIVE["session"] = None
+
+
+def end_now(verdict: str, code: int):
+    """Prints the verdict line, ends the app this run launched (bounded), and exits at once: the main thread may be
+    stuck in a call, so this runs from the watchdog thread or a signal handler."""
+    print(f"BROWSER-FUZZ-VERDICT {verdict}", flush=True)
+    session = LIVE.get("session")
+    if session is not None:
+        closer = threading.Thread(target=lambda: session.bm.end_bundle(session.opts.app), daemon=True)
+        closer.start()
+        closer.join(120)
+    os._exit(code)
+
+
+def handle_hang(hung: dict, opts):
+    """An op ran past --op-deadline. Probes the app, prints the Python stacks, a finding when the app is at fault, and
+    the verdict, then ends the run."""
+    import traceback
+    session = LIVE.get("session")
+    alive, ping, main_ms = False, False, None
+    if session is not None:
+        alive = not session.app_gone()
+        _, _, ping_timed_out = rpc(session.sock, "system.ping", {}, 5)  # answered off the main thread
+        reply, seconds, focus_timed_out = rpc(session.sock, "debug.focus", {}, 5)  # answered on the main actor
+        ping = alive and not ping_timed_out
+        main_ms = 5000.0 if focus_timed_out else seconds * 1000
+    print(f"browser-fuzz: HANG: {hung['label']} op {hung['index']} {hung['op'].get('op')} ran {hung['elapsed_s']:.0f} s "
+          f"(limit {opts.op_deadline:.0f} s); app alive {alive}, system.ping answered {ping}, main-thread call "
+          f"{'not asked (no app)' if main_ms is None else 'no answer in 5 s' if main_ms == 5000.0 else f'{main_ms:.0f} ms'}",
+          flush=True)
+    for thread_id, frame in sys._current_frames().items():
+        print(f"browser-fuzz: HANG stack of thread {thread_id}:\n" + "".join(traceback.format_stack(frame)[-12:]), flush=True)
+    if session is None:
+        # No app runs (a hang in the launch or between launches): the harness, not the product.
+        line, finding = (f"NOVERDICT HANG at op {hung['index']} {hung['op'].get('op')} after {hung['elapsed_s']:.0f} s "
+                         f"(seed {hung['seed']}): no app session, so the harness is stuck"), False
+    else:
+        line, finding = model.hang_verdict(hung["seed"], hung["index"], hung["op"], hung["elapsed_s"],
+                                           app_alive=alive, ping_answered=ping, main_stall_ms=main_ms)
+    if finding:
+        ops = LIVE.get("ops") or []
+        record = {"target": "browser", "id": f"hang-{hung['seed']}", "seed": hung["seed"], "ops_per_seed": opts.ops,
+                  "build_config": opts.build_config, "oracle": "hang", "detail": line, "op_index": hung["index"],
+                  "failed_op": hung["op"], "reproduced": False, "ops": ops[:hung["index"] + 1],
+                  "extra": {"app_alive": alive, "ping_answered": ping, "main_call_ms": main_ms}}
+        print("BROWSER-FUZZ-FINDING " + json.dumps(record), flush=True)
+    end_now(line, 1 if finding else 2)
+
+
+def watchdog(opts):
+    while True:
+        time.sleep(WATCH_POLL_S)
+        hung = LIVE["watch"].overdue()
+        if not hung:
+            continue
+        try:
+            handle_hang(hung, opts)
+        except BaseException as error:  # noqa: BLE001 (a hang must always end the run with a verdict line)
+            end_now(f"NOVERDICT HANG at op {hung['index']} {hung['op'].get('op')} (seed {hung['seed']}); the hang report "
+                    f"itself failed: {type(error).__name__}: {error}", 2)
+
+
+def stopped(signum, _frame):
+    """The step was stopped from outside (a cancel or the controller's limits): say so, with the op that ran."""
+    watch = LIVE.get("watch")
+    cur = (watch.current or {}) if watch else {}
+    where = f" at {cur.get('label')} op {cur.get('index')} {(cur.get('op') or {}).get('op')}" if cur else ""
+    found = LIVE.get("findings") or []
+    head = f"FAIL {len(found)} finding(s) before" if found else "NOVERDICT"
+    end_now(f"{head} the run was stopped by signal {signum}{where}", 1 if found else 2)
 
 
 def main() -> int:
@@ -753,6 +852,8 @@ def main() -> int:
     parser.add_argument("--replay", help="a repro JSON (BROWSER-FUZZ-FINDING's object, or {ops}) to run once, no fuzzing")
     parser.add_argument("--shrink-replays", type=int, default=6, help="fresh launches each finding may spend on shrinking")
     parser.add_argument("--answer-timeout", type=float, default=30)
+    parser.add_argument("--op-deadline", type=float, default=300,
+                        help="seconds one op may run before the run reports a HANG at that op (the longest bounded op waits about 2 min)")
     parser.add_argument("--build-config", default=os.environ.get("BROWSER_FUZZ_BUILD_CONFIG", "debug"),
                         help="the app's build configuration, recorded in each finding (debug builds stall more)")
     parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="browser-fuzz-"))
@@ -760,6 +861,10 @@ def main() -> int:
     os.makedirs(opts.out, exist_ok=True)
     os.environ.setdefault("CMUX_BENCH_LAUNCH", "direct")
     deadline = time.monotonic() + opts.minutes * 60
+    LIVE["watch"] = model.OpWatch(opts.op_deadline)
+    threading.Thread(target=watchdog, args=(opts,), daemon=True).start()
+    signal.signal(signal.SIGTERM, stopped)
+    signal.signal(signal.SIGHUP, stopped)
     site = LocalSite()
     log_file = open(os.path.join(opts.out, "ops.log"), "a")
 
@@ -772,7 +877,8 @@ def main() -> int:
         with open(opts.replay) as handle:
             repro = json.load(handle)
         try:
-            failure, counts, stalls = run_ops(opts, site, repro["ops"], f"rp{uuid.uuid4().hex[:6]}", log, "replay")
+            failure, counts, stalls = run_ops(opts, site, repro["ops"], f"rp{uuid.uuid4().hex[:6]}", log, "replay",
+                                              seed=int(repro.get("seed") or 0))
         except HarnessError as error:
             print(f"BROWSER-FUZZ-VERDICT NOVERDICT replay of {opts.replay}: {str(error)[:400]}", flush=True)
             return 2
@@ -786,7 +892,7 @@ def main() -> int:
         return 0
 
     seed = opts.seed if opts.seed is not None else random.randrange(1 << 31)
-    findings: list[dict] = []
+    findings: list[dict] = LIVE["findings"]
     attempts, harness_errors, total_ops, totals = 0, 0, 0, {}
     seen: set[str] = set()
 
@@ -819,7 +925,8 @@ def main() -> int:
                 return False
             replays["tried"] += 1
             try:
-                again, _, stalls = run_ops(opts, site, candidate, f"sh{seed:x}r{replays['tried']}", log, f"shrink {seed}")
+                again, _, stalls = run_ops(opts, site, candidate, f"sh{seed:x}r{replays['tried']}", log, f"shrink {seed}",
+                                           seed=seed, deadline=deadline - 60)
             except HarnessError as error:
                 replays["harness_errors"] += 1
                 print(f"browser-fuzz: shrink replay: harness error: {str(error)[:300]}", flush=True)
@@ -850,7 +957,7 @@ def main() -> int:
         ops = model.generate(seed, opts.ops, "{origin}", token)
         print(f"browser-fuzz: seed {seed} ({len(ops)} ops)", flush=True)
         try:
-            failure, counts, stalls = run_ops(opts, site, ops, token, log, f"seed {seed}")
+            failure, counts, stalls = run_ops(opts, site, ops, token, log, f"seed {seed}", seed=seed, deadline=deadline - 150)
         except HarnessError as error:
             harness_errors += 1
             print(f"browser-fuzz: seed {seed}: harness error (no verdict): {error}", flush=True)

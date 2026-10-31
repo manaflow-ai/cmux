@@ -315,3 +315,53 @@ def ddmin(ops: list[dict], fails, budget: int) -> tuple[list[dict], int]:
                 break
             granularity = min(len(rest), granularity * 2)
     return head + rest, calls
+
+
+# ---------------------------------------------------------------- hangs (job 78618b4ec57bde51c8195e4a: 45 min silent)
+
+class OpWatch:
+    """The op that runs now, and whether it ran past `limit_s`. The driver's watchdog thread asks `overdue()` every few
+    seconds; the clock is injected so the rule is tested without waiting."""
+
+    def __init__(self, limit_s: float, clock=None):
+        import threading
+        import time
+        self.limit_s = limit_s
+        self.clock = clock or time.monotonic
+        self.lock = threading.Lock()
+        self.current: dict | None = None
+
+    def start(self, seed: int, index: int, op: dict, label: str):
+        with self.lock:
+            self.current = {"seed": seed, "index": index, "op": op, "label": label, "started": self.clock(), "reported": False}
+
+    def done(self):
+        with self.lock:
+            self.current = None
+
+    def overdue(self) -> dict | None:
+        """The current op once it ran past the limit (reported once), else None."""
+        with self.lock:
+            cur = self.current
+            if not cur or cur["reported"]:
+                return None
+            elapsed = self.clock() - cur["started"]
+            if elapsed < self.limit_s:
+                return None
+            cur["reported"] = True
+            return {k: cur[k] for k in ("seed", "index", "op", "label")} | {"elapsed_s": elapsed}
+
+
+def hang_verdict(seed: int, index: int, op: dict, elapsed_s: float, *, app_alive: bool, ping_answered: bool,
+                 main_stall_ms: float | None) -> tuple[str, bool]:
+    """The verdict line (after "BROWSER-FUZZ-VERDICT ") for an op that ran past its deadline, and whether it is a
+    product finding. The app is at fault when its process ended, it does not answer system.ping, or its main thread is
+    stalled now (debug.hangs answers off the main thread); else the harness itself is stuck (no verdict)."""
+    what = f"HANG at op {index} {op.get('op')} after {elapsed_s:.0f} s (seed {seed})"
+    if not app_alive:
+        return f"FAIL {what}: the app process ended", True
+    if not ping_answered:
+        return f"FAIL {what}: the app does not answer system.ping", True
+    if main_stall_ms is not None and main_stall_ms >= 1000:
+        return f"FAIL {what}: the app's main thread is stalled ({main_stall_ms / 1000:.0f} s)", True
+    return f"NOVERDICT {what}: the app answers, so the harness is stuck", False
