@@ -25,7 +25,7 @@ import type { ComposerAttachment, DroppedKind, LinkItem } from "../attachments";
 import type { UploadResult } from "../cloudUploads";
 import {
   AttachmentStrip,
-  backspacedAttachment,
+  backspacedChip,
   useAttachmentIntake,
   useSendWhenAttached,
 } from "../composer/attachmentIntake";
@@ -389,6 +389,7 @@ export function NewTabScreen(props: Props) {
     unsettled,
     videoReading,
     cancel,
+    cancels,
     retry,
     attachError,
     drop,
@@ -405,7 +406,12 @@ export function NewTabScreen(props: Props) {
   // Unlike a chat's composer, the new tab waits for uploads too (#25191): the page goes when the
   // chat starts, so a file still streaming has no next prompt to go with. A video's read is waited
   // for a few seconds at most (composer/videoAttachments.ts).
-  const holdForAttachments = useSendWhenAttached(unsettled + videoReading);
+  const holdForAttachments = useSendWhenAttached(
+    unsettled + videoReading,
+    undefined,
+    unsettled + videoReading,
+    cancels,
+  );
   const command = useNewTabCommand(
     text,
     setText,
@@ -1091,10 +1097,17 @@ export function NewTabScreen(props: Props) {
       }
       return;
     }
-    const backspaced = backspacedAttachment(event, input.selectionStart === 0 && input.selectionEnd === 0, attachments);
+    // Backspace at the field's start takes back the last chip, a loading one too (backspacedChip).
+    const backspaced = backspacedChip(
+      event,
+      input.selectionStart === 0 && input.selectionEnd === 0,
+      attachments,
+      reading,
+    );
     if (backspaced) {
       event.preventDefault();
-      setAttachments((current) => current.filter((item) => item.id !== backspaced.id));
+      if ("pending" in backspaced) cancel(backspaced.pending);
+      else setAttachments((current) => current.filter((item) => item.id !== backspaced.staged));
       return;
     }
     wholeSelection.current =

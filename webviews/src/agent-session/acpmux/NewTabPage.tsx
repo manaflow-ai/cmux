@@ -47,12 +47,7 @@ import { useNoEntryMotion } from "./newtab/noEntryMotion";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
 import { newTabStart, useNewTabChipModel } from "./newtab/chipDefaults";
 import type { ComposerAttachment } from "./attachments";
-import {
-  AttachmentStrip,
-  backspacedAttachment,
-  useAttachmentIntake,
-  useSendWhenAttached,
-} from "./composer/attachmentIntake";
+import { AttachmentStrip, backspacedChip, useAttachmentIntake, useSendWhenAttached } from "./composer/attachmentIntake";
 import { reordered } from "./composer/stripReorder";
 import { DropOverlay } from "./composer/DropOverlay";
 import { useHarnessesListed } from "./catalog";
@@ -471,6 +466,7 @@ export function NewTabPage({
     originalFailures,
     unsettled,
     cancel,
+    cancels,
     retry,
     attachError,
     drop,
@@ -480,7 +476,7 @@ export function NewTabPage({
     pasteTarget: (target) => (kind === "agent" && field.current?.contains(target) ? { uploads: false } : undefined),
     dropZone: () => field.current?.closest(".acpmux-newtab") ?? null,
   });
-  const holdForAttachments = useSendWhenAttached(unsettled);
+  const holdForAttachments = useSendWhenAttached(unsettled, undefined, unsettled, cancels);
   const command = useNewTabCommand(
     text,
     setText,
@@ -668,15 +664,17 @@ export function NewTabPage({
       changeKind(beforePrefix);
       setBeforePrefix(undefined);
     } else {
-      // Backspace at the field's start takes back the last chip (backspacedAttachment).
-      const backspaced = backspacedAttachment(
+      // Backspace at the field's start takes back the last chip, a loading one too (backspacedChip).
+      const backspaced = backspacedChip(
         event,
         input.selectionStart === 0 && input.selectionEnd === 0,
         attachments,
+        pending,
       );
       if (!backspaced) return;
       event.preventDefault();
-      setAttachments((current) => current.filter((item) => item.id !== backspaced.id));
+      if ("pending" in backspaced) cancel(backspaced.pending);
+      else setAttachments((current) => current.filter((item) => item.id !== backspaced.staged));
     }
   };
   const edit = (next: string) => {

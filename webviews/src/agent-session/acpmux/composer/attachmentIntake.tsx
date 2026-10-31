@@ -451,6 +451,11 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     },
     [],
   );
+  /// The person's cancels of a file's tile (its ×, Backspace, or its node edited out of the text),
+  /// counted: a prompt held for the tiles (useSendWhenAttached) is an edit away from what was sent,
+  /// so it stays in the field. A chip the host makes (attachLater) is not counted: its × lets the
+  /// send go without it.
+  const [cancels, setCancels] = useState(0);
   /// A pending chip's ×: it goes, and whatever its read makes later is dropped; a chip the host
   /// is making (attachLater) is stopped there too. A file's source is kept a while for an undo
   /// that brings its node back (`revive`).
@@ -469,6 +474,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     making.current.delete(id);
     sources.current.delete(id);
     setPending((chips) => chips.filter((chip) => chip.id !== id));
+    if (!(source && "make" in source)) setCancels((count) => count + 1);
   });
   /// A cancelled loading chip's node came back (undo): its file is read again under its id, so the
   /// node draws it loading and then what the read makes. A file whose bytes were still being made
@@ -592,6 +598,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     unsettled,
     videoReading,
     cancel,
+    cancels,
     retry,
     revive,
     attachError,
@@ -609,22 +616,29 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
 /// pending files (true; a later hold replaces it) and does nothing otherwise (false). `send` runs
 /// after the render that has the chips, so it must read the composer's state then (a ref). A new
 /// `scope` (the composer moved to another chat) drops a held prompt: it never goes to another chat.
+/// So does the person cancelling a file's tile (`cancels`, the intake's count): the prompt was
+/// waiting for that file, so it stays in the field to edit or send again instead of going out
+/// without it. A chip the host makes (attachLater, a dictation recording) is not counted: its ×
+/// lets the send go without it.
 ///
 /// `unsettled` (default `pending`) also counts the files streaming to the session's machine: a send
 /// made while files were still being read waits for those too, so the files it was sent with go
-/// with it (or their x lets it go without them); a send made once only uploads are left goes at
-/// once, and they stay for the next prompt. While one waits, a later send replaces it.
+/// with it; a send made once only uploads are left goes at once, and they stay for the next prompt.
+/// While one waits, a later send replaces it.
 export function useSendWhenAttached(
   pending: number,
   scope?: string,
   unsettled: number = pending,
+  cancels = 0,
 ): ((send: () => void) => boolean) & { cancel(): void } {
   const held = useRef<(() => void) | undefined>(undefined);
   const count = useRef(pending);
   count.current = pending;
+  // Keep this effect above the `pending` one: React runs them in order, so a cancel that takes the
+  // last tile clears the held prompt before the `pending` effect could send it.
   useEffect(() => {
     held.current = undefined;
-  }, [scope]);
+  }, [scope, cancels]);
   useEffect(() => {
     const send = held.current;
     if (unsettled > 0 || !send) return;
@@ -662,10 +676,12 @@ function pasteTextInto(event: ClipboardEvent, text: string) {
 }
 
 /// Backspace with the caret at the prompt's start (`atStart`: nothing for the key to delete or
-/// lift there) takes back the last staged chip, as a chat composer's Backspace does, so a pasted
-/// image goes without reaching for its ×. A held key's repeat does not: holding Backspace to
-/// clear the prompt stops at its start.
-export function backspacedAttachment(
+/// lift there) takes back the last chip the strip shows, as a chat composer's Backspace does, so a
+/// pasted image goes without reaching for its ×. The strip draws the files still loading (or that
+/// failed) after the staged chips, so a screenshot still loading goes first, at once: nothing waits
+/// for it to load (Austin, 2026-10-25). `pending` names a tile to cancel, `staged` a chip to remove.
+/// A held key's repeat does not: holding Backspace to clear the prompt stops at its start.
+export function backspacedChip(
   event: {
     key: string;
     repeat: boolean;
@@ -676,10 +692,14 @@ export function backspacedAttachment(
   },
   atStart: boolean,
   attachments: readonly ComposerAttachment[],
-): ComposerAttachment | undefined {
+  pending: readonly PendingAttachment[] = [],
+): { pending: string } | { staged: string } | undefined {
   if (event.key !== "Backspace" || event.repeat || !atStart) return undefined;
   if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return undefined;
-  return attachments[attachments.length - 1];
+  const tile = pending[pending.length - 1];
+  if (tile) return { pending: tile.id };
+  const chip = attachments[attachments.length - 1];
+  return chip && { staged: chip.id };
 }
 
 /// The staged attachments' chips over the prompt, with a refusal's note.

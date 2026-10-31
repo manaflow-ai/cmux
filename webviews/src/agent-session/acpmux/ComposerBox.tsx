@@ -1,12 +1,7 @@
 import React, { useCallback, useImperativeHandle, useRef, type RefObject } from "react";
 import { type ComposerAttachment, inlineTokenIds } from "./attachments";
 import { useInlineAttachments } from "./composer/inlineAttachments";
-import {
-  AttachmentStrip,
-  backspacedAttachment,
-  type MadeFile,
-  type PendingAttachment,
-} from "./composer/attachmentIntake";
+import { AttachmentStrip, backspacedChip, type MadeFile, type PendingAttachment } from "./composer/attachmentIntake";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
 import { useComposerSettings } from "./composerSettings";
@@ -185,6 +180,11 @@ export function ComposerBox({
     [inline],
   );
   const placed = new Set(inlineTokenIds(field.value, inline.known));
+  // What the strip draws: in the inline view, only what is not placed in the text.
+  const stripAttachments =
+    attachmentView === "inline" ? attachments.filter((chip) => !placed.has(chip.id)) : attachments;
+  const stripPending =
+    pending && attachmentView === "inline" ? pending.filter((chip) => !placed.has(chip.id)) : (pending ?? []);
   const { onBeforeInput, onKeyDown } = field;
   // A press on the card around the text (the field's padding, the gap around the button row, the
   // card's edge) focuses the prompt where its caret was, as in Codex and Claude Code, whose whole
@@ -219,12 +219,8 @@ export function ComposerBox({
       >
         {top}
         <AttachmentStrip
-          attachments={attachmentView === "inline" ? attachments.filter((chip) => !placed.has(chip.id)) : attachments}
-          {...(pending
-            ? {
-                pending: attachmentView === "inline" ? pending.filter((chip) => !placed.has(chip.id)) : pending,
-              }
-            : {})}
+          attachments={stripAttachments}
+          {...(pending ? { pending: stripPending } : {})}
           {...(attachError ? { error: attachError } : {})}
           codex={codex}
           onRemove={(id) => {
@@ -265,17 +261,24 @@ export function ComposerBox({
               // Every key belongs to the input method while it composes.
               const composing = event.isComposing || event.keyCode === 229;
               if (!composing && isPasteAsPlainTextKey(event)) pastedChips.plainPaste();
-              // Backspace at the prompt's start takes back the last chip (backspacedAttachment).
+              // Backspace at the prompt's start takes back the last chip, a loading one too (backspacedChip).
               const backspaced = composing
                 ? undefined
-                : backspacedAttachment(
+                : backspacedChip(
                     event,
                     prompt.current?.atStart() ?? false,
-                    attachments.filter((chip) => attachmentView === "strip" || !placed.has(chip.id)),
+                    stripAttachments,
+                    // Without a cancel, Backspace keeps taking back staged chips past a loading tile.
+                    onCancelAttachment ? stripPending : [],
                   );
-              if (backspaced) {
+              if (backspaced && "staged" in backspaced) {
                 event.preventDefault();
-                inline.remove(backspaced.id);
+                inline.remove(backspaced.staged);
+                return;
+              }
+              if (backspaced && onCancelAttachment) {
+                event.preventDefault();
+                inline.cancel(backspaced.pending);
                 return;
               }
               onKeyDown?.(event);

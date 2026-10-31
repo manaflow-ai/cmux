@@ -625,6 +625,7 @@ export function Composer({
     unsettled,
     videoReading,
     cancel,
+    cancels,
     retry,
     revive,
     originalFailures,
@@ -673,7 +674,7 @@ export function Composer({
         attachmentsRef.current.some((chip) => chip.id === id) || pendingRef.current.some((chip) => chip.id === id),
     );
   // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
-  const holdForAttachments = useSendWhenAttached(loading + videoReading, sessionId, unsettled + videoReading);
+  const holdForAttachments = useSendWhenAttached(loading + videoReading, sessionId, unsettled + videoReading, cancels);
   // The box makes a huge paste a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
   const box = useRef<ComposerBoxHandle>(null);
   // A paste anywhere in the pane outside a text field goes into the prompt, after what is already

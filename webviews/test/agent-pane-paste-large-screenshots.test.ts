@@ -220,6 +220,56 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
     await page.close();
   });
 
+  // Austin, 2026-10-25: Backspace takes a loading screenshot away at once, as its × does, instead
+  // of waiting for it to finish loading.
+  test("Backspace takes back a tile that is still loading", async () => {
+    const page = await newChat({ "chat.upload.begin": "hang" });
+    const prompt = page.locator(".acpmux-composer-prompt [contenteditable]");
+    await prompt.click();
+    // A file whose upload never answers stays a loading tile.
+    await page.evaluate(() => {
+      const data = new DataTransfer();
+      data.items.add(new File([new Uint8Array(4096)], "notes.bin", { type: "application/octet-stream" }));
+      const target = document.querySelector(".acpmux-composer-prompt [contenteditable]")!;
+      target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+    });
+    // The default inline view places it at the caret, so Backspace right after it takes it back.
+    const loading = page.locator(LOADING);
+    await loading.waitFor();
+    await page.keyboard.press("Backspace");
+    await loading.waitFor({ state: "detached" });
+    expect(await page.locator(".acpmux-attachment").count()).toBe(0);
+    expect(await page.locator(INLINE).count()).toBe(0);
+    await page.close();
+  });
+
+  // Enter while a screenshot loads holds the prompt until its chip is ready. Taking the screenshot
+  // back (its × or Backspace, one cancel) is an edit of what was being sent: the held prompt stays
+  // in the field instead of going out without it.
+  test("cancelling a loading tile keeps the prompt that was waiting for it", async () => {
+    const page = await newChat({ "chat.upload.begin": "hang" });
+    const prompt = page.locator(".acpmux-composer-prompt [contenteditable]");
+    await prompt.click();
+    await page.evaluate(() => {
+      const data = new DataTransfer();
+      data.items.add(new File([new Uint8Array(4096)], "notes.bin", { type: "application/octet-stream" }));
+      const target = document.querySelector(".acpmux-composer-prompt [contenteditable]")!;
+      target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+    });
+    const loading = page.locator(LOADING);
+    await loading.waitFor();
+    await page.keyboard.type("look at this");
+    await page.keyboard.press("Enter");
+    // Held: the tile is still loading.
+    expect(await promptText(page)).toBe("look at this");
+    await loading.locator(".acpmux-md-inline-remove").click();
+    await loading.waitFor({ state: "detached" });
+    // The cancel released nothing: the prompt is still there to edit or send again.
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    expect(await promptText(page)).toBe("look at this");
+    await page.close();
+  });
+
   test("a file whose upload failed says why, and Retry attaches it", async () => {
     const page = await newChat({ "chat.upload.begin": "fail", "chat.upload.chunk": "ok", "chat.upload.finish": "ok" });
     await page.locator(".acpmux-composer-prompt [contenteditable='true']").click();
