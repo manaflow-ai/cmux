@@ -15,8 +15,8 @@ import Testing
     private let cloud = SidebarMachine(id: MachineID("vm-1"), name: "build-vm", kind: .cloud)
     private let ssh = SidebarMachine(id: MachineID("mini"), name: "mini", kind: .ssh)
 
-    private func section(_ machine: SidebarMachine) -> SidebarSection {
-        SidebarSection(kind: .machine(machine), nodes: [.workspace(SidebarWorkspace(
+    private func section(_ machine: SidebarMachine) -> SidebarRowSection {
+        SidebarRowSection(kind: .machine(machine), nodes: [.workspace(SidebarWorkspace(
             id: WorkspaceID("\(machine.name)-ws"), machineID: machine.id, title: "Terminal", directory: "~"))])
     }
 
