@@ -196,10 +196,7 @@
     "cmux-next-dev-daily.yml#sign-blacksmith": "apple-signing-release",
     "cmux-next-dev-daily.yml#verify": "apple-signing-release",
     "cmux-next-fast-tier-seed.yml#seed": "apple-app-build",
-    "cmux-next-frame-pacing.yml#bench": {
-      "class": "apple-gui",
-      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
-    },
+    "cmux-next-frame-pacing.yml#bench": "apple-gui",
     "cmux-next-ios-kit.yml#kit-tests": {
       "class": "apple-swift-tests",
       "picker_followup": "runs-on names a fixed macOS label; #28145 takes it from ios_runner_pool.py and removes this followup"
