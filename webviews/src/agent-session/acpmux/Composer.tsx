@@ -67,6 +67,7 @@ import {
   type SlashCommand,
   type SlashMatch,
 } from "./slashCommands";
+import { commandWaitsForTurn } from "./cliOnlyCommands";
 import { BoltIcon } from "./BoltIcon";
 import {
   flushPendingDraftWrites,
@@ -374,6 +375,8 @@ type Props = {
   authBlocked?: boolean;
   /// Opens the Inspector at its Context section: the context ring's card links to it (Details ›).
   onOpenContext?(): void;
+  /// Sends the agent its `/compact`: the ring's card offers Compact only with it (App.tsx `compactChat`).
+  onCompact?(): void;
 };
 
 /// The prompt box with the agent's `/` command menu:
@@ -445,6 +448,7 @@ export function Composer({
   authBlocked = false,
   placeholder,
   onOpenContext,
+  onCompact,
 }: Props) {
   const t = useT();
   const chrome = useComposerChrome();
@@ -600,6 +604,7 @@ export function Composer({
     videoReading,
     cancel,
     retry,
+    originalFailures,
     attachError,
     setAttachError,
     drop,
@@ -1529,7 +1534,10 @@ export function Composer({
   // step ends, and nothing is cancelled. ⌘Return queues the prompt for after the turn (Claude's
   // keys, Leo 2026-10-20). Attachments go along, so staged files alone can steer too. An agent
   // that cannot steer queues on both keys.
-  const steers = queues && snapshot.summary?.steering === true;
+  // One of the agent's own slash commands waits for the turn either way (cliOnlyCommands.ts): it
+  // queues, so it shows as waiting behind the turn and runs as its own turn, never as a steer.
+  const steers =
+    queues && snapshot.summary?.steering === true && !commandWaitsForTurn(text, snapshot.summary?.harness, commands);
   const returnSteers = steers && (Boolean(text.trim()) || attachments.length > 0);
   // Queueing off (ChatGPT's and Codex's "Turn off queueing", queueing.ts): ⌘Return and Send steer
   // too, so nothing new waits. An agent that cannot steer still runs it after the turn.
@@ -1913,6 +1921,7 @@ export function Composer({
           field.current?.focus();
         }}
         onRetryAttachment={retry}
+        originalFailures={originalFailures}
         onPasteFile={(file) => void attach([file], true, "paste")}
         fieldMenu={fieldMenu}
         onFieldMenuOpen={noteSelection}
@@ -2132,6 +2141,7 @@ export function Composer({
               breakdown={snapshot.summary?.contextBreakdown}
               working={snapshot.isWorking}
               onOpenDetails={onOpenContext}
+              onCompact={onCompact}
             />
           )
         }

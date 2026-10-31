@@ -3,7 +3,9 @@
 // square, its tokens and its share of the window. A Claude Code chat's /context breakdown
 // (`summary.contextBreakdown`) splits it by category, with the MCP tools, memory files and skills
 // it names under folds; without one, the parts are what is used and the free space. The composer's
-// context ring draws the same breakdown in its details (ComposerPickers ContextRing).
+// context ring draws the same breakdown in its details (ComposerPickers ContextRing). Where the agent
+// lists `/compact`, Compact ends it, as the ring's card offers it (Leo, 2026-10-28: "You don't have
+// the compact session").
 import { useState } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -180,11 +182,18 @@ export function ContextSection({
   usage,
   percent,
   breakdown: reported,
+  onCompact,
+  working = false,
 }: {
   usage: { used: number; size: number };
   percent: number;
   /// Claude Code's /context, as acpmux kept it (`summary.contextBreakdown`).
   breakdown?: unknown;
+  /// Sends the chat's agent its `/compact` (App.tsx `compactChat`); unset where the agent lists no
+  /// compact command or the chat cannot be sent to, so no Compact shows.
+  onCompact?: () => void;
+  /// A turn runs: Compact is off until it ends, as the composer ring's card has it (ContextCard).
+  working?: boolean;
 }) {
   const t = useT();
   const tokens = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
@@ -225,6 +234,13 @@ export function ContextSection({
             ))}
           </ul>
         </>
+      )}
+      {onCompact && (
+        <div className="acpmux-chat-inspector-context__actions">
+          <button type="button" className="acpmux-chat-inspector-link" disabled={working} onClick={onCompact}>
+            {t("context.compact")}
+          </button>
+        </div>
       )}
     </div>
   );
