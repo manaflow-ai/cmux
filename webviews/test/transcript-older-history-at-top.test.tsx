@@ -132,12 +132,18 @@ test("a reader back at the top after a page lands gets the next page", async () 
     const first = asked;
     expect(first).toBeGreaterThanOrEqual(1);
     for (let page = 1; page <= 3; page += 1) {
+      const anchorId = history[0]!.id;
+      const anchor = scroller().querySelector(`[data-row-id="${anchorId}"]`);
+      expect(anchor).not.toBeNull();
       // A page of older turns lands above the first row, far taller than two viewports: the view
       // moves down to keep the reader's row, and the reader scrolls straight back to the top.
       history = [...Array.from({ length: 30 }, (_, index) => turn(100 - page * 30 + index)).flat(), ...history];
       land?.();
       await draw();
       expect(scroller().scrollTop).toBeGreaterThan(VIEWPORT * 2);
+      // Correcting scrollTop after reconciliation is too late: the same visible row must keep
+      // its DOM node, including any open details and local state, through the prepend itself.
+      expect(scroller().querySelector(`[data-row-id="${anchorId}"]`)).toBe(anchor);
       await scrollTo(0);
       expect(asked).toBe(first + page);
     }
