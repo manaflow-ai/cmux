@@ -110,7 +110,7 @@ export default componentEntry<Props>({
       play: hoverCard,
     },
     "card-claude-compact": {
-      note: "Hover on a Claude chat whose agent lists /compact: the card ends with Compact beside Details › (Leo, 2026-10-28: \"You don't have the compact session\"; #17537 had it, #20454 dropped its wiring).",
+      note: 'Hover on a Claude chat whose agent lists /compact: the card ends with Compact beside Details › (Leo, 2026-10-28: "You don\'t have the compact session"; #17537 had it, #20454 dropped its wiring).',
       props: { used: 111_000, size: 475_000, setup: 21_000, details: true, compact: true },
       play: hoverCard,
     },
