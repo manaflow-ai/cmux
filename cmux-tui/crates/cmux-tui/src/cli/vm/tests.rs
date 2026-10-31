@@ -126,6 +126,16 @@ fn token_create_with_an_explicit_issuer_or_help_runs_in_process() {
     assert!(!is_token_create(&args(&["token", "create", "--config=/tmp/issuer.json"])));
     assert!(!is_token_create(&args(&["token", "create", "--help"])));
     assert!(!is_token_create(&args(&["token", "create", "-h"])));
+    // An explicit issuer or team is cmux-vm's: the app mints only at
+    // its own signed-in issuer and team, so it must not take these.
+    for words in [
+        &["token", "create", "--base-url", "https://vm-staging.cmux.dev"][..],
+        &["token", "create", "--base-url=https://vm-staging.cmux.dev"],
+        &["token", "create", "--team", "team_1"],
+        &["token", "create", "--team=team_1"],
+    ] {
+        assert!(!is_token_create(&args(words)), "{words:?}");
+    }
 }
 
 #[test]
