@@ -58,7 +58,9 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
                 return el ? [{ selector, inside: box.contains(el), ...bounds(el) }] : [];
               });
               const bar = box.querySelector(".acpmux-composer-bar")!;
-              const dots = composer.querySelector(".acpmux-composer-under .acpmux-look-dots");
+              // A pane too narrow for a clear middle hides the dots (composerLook.css): zero size.
+              const dotsEl = composer.querySelector(".acpmux-composer-under .acpmux-look-dots");
+              const dots = dotsEl && dotsEl.getBoundingClientRect().width > 0 ? dotsEl : null;
               return { box: bounds(box), controls, bar: bounds(bar), dots: dots ? bounds(dots) : null,
                 emptyAttachments: !!box.querySelector(".acpmux-attachments:empty") };
             });
@@ -76,6 +78,7 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
               expect(geometry.box.bottom - geometry.bar.bottom).toBeLessThanOrEqual(0.5);
               // The look dots sit in the row's empty middle (Leo 2026-10-30: "you notice how the middle
               // of the normal codex compser has all that blank space? we can just have the dots there.").
+              if (width >= 720) expect(geometry.dots).not.toBeNull();
               if (geometry.dots) {
                 expect(geometry.dots.top).toBeGreaterThanOrEqual(geometry.bar.top);
                 expect(geometry.dots.bottom).toBeLessThanOrEqual(geometry.bar.bottom);
