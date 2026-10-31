@@ -185,17 +185,15 @@ test("New Tab preflights its selected harness and keeps a refused draft", async 
       ),
     );
     expect(queries).toEqual([{ target: { harness: "codex" } }]);
-    const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
-    await act(async () => {
-      setter.call(field, "keep this draft");
-      field.dispatchEvent(new window.Event("input", { bubbles: true }));
-    });
-    await act(async () =>
-      field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
-    );
+    const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
+    for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    const handle = field.acpmuxMarkdownField!;
+    handle.writeText("keep this draft", "keep this draft".length, "keep this draft".length);
+    const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
+    await act(async () => editor.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
     expect(asks).toEqual([]);
-    expect(field.value).toBe("keep this draft");
+    expect(handle.plainText()).toBe("keep this draft");
     expect(host.querySelector("[role=alert]")?.textContent).toContain("expired");
   } finally {
     await act(async () => root.unmount());
