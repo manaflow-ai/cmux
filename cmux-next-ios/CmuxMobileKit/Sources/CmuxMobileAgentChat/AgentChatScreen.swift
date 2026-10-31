@@ -802,7 +802,7 @@ struct TurnView: View {
                     }
                 case .completed:
                     AnswerActionRow(turn: turn, isLast: isLast, retryWith: RetryModelChoice(store: store, turn: turn)) {
-                        store.send(prompt: turn.prompt)
+                        store.retry(turn)
                     }
                 case .running:
                     EmptyView()

@@ -90,23 +90,25 @@ async function line(message: { name: string; sessionId?: string; chief?: string 
     ),
   );
   return {
-    open: host.querySelector<HTMLButtonElement>("button.cv-disclosure__open"),
+    // The sender's name is the link to its chat (Leo, 2026-10-29: "just make the left side
+    // identifier like it was before and you can click it to go to that session"); no Open chat.
+    open: host.querySelector<HTMLButtonElement>("button.cv-received__from--open"),
     from: host.querySelector<HTMLElement>(".cv-received__from"),
     toggle: host.querySelector<HTMLButtonElement>("button.cv-disclosure__toggle")!,
     opened,
   };
 }
 
-test("a peer lane, found by its bare name, opens from a click on its line; its name is plain text on it", async () => {
+test("a peer lane, found by its bare name, opens from its name; no Open chat, the toggle apart", async () => {
   const { open, from, toggle, opened } = await line({ name: "chief-ui" });
+  expect(host.querySelector(".cv-disclosure__open")).toBeNull();
   expect(host.textContent).not.toContain(t("subsession.openChat"));
   expect(from?.textContent).toBe("chief-ui");
-  expect(from?.closest("button")).toBe(open);
-  expect(toggle.classList.contains("is-chevron")).toBe(true);
-  expect(host.querySelector(".cv-received__name")).toBeNull();
+  expect(from).toBe(open);
+  expect(from?.closest("button.cv-disclosure__toggle")).toBeNull();
   await act(async () => open!.click());
   expect(opened).toEqual(["mux-chief-ui"]);
-  // Opening the chat leaves the message closed.
+  // The name leaves the message closed.
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
 });
 
@@ -116,7 +118,7 @@ test("a chat on this Mac opens by the id its message gives", async () => {
   expect(opened).toEqual(["mux-deputy"]);
 });
 
-test("a sender no list names opens no chat: its line only opens the message", async () => {
+test("a sender no list names is plain text: its line only opens the message", async () => {
   const { open, from, toggle, opened } = await line({ name: "gone-lane" });
   expect(open).toBeNull();
   expect(from?.textContent).toBe("gone-lane");
@@ -128,8 +130,8 @@ test("a sender no list names opens no chat: its line only opens the message", as
 // manaflow-ai/cmux#27914: a Chief's turn messages a GUI agent chat, by `agents_chat_send` (the cmux
 // daemon's pump: an `agent_message` from `acp:<turn>`) or by `acpmux send` from inside the turn (a
 // `session_message`). acpmux names the Chief (`fromChief`, prompt_provenance.rs `stamp_chief`); the
-// line and its From: line name the Chief and draw its avatar as the sidebar does, not the turn's
-// session name (`optchat-<home>-<n>`) and a robot, and Open chat never opens the turn's session.
+// line names the Chief and draws its avatar as the sidebar does, not the turn's session name
+// (`optchat-<home>-<n>`) and a robot, and its name never opens the turn's session.
 const { setMessageOpened } = await import("../src/agent-session/acpmux/conversation/incomingOpened");
 const sent = "Sidebar fix is up; CI is green.";
 const chiefMessages = {
@@ -159,7 +161,7 @@ for (const [kind, provenance] of Object.entries(chiefMessages)) {
       asked.push([method, params]);
       return { name: "Ops Chief", src: picture };
     });
-    // Opened, so its From: line shows.
+    // Opened, so the panel shows too.
     setMessageOpened(undefined, "row-1", true);
     try {
       const parsed = incomingPrompt(sent, { _meta: { provenance } });
@@ -169,11 +171,10 @@ for (const [kind, provenance] of Object.entries(chiefMessages)) {
       await act(async () => undefined);
       expect(asked).toEqual([["chief.face", { chief: "agent_ops" }]]);
       expect(from?.textContent).toBe("Ops Chief");
-      expect(host.querySelector(".cv-disclosure__icon img.cv-agent-avatar")?.getAttribute("src")).toBe(picture);
+      expect(host.querySelector(".cv-received__mark img.cv-agent-avatar")?.getAttribute("src")).toBe(picture);
       expect(open).toBeNull();
-      expect(host.querySelector(".cv-received__from-line")?.textContent).toBe(
-        t("message.fromHeader", { name: "Ops Chief" }),
-      );
+      // Opened, the panel never names the sender again: the line already does.
+      expect(host.querySelector(".cv-received__from-line")).toBeNull();
       expect(host.textContent).not.toContain("optchat-");
     } finally {
       setMessageOpened(undefined, "row-1", false);
