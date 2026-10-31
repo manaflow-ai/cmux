@@ -149,7 +149,9 @@ enum HomeMapping {
         case let .fold(count, peers, expanded):
             let label = expanded ? CmuxStrings.hideAgentMessages(count) : CmuxStrings.showAgentMessages(count)
             let link = "[\(expanded ? "▾" : "▸") \(label)](\(HomeAgentMessageRow.toggleLink(group: row.group)))"
-            return expanded ? link : "\(link) · \(peers.map(markdownEscaped).joined(separator: ", "))"
+            let preview = peers.prefix(HomeAgentMessageRow.peerPreviewLimit).map(markdownEscaped).joined(separator: ", ")
+            let overflow = peers.count > HomeAgentMessageRow.peerPreviewLimit ? ", …" : ""
+            return expanded ? link : "\(link) · \(preview)\(overflow)"
         case let .message(from, to, _, text):
             return "**\(markdownEscaped(from)) → \(markdownEscaped(to))**\n\(text)"
         }
