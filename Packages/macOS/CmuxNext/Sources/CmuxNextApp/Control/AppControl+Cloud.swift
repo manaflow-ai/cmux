@@ -26,7 +26,7 @@ extension AppControl {
                 ]))
             },
             .mainActor("cloud.machines") { _ in
-                if let refusal = Self.policyRefusal("cloud.machines", disabled: services.registry.disabledFeatures) { throw refusal }
+                if let refusal = ControlMethod.policyRefusal("cloud.machines", disabled: services.registry.disabledFeatures) { throw refusal }
                 let rows: [JSONValue] = services.machines.cloud.map { .object(Self.cloudMachineRow($0, services.machines)) }
                 return .value(.object(["machines": .array(rows), "loaded": .bool(services.cloud.hasLoadedCurrentMachines),
                                        "creations": .array(services.cloud.creations.controlRows),
@@ -35,6 +35,17 @@ extension AppControl {
         ])
         registerRunMethods(services)
         registerVMAgentKeyMethods(services)
+        // `cmux auth token` (cmux-platform#111): the method lives in CmuxNextControl, the mint in CmuxNextCloud.
+        let identity = services.cloud.installIdentity, origin = services.cloud.configuration.ownerAPIBaseURL()
+        service?.router.register([.authToken(
+            disabledFeatures: { services.registry.disabledFeatures }, isSignedIn: { services.cloud.isSignedIn },
+            mint: { team in
+                do {
+                    let token = try await identity.accessToken(team: team)
+                    return AuthTokenGrant(accessToken: token.accessToken, team: token.team, user: token.user, expiresAt: token.expiresAt, apiOrigin: origin)
+                } catch let failure as CloudAccessToken.Failure { throw AuthTokenRefusal(code: failure.code, detail: failure.detail) }
+            }),
+        ])
         // Tagged DEV builds only (debug.* methods; a release build registers
         // none, and ControlRouter drops them too).
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -44,7 +55,7 @@ extension AppControl {
             .async("debug.cloud.link_ensure") { [weak services] _ in
                 let found = await MainActor.run { () -> (CloudService?, ControlError?) in
                     guard let services else { return (nil, nil) }
-                    return (services.cloud, Self.policyRefusal("debug.cloud.link_ensure", disabled: services.registry.disabledFeatures))
+                    return (services.cloud, ControlMethod.policyRefusal("debug.cloud.link_ensure", disabled: services.registry.disabledFeatures))
                 }
                 if let refusal = found.1 { throw refusal }
                 guard let cloud = found.0 else { return .null }
@@ -152,7 +163,7 @@ extension AppControl {
     /// mid-run never strands a billable VM without its receipt or its cancel.
     nonisolated private static func runsAPI(_ services: AppServices, newRun: Bool) async throws -> CloudAPIClient {
         try await MainActor.run {
-            if newRun, let refusal = Self.policyRefusal("runs.sandbox.create", disabled: services.registry.disabledFeatures) { throw refusal }
+            if newRun, let refusal = ControlMethod.policyRefusal("runs.sandbox.create", disabled: services.registry.disabledFeatures) { throw refusal }
             guard !newRun || services.settings?.snapshot.previewFeatures == true else {
                 throw ControlError(code: "labs_off", message: String(localized: "runs.error.labsOff", defaultValue: "Sandboxed runs are a preview. Turn on Settings > Advanced > Labs > Show Preview Features.", table: "Runs", bundle: .module))
             }
