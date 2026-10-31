@@ -27,17 +27,20 @@ struct CloudStartChat {
                   services.machines.daemon(forTab: tab).isLocal else {
                 return AgentPaneReply.failure(code: "unavailable", message: CloudMoveStrings.notAChat)
             }
-            return await CloudStartChat(services: services).reply(start, tab: tab)
+            return await CloudStartChat(services: services).reply(start, tab: tab) { [weak view] step in
+                if let view { start.progress(step.name, folder: step.folder, machine: step.machine, size: step.size, to: view) }
+            }
         }
     }
 
     /// The page's reply: success with the machine's name, or a refusal in the person's words.
-    func reply(_ start: AgentPaneCloudStart, tab: TabModel) async -> [String: Any] {
+    /// `report` tells the page's card each step as it begins (``AgentPaneCloudStart/progress(_:folder:machine:size:to:)``).
+    func reply(_ start: AgentPaneCloudStart, tab: TabModel, report: @MainActor (Step) -> Void = { _ in }) async -> [String: Any] {
         if let refusal = Self.refusal(services) { return AgentPaneReply.failure(code: refusal, message: refusal) }
         let toastID = "cloud-start-" + tab.id
         CloudMove.toast(services, toastID, CloudMoveStrings.moving, duration: .seconds(600))
         do {
-            let machine = try await run(start, tab: tab)
+            let machine = try await run(start, tab: tab, report: report)
             CloudMove.toast(services, toastID, CloudMoveStrings.moved(machine), duration: .seconds(6))
             return AgentPaneReply.success(["machine": machine])
         } catch {
@@ -56,8 +59,23 @@ struct CloudStartChat {
         return services.cloud.isSignedIn ? nil : "not_signed_in"
     }
 
+    /// A step of the start as the page's card shows it.
+    struct Step {
+        var name: String
+        var folder: String?
+        var machine: String?
+        var size: String?
+    }
+
+    /// A machine's size in the card's words: "4 CPU · 16 GB".
+    static func sizeText(_ size: CloudMachine.Size?) -> String? {
+        guard let cpu = size?.cpu, cpu > 0 else { return nil }
+        guard let memory = size?.memoryMb, memory > 0 else { return "\(cpu) CPU" }
+        return "\(cpu) CPU · \(Int((Double(memory) / 1024).rounded())) GB"
+    }
+
     /// The start; returns the machine's name.
-    private func run(_ start: AgentPaneCloudStart, tab: TabModel) async throws -> String {
+    private func run(_ start: AgentPaneCloudStart, tab: TabModel, report: @MainActor (Step) -> Void) async throws -> String {
         // The folder the page named, as Move to Cloud's `path` takes one: an existing folder, never
         // the home folder or the disk's root. A page could already start a chat on this Mac in it.
         var isFolder: ObjCBool = false
@@ -67,15 +85,20 @@ struct CloudStartChat {
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         let move = CloudMove(services: services)
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user)
+        let folderName = URL(fileURLWithPath: chat).lastPathComponent
+        report(Step(name: "machine", folder: folderName))
         let machine = try await move.machine(invocation) { await CloudChatPick(services: services).read(folder: chat, tab: tab) }
         let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)
         guard let socket = await machine.daemon.connection?.endpoint?.socketPath else {
             throw CloudMove.Failure(message: CloudMoveStrings.notConnected(name))
         }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
+        let size = Self.sizeText(machine.machine.size)
+        report(Step(name: "folder", folder: folderName, machine: name, size: size))
         let remote = try await move.sync(folder, to: socket, machine: name, cli: cli, retry: again)
         let context = AppActionContext(services: services)
         let anchor = try await CloudHandlers.terminalAnchor(on: machine, context)
+        report(Step(name: "opening", folder: folderName, machine: name, size: size))
         let seed = start.seed(cwd: remote.chat)
         let pending = try services.agentTabs.open(in: anchor.pane.handle, of: machine.daemon, seed: AgentPaneSeedSource(seed))
         let opened = try await pending.value()
