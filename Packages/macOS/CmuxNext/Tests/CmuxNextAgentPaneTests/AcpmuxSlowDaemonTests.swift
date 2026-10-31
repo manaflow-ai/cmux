@@ -30,7 +30,7 @@ struct AcpmuxSlowDaemonTests {
                                             daemonArguments: [], childEnvironment: [:]).attached(to: home)
         let daemon = try SlowDaemon(socketPath: environment.socketPath, home: home.path, statusDelay: .seconds(5))
         defer { daemon.stop() }
-        let host = AcpmuxHost(resolve: { environment })
+        let host = AcpmuxHost(daemons: AcpmuxLocalDaemons(), resolve: { environment })
 
         let started = ContinuousClock.now
         let handshake = try await host.reconnectHandshake(sessionId: "s")
@@ -49,7 +49,7 @@ struct AcpmuxSlowDaemonTests {
         let silent = try await fixture.silentDaemon()
         defer { fixture.remove(silent) }
         try fixture.writePidFile(silent.processIdentifier)
-        let host = AcpmuxHost(environment: fixture.environment)
+        let host = AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: fixture.environment)
 
         // The pane's loop: a handshake, and another as soon as one ends.
         // task-owner: cancelled and awaited below, before the daemon is killed
@@ -77,7 +77,7 @@ struct AcpmuxSlowDaemonTests {
         let fixture = try OwnedFixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         try fixture.writePidFile(try await Self.exitedPid())
-        let host = AcpmuxHost(environment: fixture.environment)
+        let host = AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: fixture.environment)
 
         async let first = host.reconnectHandshake(sessionId: nil)
         async let second = host.reconnectHandshake(sessionId: nil)
