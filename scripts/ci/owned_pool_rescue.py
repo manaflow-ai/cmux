@@ -460,10 +460,17 @@ def job_pool(job: Mapping[str, Any]) -> str | None:
 
 
 def nightly_watched(job: Mapping[str, Any]) -> bool:
-    """Jobs whose queue may trigger rescue in a nightly run."""
-    return job.get("name") == NIGHTLY_APP_JOB or any(
-        TRUSTED_LABEL.fullmatch(str(label)) for label in job.get("labels") or ()
-    )
+    """A job of a nightly run the watch judges: build-nightly-app, or any job on the trusted pool.
+
+    nightly.yml's other owned-label jobs (the visual gate on a session runner)
+    are not the watch's to rescue: cancelling the run for one that queues
+    would kill the run's signing and notarization. The visual gate is placed
+    only on an idle runner, and publication stops waiting for it at most 10
+    minutes past the signed build (visual-gate-nightly-verdict), so a queued
+    gate holds nothing.
+    """
+    return job.get("name") == NIGHTLY_APP_JOB or any(TRUSTED_LABEL.fullmatch(str(label))
+                                                     for label in job.get("labels") or [])
 
 
 def queued_pool(job: Mapping[str, Any], *, include_blacksmith_macos: bool = False) -> str | None:

@@ -120,6 +120,9 @@ CONTEXT = (
     "cmux.xcodeproj/project.pbxproj",
     "cmux-next-ios/project.yml",
 )
+# Check code outside scripts/cmux-next: check-package-dependency-lists.py imports the masker from scripts/ (an installed
+# copy reads its own, beside it). Like the check code, it is the head's on both sides.
+CHECK_CODE = ("scripts/swift_source_mask.py",)
 DATA_SUFFIXES = (".tsv", ".json")
 # A push that changes the manifest can drop a dependency an unchanged file imports: the dependency check then
 # needs every Swift file of the package, not only the changed ones. It alone gets trees with them all (DEPS_CHECK):
@@ -393,6 +396,8 @@ def build_trees(repo: Path, base: str, head: str, changed: list[str], work: Path
                 files[p] = base if p in base_data else head  # each side's own baselines
         for p in CONTEXT:
             files[p] = rev
+        for p in CHECK_CODE:
+            files[p] = head
         for p in changed:
             files[p] = rev
         dest = work / side

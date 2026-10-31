@@ -40,6 +40,17 @@
 # ghostty-vt with its VT, tmux regress, kitty graphics and corpus suites, ghostty-vt-sys,
 # the PTY, sizing, encode and client crates), no fmt, clippy or doc tests: the fast
 # gate for a terminal change (cmux-next-terminal.yml).
+# api-compat: cmux-tui-spec.yml's api-compat job, the same command (`cargo run --locked
+# -p cmux-api-compat --bin api-compat-check`): a protocol change that can break an older
+# or newer peer needs a compat rule, and spec/api-compat.surface.json must be current.
+# api-compat-write: the same with --write (it refuses while a break lacks a rule), which
+# rewrites the snapshot cmux-tui/spec/api-compat.surface.json and, where the crate has the
+# wire ledger, cmux-tui/spec/api-compat.wire.json. The step packs every api-compat file
+# --write may write into .build/artifacts/api-compat-spec.tar (never empty) and prints the
+# diff stat; fetch it with --artifact, run `tar -xf FILE` at your checkout root and commit
+# what changed there. Neither
+# takes a TEST_FILTER or checks out ghostty-next (cmux-api-compat's Cargo.lock closure has
+# no Ghostty crate: tests/test_zig_free_step_lockfiles.py), and neither commits or pushes.
 set -euo pipefail
 if [[ -z "${CMUX_CI_STEP_KEY:-}" ]]; then
   cat >&2 <<'MSG'
@@ -50,7 +61,11 @@ MSG
 fi
 mode="${1:-}"
 filter="${2:-}"
-case "$mode" in fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen [TEST_FILTER]" >&2; exit 2 ;; esac
+case "$mode" in fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen|api-compat|api-compat-write) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen|api-compat|api-compat-write [TEST_FILTER]" >&2; exit 2 ;; esac
+if [[ "$mode" == api-compat* && -n "$filter" ]]; then
+  echo "error: $mode takes no TEST_FILTER" >&2
+  exit 2
+fi
 # The crates the terminal mode tests; every other mode's tests take the whole workspace.
 terminal_crates=(ghostty-vt ghostty-vt-sys cmux-pty cmux-terminal-sizing cmux-terminal-client cmux-encode)
 test_scope=(--workspace)
@@ -104,8 +119,11 @@ fi
 # shell integration since 0c9d74bc3ea).
 # A synced copy without the gitlink (rbx lanes have their own snapshot repository)
 # already holds ghostty-next's files: use them.
-ghostty_next_status="$(git -C "$root" submodule status ghostty-next 2>/dev/null || true)"
-if [[ -z "$ghostty_next_status" && -f "$root/ghostty-next/build.zig" ]]; then
+ghostty_next_status=""
+[[ "$mode" == api-compat* ]] || ghostty_next_status="$(git -C "$root" submodule status ghostty-next 2>/dev/null || true)"
+if [[ "$mode" == api-compat* ]]; then
+  echo "ghostty-next: not needed by $mode (cmux-api-compat builds only serde)"
+elif [[ -z "$ghostty_next_status" && -f "$root/ghostty-next/build.zig" ]]; then
   echo "ghostty-next: no gitlink in this tree (a synced copy); using the files present"
 elif ! git -C "$root" submodule update --init --depth 1 ghostty-next; then
   echo "error: git submodule update --init ghostty-next failed; no cargo command ran" >&2
@@ -836,6 +854,35 @@ if [[ "$mode" == vm-cli ]]; then
   step "vm-cli test" cargo test --locked --workspace ${no_fail_fast[@]+"${no_fail_fast[@]}"} ${filter:+"$filter"}
   step "vm-cli release build" cargo build --locked --release -p cmux-vm
   step "vm-cli artifact" copy_vm_cli
+  finish
+fi
+# The files --write may write: the shape snapshot, and the wire ledger where the crate has one.
+api_compat_files=(cmux-tui/spec/api-compat.surface.json cmux-tui/spec/api-compat.wire.json)
+# Packs those files (the ones present) into the step's artifact and says what --write changed.
+api_compat_pack() {
+  local files=() f stat
+  for f in "${api_compat_files[@]}"; do [[ ! -f "$root/$f" ]] || files+=("$f"); done
+  [[ "${#files[@]}" -gt 0 ]] || { echo "error: no api-compat spec file to return" >&2; return 1; }
+  mkdir -p "$root/.build/artifacts"
+  # No AppleDouble ._* entries from a macOS worker (bsdtar); GNU tar ignores the variable.
+  COPYFILE_DISABLE=1 tar -C "$root" -cf "$root/.build/artifacts/api-compat-spec.tar" "${files[@]}" || return 1
+  stat="$(git -C "$root" --no-pager diff --no-color --no-ext-diff --stat -- "${files[@]}")" || return 1
+  if [[ -n "$stat" ]]; then
+    echo "api-compat-write: changed: $stat"
+  else
+    echo "api-compat-write: ${files[*]} unchanged (already current)"
+  fi
+  echo "api-compat-write: .build/artifacts/api-compat-spec.tar holds ${files[*]}; run tar -xf on it at your checkout root"
+}
+if [[ "$mode" == api-compat ]]; then
+  step "api-compat check" cargo run --locked -p cmux-api-compat --bin api-compat-check
+  finish
+fi
+if [[ "$mode" == api-compat-write ]]; then
+  # A warm slot keeps .build: never hand back an older step's files.
+  rm -f "$root/.build/artifacts/api-compat-spec.tar"
+  step "api-compat write" cargo run --locked -p cmux-api-compat --bin api-compat-check -- --write
+  [[ "$first_rc" -ne 0 ]] || step "api-compat pack" api_compat_pack
   finish
 fi
 if [[ "$mode" == fmt || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
