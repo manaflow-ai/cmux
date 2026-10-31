@@ -513,10 +513,11 @@
   line-height: 1;
 }
 /* The hairline between the symbols and the list is the list's: a row of icon tabs never sits on a
-   plate of its own (gallery-control-surfaces). */
+   plate of its own (gallery-control-surfaces). An inset shadow, not a border, so it takes no room
+   and the first row stays flush with the list's top. */
 .acpmux-quick-placement-symbols .acpmux-quick-body {
   flex-basis: auto;
-  border-block-start: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  box-shadow: inset 0 var(--cmux-hairline, 0.5px) 0 var(--agent-border);
 }
 .acpmux-quick-placement-compact .acpmux-quick-rail { flex-basis: 68px; }
 .acpmux-quick-placement-compact .acpmux-quick-rail-tab { flex-direction: column; gap: 0; padding-block: var(--ds-space-1); text-align: center; }
