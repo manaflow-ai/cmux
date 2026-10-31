@@ -219,18 +219,29 @@ final class OpenLog: @unchecked Sendable {
         let forwarder = LocalhostForwarder { _, _ in FakeLoopbackChannel(body: "x") }
         let port = try await forwardOnFreePort(forwarder, macID: "mac-a")
         forwarder.stop(port)
-        // Another app's server on the port (no address reuse).
-        let parameters = NWParameters.tcp
-        parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: NWEndpoint.Port(rawValue: port)!)
-        let other = try NWListener(using: parameters)
-        other.newConnectionHandler = { $0.cancel() }
-        other.start(queue: .main)
-        for _ in 0..<400 where other.state != .ready { try await Task.sleep(for: .milliseconds(5)) }
-        try #require(other.state == .ready, "the other app's server is on the port: \(other.state)")
+        // Another app's server on the port (no address reuse), once our listener let go of it.
+        var other: NWListener?
+        for _ in 0..<100 where other == nil {
+            let parameters = NWParameters.tcp
+            parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: NWEndpoint.Port(rawValue: port)!)
+            let listener = try NWListener(using: parameters)
+            listener.newConnectionHandler = { $0.cancel() }
+            listener.start(queue: .main)
+            for _ in 0..<200 where listener.state == .setup || listener.state == .waiting(.posix(.EADDRINUSE)) {
+                try await Task.sleep(for: .milliseconds(5))
+            }
+            if listener.state == .ready {
+                other = listener
+            } else {
+                listener.cancel()
+                try await Task.sleep(for: .milliseconds(20))
+            }
+        }
+        let server = try #require(other, "the other app's server got the port")
         await #expect(throws: LocalhostForwarder.Failure.portInUse) {
             try await forwarder.forward(port: port, macID: "mac-b")
         }
         #expect(forwarder.ports.isEmpty)
-        other.cancel()
+        server.cancel()
     }
 }
