@@ -43,5 +43,36 @@ struct KeychainStackTokenStoreTests {
         )
         #expect(result as? Data == unrelatedToken)
     }
+
+    /// https://github.com/manaflow-ai/cmux/issues/25628: a locked or busy
+    /// Keychain is not an empty store, so session restore preserves the cached
+    /// session until it can answer. A failure that never clears (a missing
+    /// entitlement, a corrupt item, a failed access check) is final: treating
+    /// it as unavailable would keep a session with no usable token forever.
+    @Test func onlyTemporaryReadFailuresCountAsUnreadable() {
+        #expect(KeychainStackTokenStore.isDefinitiveReadStatus(errSecSuccess))
+        #expect(KeychainStackTokenStore.isDefinitiveReadStatus(errSecItemNotFound))
+        #expect(!KeychainStackTokenStore.isDefinitiveReadStatus(errSecInteractionNotAllowed))
+        #expect(!KeychainStackTokenStore.isDefinitiveReadStatus(errSecNotAvailable))
+        #expect(KeychainStackTokenStore.isDefinitiveReadStatus(errSecMissingEntitlement))
+        #expect(KeychainStackTokenStore.isDefinitiveReadStatus(errSecDecode))
+        #expect(KeychainStackTokenStore.isDefinitiveReadStatus(errSecAuthFailed))
+        #expect(KeychainStackTokenStore.isDefinitiveReadStatus(errSecParam))
+    }
+
+    @Test func fileFallbackStoreIsAlwaysReadable() async {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-fallback-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = FileStackTokenStore(directory: directory)
+        await file.setTokens(accessToken: "access", refreshToken: "refresh")
+        let store = FallbackTokenStore(
+            primary: KeychainStackTokenStore(service: "cmux-test-empty-\(UUID().uuidString)"),
+            fallback: file
+        )
+        // The Keychain has nothing, so the read routes to the file store.
+        #expect(await store.getStoredRefreshToken() == "refresh")
+        #expect(await store.isTokenStorageAvailable())
+    }
     #endif
 }
