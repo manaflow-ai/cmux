@@ -2483,6 +2483,10 @@ def exception_valid(entry: dict, today: str) -> bool:
 def excepted(repo: Path, head: str, refusals, warnings, today: str | None = None):
     """REFUSALS less the hits an EXCEPTIONS entry at HEAD covers (those become warnings), and WARNINGS."""
     import datetime
+    # Read only when a hit could be excused: a push with no such refusal starts no extra git process (the
+    # guardrails' cost is git process starts, WarningTests.test_a_typical_push_runs_git_a_fixed_number_of_times).
+    if not any(rule.id in EXCEPTABLE for rule, _ in refusals):
+        return refusals, warnings
     today = today or datetime.date.today().isoformat()
     text = git(repo, "show", f"{head}:{EXCEPTIONS}", check=False)
     try:
