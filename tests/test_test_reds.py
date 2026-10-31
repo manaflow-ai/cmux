@@ -93,7 +93,96 @@ class KnownIssueSuiteCompletion(unittest.TestCase):
         self.assertIn("crashed (signal 6)", verdict.reasons[0])
 
 
+class EchoedStepScripts(unittest.TestCase):
+    """The runner echoes each step's script (`##[group]Run ...`, the script, `shell:`/`env:`, `##[endgroup]`)
+    before running it, so a script that prints, greps or filters test names puts those names in every run's log,
+    green or red. Only what the step printed is a result. 2026-10-30: cmux#28145's kit job at c39d28ef failed
+    HomeRetryTests.failedHomeLoadRetriesTheFeedOnTheExistingLink and MacHomeFeedTests.aFailedOpenIsTriedAgain on the
+    iOS simulator; base run 41138142557 (feat-cmux-next f4cebb13) failed only TerminalSurfaceFramePacingTests.
+    busyOutputDrawsAtMostOneFramePerDisplayRefresh, yet the red was excused as the base's."""
+
+    HEAD = FIXTURES / "ios-kit-head-run-41079430021.log"  # trimmed; gh printed it without colours
+    BASE = FIXTURES / "ios-kit-base-run-41138142557.log"  # trimmed; the job-log endpoint's raw text, colours kept
+
+    def test_the_kit_reds_on_28145_are_its_own_against_base_run_41138142557(self):
+        verdict = reds.classify(self.HEAD.read_text(), self.BASE.read_text(),
+                                "CmuxMobileKit tests (macOS swift test, iOS simulator)",
+                                "feat-cmux-next run 41138142557")
+        self.assertIsNotNone(verdict, "the xcresult FAILED: lines name the failing tests")
+        self.assertTrue(verdict.own, verdict.reasons)
+        self.assertEqual(verdict.shared, [])
+        self.assertIn("2 failing test(s) pass or do not run on feat-cmux-next run 41138142557: "
+                      "HomeRetryTests.failedHomeLoadRetriesTheFeedOnTheExistingLink(); "
+                      "MacHomeFeedTests.aFailedOpenIsTriedAgain()", verdict.reasons[-1])
+
+    def test_xcresult_and_xcodebuild_failure_lines_name_the_failing_tests(self):
+        self.assertEqual(reds.read(self.BASE.read_text()).failed,
+                         {"TerminalSurfaceFramePacingTests.busyOutputDrawsAtMostOneFramePerDisplayRefresh()"})
+        self.assertEqual(reds.read(self.HEAD.read_text()).failed,
+                         {"HomeRetryTests.failedHomeLoadRetriesTheFeedOnTheExistingLink()",
+                          "MacHomeFeedTests.aFailedOpenIsTriedAgain()"})
+
+    def test_a_test_named_only_in_the_bases_step_script_is_not_a_base_red(self):
+        # The base's script names X in every failure format this classifier reads (a grep, a filter, an echo),
+        # but the base's real failure is Y. The head fails X: its own red.
+        script = ["##[group]Run set -euo pipefail",
+                  "\x1b[36;1mset -euo pipefail\x1b[0m",
+                  "\x1b[36;1mswift test --filter 'x()' 2>&1 | tee out.txt\x1b[0m",
+                  "\x1b[36;1mgrep -E '✘ Test x\\(\\) recorded an issue' out.txt && echo 'known: x()'\x1b[0m",
+                  "FAILED: Pkg / Mod / XTests / x()",
+                  "Test Case '-[XTests x]' failed",
+                  "test x ... FAILED",
+                  "FAIL: x (xtests.XTests)",
+                  "FAILED xtests.py::x",
+                  "Failing tests:",
+                  "\tXTests.x()",
+                  "shell: /bin/bash -e {0}",
+                  "env:",
+                  "  FILTER: ✘ Test x() recorded an issue",
+                  "##[endgroup]"]
+        base = log(*script, "◇ Test run started.", failed("y()"),
+                   "✘ Test run with 2 tests in 1 suite failed after 0.1 seconds with 1 issue.")
+        head = log(*script, "◇ Test run started.", failed("x()"),
+                   "✘ Test run with 2 tests in 1 suite failed after 0.1 seconds with 1 issue.")
+        self.assertEqual(reds.read(base).failed, {"y()"})
+        verdict = reds.classify(head, base, "cmux-next swift test")
+        self.assertTrue(verdict.own, verdict.reasons)
+        self.assertIn("1 failing test(s) pass or do not run on the base: x()", verdict.reasons[-1])
+        # The same script with X really failing on both sides is still a base red.
+        verdict = reds.classify(head, head, "cmux-next swift test")
+        self.assertFalse(verdict.own, verdict.reasons)
+        self.assertEqual(verdict.shared, ["x()"])
+
+    def test_a_steps_own_run_group_is_still_read(self):
+        # A step's own `::group::Run ...` holds what it printed, not an echo (no shell/with/env lines): read.
+        own = log("##[group]Run the suite", failed("x()"), "##[endgroup]",
+                  "✘ Test run with 1 test in 1 suite failed after 0.1 seconds with 1 issue.")
+        self.assertEqual(reds.read(own).failed, {"x()"})
+        # A crash a step prints inside its own group is a crash.
+        self.assertTrue(reds.read(log("##[group]Run the suite", ABORT, "##[endgroup]")).crashes)
+        # A step's own group whose output quotes `env:` or `shell:` before a failure is output, not an echo.
+        for quoted in ("env:", "shell: /bin/bash -e {0}", "with:"):
+            with self.subTest(quoted=quoted):
+                group = log("##[group]Run the suite", quoted, "  HOME: /x", failed("x()"), "##[endgroup]")
+                self.assertEqual(reds.read(group).failed, {"x()"})
+        # An echo the log cut before its `##[endgroup]` is no echo: everything after it is read.
+        self.assertEqual(reds.read(log("##[group]Run x", "shell: /bin/bash -e {0}", failed("x()"))).failed,
+                         {"x()"})
+
+
 class PerTest(unittest.TestCase):
+    def test_swift_test_summary_fixture_signal_text_is_not_a_crash(self):
+        fixture = log(
+            "scripts/cmux-next/tests/swift-test-summary.test.sh:148: "
+            '"exception":{"type":"EXC_BREAKPOINT","signal":"SIGTRAP"}',
+            "scripts/cmux-next/tests/swift-test-summary.test.sh:157: "
+            "error: Process '/x/swiftpm-testing-helper' exited with unexpected signal code 5",
+        )
+        shared = fixture + "\n" + log(failed("a()"), SUMMARY)
+        self.assertEqual(reds.read(shared).crashes, [])
+        verdict = reds.classify(shared, log(failed("a()"), SUMMARY), "cmux-next checks")
+        self.assertFalse(verdict.own, verdict.reasons)
+
     def test_signal_exit_after_a_complete_summary_is_never_a_base_red(self):
         whole = log("◇ Test run started.", failed("a()"),
                     "✘ Test a() failed after 0.1 seconds with 1 issue.",

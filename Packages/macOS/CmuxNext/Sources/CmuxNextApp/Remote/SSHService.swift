@@ -322,6 +322,8 @@ final class SSHService {
         let session = SSHMachineSession(host: host, binary: binary, paths: paths, environment: Self.environment,
                                         mainWork: mainWork)
         session.daemon.workTracker = machines.local.workTracker
+        session.daemon.onPaneNotReady = machines.local.onPaneNotReady
+        session.daemon.paneNotReadyText = machines.local.paneNotReadyText
         session.onStatusChange = { [weak self] session, status in self?.statusChanged(session, status) }
         machines.add(session)
         return session
