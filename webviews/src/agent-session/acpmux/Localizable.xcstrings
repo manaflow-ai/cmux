@@ -206661,6 +206661,138 @@
         }
       }
     },
+    "chatInspector.environment.remoteControl.help": {
+      "comment": "Agent pane Inspector, Environment: the Remote Control switch's tooltip. It is the Mac-wide iPhone connections switch, so it covers every chat on this Mac",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتيح لتطبيق cmux على iPhone فتح كل المحادثات على هذا الـ Mac، وليس هذه فقط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Omogućava cmuxu na vašem iPhoneu da otvori svaki chat na ovom Macu, ne samo ovaj."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lader cmux på din iPhone åbne alle chats på denne Mac, ikke kun denne."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lässt cmux auf deinem iPhone jeden Chat auf diesem Mac öffnen, nicht nur diesen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets cmux on your iPhone open every chat on this Mac, not only this one."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite que cmux en tu iPhone abra todos los chats de este Mac, no solo este."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permet à cmux sur votre iPhone d’ouvrir toutes les discussions de ce Mac, pas seulement celle-ci."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consente a cmux su iPhone di aprire ogni chat di questo Mac, non solo questa."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone の cmux から、このチャットだけでなくこの Mac のすべてのチャットを開けるようにします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតឱ្យ cmux នៅលើ iPhone របស់អ្នកបើកការជជែកទាំងអស់នៅលើ Mac នេះ មិនមែនតែមួយនេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone의 cmux에서 이 채팅뿐 아니라 이 Mac의 모든 채팅을 열 수 있게 합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lar cmux på iPhonen åpne alle chatter på denne Macen, ikke bare denne."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozwala cmux na iPhonie otwierać każdy czat na tym Macu, nie tylko ten."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite que o cmux no seu iPhone abra todos os chats deste Mac, não só este."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Позволяет cmux на iPhone открывать все чаты на этом Mac, а не только этот."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ให้ cmux บน iPhone เปิดแชททุกแชทบน Mac เครื่องนี้ได้ ไม่ใช่แค่แชทนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone’daki cmux’un yalnızca bunu değil, bu Mac’teki tüm sohbetleri açmasına izin verir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дозволяє cmux на iPhone відкривати всі чати на цьому Mac, а не лише цей."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cho phép cmux trên iPhone mở mọi cuộc trò chuyện trên máy Mac này, không chỉ cuộc này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "让 iPhone 上的 cmux 打开这台 Mac 上的所有对话，而不只是这一个。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "讓 iPhone 上的 cmux 開啟這台 Mac 上的所有對話，而不只是這一個。"
+          }
+        }
+      }
+    },
     "chatInspector.environment.save": {
       "comment": "Agent pane Inspector, Environment: a link that saves this machine, folder and branch as a reusable environment",
       "extractionState": "manual",
