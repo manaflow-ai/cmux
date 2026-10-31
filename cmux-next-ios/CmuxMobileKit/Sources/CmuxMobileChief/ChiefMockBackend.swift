@@ -10,16 +10,27 @@ import ImageIO
 /// asked, and tapbacks on messages that thank or praise it. The real Chief
 /// is `ChiefDaemonBackend` (cmux-tui `conversation-*` over the link); both
 /// sit behind `ConversationBackend`, so the screen does not change.
-public final class ChiefMockBackend: ConversationFileBackend, @unchecked Sendable {
+public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @unchecked Sendable {
     public typealias Sleep = @Sendable (Duration) async -> Void
     let engine: Engine
+    public let liveFeed = ChiefLiveFeed()
 
     /// `sleep` paces Chief (pass a no-op in tests); `now` stamps messages.
     public init(identity: ChiefIdentity = .standard, now: Date = Date(),
                 sleep: @escaping Sleep = { try? await Task.sleep(for: $0) }) {
-        engine = Engine(identity: identity, now: now, sleep: sleep)
+        let showsLiveDemo = ProcessInfo.processInfo.arguments.contains("-cmux-mobile-chief-live")
+        engine = Engine(identity: identity, now: now, sleep: sleep, showsLiveDemo: showsLiveDemo)
         self.sleep = sleep
-        questionFeed.update([ChiefMockScript.question], seq: ChiefMockScript.questionSeq)
+        if !showsLiveDemo {
+            questionFeed.update([ChiefMockScript.question], seq: ChiefMockScript.questionSeq)
+        }
+        // Opt-in synthetic live state for before/after simulator captures.
+        if showsLiveDemo {
+            liveFeed.update(ChiefLive(key: "conv_chief_local\u{0}\(identity.chiefID)\u{0}demo-run", step: "demo-reply",
+                text: String(repeating: "Checking the sample project and writing up the results.\n", count: 800)
+                    + "The checks passed. The reply keeps its newest words in view.",
+                activity: "Checking the sample project"))
+        }
     }
 
     let sleep: Sleep
@@ -72,6 +83,7 @@ public final class ChiefMockBackend: ConversationFileBackend, @unchecked Sendabl
     }
 
     public func close() {
+        liveFeed.update(nil)
         Task { await engine.close() }
     }
 
@@ -98,10 +110,17 @@ public final class ChiefMockBackend: ConversationFileBackend, @unchecked Sendabl
             return info
         }
 
-        init(identity: ChiefIdentity, now: Date, sleep: @escaping Sleep) {
+        init(identity: ChiefIdentity, now: Date, sleep: @escaping Sleep, showsLiveDemo: Bool = false) {
             self.identity = identity
             self.sleep = sleep
-            messages = ChiefMockScript.history(identity: identity, now: now)
+            // A completed Chief reply would suppress the live bubble when the
+            // first history page lands. This scene starts with an unanswered
+            // synthetic prompt so both revisions show the long live reply.
+            messages = showsLiveDemo ? [ConversationMessage(
+                id: "demo-prompt", seq: 1, clientMessageID: "demo-prompt",
+                senderID: identity.meID, sentAt: now, text: "Please check the sample project.",
+                delivery: .read(nil)
+            )] : ChiefMockScript.history(identity: identity, now: now)
         }
 
         private var headSeq: Int { messages.compactMap(\.seq).max() ?? 0 }

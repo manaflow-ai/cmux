@@ -330,20 +330,48 @@ struct ChiefLiveState {
         if UTF16.isTrailSurrogate(units[start]) { start = units.index(after: start) }
         return String(text[start...])
     }
+
+}
+
+extension ChiefLive {
+    /// The part of a streaming reply that the live bubble can lay out cheaply.
+    /// Keeping the newest lines means the visible text continues to change as
+    /// tokens arrive instead of pinning the view to the beginning of a long reply.
+    public static func liveTail(of text: String, lines: Int = 8, characters: Int = 480) -> String {
+        let window = text.suffix(characters * 2)
+        let parts = window.split(separator: "\n", omittingEmptySubsequences: true)
+        let kept = parts.suffix(lines)
+        var tail = kept.joined(separator: "\n")
+        var cut = parts.count > kept.count || window.startIndex != text.startIndex
+        if tail.count > characters {
+            let end = tail.suffix(characters)
+            tail = String(end.firstIndex(where: \.isWhitespace).map { end[$0...].drop(while: \.isWhitespace) } ?? end)
+            cut = true
+        }
+        return cut ? "…" + tail : tail
+    }
 }
 
 /// The live state a backend reports, read by ``ChiefSession`` (as
-/// ``ChiefQuestionFeed`` is): one handler, called after every change.
+/// ``ChiefQuestionFeed`` is): one handler, coalesced during token bursts.
 public final class ChiefLiveFeed: @unchecked Sendable {
     private let lock = NSLock()
     private var live: ChiefLive?
     private var handler: (@Sendable (ChiefLive?) -> Void)?
+    /// A live run can emit several token frames during one display interval.
+    /// Keep only the newest state and deliver it once per frame-sized window.
+    private var deliveryTask: Task<Void, Never>?
 
     public init() {}
 
+    deinit {
+        deliveryTask?.cancel()
+    }
+
     public var current: ChiefLive? { lock.withLock { live } }
 
-    /// Calls `handler` with the state now and after every change.
+    /// Calls `handler` with the state now and at most once per frame-sized
+    /// window while the run streams.
     public func observe(_ handler: @escaping @Sendable (ChiefLive?) -> Void) {
         let now = lock.withLock {
             self.handler = handler
@@ -353,12 +381,24 @@ public final class ChiefLiveFeed: @unchecked Sendable {
     }
 
     func update(_ next: ChiefLive?) {
-        let handler: (@Sendable (ChiefLive?) -> Void)? = lock.withLock {
-            guard live != next else { return nil }
+        lock.withLock {
+            guard live != next else { return }
             live = next
-            return self.handler
+            guard deliveryTask == nil else { return }
+            deliveryTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(16))
+                guard !Task.isCancelled else { return }
+                self?.flush()
+            }
         }
-        handler?(next)
+    }
+
+    private func flush() {
+        let (handler, value): ((@Sendable (ChiefLive?) -> Void)?, ChiefLive?) = lock.withLock {
+            deliveryTask = nil
+            return (self.handler, self.live)
+        }
+        handler?(value)
     }
 }
 
