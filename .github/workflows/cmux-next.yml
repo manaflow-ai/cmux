@@ -3048,12 +3048,17 @@ jobs:
           echo "::notice title=cmux-next fast tier reused::$RUN_URL passed on the same inputs (${SHA:0:12})"
           echo "Reused $RUN_URL: it passed on \`${SHA:0:12}\` with the same inputs (\`$KEY\`)." >> "$GITHUB_STEP_SUMMARY"
 
-      # Checkout removes .build. Link the owned Mac's kept build after Xcode
-      # selection so its fingerprint uses the compiler that runs this job.
+      # Checkout removes .build. On an owned Mac the tier builds in one of the
+      # mini's shared roots (scripts/ci/owned_spm_scratch.py lease): a mirror of
+      # this checkout at a path every runner slot shares, so the build the last
+      # fast tier on any slot left is warm here. Its output `root` is where the
+      # tier runs; with no root free it links this workspace's own kept build.
+      # After Xcode selection, so its fingerprint uses the compiler of this job.
       - name: Keep Swift package builds on this owned Mac
+        id: spm-root
         if: ${{ (contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
-        run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
+        run: python3 scripts/ci/owned_spm_scratch.py lease "$GITHUB_WORKSPACE"
 
       # Owned minis keep their builds on their own SSD (above). Blacksmith overflow
       # restores the newest seed cmux-next-fast-tier-seed.yml saved from a
@@ -3112,7 +3117,7 @@ jobs:
           CMUX_FAST_SWIFT_CACHE_KEY: ${{ steps.fast-cache-key.outputs.swift-key }}
           CMUX_FAST_SWIFT_CACHE_HIT: ${{ steps.fast-cache-restore.outputs.cache-hit }}
           CMUX_FAST_CACHE_MATCHED_KEY: ${{ steps.fast-cache-restore.outputs.cache-matched-key }}
-        run: python3 -I scripts/cmux-next/fast-tier.py --kind swift --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
+        run: python3 -I scripts/cmux-next/fast-tier.py --root "${{ steps.spm-root.outputs.root || github.workspace }}" --kind swift --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
 
       # Also after a failure or a cancel: end the daemon of this job's home and
       # its agents (shutdown never starts one), then delete the home.
