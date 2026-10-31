@@ -200,15 +200,22 @@ struct CloudStartChatMachineTests {
         #expect(CloudStartChat.uploads(atRoot, as: tabs, home: "/Users/me"))
     }
 
-    /// The create's key is the send's, so a retry after a lost create answer never makes a second VM.
-    @Test func aNewMachineIsCreatedUnderTheSendsKey() throws {
+    /// The create's key is the send's, so a retry after a lost create answer never makes a second VM;
+    /// and its team is the send's, fixed for every try, so a team switch during a slow create never
+    /// makes the machine in the other team (router review at 2208632).
+    @Test func aNewMachineIsCreatedUnderTheSendsKeyInTheSendsTeam() async throws {
         let key = UUID().uuidString
         let start = try #require(AgentPaneCloudStart(params: ["task": "t", "key": key]))
-        let request = CloudStartChat.createRequest(for: start, sizedFor: nil)
+        let request = CloudStartChat.createRequest(for: start, sizedFor: nil, team: "team-a")
         #expect(request.idempotencyKey == "cloud-start-chat-" + key.lowercased())
+        #expect(request.team == "team-a")
         let retry = try #require(AgentPaneCloudStart(params: ["task": "t", "key": key.uppercased()]))
-        #expect(CloudStartChat.createRequest(for: retry, sizedFor: nil).idempotencyKey == request.idempotencyKey)
+        #expect(CloudStartChat.createRequest(for: retry, sizedFor: nil, team: "team-a").idempotencyKey == request.idempotencyKey)
         #expect(!request.wasSent)
+        // The classic create sends to that team, not the app's team now; a sent try keeps its own.
+        #expect(await CloudService.createTeam(sent: nil, requested: request.team) { "team-b" } == "team-a")
+        #expect(await CloudService.createTeam(sent: nil, requested: nil) { "team-b" } == "team-b")
+        #expect(await CloudService.createTeam(sent: .some("team-c"), requested: request.team) { "team-b" } == "team-c")
     }
 
     /// Not behind Labs (Leo, 2026-10-30: "that seems dumb. i dont like putting so much stuff in

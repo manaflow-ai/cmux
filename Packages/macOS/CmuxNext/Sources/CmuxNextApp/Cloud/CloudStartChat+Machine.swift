@@ -182,9 +182,12 @@ extension CloudStartChat {
     /// The create of the machine for the send `start`: sized for the chat, under the send's own
     /// idempotency key (``AgentPaneCloudStart/createKey``), so a retry after a create whose answer
     /// was lost gets the same machine from the server, never a second paid VM.
-    static func createRequest(for start: AgentPaneCloudStart, sizedFor pick: CloudWorkPick?) -> CloudMachineRequest {
+    /// Its team is the send's (`team`, the account's team when the send began), fixed for every try,
+    /// so a team switch during a slow create never makes the machine in the other team.
+    static func createRequest(for start: AgentPaneCloudStart, sizedFor pick: CloudWorkPick?, team: String?) -> CloudMachineRequest {
         var request = CloudChatPick.request(sizedFor: pick)
         request.idempotencyKey = start.createKey
+        request.team = team
         return request
     }
 
@@ -249,9 +252,13 @@ extension CloudStartChat {
             destinations.record(id, for: pin)
             invocation.arguments["machine"] = .string(id)
         case .new:
+            let request = Self.createRequest(for: start, sizedFor: await pick(), team: account.last ?? nil)
+            try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
+            // The account is checked again once the server answered, before the machine joins the list.
             let created = try await cloud.createMachine(name: Self.newMachineName(taken: machines.cloud.map(\.machine.title)),
-                                                        startedByPerson: invocation.origin == .user,
-                                                        request: Self.createRequest(for: start, sizedFor: await pick()))
+                                                        startedByPerson: invocation.origin == .user, request: request) {
+                try Self.checkAccount(account, now: cloud.account, listCurrent: true)
+            }
             destinations.record(created.machineID, for: pin)
             invocation.arguments["machine"] = .string(created.machineID)
         }

@@ -690,8 +690,10 @@ final class CloudService {
                                                       gate: { [weak self, weak creation] in creation?.request.wasSent == true ? .allowed : self?.createGate ?? .allowed },
                                                       confirm: { [weak self] in await self?.confirmCreate?($0) ?? false },
                                                       create: { [api, weak creation] in
-                                                          // The first send's team, for every later call about this machine.
-                                                          let team = creation?.request.wasSent == true ? creation?.request.team : await api.currentTeam()
+                                                          // The first send's team, for every later call about this machine; a
+                                                          // caller that fixed the team (`request.team`) sends every try there.
+                                                          let team = await Self.createTeam(sent: creation?.request.wasSent == true ? .some(creation?.request.team) : nil,
+                                                                                           requested: request.team, current: { await api.currentTeam() })
                                                           creation?.markRequestSent(team: team)
                                                           return try await api.pinningTeam(team).createWithKey(name: name, request: request, idlePause: idlePause, onSent: onSent)
                                                       })
@@ -718,6 +720,14 @@ final class CloudService {
         // A list in flight was asked before this machine existed.
         listGeneration += 1
         return session
+    }
+
+    /// The team a classic create try goes to: the first send's once one was sent (`sent`), else the
+    /// team the caller fixed (`requested`, ``CloudMachineRequest/team``), else the app's team now.
+    nonisolated static func createTeam(sent: String??, requested: String?, current: () async -> String?) async -> String? {
+        if let sent { return sent }
+        if let requested { return requested }
+        return await current()
     }
 
     func deleteMachine(_ machineID: String) async throws {

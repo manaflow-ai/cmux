@@ -126,6 +126,9 @@ struct CloudStartChat {
             remoteChat = try await move.sync(folder, to: socket, machine: name, cli: cli, retry: again, place: place).chat
             destinations.recordCopy(remoteChat, for: start.key, on: machine.machineID)
         }
+        // The copy may take long: a chat whose account changed meanwhile opens nowhere, and this
+        // Mac's tab stays.
+        try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         let context = AppActionContext(services: services)
         let anchor = try await CloudHandlers.terminalAnchor(on: machine, context)
         let seed = start.seed(cwd: remoteChat)
