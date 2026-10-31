@@ -164,23 +164,19 @@ extension WindowManager {
         recordSaver.stateDidChange(state)
     }
 
-    /// A workspace being created in a source window the move closed (claimed, not reported yet)
-    /// lands in `target` instead: reconcile would otherwise reopen the closed window for it, and
-    /// its sidebar placement (`pendingPlacements`) would be dropped with the closed window.
+    /// Claims, sidebar placements and later creates (`claimNew`) of a window the move closed go to `target`.
     private func retargetClaims(from sources: Set<String>, to target: String) {
-        let value = registry.value
-        let closed = sources.filter { value.window($0)?.isOpen != true }
-        guard !closed.isEmpty else { return }
-        for (workspace, window) in pendingClaims where closed.contains(window) {
-            pendingClaims[workspace] = target
-        }
-        for (workspace, placement) in pendingPlacements where placement.window.map(closed.contains) == true {
-            pendingPlacements[workspace]?.window = target
-        }
-        for window in closed {
-            pendingFrames[window] = nil
-            behindWindows.remove(window)
-        }
+        let closed = sources.filter { registry.value.window($0) == nil }
+        for window in closed { (gatheredWindows[window], pendingFrames[window]) = (target, nil); behindWindows.remove(window) }
+        for (workspace, window) in pendingClaims where closed.contains(window) { pendingClaims[workspace] = target }
+        for (id, placement) in pendingPlacements where placement.window.map(closed.contains) == true { pendingPlacements[id]?.window = target }
+    }
+
+    /// Where a claim for `windowID` goes: the window that gathered it (`retargetClaims`), else `windowID`.
+    func gatheredTarget(of windowID: String) -> String {
+        var window = windowID, seen: Set<String> = []
+        while registry.value.window(window) == nil, let next = gatheredWindows[window], seen.insert(window).inserted { window = next }
+        return window
     }
 
     /// The workspaces `profile` last showed, best first: the one each window showing it shows
