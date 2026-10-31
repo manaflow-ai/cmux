@@ -106,7 +106,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// The tab as last listed (`refreshTabs`): a body that reads it
     /// observes that one tab, not the whole store.
     func workspaceTab(_ id: String) -> WorkspaceTab? {
-        entries[id]?.tab
+        flushStale()
+        return entries[id]?.tab
     }
 
     // MARK: Tabs
@@ -118,8 +119,29 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// title and progress, a terminal's status) are observed per tab, so a
     /// change rebuilds that one tab (`refreshTab`); the workspace's own
     /// list (tabs added, closed, renamed, moved) rebuilds the list
-    /// (`refreshTabs`). Never rebuilt in a view body.
-    public private(set) var tabs: [TabsKitTab] = []
+    /// (`refreshTabs`). A change marks the list (or the tab) stale at once
+    /// and the next read rebuilds it, so code that changes the store and
+    /// reads the tabs in the same turn sees the change; otherwise the
+    /// rebuild runs on the next turn.
+    public var tabs: [TabsKitTab] {
+        flushStale()
+        return listedTabs
+    }
+    private var listedTabs: [TabsKitTab] = []
+    /// The workspace's list changed since the last `refreshTabs()` (set synchronously by
+    /// the observation, before the rebuild task runs).
+    @ObservationIgnored private var listStale = false
+    /// Tabs whose live inputs changed since they were built.
+    @ObservationIgnored private var staleTabs: Set<String> = []
+
+    /// Rebuilds what a change marked stale (the list, then single tabs).
+    private func flushStale() {
+        if listStale { refreshTabs() }
+        guard !staleTabs.isEmpty else { return }
+        let ids = staleTabs
+        staleTabs = []
+        for id in ids { refreshTab(id) }
+    }
     /// The workspace as of the last `refreshTabs()` (not observed): what
     /// cards, pages and menus pass to the chat and terminal stores.
     @ObservationIgnored private(set) var workspaceSnapshot: Workspace?
@@ -129,6 +151,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     private var workspaceIdentity: WorkspaceIdentity?
     /// The listed workspace, for page, card and accessory bodies.
     var listedWorkspace: Workspace? {
+        flushStale()
         _ = workspaceIdentity
         return workspaceSnapshot
     }
@@ -171,19 +194,28 @@ public final class WorkspaceTabsSource: TabsDataSource {
         init(_ tab: WorkspaceTab) { self.tab = tab }
     }
 
-    func entry(_ id: String) -> TabEntry? { entries[id] }
+    func entry(_ id: String) -> TabEntry? {
+        flushStale()
+        return entries[id]
+    }
 
     /// Rebuilds the list from the workspace (observed until it changes).
     // perf-hot: O(changed tabs) per workspace publish tabs-source-refresh
     func refreshTabs(preparingCards: Bool = true) {
         listGeneration += 1
+        listStale = false
         let generation = listGeneration
         let (workspace, opening) = withObservationTracking {
             let workspace = store.workspace(id: workspaceID)
             return (workspace, workspace.flatMap { store.openingTab(for: $0)?.id })
         } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
+            // The store is main-actor isolated: its changes, and so this call, run on main.
+            MainActor.assumeIsolated {
                 guard let self, self.listGeneration == generation else { return }
+                self.listStale = true
+            }
+            Task { @MainActor [weak self] in
+                guard let self, self.listGeneration == generation, self.listStale else { return }
                 self.refreshTabs()
             }
         }
@@ -193,7 +225,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
                                                          screens: $0.screens) }
         if workspaceIdentity != identity { workspaceIdentity = identity }
         guard let workspace else {
-            if !tabs.isEmpty { tabs = [] }
+            if !listedTabs.isEmpty { listedTabs = [] }
             entries = [:]
             built = [:]
             tabGenerations = [:]
@@ -221,7 +253,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             tabGenerations[id] = nil
             preparedCards.remove(id)
         }
-        if next != tabs { tabs = next }
+        if next != listedTabs { listedTabs = next }
         if isSingleTab != (next.count == 1) { isSingleTab = next.count == 1 }
         if preparingCards { prepareTerminalCards(workspace.tabs) }
     }
@@ -235,8 +267,13 @@ public final class WorkspaceTabsSource: TabsDataSource {
         let kit = withObservationTracking {
             kitTab(tab, in: workspace)
         } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
+            // A tab's live inputs (chat, page and terminal models) are main-actor isolated.
+            MainActor.assumeIsolated {
                 guard let self, self.tabGenerations[id] == generation else { return }
+                self.staleTabs.insert(id)
+            }
+            Task { @MainActor [weak self] in
+                guard let self, self.tabGenerations[id] == generation, self.staleTabs.remove(id) != nil else { return }
                 self.refreshTab(id)
             }
         }
@@ -248,10 +285,10 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// only when what the kit shows of it changed.
     func refreshTab(_ id: String) {
         guard let workspace = workspaceSnapshot, let tab = workspace.tabs.first(where: { $0.id == id }),
-              let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+              let index = listedTabs.firstIndex(where: { $0.id == id }) else { return }
         let key = WorkspaceKey(macID: workspace.macID, title: workspace.title, directory: workspace.directory)
         let kit = trackTab(tab, key: key, in: workspace)
-        if tabs[index] != kit { tabs[index] = kit }
+        if listedTabs[index] != kit { listedTabs[index] = kit }
     }
 
     /// New terminal tabs' cards get their host before any card shows them
