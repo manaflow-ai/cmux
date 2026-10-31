@@ -140,6 +140,10 @@ pub use agent_session_attach::{
     start_link_share_bridge,
 };
 #[cfg(unix)]
+pub(crate) use agent_session_attach::{
+    close_chat_shares, close_listed_chat_shares, close_unlisted_chat_shares, open_chat_shares,
+};
+#[cfg(unix)]
 pub mod agent_transfer;
 mod app_trust;
 pub use app_trust::{FrontendKey, frontend_proof, install_frontend_key, read_frontend_key};
@@ -190,6 +194,7 @@ mod history_search;
 mod home;
 mod icon_assets;
 mod launch_snapshot;
+pub(crate) use launch_snapshot::MAX_LAUNCH_SNAPSHOT_BYTES;
 mod new_screen;
 mod personal;
 mod raw_tab;

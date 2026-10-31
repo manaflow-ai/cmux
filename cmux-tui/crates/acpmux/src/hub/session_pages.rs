@@ -7,7 +7,9 @@
 //! names. A session that moves to the top or leaves meanwhile neither repeats
 //! nor skips another one; one that moves to the top before its page is read is
 //! not in a later page, and reaches a watching client as `_acpmux/session_changed`.
-//! Without `limit` the reply is the whole list, as before. `orderBy: "sessionId"`
+//! Without `limit` the reply is the whole list, as before, unless it is too large for one
+//! message: then it goes in pages by size, each with the `nextCursor` of the rest
+//! (`Snapshot::bounded`, [`byte_page`]). `orderBy: "sessionId"`
 //! opts into stable ID ordering, so updates cannot move an unread session past
 //! the cursor (used by the quit census, which does not subscribe to changes).
 //!
@@ -101,7 +103,7 @@ pub(crate) fn session_list_reply(sorted: Vec<Value>, params: &Value) -> Result<V
 
 /// A page cut by bytes rather than by count, for a reply that has no `limit` to page by (ACP's
 /// `session/list`): of the rows whose paging `keys` are given, those after `cursor` (a
-/// `nextCursor` of this list) that `row` makes and whose sizes fit in `budget`, at least one,
+/// `nextCursor` of this list) that `row` makes and whose `size`s fit in `budget`, at least one,
 /// and the cursor after the last of them when rows are left. Only the page's rows are made.
 ///
 /// Pages go in the order of [`page_key`], a hash of each row's `sessionId` and `peer`, not
@@ -109,12 +111,13 @@ pub(crate) fn session_list_reply(sorted: Vec<Value>, params: &Value) -> Result<V
 /// updates or leaves while a client pages moves no other, so none is skipped or repeated. A
 /// row listed twice (one id, one peer) comes once. A page never ends between rows of one hash,
 /// which two different rows share only if 128-bit hashes collide.
-pub(crate) fn byte_page(
+pub(crate) fn byte_page<R>(
     keys: &[Value],
     cursor: Option<&str>,
     budget: usize,
-    row: impl Fn(usize) -> Value,
-) -> Result<(Vec<Value>, Option<String>), RpcError> {
+    row: impl Fn(usize) -> R,
+    size: impl Fn(&R) -> usize,
+) -> Result<(Vec<R>, Option<String>), RpcError> {
     let after = match cursor {
         None => None,
         Some(text) => Some(
@@ -126,7 +129,7 @@ pub(crate) fn byte_page(
                 })?,
         ),
     };
-    let pair = |at: usize| (session_id(&keys[at]), peer(&keys[at]));
+    let pair = |at: usize| keys.get(at).map(|key| (session_id(key), peer(key)));
     let mut order: Vec<(u128, usize)> = keys
         .iter()
         .enumerate()
@@ -136,15 +139,16 @@ pub(crate) fn byte_page(
     // Stable, so of a row listed twice the first is kept.
     order.sort_by(|(a, at), (b, bt)| a.cmp(b).then_with(|| pair(*at).cmp(&pair(*bt))));
     order.dedup_by(|(_, at), (_, bt)| pair(*at) == pair(*bt));
-    let (mut page, mut used, mut last) = (Vec::new(), 0, None);
+    let (mut page, mut used, mut last) = (Vec::new(), 0_usize, None);
     for &(hash, at) in &order {
         let value = row(at);
         // One more byte for the comma between rows.
-        let bytes = value.to_string().len() + 1;
-        if last.is_some_and(|last| last != hash) && used + bytes > budget {
+        let bytes = size(&value).saturating_add(1);
+        let total = used.saturating_add(bytes);
+        if last.is_some_and(|last| last != hash) && total > budget {
             break;
         }
-        (used, last) = (used + bytes, Some(hash));
+        (used, last) = (total, Some(hash));
         page.push(value);
     }
     let next = (page.len() < order.len()).then(|| format!("h{:032x}", last.unwrap_or_default()));
@@ -252,6 +256,14 @@ pub(crate) fn refuse_watch_filters(params: &Value) -> Result<(), RpcError> {
     Ok(())
 }
 
+/// The `cursor` that starts a page after `session`, the `nextCursor` a page ending on it carries:
+/// for a client that stops in the middle of a page (`acpmux ls --limit` with a filter of its own).
+/// A daemon whose cursor keys differ starts at the first session no newer than it
+/// ([`SessionCursor::start`]): one of that same millisecond may repeat, none is skipped.
+pub(crate) fn cursor_after(session: &Value) -> String {
+    SessionCursor::after(session).to_text()
+}
+
 /// After the session updated at `updated_ms` whose id and peer hash to `key` ([`row_key`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct SessionCursor {
@@ -342,6 +354,10 @@ fn fnv(basis: u64, bytes: impl Iterator<Item = u8>) -> u64 {
 mod tests {
     use super::*;
 
+    fn json_bytes(value: &Value) -> usize {
+        value.to_string().len()
+    }
+
     fn name(row: &Value) -> String {
         format!("{}{}", session_id(row), peer(row).map_or(String::new(), |p| format!("@{p}")))
     }
@@ -355,9 +371,14 @@ mod tests {
     ) -> Vec<String> {
         let (mut read, mut cursor) = (Vec::new(), None::<String>);
         loop {
-            let (page, next) =
-                byte_page(rows, cursor.as_deref(), budget, |at| json!({"name": name(&rows[at])}))
-                    .unwrap();
+            let (page, next) = byte_page(
+                rows,
+                cursor.as_deref(),
+                budget,
+                |at| json!({"name": name(&rows[at])}),
+                json_bytes,
+            )
+            .unwrap();
             assert!(!page.is_empty());
             read.extend(page.iter().map(|row| row["name"].as_str().unwrap().to_owned()));
             assert!(read.len() <= rows.len() + 2, "{read:?}");
@@ -390,7 +411,7 @@ mod tests {
             let read = read_pages(&mut rows.clone(), budget, |_, _| {});
             assert_eq!(sorted(read), ["a", "dup", "dup@p1", "dup@p2", "z"], "budget {budget}");
         }
-        let bad = |cursor| byte_page(&rows, Some(cursor), 1, |_| json!({})).is_err();
+        let bad = |cursor| byte_page(&rows, Some(cursor), 1, |_| json!({}), json_bytes).is_err();
         assert!(bad("k5.0011") && bad("h") && bad("h12") && bad(&format!("h{}", "g".repeat(32))));
     }
 
@@ -431,7 +452,7 @@ mod tests {
             json!({"sessionId": "x".repeat(1 << 20), "peer": "p".repeat(1 << 20)}),
             json!({"sessionId": "y".repeat(1 << 20)}),
         ];
-        let (page, next) = byte_page(&rows, None, 1, |at| json!({"at": at})).unwrap();
+        let (page, next) = byte_page(&rows, None, 1, |at| json!({"at": at}), json_bytes).unwrap();
         assert_eq!(page.len(), 1);
         assert_eq!(next.unwrap().len(), 33);
     }
