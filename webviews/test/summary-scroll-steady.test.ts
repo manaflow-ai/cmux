@@ -274,6 +274,8 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
           text: card.textContent,
         }));
         const seen = await scrollAndWatch(page, selector, 400);
+        // Once the scroll settles, what it paged in reaches the card, in one change.
+        await page.waitForTimeout(800);
         const after = await page.locator(selector).first().evaluate((card) => ({
           reserve: card.classList.contains("acpmux-summary-card--reserve"),
           text: card.textContent,
@@ -281,11 +283,15 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
         console.log(
           `${name} inline summary while history pages in: ${JSON.stringify({ before, after, seen, methods: paged!.methods.filter((method) => method === "_acpmux/events").length })}`,
         );
-        expect({ changes: seen.changes, boxes: seen.boxes.length, replaced: seen.replaced }).toEqual({
-          changes: [],
-          boxes: 1,
-          replaced: false,
-        });
+        expect({
+          changes: seen.changes,
+          boxes: seen.boxes.length,
+          replaced: seen.replaced,
+          pagedToTop: seen.lowest,
+          before: before.reserve,
+          after: after.reserve,
+        }).toEqual({ changes: [], boxes: 1, replaced: false, pagedToTop: 0, before: true, after: false });
+        expect(after.text).toContain("watch:0");
       } finally {
         await page.close();
       }
@@ -307,14 +313,18 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
         await page.locator(`${selector}[data-presence=shown]`).waitFor({ timeout: 10_000 });
         await settle(page);
         const seen = await scrollAndWatch(page, selector, 400);
+        await page.waitForTimeout(800);
+        const after = await page.locator(selector).evaluate((panel) => panel.textContent ?? "");
+        expect(after).toContain("watch:0");
         console.log(
           `${name} Session Info while history pages in: ${JSON.stringify({ seen, methods: paged!.methods.filter((method) => method === "_acpmux/events").length })}`,
         );
-        expect({ changes: seen.changes, boxes: seen.boxes.length, replaced: seen.replaced }).toEqual({
-          changes: [],
-          boxes: 1,
-          replaced: false,
-        });
+        expect({
+          changes: seen.changes,
+          boxes: seen.boxes.length,
+          replaced: seen.replaced,
+          pagedToTop: seen.lowest,
+        }).toEqual({ changes: [], boxes: 1, replaced: false, pagedToTop: 0 });
       } finally {
         await page.close();
       }

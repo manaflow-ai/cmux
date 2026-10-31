@@ -237,6 +237,7 @@ import { chatHasSummaryContent } from "./summary/summaryContent";
 import { createWorkflowAdapter, workflowDetailRequest, type WorkflowDetailRequest } from "./summary/foldWorkflows";
 import { workflowPaneId, workflowPaneRequest } from "./summary/workflowTranscript";
 import { useWorkflowTranscript } from "./summary/useWorkflowTranscript";
+import { noteReaderScroll, releaseReaderScroll, useHeldWhileScrolling } from "./summary/heldWhileScrolling";
 import type { WorkflowAgent, WorkflowSummary } from "./summary/workflow";
 import { WorkflowSideTab } from "./summary/WorkflowSideTab";
 import {
@@ -3882,6 +3883,9 @@ export function VirtualTranscript({
       return;
     }
     const programmatic = performance.now() - readerAt.current > READER_SCROLL_MS;
+    // The right-hand card holds what it shows until the reader's scroll settles
+    // (summary/heldWhileScrolling.ts): older history paged in under the scroll lands there once.
+    if (!programmatic) noteReaderScroll();
     // ResizeObserver/layout work can emit a scroll event after the stack below the transcript
     // changes. While the reader is following, keep the viewport at the new end and do not let
     // that synthetic event clear the follow state. A real wheel/touch/key event marks itself first.
@@ -5745,9 +5749,19 @@ function AcpmuxPane() {
   useEffect(() => {
     clearWorkflowSideTab();
   }, [shownSessionId, workflowLabsEnabled, clearWorkflowSideTab]);
+  // The rows the right-hand card reads (the Summary card and Session Info): the chat's rows as they
+  // stood when the reader started scrolling, until the scroll settles (summary/heldWhileScrolling.ts;
+  // Leo, 2026-10-25: "session summary on top right flickers when im scrolling thru the chat").
+  const cardRows = useHeldWhileScrolling(snapshot.rows, shownSessionId);
+  // Another chat, or the pane going, lets go of a scroll that has not settled yet.
+  useEffect(() => releaseReaderScroll, [shownSessionId]);
+  const cardSnapshot = useMemo(
+    () => (cardRows === snapshot.rows ? snapshot : { ...snapshot, rows: cardRows }),
+    [snapshot, cardRows],
+  );
   const summaryHasContent = useMemo(
-    () => chatHasSummaryContent(snapshot.rows) || chatSubsessions.rows.length > 0 || workflows.length > 0,
-    [snapshot.rows, chatSubsessions, workflows],
+    () => chatHasSummaryContent(cardRows) || chatSubsessions.rows.length > 0 || workflows.length > 0,
+    [cardRows, chatSubsessions, workflows],
   );
   const [shell, setShell] = useState<HTMLElement | null>(null);
   /// The chat's bottom stack (bottomStack.css): the transcript runs under it and keeps its end above it.
@@ -6804,7 +6818,7 @@ function AcpmuxPane() {
     [workflows, stopSubagent, showWorkflowAgent],
   );
   const inspector = useChatInspector({
-    snapshot,
+    snapshot: cardSnapshot,
     machineName,
     repository: githubRepository,
     shell,
@@ -11075,7 +11089,7 @@ function AcpmuxPane() {
           <SummaryCard
             key={snapshot.sessionId}
             card={summaryCard}
-            rows={snapshot.rows}
+            rows={cardRows}
             cwd={snapshot.summary?.cwd}
             changes={quick ? undefined : lastChanges}
             onOpenChanges={toggleLastChanges}
