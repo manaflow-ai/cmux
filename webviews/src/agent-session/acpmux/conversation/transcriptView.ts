@@ -23,6 +23,9 @@ const STORAGE_KEY = "cmux.acpmux.transcriptView";
 const LIMIT = 200;
 
 let own: Map<string, TranscriptView> | undefined;
+/// Set once a write fails (full or blocked storage): from then on this page's copy is the truth, so
+/// a stale stored copy never drops a choice made here.
+let unsaved = false;
 const listeners = new Set<() => void>();
 
 /// The choices as stored now; undefined when storage cannot be read.
@@ -48,14 +51,16 @@ function load(): Map<string, TranscriptView> {
 /// Writes one chat's choice (or its removal) over what storage holds now, not this page's copy:
 /// another pane's choices made since this page read them stay.
 function write(sessionId: string, view: TranscriptView | undefined): void {
-  const all = stored() ?? load();
+  const all = (unsaved ? undefined : stored()) ?? load();
   all.delete(sessionId);
   if (view) all.set(sessionId, view);
   while (all.size > LIMIT) all.delete(all.keys().next().value!);
   own = all;
   try {
     globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(Object.fromEntries(all)));
+    unsaved = false;
   } catch {
+    unsaved = true;
     // The in-memory choice still lasts for this page.
   }
 }
@@ -64,7 +69,7 @@ function write(sessionId: string, view: TranscriptView | undefined): void {
 if (typeof globalThis.addEventListener === "function")
   globalThis.addEventListener("storage", (event: StorageEvent) => {
     if (event.key !== STORAGE_KEY && event.key !== null) return;
-    own = stored() ?? own;
+    if (!unsaved) own = stored() ?? own;
     for (const listener of listeners) listener();
   });
 
@@ -110,7 +115,7 @@ export function useTranscriptView(sessionId: string | undefined): TranscriptView
 
 /// The chat menu's Normal, Thinking or Verbose: this chat only.
 export function setTranscriptView(sessionId: string, view: TranscriptView): void {
-  if (load().get(sessionId) === view && stored()?.get(sessionId) === view) return;
+  if (load().get(sessionId) === view && (unsaved || stored()?.get(sessionId) === view)) return;
   write(sessionId, view);
   notify();
 }

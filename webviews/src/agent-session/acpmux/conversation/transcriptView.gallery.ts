@@ -59,7 +59,10 @@ const pick =
   (name: string, drawn: string): Play =>
   async (ctx) => {
     await openSubmenu(ctx);
-    await ctx.click({ role: "menuitemradio", name });
+    // Picked by keyboard, as a reader can: a pointer moving straight from the submenu's row to its
+    // third choice crosses the parent menu's rows, which can close the submenu under it.
+    await ctx.focus({ role: "menuitemradio", name });
+    await ctx.press("Enter");
     await ctx
       .waitFor(() => !ctx.document.querySelector('[role="menu"]'))
       .catch(() => {
