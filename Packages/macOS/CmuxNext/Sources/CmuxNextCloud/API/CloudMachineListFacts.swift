@@ -33,7 +33,8 @@ public struct CloudMachineListFacts: Sendable, Hashable {
     ///   - account: Whom the person is signed in as now (`[user id, team id]`).
     public init(isSignedIn: Bool, isRestoring: Bool, hasLoadedMachines: Bool, loadedFor: [String?]?,
                 account: [String?]) {
-        self.init(isSignedIn: isSignedIn, isRestoring: isRestoring, hasLoadedCurrentMachines: hasLoadedMachines)
+        self.init(isSignedIn: isSignedIn, isRestoring: isRestoring,
+                  hasLoadedCurrentMachines: hasLoadedMachines && loadedFor == account)
     }
 
     /// The signed-in account's own machine list has loaded: a machine it does not list left the account.
