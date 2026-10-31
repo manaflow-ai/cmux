@@ -196,10 +196,18 @@ class TheGuardGroupRunsOnThe32VcpuSize(unittest.TestCase):
         return workflow["jobs"]["ci-guard-group"]
 
     def test_the_job_runs_on_32_vcpu_and_follows_the_outage_switch(self):
+        # Fleet Linux, then a free mini (portable-placement), then Blacksmith 32 vCPU
+        # (scripts/ci/portable_job_placement.py; Leo, 2026-10-31: "i mean the linux things cant our minis just run them").
+        placed = "needs.portable-placement.outputs"
+        attempt = f"{placed}.placed_attempt == format('{{0}}', github.run_attempt)"
+        self.assertEqual(self.job()["needs"], ["portable-placement"])
+        self.assertEqual(self.job()["if"], "${{ !cancelled() }}")
         self.assertEqual(
             self.job()["runs-on"],
             "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request'"
             " && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404'"
+            f" || {attempt} && contains({placed}.linux_jobs, ' ci-guard-group ') && {placed}.linux_runner"
+            f" || {attempt} && contains({placed}.mini_jobs, ' ci-guard-group ') && {placed}.mini_runner"
             " || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER"
             " || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}",
         )
@@ -210,7 +218,8 @@ class TheGuardGroupRunsOnThe32VcpuSize(unittest.TestCase):
         self.assertEqual(len(calls), 2, calls)
         for call in calls:
             with self.subTest(call=call):
-                self.assertIn('--jobs "$(nproc)"', call)
+                # getconf, not nproc: a mini (macOS) has no GNU coreutils.
+                self.assertIn('--jobs "$(getconf _NPROCESSORS_ONLN)"', call)
                 self.assertNotIn("--jobs 8", call)
 
 
