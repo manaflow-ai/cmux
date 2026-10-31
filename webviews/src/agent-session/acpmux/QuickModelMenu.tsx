@@ -338,7 +338,14 @@ export function QuickModelMenu({
     const typed = query !== focusedFor.current;
     focusedFor.current = query;
     if (input) {
-      if ((query && typed && active !== input) || !node.contains(active)) {
+      // A search's rows can arrive a render after its text: a row the arrows reached in between
+      // is replaced, and the keyboard stays in the list, on its first row, not back in the field.
+      const row =
+        query && !typed && !node.contains(active)
+          ? node.querySelector<HTMLElement>('.acpmux-quick-list [role="menuitemradio"]:not([data-disabled])')
+          : null;
+      if (row) row.focus({ preventScroll: true });
+      else if ((query && typed && active !== input) || !node.contains(active)) {
         input.focus({ preventScroll: true });
         input.setSelectionRange(input.value.length, input.value.length);
       }
