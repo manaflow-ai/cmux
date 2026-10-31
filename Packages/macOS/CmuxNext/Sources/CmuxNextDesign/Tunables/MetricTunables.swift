@@ -21,6 +21,8 @@ public nonisolated struct MetricTunable: Sendable {
     /// The value chrome uses now. Observation-tracked (density, cmux.json
     /// override and Debug Settings override).
     @MainActor public var value: CGFloat { Metrics.scale(tunable.resolve(Metrics.pick(compactValue, comfortable, key, token: token))) }
+    /// The value without a Debug Settings override (density, custom density token and cmux.json override).
+    @MainActor public var densityValue: CGFloat { Metrics.scale(Metrics.pick(compactValue, comfortable, key, token: token)) }
     /// The compact value in effect: `tight` under Compact tabs, else `compact`.
     @MainActor var compactValue: CGFloat { tight.flatMap { Metrics.compactTabs ? $0 : nil } ?? compact }
     public var descriptor: TunableDescriptor { tunable.descriptor }
@@ -49,7 +51,7 @@ public nonisolated enum MetricTunables {
                                                         compact: 208, comfortable: 240, key: .sidebarWidth, range: 120...480)
     public static let titlebarHeight = MetricTunable.make("titlebarHeight", .sidebar, "Titlebar height", help: "Height of the unified titlebar area.",
                                                           compact: 32, comfortable: 40, key: .titlebarHeight)
-    public static let sidebarRowHeight = MetricTunable.make("sidebarRowHeight", .sidebar, "Sidebar row height", help: "A workspace row with one line.",
+    public static let sidebarRowHeight = MetricTunable.make("sidebarRowHeight", .sidebar, "Sidebar row height", help: "A one-line row in Settings, Home and the titlebar bands; the sidebar list uses sidebarListRowHeight.",
                                                             compact: 24, comfortable: 32, key: .sidebarRowHeight)
     public static let sidebarRowHeightWithSubtitle = MetricTunable.make(
         "sidebarRowHeightWithSubtitle", .sidebar, "Sidebar row height (subtitle)", help: "A workspace row with a cwd, branch or agent line.",

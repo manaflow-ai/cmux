@@ -53,7 +53,7 @@ extension WorkspaceRowView {
     func layoutTextLines(x: CGFloat, inset: CGFloat, titleWidth: CGFloat, width: CGFloat, head b: NSRect,
                          top: CGFloat, title th: CGFloat, line sh: CGFloat) {
         title.frame = NSRect(x: x + inset, y: top, width: titleWidth, height: th)
-        let lineWidth = isExpanded ? max(0, b.width - Metrics.space3 - x) : width
+        let lineWidth = isExpanded ? max(0, b.width - SidebarStyle.horizontalInset - x) : width
         subtitle.isHidden = !hasSubtitle
         subtitle.frame = NSRect(x: x, y: top + th + lineGap, width: lineWidth, height: sh)
         metaLabel.isHidden = !hasMeta

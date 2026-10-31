@@ -7,7 +7,10 @@
   titles (`Typography.sidebarDetail`), 28 pt one-line rows with the 2 pt gap (a 30 pt pitch,
   `MetricTunables.sidebarListRowHeight`) and an 8 pt inset (10 pt comfortable; comfortable rows 32 pt). Other chrome keeps
   `Typography.body` and `Metrics.sidebarRowHeight` (footer, search, Settings, Home). `appearance.metrics.sidebarRowHeight`
-  and a custom density's `sidebarRowHeight` token still set the list rows. Regression: `SidebarCodexTextDefaultsTests`.
+  and a custom density's `sidebarRowHeight` token still set the list rows; the `metrics.sidebarRowHeight` Debug value sizes
+  only that other chrome. A row with a detail line steps `Metrics.sidebarSubtitleStep` (12 pt) over the list row, and
+  expanded detail lines end at the row inset like the title. Minimal Mode stays 17% shorter than the list row (23 pt).
+  Regression: `SidebarCodexTextDefaultsTests`.
 - 2026-10-30: `sidebar.textSize` (Settings > Appearance > Sidebar Text Size; palette, `cmux settings set
   sidebar.textSize larger`, MCP `settings_set`). Lawrence msg 17752 (a ChatGPT sidebar screenshot): "we also need
   option for sidebar text to be very significantly bigger. this is how big chatgpt is by default, let's match them".

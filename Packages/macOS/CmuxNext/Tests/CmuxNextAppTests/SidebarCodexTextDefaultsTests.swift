@@ -134,7 +134,26 @@ import Testing
         Self.at(sidebar: .expanded) {
             let metrics = SidebarLayoutMetrics.standard
             #expect(metrics.rowHeight == 28 && SidebarStyle.horizontalInset == 8, "expanded keeps compact's one-line tokens")
-            #expect(metrics.expanded.twoLineRows && metrics.rowHeightWithSubtitle > metrics.rowHeight, "and draws taller rows")
+            #expect(metrics.expanded.groupHeaderHeight > metrics.rowHeight, "and draws two-line rows")
+        }
+    }
+
+    /// The Debug override of the app's one-line row (`metrics.sidebarRowHeight`) sizes only the chrome that
+    /// reads it: it neither moves the sidebar list's rows nor makes a detail row shorter than a one-line row.
+    @Test func theAppRowDebugOverrideLeavesSidebarRows() {
+        let store = TunableStore.shared
+        let saved = (store.override(MetricTunables.sidebarRowHeight.key), store.override(SidebarTunables.evenRowText.key))
+        store.set(MetricTunables.sidebarRowHeight.key, .number(40))
+        store.set(SidebarTunables.evenRowText.key, .bool(false))
+        defer {
+            store.set(MetricTunables.sidebarRowHeight.key, saved.0)
+            store.set(SidebarTunables.evenRowText.key, saved.1)
+        }
+        Self.at {
+            #expect(Metrics.sidebarRowHeight == 40)
+            let metrics = SidebarLayoutMetrics.standard
+            #expect(metrics.rowHeight == 28 && metrics.rowHeightWithSubtitle == 28 + 12,
+                    "row \(metrics.rowHeight), with detail \(metrics.rowHeightWithSubtitle)")
         }
     }
 }

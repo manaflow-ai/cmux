@@ -17,7 +17,7 @@ import CoreGraphics
 /// |------------------------|---------|-------------|---------------------------|
 /// | row, tab row, group    | 28      | 32          | + `space2`                |
 /// | machine/section header | 22      | 26          | + `space2`                |
-/// | row with a detail line | 44      | 48          | row + detail line         |
+/// | row with a detail line | 43      | 47          | row + detail line         |
 /// | horizontal inset       | 8       | 10          | `space4`→`space4`+`space1` |
 /// | section gap            | 8       | 12          | `space4`→`space5`         |
 /// | list top padding       | 4       | 6           | `space2`→`space3`         |
@@ -47,7 +47,7 @@ enum SidebarDensityTokens {
     static var rowHeightWithSubtitle: CGFloat {
         SidebarTunables.evenRowText.value
             ? rowHeight + SidebarStyle.detailLineHeight
-            : rowHeight + Metrics.sidebarRowHeightWithSubtitle - Metrics.sidebarRowHeight
+            : rowHeight + Metrics.sidebarSubtitleStep
     }
     /// A machine or section header in the list, and a band's header.
     static var headerHeight: CGFloat { Metrics.sidebarHeaderHeight + extra }

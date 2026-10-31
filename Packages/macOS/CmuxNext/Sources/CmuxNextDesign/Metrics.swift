@@ -58,6 +58,12 @@ public struct Metrics {
     public static var sidebarListRowHeight: CGFloat { MetricTunables.sidebarListRowHeight.value }
     /// Sidebar workspace row with a subtitle line (cwd, branch, agent status).
     public static var sidebarRowHeightWithSubtitle: CGFloat { MetricTunables.sidebarRowHeightWithSubtitle.value }
+    /// How much taller a sidebar row with a detail line is than a one-line row: the subtitle metric over the
+    /// app's one-line row, without the one-line row's Debug override, which sizes only the chrome that reads
+    /// `sidebarRowHeight` (issue 28793).
+    public static var sidebarSubtitleStep: CGFloat {
+        MetricTunables.sidebarRowHeightWithSubtitle.value - MetricTunables.sidebarRowHeight.densityValue
+    }
     /// Sidebar group / machine section header.
     public static var sidebarHeaderHeight: CGFloat { MetricTunables.sidebarHeaderHeight.value }
 

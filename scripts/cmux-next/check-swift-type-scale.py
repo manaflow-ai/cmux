@@ -6,7 +6,7 @@ a Swift source file under Packages/macOS/CmuxNext/Sources has MORE than its base
   size    a literal font size: `.systemFont(ofSize: 12)`, `monospacedSystemFont(ofSize: 11.5, ...)`,
           `monospacedDigitSystemFont`, `boldSystemFont`, `NSFont(name: ..., size: 13)`, SwiftUI
           `.system(size: 12)`. Use `TypeScale.<step>` or a `Typography` font.
-  weight  a weight off the scale's two (`TypeScale.regular`, `TypeScale.emphasis`): `.medium`, `.bold`,
+  weight  a weight off the scale's (`TypeScale.regular`, `TypeScale.sidebar`, `TypeScale.emphasis`): `.medium`, `.bold`,
           `.heavy`, `.black`, `.light`, `.thin`, `.ultraLight` after `weight:`.
 A count below its baseline fails too, until the baseline is lowered (`--update-baseline`), so the
 ratchet only moves down. `--update-baseline` refuses to raise a count (it writes the first baseline

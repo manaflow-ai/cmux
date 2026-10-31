@@ -260,7 +260,7 @@ extension WorkspaceRowView {
                 : (status && coverStart != nil) || coverStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true
             fadeOpacity(mark, to: covered ? 0 : 1, fades: fades)
         }
-        layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)
+        layoutStatus(x: textX, width: max(0, b.width - SidebarStyle.horizontalInset - textX), head: b.maxY, bottom: full.maxY)
         if titleArrivalPending && !titleArrivalScheduled {
             titleArrivalScheduled = true
             CATransaction.setCompletionBlock { [weak self] in self?.startTitleArrival() }
