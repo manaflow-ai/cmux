@@ -184,14 +184,14 @@ import Testing
             let collection = try #require((grid.view as? NSScrollView)?.documentView as? NSCollectionView)
             let table = try #require((list.view as? NSScrollView)?.documentView as? NSTableView)
             let places = try #require((sidebar.view as? NSScrollView)?.documentView as? NSTableView)
-            func render() {
+            @MainActor func render() {
                 grid.show(entries, of: folder, selection: selection)
                 list.show(entries, of: folder, selection: selection)
                 sidebar.show([.header("Files")], current: folder)
                 root.layoutSubtreeIfNeeded()
                 collection.layoutSubtreeIfNeeded()
             }
-            func fonts() throws -> [CGFloat] {
+            @MainActor func fonts() throws -> [CGFloat] {
                 let tile = try #require(collection.item(at: IndexPath(item: 0, section: 0)))
                 let cell = try #require(table.view(atColumn: 0, row: 0, makeIfNecessary: true) as? NSTableCellView)
                 let place = try #require(places.view(atColumn: 0, row: 0, makeIfNecessary: true) as? NSTableCellView)

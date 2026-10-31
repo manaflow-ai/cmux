@@ -18,7 +18,6 @@ final class FileListView: NSObject, FileContentView, NSTableViewDataSource, NSTa
     private var folder: URL?
     private var applyingSelection = false
     private var renaming: FileEntry?
-    private var displayedFont = Typography.body
     private let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
@@ -72,16 +71,6 @@ final class FileListView: NSObject, FileContentView, NSTableViewDataSource, NSTa
         self.entries = entries
         self.folder = folder
         if !sameRows { table.reloadData() }
-        let font = Typography.body
-        if displayedFont != font {
-            displayedFont = font
-            table.enumerateAvailableRowViews { row, _ in
-                for case let cell as NSTableCellView in row.subviews {
-                    cell.textField?.font = font
-                    cell.textField?.currentEditor()?.font = font
-                }
-            }
-        }
         applySelection(selection)
     }
 
@@ -143,7 +132,6 @@ final class FileListView: NSObject, FileContentView, NSTableViewDataSource, NSTa
         let entry = entries[row]
         let id = column.identifier
         let cell = (tableView.makeView(withIdentifier: id, owner: nil) as? NSTableCellView) ?? Self.makeCell(id, icon: id.rawValue == "name")
-        cell.textField?.font = Typography.body
         switch id.rawValue {
         case "name":
             cell.textField?.stringValue = entry.name
