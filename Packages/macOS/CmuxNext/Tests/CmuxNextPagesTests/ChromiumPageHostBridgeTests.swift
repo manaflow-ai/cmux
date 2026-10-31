@@ -102,6 +102,30 @@ struct ChromiumPageHostBridgeTests {
         #expect(context.evaluateScript("ran.join(',')").toString() == "1,3,4")
     }
 
+    /// A call past ``ChromiumPageHostBridge/maximumPayloadBytes`` is answered with an error in the
+    /// page and never sent: the host drops an oversized payload unanswered, which left the caller's
+    /// promise pending for good (a pasted screenshot's chip that never became the picture).
+    @Test func anOversizedCallSettlesWithAnErrorInsteadOfWaitingForever() throws {
+        let context = try #require(JSContext())
+        context.evaluateScript("var sent = []; globalThis.\(ChromiumPageHostBridge.bindingName) = (text) => sent.push(text.length);")
+        context.evaluateScript(ChromiumPageHostBridge.pageScript(handlers: []))
+        let post = "globalThis.webkit.messageHandlers.\(PageHostTrust.handlerName).postMessage"
+        context.evaluateScript("""
+        var replies = {};
+        \(post)({ t: "call", id: 7, op: "big", params: { data: "x".repeat(\(ChromiumPageHostBridge.maximumPayloadBytes)) } })
+          .then((reply) => { replies.big = reply; });
+        \(post)({ t: "call", id: 8, op: "wide", params: { data: "é".repeat(\(ChromiumPageHostBridge.maximumPayloadBytes / 2)) } })
+          .then((reply) => { replies.wide = reply; });
+        \(post)({ t: "call", id: 9, op: "small", params: {} });
+        """)
+        #expect(context.evaluateScript("sent.length").toInt32() == 1, "only the small call goes to the host")
+        for (key, id) in [("big", 7), ("wide", 8)] {
+            #expect(context.evaluateScript("replies.\(key) && replies.\(key).t").toString() == "err")
+            #expect(context.evaluateScript("replies.\(key) && replies.\(key).id").toInt32() == Int32(id))
+            #expect(context.evaluateScript("replies.\(key) && replies.\(key).code").toString() == "cmux.protocol.too_large")
+        }
+    }
+
     @Test func setupTurnsOnTheDomainsBeforeTheBindingAndScripts() {
         let calls = ChromiumPageHostBridge.setupCalls(handlers: ["cmuxPagePainted"], documentScripts: ["one()"])
         #expect(calls.map(\.0) == ["Page.enable", "Runtime.enable", "Runtime.addBinding",

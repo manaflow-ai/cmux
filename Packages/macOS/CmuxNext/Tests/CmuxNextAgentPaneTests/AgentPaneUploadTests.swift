@@ -47,4 +47,13 @@ struct AgentPaneUploadTests {
         let oversized = Data(repeating: 0, count: 512 * 1024 + 1).base64EncodedString()
         #expect(AgentPaneRequest(body: ["method": "chat.upload.chunk", "params": ["token": "t", "offset": 0, "data": oversized]]) == .unsupported("chat.upload.chunk"))
     }
+
+    /// A pasted screenshot's original goes in chunks on the shared page host too. Without these ops
+    /// the page fell back to one `chat.upload` frame with the whole file, which the Chromium bridge
+    /// refused past 4 MiB without an answer: the chip stayed a placeholder and Enter waited on it.
+    @Test func stagedUploadOpsReachThePaneOnThePageHost() {
+        for method in ["chat.upload.begin", "chat.upload.chunk", "chat.upload.finish", "chat.upload.cancel"] {
+            #expect(AgentPageOps.method(for: AgentPageOps.namespace + method) == method)
+        }
+    }
 }
