@@ -31,6 +31,13 @@ public struct QuitSaveSteps {
     /// batch). A write past its limit still runs, and the engine stop awaits
     /// it again.
     public var homeCache: @MainActor () async -> Void
+    /// Cloud's quit work while its transports still answer: the Codex broker
+    /// session stops and the VM credentials it delivered are revoked
+    /// (network, up to seconds on a slow network).
+    public var cloud: @MainActor () async -> Void
+
+    /// The limit of the "Don't ask again" setting write, before the save steps (`QuitSteps`).
+    public static let rememberLimit: Duration = .milliseconds(500)
 
     public init(remoteSnapshots: @escaping @MainActor () async -> Void,
                 agentComposers: @escaping @MainActor () async -> Void,
@@ -40,7 +47,8 @@ public struct QuitSaveSteps {
                 windows: @escaping @MainActor () async -> Void,
                 stopSavingWindows: @escaping @MainActor () -> Void,
                 sidebar: @escaping @MainActor () async -> Void,
-                homeCache: @escaping @MainActor () async -> Void) {
+                homeCache: @escaping @MainActor () async -> Void,
+                cloud: @escaping @MainActor () async -> Void) {
         self.remoteSnapshots = remoteSnapshots
         self.agentComposers = agentComposers
         self.agentImages = agentImages
@@ -50,19 +58,39 @@ public struct QuitSaveSteps {
         self.stopSavingWindows = stopSavingWindows
         self.sidebar = sidebar
         self.homeCache = homeCache
+        self.cloud = cloud
     }
+
+    /// One step: its name (the `quit.<name>` launch mark), its limit and its work.
+    public struct Step {
+        public var name: String
+        public var limit: Duration
+        var body: @MainActor () async -> Void
+    }
+
+    /// The steps in the order ``run(_:)`` runs them, each with its limit.
+    public var steps: [Step] {
+        [Step(name: "cloud", limit: .milliseconds(300), body: cloud),
+         Step(name: "remote_snapshots", limit: .milliseconds(300), body: remoteSnapshots),
+         Step(name: "agent_composers", limit: .seconds(1), body: agentComposers),
+         Step(name: "agent_images", limit: .milliseconds(300), body: agentImages),
+         Step(name: "terminal_frames", limit: .milliseconds(500), body: terminalFrames),
+         Step(name: "browser_records", limit: .milliseconds(500), body: browserRecords),
+         Step(name: "windows", limit: .milliseconds(500), body: windows),
+         Step(name: "sidebar", limit: .milliseconds(500), body: sidebar),
+         Step(name: "home_cache", limit: .milliseconds(500), body: homeCache)]
+    }
+
+    /// How long the steps take if every one of them hangs.
+    public var worstCase: Duration { steps.reduce(.zero) { $0 + $1.limit } }
 
     /// Runs every step in order, each under its limit (`limiter`).
     @MainActor
     public func run(_ limiter: QuitStepLimiter) async {
-        await limiter.run("remote_snapshots", limit: .milliseconds(300), remoteSnapshots)
-        await limiter.run("agent_composers", limit: .seconds(1), agentComposers)
-        await limiter.run("agent_images", limit: .milliseconds(300), agentImages)
-        await limiter.run("terminal_frames", limit: .milliseconds(500), terminalFrames)
-        await limiter.run("browser_records", limit: .milliseconds(500), browserRecords)
-        await limiter.run("windows", limit: .milliseconds(500), windows)
-        stopSavingWindows()
-        await limiter.run("sidebar", limit: .milliseconds(500), sidebar)
-        await limiter.run("home_cache", limit: .milliseconds(500), homeCache)
+        for step in steps {
+            await limiter.run(step.name, limit: step.limit, step.body)
+            // A windows step past its limit still runs; nothing saves windows from here.
+            if step.name == "windows" { stopSavingWindows() }
+        }
     }
 }

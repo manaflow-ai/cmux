@@ -173,10 +173,9 @@ final class QuitCoordinator {
         // can end the process; the write itself runs off the main thread.
         await services.crashRecovery.quitBegan()
         DebugTimings.markLaunch("quit.marked")
-        await services.cloud.prepareForTermination()
         await QuitSteps(
             remember: { [steps] behavior in
-                _ = await steps.run("remember", limit: .milliseconds(500)) {
+                _ = await steps.run("remember", limit: QuitSaveSteps.rememberLimit) {
                     guard let settings = services.settings,
                           let descriptor = SettingsSchema.descriptor(for: QuitBehaviorSetting.configPath) else { return }
                     do { try await settings.setSetting(descriptor, to: .string(behavior.rawValue), by: .user) } catch {
@@ -198,7 +197,8 @@ final class QuitCoordinator {
                     windows: { await services.windows.prepareForTermination() },
                     stopSavingWindows: { services.windows.stopSavingForTermination() },
                     sidebar: { await services.sidebarSnapshots.flush() },
-                    homeCache: { await services.home.flushCacheForQuit() }
+                    homeCache: { await services.home.flushCacheForQuit() },
+                    cloud: { await services.cloud.prepareForTermination() }
                 ).run(steps)
             },
             endLocalSessions: { await services.daemon.endSessionsAndStop(choice) },
