@@ -22,6 +22,92 @@ struct AgentNotificationReconcilerTests {
                         body: "Ready", category: kind == .turnCompleted ? "turn-complete" : "needs-permission") : nil)))
     }
 
+    /// A turn that ends while its own background work runs waits for idle by default
+    /// (When idle), and is a completion candidate as it ends under Always (#24386).
+    @Test func pendingCompletionIsDelayedUnlessThePolicyDeliversIt() throws {
+        var held = AgentNotificationReconciler()
+        _ = held.apply(event(1, .turnStarted, source: "claude", notify: false))
+        #expect(held.apply(event(2, .turnCompleted, source: "claude", pending: true)).disposition == .delayed)
+
+        var always = AgentNotificationReconciler()
+        _ = always.apply(event(1, .turnStarted, source: "claude", notify: false), deliversPendingCompletions: true)
+        let pending = always.apply(event(2, .turnCompleted, source: "claude", pending: true, nativeID: "stop-1"),
+                                   deliversPendingCompletions: true)
+        #expect(pending.disposition == .accepted)
+        let identity = try #require(pending.identity)
+        // A redelivered copy of the same pending Stop is the same notification.
+        let repeated = always.apply(event(3, .turnCompleted, source: "claude", pending: true, nativeID: "stop-1"),
+                                    deliversPendingCompletions: true)
+        #expect(repeated.identity == identity)
+        // The next turn is a new completion.
+        _ = always.apply(event(4, .turnStarted, source: "claude", turn: "turn-2", notify: false),
+                         deliversPendingCompletions: true)
+        let next = always.apply(event(5, .turnCompleted, source: "claude", turn: "turn-2"),
+                                deliversPendingCompletions: true)
+        #expect(next.disposition == .accepted)
+        #expect(next.identity != identity)
+    }
+
+    /// Claude can continue the same turn without a new prompt once its background work
+    /// finishes. Under Always that settled Stop is its own notification: the work is done.
+    @Test func settledCompletionAfterAnAlwaysPendingOneIsANewNotification() throws {
+        var always = AgentNotificationReconciler()
+        _ = always.apply(event(1, .turnStarted, source: "claude", notify: false), deliversPendingCompletions: true)
+        let pending = try #require(always.apply(event(2, .turnCompleted, source: "claude", pending: true),
+                                                deliversPendingCompletions: true).identity)
+        let settled = always.apply(event(3, .turnCompleted, source: "claude"), deliversPendingCompletions: true)
+        #expect(settled.disposition == .accepted)
+        #expect(try #require(settled.identity) != pending)
+        // A duplicate of the settled Stop is the same notification.
+        let duplicate = always.apply(event(4, .turnCompleted, source: "claude"), deliversPendingCompletions: true)
+        #expect(duplicate.identity == settled.identity)
+    }
+
+    /// A Stop held for running subagents notifies at once under Always; releasing it
+    /// when the subagents finish is the same notification, not a second one.
+    @Test func subagentHeldCompletionReleasesAsTheSameNotificationUnderAlways() throws {
+        var always = AgentNotificationReconciler()
+        _ = always.apply(event(1, .turnStarted, source: "claude", notify: false), deliversPendingCompletions: true)
+        _ = always.apply(event(2, .childSpawned, source: "claude", request: "child", notify: false),
+                         deliversPendingCompletions: true)
+        let stop = always.apply(event(3, .turnCompleted, source: "claude"), deliversPendingCompletions: true)
+        #expect(stop.disposition == .accepted)
+        let identity = try #require(stop.identity)
+        let released = always.apply(event(4, .childCompleted, source: "claude", request: "child", notify: false),
+                                    deliversPendingCompletions: true)
+        #expect(released.disposition == .accepted)
+        #expect(released.identity == identity)
+    }
+
+    /// Claude's hooks carry no turn id, and a prompt sent while the session is still
+    /// running does not advance its turn. Each reply that ends with background work
+    /// pending is still its own notification under Always, and so is the final Stop.
+    @Test func eachPendingReplyWithoutATurnIDIsItsOwnNotificationUnderAlways() throws {
+        var always = AgentNotificationReconciler()
+        _ = always.apply(event(1, .turnStarted, source: "claude", turn: nil, notify: false), deliversPendingCompletions: true)
+        let first = always.apply(event(2, .turnCompleted, source: "claude", turn: nil, pending: true),
+                                 deliversPendingCompletions: true)
+        _ = always.apply(event(3, .turnStarted, source: "claude", turn: nil, notify: false), deliversPendingCompletions: true)
+        let second = always.apply(event(4, .turnCompleted, source: "claude", turn: nil, pending: true),
+                                  deliversPendingCompletions: true)
+        let last = always.apply(event(5, .turnCompleted, source: "claude", turn: nil), deliversPendingCompletions: true)
+        #expect([first, second, last].map(\.disposition) == [.accepted, .accepted, .accepted])
+        let identities = try [first, second, last].map { try #require($0.identity) }
+        #expect(Set(identities).count == 3)
+    }
+
+    /// An open blocking request is its own notification; a pending completion does not
+    /// add one under Always.
+    @Test func pendingCompletionWithAnOpenRequestStaysDelayedUnderAlways() {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .turnStarted, source: "claude", notify: false), deliversPendingCompletions: true)
+        _ = reconciler.apply(event(2, .approvalRequested, source: "claude", request: "approve"),
+                             deliversPendingCompletions: true)
+        let decision = reconciler.apply(event(3, .turnCompleted, source: "claude", pending: true),
+                                        deliversPendingCompletions: true)
+        #expect(decision.disposition == .delayed)
+    }
+
     @Test(arguments: ["claude", "codex"])
     func duplicateAndReadReplayReserveOneDelivery(source: String) throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
