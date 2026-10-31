@@ -17,8 +17,8 @@ public enum ForkColumnSlot: Equatable, Sendable {
     ///   - left: Whether the column opens before the chat's.
     public init(columns: [ColumnSnapshot], own: ColumnID?, left: Bool) {
         guard left, let own else { self = .after(own); return }
-        if let index = columns.firstIndex(where: { $0.id == own }), index > 0, columns[index - 1].dock == nil {
-            self = .after(columns[index - 1].id)
+        if let previous = zip(columns.dropFirst(), columns).first(where: { $0.0.id == own })?.1, previous.dock == nil {
+            self = .after(previous.id)
         } else {
             self = .afterThenMoveRight(own)
         }
