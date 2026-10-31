@@ -1,6 +1,8 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextDaemon
 import CmuxNextDesign
+import Foundation
 @testable import CmuxNextHome
 @testable import CmuxNextTabs
 import Testing
@@ -44,7 +46,7 @@ import Testing
     }
 
     /// Cmd+B: the sidebar hides and the list moves to the window's left edge at the same size, so
-    /// no layout of its own runs; the window's top-row re-check (`relayoutTopRowStrips`) moves the row.
+    /// no layout of its own runs; the main pane card's move (`onMainPaneMove`) re-checks the window and moves the row.
     @Test func hidingTheSidebarMovesTheRowClearOfTheTrafficLights() throws {
         let window = window()
         defer { window.close() }
@@ -55,14 +57,14 @@ import Testing
         #expect(home.header == HomeSidebarHeaderLayout(width: 300, searchOpen: false), "the list right of the sidebar reserved room for the lights")
 
         home.setFrameOrigin(.zero)
-        window.windowControlsAvoiders.update(in: window)
+        WindowControlsAvoiders.refresh(in: window)
         home.layoutSubtreeIfNeeded()
         let lights = try lights(window)
         #expect(!inWindow(home.searchCapsule).intersects(lights), "after the sidebar hid, the Search field stayed under the traffic lights")
 
         // Cmd+B again: the list moves back right of the sidebar and the row returns to its inset.
         home.setFrameOrigin(NSPoint(x: 260, y: 0))
-        window.windowControlsAvoiders.update(in: window)
+        WindowControlsAvoiders.refresh(in: window)
         home.layoutSubtreeIfNeeded()
         #expect(home.header == HomeSidebarHeaderLayout(width: 300, searchOpen: false))
     }
@@ -92,6 +94,32 @@ import Testing
         #expect(!inWindow(home.searchCapsule).intersects(lights), "the pane moved under the lights and Home's Search field stayed there")
     }
 
+    /// The Cmd+B wiring itself: the window controller hands the main pane card's move
+    /// (`WindowRootView.onMainPaneMove`, sent on every frame of the sidebar's slide) to the
+    /// window's avoiders, so a Home list in the window clears the lights without a resize.
+    @Test func theMainPaneCardsMoveRechecksHomeThroughTheWindowController() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"home-lights","workspace_key":"k1"}"#.utf8))
+        let controller = WindowController(state: WindowState(record: record), services: services,
+                                          frame: NSRect(x: 200, y: 200, width: 1100, height: 720))
+        defer {
+            controller.teardown()
+            controller.window?.close()
+        }
+        let window = try #require(controller.window)
+        let home = HomeSidebarView(frame: NSRect(x: 260, y: 0, width: 300, height: 640))
+        controller.root.addSubview(home)
+        home.layoutSubtreeIfNeeded()
+        #expect(home.header == HomeSidebarHeaderLayout(width: 300, searchOpen: false))
+
+        home.setFrameOrigin(.zero)
+        try #require(controller.root.onMainPaneMove, "the window controller did not wire the main pane card's move")()
+        home.layoutSubtreeIfNeeded()
+        let lights = try lights(window)
+        #expect(!inWindow(home.searchCapsule).intersects(lights), "the main pane card moved and Home's Search field stayed under the lights")
+    }
+
     /// A hidden workspace keeps the clearance it had: re-checks skip it while hidden, and it
     /// re-checks itself when it shows again.
     @Test func aHiddenWorkspaceKeepsItsClearance() throws {
@@ -107,7 +135,7 @@ import Testing
 
         workspace.isHidden = true
         home.setFrameOrigin(NSPoint(x: 260, y: 0))
-        window.windowControlsAvoiders.update(in: window)
+        WindowControlsAvoiders.refresh(in: window)
         #expect(home.header == cleared)
         workspace.isHidden = false
         home.layoutSubtreeIfNeeded()
@@ -147,7 +175,7 @@ import Testing
         #expect(column.compose.frame.minX == HomeChatColumnView.composeInset)
 
         column.setFrameOrigin(.zero)
-        window.windowControlsAvoiders.update(in: window)
+        WindowControlsAvoiders.refresh(in: window)
         column.layoutSubtreeIfNeeded()
         let lights = try lights(window)
         #expect(!inWindow(column.compose).intersects(lights), "the compose button is under the traffic lights")

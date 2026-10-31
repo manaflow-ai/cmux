@@ -66,5 +66,4 @@ extension WindowTitlebar {
             visible.minY < frame.maxY && visible.maxY > frame.minY && visible.minX < frame.maxX && visible.maxX > frame.minX
         }.map(\.maxX).max()
     }
-
 }
