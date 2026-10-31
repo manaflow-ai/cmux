@@ -319,6 +319,24 @@ const GROUPS: &[Group] = &[
             ),
             verb("domain-list", "", "List domains", "ドメインを一覧表示"),
             verb("publication-list", "", "List publications", "公開設定を一覧表示"),
+            verb(
+                "provision-api",
+                "{target} --port PORT [--name NAME]",
+                "Publish a machine port as an API and create a key",
+                "マシンのポートを API として公開し、キーを作成",
+            ),
+            verb(
+                "api-key-list",
+                "--path PUBLICATION",
+                "List a publication's API keys",
+                "公開設定の API キーを一覧表示",
+            ),
+            verb(
+                "api-key-revoke",
+                "--path PUBLICATION --key KEY_ID --confirm",
+                "Revoke a publication's API key",
+                "公開設定の API キーを失効",
+            ),
         ],
     },
     Group {

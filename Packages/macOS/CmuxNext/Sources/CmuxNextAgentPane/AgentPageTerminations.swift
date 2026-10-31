@@ -116,6 +116,14 @@ public final class AgentPageTerminations {
         events.removeAll { $0.waiting.isEmpty }
     }
 
+    /// `view` loaded its page again after it ended (no Reload): logged, and it leaves its event so
+    /// a sibling's Reload does not reload a live chat.
+    func loadedAgain(_ view: AgentPaneView, session: String?) {
+        let serial = event(of: view)?.serial
+        forget(view)
+        terminationLogger.error("agent page loaded again after it ended; crash notice removed session=\(session ?? "none", privacy: .public) event=\(serial.map(String.init) ?? "-", privacy: .public)")
+    }
+
     /// The event `view` waits on, if any (tests, `debug.agent_pane`).
     func event(of view: AgentPaneView) -> Event? { events.first { $0.contains(view) } }
 

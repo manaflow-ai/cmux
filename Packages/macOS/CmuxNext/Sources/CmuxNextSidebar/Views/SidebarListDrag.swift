@@ -5,6 +5,9 @@ import AppKit
 final class SidebarListDrag {
     let payload: DragPayload
     let grabbedKey: SidebarRowKey
+    /// The workspace of the group's one row this group drag was lifted from (`SidebarLayout+SoleMember`): in the
+    /// sidebar the row moves its group, out of it (a pane, another window) it is that workspace, as its member row was.
+    var standingWorkspace: WorkspaceID?
     /// Keys hidden while dragging (the lifted rows).
     let hiddenKeys: Set<SidebarRowKey>
     var grabOffsetY: CGFloat
