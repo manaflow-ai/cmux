@@ -278,6 +278,23 @@ def first(d, *keys):
 
 
 SEEN_SHAPE = []
+FZ_IDS = set()  # workspace ids the fuzz made (from the create answers): names alone may not show in the list
+CREATES = []    # (name, id, answer) of creates that answered without an error, for the evidence
+
+
+def created(name, answer):
+    """Records a workspace create's answer; its workspace id or None."""
+    v = value(answer) if isinstance(answer, dict) else {}
+    wid = first(v, "workspace_id", "id") if isinstance(v, dict) else None
+    if not CREATES or len(CREATES) < 3:
+        say(f"  workspace create {name} answer: {json.dumps(answer)[:500]}")
+    if "error" not in answer:
+        CREATES.append((name, wid, json.dumps(answer)[:300]))
+        if wid:
+            FZ_IDS.add(wid)
+    else:
+        say(f"  workspace create failed: {json.dumps(answer)[:300]}")
+    return wid
 
 
 def daemon_state():
@@ -292,9 +309,9 @@ def daemon_state():
     out = {}
     for ws in listed(wsl, "workspaces"):
         name = first(ws, "name", "title") or ""
-        if not str(name).startswith("fz-"):
-            continue
         wid = first(ws, "id", "workspace_id")
+        if not str(name).startswith("fz-") and wid not in FZ_IDS:
+            continue
         tabs, _ = cli("tab", "list", "--workspace", wid)
         panes, _ = cli("pane", "list", "--workspace", wid)
         if "error" in tabs or "error" in panes:
@@ -313,7 +330,7 @@ def app_state():
         return None
     out = {}
     for ws in topo.get("workspaces", []):
-        if (ws.get("name") or "").startswith("fz-"):
+        if (ws.get("name") or "").startswith("fz-") or ws.get("id") in FZ_IDS:
             out.setdefault(ws["name"], []).extend(t.get("id") for s in ws.get("screens", []) for p in s.get("panes", [])
                                                   for t in p.get("tabs", []))
     return {k: sorted(v) for k, v in out.items()}, bool(topo.get("loaded"))
@@ -383,6 +400,7 @@ def do_action(kind, p):
     """Runs one action on the daemon: (answer, seconds)."""
     if kind == "ws_create":
         answer, took = cli("workspace", "create", "--name", p["name"])
+        created(p["name"], answer)
         mark(value(answer).get("terminal_id") if isinstance(value(answer), dict) else None)
     elif kind == "split":
         answer, took = cli("pane", p["pane"], "split", f"--{p['dir']}")
@@ -544,12 +562,20 @@ def fresh(run):
     for wid in list((daemon_state() or {})):
         cli("workspace", wid, "close")
     wait(lambda: daemon_state() == {}, 20, 0.5)
+    names = []
     for _ in range(run.rng.randint(1, 3)):
-        answer, _ = cli("workspace", "create", "--name", run.name())
-        if "error" in answer:
-            say(f"  workspace create failed: {json.dumps(answer)[:300]}")
+        names.append(run.name())
+        answer, _ = cli("workspace", "create", "--name", names[-1])
+        created(names[-1], answer)
         mark(value(answer).get("terminal_id") if isinstance(value(answer), dict) else None)
-    return daemon_state()
+    state = daemon_state()
+    listed_names = {w["name"] for w in (state or {}).values()}
+    missing = [n for n in names if n not in listed_names]
+    if state is not None and missing:
+        wsl, _ = cli("workspace", "list")
+        say(f"  SUSPECT: create of {missing} answered ok but the list names {sorted(listed_names)}; "
+            f"list: {json.dumps(wsl)[:600]}")
+    return state
 
 
 def iteration(seed, targets, keep=None):
@@ -558,7 +584,8 @@ def iteration(seed, targets, keep=None):
     rec = {"seed": seed, "chaos": opts.chaos, "actions": [], "problems": []}
     confirmed = fresh(run)
     if not confirmed:
-        rec["problems"].append(f"no fz workspace in the daemon topology at the start ({confirmed!r})")
+        rec["problems"].append(f"no fz workspace in the daemon topology at the start ({confirmed!r}); "
+                               f"creates that answered ok: {CREATES[-3:]}")
         rec["verdict"] = "not run"
         return rec
     count = run.rng.randint(1, 6)
