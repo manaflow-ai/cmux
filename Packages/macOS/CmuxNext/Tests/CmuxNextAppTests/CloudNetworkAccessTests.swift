@@ -188,9 +188,10 @@ struct CloudNetworkAccessTests {
         @MainActor final class Log { var events: [String] = [] }
         let gate = AsyncStream<Void>.makeStream()
         let log = Log()
+        let queue = CloudNetworkAccessQueue()
         // task-owner: this test awaits both runs below.
         let first = Task { @MainActor in
-            try await CloudNetworkAccessActions.serialized("vm-serial") {
+            try await queue.serialized("vm-serial") {
                 log.events.append("first read")
                 var waiting = gate.stream.makeAsyncIterator()
                 _ = await waiting.next()
@@ -202,7 +203,7 @@ struct CloudNetworkAccessTests {
         try #require(log.events == ["first read"])
         // task-owner: this test awaits it below.
         let second = Task { @MainActor in
-            try await CloudNetworkAccessActions.serialized("vm-serial") {
+            try await queue.serialized("vm-serial") {
                 log.events.append("second read")
                 return 2
             }
@@ -213,6 +214,50 @@ struct CloudNetworkAccessTests {
         #expect(try await first.value == 1)
         #expect(try await second.value == 2)
         #expect(log.events == ["first read", "first write", "second read"])
+        #expect(!queue.isBusy("vm-serial"), "the tail ends with its run")
+    }
+
+    /// A run on another machine does not wait for a run that is still open on the first one.
+    @Test func runsOnDifferentMachinesDoNotWaitForEachOther() async throws {
+        @MainActor final class Log { var events: [String] = [] }
+        let gate = AsyncStream<Void>.makeStream()
+        let log = Log()
+        let queue = CloudNetworkAccessQueue()
+        // task-owner: this test awaits it below.
+        let first = Task { @MainActor in
+            try await queue.serialized("vm-a") {
+                log.events.append("a read")
+                var waiting = gate.stream.makeAsyncIterator()
+                _ = await waiting.next()
+                log.events.append("a write")
+                return 1
+            }
+        }
+        for _ in 0..<100 where log.events.isEmpty { await Task.yield() }
+        try #require(log.events == ["a read"])
+        let other = try await queue.serialized("vm-b") {
+            log.events.append("b read")
+            return 2
+        }
+        #expect(other == 2)
+        #expect(log.events == ["a read", "b read"], "vm-b ran while vm-a's run was still open")
+        #expect(!queue.isBusy("vm-b"))
+        #expect(queue.isBusy("vm-a"))
+        gate.continuation.yield(())
+        #expect(try await first.value == 1)
+        #expect(log.events == ["a read", "b read", "a write"])
+        #expect(!queue.isBusy("vm-a"))
+    }
+
+    /// A run that throws still ends its tail: the next run on that machine starts.
+    @Test func aFailedRunDoesNotHoldTheNextOne() async throws {
+        struct Refused: Error {}
+        let queue = CloudNetworkAccessQueue()
+        await #expect(throws: Refused.self) {
+            try await queue.serialized("vm-fail") { () async throws -> Int in throw Refused() }
+        }
+        #expect(!queue.isBusy("vm-fail"))
+        #expect(try await queue.serialized("vm-fail") { 3 } == 3)
     }
 
     @Test(arguments: ["", "open", "allowlist", "FULLY"])

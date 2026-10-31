@@ -58,12 +58,17 @@ const ok = (value: unknown) => Response.json(value, { headers: NO_STORE })
 const NOT_FOUND = 44
 const WRONG_KIND = 45
 const TOO_LARGE = 46
+/** A remove whose path resolves to the machine's root (see the remove branch below). */
+const ROOT = 47
 
 /**
  * The file operations, run with python3 as root on the machine (the image has it: the machine-config
  * applier and the credential installer use it). argv: op, path, and for a write its mode. A write
  * replaces the file atomically (a temporary file in the same folder, then rename); a new file without
  * a mode is 0600, as classic's.
+ *
+ * A remove first drops trailing "." and "/" segments (so a symlink named with them is removed itself, never its
+ * target's contents) and refuses a path that resolves to "/" (`/proc/self/root/.`, a symlink to the root).
  */
 export const FS_PROGRAM = `import base64,json,os,shutil,stat,sys,tempfile
 op,p=sys.argv[1],sys.argv[2]
@@ -109,9 +114,11 @@ try:
   os.makedirs(p,exist_ok=True)
   o={"ok":True,"path":p}
  elif op=="remove":
-  s=os.lstat(p)
-  if stat.S_ISDIR(s.st_mode):shutil.rmtree(p)
-  else:os.unlink(p)
+  q=os.path.normpath(p)
+  if os.path.realpath(q)=="/":sys.exit(${ROOT})
+  s=os.lstat(q)
+  if stat.S_ISDIR(s.st_mode):shutil.rmtree(q)
+  else:os.unlink(q)
   o={"ok":True,"path":p}
  else:sys.exit(2)
 except FileNotFoundError:sys.exit(${NOT_FOUND})
@@ -246,11 +253,13 @@ export const handleCloudMachineGuest = async (request: Request, env: Env, machin
       if (stdin.byteLength > FILE_MAX_BYTES) return refuse(413, "vm_file_too_large", `the file is over ${FILE_MAX_BYTES} bytes`)
     }
   } else path = url.searchParams.get("path")?.trim()
-  if (!validPath(path) || (fsOp === "remove" && path.replace(/\/+$/, "") === "")) return refuse(400, "vm_invalid_path", "path must be absolute, without a .. segment, at most 4096 bytes")
+  // Removing the root is refused however it is spelled: "/", "///", "/." or "/./".
+  if (!validPath(path) || (fsOp === "remove" && path.split("/").every((segment) => segment === "" || segment === "."))) return refuse(400, "vm_invalid_path", "path must be absolute, without a .. segment, at most 4096 bytes")
   const r = await run(fsCommand(fsOp, path, mode), stdin, FS_TIMEOUT_MS)
   stdin?.fill(0)
   if (r instanceof Response) return r
   if (r.exitCode === NOT_FOUND) return refuse(404, "vm_file_not_found", `no such file: ${path}`)
+  if (fsOp === "remove" && r.exitCode === ROOT) return refuse(400, "vm_invalid_path", "the path is the machine's root")
   if (r.exitCode === WRONG_KIND) return refuse(400, "vm_invalid_path", fsOp === "dir" ? "not a directory" : "the path is a directory, or a part of it is a file")
   if (r.exitCode === TOO_LARGE) return refuse(413, "vm_file_too_large", fsOp === "dir" ? "the directory has over 10000 entries" : `the file is over ${FILE_MAX_BYTES} bytes`)
   let value: unknown = null

@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextBrowser
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import CmuxTheme
 import Testing
 import CmuxNextWakeupsTestSupport
@@ -11,7 +12,7 @@ import CmuxNextWakeupsTestSupport
 /// The first of a group fades in over the fade-in token (120 ms) rising 2 pt, a warm neighbor's is
 /// there at once with no fade, and it fades out quicker (80 ms). Reduce Motion keeps the fade and
 /// drops the rise.
-@MainActor @Suite(.serialized) struct TooltipSurfaceTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TooltipSurfaceTests {
     /// Light and dark themes, plain and colored, the low-contrast ones included.
     static let themes = [
         ThemeInput(background: ThemeRGB(hex: 0xFFFFFF), foreground: ThemeRGB(hex: 0x000000)),
@@ -247,7 +248,7 @@ import CmuxNextWakeupsTestSupport
         let (window, buttons, presenter, _) = try Self.toolbar(clock: clock)
         defer {
             presenter.dismiss()
-            window.orderOut(nil)
+            window.closeAfterTest()
         }
         try #require(window.screen != nil, "the window has no screen")
         try #require(Motion.hoverCards.duration(.fadeIn) > 0, "fades are off on this host")
@@ -312,7 +313,7 @@ import CmuxNextWakeupsTestSupport
         let (window, buttons, presenter, _) = try Self.toolbar(clock: clock)
         defer {
             presenter.dismiss()
-            window.orderOut(nil)
+            window.closeAfterTest()
         }
         try #require(window.screen != nil, "the window has no screen")
         try await Self.rest(on: buttons[0], presenter, clock, watch: watch)
@@ -339,7 +340,7 @@ import CmuxNextWakeupsTestSupport
             let (window, buttons, presenter, scope) = try Self.toolbar(clock: clock)
             defer {
                 presenter.dismiss()
-                window.orderOut(nil)
+                window.closeAfterTest()
             }
             try await Self.rest(on: buttons[0], presenter, clock)
             let panel = presenter.panel
@@ -380,7 +381,7 @@ import CmuxNextWakeupsTestSupport
         let (window, buttons, presenter, scope) = try Self.toolbar(clock: clock)
         defer {
             presenter.dismiss()
-            window.orderOut(nil)
+            window.closeAfterTest()
         }
         try await Self.rest(on: buttons[0], presenter, clock)
         let panel = presenter.panel
