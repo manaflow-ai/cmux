@@ -10,9 +10,9 @@ import Testing
 /// fully as a Chief subagent's report.
 @MainActor
 @Suite struct FeedFullReplyTests {
-    static let reply = "Fixed the login redirect.\n\n- `auth.ts`: keep the return URL\n- `session.ts`: refresh before redirect\n\n```sh\nbun test auth\n```"
+    nonisolated static let reply = "Fixed the login redirect.\n\n- `auth.ts`: keep the return URL\n- `session.ts`: refresh before redirect\n\n```sh\nbun test auth\n```"
     /// What acpmux's summary sends for that reply (`chats/activity.rs`): one flattened line.
-    static let preview = "Fixed the login redirect. - `auth.ts`: keep the return URL"
+    nonisolated static let preview = "Fixed the login redirect. - `auth.ts`: keep the return URL"
 
     static func mac() -> MockMacLink {
         MockMacLink { _, data in
