@@ -173,7 +173,7 @@ final class SidebarPriorityRowView: NSView {
                 indicator.frame = NSRect(x: trailing - mark, y: pad + (lineHeight - mark) / 2, width: mark, height: mark)
                 trailing = indicator.frame.minX - Metrics.space1
             }
-            let dot = SidebarStyle.dotSize
+            let dot = SidebarStyle.unreadDotSize
             unreadDot.frame = CGRect(x: trailing - dot, y: pad + (lineHeight - dot) / 2, width: dot, height: dot)
             unreadDot.cornerRadius = dot / 2
             if entry.unread { trailing = unreadDot.frame.minX - Metrics.space1 }

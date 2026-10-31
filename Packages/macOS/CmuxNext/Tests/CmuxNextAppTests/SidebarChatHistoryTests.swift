@@ -118,6 +118,20 @@ import Testing
         #expect(filtered.pinnedChatsY == nil && filtered.earlierChatsY == nil)
     }
 
+    /// Chat history lives in gaps between rows, so its placement must participate in layout
+    /// identity. Otherwise `SidebarView+Observation` can skip moving the pinned or Earlier block
+    /// when the rows and their frames stay unchanged.
+    @Test func layoutEqualityIncludesChatHistoryPlacement() {
+        var before = Self.layout(nil)
+        var after = before
+        after.pinnedChatsY = 12
+        after.earlierChatsY = 96
+        #expect(before != after)
+        before.pinnedChatsY = after.pinnedChatsY
+        before.earlierChatsY = after.earlierChatsY
+        #expect(before == after)
+    }
+
     @Test func pinnedStillShowsWhenNoComputerListsARow() {
         var options = SidebarLayoutOptions()
         options.chatHistory = Self.make([], pinned: [])

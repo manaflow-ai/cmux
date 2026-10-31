@@ -26,8 +26,9 @@ export const execStatusFinal = (status: number): boolean => status !== 409 && st
  * output: the provider escapes each byte a command writes as up to 6 bytes (`\u0000` for a NUL or
  * other control byte, `\ufffd` for an invalid UTF-8 byte), and the file routes' content arrives as
  * base64 inside that JSON. So it must hold the largest answer a supported call gives
- * (cloud-machine-guest.ts): an exec's two output streams of OUTPUT_MAX_BYTES each at 6x (12 MiB), or
- * a FILE_MAX_BYTES read as base64 (about 10.7 MiB). freestyle-exec-errors.test.ts checks both.
+ * (cloud-machine-guest.ts): an exec's two output streams of OUTPUT_MAX_BYTES each at 6x (12 MiB), a
+ * FILE_MAX_BYTES read as base64 (about 10.7 MiB), or a directory listing of at most DIR_MAX_BYTES at 6x
+ * (12 MiB). freestyle-exec-errors.test.ts checks all three.
  */
 export const EXEC_RESPONSE_MAX_BYTES = 16 * 1024 * 1024
 /** Read events per answer, so a provider streaming empty or tiny chunks cannot loop until the HTTP timeout. */
