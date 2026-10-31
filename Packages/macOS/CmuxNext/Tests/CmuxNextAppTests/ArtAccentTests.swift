@@ -1,5 +1,5 @@
 @testable import CmuxNextApp
-import CmuxNextDesign
+@testable import CmuxNextDesign
 @testable import CmuxNextSettings
 import Foundation
 import Testing
@@ -12,6 +12,8 @@ import Testing
     /// What a gallery suite leaves in the app's theme (`ThemeScope.app.store.apply`): Soft Blue, whose
     /// `cmux-accent` is #3666F0. These tests must hold whatever another suite left there (feat tip
     /// Swift suite 41190088925 and the serial run 54e4c583d660: `accentColor → #3666F0 == nil`).
+    /// So each test roots its own theme tree on its own store (as CmuxNextDesignTests do): nothing another
+    /// suite applies to the app's store reaches it, in a serial run or in a parallel one.
     static func withAnotherSuitesAppTheme(_ body: () throws -> Void) throws {
         let previous = ThemeScope.app.store.input
         _ = ThemeScope.app.store.apply(try AANestedGroupsGalleryTests.input("Soft Blue"))
@@ -33,13 +35,14 @@ import Testing
 
     @Test func aWindowsAccentTakesTheHueOfTheWorkItShows() throws { try Self.withAnotherSuitesAppTheme {
         let hue = try #require(Self.work.accentHue)
-        let room = ThemeScope(level: .room)
+        let store = ThemeStore()
+        let app = ThemeScope(root: store)
+        let room = ThemeScope(level: .room, parent: app)
         let workspace = ThemeScope(level: .workspace, parent: room)
         workspace.pinBackdrop(.selection(.art(Self.work)))
         #expect(workspace.input.accentColor == nil)
 
-        ThemeScope.app.store.setAccentFollowsArt(true)
-        defer { ThemeScope.app.store.setAccentFollowsArt(false) }
+        store.setAccentFollowsArt(true)
         #expect(workspace.input.accentColor == hue)
         #expect(workspace.tokens.accent == ThemeTokens.derive(from: workspace.input).accent)
         #expect(AppTheme.derive(from: workspace.input).failures.isEmpty)
@@ -50,21 +53,21 @@ import Testing
         workspace.pinBackdrop(.selection(.art(Self.work)))
         #expect(workspace.input.accentColor == hue)
 
-        ThemeScope.app.store.setAccentFollowsArt(false)
+        store.setAccentFollowsArt(false)
         #expect(workspace.input.accentColor == nil)
     } }
 
     /// A window opened while Art Color is on draws the app's art hue on its own chrome (a top page,
     /// or a workspace of the other light or dark).
-    @Test func aNewWindowTakesTheAppsArtHue() throws {
+    @Test func aNewWindowTakesTheAppsArtHue() throws { try Self.withAnotherSuitesAppTheme {
         let hue = try #require(Self.work.accentHue)
-        ThemeScope.app.setBackdropSelection(.art(Self.work))
-        defer { ThemeScope.app.setBackdropSelection(nil) }
-        ThemeScope.app.store.setAccentFollowsArt(true)
-        defer { ThemeScope.app.store.setAccentFollowsArt(false) }
-        let room = ThemeScope(level: .room)
+        let store = ThemeStore()
+        let app = ThemeScope(root: store)
+        app.setBackdropSelection(.art(Self.work))
+        store.setAccentFollowsArt(true)
+        let room = ThemeScope(level: .room, parent: app)
         #expect(room.input.accentColor == hue)
-    }
+    } }
 
     @Test func everyWorksArtColorPassesTheContrastContractOnDarkAndLight() {
         var dark = ThemeInput.ghosttyDefault
