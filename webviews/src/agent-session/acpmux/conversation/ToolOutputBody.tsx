@@ -131,7 +131,6 @@ export const ToolOutput = memo(function ToolOutput({
             aria-pressed={rawShown}
             data-fold-toggle=""
             aria-controls={bodyId}
-            data-fold-toggle=""
             onClick={() => setRawShown((value) => !value)}
           >
             {t("subsession.raw")}

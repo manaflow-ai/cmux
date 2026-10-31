@@ -117,7 +117,6 @@ export function HighlightedCode({ code, lang = "text", label, actions }: CodeBlo
             data-fold-toggle=""
             aria-label={t("changes.wrapLines")}
             title={t("changes.wrapLines")}
-            data-fold-toggle=""
             onClick={() => setWrap((value) => !value)}
           >
             <WrapLines />
