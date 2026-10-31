@@ -59,9 +59,28 @@ parser.add_argument("--arms", default=None,
                          "budget run judges the warm rows only, so its time and its pass or fail do not change)")
 parser.add_argument("--quick-runs", type=int, default=6, help="quick arm: pairs of presses per command")
 parser.add_argument("--cold-launches", type=int, default=2, help="cold arm: launches per command, each timing its first press")
+parser.add_argument("--typeable", action="store_true",
+                    help="new_tab only: time Cmd-T to a TYPEABLE field (scratch A/B harness, newtab-ab): Cmd-T, then at "
+                         "once one letter, both through debug.key; typeable_ms = Cmd-T sent to the start of the first "
+                         "`debug.new_tab field` read whose field holds the letter (polled every --poll-ms)")
+parser.add_argument("--poll-ms", type=float, default=4.0)
+parser.add_argument("--segment", action="store_true",
+                    help="A/B segment (scratch newtab-ab): one launch; its first press is the cold arm, then --quick-runs quick "
+                         "pairs, then --runs warm presses; rows go to --json")
+parser.add_argument("--ab", default="",
+                    help="A/B driver (scratch newtab-ab): LABEL=SHA[@TAG],... builds each commit (reload.sh --config bench, "
+                         "the step's own app as the first) and runs --ab-rounds rounds; each round runs one --segment per "
+                         "build, the order rotated per round, all on this host")
+parser.add_argument("--ab-rounds", type=int, default=8)
+parser.add_argument("--dogfood-set", action="store_true",
+                    help="CMUX_ENABLE_FEATURES = the checkout's FeatureDogfoodSet.chromeParity names (as a chrome-parity-* "
+                         "build opens with); none when the checkout has no switch registry")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
 opts = parser.parse_args()
+if opts.ab:
+    import newtab_ab  # noqa: E402  (scratch A/B driver beside this file)
+    sys.exit(newtab_ab.main(opts, sys.argv))
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
@@ -182,8 +201,46 @@ def ensure_terminal(settle=True):
     return ok
 
 
+TYPE_LETTERS = "qzxjkv"
+
+
+def typeable(window, index):
+    """Cmd-T, then at once one letter, both through the app's key path (debug.key); then `debug.new_tab field` reads
+    until the field holds the letter. typeable_ms: Cmd-T sent to the start of that read (one poll late at most);
+    field_ms: to its reply. lost: the letter never reached a field in 5 s (it went elsewhere, or no page showed)."""
+    letter = TYPE_LETTERS[index % len(TYPE_LETTERS)]
+    t0 = time.monotonic()
+    rpc("debug.key", {"key": "t", "modifiers": ["command"], "window": window})
+    key_ms = (time.monotonic() - t0) * 1000
+    rpc("debug.key", {"key": letter, "modifiers": [], "window": window})
+    letter_ms = (time.monotonic() - t0) * 1000
+    reads, last = 0, None
+    while time.monotonic() - t0 < 5:
+        start = time.monotonic()
+        reply = rpc("debug.new_tab", {"action": "field"}, timeout=5)
+        reads += 1
+        last = reply
+        text = reply.get("text") if isinstance(reply, dict) else None
+        if isinstance(text, str) and letter in text:
+            return {"key_ms": round(key_ms, 2), "letter_sent_ms": round(letter_ms, 2),
+                    "typeable_ms": round((start - t0) * 1000, 2), "field_ms": round((time.monotonic() - t0) * 1000, 2),
+                    "reads": reads, "focused": reply.get("focused"), "text": text[-20:]}
+        time.sleep(opts.poll_ms / 1000)  # harness poll of the live app
+    return {"key_ms": round(key_ms, 2), "letter_sent_ms": round(letter_ms, 2), "typeable_ms": None, "lost": True,
+            "reads": reads, "last": json.dumps(last)[:200]}
+
+
 def timed(command, phase, index, arm=None):
     """One timed `bench_create` of `command` (the key goes through the real key path in the app), printed."""
+    if opts.typeable and command == "new_tab":
+        result = typeable(window_key(), index)
+        result.update({"phase": phase, "run": index, "command": command})
+        if arm:
+            result["arm"] = arm
+        print(f"{phase} {command} #{index}: key={result.get('key_ms')} letter={result.get('letter_sent_ms')} "
+              f"typeable={result.get('typeable_ms')} field={result.get('field_ms')} reads={result.get('reads')} "
+              f"lost={result.get('lost', False)}", flush=True)
+        return result
     result = rpc("debug.new_tab", {"action": "bench_create", "command": command}, timeout=20) or {}
     result.update({"phase": phase, "run": index})
     result.setdefault("command", command)
@@ -330,7 +387,7 @@ def summary(rows):
     for phase in sorted({r["phase"] for r in rows}):
         for command in COMMANDS:
             sel = [r for r in rows if r["phase"] == phase and r.get("command") == command]
-            vis = [r.get("visible_ms") for r in sel]
+            vis = [r.get("typeable_ms" if opts.typeable else "visible_ms") for r in sel]
             out[f"{phase}/{command}"] = {
                 "n": len(sel), "missed": sum(v is None for v in vis),
                 "key_p50": pct([r.get("key_ms") for r in sel], .5), "key_max": pct([r.get("key_ms") for r in sel], 1),
@@ -343,6 +400,43 @@ def summary(rows):
                 "confirmed_p95": pct([r.get("confirmed_ms") for r in sel], .95),
             }
     return out
+
+
+def dogfood_names():
+    """FeatureDogfoodSet.chromeParity's names in this checkout ([] without the switch registry)."""
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    path = os.path.join(root, "Packages/macOS/CmuxNext/Sources/CmuxNextFeatures/FeatureDogfoodSet.swift")
+    if not os.path.exists(path):
+        return []
+    text = open(path).read()
+    start = text.find("chromeParity = FeatureDogfoodSet")
+    end = text.find("])", start)
+    return [n for n in re.findall(r'"([A-Za-z0-9]+)"', text[start:end]) if start >= 0]
+
+
+def segment():
+    """One launch of an A/B segment: the cold press (the launch's first, as soon as a terminal is focused), then the
+    quick pairs, then the warm presses; writes the rows to --json."""
+    rows = []
+    window = None
+    deadline = time.time() + 30
+    while window is None and time.time() < deadline:
+        window = window_key()
+        if window is None:
+            time.sleep(0.02)  # harness poll of the live app
+    if command_ok := ensure_terminal(settle=False):
+        rows.append(timed("new_tab", "cold", 0, arm="cold"))
+    else:
+        rows.append({"phase": "cold", "run": 0, "command": "new_tab", "arm": "cold", "error": "no focused terminal"})
+    time.sleep(0.4)
+    undo("new_tab", window, 1)
+    time.sleep(0.3)
+    rows += arm_quick(window)
+    time.sleep(1)
+    rows += [dict(r, arm="warm") for r in bench("idle", window)]
+    if opts.json:
+        open(opts.json, "w").write(json.dumps({"rows": rows, "host": os.uname().nodename}))
+    return command_ok
 
 
 app = None
@@ -382,6 +476,11 @@ def main():
            "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,900"}
     if opts.hang_stacks:
         env.update({"CMUX_NEXT_HANG_THRESHOLD_MS": "8", "CMUX_NEXT_AGENT_PANE_MOCK": "1", "ACPMUX_AGENT_LAUNCH": "deny"})
+    if opts.dogfood_set:
+        names = dogfood_names()
+        print(f"dogfood set: {len(names)} switches on (CMUX_ENABLE_FEATURES)", flush=True)
+        if names:
+            env["CMUX_ENABLE_FEATURES"] = ",".join(names)
     def launch():
         global app, SOCKET
         # One launch path (bench_launch.py): socket in the state folder, bench env, a clear reason when it does not come up.
@@ -401,6 +500,8 @@ def main():
         return window_key()
 
     launch()
+    if opts.segment:
+        return segment()
     time.sleep(2)  # test harness: shell prompt
     window = window_key()
     rows = []
@@ -432,9 +533,10 @@ def main():
     result["arms"] = {command: {metric: bench_arms.report(f"instant-new-surfaces/{command}", metric, "ms",
                                                           arm_samples(rows, command, metric),
                                                           out=lambda line: print(line, flush=True))
-                                for metric in ("visible_ms", "confirmed_ms", "key_ms")}
+                                for metric in (("typeable_ms", "key_ms") if opts.typeable else ("visible_ms", "confirmed_ms", "key_ms"))}
                       for command in COMMANDS}
-    result["headline"] = {command: {"metric": "visible_ms", "arm": arms["visible_ms"]["headline"]}
+    headline_metric = "typeable_ms" if opts.typeable else "visible_ms"
+    result["headline"] = {command: {"metric": headline_metric, "arm": arms[headline_metric]["headline"]}
                           for command, arms in result["arms"].items()}
     result["headline_rule"] = bench_arms.RULE
     if opts.json:
