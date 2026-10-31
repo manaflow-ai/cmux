@@ -32,6 +32,8 @@ public actor CloudMachineLink {
     /// The running link's attach answer said the signed-in caller owns the machine; false once
     /// that link ends (``callerOwnsVM``).
     private var linkOwnsVM = false
+    /// The running link's attach answer said the machine is a teammate's (``callerIsTeammate``).
+    private var linkIsTeammate = false
     /// Counts links: each link start and end takes a new one (``ownerLink``).
     private var linkID = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.link")
@@ -81,9 +83,10 @@ public actor CloudMachineLink {
 
     /// A link started or ended: its ``callerOwnsVM`` under a new ``ownerLink`` id, here and on
     /// ``ownership`` (which drops a hop that arrives after a newer one).
-    private func setOwnsVM(_ owns: Bool) {
+    private func setOwnsVM(_ owns: Bool, teammate: Bool = false) {
         linkID += 1
         linkOwnsVM = owns
+        linkIsTeammate = teammate && !owns
         let (ownership, link) = (ownership, linkID)
         // task-owner: one main-actor hop
         Task { @MainActor in ownership.publish(owns, link: link) }
@@ -129,6 +132,14 @@ public actor CloudMachineLink {
     /// connects and again as it sends: a different answer means the link ended or came up again
     /// (with the Cloud API asked again), so an owner answer never carries over to another link.
     public var ownerLink: Int? { callerOwnsVM ? linkID : nil }
+
+    /// True while a link runs and its attach answer said the machine is a teammate's
+    /// (``CloudAttachEndpoint/callerIsTeammate``): a chat start is refused as a teammate's machine.
+    /// It never grants a start; only ``ownerLink`` does.
+    public var callerIsTeammate: Bool {
+        guard socket != nil, child?.isRunning == true else { return false }
+        return linkIsTeammate
+    }
 
     /// The running link process's pid while ``callerOwnsVM``, else nil: Move to Cloud sends the
     /// owner word with it (`--to-pid`), so only a connection this process serves carries it.
@@ -204,7 +215,7 @@ public actor CloudMachineLink {
             let path = try await socketTask.value
             try checkGeneration(generation)
             self.socket = path
-            setOwnsVM(endpoint.callerOwnsVM)
+            setOwnsVM(endpoint.callerOwnsVM, teammate: endpoint.callerIsTeammate)
             let redial = redial
             await MainActor.run { redial.isRedialing = false }
             watchSnapshots(child)

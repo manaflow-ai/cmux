@@ -27,13 +27,13 @@ struct ArtifactsSheet: View {
         /// The empty state's title: the generic one only for All (P3).
         var emptyTitle: String {
             switch self {
-            case .all: "Nothing referenced yet"
-            case .files: "No files yet"
-            case .folders: "No folders yet"
-            case .images: "No images yet"
-            case .videos: "No videos yet"
-            case .code: "No code yet"
-            case .links: "No links yet"
+            case .all: "Nothing referenced"
+            case .files: "No files"
+            case .folders: "No folders"
+            case .images: "No images"
+            case .videos: "No videos"
+            case .code: "No code"
+            case .links: "No links"
             }
         }
     }

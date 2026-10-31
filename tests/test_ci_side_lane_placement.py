@@ -245,11 +245,21 @@ class Decide(unittest.TestCase):
         moving = Seen(waits={small: 2.0}, owned_queued={GUI: 37}, owned_full={GUI: True},
                       owned_full_known={GUI: True})
         self.assertEqual(placement.healthy_role_label(GUI, busy, moving, {small: 3}), "")
-        # A stale snapshot or an unread Blacksmith queue vouches for no stall: today's overflow.
-        stale = Seen(waits={small: 102.0}, owned_queued={GUI: 37}, owned_full={GUI: True},
+        # A snapshot too old for the counts, or an unread Blacksmith queue, still shows the stall the snapshot
+        # saw (next_macos_cascade.late_waits()): the label stays. Run 41175923956 (2026-10-31): no snapshot
+        # under 15 min, so swift test took `blacksmith-6vcpu-macos-26` with its oldest job waiting 179 min.
+        stale = Seen(waits={small: 179.0}, owned_queued={GUI: 37}, owned_full={GUI: True},
                      owned_full_known={GUI: True}, stale=True)
-        self.assertEqual(placement.healthy_role_label(GUI, busy, stale, {small: 91}), "")
-        self.assertEqual(placement.healthy_role_label(GUI, busy, stalled, None), "")
+        for waiting in ({small: 166}, None):
+            with self.subTest(waiting=waiting):
+                self.assertEqual(placement.healthy_role_label(GUI, busy, stale, waiting), GUI)
+        self.assertEqual(placement.healthy_role_label(GUI, busy, stalled, None), GUI)
+        # A late snapshot of a moving queue, or one that saw no queue there, vouches for no stall: today's overflow.
+        for waits in ({small: 2.0}, {}):
+            with self.subTest(waits=waits):
+                late = Seen(waits=waits, owned_queued={GUI: 37}, owned_full={GUI: True},
+                            owned_full_known={GUI: True}, stale=True)
+                self.assertEqual(placement.healthy_role_label(GUI, busy, late, None), "")
         # No online runner carries the label: a stalled overflow never revives an offline queue.
         offline = [runner("mini-a-glaeda-4", status="offline", labels=(STD, GUI))]
         self.assertEqual(placement.healthy_role_label(GUI, offline, stalled, {small: 91}), "")

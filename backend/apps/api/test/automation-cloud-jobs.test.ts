@@ -48,8 +48,12 @@ const job = (chief: { id: string; main_conversation: string }, name: string) => 
 describe("Cloud Chief jobs from the person's clients", { timeout: 60_000 }, () => {
   it("the free plan gets one Cloud job; the second answers automation.plan.required with a checkout link", async () => {
     const p = await person("cloud-jobs-free", null)
-    const first = await op(p.token, "automation.create", job(p.chief, "Morning brief"))
+    const first = await op(p.token, "automation.create", job(p.chief, "Morning brief"), "k-brief")
     expect(first.ok, JSON.stringify(first)).toBe(true)
+    // A retried create (same key) is the same job, not a second one the cap refuses (staging proof 2026-10-31).
+    const retried = await op(p.token, "automation.create", job(p.chief, "Morning brief"), "k-brief")
+    expect(retried.ok, JSON.stringify(retried)).toBe(true)
+    expect(retried.value.id).toBe(first.value.id)
     expect(first.value.body).toMatchObject({ type: "chief", chief: p.chief.id })
     const second = await op(p.token, "automation.create", job(p.chief, "Second brief"))
     expect(second.ok).toBe(false)

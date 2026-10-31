@@ -45,4 +45,18 @@ public nonisolated struct AutomationStrings: Sendable {
     public func late(_ minutes: Int) -> String {
         String(format: String(localized: "automations.late", defaultValue: "ran %lld min late", table: "Cloud", bundle: .module), minutes)
     }
+
+    /// Why `target`'s automations did not load, from the source's error `code`.
+    public func problem(_ target: AutomationRow.Target, code: String) -> String {
+        switch (target, code) {
+        case (.cloud, "automation.signed_out"):
+            String(localized: "automations.problem.signedOut", defaultValue: "Sign in to cmux to see your Cloud automations.", table: "Cloud", bundle: .module)
+        case (.cloud, "feature.disabled"):
+            String(localized: "automations.problem.cloudOff", defaultValue: "Your administrator turned off cmux Cloud, so Cloud automations are not shown.", table: "Cloud", bundle: .module)
+        case (.cloud, _):
+            String(localized: "automations.problem.cloud", defaultValue: "Could not reach cmux Cloud; Cloud automations are not shown.", table: "Cloud", bundle: .module)
+        case (.thisMac, _):
+            String(localized: "automations.problem.thisMac", defaultValue: "Could not read this Mac's automations (cmux automation list failed).", table: "Cloud", bundle: .module)
+        }
+    }
 }

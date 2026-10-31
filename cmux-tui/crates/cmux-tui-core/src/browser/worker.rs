@@ -1,8 +1,16 @@
-//! Per-surface threads: the surface event thread, the command worker loop,
-//! pointer and lifecycle deadlines, and status/dirty/failure notifications.
+//! The surface's CDP event handler (served on the shared event lanes), the
+//! per-surface command worker loop, pointer and lifecycle deadlines, and
+//! status/dirty/failure notifications.
 
+use super::event_lanes::LaneFlow;
+use super::event_registry::{RegistryWork, run_registry_work};
 use super::*;
+use crate::serial_lanes::{Lane, LaneNext};
+use std::sync::OnceLock;
+use std::sync::mpsc::TryRecvError;
 
+/// Serves the surface's CDP events in order on the shared event-lane pool
+/// (`browser-events-<n>`); a surface has no event thread of its own.
 pub(super) fn start_surface_thread(
     surface: Arc<Surface>,
     events: Arc<SurfaceRoute>,
@@ -11,199 +19,240 @@ pub(super) fn start_surface_thread(
     route_session_id: String,
 ) -> anyhow::Result<()> {
     let id = surface.id;
-    std::thread::Builder::new().name(format!("browser-surface-{id}-events")).spawn(move || {
-        // tab-attention-v1: the page URL this thread last asked about, so
-        // repeated events on one page read nothing. Whether a mark goes is
-        // decided against the page the mark recorded, not this, so the first
-        // event (even one after the URL already moved) still clears it.
-        let mut seen_url: Option<String> = None;
-        while let Some(event) = events.recv() {
-            let Surface::Browser(browser) = surface.as_ref() else { break };
-            let seen_url = &mut seen_url;
-            match event {
-                CdpEvent::ScreencastFrame(frame) => {
-                    let frame_epoch = frame.frame_epoch;
-                    let frame = BrowserFrame {
-                        session_id: frame.session_id,
-                        data_b64: frame.data_b64,
-                        css_width: frame.css_width,
-                        css_height: frame.css_height,
-                        image_width: frame.image_width,
-                        image_height: frame.image_height,
-                        seq: 0,
-                    };
-                    let visible_state_changed = browser.store_frame_for_epoch(frame, frame_epoch);
-                    if visible_state_changed
-                        && !browser.dirty.swap(true, Ordering::AcqRel)
-                        && let Some(mux) = mux.upgrade()
-                    {
-                        mux.emit(MuxEvent::SurfaceOutput(id));
-                    }
+    // tab-attention-v1: the page URL this lane last asked about, so repeated
+    // events on one page read nothing. Whether a mark goes is decided against
+    // the page the mark recorded, not this, so the first event (even one
+    // after the URL already moved) still clears it.
+    let mut seen_url: Option<String> = None;
+    let route = Arc::downgrade(&events);
+    events.attach_handler(Box::new(move |event| {
+        let Surface::Browser(browser) = surface.as_ref() else { return LaneFlow::End };
+        let seen_url = &mut seen_url;
+        match event {
+            CdpEvent::ScreencastFrame(frame) => {
+                let frame_epoch = frame.frame_epoch;
+                let frame = BrowserFrame {
+                    session_id: frame.session_id,
+                    data_b64: frame.data_b64,
+                    css_width: frame.css_width,
+                    css_height: frame.css_height,
+                    image_width: frame.image_width,
+                    image_height: frame.image_height,
+                    seq: 0,
+                };
+                let visible_state_changed = browser.store_frame_for_epoch(frame, frame_epoch);
+                if visible_state_changed
+                    && !browser.dirty.swap(true, Ordering::AcqRel)
+                    && let Some(mux) = mux.upgrade()
+                {
+                    mux.emit(MuxEvent::SurfaceOutput(id));
                 }
-                CdpEvent::ScreencastFrameCaptureRequested {
-                    session_id,
-                    frame_id,
-                    loader_id,
-                    request_id,
+            }
+            CdpEvent::ScreencastFrameCaptureRequested {
+                session_id,
+                frame_id,
+                loader_id,
+                request_id,
+                frame_epoch,
+                navigation_epoch,
+            } => {
+                let reservation_id = request_id;
+                if !browser.reserve_screencast_capture(
+                    reservation_id,
                     frame_epoch,
                     navigation_epoch,
-                } => {
-                    let reservation_id = request_id;
-                    if !browser.reserve_screencast_capture(
-                        reservation_id,
-                        frame_epoch,
-                        navigation_epoch,
-                    ) {
-                        if let Some(runtime) = runtime.upgrade() {
-                            let _ = runtime.client.cancel_timestampless_screencast_capture(
-                                &session_id,
-                                reservation_id,
-                                frame_epoch,
-                                navigation_epoch,
-                            );
-                        }
-                        continue;
-                    }
-                    if browser
-                        .enqueue_latest_authority(BrowserCommand::AuthorizeScreencastCapture {
-                            session_id: session_id.clone(),
-                            frame_id,
-                            loader_id,
+                ) {
+                    if let Some(runtime) = runtime.upgrade() {
+                        let _ = runtime.client.cancel_timestampless_screencast_capture(
+                            &session_id,
                             reservation_id,
                             frame_epoch,
                             navigation_epoch,
-                        })
-                        .is_err()
-                    {
-                        browser.cancel_screencast_capture(reservation_id);
-                        if let Some(runtime) = runtime.upgrade() {
-                            let _ = runtime.client.cancel_timestampless_screencast_capture(
-                                &session_id,
-                                reservation_id,
-                                frame_epoch,
-                                navigation_epoch,
-                            );
-                        }
+                        );
                     }
+                    return LaneFlow::Continue;
                 }
-                CdpEvent::TargetCreated(created) => {
-                    handle_target_created(browser, &created, &mux, &runtime, id);
-                }
-                CdpEvent::TargetInfoChanged(info) => {
-                    let title = if info.title.is_empty() { info.url.clone() } else { info.title };
-                    let url_changed =
-                        if info.url.is_empty() { false } else { browser.set_url(info.url) };
-                    let title_changed = browser.set_title(title);
-                    clear_attention_if_page_changed(
-                        seen_url,
-                        browser,
-                        mux_attention_clear(&mux, id),
-                    );
-                    if (url_changed || title_changed)
-                        && let Some(mux) = mux.upgrade()
-                    {
-                        mux.emit(MuxEvent::TitleChanged {
-                            surface: id,
-                            title: browser.title().into(),
-                        });
-                    }
-                }
-                CdpEvent::FrameNavigated { params, frame_epoch, .. } => {
-                    handle_frame_navigated(browser, params, frame_epoch);
-                    clear_attention_if_page_changed(
-                        seen_url,
-                        browser,
-                        mux_attention_clear(&mux, id),
-                    );
-                    if let Some(mux) = mux.upgrade() {
-                        mux.emit(MuxEvent::TitleChanged {
-                            surface: id,
-                            title: browser.title().into(),
-                        });
-                        mux.emit(MuxEvent::SurfaceOutput(id));
-                    }
-                }
-                CdpEvent::DocumentPainted { session_id, frame_id, loader_id, navigation_epoch }
-                    if browser.needs_document_paint(navigation_epoch) =>
+                if browser
+                    .enqueue_latest_authority(BrowserCommand::AuthorizeScreencastCapture {
+                        session_id: session_id.clone(),
+                        frame_id,
+                        loader_id,
+                        reservation_id,
+                        frame_epoch,
+                        navigation_epoch,
+                    })
+                    .is_err()
                 {
-                    let _ =
-                        browser.enqueue_latest_authority(BrowserCommand::AuthorizeDocumentPaint {
-                            session_id,
-                            frame_id,
-                            loader_id,
+                    browser.cancel_screencast_capture(reservation_id);
+                    if let Some(runtime) = runtime.upgrade() {
+                        let _ = runtime.client.cancel_timestampless_screencast_capture(
+                            &session_id,
+                            reservation_id,
+                            frame_epoch,
                             navigation_epoch,
-                        });
+                        );
+                    }
                 }
-                CdpEvent::NavigatedWithinDocument {
-                    params,
+            }
+            CdpEvent::TargetCreated(created) => {
+                handle_target_created(browser, &created, &mux, &runtime, &route);
+            }
+            CdpEvent::TargetInfoChanged(info) => {
+                let title = if info.title.is_empty() { info.url.clone() } else { info.title };
+                let url_changed =
+                    if info.url.is_empty() { false } else { browser.set_url(info.url) };
+                let title_changed = browser.set_title(title);
+                clear_attention_if_page_changed(seen_url, browser, |url| {
+                    let _ = browser
+                        .defer_registry_work(&route, RegistryWork::ClearAttention(url.into()));
+                });
+                if (url_changed || title_changed)
+                    && let Some(mux) = mux.upgrade()
+                {
+                    mux.emit(MuxEvent::TitleChanged { surface: id, title: browser.title().into() });
+                }
+            }
+            CdpEvent::FrameNavigated { params, frame_epoch, .. } => {
+                handle_frame_navigated(browser, params, frame_epoch);
+                clear_attention_if_page_changed(seen_url, browser, |url| {
+                    let _ = browser
+                        .defer_registry_work(&route, RegistryWork::ClearAttention(url.into()));
+                });
+                if let Some(mux) = mux.upgrade() {
+                    mux.emit(MuxEvent::TitleChanged { surface: id, title: browser.title().into() });
+                    mux.emit(MuxEvent::SurfaceOutput(id));
+                }
+            }
+            CdpEvent::DocumentPainted { session_id, frame_id, loader_id, navigation_epoch }
+                if browser.needs_document_paint(navigation_epoch) =>
+            {
+                let _ = browser.enqueue_latest_authority(BrowserCommand::AuthorizeDocumentPaint {
                     session_id,
                     frame_id,
                     loader_id,
-                    frame_epoch,
-                } => {
-                    let _ = handle_same_document_navigated(browser, &params, frame_epoch);
-                    clear_attention_if_page_changed(
-                        seen_url,
-                        browser,
-                        mux_attention_clear(&mux, id),
-                    );
-                    if browser.needs_same_document_paint() {
-                        let _ = browser.enqueue_latest_authority(
-                            BrowserCommand::AuthorizeSameDocumentPaint {
-                                session_id,
-                                frame_id,
-                                loader_id,
-                            },
-                        );
-                    }
-                    if let Some(mux) = mux.upgrade() {
-                        mux.emit(MuxEvent::TitleChanged {
-                            surface: id,
-                            title: browser.title().into(),
-                        });
-                        mux.emit(MuxEvent::SurfaceOutput(id));
-                    }
-                }
-                CdpEvent::Other { method, params, .. }
-                    if method == "Page.javascriptDialogOpening" =>
-                {
-                    let (accept, message) = dialog_response(&params);
-                    let _ = browser.handle_javascript_dialog(accept);
-                    if let Some(mux) = mux.upgrade() {
-                        mux.emit(MuxEvent::Status(message));
-                    }
-                }
-                CdpEvent::Closed(reason) => {
-                    if let Some(runtime) = runtime
-                        .upgrade()
-                        .filter(|runtime| runtime.source() == BrowserSource::Provider)
-                    {
-                        // Route closure is session-scoped. A replacement can
-                        // attach to the same browser-level WebSocket before
-                        // this old event thread drains its close marker; never
-                        // let that stale marker tear down the new session.
-                        if browser.prepare_provider_reconnect(&runtime, &route_session_id)
-                            && let Some(mux) = mux.upgrade()
-                        {
-                            mux.emit(MuxEvent::Status(format!(
-                                "cmux-browser provider disconnected: {reason}; waiting to reconnect"
-                            )));
-                            mux.emit(MuxEvent::SurfaceOutput(id));
-                            mux.restart_provider_browser_surface(surface.clone());
-                        }
-                    } else if !browser.is_dead() {
-                        browser.kill();
-                        if let Some(mux) = mux.upgrade() {
-                            mux.surface_exited(id);
-                        }
-                    }
-                    break;
-                }
-                _ => {}
+                    navigation_epoch,
+                });
             }
+            CdpEvent::NavigatedWithinDocument {
+                params,
+                session_id,
+                frame_id,
+                loader_id,
+                frame_epoch,
+            } => {
+                let _ = handle_same_document_navigated(browser, &params, frame_epoch);
+                clear_attention_if_page_changed(seen_url, browser, |url| {
+                    let _ = browser
+                        .defer_registry_work(&route, RegistryWork::ClearAttention(url.into()));
+                });
+                if browser.needs_same_document_paint() {
+                    let _ = browser.enqueue_latest_authority(
+                        BrowserCommand::AuthorizeSameDocumentPaint {
+                            session_id,
+                            frame_id,
+                            loader_id,
+                        },
+                    );
+                }
+                if let Some(mux) = mux.upgrade() {
+                    mux.emit(MuxEvent::TitleChanged { surface: id, title: browser.title().into() });
+                    mux.emit(MuxEvent::SurfaceOutput(id));
+                }
+            }
+            CdpEvent::Other { method, params, .. } if method == "Page.javascriptDialogOpening" => {
+                let (accept, message) = dialog_response(&params);
+                let _ = browser.handle_javascript_dialog(accept);
+                if let Some(mux) = mux.upgrade() {
+                    mux.emit(MuxEvent::Status(message));
+                }
+            }
+            CdpEvent::Closed(reason) => {
+                if let Some(runtime) =
+                    runtime.upgrade().filter(|runtime| runtime.source() == BrowserSource::Provider)
+                {
+                    // Route closure is session-scoped. A replacement can
+                    // attach to the same browser-level WebSocket before
+                    // this old event thread drains its close marker; never
+                    // let that stale marker tear down the new session.
+                    if browser.prepare_provider_reconnect(&runtime, &route_session_id)
+                        && let Some(mux) = mux.upgrade()
+                    {
+                        mux.emit(MuxEvent::Status(format!(
+                            "cmux-browser provider disconnected: {reason}; waiting to reconnect"
+                        )));
+                        mux.emit(MuxEvent::SurfaceOutput(id));
+                        let _ = browser.defer_registry_work(&route, RegistryWork::RestartProvider);
+                    }
+                } else if !browser.is_dead() {
+                    // Retain the durable exit before kill closes admission.
+                    let _ = browser.defer_registry_work(&route, RegistryWork::SurfaceExited);
+                    browser.kill();
+                }
+                return LaneFlow::End;
+            }
+            _ => {}
         }
-    })?;
-    Ok(())
+        LaneFlow::Continue
+    }))
+}
+
+/// The sending side of a browser surface's command queue. Each send kicks
+/// the surface's worker lane (`serial_lanes.rs`), which replaced the
+/// `browser-surface-<id>-worker` thread (perf100 tui lane: 353 such threads,
+/// each parked for good, in one Chief daemon). Dropping the last sender
+/// kicks too, so the lane sees the queue disconnect.
+pub(crate) struct BrowserCommandTx {
+    /// `None` only inside `drop`.
+    tx: Option<SyncSender<SequencedBrowserCommand>>,
+    lane: Arc<OnceLock<Lane>>,
+    /// One per sender; `Arc::into_inner` names the last one to drop.
+    live: Option<Arc<()>>,
+}
+
+impl BrowserCommandTx {
+    pub(super) fn channel(
+        capacity: usize,
+    ) -> (Self, (Receiver<SequencedBrowserCommand>, Arc<OnceLock<Lane>>)) {
+        let (tx, rx) = sync_channel(capacity);
+        let lane = Arc::new(OnceLock::new());
+        (Self { tx: Some(tx), lane: lane.clone(), live: Some(Arc::new(())) }, (rx, lane))
+    }
+
+    /// Same contract as `SyncSender::try_send`, whose error carries the
+    /// command back.
+    #[allow(clippy::result_large_err)]
+    pub(super) fn try_send(
+        &self,
+        command: SequencedBrowserCommand,
+    ) -> Result<(), TrySendError<SequencedBrowserCommand>> {
+        // `tx` is None only inside `drop`.
+        let Some(tx) = self.tx.as_ref() else { return Err(TrySendError::Disconnected(command)) };
+        let sent = tx.try_send(command);
+        // A full queue still wakes the worker, which drains it.
+        if !matches!(sent, Err(TrySendError::Disconnected(_)))
+            && let Some(lane) = self.lane.get()
+        {
+            lane.kick();
+        }
+        sent
+    }
+}
+
+impl Clone for BrowserCommandTx {
+    fn clone(&self) -> Self {
+        Self { tx: self.tx.clone(), lane: self.lane.clone(), live: self.live.clone() }
+    }
+}
+
+impl Drop for BrowserCommandTx {
+    fn drop(&mut self) {
+        // Disconnect first: the kicked lane must see the queue closed.
+        drop(self.tx.take());
+        let last = self.live.take().is_some_and(|live| Arc::into_inner(live).is_some());
+        if last && let Some(lane) = self.lane.get() {
+            lane.kick();
+        }
+    }
 }
 
 /// tab-attention-v1: the tab is on `browser.url()`; `clear` drops a "needs
@@ -222,72 +271,78 @@ pub(super) fn clear_attention_if_page_changed(
     *seen_url = Some(url);
 }
 
-/// The worker's `clear`: the mux's navigation clear for surface `id`, while
-/// the mux lives.
-fn mux_attention_clear(mux: &Weak<Mux>, id: SurfaceId) -> impl FnOnce(&str) + '_ {
-    move |url| {
-        if let Some(mux) = mux.upgrade() {
-            mux.clear_attention_after_navigation(&crate::Actor::Daemon, id, url);
-        }
-    }
-}
-
 pub(super) fn start_browser_worker(
     surface: Arc<Surface>,
-    rx: Receiver<SequencedBrowserCommand>,
+    (rx, lane_slot): (Receiver<SequencedBrowserCommand>, Arc<OnceLock<Lane>>),
     command_order: Arc<Mutex<BrowserCommandOrder>>,
     latest_nav: Arc<Mutex<Option<SequencedBrowserCommand>>>,
     latest_authority: Arc<Mutex<Option<SequencedBrowserCommand>>>,
     mux: Weak<Mux>,
-    done_tx: Option<Sender<()>>,
+    mut done_tx: Option<Sender<()>>,
 ) {
     let id = surface.id;
-    let _ =
-        std::thread::Builder::new().name(format!("browser-surface-{id}-worker")).spawn(move || {
-            let mut failures = BrowserWorkerErrorState::default();
-            loop {
-                let first = match next_browser_lifecycle_deadline(&surface, &failures) {
-                    Some(deadline) => {
-                        match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-                            Ok(first) => first,
-                            Err(RecvTimeoutError::Timeout) => {
-                                service_due_browser_lifecycles(&surface, &mux, id, &mut failures);
-                                continue;
-                            }
-                            Err(RecvTimeoutError::Disconnected) => break,
-                        }
+    let mut failures = BrowserWorkerErrorState::default();
+    // The lane holds the surface strongly, as the worker thread did; the
+    // queue's senders hold the lane, so the surface lives until its queue
+    // is closed and drained (`close_command_sender`).
+    let next = |surface: &Surface, failures: &BrowserWorkerErrorState| {
+        match next_browser_lifecycle_deadline(surface, failures) {
+            Some(deadline) => LaneNext::At(deadline),
+            None => LaneNext::Idle,
+        }
+    };
+    let lane = Lane::new("browser-surface-worker", move || {
+        // Drain until the queue is empty or closed: a close that happened
+        // while the lane was already queued kicks nothing new, so only
+        // reading on to `Disconnected` sees it.
+        loop {
+            let first = match rx.try_recv() {
+                Ok(first) => first,
+                Err(TryRecvError::Empty) => {
+                    // A deadline or a sender's drop, not a command.
+                    if next_browser_lifecycle_deadline(&surface, &failures)
+                        .is_some_and(|deadline| deadline <= Instant::now())
+                    {
+                        service_due_browser_lifecycles(&surface, &mux, id, &mut failures);
                     }
-                    None => match rx.recv() {
-                        Ok(first) => first,
-                        Err(_) => break,
-                    },
-                };
-                let mut batch = vec![first];
-                let mut order = command_order.lock().unwrap();
-                while let Ok(next) = rx.try_recv() {
-                    batch.push(next);
+                    return next(&surface, &failures);
                 }
-                batch.extend(order.retained_releases.drain(..));
-                if let Some(command) = take_latest_worker_commands(&latest_nav) {
-                    batch.push(command);
+                Err(TryRecvError::Disconnected) => {
+                    if let Some(done_tx) = done_tx.take() {
+                        let _ = done_tx.send(());
+                    }
+                    return LaneNext::Close;
                 }
-                if let Some(command) = take_latest_worker_commands(&latest_authority) {
-                    batch.push(command);
-                }
-                drop(order);
-                batch.sort_unstable_by_key(|queued| queued.sequence);
+            };
+            let mut batch = vec![first];
+            let mut order = command_order.lock().unwrap();
+            while let Ok(next) = rx.try_recv() {
+                batch.push(next);
+            }
+            batch.extend(order.retained_releases.drain(..));
+            batch.extend(order.registry_work.drain(..));
+            batch.extend(order.registry_exit.take());
+            if let Some(command) = take_latest_worker_commands(&latest_nav) {
+                batch.push(command);
+            }
+            if let Some(command) = take_latest_worker_commands(&latest_authority) {
+                batch.push(command);
+            }
+            drop(order);
+            batch.sort_unstable_by_key(|queued| queued.sequence);
+            service_due_browser_lifecycles(&surface, &mux, id, &mut failures);
+            batch.retain(|queued| !matches!(&queued.command, BrowserCommand::WakeLatest));
+            coalesce_worker_mouse_moves(&mut batch);
+            for queued in batch {
                 service_due_browser_lifecycles(&surface, &mux, id, &mut failures);
-                batch.retain(|queued| !matches!(&queued.command, BrowserCommand::WakeLatest));
-                coalesce_worker_mouse_moves(&mut batch);
-                for queued in batch {
-                    service_due_browser_lifecycles(&surface, &mux, id, &mut failures);
-                    run_browser_worker_command(&surface, queued, &mux, id, &mut failures);
-                }
+                run_browser_worker_command(&surface, queued, &mux, id, &mut failures);
             }
-            if let Some(done_tx) = done_tx {
-                let _ = done_tx.send(());
-            }
-        });
+        }
+    });
+    if lane_slot.set(lane.clone()).is_ok() {
+        // Commands sent before the lane existed.
+        lane.kick();
+    }
 }
 
 pub(super) fn next_browser_lifecycle_deadline(
@@ -459,6 +514,10 @@ pub(super) fn run_browser_worker_command(
         };
         match command {
             BrowserCommand::WakeLatest => Ok(BrowserWorkerSuccess::LocallySettled),
+            BrowserCommand::EventRegistry(deferred) => {
+                run_registry_work(browser, *deferred, mux, id);
+                Ok(BrowserWorkerSuccess::LocallySettled)
+            }
             BrowserCommand::Mouse {
                 input_owner,
                 event_type,
