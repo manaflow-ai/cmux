@@ -234,7 +234,11 @@ impl Client {
             if !seen.insert(cursor.clone()) {
                 anyhow::bail!("{m}: the daemon gave the page cursor {cursor:?} twice");
             }
-            rest["cursor"] = Value::String(cursor.clone());
+            if !rest.set("cursor", Value::String(cursor.clone())) {
+                anyhow::bail!(
+                    "{m}: the params {rest} are not an object, so no page after cursor {cursor:?}"
+                );
+            }
             let mut page = self.request(method::MUX_SESSIONS, rest.clone()).await?;
             let (Some(Value::Array(rows)), Some(all)) = (
                 page.get_mut("sessions").map(Value::take),
@@ -244,7 +248,7 @@ impl Client {
             };
             all.extend(rows);
             if let Some(next) = page.get_mut("nextCursor").map(Value::take) {
-                reply["nextCursor"] = next;
+                reply.set("nextCursor", next);
             }
         }
         if !seen.is_empty()

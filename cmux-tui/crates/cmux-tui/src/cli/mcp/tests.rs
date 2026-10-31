@@ -1677,6 +1677,18 @@ fn cmux_docs_finds_a_tool_from_a_sentence() {
     // A tool's own name finds that tool first, not a longer one that holds it.
     let exact = call(&mut server, "cmux_docs", json!({"query": "tab_list"}));
     assert_eq!(exact["structuredContent"]["tools"][0]["name"], "tab_list", "{exact}");
+    // A query of exact names answers only those tools; the other matches by name.
+    let tools = exact["structuredContent"]["tools"].as_array().map(Vec::len);
+    assert_eq!(tools, Some(1), "{exact}");
+    assert!(!exact["structuredContent"]["more"].as_array().is_none_or(Vec::is_empty), "{exact}");
+    let pair = call(&mut server, "cmux_docs", json!({"query": "tab_list pane_split"}));
+    let names: Vec<&str> = pair["structuredContent"]["tools"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect();
+    assert_eq!(names, ["tab_list", "pane_split"], "{pair}");
 
     // A script that calls a name no tool has hears the near ones.
     let script = "try { await cmux.context({}); } catch (e) { return e.message; }";
@@ -1758,6 +1770,9 @@ fn code_mode_takes_the_shapes_models_write() {
         "async () => { const r = await cmux.workspace_list({}); return {listed: !!r.items}; }",
         "(async () => {\n  const r = await cmux.workspace_list({});\n  return {listed: !!r.items};\n})",
         "async (c) => { return {listed: !!(await c.workspace_list({})).items}; }",
+        "async ({cmux}) => {\n  const r = await cmux.workspace_list({});\n  return {listed: !!r.items};\n}",
+        "async function ({ cmux }) { return {listed: !!(await cmux.workspace_list({})).items}; }",
+        "(async ({cmux}) => { return {listed: !!(await cmux.workspace_list({})).items}; })()",
     ] {
         let ran = call(&mut server, "cmux_exec", json!({"script": wrapped}));
         assert_eq!(ran["structuredContent"]["result"]["listed"], true, "{wrapped}: {ran}");
@@ -1844,6 +1859,72 @@ fn a_record_works_where_its_id_goes() {
     let add = sent.iter().find(|s| s["request"]["operation"] == "browser.devices.add_custom");
     let add = add.unwrap_or_else(|| panic!("{sent:?}"));
     assert_eq!(add["request"]["params"]["device"], device, "{add}");
+}
+
+/// A tab moved to a pane needs only the pane: its own id, screen and workspace are looked
+/// up and the tab goes last, where the daemon refused the move without all four
+/// (tests/tool-evals r13d: a docs lookup and two reads before each move). A workspace
+/// alone moves it to that workspace's active pane.
+#[test]
+fn a_tab_moves_to_a_pane_named_alone() {
+    let pane = "pane_00000000000000000000000000000007";
+    let screen = "screen_00000000000000000000000000000008";
+    let workspace = "ws_00000000000000000000000000000009";
+    let record = json!({"id": pane, "screen_id": screen, "workspace_id": workspace});
+    let fake = Fake { resource_result: Some(record), ..Fake::default() };
+    let mut server = Server::new(fake, None);
+    let tab = "tab_00000000000000000000000000000001";
+    for arguments in [
+        json!({"tab": tab, "destination_pane": "pane_000000000000000000000000000000"}),
+        json!({"tab": tab, "destination_workspace": workspace}),
+    ] {
+        let result = server.call(&json!({"name": "tab_move", "arguments": arguments}));
+        let result = result.expect("a tool result");
+        assert_ne!(result["isError"], true, "{result}");
+    }
+    let sent = server.backend.sent.borrow();
+    let moves: Vec<&Value> =
+        sent.iter().filter(|s| s["request"]["operation"] == "tab.move").collect();
+    assert_eq!(moves.len(), 2, "{sent:?}");
+    // A pane named by a prefix goes as its own id, with its parents; the tab goes last.
+    let first = &moves[0]["request"]["params"];
+    assert_eq!(first["destination_pane"], pane, "{}", moves[0]);
+    assert_eq!(first["destination_screen"], screen, "{}", moves[0]);
+    assert_eq!(first["destination_workspace"], workspace, "{}", moves[0]);
+    assert_eq!(first["index"], u32::MAX, "{}", moves[0]);
+    // A workspace alone: its active screen and pane.
+    let second = &moves[1]["request"]["params"];
+    assert_eq!(second["destination_screen"], "current", "{}", moves[1]);
+    assert_eq!(second["destination_pane"], "current", "{}", moves[1]);
+}
+
+/// A history read answers the scrollback as lines of plain text, unstyled, where the
+/// daemon's rows of styled runs were 88k characters for 300 lines (tests/tool-evals
+/// r13a). Asked for `styled`, it answers the rows as the daemon sends them.
+#[test]
+fn terminal_history_reads_as_plain_lines() {
+    let rows = json!({"start": "0", "next": null, "rows": [
+        {"row": 0, "runs": [{"text": "row-1-v7", "fg": null, "bg": null, "attrs": 0}]},
+        {"row": 1, "runs": [{"text": "row-2-", "fg": null}, {"text": "v14", "fg": "#fff"}]},
+    ]});
+    let fake = Fake { resource_result: Some(rows), ..Fake::default() };
+    let mut server = Server::new(fake, None);
+    let terminal = "term_00000000000000000000000000000abc";
+    let plain = server
+        .call(&json!({"name": "terminal_history_read", "arguments": {"terminal": terminal}}))
+        .expect("a tool result");
+    assert_eq!(plain["structuredContent"]["text"], "row-1-v7\nrow-2-v14", "{plain}");
+    assert!(plain["structuredContent"].get("rows").is_none(), "{plain}");
+    let styled = server
+        .call(&json!({"name": "terminal_history_read",
+                       "arguments": {"terminal": terminal, "styled": true}}))
+        .expect("a tool result");
+    assert!(styled["structuredContent"]["rows"].is_array(), "{styled}");
+    let sent = server.backend.sent.borrow();
+    let reads: Vec<&Value> =
+        sent.iter().filter(|s| s["request"]["operation"] == "terminal.history.read").collect();
+    assert_eq!(reads[0]["request"]["params"]["styled"], false, "{}", reads[0]);
+    assert_eq!(reads[1]["request"]["params"]["styled"], true, "{}", reads[1]);
 }
 
 /// A wait for text the command just typed also shows (`cmd; echo DONE`, then `DONE`) waits
