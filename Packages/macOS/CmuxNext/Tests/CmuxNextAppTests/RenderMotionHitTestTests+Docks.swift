@@ -54,14 +54,19 @@ extension RenderMotionHitTestTests {
 
     /// A docked column grows in on the right while the strip's range springs (``ScreenContentView/RenderTracks/strip``):
     /// a press on the left overlay column's glass, off its pane, reaches no strip pane under the glass.
+    ///
+    /// The press must land where a strip pane is drawn under the glass, or the test passes with no guard at all.
+    /// So p2 (the last strip column) has the focus, the strip scrolls to show it, and p1 slides under the overlay;
+    /// the test then picks a point of the glass that p1 or p2 is drawn under at half way, and requires one.
     @Test func anOverlayGlassKeepsItsPressWhileADockGrowsIn() async throws {
         try await Render.withMotion {
             // The overlay's glass reaches half the strip gap past its pane. The default look (pane separation
             // `dividers`) has no strip gap, so its glass would be its pane and no press could land off the pane:
             // pin a column gap so the glass this test presses exists whatever the host's design settings are.
-            let fixture = Screen(Self.overlaid, focused: "p1", columnGap: 12)
+            let fixture = Screen(Self.overlaid, focused: "p2", columnGap: 12)
             defer { fixture.close() }
             try #require(fixture.window.screen != nil, "the window is on no screen: nothing animates")
+            try #require(fixture.screen.scroll.value > 1, "the strip does not scroll to show p2, so no strip pane is under the overlay")
             let clock = try #require(fixture.root.layer)
             Render.freeze(clock)
             fixture.apply(Self.overlaidAndDocked)
@@ -71,15 +76,20 @@ extension RenderMotionHitTestTests {
             Render.seek(clock, to: half)
             let overlay = try #require(screen.geometry.dock.first { $0.dock.mode == .overlay }, "no overlay column")
             let pane = try fixture.host("o").frame
-            // On the glass, off its pane: right of the pane, else above it.
-            let candidates = [CGPoint(x: (pane.maxX + overlay.cover.maxX) / 2, y: pane.midY),
-                              CGPoint(x: pane.midX, y: (overlay.cover.minY + pane.minY) / 2)]
-            let local = try #require(candidates.first { overlay.cover.contains($0) && !pane.insetBy(dx: -1, dy: -1).contains($0) },
-                                     "the overlay's cover \(overlay.cover) has no glass off its pane \(pane)")
+            let p1 = try fixture.host("p1"), p2 = try fixture.host("p2")
+            let drawn1 = try Self.drawn(p1, at: half, clock: clock), drawn2 = try Self.drawn(p2, at: half, clock: clock)
+            // On the glass, off its pane (right of the pane, else above it), with a strip pane drawn under it.
+            var glass: [CGPoint] = []
+            for x in stride(from: pane.maxX + 1, to: overlay.cover.maxX, by: 1) { glass.append(CGPoint(x: x, y: pane.midY)) }
+            for y in stride(from: overlay.cover.minY + 1, to: pane.minY, by: 1) { glass.append(CGPoint(x: pane.midX, y: y)) }
+            let local = try #require(glass.first { point in
+                guard overlay.cover.contains(point), !pane.insetBy(dx: -1, dy: -1).contains(point) else { return false }
+                let inWindow = screen.convert(point, to: nil)
+                return drawn1.contains(inWindow) || drawn2.contains(inWindow)
+            }, "no point of the overlay's glass (cover \(overlay.cover), pane \(pane)) has a strip pane drawn under it: p1 \(drawn1), p2 \(drawn2)")
             let container = try #require(screen.stripContainer.layer?.presentation(), "the strip container has no presentation")
             try #require(screen.convertFromLayer(container.frame).contains(local), "the strip is not drawn under the glass at \(local)")
             let hit = Self.hit(fixture, at: screen.convert(local, to: nil))
-            let p1 = try fixture.host("p1"), p2 = try fixture.host("p2")
             #expect(!Self.reaches(hit, p1) && !Self.reaches(hit, p2), "a press on the overlay's glass reached the strip: \(String(describing: hit))")
             let pressed = screen.pressedPane(at: local)
             #expect(pressed != "p1" && pressed != "p2", "a press on the overlay's glass focuses the strip pane \(String(describing: pressed))")
