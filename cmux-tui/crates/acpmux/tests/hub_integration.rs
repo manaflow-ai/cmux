@@ -110,6 +110,9 @@ mod tasks;
 #[path = "hub_integration/xai_requests.rs"]
 mod xai_requests;
 
+#[path = "hub_integration/turn_attestation.rs"]
+mod turn_attestation;
+
 struct TestClient {
     tx: mpsc::Sender<String>,
     rx: mpsc::Receiver<String>,

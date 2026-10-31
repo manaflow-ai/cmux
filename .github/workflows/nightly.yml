@@ -7305,8 +7305,10 @@ jobs:
     # publish-nightly selected before writing the compatibility feed. A
     # nightly_next_continue_only run intentionally skips publish-nightly; its
     # target came from the live NEXT feed and may continue the accepted Apple
-    # submission without another NEXT write.
-    if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && (needs.decide.outputs.notary_paused != 'true' || needs.legacy-identity-target.outputs.action == 'continue') && ((needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.build == needs.legacy-identity-target.outputs.build) || (needs.publish-nightly.result == 'skipped' && needs.legacy-identity-target.outputs.action == 'continue')) && needs.legacy-identity-target.result == 'success' && needs.legacy-identity-target.outputs.build != '' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off' && (needs.sign-nightly-identity-legacy-blacksmith.result == 'skipped' && needs.sign-nightly-identity-legacy.result || needs.sign-nightly-identity-legacy-blacksmith.result) != 'cancelled'"
+    # submission without another NEXT write. Any target not this run's own
+    # build (source_run empty) is on the live NEXT feed, so any run (a
+    # rescue's re-run included) publishes it.
+    if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && (needs.decide.outputs.notary_paused != 'true' || needs.legacy-identity-target.outputs.action == 'continue') && ((needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.build == needs.legacy-identity-target.outputs.build) || (needs.publish-nightly.result == 'skipped' && needs.legacy-identity-target.outputs.action == 'continue') || needs.legacy-identity-target.outputs.source_run == '') && needs.legacy-identity-target.result == 'success' && needs.legacy-identity-target.outputs.build != '' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off' && (needs.sign-nightly-identity-legacy-blacksmith.result == 'skipped' && needs.sign-nightly-identity-legacy.result || needs.sign-nightly-identity-legacy-blacksmith.result) != 'cancelled'"
     continue-on-error: true
     environment: release-next
     # One old-feed writer at a time across runs. A feed writer, not a build:
@@ -7550,7 +7552,7 @@ jobs:
   # this job turns the run red. No job needs it.
   nightly-identity-legacy-published:
     needs: [decide, publish-nightly, legacy-identity-target, sign-nightly-identity-legacy, verify-nightly-identity-legacy, publish-nightly-identity-legacy, sign-nightly-identity-legacy-blacksmith]
-    if: "always() && !cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.fast_build != 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
+    if: "always() && !cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.fast_build != 'true' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions: {}
@@ -7560,6 +7562,8 @@ jobs:
       ACTION: ${{ needs.legacy-identity-target.outputs.action }}
       BUILD: ${{ needs.legacy-identity-target.outputs.build }}
       NEXT_BUILD: ${{ needs.publish-nightly.outputs.build }}
+      NEXT_OK: ${{ needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' }}
+      SOURCE_RUN: ${{ needs.legacy-identity-target.outputs.source_run }}
       SIGN_SKIP: ${{ (needs.sign-nightly-identity-legacy-blacksmith.result == 'skipped' && needs.sign-nightly-identity-legacy.outputs.skip || needs.sign-nightly-identity-legacy-blacksmith.outputs.skip) }}
       SIGN_PENDING: ${{ (needs.sign-nightly-identity-legacy-blacksmith.result == 'skipped' && needs.sign-nightly-identity-legacy.outputs.pending || needs.sign-nightly-identity-legacy-blacksmith.outputs.pending) }}
       SIGN_OK: ${{ (needs.sign-nightly-identity-legacy-blacksmith.result == 'skipped' && needs.sign-nightly-identity-legacy.outputs.signed_ok || needs.sign-nightly-identity-legacy-blacksmith.outputs.signed_ok) }}
@@ -7587,6 +7591,9 @@ jobs:
           fi
           if [ "${PUBLISHED:-}" = true ]; then
             echo "build $BUILD published to the old feed"; exit 0
+          fi
+          if [ -n "${SOURCE_RUN:-}" ] && { [ "${NEXT_OK:-}" != true ] || [ "$BUILD" != "${NEXT_BUILD:-}" ]; }; then
+            echo "::notice::build $BUILD is this run's own and cmux NEXT did not publish it; the old feed waits"; exit 0
           fi
           if [ "${ACTION:-}" = continue ] && [ "$BUILD" != "${NEXT_BUILD:-}" ] && [ "${SIGN_OK:-}" = true ] && [ -n "${TESTED:-}" ]; then
             # Signed and verified, but the publisher runs only for this run's
@@ -7879,8 +7886,10 @@ jobs:
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly]
     if: "!cancelled() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.published_sha != '' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.source != 'recovered'"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }} # ephemeral-required: pull-requests:write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
-    # Writes are paced at 7.5 s under GitHub's hourly content limit.
-    timeout-minutes: 120
+    # Each write is paced at 7.5 s under GitHub's hourly content limit.
+    # A shared edit plus a legacy deletion for all 1,000 allowed PRs takes
+    # 250 min; leave room for reads. This runs after publication.
+    timeout-minutes: 300
     continue-on-error: true
     permissions:
       contents: read

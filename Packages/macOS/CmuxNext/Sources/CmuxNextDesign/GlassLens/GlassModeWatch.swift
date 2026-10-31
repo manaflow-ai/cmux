@@ -1,10 +1,10 @@
 import AppKit
 import CmuxNextCompat
-import CmuxNextDesign
+import CmuxNextDesignTokens
 
 /// Calls back when the glass mode pages draw (`GlassLensMode.current`) changes: the Debug choice `glass.lens`,
 /// Reduce Transparency (system or Debug override) or Low Power Mode. Events only, nothing polls.
-final class GlassModeWatch {
+public final class GlassModeWatch {
     private var shown: GlassLensMode
     private let onChange: @MainActor () -> Void
     /// The glass tunable's observation loop (read by the release tests).
@@ -12,7 +12,7 @@ final class GlassModeWatch {
     private var lowPower: LowPowerModeObservation?
     private var display: MainActorObservation?
 
-    init(onChange: @escaping @MainActor () -> Void) {
+    public init(onChange: @escaping @MainActor () -> Void) {
         shown = .current
         self.onChange = onChange
         settings = Task { [weak self] in

@@ -111,13 +111,15 @@ impl HostedReader {
             // cannot then pair this text with an old
             // revision.
             pty.stream_progress.notify();
+            let journal_output =
+                journal_output.map(|output| (output, crate::output_store::HistoryRows::of(&term)));
             (pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1, journal_output)
         };
         let (generation, journal_output) = generation;
-        if let (Some(journal_target), Some(journal_output)) =
+        if let (Some(journal_target), Some((journal_output, history))) =
             (journal_target.take(), journal_output)
         {
-            pty.record_output(journal_target, &journal_output);
+            pty.record_output(journal_target, &journal_output, history);
         }
         drop(journal_update.take());
         surface.publish_pending_directory();
