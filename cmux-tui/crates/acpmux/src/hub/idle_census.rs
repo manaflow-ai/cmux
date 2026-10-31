@@ -608,9 +608,10 @@ fn part_of(who: &crate::agent_host::tree::Identity, harness_programs: &[String])
 }
 
 /// `Busy` with the first process that is neither a server (a child of the harness), under one, the
-/// harness's relayed program (`relays`) nor one of its helpers (`part_of`). Each is told by its
-/// identity (`identity_of`: exact argv, executable and folder), the leader's own included
-/// (`launcher`, its interpreter looked up on `path`, the harness's `PATH`), never by the line `ps`
+/// harness's relayed program (`relays`, or a native wrapper's agent: `relays_for`) nor one of its
+/// helpers (`part_of`). Each is told by its identity (`identity_of`: exact argv, executable and
+/// folder), the leader's own included (`launcher` or `wrapper`, a bare name looked up on `path`,
+/// the harness's `PATH`), never by the line `ps`
 /// prints; one whose identity cannot be read is none of them.
 #[cfg(unix)]
 fn classify(
@@ -662,13 +663,17 @@ fn classify(
             } else if let Some(w) =
                 wrapped.as_ref().filter(|w| p.ppid == leader && relays_for(who, w))
             {
-                // Only the wrapper's own child is its agent. Its helpers sit beside it, named
-                // after it or after the agent the wrapper named (`codex-code-mode-host` beside
-                // `cmux-codex`).
+                // Only the wrapper's own child is its agent. A renamed agent (`cmux-codex` for
+                // `sr codex`) has helpers beside it named after the agent the wrapper named
+                // (`codex-code-mode-host`). An agent under its own name (`sr2 claude` runs
+                // `/opt/homebrew/bin/claude`) gets none: its folder is often a shared `bin`,
+                // where `claude-*` is any program.
                 harness.push(p.pid);
-                if let Some(program) = who.argv.first() {
-                    let named = Path::new(program).with_file_name(w.name);
-                    harness_programs.push(program.clone());
+                let program = who.argv.first().map(Path::new);
+                if program.and_then(Path::file_name).is_some_and(|f| f != w.name)
+                    && let Some(program) = program
+                {
+                    let named = program.with_file_name(w.name);
                     harness_programs.push(named.to_string_lossy().into_owned());
                 }
             } else if part_of(who, &harness_programs) {

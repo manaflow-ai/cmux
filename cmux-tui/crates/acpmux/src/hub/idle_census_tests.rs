@@ -286,6 +286,8 @@ fn a_native_wrappers_relayed_agent_and_its_servers_let_it_end() {
         under(16, 10, &format!("claude {args}")),
         under(16, 11, &claude),
         under(16, 10, "/home/u/.local/bin/sr2-helper"),
+        // An agent under its own name has no helpers: its folder is often a shared `bin`.
+        under(16, 11, "/opt/homebrew/bin/claude-code-router start"),
     ] {
         let mut found = idle.clone();
         found.push(extra);
