@@ -118,6 +118,10 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
         origin == .user || focusRequested || arguments["focus"]?.boolValue == true
     }
 
+    /// A person asked for this run (a click, the palette, a key, a `cmux` command): only such a
+    /// run may take over a remote session another daemon holds (HQ #4877 G5).
+    public var isPersonsRequest: Bool { origin == .user || origin == .cli }
+
     public subscript(_ name: String) -> ActionValue? {
         arguments[name]
     }

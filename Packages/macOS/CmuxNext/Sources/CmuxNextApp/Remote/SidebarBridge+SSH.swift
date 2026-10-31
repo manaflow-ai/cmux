@@ -39,8 +39,7 @@ extension SidebarBridge {
     /// What a chat that needs machine `machineID` finds its link doing: only a link that dropped
     /// or never came up reconnects on use (``MachineLinkState/reconnectsOnUse(_:)``), never an SSH session in use (G5).
     static func paneUse(_ machineID: String, in machines: MachineRegistry) -> AgentPaneMachineLink.Use {
-        if machines.sshSession(machineID)?.waitsForUser == true { return .stuck }
-        guard let status = machineHeader(machineID, in: machines)?.status else { return .stuck }
+        guard machines.sshSession(machineID)?.waitsForUser != true, let status = machineHeader(machineID, in: machines)?.status else { return .stuck }
         switch status.linkState {
         case .connected: return .up
         case .connecting: return .coming

@@ -91,6 +91,12 @@ import Testing
 
     // MARK: G5
 
+    @Test func onlyAPersonsRunIsAPersonsRequest() {
+        #expect(ActionInvocation(origin: .user).isPersonsRequest)
+        #expect(ActionInvocation(origin: .cli).isPersonsRequest)
+        for origin: ActionOrigin in [.page, .mcp, .script, .remote] { #expect(!ActionInvocation(origin: origin).isPersonsRequest) }
+    }
+
     @Test func aSessionInUseWaitsForAPerson() {
         var machine = SSHConnectionMachine()
         machine.handle(.connect)

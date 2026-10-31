@@ -145,10 +145,10 @@ final class SSHService {
 
     // MARK: Connect, disconnect, forget
 
-    /// Connects to `destination` (or reconnects the saved machine it names).
+    /// Connects to `destination` (or reconnects the saved machine it names); `byPerson` as ``reconnect(_:byPerson:)``.
     @discardableResult
     func connect(destination text: String, session name: String?, binary: String? = nil, stateDir: String? = nil,
-                 offerInstall: Bool) throws -> SSHMachineSession {
+                 offerInstall: Bool, byPerson: Bool = true) throws -> SSHMachineSession {
         if let reason = unavailableReason { throw ActionFailure(message: reason) }
         let destination: SSHDestination
         do { destination = try SSHDestination(parsing: text) } catch { throw ActionFailure(message: RemoteStrings.invalidDestination(text, error)) }
@@ -159,7 +159,7 @@ final class SSHService {
             rememberHost(saved)
             saved.offersInstall = offerInstall
             if offerInstall { offerInstallWhenOld(saved) }
-            reconnect(saved)
+            reconnect(saved, byPerson: byPerson)
             logger.info("connect \(destination.description, privacy: .public): reusing \(saved.machineID, privacy: .public)")
             return saved
         }
@@ -183,6 +183,7 @@ final class SSHService {
         }
         let session = machines.sshSession(host.machineID) ?? makeSession(host)
         guard let session else { throw ActionFailure(message: RemoteStrings.noClient) }
+        if !byPerson, session.waitsForUser { return session }
         // Saved now, before the first connect succeeds (no session id yet).
         session.autoConnect = true
         rememberHost(session)
