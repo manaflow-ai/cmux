@@ -257,7 +257,10 @@ def cli(*args, timeout=ACTION_BOUND):
 
 
 def value(answer):
-    return answer.get("value", answer) if isinstance(answer, dict) else {}
+    """The answer's payload: `value` of an envelope, or the answer itself (a list answer is bare)."""
+    if isinstance(answer, dict):
+        return answer.get("value", answer)
+    return answer if isinstance(answer, list) else {}
 
 
 def listed(answer, key):

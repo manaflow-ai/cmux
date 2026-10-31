@@ -87,6 +87,16 @@ class Oracle(unittest.TestCase):
         self.assertEqual(a, b)
 
 
+class Answers(unittest.TestCase):
+    def test_bare_list_answer_is_listed(self):
+        # `cmux --json workspace list` answers a bare list (fleet run seed 1004, cmux21).
+        bare = [{"id": "ws_1", "name": "Home"}, {"id": "ws_2", "name": "fz-1"}]
+        self.assertEqual(rf.listed(bare, "workspaces"), bare)
+        self.assertEqual(rf.listed({"value": bare}, "workspaces"), bare)
+        self.assertEqual(rf.listed({"value": {"workspaces": bare}}, "workspaces"), bare)
+        self.assertEqual(rf.listed({"error": "x"}, "workspaces"), [])
+
+
 class Verdict(unittest.TestCase):
     def test_lines(self):
         self.assertTrue(vd.verdict("done\n").startswith("NOVERDICT"))
