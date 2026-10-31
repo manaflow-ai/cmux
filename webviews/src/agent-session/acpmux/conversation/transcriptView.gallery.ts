@@ -85,6 +85,14 @@ export default agentPaneEntry({
     "agent-session/acpmux/header/transcriptViewRow.ts#transcriptViewRow",
   ],
   variants: {
+    "chat-menu": {
+      note: "The chat's ··· menu open: the Transcript view row sits with the chat's own actions.",
+      snapshot,
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Chat actions" });
+        await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]'));
+      },
+    },
     "menu-open": {
       note: "Chosen: the chat menu's Transcript view submenu, as Claude Code desktop's: Normal, Thinking, Verbose with a check on this chat's view, then Make Normal the default (off while the chat shows the default).",
       snapshot,
