@@ -181,7 +181,7 @@ import Testing
     /// The home daemon's document for `sections([work, infra, empty])`; its moves never answer (the echo is the test's).
     static let document = Data("""
     {"revision": "1",
-     "sections": [{"id": "sec_m_s1", "kind": {"type": "machine", "session_id": "s1"}}],
+     "sections": [{"id": "sec_m_s1", "order": "V", "kind": {"type": "machine", "session_id": "s1"}}],
      "items": [
        {"id": "w_scratch", "section": "sec_m_s1", "order": "a", "body": {"type": "workspace", "ref": {"session_id": "s1", "workspace_id": "scratch"}}},
        {"id": "g_g-work", "section": "sec_m_s1", "order": "b", "body": {"type": "group", "name": "Work"}},
