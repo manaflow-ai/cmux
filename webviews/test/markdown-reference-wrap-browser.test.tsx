@@ -1,8 +1,8 @@
 // A `repo#N` reference that a reply hard-wraps at its `#` (Leo 2026-10-31, on "the sent-message
 // cards (cmux#\n29613) and the bottom-gap fix": "WTF HAPPENED WITH THIS" / "F***ING TEXT????").
 // The next line's "29613)" read as an ordered list's number, so the number drew bold and absolutely
-// positioned over "and". The reply stays one paragraph, the reference is one chip, and in Chromium
-// with the real stylesheets, at every width that wraps the line near the reference, the chip sits
+// positioned over "and". The reply stays one paragraph, the reference one run of text, and in Chromium
+// with the real stylesheets, at every width that wraps the line near the reference, `cmux#29613` sits
 // on one line and no two words overlap.
 import { readFileSync } from "node:fs";
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -68,10 +68,22 @@ await requireBrowserLane("markdown-reference-wrap-browser.test.tsx", async () =>
             [];
           for (let width = 260; width <= 620; width += 2) {
             column.style.width = `${width}px`;
-            const chip = [...column.querySelectorAll<HTMLElement>(".cv-chip.is-ref")].find((node) =>
-              node.textContent?.includes("29613"),
-            );
-            const chipLines = chip ? new Set([...chip.getClientRects()].map((rect) => Math.round(rect.top))).size : 0;
+            // The reference as drawn: a chip when its repository is known, else text; either way
+            // "cmux#" and "29613" are one run that sits on one line.
+            let label = "";
+            let chipLines = 0;
+            const finder = document.createTreeWalker(column, NodeFilter.SHOW_TEXT);
+            for (let node = finder.nextNode(); node; node = finder.nextNode()) {
+              const at = (node.textContent ?? "").indexOf("cmux#29613");
+              if (at < 0) continue;
+              const range = document.createRange();
+              range.setStart(node, at);
+              range.setEnd(node, at + "cmux#29613".length);
+              label = range.toString();
+              chipLines = new Set([...range.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top)))
+                .size;
+              break;
+            }
             // Every word's boxes; two words of the paragraph never share pixels.
             const boxes: { word: string; rect: DOMRect }[] = [];
             const walker = document.createTreeWalker(column, NodeFilter.SHOW_TEXT);
@@ -99,7 +111,7 @@ await requireBrowserLane("markdown-reference-wrap-browser.test.tsx", async () =>
               numbers: column.querySelectorAll(".cv-li__num").length,
               chipLines,
               overlap,
-              label: chip?.textContent ?? "",
+              label,
             });
           }
           return out;
