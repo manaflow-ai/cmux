@@ -257,7 +257,7 @@ extension SidebarListViewComponents {
             shape = NSRect(x: inset, y: 0, width: indentWidth, height: metrics.rowHeight)
         }
         if rest, case let .position(position)? = drag.target, let group = position.group,
-           let header = displayed.row(for: .group(group)) {
+           let header = dropHeader(group, in: displayed) {
             // Into a group: where its members sit, by the one indent rule (`SidebarIndent`).
             let stepIn = indent.offset(level: header.depth + 1, width: indentWidth)
             shape.origin.x = inset + stepIn
@@ -509,7 +509,7 @@ extension SidebarListViewComponents {
     /// How far in the held drag's gap starts: the x of the rows of the group its drop joins (`SidebarIndent`).
     func dropStepIn(_ layout: SidebarLayout) -> CGFloat {
         guard case let .position(position)? = shownDrag?.target, let group = position.group,
-              let header = layout.row(for: .group(group)) else { return 0 }
+              let header = dropHeader(group, in: layout) else { return 0 }
         return indent.offset(level: header.depth + 1, width: indentWidth)
     }
 
