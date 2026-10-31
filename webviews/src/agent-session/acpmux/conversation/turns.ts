@@ -26,6 +26,7 @@ import { subsessionCall } from "./subsessionCalls";
 import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
+import { turnCopyParts } from "./turnCopy";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -559,8 +560,21 @@ function shapeTurn(
   const version = summary.version * VERSION_SPAN + (answer?.version ?? 0);
   const edits: AcpmuxRow[] = [];
   const replies = repliesIn(body);
+  // A personal steer closes the preceding reply for the reader, even though the harness
+  // continues the same turn. Keep that reply and the steer visible when its work collapses.
+  const steerDialogue = new Set<string>();
+  let precedingReply: AcpmuxRow | undefined;
+  for (const row of body) {
+    if (isReply(row)) precedingReply = row;
+    if (row.kind !== "user") continue;
+    if (!row.incoming && continuesTurn(row)) {
+      steerDialogue.add(row.id);
+      if (precedingReply) steerDialogue.add(precedingReply.id);
+    }
+    precedingReply = undefined;
+  }
   let folded = false;
-  // A completed turn gets one fold, including steers received inside that connected turn. The
+  // A completed turn gets one fold for its work; personal steers keep their dialogue visible. The
   // row boundary above is still opensTurn/continuesTurn: an unrelated incoming prompt starts a
   // separate turn and is never gathered by adjacency alone.
   for (const segment of foldSegments(user, body)) {
@@ -575,7 +589,9 @@ function shapeTurn(
     // folded run once the fold opens (TurnRows.tsx `staysInSight`).
     const out = (row: AcpmuxRow) =>
       staysOut(row) ||
-      (!open && row.kind === "activity" && (row.items ?? []).some((item) => awaitsPermission(item.tool)));
+      (!open &&
+        (steerDialogue.has(row.id) ||
+          (row.kind === "activity" && (row.items ?? []).some((item) => awaitsPermission(item.tool)))));
     const work = [...before, ...after].filter((row) => !out(row));
     // A row drawn beside the closed fold is not in the card too: the card takes its first row's id.
     edits.push(...work.filter(isEdit));
@@ -651,6 +667,8 @@ function shapeTurn(
     ...summary,
     folded,
     text: answer?.text ?? summary.text,
+    // The footer's Copy copies the whole turn (turnCopy.ts): its replies and tool lines in order.
+    turnCopy: turnCopyParts(body),
     ...(resumable && { resumable }),
     ...(retryable && { retryable }),
     ...(continuable && { continuable }),
