@@ -3023,6 +3023,24 @@ export default agentPaneEntry({
         },
       },
     },
+    "secret-card-unsent": {
+      note: "Play: a secret typed in the card whose send has not gone through stays in the private field, so the person does not retype it.",
+      snapshot: chat([user("Create the Stripe test webhook", 1), assistant("I need your Stripe key for that.", 0.9)], {
+        isWorking: true,
+        secret: {
+          secretId: "gallery-secret",
+          name: "STRIPE_API_KEY",
+          reason: "Create the test webhook",
+        },
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-secret-card-field" });
+        await ctx.type("sk-test-51Hx9", { selector: ".acpmux-secret-card-field" });
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(".acpmux-secret-card-field")?.matches("input:not(:placeholder-shown)"),
+        );
+      },
+    },
     queued: {
       note: "Prompts queued behind a running turn.",
       snapshot: chat([user(prompt, 2), assistant("Working on the policy type…", 1, { streaming: true })], {
