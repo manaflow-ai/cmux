@@ -6,7 +6,8 @@ import CmuxNextSettings
 /// `debug.open_panel_bench` (DEBUG builds): one file-picker open as a click runs it (Home's "+", an agent
 /// composer's Attach), timed to the display frame that shows the sheet, then cancelled.
 ///
-/// Params: `mode` — `made` (default: the panel made ahead, ``MadeAheadOpenPanel``, warmed first, as Home's
+/// With `answer` (paths), it only queues those files for the next page file input (an agent composer's
+/// Attach files), which then takes them without a panel. Otherwise, params: `mode` — `made` (default: the panel made ahead, ``MadeAheadOpenPanel``, warmed first, as Home's
 /// "+" takes it), `fresh` (a new `NSOpenPanel()` per open: the on-demand path when none was made ahead) or
 /// `window` (`begin(completionHandler:)`, a separate panel window instead of a sheet); `window` (default: the
 /// first window).
@@ -22,6 +23,8 @@ enum DebugOpenPanelBench {
 
     static func run(_ params: [String: JSONValue], _ services: AppServices?) async -> JSONValue {
         guard let services else { return .null }
+        // `answer: [path]`: the next page file input gets these files, no panel (MadeAheadOpenPanel.debugAnswer).
+        if let paths = params["answer"]?.arrayValue { services.openPanel.debugAnswer = paths.compactMap(\.stringValue).map { URL(fileURLWithPath: $0) }; return .object(["queued": .number(Double(paths.count))]) }
         let mode = params["mode"]?.stringValue ?? "made"
         guard let window = services.windows.controllers.first?.window else { return .object(["error": .string("no window")]) }
         guard window.attachedSheet == nil else { return .object(["error": .string("the window already shows a sheet")]) }
