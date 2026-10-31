@@ -49,11 +49,16 @@ struct AgentCursorSnapshotBuilder {
 
     /// Windows front to back (`NSApp.orderedWindows`); unordered ones last.
     private func orderedControllers(_ services: AppServices) -> [WindowController] {
+        // One window has one order. `orderedWindows` is a synchronous WindowServer query, and this runs on every layout
+        // overlay sync while an agent cursor is tracked: a 3.0 s main-thread hang waited on it (NIGHTLY hang log,
+        // 2026-10-31T01:19, AgentCursorVisibilitySource.reresolve -> _orderedWindowsWithPanels -> SkyLight run_query).
+        let controllers = services.windows.controllers
+        guard controllers.count > 1 else { return controllers }
         let order = NSApp?.orderedWindows ?? []  // never the unwrapped global: nil in a test process
         func rank(_ controller: WindowController) -> Int {
             order.firstIndex { $0 === controller.window } ?? Int.max
         }
-        return services.windows.controllers.sorted { rank($0) < rank($1) }
+        return controllers.sorted { rank($0) < rank($1) }
     }
 
     private func window(_ controller: WindowController, target: String,
