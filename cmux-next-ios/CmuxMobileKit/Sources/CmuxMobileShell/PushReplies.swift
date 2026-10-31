@@ -264,6 +264,10 @@ public final class PushReplies {
     }
 
     private func takeOutbox() async {
+        // A cold background reply uses its own headless coordinator; the
+        // foreground outbox only belongs to an authenticated, attached shell.
+        // This also avoids reading an old account's disk replies at Welcome.
+        guard live != nil, auth?.isSignedIn == true else { return }
         let epoch = accountEpoch
         await outboxWipe?.value
         guard epoch == accountEpoch else { return }
