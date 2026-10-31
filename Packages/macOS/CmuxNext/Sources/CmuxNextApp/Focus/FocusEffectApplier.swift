@@ -94,15 +94,13 @@ final class FocusEffectApplier: FocusEffectApplying {
         controller.services.newTabSpares.paneLayoutDidChange(in: window)
         switch resolved {
         case .terminal(let pane, let tab):
+            if !Self.pageKeepsKeysUntilShown(resolved) { blurChildWindowPage() } // no page keeps the keys meanwhile (the New Tab page Ctrl-` replaced)
             guard case .terminal(let entry)? = presented(pane: pane, tab: tab) else {
-                // Its surface comes on a later frame (a tab this window never showed; `contentPresented`
-                // re-applies). Another pane's terminal must not keep the keyboard meanwhile: its next
-                // replay swaps in a fresh surface that takes the keyboard back, and focus followed it
-                // there (Switch to tab from the New Tab page landed on the workspace's old pane).
+                // Its surface comes on a later frame (`contentPresented` re-applies). Another pane's terminal must not keep the keyboard
+                // meanwhile: its next replay swaps in a fresh surface that takes it back, and focus followed (Switch to tab from New Tab).
                 resignPaneResponder(in: window)
                 return
             }
-            blurChildWindowPage()
             let view = entry.session.surfaceView
             if window.firstResponder !== view { window.makeFirstResponder(view) }
         case .browserPage(let pane, let tab):
@@ -141,8 +139,7 @@ final class FocusEffectApplier: FocusEffectApplying {
             if TabContent.page(view).landKeyboardInPrimaryInput(in: window) { return }
             if !responder(of: window, isInside: view) { window.makeFirstResponder(view.focusTarget) }
         case .conversation(let pane, let tab):
-            // Home's primary input, its message box (spec/app-screens.md 3).
-            if !Self.pageKeepsKeysUntilShown(resolved) { blurChildWindowPage() }
+            if !Self.pageKeepsKeysUntilShown(resolved) { blurChildWindowPage() } // Home's primary input, its message box (app-screens.md 3)
             guard case .conversation(let view)? = presented(pane: pane, tab: tab) else {
                 // No Home view yet: the previous content must not keep keys.
                 resignPaneResponder(in: window)
@@ -328,14 +325,8 @@ final class FocusEffectApplier: FocusEffectApplying {
         !ownedCanBecomeMain && !ownerIsMain && ownerCanBecomeMain
     }
 
-    /// Whether a Chromium page keeps the keys while `resolved` is the target and its content does not show yet: only a target
-    /// that is itself a page; a terminal or Home conversation in this window takes them at once (smoke TIP RED 1910).
-    nonisolated static func pageKeepsKeysUntilShown(_ resolved: FocusState.Resolved) -> Bool {
-        switch resolved {
-        case .conversation: false
-        default: true
-        }
-    }
+    /// Whether a Chromium page keeps the keys while `resolved` is the target, not shown yet: a terminal or Home conversation takes them at once (TIP RED 1910).
+    nonisolated static func pageKeepsKeysUntilShown(_ resolved: FocusState.Resolved) -> Bool { !["terminal", "conversation"].contains(resolved.kind) }
 
     /// The bubble dismisses when it loses the keys.
     private func overlayPanelDidResignKey() {
