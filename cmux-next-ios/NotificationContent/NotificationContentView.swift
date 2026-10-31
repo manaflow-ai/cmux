@@ -265,7 +265,11 @@ struct NotificationContentView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if let payload = model.payload {
+            if let payload = model.payload, model.showsContent, model.actionable, let approval = ApprovalBanner(payload: payload) {
+                // A permission request: the Mac's approval prompt. One the trust gate
+                // does not act on (route only, no buttons) keeps the plain view.
+                ApprovalCardView(banner: approval, model: model)
+            } else if let payload = model.payload {
                 header(payload)
                 if model.showsContent {
                     preview(payload)

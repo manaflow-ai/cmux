@@ -246,6 +246,7 @@ impl Hub {
             // A fork is a new chat. Its parent transcript is authorized through parent_id; it
             // must not inherit the parent's historical native session ids as its own.
             previous_agent_session_ids: Vec::new(),
+            retired_agent_session_ids: Vec::new(),
             // The id was produced by this fork's actual harness, not by the parent's creation
             // family (which can be stale after a profile switch).
             agent_session_family: new_sid

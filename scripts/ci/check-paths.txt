@@ -51,6 +51,10 @@ scripts/ci/defaults_guard.py
 scripts/cmux-next/prepush-gate.py
 scripts/ci/crash_class_fast_gate.py
 scripts/ci/crash-class-gate.sh
+# the panic-ratchet job a dispatch runs when a baseline row went down (its baseline is above)
+.github/scripts/cmux-tui-clippy-changed.py
+.github/scripts/cmux-tui-fmt-changed.py
+scripts/cmux-next/rust_panic_ratchet.py
 
 # the workflows that run what a dispatch reruns (the webviews checks, web lint, the guards behind the crash ratchet,
 # the crash-class rules, the fast gates). Not every workflow: a dispatch reruns only the fast
