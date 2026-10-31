@@ -222,6 +222,20 @@ struct GatherWindowsTests {
         #expect(other.state.localBrowserTabs["another-pane"] == [tab])
     }
 
+    /// Merge All moves only workspaces a session reports: one not reported yet (a remote machine
+    /// connecting, a Home not mirrored yet) stays in its window, which closes with it.
+    @Test func mergingLeavesUnresolvedWorkspacesInTheirWindow() throws {
+        let services = try Self.services()
+        defer { Self.closeAll(services) }
+        let here = try Self.open(["k0"], services), there = try Self.open(["k2", "remote-unresolved"], services)
+
+        try services.windows.mergeWindows(into: here.state)
+        let registry = services.windows.registry.value
+        #expect(registry.window(here.state.id)?.workspaceIDs.contains("remote-unresolved") == false, "an unresolved workspace moved")
+        #expect(registry.window(here.state.id)?.workspaceIDs.contains("k2") == true)
+        #expect(registry.window(there.state.id)?.isOpen != true, "the merged window stayed open")
+    }
+
     /// Tabs a window keeps itself never block a move that moves nothing (a plain space switch), and a
     /// window the registry does not list yet (the launch window) gathers nothing: refused, nothing closes.
     @Test func noOpAndUnregisteredGathers() throws {
@@ -245,15 +259,15 @@ struct GatherWindowsTests {
     @Test func aWindowOnAnIncognitoSpaceIsNoSource() throws {
         let services = try Self.services()
         defer { Self.closeAll(services) }
-        let here = try Self.open(["k0"], services), there = try Self.open(["k2"], services)
+        let here = try Self.open(["k0"], services), there = try Self.open(["k2", "k3"], services)
         services.windows.incognitoSpaces[there.state.id] = ProfileID(rawValue: "incognito-there")
 
         try services.windows.bringSpace(Self.rooms[1], into: here.state)
         try services.windows.mergeWindows(into: here.state)
         let registry = services.windows.registry.value
-        #expect(registry.window(there.state.id)?.workspaceIDs == ["k2"], "an incognito window's workspace moved")
+        #expect(registry.window(there.state.id)?.workspaceIDs == ["k2", "k3"], "an incognito window's workspace moved")
         #expect(registry.window(there.state.id)?.isOpen == true)
-        #expect(registry.window(here.state.id)?.workspaceIDs == ["k0"])
+        #expect(registry.window(here.state.id)?.workspaceIDs.contains { ["k2", "k3"].contains($0) } == false)
     }
 
     /// Every other normal window's workspaces move here and keep their space; those windows close,
