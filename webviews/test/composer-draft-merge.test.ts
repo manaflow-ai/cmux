@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import vectors from "./fixtures/composer-draft-merge.json";
-import { mergedDraft } from "../src/agent-session/acpmux/composerDraft";
+import { isDraftBlank, mergedDraft } from "../src/agent-session/acpmux/composerDraft";
 
 const expand = (parts: { text: string; count: number }[]) =>
   parts.map(({ text, count }) => text.repeat(count)).join("");
@@ -24,4 +24,18 @@ test("merging million-character drafts stays within the main-thread budget", () 
   console.info(`draft merge: 1M characters per input, ${elapsed.toFixed(2)} ms`);
   // Generous across CI runners, but catches the previous quadratic scan's multi-second stall.
   expect(elapsed).toBeLessThan(500);
+});
+
+test("blank drafts use the ECMAScript WhiteSpace and LineTerminator set", () => {
+  for (const [text, blank] of [
+    ["", true],
+    ["\u0085", false],
+    ["\uFEFF", true],
+    ["\u00A0", true],
+    ["\u2028", true],
+    [" \u0085 ", false],
+    ["text\u00A0", false],
+  ] as const) {
+    expect(isDraftBlank(text)).toBe(blank);
+  }
 });

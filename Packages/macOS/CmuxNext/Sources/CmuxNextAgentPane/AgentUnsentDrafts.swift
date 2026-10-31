@@ -26,42 +26,107 @@ public final class AgentUnsentDrafts {
     private var undelivered: Set<String>
     /// The file exists but could not be read: it is set aside before the first write.
     private var unreadable = false
+    /// Wiring must not wait on disk. Edits received before the file read finishes are kept and
+    /// merged by generation when the read arrives.
+    private var loaded = false
+    private var localKeys = Set<String>()
+    private var pendingSave = false
+    private var loadWaiters: [CheckedContinuation<Void, Never>] = []
 
-    public init(file: URL?) {
+    /// Whether the initial state-file read has completed. A false value is normal during app
+    /// wiring; seed sources wait for it before restoring a draft.
+    public private(set) var isLoaded = false
+
+    public init(file: URL?, loadSynchronously: Bool = true) {
         self.file = file
         drafts = [:]
         undelivered = []
         store = file.map(AgentPaneStateFile.at)
-        guard let store else { return }
-        // The store's read waits for the saves already queued for this file (another store of it).
-        let loaded = store.readState()
-        guard case .readable(let data) = loaded else {
-            if case .unreadable = loaded {
-                unreadable = true
-                Self.logger.error("unsent drafts unreadable; set aside on the next write")
-            }
+        guard let store else {
+            loaded = true
+            isLoaded = true
             return
         }
-        do {
-            drafts = try JSONDecoder().decode([String: AgentUnsentDraft].self, from: data)
-            undelivered = Set(drafts.keys)
-        } catch {
-            unreadable = true
-            Self.logger.error("unsent drafts unreadable; set aside on the next write: \(String(describing: error), privacy: .public)")
+        if loadSynchronously {
+            // Tests and explicit non-startup tools may use the old bounded read. App wiring passes
+            // false below so startup never waits for disk or JSON decoding.
+            finishLoading(store.readState())
+        } else {
+            // Do not make app wiring wait for disk or JSON decoding. The seed source below waits
+            // for this read only when a page actually asks for its first draft.
+            store.readStateAsync { [weak self] state in
+                DispatchQueue.main.async { [weak self] in self?.finishLoading(state) }
+            }
         }
     }
 
     /// The file in the tag's state directory (beside the launch snapshot).
-    public convenience init(directory: URL?) {
-        self.init(file: directory?.appending(path: Self.fileName))
+    public convenience init(directory: URL?, loadSynchronously: Bool = true) {
+        self.init(file: directory?.appending(path: Self.fileName), loadSynchronously: loadSynchronously)
+    }
+
+    /// Waits for the first state-file read. Production restores use `seed(for:)`, while tests
+    /// use this explicit barrier to make their assertions deterministic.
+    public func waitUntilLoaded() async {
+        if loaded { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            loadWaiters.append(continuation)
+        }
+    }
+
+    private func finishLoading(_ state: AgentPaneStateFile.ReadState) {
+        guard !loaded else { return }
+        if case .readable(let data) = state {
+            do {
+                let disk = try JSONDecoder().decode([String: AgentUnsentDraft].self, from: data)
+                for (key, incoming) in disk {
+                    guard localKeys.contains(key), let local = drafts[key] else {
+                        drafts[key] = incoming
+                        undelivered.insert(key)
+                        continue
+                    }
+                    if incoming.generation > local.generation {
+                        drafts[key] = incoming
+                        undelivered.insert(key)
+                    } else if incoming.generation == local.generation,
+                              !Self.isBlank(local.text), !Self.isBlank(incoming.text) {
+                        drafts[key] = AgentUnsentDraft(
+                            text: Self.merged(typed: local.text, kept: incoming.text),
+                            generation: local.generation
+                        )
+                    }
+                }
+            } catch {
+                unreadable = true
+                Self.logger.error("unsent drafts unreadable; set aside on the next write: \(String(describing: error), privacy: .public)")
+            }
+        } else if case .unreadable = state {
+            unreadable = true
+            Self.logger.error("unsent drafts unreadable; set aside on the next write")
+        }
+        loaded = true
+        isLoaded = true
+        let waiters = loadWaiters
+        loadWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+        if pendingSave {
+            pendingSave = false
+            save()
+        }
     }
 
     /// Tab `key`'s kept text as a new chat's seed; nil for a tab whose chat has a session, or
     /// (`local` false) one on another machine. A seed given out is the page's from then on: its
     /// empty text clears it.
     public func seed(for key: String, session: String?, local: Bool = true) -> AgentPaneSeedSource? {
-        guard local, session == nil, let text = handOut(key) else { return nil }
-        return AgentPaneSeedSource(AgentPaneSeed(draft: text, draftGeneration: generation(for: key)))
+        guard local, session == nil else { return nil }
+        if loaded, handOut(key) == nil { return nil }
+        return AgentPaneSeedSource { [weak self] in
+            guard let self else { return nil }
+            await self.waitUntilLoaded()
+            guard let text = self.handOut(key) else { return nil }
+            return AgentPaneSeed(draft: text, draftGeneration: self.generation(for: key))
+        }
     }
 
     /// Tab `key`'s kept text for a page that builds its own seed (Start Agent's panel), given out as
@@ -120,6 +185,7 @@ public final class AgentUnsentDrafts {
         let value = AgentUnsentDraft(text: blank ? "" : Self.capped(text), generation: next)
         guard drafts[key] != value else { return }
         drafts[key] = value
+        localKeys.insert(key)
         if blank || next > current { undelivered.remove(key) }
         save()
     }
@@ -133,6 +199,8 @@ public final class AgentUnsentDrafts {
         }
         drafts[key] = AgentUnsentDraft(text: "", generation: min(draft.generation + 1, AgentUnsentDraft.maximumGeneration))
         undelivered.remove(key)
+        localKeys.insert(key)
+        localKeys.insert(real)
         save()
     }
 
@@ -191,11 +259,23 @@ public final class AgentUnsentDrafts {
     }
 
     private static func isBlank(_ text: String) -> Bool {
-        text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        text.unicodeScalars.allSatisfy { scalar in
+            switch scalar.value {
+            case 0x0009...0x000D, 0x0020, 0x00A0, 0x1680, 0x2000...0x200A,
+                 0x2028, 0x2029, 0x202F, 0x205F, 0x3000, 0xFEFF:
+                true
+            default:
+                false
+            }
+        }
     }
 
     private func save() {
         guard let store else { return }
+        guard loaded else {
+            pendingSave = true
+            return
+        }
         if unreadable {
             store.preserveUnreadableFile()
             unreadable = false

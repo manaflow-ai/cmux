@@ -103,6 +103,21 @@ public nonisolated final class AgentPaneStateFile: Sendable {
         return DispatchQueue.getSpecific(key: onQueue) == true ? read() : queue.blockingSync(execute: read)
     }
 
+    /// Classifies the file after the queued saves before it, then delivers the result without
+    /// making the caller wait. App wiring uses this path; the synchronous form remains for
+    /// bounded test drains and the few explicitly allowed non-startup reads.
+    public func readStateAsync(_ completion: @escaping @Sendable (ReadState) -> Void) {
+        queue.async {
+            do {
+                completion(.readable(try Data(blockingContentsOf: self.url)))
+            } catch CocoaError.fileReadNoSuchFile {
+                completion(.missing)
+            } catch {
+                completion(.unreadable)
+            }
+        }
+    }
+
     /// Ordered before subsequent saves, including coalesced writes. Quarantine and the write
     /// both execute asynchronously on the serial I/O queue; failed quarantine refuses the write.
     public func preserveUnreadableFile() {

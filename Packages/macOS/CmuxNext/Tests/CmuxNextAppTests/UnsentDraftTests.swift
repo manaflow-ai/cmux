@@ -70,6 +70,28 @@ struct UnsentDraftTests {
         withExtendedLifetime(drafts) {}
     }
 
+    @Test func wiringDoesNotWaitForDiskAndTypingBeforeLoadSurvives() async throws {
+        let directory = try Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: AgentUnsentDrafts.fileName)
+        AgentUnsentDrafts(file: file).set("saved before wiring", for: "tab-1")
+
+        let blocker = DispatchSemaphore(value: 0)
+        let started = DispatchSemaphore(value: 0)
+        AgentPaneStateFile.at(file).write {
+            started.signal()
+            _ = blocker.wait(timeout: .now() + 10)
+            return try? Data(contentsOf: file)
+        }
+        #expect(started.wait(timeout: .now() + 2) == .success)
+        let drafts = AgentUnsentDrafts(file: file, loadSynchronously: false)
+        #expect(!drafts.isLoaded, "app wiring waited for the state-file queue")
+        drafts.typed("typed before load", for: "tab-1")
+        blocker.signal()
+        await drafts.waitUntilLoaded()
+        #expect(drafts.draft(for: "tab-1") == "saved before wiring\n\ntyped before load")
+    }
+
     /// (c, d) Once the page was handed the draft (the tab's seed), an empty text is the person's clear.
     @Test func aClearAfterTheSeedClears() async throws {
         let directory = try Self.directory()

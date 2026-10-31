@@ -6,7 +6,16 @@ import { holdWebSwap } from "../../pages/shared/webSwap";
  * the handshake carries none. It is shown in the composer, never sent by itself.
  */
 export function composerDraft(draft: unknown): string | undefined {
-  return typeof draft === "string" && draft.trim() ? draft : undefined;
+  return typeof draft === "string" && !isDraftBlank(draft) ? draft : undefined;
+}
+
+/** ECMAScript WhiteSpace plus LineTerminator, shared with the native and daemon layers. */
+export function isDraftBlank(text: string): boolean {
+  return [...text].every((character) =>
+    /[\u0009-\u000D\u0020\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]/u.test(
+      character,
+    ),
+  );
 }
 
 function daemonDraft(result: unknown): string | undefined {
@@ -40,8 +49,8 @@ export function mergedDraft(
 ): string {
   if (typedGeneration > savedGeneration) return typed;
   if (savedGeneration > typedGeneration) return saved ?? "";
-  if (!saved?.trim()) return typed;
-  if (!typed.trim()) return saved;
+  if (!saved || isDraftBlank(saved)) return typed;
+  if (isDraftBlank(typed)) return saved;
   if (draftMatch(typed, saved).contains) return typed;
   const match = draftMatch(saved, typed);
   if (match.contains) return saved;
@@ -98,7 +107,7 @@ export function hydratedDraft(input: {
     return { text, shown: text !== current, write: text !== restored };
   }
   if (!pendingWrite && restored && !current && !edited) return { text: restored, shown: true, write: false };
-  return { text: current, shown: false, write: !pendingWrite && (Boolean(current.trim()) || edited) };
+  return { text: current, shown: false, write: !pendingWrite && (!isDraftBlank(current) || edited) };
 }
 
 const PERSISTED_DRAFT_PREFIX = "cmux.acpmux.composer-draft.";

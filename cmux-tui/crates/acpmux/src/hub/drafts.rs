@@ -29,7 +29,7 @@ impl Hub {
         if session.moving().is_some() {
             return Err(queue::moving_error().message);
         }
-        let draft = (!text.trim().is_empty()).then(|| text.to_owned());
+        let draft = (!is_ecmascript_blank(text)).then(|| text.to_owned());
         {
             let mut meta = session.meta.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
             if generation < meta.composer_draft_generation {
@@ -61,7 +61,9 @@ impl Hub {
 /// cleared it, there is nothing to advance; its explicit clear may arrive before or after us.
 /// Returns whether the caller must persist a new tombstone before dispatching the prompt.
 pub(super) fn clear_sent_draft(meta: &mut SessionMeta, text: &str) -> bool {
-    if meta.composer_draft.as_deref().is_some_and(|d| d.trim() == text.trim()) {
+    if meta.composer_draft.as_deref().is_some_and(|d| {
+        !is_ecmascript_blank(d) && !is_ecmascript_blank(text) && d.trim() == text.trim()
+    }) {
         meta.composer_draft = None;
         meta.composer_draft_generation = meta
             .composer_draft_generation
@@ -70,6 +72,25 @@ pub(super) fn clear_sent_draft(meta: &mut SessionMeta, text: &str) -> bool {
         return true;
     }
     false
+}
+
+/// The ECMAScript WhiteSpace plus LineTerminator set used by the webview's draft layer.
+/// In particular, U+0085 is text and U+FEFF is blank; Rust's Unicode `trim` differs here.
+fn is_ecmascript_blank(text: &str) -> bool {
+    text.chars().all(|character| matches!(
+        character,
+        '\u{0009}'..='\u{000D}'
+            | '\u{0020}'
+            | '\u{00A0}'
+            | '\u{1680}'
+            | '\u{2000}'..='\u{200A}'
+            | '\u{2028}'
+            | '\u{2029}'
+            | '\u{202F}'
+            | '\u{205F}'
+            | '\u{3000}'
+            | '\u{FEFF}'
+    ))
 }
 
 /// Restores the draft around a failed send only while the failed send's tombstone is still
@@ -101,6 +122,21 @@ fn failed_send_tombstone_matches(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn draft_blank_matches_ecmascript_whitespace() {
+        for (text, blank) in [
+            ("", true),
+            ("\u{0085}", false),
+            ("\u{FEFF}", true),
+            ("\u{00A0}", true),
+            ("\u{2028}", true),
+            (" \u{0085} ", false),
+            ("text\u{00A0}", false),
+        ] {
+            assert_eq!(super::is_ecmascript_blank(text), blank, "U+{:04X}", text.chars().next().unwrap_or('\0') as u32);
+        }
+    }
+
     #[test]
     fn failed_send_tombstone_matches_only_its_empty_generation() {
         assert!(super::failed_send_tombstone_matches(None, 4, None, 4));
