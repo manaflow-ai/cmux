@@ -1,5 +1,5 @@
 // A `repo#N` reference that a reply hard-wraps at its `#` (Leo 2026-10-31, on "the sent-message
-// cards (cmux#\n29613) and the bottom-gap fix": "WTF HAPPENED WITH THIS" / "FUCKING TEXT????").
+// cards (cmux#\n29613) and the bottom-gap fix": "WTF HAPPENED WITH THIS" / "F***ING TEXT????").
 // The next line's "29613)" read as an ordered list's number, so the number drew bold and absolutely
 // positioned over "and". The reply stays one paragraph, the reference is one chip, and in Chromium
 // with the real stylesheets, at every width that wraps the line near the reference, the chip sits

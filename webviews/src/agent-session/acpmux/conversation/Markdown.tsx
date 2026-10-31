@@ -83,7 +83,7 @@ function listNumberStyle(block: { ordered: boolean; start: number; items: unknow
 /// Whether a line starts a list inside a paragraph. A numbered line does so only from 1, as
 /// CommonMark and GitHub read it: a reply wrapped as "the cards (cmux#\n29613) and the fix" kept
 /// its text, where reading "29613)" as a list's number drew it bold over "and" (Leo 2026-10-31:
-/// "WTF HAPPENED WITH THIS" / "FUCKING TEXT????").
+/// "WTF HAPPENED WITH THIS" / "F***ING TEXT????").
 function interruptsParagraph(line: string): boolean {
   const m = LIST_RE.exec(line);
   return Boolean(m && (!/\d/.test(m[2]!) || parseInt(m[2]!, 10) === 1));
