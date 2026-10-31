@@ -480,7 +480,15 @@ extension AgentPaneTransport {
         }
         // The person's prompt is on disk before it goes, until acpmux acknowledges it.
         let relay = facts.method == "session/prompt" ? promptRelay : nil
-        let journaled = await relay?.record(box, ids: ids, relayID: relayID)
+        let journaled: String?
+        do throws(AgentPaneTransportError) {
+            journaled = try await relay?.record(box, ids: ids, relayID: relayID)
+        } catch {
+            // Not on disk: it does not go without its crash protection; the page offers Retry.
+            socket.pageFrameNotSent(method: facts.method)
+            if let relayID { ids.cancel(relayID) }
+            return Self.refuse(.refuse(error, method: facts.method, requestID: facts.pageID), socket: socket)
+        }
         if let relay, journaled != nil, id != current || self.socket !== socket {
             socket.pageFrameNotSent(method: facts.method)
             return await relay.withdraw(journaled, relayID: relayID, ids: ids)
