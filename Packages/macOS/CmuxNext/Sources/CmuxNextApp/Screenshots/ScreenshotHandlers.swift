@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextScreenshots
@@ -150,7 +151,7 @@ enum ScreenshotHandlers {
         guard let made else { throw ActionWorkFailure(code: unavailableCode, reason: ScreenshotStrings.pageFailed("no page")) }
         services.cache.hibernation?.noteAgentUse(tab.id)
         guard let page = await AppBrowserPage.awakePage(tab.id, page: made, cache: services.cache, within: AppBrowserPage.actionWait) else {
-            throw ActionWorkFailure(code: unavailableCode, reason: BrowserPageStrings.wakeFailed)
+            throw ActionWorkFailure(code: unavailableCode, reason: BrowserPageCaptureStrings().wakeFailed)
         }
         do {
             try await AppBrowserPage.ensureBrowser(page)
@@ -198,7 +199,8 @@ enum ScreenshotHandlers {
         let image = capture.image
         let encoded = await encode(image)
         guard !encoded.blank else { throw ActionWorkFailure(code: unavailableCode, reason: ScreenshotStrings.blank) }
-        guard let png = encoded.png else { throw ActionWorkFailure(code: unavailableCode, reason: BrowserPageStrings.encodeFailed) }
+        guard let png = encoded.png else { throw ActionWorkFailure(code: unavailableCode, reason: BrowserPageCaptureStrings().encodeFailed) }
+        let files = BrowserScreenshotFiles(directory: FileManager.default.temporaryDirectory.appendingPathComponent("cmux-screenshots", isDirectory: true))
         var result: [String: ActionResultValue] = [
             "width": .int(image.width), "height": .int(image.height), "scale": .double(capture.scale), "method": .string(capture.method),
         ]
@@ -207,15 +209,15 @@ enum ScreenshotHandlers {
             switch output {
             case .inline where png.count <= AppBrowserPage.inlinePNGLimit:
                 // Up to 4 MiB of PNG grows to 5.3 MiB of text: off the main actor.
-                result["png_base64"] = .string(await AppBrowserPage.base64(png))
+                result["png_base64"] = .string(await files.base64(png))
             case .inline, .temporary:
-                result["path"] = .string(try await saveTemporary(png))
+                result["path"] = .string(try await files.save(png, tabID: "screenshot"))
             case .file(let url):
                 try await write(png, to: url)
                 result["path"] = .string(url.path)
             }
         } catch {
-            throw ActionWorkFailure(code: writeFailedCode, reason: BrowserPageStrings.saveFailed(error.localizedDescription))
+            throw ActionWorkFailure(code: writeFailedCode, reason: BrowserPageCaptureStrings().saveFailed(error.localizedDescription))
         }
         if copies {
             NSPasteboard.general.clearContents()
@@ -238,16 +240,4 @@ enum ScreenshotHandlers {
         try png.write(to: url, options: .atomic)
     }
 
-    /// Writes to `$TMPDIR/cmux-screenshots/`, pruned as browser screenshots are.
-    @concurrent
-    nonisolated private static func saveTemporary(_ png: Data) async throws -> String {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-screenshots", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let stamp = Int(Date().timeIntervalSince1970 * 1000)
-        let file = directory.appendingPathComponent("screenshot-\(stamp)-\(UUID().uuidString.prefix(8)).png")
-        try png.write(to: file, options: .atomic)
-        AppBrowserPage.prune(directory, keeping: AppBrowserPage.keptScreenshots,
-                             newerThan: Date().addingTimeInterval(-AppBrowserPage.screenshotLifetime))
-        return file.path
-    }
 }
