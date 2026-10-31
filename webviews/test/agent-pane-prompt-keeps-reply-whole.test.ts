@@ -17,7 +17,11 @@ const say = (text: string, messageId?: string) => ({
   method: "session/update",
   params: {
     sessionId: "agent-1",
-    update: { sessionUpdate: "agent_message_chunk", ...(messageId ? { messageId } : {}), content: { type: "text", text } },
+    update: {
+      sessionUpdate: "agent_message_chunk",
+      ...(messageId ? { messageId } : {}),
+      content: { type: "text", text },
+    },
   },
 });
 const record = (steps: Step[]) =>
@@ -164,7 +168,10 @@ test("a prompt after a tool call ended the text still starts its answer below", 
       "tool_call",
       {
         method: "session/update",
-        params: { sessionId: "agent-1", update: { sessionUpdate: "tool_call", toolCallId: "t1", title: "Bash", kind: "execute", status: "pending" } },
+        params: {
+          sessionId: "agent-1",
+          update: { sessionUpdate: "tool_call", toolCallId: "t1", title: "Bash", kind: "execute", status: "pending" },
+        },
       },
     ],
     ["mux", "user_message", { text: "these are collapsible", promptId: "p-1" }],
