@@ -376,7 +376,7 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
           className="field menu-rename"
           aria-label={t("settingsWindow.menus.submenuName")}
           value={renaming.title}
-          // biome-ignore lint/a11y/noAutofocus: the person asked to rename this submenu
+          // oxlint-disable-next-line jsx-a11y/no-autofocus -- the field opens on the person's Rename, so focus goes to it.
           autoFocus
           onChange={(event) => setRenaming({ key, title: event.currentTarget.value })}
           onBlur={commitRename}
@@ -417,6 +417,7 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
             <Icon name="grip" />
           </span>
           {node === SEPARATOR ? (
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the divider is drawn inside the draggable row's flex body beside its grip; an <hr> brings its own box.
             <span className="menu-separator-line" aria-label={title} role="separator" />
           ) : (
             <>
