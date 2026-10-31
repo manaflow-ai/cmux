@@ -20,7 +20,7 @@ struct NativeDeviceStore: Sendable {
     var file: URL { directory.appendingPathComponent("identity.json") }
 
     func lock() throws -> NativeDeviceLock {
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         return try NativeDeviceLock(file: directory.appendingPathComponent("identity.lock"))
     }
 
