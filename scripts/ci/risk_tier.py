@@ -108,9 +108,9 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # the peer's uid, executable or code signature: the Chief's acpmux peer check and its
     # kernel-signature rule for a moved acpmux (code_signature.rs), the app's acpmux server peer
     # check, cmux-link's caller and containing-app checks, the Computer Use helper's admission rule
-    # and host check, the requirement of the helper the app or acpmux may launch (Swift, Rust and
-    # shell copies) and the check of its staged copy, the root server helper's XPC client
-    # requirement, and the signature checks of a downloaded browser runtime. A wrong time or anchor
+    # and host check and the app's check of the helper on that socket, the requirement of the helper the app or acpmux may launch (Swift, Rust and
+    # shell copies) and the check of its staged copy, the root server helper's XPC requirements
+    # (its clients', and the app's of it), and the signature checks of a downloaded browser runtime. A wrong time or anchor
     # here lets another process take the socket (#29072 changed which time a signing chain is
     # valid at and graded normal).
     ("high", "peer identity or code-signature trust", (
@@ -120,7 +120,9 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         NEXT + "CmuxNextAgentActivity/CuaHelperIdentity.swift", "*/CmuxCuaHelperCore/Admission.swift",
         "cmux-tui/crates/acpmux/src/agent_tools/cua_helper.rs", "scripts/cmux-cua-helper-trust.sh",
         NEXT + "CmuxNextComputerUse/ComputerUseHelperStaging.swift",
+        NEXT + "CmuxNextComputerUse/ComputerUseHelperV2HostLink.swift",
         NEXT + "CmuxNextServerHelper/ServerHelperListener.swift", NEXT + "CmuxNextServerHelper/ServerHelperProtocol.swift",
+        NEXT + "CmuxNextApp/Server/ServerHelperClient.swift",
         # A file named for a code-signature check: code_signature.rs, *CodeSignatureChecker.swift.
         r"re:(?i)(^|/)[^/]*(code[-_]?signature|signature[-_]?check)[^/]*\.(rs|swift|go)$",
     )),

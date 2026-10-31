@@ -74,6 +74,8 @@ class ClassifyTests(unittest.TestCase):
             NEXT + "CmuxNextComputerUse/ComputerUseHelperStaging.swift",
             NEXT + "CmuxNextServerHelper/ServerHelperListener.swift",
             NEXT + "CmuxNextServerHelper/ServerHelperProtocol.swift",
+            NEXT + "CmuxNextComputerUse/ComputerUseHelperV2HostLink.swift",
+            NEXT + "CmuxNextApp/Server/ServerHelperClient.swift",
         ):
             with self.subTest(path=path):
                 self.assertEqual(risk.classify_path(path), ("high", "peer identity or code-signature trust"))
