@@ -9,11 +9,13 @@ import os
 /// bounded request only.
 private final class CloudLinkCredentialServer: @unchecked Sendable {
     private struct Stamp: Equatable { let pid: pid_t; let startSeconds: UInt64; let startMicros: UInt64 }
+    private struct Expected: Equatable { let stamp: Stamp; let install: String }
+    enum StartError: Error { case unavailable(String) }
     private let path: String
     private let executable: String
     private let relay: CloudCredentialRelay
     private let lock = NSLock()
-    private var expected: Stamp?
+    private var expected: Expected?
     private var listener: Int32 = -1
     private var source: DispatchSourceRead?
     private let queue = DispatchQueue(label: "cmux.cloud.link-credential", qos: .utility)
@@ -25,13 +27,19 @@ private final class CloudLinkCredentialServer: @unchecked Sendable {
         self.relay = relay
     }
 
-    func start() {
-        queue.async { [weak self] in self?.bind() }
+    func start() async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async { [weak self] in
+                guard let self else { continuation.resume(throwing: StartError.unavailable("credential server deallocated")); return }
+                do { try self.bind(); continuation.resume() }
+                catch { continuation.resume(throwing: error) }
+            }
+        }
     }
 
-    func expect(pid: Int32?) {
+    func expect(pid: Int32?, install: String) {
         let stamp = pid.flatMap { Self.stamp(pid_t($0)) }
-        lock.lock(); expected = stamp; lock.unlock()
+        lock.lock(); expected = stamp.map { Expected(stamp: $0, install: install) }; lock.unlock()
     }
 
     func stop() {
@@ -47,39 +55,42 @@ private final class CloudLinkCredentialServer: @unchecked Sendable {
         }
     }
 
-    private func bind() {
+    private func bind() throws {
         guard listener < 0 else { return }
         let parent = (path as NSString).deletingLastPathComponent
         if !FileManager.default.fileExists(atPath: parent) {
-            try? FileManager.default.createDirectory(atPath: parent, withIntermediateDirectories: true,
-                                                     attributes: [.posixPermissions: 0o700])
+            do { try FileManager.default.createDirectory(atPath: parent, withIntermediateDirectories: true,
+                                                         attributes: [.posixPermissions: 0o700]) }
+            catch { throw StartError.unavailable("cannot create credential socket directory") }
         }
         var directory = stat()
         guard lstat(parent, &directory) == 0, directory.st_uid == getuid(), directory.st_mode & S_IFMT == S_IFDIR,
-              directory.st_mode & 0o077 == 0 else { return }
+              directory.st_mode & 0o077 == 0 else { throw StartError.unavailable("credential socket directory is not private") }
         var existing = stat()
         if lstat(path, &existing) == 0 {
-            guard existing.st_uid == getuid(), existing.st_mode & S_IFMT == S_IFSOCK else { return }
+            guard existing.st_uid == getuid(), existing.st_mode & S_IFMT == S_IFSOCK else { throw StartError.unavailable("credential socket path is not a private socket") }
             let probe = socket(AF_UNIX, SOCK_STREAM, 0)
             if probe >= 0 {
                 var address = sockaddr_un(); address.sun_family = sa_family_t(AF_UNIX)
                 let bytes = Array(path.utf8)
-                guard bytes.count < MemoryLayout.size(ofValue: address.sun_path) else { Darwin.close(probe); return }
+                guard bytes.count < MemoryLayout.size(ofValue: address.sun_path) else { Darwin.close(probe); throw StartError.unavailable("credential socket path is too long") }
                 withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: bytes) }
                 let connected = withUnsafePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.connect(probe, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) } }
                 Darwin.close(probe)
-                if connected == 0 { return }
+                if connected == 0 { throw StartError.unavailable("credential socket is already in use") }
+                // Never remove a socket we cannot prove belongs to this
+                // process. `link stop` removes our own stale endpoint.
+                throw StartError.unavailable("credential socket path is unavailable")
             }
-            unlink(path)
         }
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { return }
+        guard fd >= 0 else { throw StartError.unavailable("cannot create credential socket") }
         var address = sockaddr_un(); address.sun_family = sa_family_t(AF_UNIX)
         let bytes = Array(path.utf8)
-        guard bytes.count < MemoryLayout.size(ofValue: address.sun_path) else { Darwin.close(fd); return }
+        guard bytes.count < MemoryLayout.size(ofValue: address.sun_path) else { Darwin.close(fd); throw StartError.unavailable("credential socket path is too long") }
         withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: bytes) }
         let bound = withUnsafePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) } }
-        guard bound == 0, Darwin.listen(fd, 8) == 0 else { Darwin.close(fd); unlink(path); return }
+        guard bound == 0, Darwin.listen(fd, 8) == 0 else { Darwin.close(fd); unlink(path); throw StartError.unavailable("cannot bind credential socket") }
         _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
         _ = chmod(path, 0o600)
         listener = fd
@@ -94,56 +105,73 @@ private final class CloudLinkCredentialServer: @unchecked Sendable {
         while listener >= 0 {
             let fd = Darwin.accept(listener, nil, nil)
             guard fd >= 0 else { return }
-            let allowed = authorized(fd)
-            if !allowed { Darwin.close(fd); continue }
+            guard let install = authorized(fd) else { Darwin.close(fd); continue }
+            var noSigPipe: Int32 = 1
+            _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
             DispatchQueue.global(qos: .utility).async { [weak self] in
                 guard let self else { Darwin.close(fd); return }
-                Task { await self.serve(fd) }
+                self.serve(fd, expectedInstall: install)
             }
         }
     }
 
-    private func authorized(_ fd: Int32) -> Bool {
+    private func authorized(_ fd: Int32) -> String? {
         var uid: uid_t = 0, gid: gid_t = 0
-        guard getpeereid(fd, &uid, &gid) == 0, uid == getuid() else { return false }
+        guard getpeereid(fd, &uid, &gid) == 0, uid == getuid() else { return nil }
         var pid: pid_t = 0, length = socklen_t(MemoryLayout<pid_t>.size)
-        guard getsockopt(fd, SOL_LOCAL, LOCAL_PEERPID, &pid, &length) == 0 else { return false }
-        guard let current = Self.stamp(pid), let executable = Self.path(pid) else { return false }
+        guard getsockopt(fd, SOL_LOCAL, LOCAL_PEERPID, &pid, &length) == 0 else { return nil }
+        guard let current = Self.stamp(pid), let executable = Self.path(pid) else { return nil }
         lock.lock(); defer { lock.unlock() }
-        return expected == current && executable == self.executable
+        guard let expected, expected.stamp == current, executable == self.executable else { return nil }
+        return expected.install
     }
 
-    private func serve(_ fd: Int32) async {
-        defer { Darwin.close(fd) }
+    private func serve(_ fd: Int32, expectedInstall: String) {
         var data = Data(); var byte: UInt8 = 0
         while data.count <= maxLine {
+            var descriptor = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+            let ready = poll(&descriptor, 1, 5_000)
+            guard ready > 0 else { Darwin.close(fd); return }
             let count = Darwin.read(fd, &byte, 1)
-            guard count == 1 else { return }
+            if count < 0 && errno == EINTR { continue }
+            guard count == 1 else { Darwin.close(fd); return }
             if byte == 10 { break }
             data.append(byte)
         }
-        guard data.count <= maxLine, let request = try? JSONDecoder().decode(Request.self, from: data) else { return }
-        let reply = await Self.answer(request, relay: relay)
-        guard let output = try? JSONEncoder().encode(reply) else { return }
-        _ = output.withUnsafeBytes { Darwin.write(fd, $0.baseAddress, output.count) }
-        var newline: UInt8 = 10; _ = Darwin.write(fd, &newline, 1)
+        guard data.count <= maxLine, let request = try? JSONDecoder().decode(Request.self, from: data) else { Darwin.close(fd); return }
+        Task { [relay] in
+            defer { Darwin.close(fd) }
+            guard await relay.installID() == expectedInstall else { return }
+            let reply = await Self.answer(request, relay: relay, expectedInstall: expectedInstall)
+            guard let output = try? JSONEncoder().encode(reply) else { return }
+            var bytes = output; bytes.append(10)
+            bytes.withUnsafeBytes { raw in
+                guard let base = raw.baseAddress else { return }
+                var sent = 0
+                while sent < bytes.count {
+                    let n = Darwin.send(fd, base.advanced(by: sent), bytes.count - sent, 0)
+                    if n > 0 { sent += n } else if n < 0 && errno == EINTR { continue } else { break }
+                }
+            }
+        }
     }
 
     private struct Request: Decodable {
         let op: String; let host: String; let services: [String]?
         private enum CodingKeys: String, CodingKey, CaseIterable { case op, host, services }
         init(from decoder: any Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
+            struct AnyKey: CodingKey { let stringValue: String; let intValue: Int?; init?(stringValue: String) { self.stringValue = stringValue; self.intValue = nil }; init?(intValue: Int) { return nil } }
+            let container = try decoder.container(keyedBy: AnyKey.self)
             let allowed = Set(CodingKeys.allCases.map(\.stringValue))
             guard Set(container.allKeys.map(\.stringValue)).subtracting(allowed).isEmpty else {
                 throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "unknown link request field"))
             }
-            op = try container.decode(String.self, forKey: .op)
-            host = try container.decode(String.self, forKey: .host)
-            services = try container.decodeIfPresent([String].self, forKey: .services)
+            op = try container.decode(String.self, forKey: AnyKey(stringValue: "op")!)
+            host = try container.decode(String.self, forKey: AnyKey(stringValue: "host")!)
+            services = try container.decodeIfPresent([String].self, forKey: AnyKey(stringValue: "services")!)
         }
     }
-    private static func answer(_ request: Request, relay: CloudCredentialRelay) async -> JSONValue {
+    private static func answer(_ request: Request, relay: CloudCredentialRelay, expectedInstall: String) async -> JSONValue {
         guard request.host.utf8.count == 25, request.host.hasPrefix("host_"),
               request.host.utf8.dropFirst(5).allSatisfy({ ($0 >= 48 && $0 <= 57) || ($0 >= 97 && $0 <= 122) }) else {
             return .object(["ok": .bool(false), "error": .object(["code": .string("validation.invalid"), "message": .string("invalid host")])])
@@ -152,10 +180,10 @@ private final class CloudLinkCredentialServer: @unchecked Sendable {
         switch request.op {
         case "connect_info":
             guard request.services == nil else { return .object(["ok": .bool(false), "error": .object(["code": .string("validation.invalid"), "message": .string("connect_info does not take services")])]) }
-            answer = await relay.linkConnectInfo(host: request.host)
+            answer = await relay.linkConnectInfo(host: request.host, expectedInstall: expectedInstall)
         case "link_token":
             guard let services = request.services, !services.isEmpty, Set(services).isSubset(of: ["daemon", "ssh"]), Set(services).count == services.count else { return .object(["ok": .bool(false), "error": .object(["code": .string("validation.invalid"), "message": .string("invalid services")])]) }
-            answer = await relay.linkToken(host: request.host, services: services)
+            answer = await relay.linkToken(host: request.host, services: services, expectedInstall: expectedInstall)
         default:
             return .object(["ok": .bool(false), "error": .object(["code": .string("operation.unsupported"), "message": .string("unsupported link operation")])])
         }
@@ -225,7 +253,7 @@ public nonisolated struct CloudLinkLauncher: Sendable {
         self.runtimeBase = runtimeBase
         self.tagged = tagged
         if let relay, let stateRoot {
-            self.credentialServer = CloudLinkCredentialServer(path: stateRoot.appendingPathComponent("link-credential.sock").path, executable: binary, relay: relay)
+            self.credentialServer = CloudLinkCredentialServer(path: Self.credentialSocketPath(stateRoot: stateRoot, runtimeBase: runtimeBase), executable: binary, relay: relay)
         } else {
             self.credentialServer = nil
         }
@@ -266,7 +294,21 @@ public nonisolated struct CloudLinkLauncher: Sendable {
 
     /// The private credential socket passed to `cmux-tui link`; it carries no
     /// token and is only useful while this app's relay is serving.
-    var credentialSocket: URL? { stateRoot?.appendingPathComponent("link-credential.sock") }
+    var credentialSocket: URL? {
+        guard let stateRoot else { return nil }
+        return URL(fileURLWithPath: Self.credentialSocketPath(stateRoot: stateRoot, runtimeBase: runtimeBase))
+    }
+
+    /// Unix-domain sockets have a 104-byte path limit on Darwin. Keep this
+    /// private carrier under the same per-user runtime directory as cmux-tui,
+    /// and identify the build's state root with a stable short digest.
+    static func credentialSocketPath(stateRoot: URL, runtimeBase: URL) -> String {
+        var hash: UInt64 = 14695981039346656037
+        for byte in stateRoot.standardizedFileURL.path.utf8 {
+            hash ^= UInt64(byte); hash &*= 1099511628211
+        }
+        return runtimeBase.appendingPathComponent(String(format: "cmux-link-%016llx.sock", hash)).path
+    }
 
     /// The `link ensure` command line for `install` (pure). `--handoff`
     /// goes only with an explicit `--state-dir`.
@@ -306,12 +348,14 @@ public nonisolated struct CloudLinkLauncher: Sendable {
 
     /// Starts the link unless one of this build runs. Off the main actor.
     @concurrent public func ensure(install: String) async throws -> Ensured {
-        credentialServer?.start()
+        do { try await credentialServer?.start() }
+        catch { throw Failure.failed("credential socket unavailable") }
         let result = try await run(ensureArguments(install: install))
         guard let ensured = try? JSONDecoder().decode(Ensured.self, from: Self.lastLine(result.stdout)) else {
             throw Failure.badAnswer
         }
-        credentialServer?.expect(pid: ensured.pid)
+        if credentialServer != nil, ensured.pid == nil { throw Failure.failed("link did not report a pid") }
+        credentialServer?.expect(pid: ensured.pid, install: install)
         if ensured.status != "running" {
             Self.logger.info("cloud link \(ensured.status, privacy: .public) pid \(ensured.pid ?? 0)")
         }

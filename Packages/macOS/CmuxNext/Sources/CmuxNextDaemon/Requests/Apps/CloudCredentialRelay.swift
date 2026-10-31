@@ -105,32 +105,37 @@ public nonisolated struct CloudCredentialRelay: Sendable {
     /// authenticated cmux-tui link socket. In particular, keeping
     /// `refusedOps` in the app-provider path means an app server can never
     /// acquire a dial token.
-    func linkConnectInfo(host: String) async -> Answer {
-        await linkRequest(op: "cloud.machine.connect_info", params: .object(["host": .string(host)]))
+    func linkConnectInfo(host: String, expectedInstall: String? = nil) async -> Answer {
+        await linkRequest(op: "cloud.machine.connect_info", params: .object(["host": .string(host)]), expectedInstall: expectedInstall)
     }
 
-    func linkToken(host: String, services: [String]) async -> Answer {
+    func linkToken(host: String, services: [String], expectedInstall: String? = nil) async -> Answer {
         await linkRequest(op: "cloud.machine.link_token", params: .object([
             "host": .string(host),
             "services": .array(services.map(JSONValue.string)),
-        ]))
+        ]), expectedInstall: expectedInstall)
     }
 
-    private func linkRequest(op: String, params: JSONValue) async -> Answer {
+    private func linkRequest(op: String, params: JSONValue, expectedInstall: String? = nil) async -> Answer {
         let initialSession = await session()
         let initialInstall = await installID()
         guard initialSession.signedIn else { return Self.notSignedIn }
+        guard let initialInstall, expectedInstall == nil || expectedInstall == initialInstall else { return Self.notSignedIn }
         guard await sameLinkGeneration(session: initialSession, install: initialInstall) else { return Self.notSignedIn }
         var envelope: [String: JSONValue] = ["op": .string(op), "params": params]
         if op == "cloud.machine.link_token" { envelope["origin"] = .string("cli") }
         guard let body = try? JSONEncoder().encode(JSONValue.object(envelope)) else { return Self.failure("validation.invalid", "link request is not JSON") }
         do {
             guard await sameLinkGeneration(session: initialSession, install: initialInstall) else { return Self.notSignedIn }
-            var reply = try await post("v1/\(op.hasSuffix("connect_info") ? "read" : "ops")", body, try await token())
+            let bearer = try await token()
+            guard await sameLinkGeneration(session: initialSession, install: initialInstall) else { return Self.notSignedIn }
+            var reply = try await post("v1/\(op.hasSuffix("connect_info") ? "read" : "ops")", body, bearer)
             if reply.status == 401 {
                 await invalidate()
                 guard await sameLinkGeneration(session: initialSession, install: initialInstall) else { return Self.notSignedIn }
-                reply = try await post("v1/\(op.hasSuffix("connect_info") ? "read" : "ops")", body, try await token())
+                let retryBearer = try await token()
+                guard await sameLinkGeneration(session: initialSession, install: initialInstall) else { return Self.notSignedIn }
+                reply = try await post("v1/\(op.hasSuffix("connect_info") ? "read" : "ops")", body, retryBearer)
             }
             guard await sameLinkGeneration(session: initialSession, install: initialInstall) else { return Self.notSignedIn }
             return Self.answer(status: reply.status, body: reply.body)
@@ -143,7 +148,7 @@ public nonisolated struct CloudCredentialRelay: Sendable {
     private func sameLinkGeneration(session initial: Session, install initialInstall: String?) async -> Bool {
         let current = await session()
         guard current.signedIn, current.team == initial.team else { return false }
-        guard let initialInstall else { return true }
+        guard let initialInstall else { return false }
         return await installID() == initialInstall
     }
 
