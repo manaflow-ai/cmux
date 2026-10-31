@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 768,
-    "mcp": 684
+    "verbs": 769,
+    "mcp": 685
   },
   "nouns": [
     {
@@ -1769,6 +1769,13 @@
           "id": "file.open",
           "mcp": true,
           "mcpTool": "app_file_open"
+        },
+        {
+          "command": "cmux file open-as-page",
+          "title": "Open as Page",
+          "id": "file.openAsPage",
+          "mcp": true,
+          "mcpTool": "app_file_open_as_page"
         }
       ]
     },
