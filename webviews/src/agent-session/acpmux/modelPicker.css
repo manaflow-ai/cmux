@@ -370,20 +370,11 @@
   max-height: min(calc(100vh - 16px), var(--acpmux-quick-room));
   overflow: hidden;
 }
-/* The menu follows its model list, and a long rail scrolls (the rail is `contain: size`). A short
-   list still leaves room for up to six rail rows, so a tab with one row never squashes the menu to
-   that row with the selected harness scrolled out of the rail (Leo 2026-10-29: "This fucking
-   minimum space is just asinine"). --acpmux-quick-rail-rows is the rail's tab count. The floor is
-   at most half the menu's room (Base UI's --available-height; --acpmux-quick-room does not inherit),
-   so a short window keeps the search field and footer in view. */
 .acpmux-quick-layout {
   display: flex;
   flex-direction: row;
   flex: 1 1 auto;
-  min-height: min(
-    calc(min(var(--acpmux-quick-rail-rows, 0), 6) * var(--ui-row-height) + var(--ds-space-2)),
-    calc(min(var(--available-height, 100vh), 100vh - 16px) / 2)
-  );
+  min-height: 0;
   max-height: calc(100vh - 16px);
   max-height: min(calc(100vh - 16px), var(--acpmux-quick-room));
   overflow: hidden;
@@ -391,9 +382,15 @@
 .acpmux-quick-newtab {
   max-height: min(calc(100vh - 16px), var(--acpmux-quick-room));
 }
+/* The menu follows its model list, and a long rail scrolls (the rail is `contain: size`). Its
+   intrinsic height is up to six of its rows, so a tab with one row never squashes the menu to that
+   row with the selected harness scrolled out of the rail (Leo 2026-10-29: "This fucking minimum
+   space is just asinine"). It is not a min-height: a cramped popup still shrinks the layout and
+   keeps its search field and footer. --acpmux-quick-rail-rows is the rail's tab count. */
 .acpmux-quick-rail {
   flex: 0 0 36%;
   contain: size;
+  contain-intrinsic-height: calc(min(var(--acpmux-quick-rail-rows, 0), 6) * var(--ui-row-height) + var(--ds-space-2));
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -440,7 +437,7 @@
   font-size: var(--text-control);
   line-height: 1;
 }
-.acpmux-quick-placement-top .acpmux-quick-layout { flex-direction: column; min-height: 0; }
+.acpmux-quick-placement-top .acpmux-quick-layout { flex-direction: column; }
 .acpmux-quick-placement-top .acpmux-quick-rail {
   flex: none;
   contain: none;
