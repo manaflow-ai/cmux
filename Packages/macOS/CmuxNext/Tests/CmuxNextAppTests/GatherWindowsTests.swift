@@ -29,9 +29,21 @@ struct GatherWindowsTests {
         let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
         store.noteHandshake(identity)
         store.connectionState = .connected(identity)
-        var tree = DaemonTree(registryID: "s-local", workspaces: keys.enumerated().map { index, key in
-            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: UInt64(index + 1)), key: WorkspaceKey(rawValue: key), name: key, screens: [])
-        })
+        // Each workspace has one pane with a terminal; `wh` is a window's own Home (Home's page tab first, a
+        // terminal beside it), in no space.
+        func screen(_ index: Int, _ tabs: [TabSnapshot]) -> [ScreenSnapshot] {
+            let id = UInt64(100 + index)
+            return [ScreenSnapshot(id: id, layout: .leaf(id), panes: [PaneSnapshot(id: id, tabs: tabs)])]
+        }
+        var page = TabSnapshot(surface: 900, kind: .conversation, title: "Home")
+        page.conversation = ConversationTabRef(page: WorkspaceModel.homeDockPage)
+        var workspaces = keys.enumerated().map { index, key in
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: UInt64(index + 1)), key: WorkspaceKey(rawValue: key), name: key,
+                              screens: screen(index, [TabSnapshot(surface: UInt64(200 + index))]))
+        }
+        workspaces.append(WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 9), key: WorkspaceKey(rawValue: "wh"), name: "Home",
+                                            screens: screen(9, [page, TabSnapshot(surface: 209)])))
+        var tree = DaemonTree(registryID: "s-local", workspaces: workspaces)
         tree.personal = PersonalState(
             sessions: [SessionRecord(id: "s-local")],
             profiles: rooms.enumerated().map { ProfileSnapshot(id: $1, name: "Space \($0)", index: $0) },
@@ -154,6 +166,40 @@ struct GatherWindowsTests {
         #expect(registry.window(there.state.id) == nil)
         #expect(registry.window(other.state.id)?.workspaceIDs == ["k1"])
         #expect(services.windows.pendingClaims["k-new-3"] == other.state.id)
+    }
+
+    /// A window's own Home stays with its window: moved next to another window's Home it would be
+    /// closed as a surplus Home, with the terminals beside it. Merge All closes the window it is in
+    /// (terminals keep running, as Close Other Windows); Move Space leaves it where it is.
+    @Test func aWindowsOwnHomeStaysWithItsWindow() throws {
+        let services = try Self.services()
+        defer { Self.closeAll(services) }
+        #expect(services.workspace(id: "wh")?.isWindowHome == true)
+        let here = try Self.open(["k0"], services), there = try Self.open(["k2", "wh"], services)
+
+        try services.windows.bringSpace(Self.rooms[1], into: here.state)
+        #expect(services.windows.registry.value.window(here.state.id)?.workspaceIDs.contains("wh") == false, "Move Space took a window's Home")
+        #expect(services.windows.registry.value.window(there.state.id)?.workspaceIDs == ["wh"])
+
+        try services.windows.mergeWindows(into: here.state)
+        let registry = services.windows.registry.value
+        #expect(registry.window(here.state.id)?.workspaceIDs.contains("wh") == false, "Merge All took a window's Home")
+        #expect(registry.window(there.state.id)?.isOpen != true, "the merged window stayed open")
+        #expect(services.workspace(id: "wh") != nil, "the merged window's Home was closed")
+    }
+
+    /// A browser tab a pane keeps in its window (a daemon without frontend browser tabs) moves with
+    /// its workspace.
+    @Test func aPanesLocalBrowserTabsMoveWithIt() throws {
+        let services = try Self.services()
+        defer { Self.closeAll(services) }
+        let here = try Self.open(["k0"], services), there = try Self.open(["k2"], services)
+        let pane = try #require(services.workspace(id: "k2")?.screens.first?.panes.first?.id)
+        let tab = LocalBrowserTab.make(url: URL(string: "https://example.com"))
+        there.state.localBrowserTabs[pane] = [tab]
+
+        try services.windows.bringSpace(Self.rooms[1], into: here.state)
+        #expect(here.state.localBrowserTabs[pane] == [tab], "the pane's browser tab stayed behind")
     }
 
     /// An incognito space, or an incognito window, takes part in no move (rule 2).
