@@ -62,8 +62,10 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
   const mark = (page: Page) =>
     page.evaluate(() => {
       const probe = window as Probe;
+      // The computer use card moves under the panel by design (computerUsePreview.css); the rest stays.
       const outside = (element: Element) =>
-        !element.closest("aside.acpmux-chat-inspector") && (element as HTMLElement).offsetParent !== null;
+        !element.closest("aside.acpmux-chat-inspector, .acpmux-cu-preview") &&
+        (element as HTMLElement).offsetParent !== null;
       probe.__stillBefore = new Map();
       probe.__stillWorst = new Map();
       for (const element of document.querySelectorAll("body *"))
@@ -129,10 +131,27 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
     await panel(page).waitFor({ state: "detached", timeout: 5_000 });
   };
 
+  /// The host's computer use card, as AgentPaneComputerUsePreview pushes it.
+  const computerUse = (page: Page) =>
+    page.evaluate(async () => {
+      const url = "/computerUse/computerUsePreview.ts";
+      const module = (await import(/* @vite-ignore */ url)) as { setComputerUsePreview(value: unknown): void };
+      module.setComputerUsePreview({
+        session: "cu-still",
+        app: "Calculator",
+        done: false,
+        frame: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      });
+    });
+
   for (const name of browsers.keys())
-    for (const row of [false, true])
+    for (const [row, preview] of [
+      [false, false],
+      [true, false],
+      [false, true],
+    ] as const)
       for (const width of [560, 900, 1200, 1600]) {
-        const where = `${width}px pane${row ? " under a tab row" : ""}`;
+        const where = `${width}px pane${row ? " under a tab row" : ""}${preview ? " beside a computer use card" : ""}`;
         test(`${name}: in a ${where}, opening, folding and closing Session Info moves nothing else`, async () => {
           current = browsers.get(name)!;
           const page = await pane!.open({ width, height: 760 });
@@ -140,6 +159,10 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
             if (row) {
               await tabRow(page);
               await page.locator(".acpmux-header[data-tab-row]").waitFor({ timeout: 10_000 });
+            }
+            if (preview) {
+              await computerUse(page);
+              if (width >= 600) await page.locator(".acpmux-cu-preview").waitFor({ timeout: 10_000 });
             }
             await header(page);
             await toggle(page).waitFor({ timeout: 10_000 });
