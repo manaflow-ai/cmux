@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextLayout
@@ -83,5 +84,9 @@ struct ChatLinkReusesRightPaneTests {
         #expect(typed.opensBesideChat)
         #expect(NewTabSubmit.plan(text: "fix the tests", search: false, agent: nil, resolver: resolver, home: nil).opensBesideChat == false)
         #expect(!NewTabSubmit.page.opensBesideChat)
+        // A script's submission aimed at the dock opens where it asked (delta review of #28544 at 54e3d1bf).
+        #expect(typed.opensBesideChat(origin: .user))
+        #expect(!typed.opensBesideChat(origin: .cli))
+        #expect(!typed.opensBesideChat(origin: .mcp))
     }
 }

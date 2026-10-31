@@ -61,6 +61,10 @@ extension NewTabSubmit {
         }
     }
 
+    /// ``opensBesideChat`` for a submission from `origin`: only a person's moves beside the chat; a script's
+    /// (CLI `tab new-from-text`, MCP) opens in the pane it named.
+    func opensBesideChat(origin: ActionOrigin) -> Bool { origin == .user && opensBesideChat }
+
     /// The `openBrowser` run that opens `url` for `invocation`: the same
     /// target and origin, so openBrowser's guard (agents never open
     /// Chromium's own pages, CLI/MCP/script tabs are agent-driven) covers
@@ -91,7 +95,9 @@ extension NewTabSubmit {
             // From the chat dock, the main pane, the terminal opens in the strip beside it (Leo 2026-10-30: "not to
             // fucking open it up in the main fucking pane"); a browser does through openBrowser's own route. Review
             // of #28544 at 39fa77d8: `!ls` typed on the native page as a prompt made its terminal in the dock.
-            let target = plan.opensBesideChat ? ChatColumnPlacement.pagePick(from: pane) ?? pane : pane
+            // Only a person's submission moves: a script's (CLI, MCP) aimed at the dock opens where it asked, as in
+            // TabLifecycle (delta review of #28544 at 54e3d1bf).
+            let target = plan.opensBesideChat(origin: invocation.origin) ? ChatColumnPlacement.pagePick(from: pane) ?? pane : pane
             target.newTerminalTab(cwd: cwd, typing: command.isEmpty ? nil : command)
         case .browser(let url):
             guard let open = browserInvocation(url, from: invocation) else { return }
