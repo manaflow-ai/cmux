@@ -9,10 +9,8 @@
 // - The cancel the steer caused is not drawn as "You stopped after", and the prompt carries no
 //   mark of its own (no "Steered": #22773 removes those marks); it is accepted and drawn inline.
 // - A Send now that ends the turn with `end_turn` (acpmux #22808, Claude) goes on the same way.
-// - Once the turn ends, each part folds its own work (Leo, 2026-10-21: "HOW DID YOUR THINKING
-//   LITERALLY GET REMOVED, THOSE TOOL CALLS?"): the work before the steer under "Worked for" over
-//   the first prompt's part, the work after it under its own "Worked for" below the steer, timed
-//   from the steer. It no longer all moves up above the steer, leaving only the answer under it.
+// - Once the turn ends, its connected steer chain folds into one Worked-for disclosure.
+//   Expanding it keeps every call, reply, and steer in its recorded order.
 // - A real Stop still reads "You stopped after", also when a prompt is sent now after it.
 // - Everything else that finds a turn by its prompt walks past a steer too (review of #22691): the
 //   edited-files checkpoint spans the whole chain, Find and a shell's row open the fold the turn
@@ -169,7 +167,7 @@ test("a steer draws inline in the running turn, whose line counts from the first
   expect(steer.pending).toBeFalsy();
 });
 
-test("once the chain ends, each part folds its own work, the steer's below the steer", async () => {
+test("once the chain ends, all its work folds under one stable disclosure", async () => {
   const rows = await rowsOf(
     record([
       ...steerChain,
@@ -181,31 +179,20 @@ test("once the chain ends, each part folds its own work, the steer's below the s
   const steerRow = rows.find((row) => row.kind === "user" && row.text === "also check the logout path")!;
   const view = turnView(rows, new Set());
   const worked = view.filter((row) => row.kind === WORKED);
-  expect(worked.map((row) => row.id)).toEqual([`${WORKED}-${first.id}`, `${WORKED}-${steerRow.id}`]);
+  expect(worked.map((row) => row.id)).toEqual([`${WORKED}-${first.id}`]);
   expect(worked.some((row) => row.status === "cancelled")).toBe(false);
-  // The first part runs from the prompt to the reply the steer followed, the second from the steer
-  // to the answer.
-  expect(worked.map((row) => row.durationMs)).toEqual([40_000, 25_000]);
-  expect(workedLabel(translate, worked[1]!)).toBe(translate("turn.worked", { time: "25s" }));
-  // In order: fold, the reply the steer followed, the steer, its fold, the answer.
-  const at = (text: string) => view.findIndex((row) => row.text === text);
-  const order = [
-    view.indexOf(worked[0]!),
-    at("The retry races the session refresh."),
-    at("also check the logout path"),
-    view.indexOf(worked[1]!),
-    at("Both paths are fixed."),
-  ];
-  expect(order.every((index) => index >= 0)).toBe(true);
-  expect([...order].sort((a, b) => a - b)).toEqual(order);
+  expect(worked.map((row) => row.durationMs)).toEqual([80_000]);
+  expect(workedLabel(translate, worked[0]!)).toBe(translate("turn.worked", { time: "1m 20s" }));
+  expect(view.some((row) => row.id === steerRow.id)).toBe(false);
+  expect(view.some((row) => row.text === "The retry races the session refresh.")).toBe(false);
+  expect(view.indexOf(worked[0]!)).toBeLessThan(view.findIndex((row) => row.text === "Both paths are fixed."));
   expect(view.filter((row) => row.kind === "turnSummary")).toHaveLength(1);
-  // Nothing is dropped: open, the folds hold every tool call of the turn, each in its own part.
+  // Nothing is dropped: open, the fold holds every tool call and steer in recorded order.
   const open = turnView(rows, new Set(worked.map((row) => row.id)));
   const toolAt = (id: string) => open.findIndex((row) => row.items?.some((item) => item.tool?.id === id));
   const steerAt = open.findIndex((row) => row.id === steerRow.id);
   expect(toolAt("t-1")).toBeGreaterThan(open.findIndex((row) => row.id === worked[0]!.id));
   expect(toolAt("t-1")).toBeLessThan(steerAt);
-  expect(toolAt("t-2")).toBeGreaterThan(open.findIndex((row) => row.id === worked[1]!.id));
   expect(toolAt("t-2")).toBeGreaterThan(steerAt);
   expect(toolAt("t-2")).toBeLessThan(open.findIndex((row) => row.text === "Both paths are fixed."));
   const tools = (list: AcpmuxRow[]) =>
@@ -318,12 +305,11 @@ test("a native steer's turn has ended once its one summary comes, and its edits 
 test("Find and a shell's row open the fold the turn draws, and the hover footer is the chain's", async () => {
   const rows = await rowsOf(record(endedChain));
   const first = rows.find((row) => row.kind === "user")!;
-  const steer = rows.find((row) => row.kind === "user" && row.text === "also check the logout path")!;
   const before = rows.indexOf(rowWith(rows, "t-1"));
   const index = rows.indexOf(rowWith(rows, "t-2"));
-  // Each call opens the fold of the part it ran in: before the steer the prompt's, after it the steer's.
+  // Every call opens the chain's one fold, before and after the steer.
   expect(turnFoldFor(rows, before)).toBe(`${WORKED}-${first.id}`);
-  expect(turnFoldFor(rows, index)).toBe(`${WORKED}-${steer.id}`);
+  expect(turnFoldFor(rows, index)).toBe(`${WORKED}-${first.id}`);
   const view = turnView(rows, new Set());
   expect(view.some((row) => row.id === turnFoldFor(rows, before))).toBe(true);
   expect(view.some((row) => row.id === turnFoldFor(rows, index))).toBe(true);
@@ -357,12 +343,9 @@ test("an older history page that ends at the steer leaves it a steer", async () 
   expect(steer.continues).toBe(true);
   const view = turnView(rows(), new Set());
   expect(view.some((row) => row.kind === WORKED && row.status === "cancelled")).toBe(false);
-  // One turn: one footer, and a fold for each of its parts (the prompt's and the steer's).
+  // One turn: one footer and one stable fold, including after history is paged in.
   const first = rows().find((row) => row.kind === "user" && row.text === "Fix the flaky login test")!;
-  expect(view.filter((row) => row.kind === WORKED).map((row) => row.id)).toEqual([
-    `${WORKED}-${first.id}`,
-    `${WORKED}-${steer.id}`,
-  ]);
+  expect(view.filter((row) => row.kind === WORKED).map((row) => row.id)).toEqual([`${WORKED}-${first.id}`]);
   expect(view.filter((row) => row.kind === "turnSummary")).toHaveLength(1);
 });
 
@@ -495,7 +478,7 @@ function readsStopped(rows: AcpmuxRow[], working = false) {
   const view = turnView(rows, new Set(), { working });
   const stopped = view.filter((row) => row.kind === WORKED && row.status === "cancelled");
   expect(stopped).toHaveLength(1);
-  expect(workedLabel(translate, stopped[0]!)).toBe(translate("turn.stopped", { time: "40s" }));
+  expect(workedLabel(translate, stopped[0]!)).toBe(translate("turn.stopped", { time: "55s" }));
   const summary = rows.find((row) => row.kind === "turnSummary")!;
   expect(summary.continued).toBeUndefined();
   expect(view.some((row) => row.kind === "turnSummary" && row.status === "cancelled")).toBe(true);
@@ -607,7 +590,7 @@ test("a Send now whose request the dropped socket fails still continues the turn
   }
 });
 
-test("a Claude turn steered twice keeps every call, each folded below the steer it ran after", () => {
+test("a Claude turn steered twice keeps every call under one completed-turn fold", () => {
   // Leo's live Claude turns (2026-10-21): a call, his steer, a reply and a call, a second steer,
   // more calls, the answer. Ended, the folds hold every call; nothing is dropped or moved above
   // a steer it came after.
@@ -639,44 +622,23 @@ test("a Claude turn steered twice keeps every call, each folded below the steer 
   const now = { now: START + 200_000 };
   const view = turnView(rows, new Set(), now);
   const ids = view.map((each) => each.id);
-  // Under each bubble its own fold; the answer under the last steer's.
-  expect(ids).toEqual(["u", `${WORKED}-u`, "s1", `${WORKED}-s1`, "s2", `${WORKED}-s2`, "r2", "sum"]);
-  // Each part is timed from its prompt or steer to where it ended: the next steer, or the answer.
-  expect(view.filter((each) => each.kind === WORKED).map((each) => each.durationMs)).toEqual([20_000, 30_000, 30_000]);
-  const open = turnView(rows, new Set([`${WORKED}-u`, `${WORKED}-s1`, `${WORKED}-s2`]), now);
+  expect(ids).toEqual(["u", `${WORKED}-u`, "r2", "sum"]);
+  expect(view.filter((each) => each.kind === WORKED).map((each) => each.durationMs)).toEqual([90_000]);
+  const open = turnView(rows, new Set([`${WORKED}-u`]), now);
   expect(open.map((each) => each.id)).toEqual([
     "u",
     `${WORKED}-u`,
     "a-b1",
     "s1",
-    `${WORKED}-s1`,
     "r1",
     "a-b2",
     "s2",
-    `${WORKED}-s2`,
     "a-b3",
     "a-b4",
     "r2",
     "sum",
   ]);
-  // Opening one part's fold opens only that part.
-  const one = turnView(rows, new Set([`${WORKED}-s2`]), now).map((each) => each.id);
-  expect(one).toContain("a-b3");
-  expect(one).not.toContain("a-b1");
-  expect(one).not.toContain("a-b2");
-  // Find opens the part a call ran in.
-  expect(rows.map((_, index) => turnFoldFor(rows, index))).toEqual([
-    `${WORKED}-u`,
-    `${WORKED}-u`,
-    `${WORKED}-s1`,
-    `${WORKED}-s1`,
-    `${WORKED}-s1`,
-    `${WORKED}-s2`,
-    `${WORKED}-s2`,
-    `${WORKED}-s2`,
-    `${WORKED}-s2`,
-    `${WORKED}-s2`,
-  ]);
+  expect(rows.map((_, index) => turnFoldFor(rows, index))).toEqual(rows.map(() => `${WORKED}-u`));
 });
 
 test("Find walks past a prompt that failed to send mid-turn to the fold the turn draws", () => {

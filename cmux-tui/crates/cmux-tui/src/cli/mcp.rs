@@ -28,6 +28,7 @@ mod computer_use_gate;
 mod config;
 mod keybinding_tools;
 mod messages;
+mod open_tool;
 mod placement;
 mod render_tool;
 mod schema;
@@ -669,6 +670,7 @@ impl<B: Backend> Server<B> {
         tools.push(agent_events_tool::descriptor());
         tools.extend(terminal_talk_tools::descriptors());
         tools.push(render_tool::descriptor());
+        tools.push(open_tool::descriptor());
         tools
             .extend(settings_tools::TOOLS.iter().map(settings_tools::SettingTool::descriptor_json));
         tools.extend(
@@ -879,6 +881,12 @@ impl<B: Backend> Server<B> {
         if name == terminal_talk_tools::SEND {
             let progress = agent_wait_tool::Progress::requested(params, self.notes.as_ref());
             return Ok(terminal_talk_tools::call_send(&self.backend, &arguments, progress));
+        }
+        if name == open_tool::NAME {
+            if !self.actions_loaded {
+                self.refresh_actions();
+            }
+            return Ok(self.call_open(&arguments));
         }
         if name == render_tool::NAME {
             return Ok(match render_tool::receipt(&arguments, &mut self.renders) {
