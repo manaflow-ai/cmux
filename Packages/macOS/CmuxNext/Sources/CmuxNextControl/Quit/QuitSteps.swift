@@ -30,19 +30,34 @@ public struct QuitSteps {
     /// the terminals; returns its failure, if any.
     public var endLocalAgents: @MainActor () async -> [EndSessionsFailure]
     public var stopBrowserEngines: @MainActor () async -> Void
+    /// The quit's step limiter: the steps past their limit still run, and the
+    /// quit waits for them (``finishSaves(ends:)``).
+    public var limiter: QuitStepLimiter
+    /// What is left of the quit's deadline for those steps (the reply's margin
+    /// kept); nil while none is armed.
+    public var timeLeft: @MainActor () -> Duration?
+
+    /// How long an End quit waits for a save step past its limit before its
+    /// sessions end (it has no deadline yet): a save the daemon answers late
+    /// still lands before the daemon stops.
+    public static let endQuitSaveWait: Duration = .seconds(2)
 
     public init(remember: @escaping @MainActor (QuitBehavior) async -> Void,
                 prepareWindows: @escaping @MainActor () async -> Void,
                 endLocalSessions: @escaping @MainActor () async -> [EndSessionsFailure],
                 confirmFailures: @escaping @MainActor ([EndSessionsFailure]) async -> QuitFailureAnswer,
                 endLocalAgents: @escaping @MainActor () async -> [EndSessionsFailure],
-                stopBrowserEngines: @escaping @MainActor () async -> Void) {
+                stopBrowserEngines: @escaping @MainActor () async -> Void,
+                limiter: QuitStepLimiter,
+                timeLeft: @escaping @MainActor () -> Duration?) {
         self.remember = remember
         self.prepareWindows = prepareWindows
         self.endLocalSessions = endLocalSessions
         self.confirmFailures = confirmFailures
         self.endLocalAgents = endLocalAgents
         self.stopBrowserEngines = stopBrowserEngines
+        self.limiter = limiter
+        self.timeLeft = timeLeft
     }
 
     /// Runs the steps for a quit that `ends` the local sessions (End

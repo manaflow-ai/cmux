@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextBridge
+import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextTabs
 import CmuxNextWakeups
@@ -326,5 +327,16 @@ struct AgentPaneRelaunchWakeTests {
         #expect(FileManager.default.fileExists(atPath: file.path), "a held shell command was not saved")
         await store.save(["tab_a": AgentPaneWakeState()])
         #expect(!FileManager.default.fileExists(atPath: file.path), "an empty composer left a file")
+    }
+
+    /// Review of #22919 at 0088e20, finding 1: the quit asks every chat page within
+    /// `AgentPaneRelaunchWake.askLimit` and writes only after the last answer, so that wait must end
+    /// inside the quit's composer step limit; a page that does not answer keeps its state.
+    @Test func theQuitAsksEveryPageWithinItsComposerStepLimit() throws {
+        let steps = QuitSaveSteps(remoteSnapshots: {}, agentComposers: {}, agentImages: {}, terminalFrames: {}, browserRecords: {},
+                                  windows: {}, stopSavingWindows: {}, sidebar: {}, homeCache: {}, cloud: {})
+        let composers = try #require(steps.steps.first { $0.name == "agent_composers" })
+        #expect(AgentPaneRelaunchWake.askLimit < composers.limit,
+                "a page answering in \(AgentPaneRelaunchWake.askLimit) passes the \(composers.limit) step limit before the write")
     }
 }

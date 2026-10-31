@@ -138,13 +138,18 @@ public final class AgentPaneRelaunchWake {
         }
     }
 
+    /// How long a quit asks each live page for its state: below the quit's
+    /// composer step limit, so the file is written inside that step even when
+    /// a page does not answer (that page keeps the state it was given).
+    public static let askLimit: Duration = .seconds(1)
+
     /// What every chat holds for the next launch, by tab: the last quit's states no page took (after
     /// the launch read), `held` (released pages' states, by tab) over them, then each page in `pages`. A page that has not taken its state yet (no `ready`, only a
     /// reconnect) keeps it unasked; every other page is asked at once, each within `limit`, and
     /// one that does not answer keeps the tab's held state or the one its `ready` took. Tabs
     /// `live` refuses (gone from every tree) keep nothing.
     public func collect(held: [String: AgentPaneWakeState], pages: [(key: String, view: AgentPaneView)],
-                        live: (String) -> Bool, limit: Duration = .seconds(1)) async -> [String: AgentPaneWakeState] {
+                        live: (String) -> Bool, limit: Duration = askLimit) async -> [String: AgentPaneWakeState] {
         let unclaimed = (await launch?.finished() ?? [:]).filter { !claimed.contains($0.key) }
         var states = unclaimed.merging(held) { _, held in held }
         let read = read

@@ -51,4 +51,23 @@ import Testing
         #expect(abandoned == 1, "the app kept running after its relaunch-behind quit was declined, with no restore")
         #expect(!updater.automaticInstallInFlight)
     }
+
+    /// Review of #22919 at 0088e20, finding 3: an automatic install that fails after it began to
+    /// install brings back any window the relaunch took off the screen.
+    @Test func anAutomaticInstallThatFailsBringsTheWindowsBack() {
+        let updater = Self.updater()
+        updater.announcementsFetch = false
+        var abandoned = 0
+        updater.installAbandoned = { abandoned += 1 }
+        updater.send(.checkRequested)
+        for phase: UpdateIndicatorPhase in [.checking, .downloading(.starting), .downloading(.preparing(nil)), .installing] {
+            updater.debugIndicatorPhase = phase
+            updater.syncFlowPhase()
+        }
+        updater.automaticInstallInFlight = true
+        updater.debugIndicatorPhase = .note(.checkFailed)
+        updater.syncFlowPhase()
+        #expect(abandoned == 1, "a failed automatic install did not bring the windows back")
+        #expect(!updater.automaticInstallInFlight)
+    }
 }

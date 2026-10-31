@@ -236,7 +236,8 @@ final class QuitCoordinator {
                 // (`cmux_shim_close_all` answers any question with Leave).
                 await services.cache.cef.shutdown(timeout: QuitDeadline.engineCloseWait)
                 DebugTimings.markLaunch("quit.engines_stopped")
-            }
+            },
+            limiter: steps, timeLeft: { [deadline] in deadline.timeLeft(margin: QuitDeadline.replyMargin) }
         ).run(ends: choice.ends, remember: remember ? QuitPolicy.remembered(choice) : nil)
         DebugTimings.markLaunch("quit.replied")
         sender.reply(toApplicationShouldTerminate: true)

@@ -37,8 +37,15 @@ public nonisolated final class QuitDeadline: Sendable {
     /// Chromium gives a page's beforeunload about 1 s, so a page that spins
     /// in it still closes within this wait.
     public static let engineCloseWait: Duration = .seconds(2)
+    /// How long a quit waits for its `quitting` run mark to reach disk
+    /// (`AppRunMarker.markQuitting`), before every save step.
+    public static let quitMarkLimit: Duration = .milliseconds(500)
+    /// What a quit leaves before its deadline for AppKit's reply and the
+    /// normal exit (the clean-exit mark) once its steps are done.
+    public static let replyMargin: Duration = .milliseconds(200)
 
     private let armed = Atomic<Bool>(false)
+    private let firesAt = Mutex<ContinuousClock.Instant?>(nil)
     private let end: @Sendable () -> Void
     private let reason: String
 
@@ -51,9 +58,16 @@ public nonisolated final class QuitDeadline: Sendable {
         self.end = end ?? { _exit(0) }
     }
 
+    /// The time left before the deadline ends the process, less `margin`;
+    /// zero once that has passed, nil while it is not armed.
+    public func timeLeft(margin: Duration = .zero) -> Duration? {
+        firesAt.withLock { $0 }.map { max(.zero, $0 - .now - margin) }
+    }
+
     /// Starts the deadline once; a later call keeps the first.
     public func arm(after limit: Duration) {
         guard armed.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged else { return }
+        firesAt.withLock { $0 = .now + limit }
         let end = end
         let reason = reason
         let seconds = Double(limit.components.seconds) + Double(limit.components.attoseconds) / 1e18

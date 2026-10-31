@@ -91,9 +91,96 @@ import Testing
     /// room left for the engines' stop to begin.
     @Test func everyStepHungStillEndsInsideTheKeepQuitDeadline() {
         let steps = Self.steps { _ in }
-        let quitMark: Duration = .milliseconds(500) // AppRunMarker.markQuitting's bound
         let margin: Duration = .milliseconds(400)
-        #expect(quitMark + QuitSaveSteps.rememberLimit + steps.worstCase + margin <= QuitDeadline.keepQuitLimit,
+        #expect(QuitDeadline.quitMarkLimit + QuitSaveSteps.rememberLimit + steps.worstCase + QuitDeadline.replyMargin + margin
+                    <= QuitDeadline.keepQuitLimit,
                 "the step limits (\(steps.worstCase)) do not fit the \(QuitDeadline.keepQuitLimit) deadline")
+    }
+
+    /// The quit's steps with `save` as its one save step (limit 400 ms, the chat composers' in
+    /// `QuitSaveSteps`) and every other step recorded in `order`.
+    static func quit(_ limiter: QuitStepLimiter, ends: Bool, timeLeft: Duration?, order: @escaping @MainActor (String) -> Void,
+                     save: @escaping @MainActor () async -> Void) -> QuitSteps {
+        QuitSteps(
+            remember: { _ in },
+            prepareWindows: { await limiter.run("agent_composers", limit: .milliseconds(400), save) },
+            endLocalSessions: { order("end_sessions"); return [] },
+            confirmFailures: { _ in .quitAnyway },
+            endLocalAgents: { order("end_agents"); return [] },
+            stopBrowserEngines: { order("engines_stopped") },
+            limiter: limiter,
+            timeLeft: { timeLeft }
+        )
+    }
+
+    /// Review of #22919 at 0088e20, finding 1: a save step past its limit did not keep running to
+    /// the deadline: the quit replied to AppKit once its steps returned, and the process exited
+    /// before the late step wrote (one slow chat page lost every chat's composer state). A step that
+    /// passes its limit but ends before the deadline still writes before the quit returns.
+    @Test func aStepPastItsLimitStillWritesBeforeTheQuitReplies() async throws {
+        let clock = ManualClock()
+        let limiter = QuitStepLimiter(mark: { _ in }, clock: clock)
+        var order: [String] = []
+        let (release, releaser) = AsyncStream<Void>.makeStream()
+        let quit = Task { @MainActor in
+            await Self.quit(limiter, ends: false, timeLeft: .seconds(3), order: { order.append($0) }, save: {
+                for await _ in release { break }
+                order.append("composers_written")
+            }).run(ends: false, remember: nil)
+            order.append("replied")
+        }
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(400))
+        for _ in 0..<500 where !order.contains("engines_stopped") { try await Task.sleep(for: .milliseconds(2)) }
+        #expect(order == ["engines_stopped"], "the quit went on past the step's limit: \(order)")
+        releaser.yield()
+        releaser.finish()
+        await quit.value
+        #expect(order == ["engines_stopped", "composers_written", "replied"], "the quit replied before the late write: \(order)")
+    }
+
+    /// The wait for a late step is bounded: a step that never ends holds the quit only for what is
+    /// left of its deadline.
+    @Test func aStepThatNeverEndsHoldsTheQuitOnlyForTheTimeLeft() async throws {
+        let clock = ManualClock()
+        let limiter = QuitStepLimiter(mark: { _ in }, clock: clock)
+        var order: [String] = []
+        let (release, releaser) = AsyncStream<Void>.makeStream()
+        let quit = Task { @MainActor in
+            await Self.quit(limiter, ends: false, timeLeft: .seconds(3), order: { order.append($0) },
+                            save: { for await _ in release { break } }).run(ends: false, remember: nil)
+            order.append("replied")
+        }
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(400))
+        for _ in 0..<500 where !order.contains("engines_stopped") { try await Task.sleep(for: .milliseconds(2)) }
+        try await clock.waitForSleeper()
+        clock.advance(by: .seconds(3))
+        await quit.value
+        #expect(order == ["engines_stopped", "replied"])
+        releaser.finish()
+    }
+
+    /// Review of #22919 at 0088e20, finding 1: in an End quit a late save (the window records, the
+    /// browser records, both through the daemon) must land before the daemon stops.
+    @Test func anEndQuitWaitsForALateSaveBeforeItEndsTheSessions() async throws {
+        let clock = ManualClock()
+        let limiter = QuitStepLimiter(mark: { _ in }, clock: clock)
+        var order: [String] = []
+        let (release, releaser) = AsyncStream<Void>.makeStream()
+        let quit = Task { @MainActor in
+            await Self.quit(limiter, ends: true, timeLeft: nil, order: { order.append($0) }, save: {
+                for await _ in release { break }
+                order.append("windows_written")
+            }).run(ends: true, remember: nil)
+        }
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(400))
+        try await Task.sleep(for: .milliseconds(20))
+        releaser.yield()
+        releaser.finish()
+        await quit.value
+        #expect(order.first == "windows_written", "the sessions ended before the late save: \(order)")
+        #expect(order.contains("end_sessions") && order.last == "engines_stopped")
     }
 }

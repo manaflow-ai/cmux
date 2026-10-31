@@ -40,6 +40,10 @@ public struct QuitSaveSteps {
     /// (network, up to seconds on a slow network).
     public var cloud: @MainActor () async -> Void
 
+    /// Cloud's step: it ends no local data, so an End quit does not wait for
+    /// it before the sessions end (``QuitSteps``).
+    public static let cloudStepName = "cloud"
+
     /// The limit of the "Don't ask again" setting write, before the save steps (`QuitSteps`).
     public static let rememberLimit: Duration = .milliseconds(300)
 
@@ -103,6 +107,6 @@ public struct QuitSaveSteps {
             // A windows step past its limit still runs; nothing saves windows from here.
             if step.name == "windows" { stopSavingWindows() }
         }
-        await limiter.run("cloud", limit: cloudLimit) { await cloudWork.value }
+        await limiter.run(Self.cloudStepName, limit: cloudLimit) { await cloudWork.value }
     }
 }

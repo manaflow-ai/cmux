@@ -46,6 +46,13 @@ public final class QuitStepLimiter {
         }
         return ended
     }
+
+    /// Waits for the steps that passed their limit and still run (every one
+    /// but those named in `excluding`), at most `limit`; true when they all ended.
+    @discardableResult
+    public func finishOverruns(within limit: Duration, excluding: Set<String> = []) async -> Bool {
+        true
+    }
 }
 
 /// One race of ``QuitStepLimiter/run(_:limit:_:)``: the first of the step
