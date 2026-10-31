@@ -192,16 +192,19 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '')
     # This gate only resolves the fixed revision and publication decision: a checkout,
     # github-script and two stdlib Python helpers, which run the same on a Mac. It is the
-    # run's first job, so no picker can run before it. Attempt 1 of a nightly-next push
-    # takes the owned nightly slot (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, glaeda's
-    # nightly-only runner on each mini, admitted ahead of every PR job); the owned-pool
-    # rescue watches that attempt and, when no slot takes decide within
+    # run's first job, so no picker can run before it. On attempt 1, a configured fleet
+    # Linux control runner takes this lightweight job first; when it is unavailable,
+    # a nightly-next push takes the owned nightly slot (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER,
+    # glaeda's nightly-only runner on each mini, admitted ahead of every PR job). The
+    # owned-pool rescue watches that attempt and, when no slot takes decide within
     # CI_OWNED_POOL_RESCUE_SECONDS and nothing of the run has started, re-runs it, and
     # attempt 2 takes the Blacksmith Linux set below. Run 41234993713 (3017ef19) queued
-    # decide on blacksmith-32vcpu-ubuntu-2404 with no fleet route at all. Leo,
+    # decide on blacksmith-32vcpu-ubuntu-2404 with no fleet route at all. Run 41245412350
+    # then waited 305 seconds for five Mac units even though decide only resolves metadata.
+    # Leo,
     # 2026-10-31: "FOR OUR NIGHTLIES ARE THEY END TO END ON OUR FLEET? WE CAN'T BE
     # RELYING ON BLACKSMITH THAT CUTS OUT".
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && !startsWith(vars.CI_CONTROL_RUNNER, 'blacksmith-') && vars.CI_CONTROL_RUNNER || github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
       head_sha: ${{ steps.decide.outputs.head_sha }}
