@@ -370,6 +370,7 @@ extension AgentTabStore {
                     return await CloudMachineUpdates.updateNow(cloudMachineID, services: services)
                 }
             }
+            host.ownerCloud = RemoteAcpmuxWire.ownerCloud(links?.ownerLink, served: daemon.supports(RemoteAcpmuxWire.ownerCloudCapability))
             if started {
                 // The tab may still be provisional here: each handshake reads its store surface.
                 host.existing = { [weak tabs] in
