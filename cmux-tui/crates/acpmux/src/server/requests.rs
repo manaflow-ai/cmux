@@ -49,7 +49,7 @@ fn disallowed_tools(meta: Option<&Value>) -> Result<Vec<String>, RpcError> {
 pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::admission::Ask<'a> {
     let can_force = can_force(conn.origin);
     let force = can_force && force_asked(params);
-    let person = conn.is_person() || conn.origin == Origin::LocalApp;
+    let person = person_asks(conn);
     // A Web client, here or through a peer, learns no host name or path.
     let web =
         super::remote_guard::control_of(conn.origin, conn.auth, params) == crate::hub::Control::Web;
@@ -66,6 +66,13 @@ fn with_wait(mut reply: Value, waited: Value) -> Value {
         reply["wait"] = waited;
     }
     reply
+}
+
+/// Whether the person asks on `conn`: it proved it is the person, or it is this host's app pane (a
+/// peer's `via: app` is its client's word, not proof). The admission's `person` and a chat's
+/// `Session::person` (its start waits as long as its harness works, `hub/lifecycle.rs`).
+pub(super) fn person_asks(conn: &Conn) -> bool {
+    conn.is_person() || conn.origin == Origin::LocalApp
 }
 
 /// The create's name, as `session/new` and `session/fork` read it.
@@ -1184,6 +1191,7 @@ async fn dispatch_request(
                 lineage,
                 disallowed_tools,
                 checked_cwd: None,
+                person: person_asks(conn),
             };
             let s = match &admitted {
                 Some(admitted) => admitted.run(hub.new_session(req)).await?,
@@ -1248,6 +1256,9 @@ async fn dispatch_request(
         method::SESSION_PROMPT => {
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
             attach(hub, conn, &s.id);
+            if person_asks(conn) {
+                s.person_wrote();
+            }
             let mut blocks = params
                 .get("prompt")
                 .and_then(Value::as_array)
