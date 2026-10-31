@@ -85,14 +85,18 @@ fn subkeys(key: [u8; 8]) -> [u64; 16] {
     let permuted = permute(u64::from_be_bytes(key), 64, &PC1);
     let (mut c, mut d) = ((permuted >> 28) & 0x0FFF_FFFF, permuted & 0x0FFF_FFFF);
     let mut keys = [0; 16];
-    for (round, shift) in SHIFTS.iter().enumerate() {
+    for (slot, shift) in keys.iter_mut().zip(SHIFTS) {
         c = ((c << shift) | (c >> (28 - shift))) & 0x0FFF_FFFF;
         d = ((d << shift) | (d >> (28 - shift))) & 0x0FFF_FFFF;
-        keys[round] = permute((c << 28) | d, 56, &PC2);
+        *slot = permute((c << 28) | d, 56, &PC2);
     }
     keys
 }
 
+#[allow(
+    clippy::indexing_slicing,
+    reason = "Each S-box has 64 entries; six is masked to six bits, so row <= 3, column <= 15 and row * 16 + column <= 63."
+)]
 fn feistel(right: u32, key: u64) -> u32 {
     let mixed = permute(u64::from(right), 32, &E) ^ key;
     let mut out = 0u32;
@@ -124,10 +128,10 @@ pub fn vnc_response(password: &[u8], challenge: [u8; 16]) -> [u8; 16] {
         *slot = byte.reverse_bits();
     }
     let mut out = [0u8; 16];
-    for half in 0..2 {
+    for (input, output) in challenge.chunks_exact(8).zip(out.chunks_exact_mut(8)) {
         let mut block = [0u8; 8];
-        block.copy_from_slice(&challenge[half * 8..half * 8 + 8]);
-        out[half * 8..half * 8 + 8].copy_from_slice(&encrypt_block(key, block));
+        block.copy_from_slice(input);
+        output.copy_from_slice(&encrypt_block(key, block));
     }
     out
 }

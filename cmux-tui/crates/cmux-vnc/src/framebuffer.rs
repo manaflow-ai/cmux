@@ -99,36 +99,59 @@ impl Framebuffer {
         (usize::from(y) * usize::from(self.width) + usize::from(x)) * 4
     }
 
-    /// Fills `rect` (already checked) with one color.
-    pub fn fill(&mut self, rect: &Rect, rgba: [u8; 4]) {
+    /// Fills `rect` with one color.
+    pub fn fill(&mut self, rect: &Rect, rgba: [u8; 4]) -> Result<()> {
+        if rect.is_empty() {
+            return Ok(());
+        }
+        self.check(rect)?;
         for row in 0..rect.height {
             let start = self.offset(rect.x, rect.y + row);
             let end = start + usize::from(rect.width) * 4;
-            for pixel in self.pixels[start..end].chunks_exact_mut(4) {
+            let line = self
+                .pixels
+                .get_mut(start..end)
+                .ok_or_else(|| VncError::protocol("framebuffer fill bounds"))?;
+            for pixel in line.chunks_exact_mut(4) {
                 pixel.copy_from_slice(&rgba);
             }
         }
+        Ok(())
     }
 
-    /// Writes RGBA rows (`rect.width * 4` bytes each) into `rect` (already checked).
-    pub fn put(&mut self, rect: &Rect, rgba: &[u8]) {
+    /// Writes RGBA rows (`rect.width * 4` bytes each) into `rect`.
+    pub fn put(&mut self, rect: &Rect, rgba: &[u8]) -> Result<()> {
+        self.check(rect)?;
         let stride = usize::from(rect.width) * 4;
+        if rgba.len() != stride * usize::from(rect.height) {
+            return Err(VncError::protocol("framebuffer pixel count"));
+        }
         for (row, line) in rgba.chunks_exact(stride).take(usize::from(rect.height)).enumerate() {
             let start = self.offset(rect.x, rect.y + row as u16);
-            self.pixels[start..start + stride].copy_from_slice(line);
+            self.pixels
+                .get_mut(start..start + stride)
+                .ok_or_else(|| VncError::protocol("framebuffer write bounds"))?
+                .copy_from_slice(line);
         }
+        Ok(())
     }
 
     /// Copies the `rect`-sized area at (`src_x`, `src_y`) to `rect`; both
-    /// already checked. Overlap is handled (scrolling moves overlap).
-    pub fn copy(&mut self, src_x: u16, src_y: u16, rect: &Rect) {
+    /// checked before copying. Overlap is handled (scrolling moves overlap).
+    pub fn copy(&mut self, src_x: u16, src_y: u16, rect: &Rect) -> Result<()> {
+        self.check(rect)?;
+        self.check(&Rect::new(src_x, src_y, rect.width, rect.height))?;
         let stride = usize::from(rect.width) * 4;
         let mut area = Vec::with_capacity(stride * usize::from(rect.height));
         for row in 0..rect.height {
             let start = self.offset(src_x, src_y + row);
-            area.extend_from_slice(&self.pixels[start..start + stride]);
+            area.extend_from_slice(
+                self.pixels
+                    .get(start..start + stride)
+                    .ok_or_else(|| VncError::protocol("framebuffer copy bounds"))?,
+            );
         }
-        self.put(rect, &area);
+        self.put(rect, &area)
     }
 }
 
@@ -142,7 +165,9 @@ fn check_size(width: u16, height: u16) -> Result<()> {
 fn black(pixels: usize) -> Vec<u8> {
     let mut buf = vec![0; pixels * 4];
     for pixel in buf.chunks_exact_mut(4) {
-        pixel[3] = 255;
+        if let [_, _, _, alpha] = pixel {
+            *alpha = 255;
+        }
     }
     buf
 }
@@ -154,10 +179,10 @@ mod tests {
     #[test]
     fn overlapping_copy_scrolls_up() {
         let mut fb = Framebuffer::new(1, 3).unwrap();
-        fb.fill(&Rect::new(0, 0, 1, 1), [1, 0, 0, 255]);
-        fb.fill(&Rect::new(0, 1, 1, 1), [2, 0, 0, 255]);
-        fb.fill(&Rect::new(0, 2, 1, 1), [3, 0, 0, 255]);
-        fb.copy(0, 1, &Rect::new(0, 0, 1, 2));
+        fb.fill(&Rect::new(0, 0, 1, 1), [1, 0, 0, 255]).unwrap();
+        fb.fill(&Rect::new(0, 1, 1, 1), [2, 0, 0, 255]).unwrap();
+        fb.fill(&Rect::new(0, 2, 1, 1), [3, 0, 0, 255]).unwrap();
+        fb.copy(0, 1, &Rect::new(0, 0, 1, 2)).unwrap();
         assert_eq!(fb.pixels()[0], 2);
         assert_eq!(fb.pixels()[4], 3);
         assert_eq!(fb.pixels()[8], 3);

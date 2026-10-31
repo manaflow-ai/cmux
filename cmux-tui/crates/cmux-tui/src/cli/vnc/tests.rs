@@ -142,21 +142,21 @@ fn vnc_layout_fits_and_maps_the_pointer() {
 fn vnc_scaling_averages_boxes() {
     // 2x2 → 1x1 averages the four pixels.
     let src = [0, 0, 0, 255, 100, 100, 100, 255, 200, 200, 200, 255, 100, 100, 100, 255];
-    assert_eq!(scale_rgb(&src, 2, 2, 1, 1), vec![100, 100, 100]);
+    assert_eq!(scale_rgb(&src, 2, 2, 1, 1).unwrap(), vec![100, 100, 100]);
     // Same size drops alpha only.
     assert_eq!(
-        scale_rgb(&src, 2, 2, 2, 2),
+        scale_rgb(&src, 2, 2, 2, 2).unwrap(),
         vec![0, 0, 0, 100, 100, 100, 200, 200, 200, 100, 100, 100]
     );
     // 3x1 → 2x1 keeps every source column.
     let src = [10, 0, 0, 255, 20, 0, 0, 255, 30, 0, 0, 255];
-    assert_eq!(scale_rgb(&src, 3, 1, 2, 1).len(), 6);
+    assert_eq!(scale_rgb(&src, 3, 1, 2, 1).unwrap().len(), 6);
 }
 
 #[test]
 fn vnc_scaling_large_white_image_does_not_overflow() {
     let src = vec![255; 4112 * 4112 * 4];
-    assert_eq!(scale_rgb(&src, 4112, 4112, 1, 1), vec![255; 3]);
+    assert_eq!(scale_rgb(&src, 4112, 4112, 1, 1).unwrap(), vec![255; 3]);
 }
 
 #[test]

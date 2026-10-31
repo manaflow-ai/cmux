@@ -102,12 +102,13 @@ impl PixelFormat {
 
     /// The pixel value of `bytes` (exactly [`Self::bytes_per_pixel`] long).
     fn value(&self, bytes: &[u8]) -> u32 {
-        match (bytes.len(), self.big_endian) {
-            (1, _) => u32::from(bytes[0]),
-            (2, false) => u32::from(u16::from_le_bytes([bytes[0], bytes[1]])),
-            (2, true) => u32::from(u16::from_be_bytes([bytes[0], bytes[1]])),
-            (_, false) => u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]),
-            (_, true) => u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]),
+        match (bytes, self.big_endian) {
+            ([a], _) => u32::from(*a),
+            ([a, b], false) => u32::from(u16::from_le_bytes([*a, *b])),
+            ([a, b], true) => u32::from(u16::from_be_bytes([*a, *b])),
+            ([a, b, c, d, ..], false) => u32::from_le_bytes([*a, *b, *c, *d]),
+            ([a, b, c, d, ..], true) => u32::from_be_bytes([*a, *b, *c, *d]),
+            _ => 0,
         }
     }
 
@@ -123,8 +124,10 @@ impl PixelFormat {
 
     /// RGBA of one pixel in wire bytes.
     pub fn rgba(&self, bytes: &[u8]) -> [u8; 4] {
-        if *self == Self::RGBX {
-            return [bytes[0], bytes[1], bytes[2], 255];
+        if *self == Self::RGBX
+            && let [r, g, b, ..] = bytes
+        {
+            return [*r, *g, *b, 255];
         }
         self.rgba_of_value(self.value(bytes))
     }
@@ -165,10 +168,10 @@ impl PixelFormat {
     /// when the channels fit there, else the three most significant, in the
     /// pixel's byte order.
     pub fn cpixel_rgba(&self, bytes: &[u8]) -> [u8; 4] {
-        if bytes.len() != 3 {
+        let &[b0, b1, b2] = bytes else {
             return self.rgba(bytes);
-        }
-        let (b0, b1, b2) = (u32::from(bytes[0]), u32::from(bytes[1]), u32::from(bytes[2]));
+        };
+        let (b0, b1, b2) = (u32::from(b0), u32::from(b1), u32::from(b2));
         let value = match (self.fits_low(), self.big_endian) {
             (true, false) => b0 | b1 << 8 | b2 << 16,
             (true, true) => b0 << 16 | b1 << 8 | b2,
@@ -194,7 +197,7 @@ impl PixelFormat {
 
     /// RGBA of a Tight TPIXEL.
     pub fn tpixel_rgba(&self, bytes: &[u8]) -> [u8; 4] {
-        if bytes.len() == 3 { [bytes[0], bytes[1], bytes[2], 255] } else { self.rgba(bytes) }
+        if let &[r, g, b] = bytes { [r, g, b, 255] } else { self.rgba(bytes) }
     }
 }
 

@@ -63,7 +63,9 @@ impl<R: Read> WireReader<R> {
         let mut scratch = [0; 4096];
         while len > 0 {
             let take = len.min(scratch.len());
-            self.exact(&mut scratch[..take])?;
+            self.exact(
+                scratch.get_mut(..take).ok_or_else(|| VncError::protocol("skip buffer bounds"))?,
+            )?;
             len -= take;
         }
         Ok(())

@@ -99,7 +99,9 @@ impl Transport {
             std::thread::Builder::new().name("vnc-proxy-stderr".into()).spawn(move || {
                 let mut buf = [0u8; 512];
                 while let Ok(read @ 1..) = stderr.read(&mut buf) {
-                    tail.push(&buf[..read]);
+                    if let Some(bytes) = buf.get(..read) {
+                        tail.push(bytes);
+                    }
                 }
             })?;
         }

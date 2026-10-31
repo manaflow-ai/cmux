@@ -34,13 +34,13 @@ pub fn decode<R: Read>(
             let flags = reader.u8()?;
             if flags & RAW != 0 {
                 let bytes = reader.bytes(super::pixel_bytes(&tile, bpp))?;
-                super::put_wire_pixels(fb, format, &tile, &bytes);
+                super::put_wire_pixels(fb, format, &tile, &bytes)?;
                 continue;
             }
             if flags & BACKGROUND != 0 {
                 background = format.rgba(&reader.bytes(bpp)?);
             }
-            fb.fill(&tile, background);
+            fb.fill(&tile, background)?;
             if flags & FOREGROUND != 0 {
                 foreground = format.rgba(&reader.bytes(bpp)?);
             }
@@ -63,7 +63,7 @@ pub fn decode<R: Read>(
                     u16::from(wh >> 4) + 1,
                     u16::from(wh & 15) + 1,
                 )?;
-                fb.fill(&sub, color);
+                fb.fill(&sub, color)?;
             }
         }
     }

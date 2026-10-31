@@ -19,6 +19,10 @@ const K: [u32; 64] = [
     0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1, 0xf7537e82, 0xbd3af235, 0x2ad7d2bb, 0xeb86d391,
 ];
 
+#[allow(
+    clippy::indexing_slicing,
+    reason = "chunks_exact(64) bounds the 16 four-byte word reads; rounds 0..64 index 64-entry K/S arrays and each g is in 0..16."
+)]
 pub fn digest(data: &[u8]) -> [u8; 16] {
     let mut state: [u32; 4] = [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476];
     let mut message = data.to_vec();
@@ -48,8 +52,8 @@ pub fn digest(data: &[u8]) -> [u8; 16] {
         }
     }
     let mut out = [0u8; 16];
-    for (i, word) in state.iter().enumerate() {
-        out[i * 4..i * 4 + 4].copy_from_slice(&word.to_le_bytes());
+    for (slot, word) in out.chunks_exact_mut(4).zip(state) {
+        slot.copy_from_slice(&word.to_le_bytes());
     }
     out
 }

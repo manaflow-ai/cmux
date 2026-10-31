@@ -1,5 +1,7 @@
 //! Where the remote screen sits in the pane, and the pixel math both ways.
 
+use cmux_vnc::{VncError, framebuffer::MAX_SIDE};
+
 /// The pane in cells and pixels. The last row is the status line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Pane {
@@ -102,15 +104,35 @@ impl Placement {
 /// Scales an RGBA image to `width` x `height` (not larger than the source)
 /// by averaging each destination pixel's source box, which keeps small text
 /// readable where nearest-neighbor would drop strokes. Returns RGB.
-pub(super) fn scale_rgb(src: &[u8], src_w: u32, src_h: u32, width: u32, height: u32) -> Vec<u8> {
+pub(super) fn scale_rgb(
+    src: &[u8],
+    src_w: u32,
+    src_h: u32,
+    width: u32,
+    height: u32,
+) -> cmux_vnc::Result<Vec<u8>> {
+    if src_w == 0
+        || src_h == 0
+        || src_w > u32::from(MAX_SIDE)
+        || src_h > u32::from(MAX_SIDE)
+        || width == 0
+        || height == 0
+        || width > src_w
+        || height > src_h
+    {
+        return Err(VncError::Protocol("scaling dimensions".into()));
+    }
     let (src_w, src_h) = (src_w as usize, src_h as usize);
     let (width, height) = (width as usize, height as usize);
+    if src.len() != src_w * src_h * 4 {
+        return Err(VncError::Protocol("scaling pixel count".into()));
+    }
     let mut out = Vec::with_capacity(width * height * 3);
     if width == src_w && height == src_h {
         for pixel in src.chunks_exact(4) {
-            out.extend_from_slice(&pixel[..3]);
+            out.extend(pixel.iter().take(3).copied());
         }
-        return out;
+        return Ok(out);
     }
     let bounds = |i: usize, dst: usize, src: usize| -> (usize, usize) {
         let start = i * src / dst;
@@ -118,24 +140,29 @@ pub(super) fn scale_rgb(src: &[u8], src_w: u32, src_h: u32, width: u32, height: 
         (start, end)
     };
     let columns: Vec<(usize, usize)> = (0..width).map(|x| bounds(x, width, src_w)).collect();
-    let mut sums = vec![[0u32; 3]; width];
+    let mut sums = vec![[0u64; 3]; width];
     for y in 0..height {
         let (y0, y1) = bounds(y, height, src_h);
         sums.iter_mut().for_each(|sum| *sum = [0; 3]);
         for row in y0..y1 {
-            let line = &src[row * src_w * 4..(row + 1) * src_w * 4];
+            let line = src
+                .get(row * src_w * 4..(row + 1) * src_w * 4)
+                .ok_or_else(|| VncError::Protocol("scaling row bounds".into()))?;
             for (sum, &(x0, x1)) in sums.iter_mut().zip(&columns) {
-                for pixel in line[x0 * 4..x1 * 4].chunks_exact(4) {
-                    sum[0] += u32::from(pixel[0]);
-                    sum[1] += u32::from(pixel[1]);
-                    sum[2] += u32::from(pixel[2]);
+                let pixels = line
+                    .get(x0 * 4..x1 * 4)
+                    .ok_or_else(|| VncError::Protocol("scaling column bounds".into()))?;
+                for pixel in pixels.chunks_exact(4) {
+                    for (channel, value) in sum.iter_mut().zip(pixel) {
+                        *channel += u64::from(*value);
+                    }
                 }
             }
         }
         for (sum, &(x0, x1)) in sums.iter().zip(&columns) {
-            let count = ((x1 - x0) * (y1 - y0)) as u32;
+            let count = ((x1 - x0) * (y1 - y0)) as u64;
             out.extend(sum.iter().map(|&channel| (channel / count) as u8));
         }
     }
-    out
+    Ok(out)
 }

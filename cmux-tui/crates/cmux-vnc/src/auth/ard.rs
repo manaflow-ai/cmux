@@ -58,10 +58,10 @@ pub fn response(
 /// bytes and NUL-terminated, over random padding.
 pub fn credentials(username: &str, password: &str, padding: [u8; 128]) -> [u8; 128] {
     let mut block = padding;
-    for (offset, text) in [(0, username), (64, password)] {
-        let bytes = &text.as_bytes()[..text.len().min(63)];
-        block[offset..offset + bytes.len()].copy_from_slice(bytes);
-        block[offset + bytes.len()] = 0;
+    for (region, text) in block.chunks_exact_mut(64).zip([username, password]) {
+        for (slot, byte) in region.iter_mut().zip(text.bytes().take(63).chain(std::iter::once(0))) {
+            *slot = byte;
+        }
     }
     block
 }
@@ -69,7 +69,7 @@ pub fn credentials(username: &str, password: &str, padding: [u8; 128]) -> [u8; 1
 fn left_pad(value: &BigUint, length: usize) -> Vec<u8> {
     let bytes = value.to_bytes_be();
     let mut out = vec![0; length.saturating_sub(bytes.len())];
-    out.extend_from_slice(&bytes[bytes.len().saturating_sub(length)..]);
+    out.extend(bytes.iter().skip(bytes.len().saturating_sub(length)).copied());
     out
 }
 

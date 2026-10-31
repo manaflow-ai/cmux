@@ -38,8 +38,7 @@ pub fn decode<R: Read>(
     let kind = control >> 4;
     let tpixel = format.tpixel_len();
     if kind == FILL {
-        fb.fill(rect, format.tpixel_rgba(&reader.bytes(tpixel)?));
-        return Ok(());
+        return fb.fill(rect, format.tpixel_rgba(&reader.bytes(tpixel)?));
     }
     if kind == JPEG {
         return Err(VncError::protocol("Tight JPEG was not requested"));
@@ -47,13 +46,15 @@ pub fn decode<R: Read>(
     if kind > JPEG {
         return Err(VncError::protocol(format!("Tight compression {kind}")));
     }
-    let stream = usize::from(kind & 3);
+    let stream = streams
+        .get_mut(usize::from(kind & 3))
+        .ok_or_else(|| VncError::protocol("Tight stream index"))?;
     let filter = if kind & EXPLICIT_FILTER != 0 { reader.u8()? } else { FILTER_COPY };
     let (width, height) = (usize::from(rect.width), usize::from(rect.height));
     let mut rgba = Vec::with_capacity(width * height * 4);
     match filter {
         FILTER_COPY => {
-            let data = read_data(reader, &mut streams[stream], width * height * tpixel)?;
+            let data = read_data(reader, stream, width * height * tpixel)?;
             for pixel in data.chunks_exact(tpixel) {
                 rgba.extend_from_slice(&format.tpixel_rgba(pixel));
             }
@@ -67,15 +68,21 @@ pub fn decode<R: Read>(
                 .collect();
             if size == 2 {
                 let stride = width.div_ceil(8);
-                let data = read_data(reader, &mut streams[stream], stride * height)?;
+                let data = read_data(reader, stream, stride * height)?;
                 for row in data.chunks_exact(stride) {
                     for x in 0..width {
-                        let index = (row[x / 8] >> (7 - x % 8)) & 1;
-                        rgba.extend_from_slice(&palette[usize::from(index)]);
+                        let byte = row
+                            .get(x / 8)
+                            .ok_or_else(|| VncError::protocol("Tight packed palette bounds"))?;
+                        let index = (byte >> (7 - x % 8)) & 1;
+                        let color = palette
+                            .get(usize::from(index))
+                            .ok_or_else(|| VncError::protocol("Tight palette index"))?;
+                        rgba.extend_from_slice(color);
                     }
                 }
             } else {
-                let data = read_data(reader, &mut streams[stream], width * height)?;
+                let data = read_data(reader, stream, width * height)?;
                 for &index in &data {
                     let color = palette
                         .get(usize::from(index))
@@ -85,13 +92,12 @@ pub fn decode<R: Read>(
             }
         }
         FILTER_GRADIENT => {
-            let data = read_data(reader, &mut streams[stream], width * height * tpixel)?;
+            let data = read_data(reader, stream, width * height * tpixel)?;
             gradient(&data, format, width, &mut rgba);
         }
         other => return Err(VncError::protocol(format!("Tight filter {other}"))),
     }
-    fb.put(rect, &rgba);
-    Ok(())
+    fb.put(rect, &rgba)
 }
 
 /// Reads `len` bytes of filtered data: raw when short, else a compact
@@ -136,30 +142,40 @@ fn gradient(data: &[u8], format: &PixelFormat, width: usize, out: &mut Vec<u8>) 
     let shifts = [format.red_shift, format.green_shift, format.blue_shift];
     let components = |pixel: &[u8]| -> [u32; 3] {
         if tpixel == 3 {
-            [u32::from(pixel[0]), u32::from(pixel[1]), u32::from(pixel[2])]
+            let mut channels = [0; 3];
+            for (channel, byte) in channels.iter_mut().zip(pixel) {
+                *channel = u32::from(*byte);
+            }
+            channels
         } else {
             let value = wire_value(format, pixel);
-            std::array::from_fn(|c| (value >> shifts[c]) & maxes[c])
+            let [r, g, b] = shifts;
+            let [rm, gm, bm] = maxes;
+            [(value >> r) & rm, (value >> g) & gm, (value >> b) & bm]
         }
     };
     let mut above = vec![[0u32; 3]; width];
     let mut row = vec![[0u32; 3]; width];
     for line in data.chunks_exact(width * tpixel) {
-        for x in 0..width {
-            let sent = components(&line[x * tpixel..(x + 1) * tpixel]);
-            for c in 0..3 {
-                let left = if x > 0 { row[x - 1][c] } else { 0 };
-                let up_left = if x > 0 { above[x - 1][c] } else { 0 };
-                let predicted = (i64::from(left) + i64::from(above[x][c]) - i64::from(up_left))
-                    .clamp(0, i64::from(maxes[c])) as u32;
-                row[x][c] = (sent[c] + predicted) & maxes[c];
+        let mut left = [0u32; 3];
+        let mut up_left = [0u32; 3];
+        for ((pixel, up), current) in line.chunks_exact(tpixel).zip(&above).zip(&mut row) {
+            let sent = components(pixel);
+            for (((((channel, sent), left), up), up_left), max) in
+                current.iter_mut().zip(sent).zip(left).zip(*up).zip(up_left).zip(maxes)
+            {
+                let predicted = (i64::from(left) + i64::from(up) - i64::from(up_left))
+                    .clamp(0, i64::from(max)) as u32;
+                *channel = (sent + predicted) & max;
             }
-            let value = row[x];
+            left = *current;
+            up_left = *up;
+            let [r, g, b] = *current;
             if tpixel == 3 {
-                out.extend_from_slice(&[value[0] as u8, value[1] as u8, value[2] as u8, 255]);
+                out.extend_from_slice(&[r as u8, g as u8, b as u8, 255]);
             } else {
-                let packed =
-                    (value[0] << shifts[0]) | (value[1] << shifts[1]) | (value[2] << shifts[2]);
+                let [rs, gs, bs] = shifts;
+                let packed = (r << rs) | (g << gs) | (b << bs);
                 out.extend_from_slice(&format.rgba_of_value(packed));
             }
         }

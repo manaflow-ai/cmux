@@ -590,7 +590,9 @@ impl Viewer {
         }
         self.placement = Some(placement);
         let (col, row, x_off, y_off) = placement.anchor(&pane);
-        let id = kitty::IMAGE_IDS[self.image];
+        let id = *kitty::IMAGE_IDS
+            .get(self.image)
+            .ok_or_else(|| io::Error::other("invalid VNC image slot"))?;
         self.image = 1 - self.image;
         kitty::frame(
             &mut self.out,
@@ -621,7 +623,7 @@ impl Viewer {
             return Ok(());
         };
         let pane = self.pane();
-        if cursor.width == 0 {
+        if cursor.width == 0 || cursor.height == 0 {
             if self.cursor_shown {
                 kitty::delete(&mut self.out, CURSOR_ID)?;
                 self.cursor_shown = false;
@@ -645,14 +647,16 @@ impl Viewer {
             write!(self.out, "\x1b_Ga=p,i={CURSOR_ID},p=1,X={x_off},Y={y_off},z=1,C=1,q=2\x1b\\")?;
         } else {
             let mut rgba = vec![0u8; (w * h * 4) as usize];
-            for y in 0..h {
-                for x in 0..w {
-                    let sx = ((f64::from(x) / scale) as u32).min(u32::from(cursor.width) - 1);
-                    let sy = ((f64::from(y) / scale) as u32).min(u32::from(cursor.height) - 1);
-                    let from = ((sy * u32::from(cursor.width) + sx) * 4) as usize;
-                    let to = ((y * w + x) * 4) as usize;
-                    rgba[to..to + 4].copy_from_slice(&cursor.rgba[from..from + 4]);
-                }
+            for (index, pixel) in rgba.chunks_exact_mut(4).enumerate() {
+                let (x, y) = (index as u32 % w, index as u32 / w);
+                let sx = ((f64::from(x) / scale) as u32).min(u32::from(cursor.width) - 1);
+                let sy = ((f64::from(y) / scale) as u32).min(u32::from(cursor.height) - 1);
+                let from = ((sy * u32::from(cursor.width) + sx) * 4) as usize;
+                let source = cursor
+                    .rgba
+                    .get(from..from + 4)
+                    .ok_or_else(|| io::Error::other("invalid VNC cursor pixels"))?;
+                pixel.copy_from_slice(source);
             }
             let encoded = base64::engine::general_purpose::STANDARD.encode(&rgba);
             write!(
@@ -766,13 +770,20 @@ fn read_loop(
                     let pane = canvas.lock().map(|c| c.pane).ok();
                     if let Some(pane) = pane {
                         let placement = Placement::fit(&pane, fb.width(), fb.height());
-                        let rgb = scale_rgb(
+                        let rgb = match scale_rgb(
                             fb.pixels(),
                             u32::from(fb.width()),
                             u32::from(fb.height()),
                             placement.width,
                             placement.height,
-                        );
+                        ) {
+                            Ok(rgb) => rgb,
+                            Err(error) => {
+                                session.input().close();
+                                let _ = send(Net::Ended(error, started.elapsed()));
+                                return;
+                            }
+                        };
                         let was_waiting = canvas
                             .lock()
                             .map(|mut c| {

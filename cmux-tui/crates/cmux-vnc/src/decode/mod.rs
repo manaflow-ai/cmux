@@ -102,8 +102,7 @@ impl Decoders {
             encoding::COPY_RECT => {
                 let (src_x, src_y) = (reader.u16()?, reader.u16()?);
                 fb.check(&Rect::new(src_x, src_y, rect.width, rect.height))?;
-                fb.copy(src_x, src_y, rect);
-                Ok(())
+                fb.copy(src_x, src_y, rect)
             }
             encoding::RRE => rre(reader, fb, format, rect),
             encoding::HEXTILE => hextile::decode(reader, fb, format, rect),
@@ -114,8 +113,7 @@ impl Decoders {
                 if pixels.len() != expected {
                     return Err(VncError::protocol("Zlib rectangle size"));
                 }
-                put_wire_pixels(fb, format, rect, &pixels);
-                Ok(())
+                put_wire_pixels(fb, format, rect, &pixels)
             }
             encoding::ZRLE => {
                 let data = reader.compressed("ZRLE")?;
@@ -141,10 +139,10 @@ pub(crate) fn put_wire_pixels(
     format: &PixelFormat,
     rect: &Rect,
     bytes: &[u8],
-) {
+) -> Result<()> {
     let mut rgba = vec![0u8; pixel_bytes(rect, 4)];
     format.to_rgba_row(bytes, &mut rgba);
-    fb.put(rect, &rgba);
+    fb.put(rect, &rgba)
 }
 
 fn raw<R: Read>(
@@ -159,7 +157,7 @@ fn raw<R: Read>(
     for row in 0..rect.height {
         reader.exact(&mut line)?;
         format.to_rgba_row(&line, &mut rgba);
-        fb.put(&Rect::new(rect.x, rect.y + row, rect.width, 1), &rgba);
+        fb.put(&Rect::new(rect.x, rect.y + row, rect.width, 1), &rgba)?;
     }
     Ok(())
 }
@@ -173,12 +171,12 @@ fn rre<R: Read>(
     let count = reader.u32()?;
     let bpp = format.bytes_per_pixel();
     let background = format.rgba(&reader.bytes(bpp)?);
-    fb.fill(rect, background);
+    fb.fill(rect, background)?;
     for _ in 0..count {
         let color = format.rgba(&reader.bytes(bpp)?);
         let (x, y, w, h) = (reader.u16()?, reader.u16()?, reader.u16()?, reader.u16()?);
         let sub = sub_rect(rect, x, y, w, h)?;
-        fb.fill(&sub, color);
+        fb.fill(&sub, color)?;
     }
     Ok(())
 }
@@ -207,10 +205,14 @@ pub fn cursor<R: Read>(
     let mask = reader.bytes(mask_stride * usize::from(rect.height))?;
     let mut rgba = vec![0u8; pixel_bytes(rect, 4)];
     format.to_rgba_row(&pixels, &mut rgba);
-    for y in 0..usize::from(rect.height) {
-        for x in 0..usize::from(rect.width) {
-            let visible = mask[y * mask_stride + x / 8] & (0x80 >> (x % 8)) != 0;
-            rgba[(y * usize::from(rect.width) + x) * 4 + 3] = if visible { 255 } else { 0 };
+    for (index, pixel) in rgba.chunks_exact_mut(4).enumerate() {
+        let width = usize::from(rect.width);
+        let (x, y) = (index % width, index / width);
+        let byte = mask
+            .get(y * mask_stride + x / 8)
+            .ok_or_else(|| VncError::protocol("cursor mask bounds"))?;
+        if let [_, _, _, alpha] = pixel {
+            *alpha = if byte & (0x80 >> (x % 8)) != 0 { 255 } else { 0 };
         }
     }
     Ok(Cursor {
@@ -239,7 +241,11 @@ pub(crate) fn inflate(stream: &mut Decompress, input: &[u8], limit: usize) -> Re
         let consumed = (stream.total_in() - start) as usize;
         let (before_in, before_out) = (stream.total_in(), stream.total_out());
         stream
-            .decompress_vec(&input[consumed..], &mut out, FlushDecompress::Sync)
+            .decompress_vec(
+                input.get(consumed..).ok_or_else(|| VncError::protocol("zlib input bounds"))?,
+                &mut out,
+                FlushDecompress::Sync,
+            )
             .map_err(|error| VncError::protocol(format!("zlib: {error}")))?;
         if out.len() > limit {
             return Err(VncError::protocol("compressed rectangle inflates past its size"));
@@ -271,13 +277,19 @@ impl<'a> Cursor8<'a> {
     pub fn take(&mut self, len: usize) -> Result<&'a [u8]> {
         let end = self.at.checked_add(len).filter(|&end| end <= self.bytes.len());
         let end = end.ok_or_else(|| VncError::protocol("compressed data ends early"))?;
-        let slice = &self.bytes[self.at..end];
+        let slice = self
+            .bytes
+            .get(self.at..end)
+            .ok_or_else(|| VncError::protocol("compressed data ends early"))?;
         self.at = end;
         Ok(slice)
     }
 
     pub fn u8(&mut self) -> Result<u8> {
-        Ok(self.take(1)?[0])
+        self.take(1)?
+            .first()
+            .copied()
+            .ok_or_else(|| VncError::protocol("compressed data ends early"))
     }
 }
 

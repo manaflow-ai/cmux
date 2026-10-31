@@ -28,7 +28,7 @@ pub fn decode(bytes: &[u8], fb: &mut Framebuffer, format: &PixelFormat, rect: &R
                     }
                 }
                 1 => {
-                    fb.fill(&tile, format.cpixel_rgba(data.take(cpixel)?));
+                    fb.fill(&tile, format.cpixel_rgba(data.take(cpixel)?))?;
                     continue;
                 }
                 2..=16 => {
@@ -43,7 +43,10 @@ pub fn decode(bytes: &[u8], fb: &mut Framebuffer, format: &PixelFormat, rect: &R
                     for row in packed.chunks_exact(stride) {
                         for x in 0..usize::from(tile.width) {
                             let bit = x * bits;
-                            let index = (row[bit / 8] >> (8 - bits - bit % 8)) & ((1 << bits) - 1);
+                            let byte = row
+                                .get(bit / 8)
+                                .ok_or_else(|| VncError::protocol("ZRLE packed palette bounds"))?;
+                            let index = (byte >> (8 - bits - bit % 8)) & ((1 << bits) - 1);
                             let color = palette
                                 .get(usize::from(index))
                                 .ok_or_else(|| VncError::protocol("ZRLE palette index"))?;
@@ -76,7 +79,7 @@ pub fn decode(bytes: &[u8], fb: &mut Framebuffer, format: &PixelFormat, rect: &R
             if tile_rgba.len() != pixels * 4 {
                 return Err(VncError::protocol("ZRLE run past its tile"));
             }
-            fb.put(&tile, &tile_rgba);
+            fb.put(&tile, &tile_rgba)?;
         }
     }
     Ok(())
