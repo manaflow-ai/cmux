@@ -23,7 +23,11 @@ name: CI queue janitor
 # a newer job on the same labels got one, or a run still queued after a day.
 # These are lost runner assignments, not demand, so no queue threshold gates
 # them; release, tag, merge-queue and nightly/DEV/promote orphans
-# (scripts/ci/delivery_workflows.py) are only reported, never cancelled.
+# (scripts/ci/delivery_workflows.py) are only reported, never cancelled. An
+# orphaned workflow_dispatch on main, feat-cmux-next or nightly-next (the
+# `cmux-next base tier · <sha>` runs that carry base's daemon tests) is re-run
+# at the same head by the next sweep, through the `lost_reruns` state below,
+# unless a newer dispatch of its kind took the job; the attempt bounds it.
 #
 # Sooner than that, category e takes a push or pull request run (never a
 # protected one) whose job has queued with no runner for 30 minutes while a
