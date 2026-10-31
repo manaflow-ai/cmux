@@ -728,7 +728,8 @@ impl Peer {
                 Ok(v) => Message::ok(id, v),
                 Err(e) => Message::err(id, e),
             };
-            if let Ok(line) = msg.bounded_line() {
+            let reply_to = Some(crate::rpc::method::MUX_GITHUB_ACTION);
+            if let Ok(line) = msg.bounded_line_replying(reply_to) {
                 let frame = Outbound { epoch, key: None, line };
                 let _ = tokio::time::timeout(me.timings.request, me.out.send(frame)).await;
             }

@@ -30,6 +30,7 @@ public final class AgentPaneModel {
 
     /// Called when the page switches to or creates a session, so the App can keep it with the tab.
     @ObservationIgnored public var onSessionChange: ((String) -> Void)?
+    @ObservationIgnored var onQuestionKeySessionChange: (() -> Void)?
     /// Called when acpmux reports the agent the pane's session runs (its `session/new` or
     /// `_acpmux/attach` reply; ``AcpmuxPaneSessions/harness(of:)``), so the App records the
     /// harness on the tab (cx-w4bbw). Only for the session the pane shows.
@@ -550,6 +551,7 @@ public final class AgentPaneModel {
         if sessionId != nil { droppedPaths.clearForSessionChange() }
         sessionId = id
         newTab = nil
+        onQuestionKeySessionChange?()
         onSessionChange?(id)
     }
 

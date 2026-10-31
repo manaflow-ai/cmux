@@ -62,6 +62,7 @@ export function SummaryCard({
   workflows,
   workflowActionsFor,
   workflowCapacity,
+  onOpenInspector,
 }: {
   card: SummaryCardControl;
   rows: readonly AcpmuxRow[];
@@ -105,6 +106,8 @@ export function SummaryCard({
   workflows?: readonly WorkflowSummary[];
   workflowActionsFor?: (workflow: WorkflowSummary) => WorkflowActions;
   workflowCapacity?: WorkflowCapacitySignal;
+  /// Opens a complete Session Info section beside the chat.
+  onOpenInspector?: (section: "subagents" | "tasks") => void;
 }) {
   const t = useT();
   const [gallery, setGallery] = useState(false);
@@ -323,6 +326,7 @@ export function SummaryCard({
                 autoOpen={agents.length > 0 ? subagents.autoOpen : undefined}
                 // The tab lists subagents only; a chat with only sub-sessions or started chats has none to show there.
                 onShowAll={agents.length > 0 ? () => setTab("subagents") : undefined}
+                onOpenInPane={onOpenInspector ? () => onOpenInspector("subagents") : undefined}
                 subsessions={subsessionRows}
                 sessions={children}
                 onOpenSession={sessions?.onOpen ?? subsessions?.onOpen}
@@ -344,6 +348,7 @@ export function SummaryCard({
               tools={tools}
               commands={commands}
               onStopCommand={background?.onStop}
+              onOpenTasksInPane={onOpenInspector ? () => onOpenInspector("tasks") : undefined}
               workflow={workflow}
               workflowActions={workflowActions}
               workflows={workflows}
