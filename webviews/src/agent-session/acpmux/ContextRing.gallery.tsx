@@ -12,6 +12,8 @@ type Props = {
   setup?: number;
   breakdown?: unknown;
   details?: boolean;
+  /// The agent lists `/compact`: the card offers Compact (App.tsx `compactChat`).
+  compact?: boolean;
   wheel?: "compact" | "standard" | "minimal";
 };
 
@@ -30,6 +32,7 @@ function GalleryContextRing(props: Props) {
         breakdown={props.breakdown}
         // The chat's Inspector reveal (App.tsx); the gallery has no Inspector to open.
         onOpenDetails={props.details ? () => {} : undefined}
+        onCompact={props.compact ? () => {} : undefined}
       />
       <button
         type="button"
@@ -104,6 +107,11 @@ export default componentEntry<Props>({
     "card-claude": {
       note: "Hover on a Claude chat: the compact glass card reads 111K / 475K · 23%, shows a thin usage bar and short category summary, and keeps Details › available.",
       props: { used: 111_000, size: 475_000, setup: 21_000, details: true },
+      play: hoverCard,
+    },
+    "card-claude-compact": {
+      note: "Hover on a Claude chat whose agent lists /compact: the card ends with Compact beside Details › (Leo, 2026-10-28: \"You don't have the compact session\"; #17537 had it, #20454 dropped its wiring).",
+      props: { used: 111_000, size: 475_000, setup: 21_000, details: true, compact: true },
       play: hoverCard,
     },
     "card-codex": {

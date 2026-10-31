@@ -14,6 +14,9 @@ nonisolated struct AcpmuxPeerUpdateCommand: Sendable {
         var status: Int32?
         var output: String
         var errors: String
+        /// A signal ended it (not its deadline, not a failed launch): the run was cut short, such
+        /// as by a restart of the local daemon it talks to.
+        var interrupted = false
     }
 
     var executable: URL
@@ -46,7 +49,7 @@ nonisolated struct AcpmuxPeerUpdateCommand: Sendable {
         do {
             let outcome = try await AsyncProcess().run(request)
             return Result(status: outcome.exited ? outcome.status : nil, output: outcome.text,
-                          errors: String(decoding: outcome.errorOutput, as: UTF8.self))
+                          errors: String(decoding: outcome.errorOutput, as: UTF8.self), interrupted: !outcome.exited)
         } catch ProcessFailure.timedOut {
             let stopped = "acpmux ran past its \(deadline) deadline and was stopped"
             guard await exit.exited(within: exitBound) else {

@@ -12,6 +12,8 @@ extension AgentPaneView {
     public func addProjectFiles() { sendMenuCommand("addProjectFiles") }
     public func moveToFloatingChat() { sendMenuCommand("floatingChat") }
     public func toggleThreadMinimap() { sendMenuCommand("toggleMinimap") }
+    /// Continue After Error: the page runs the failed last turn's Continue or Retry, as its card does.
+    public func continueAfterError() { sendMenuCommand("continueAfterError") }
 
     private func sendMenuCommand(_ command: String) {
         // Include the page's current session in the command. The App drops a command whose

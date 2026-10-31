@@ -39,6 +39,9 @@ DEBT = {
 NOT_MENUS = {
     # The Mac screen's toggle switch: its knob inset sits in a file that also adds NSMenuItem helpers.
     "CmuxNextMacScreen/MacScreenButtons.swift",
+    # The DEBUG `debug.object_menu` capture command: its NSPoint is where it pops the pane's own menu up
+    # (80 pt into a pane whose tab bar is hidden), a click location, not a row of a menu it draws.
+    "CmuxNextApp/Control/DebugObjectMenu.swift",
 }
 # The system menu bar's status item (`MenuBarIcon`) is an icon, not a menu.
 NOT_SURFACE = re.compile(r"MenuBar")

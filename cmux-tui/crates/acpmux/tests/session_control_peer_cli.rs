@@ -488,13 +488,10 @@ async fn lifecycle_commands_use_peer_stable_ids_and_refuse_ambiguous_names() {
             p["sessionId"] == cancel_id && p["update"]["content"]["text"] == "running"
         })
         .await;
+        // The person's own CLI on A stops a chat started on B (its link presented B's peer
+        // token for itself), as `session stop` closes one (`remote_guard/cancel_owner.rs`).
         let (ok, stdout, stderr) = cli(&root, &socket, &["--json", "session", "cancel", key]).await;
-        assert!(!ok, "remote cancel must retain the local-origin ownership rule: {stdout}{stderr}");
-        assert!(
-            format!("{stdout}{stderr}").contains("remote.session_cancel_ownership"),
-            "{stdout}{stderr}"
-        );
-        cb.send(method::SESSION_CANCEL, json!({"sessionId": cancel_id})).await;
+        assert!(ok, "the owner's cancel of a chat started on its peer: {stdout}{stderr}");
         cb.wait(method::MUX_EVENT, |p| {
             p["sessionId"] == cancel_id
                 && p["kind"] == "turn_result"
@@ -503,7 +500,22 @@ async fn lifecycle_commands_use_peer_stable_ids_and_refuse_ambiguous_names() {
         .await;
     }
 
-    let (ok, stdout, stderr) = cli(&root, &socket, &["--json", "session", "stop", &stop_id]).await;
+    // A conditional stop runs only on the daemon that owns the session: an older peer would
+    // ignore the condition and stop it anyway. Refused here, and the session stays open.
+    let (ok, stdout, stderr) = cli(
+        &root,
+        &socket,
+        &["--json", "session", "stop", "--id", &stop_id, "--if-idle", "--expect-revision", "1"],
+    )
+    .await;
+    assert!(!ok, "a peer's session took a conditional stop: {stdout}{stderr}");
+    assert!(format!("{stdout}{stderr}").contains("stop_if_idle_remote"), "{stdout}{stderr}");
+    let open = cb.call(method::MUX_INFO, json!({"sessionId": stop_id})).await;
+    assert_ne!(open["status"], "closed", "the refused conditional stop closed it");
+
+    // `--id` needs no `--mesh`: it stops the session as the positional form does.
+    let (ok, stdout, stderr) =
+        cli(&root, &socket, &["--json", "session", "stop", "--id", &stop_id]).await;
     assert!(ok, "{stdout}{stderr}");
     let stopped = cb.call(method::MUX_INFO, json!({"sessionId": stop_id})).await;
     assert_eq!(stopped["status"], "closed");
