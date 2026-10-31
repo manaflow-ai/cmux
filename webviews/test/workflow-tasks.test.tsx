@@ -485,3 +485,35 @@ test("a pending phase opens on its own when its first agent starts running, as a
   expect(judgeRow().querySelector(".acpmux-workflow-phase__agents")).not.toBeNull();
   expect(judgeRow().querySelector("button")!.getAttribute("aria-expanded")).toBe("true");
 });
+
+test("a pending phase whose agents arrive queued opens when one of them starts running", async () => {
+  dom = new JSDOM("<!doctype html><main id=root></main>", { url: "http://localhost/" });
+  for (const [key, value] of Object.entries({
+    window: dom.window,
+    document: dom.window.document,
+    HTMLElement: dom.window.HTMLElement,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  })) {
+    saved.set(key, scope[key]);
+    scope[key] = value;
+  }
+  const before = summaries("running")[0]!;
+  const judge = before.phases.find((phase) => phase.state === "pending")!;
+  // Judge's agent is spawned but waits its turn, then starts.
+  const withJudge = (state: "waiting" | "running") => ({
+    ...before,
+    agents: [...before.agents, { ...before.agents[0]!, id: "judge-1", name: "judge", state }],
+    phases: before.phases.map((phase) =>
+      phase.id === judge.id ? { ...phase, state: state === "running" ? ("running" as const) : phase.state, agentIds: ["judge-1"] } : phase,
+    ),
+  });
+  const container = dom.window.document.getElementById("root")!;
+  root = createRoot(container);
+  const judgeRow = () => [...container.querySelectorAll(".acpmux-workflow-phase")].at(-1)!;
+  await act(async () => root!.render(<WorkflowTasks workflows={[before]} />));
+  await act(async () => root!.render(<WorkflowTasks workflows={[withJudge("waiting")]} />));
+  expect(judgeRow().querySelector("button")!.getAttribute("aria-expanded")).toBe("false");
+  await act(async () => root!.render(<WorkflowTasks workflows={[withJudge("running")]} />));
+  expect(judgeRow().querySelector("button")!.getAttribute("aria-expanded")).toBe("true");
+  expect(judgeRow().querySelector(".acpmux-workflow-phase__agents")).not.toBeNull();
+});
