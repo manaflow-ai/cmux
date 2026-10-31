@@ -5,6 +5,7 @@ import Foundation
 import SwiftUI
 import Testing
 import UIKit
+import CmuxTabsKit
 @testable import CmuxMobileAgentChat
 @testable import CmuxMobileWorkspaces
 
@@ -102,28 +103,49 @@ import UIKit
         #expect(now.mayShow(drawn), "the older picture stands in until the new one is drawn")
     }
 
-    /// Edge P1: the page size came only from a page's `onAppear`, so a grid shown before any
-    /// page (or rotated with the grid up) drew its agent cards at 402x874. A card reads the
-    /// size it is laid out at, as the kit lays it out (the full page, scaled down).
-    @Test func aCardTakesTheGridsPageSizeBeforeAnyPageShows() async throws {
+    /// Hosts an agent tab's card at `size`, inside the grid's scaled page (`pageSize` set, as
+    /// TabsKit's grid card does) or at its own size (`pageSize` nil: the card's long-press menu
+    /// preview and drag preview), and lets it lay out.
+    func hostCard(size: CGSize, pageSize: CGSize?) async throws -> (WorkspaceTabsSource, UIWindow) {
         let store = AppStore.mock(tabMemory: .inMemory())
         let source = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", sessions: AgentSessionDirectory())
         let workspace = try #require(source.listedWorkspace)
         let agent = try #require(workspace.tabs.first { $0.kind == .agent })
-        let size = CGSize(width: 874, height: 402)
         let host = UIHostingController(rootView: WorkspaceTabCard(source: source, tabID: agent.id, insets: EdgeInsets())
-            .frame(width: size.width, height: size.height))
-        let window = UIWindow(frame: CGRect(origin: .zero, size: size))
+            .frame(width: size.width, height: size.height)
+            .environment(\.tabsKitCardPageSize, pageSize))
+        let window = UIWindow(frame: CGRect(origin: .zero, size: CGSize(width: max(size.width, 402), height: max(size.height, 874))))
         window.rootViewController = host
         window.makeKeyAndVisible()
-        defer { window.isHidden = true }
         for _ in 0 ..< 20 {
             host.view.layoutIfNeeded()
             try await Task.sleep(for: .milliseconds(16))
         }
+        return (source, window)
+    }
+
+    /// Edge P1: the page size came only from a page's `onAppear`, so a grid shown before any
+    /// page (or rotated with the grid up) drew its agent cards at 402x874. A grid card takes
+    /// the page size the kit lays it out at.
+    @Test func aCardTakesTheGridsPageSizeBeforeAnyPageShows() async throws {
+        let size = CGSize(width: 874, height: 402)
+        let (source, window) = try await hostCard(size: size, pageSize: size)
+        defer { window.isHidden = true }
         #expect(source.pageWidth == size.width && source.pageHeight == size.height,
                 "the source's page size: \(source.pageWidth)x\(source.pageHeight)")
         #expect(source.rasterizer.lastKey?.page == size, "the card's picture key: \(String(describing: source.rasterizer.lastKey?.page))")
+    }
+
+    /// Review of 2a38f796 (P1): the page size was read from the card's own geometry, and a
+    /// card is also laid out at its own size (about 177x249) by its long-press menu preview and
+    /// its drag preview. A long press set the page to that size, and every agent card redrew
+    /// with its transcript 177 pt wide. A card laid out outside the grid's page leaves it.
+    @Test func aCardsPreviewLeavesThePageSize() async throws {
+        let (source, window) = try await hostCard(size: CGSize(width: 177, height: 249), pageSize: nil)
+        defer { window.isHidden = true }
+        #expect(source.pageWidth == 402 && source.pageHeight == 874, "the source's page size: \(source.pageWidth)x\(source.pageHeight)")
+        #expect(source.rasterizer.lastKey.map { $0.page == CGSize(width: 402, height: 874) } ?? true,
+                "the card's picture key: \(String(describing: source.rasterizer.lastKey?.page))")
     }
 }
 #endif

@@ -20,9 +20,25 @@ final class SentAttachmentThumbnails {
     @ObservationIgnored private var decoding: [String: Task<UIImage?, Never>] = [:]
     /// About 1 MB each at the largest size: a long chat's images and a grid's cards.
     let limit: Int
+    /// A bound on the decoded pixels kept (tests; not enforced yet).
+    let byteLimit: Int
+    /// Decodes started (tests).
+    @ObservationIgnored private(set) var decodes = 0
 
-    init(limit: Int = 96) {
+    init(limit: Int = 96, byteLimit: Int = .max) {
         self.limit = limit
+        self.byteLimit = byteLimit
+    }
+
+    /// Bytes of the decoded thumbnails kept (tests).
+    var residentBytes: Int {
+        images.values.reduce(0) { $0 + Self.cost($1) }
+    }
+
+    /// A decoded image's pixel bytes.
+    nonisolated static func cost(_ image: UIImage) -> Int {
+        guard let cg = image.cgImage else { return Int(image.size.width * image.scale * image.size.height * image.scale) * 4 }
+        return cg.bytesPerRow * cg.height
     }
 
     /// The point side a message's thumbnails are drawn at (`SentAttachments`): one image large,
@@ -50,6 +66,7 @@ final class SentAttachmentThumbnails {
         let key = Self.key(attachment, data: data, side: side)
         if let image = images[key] { return image }
         if let running = decoding[key] { return await running.value }
+        decodes += 1
         let work = Task.detached(priority: .userInitiated) {
             UIImage(data: data).flatMap { $0.preparingThumbnail(of: SentAttachments.fill($0.size, side: side)) ?? $0 }
         }

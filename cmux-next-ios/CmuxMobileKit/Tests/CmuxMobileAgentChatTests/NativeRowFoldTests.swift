@@ -174,6 +174,21 @@ import UIKit
         #expect(chat.surface.following, "back on the newest row, the chat follows it again")
     }
 
+    /// Review of 2a38f796 (optional): a held line waits for the list to show its disclosure
+    /// change before it lets go, but the reader's own scroll (a drag, Jump to latest, Find) is
+    /// their intent and releases the hold at once.
+    @Test func theReadersOwnScrollReleasesAHeldLineAtOnce() async throws {
+        let chat = try await chat()
+        defer { chat.window.isHidden = true }
+        let row = try #require(chat.toolRows().last, "a tool row on screen")
+        chat.list.context.foldHold.begin()
+        // The list reloads for this on a later turn of the main queue: the change is pending.
+        chat.surface.disclosures.set("tool-\(row.call)", true)
+        #expect(chat.controller.isHoldingFold)
+        chat.controller.scrollTranscript(toTop: false, animated: false)
+        #expect(!chat.controller.isHoldingFold, "the reader's scroll lets go at once")
+    }
+
     /// Edge P1: a switch to an accessibility text size installed the new environment before
     /// choosing the rows to reload, so no row counted as native any more and the native cells on
     /// screen stayed native. Every row on screen is a SwiftUI cell at that size, and native
