@@ -127,12 +127,12 @@ final class CloudService {
     /// - Parameters:
     ///   - mainWork: The app's ``MainWorkScheduler`` (AppServices passes the one it was built with).
     ///   - work: The app's blocking-work lanes: the install id is read on its files lane (``CloudDeviceID``).
-    init(machines: MachineRegistry, isDebugBuild: Bool, mainWork: MainWorkScheduler, work: BackgroundWork) {
+    init(machines: MachineRegistry, isDebugBuild: Bool, mainWork: MainWorkScheduler, work: BackgroundWork, authCaptureFixture: Bool = false) {
         self.machines = machines
         self.mainWork = mainWork
         self.work = work
         configuration = CloudConfiguration.current(isDebugBuild: isDebugBuild)
-        auth = CloudAuth(configuration: configuration)
+        auth = CloudAuth(configuration: configuration, captureFixture: authCaptureFixture)
         paths = CloudPaths.standard(bundleID: configuration.bundleID)
         deviceID = CloudDeviceID(paths: paths, work: work)
         let auth = auth
