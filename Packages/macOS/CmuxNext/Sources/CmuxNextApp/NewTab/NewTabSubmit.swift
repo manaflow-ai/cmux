@@ -97,8 +97,14 @@ extension NewTabSubmit {
             // of #28544 at 39fa77d8: `!ls` typed on the native page as a prompt made its terminal in the dock.
             // Only a person's submission moves: a script's (CLI, MCP) aimed at the dock opens where it asked, as in
             // TabLifecycle (delta review of #28544 at 54e3d1bf).
-            let target = plan.opensBesideChat(origin: invocation.origin) ? ChatColumnPlacement.pagePick(from: pane) ?? pane : pane
-            target.newTerminalTab(cwd: cwd, typing: command.isEmpty ? nil : command)
+            guard plan.opensBesideChat(origin: invocation.origin) else {
+                pane.newTerminalTab(cwd: cwd, typing: command.isEmpty ? nil : command)
+                return
+            }
+            services.linkOpener.open(from: pane, kind: .terminal) { target, placed in
+                target.newTerminalTab(cwd: cwd, typing: command.isEmpty ? nil : command, placementOwner: placed != nil)
+                return true
+            }
         case .browser(let url):
             guard let open = browserInvocation(url, from: invocation) else { return }
             TabLifecycle.newBrowser(ctx, open)

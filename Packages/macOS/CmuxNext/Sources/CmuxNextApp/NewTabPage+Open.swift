@@ -341,23 +341,41 @@ extension NewTabPage {
     /// URL or `!command` typed there).
     private static func submitNative(_ text: String, kind: AgentPaneTabKind, search: Bool, cwd: String?, in page: PaneController) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        // A terminal or browser picked in the main pane opens beside the chat, as on the web page (``replace``):
-        // in the strip beside the chat dock, or it takes the page's place beside a lone chat, which then docks left.
-        let strip = kind.opensBesideChat ? ChatColumnPlacement.pagePick(from: page) : nil
-        let pane = strip ?? page
-        let docks = kind.opensBesideChat && strip == nil && docksChat(page)
-        let landed = docks ? docking(page) : nil
+        // Native terminal and browser picks use the same right-column decision as web picks, including
+        // same-kind reuse and a lower split for the opposite kind.
+        if kind.opensBesideChat {
+            let request = AgentPaneOpenTab(kind: kind, text: trimmed, cwd: cwd, search: search)
+            servicesOpenNativeTool(request, from: page)
+            return
+        }
         switch (kind, trimmed.isEmpty) {
-        case (.terminal, _): pane.newTerminalTab(cwd: cwd, typing: command(trimmed) ?? nil, then: landed)
-        case (.browser, true): _ = pane.newBrowserTab(then: landed)
-        case (.agent, true): _ = pane.openAgentTab(seed: AgentPaneSeedSource(AgentPaneSeed(cwd: cwd)))
-        case (.browser, false), (.agent, false):
+        case (.agent, true): _ = page.openAgentTab(seed: AgentPaneSeedSource(AgentPaneSeed(cwd: cwd)))
+        case (.agent, false):
             // A browser's words are searched; an agent's go out as a prompt.
-            let reads = NewTabSubmit.plan(text: trimmed, search: search, agent: nil, resolver: pane.services.cache.suggestionEngine.resolver)
+            let reads = NewTabSubmit.plan(text: trimmed, search: search, agent: nil, resolver: page.services.cache.suggestionEngine.resolver)
             var searches = search
             if kind == .browser, case .chat = reads { searches = true }
             let arguments: [String: ActionValue] = ["text": .string(trimmed), "search": .bool(searches)]
-            _ = pane.services.registry.perform(NewTabSubmit.action, invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.pane.id), arguments: arguments, origin: .user))
+            _ = page.services.registry.perform(NewTabSubmit.action, invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: page.pane.id), arguments: arguments, origin: .user))
+        default: return
+        }
+    }
+
+    private static func servicesOpenNativeTool(_ request: AgentPaneOpenTab, from page: PaneController) {
+        let services = page.services
+        services.linkOpener.open(from: page, kind: request.kind.rightColumnKind) { target, placed in
+            let then: @MainActor (SurfaceID) -> Void = { surface in placed?(surface) }
+            switch request.kind {
+            case .terminal:
+                target.newTerminalTab(cwd: request.cwd, typing: command(request.text) ?? nil,
+                                       placementOwner: placed != nil, then: then)
+            case .browser:
+                let url = browserURL(request, services: services)
+                return target.newBrowserTab(url: url, engine: BrowserEngineTag.engine(for: url),
+                                            background: placed != nil, placementOwner: placed != nil, then: then)
+            case .agent: return false
+            }
+            return true
         }
     }
 }
