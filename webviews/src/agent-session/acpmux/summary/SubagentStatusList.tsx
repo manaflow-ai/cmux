@@ -197,7 +197,6 @@ export function SubagentStatusList({
               {/* The tray's own line (subagents/AgentLine.tsx): a subagent reads the same here and above the composer. */}
               <AgentLine
                 name={agent.name}
-                detail={agent.kind}
                 mark={agent.harness}
                 status={status}
                 state={subagentStateText(t, agent, waiting)}
@@ -206,7 +205,9 @@ export function SubagentStatusList({
                 iconSize={ROW_ICON}
                 depth={depth}
                 current={agent.id === current}
-                title={agent.task}
+                // Its kind is no subtitle on the line (Leo, 2026-10-31: "a lot of these subtitles
+                // are bad"): the tooltip keeps it under its task.
+                title={[agent.task, agent.kind !== agent.name ? agent.kind : undefined].filter(Boolean).join("\n") || undefined}
                 onOpen={onOpen ? () => onOpen(agent.id) : undefined}
               />
             </li>
