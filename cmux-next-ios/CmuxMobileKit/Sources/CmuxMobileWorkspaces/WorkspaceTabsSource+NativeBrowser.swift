@@ -23,11 +23,13 @@ extension WorkspaceTabsSource {
 
     /// Open on iPhone: the tab's page loads in this iPhone's own web view at the
     /// Mac's current address. The Mac's tab stays as it is (its stream pauses while
-    /// hidden). The Mac's own addresses (`localhost`, a `file:` page) stay mirrored.
+    /// hidden). A Mac `localhost:<port>` page opens here too when the Mac forwards
+    /// `localhost` (`LocalhostForwarder`); a `file:` page and the like stay mirrored.
     public func openOnPhone(_ id: TabsKitTab.ID) {
         guard let tab = workspaceTab(id), tab.kind == .browser, let mirror = mirrored(tab) else { return }
         let url = mirror.url ?? tab.url
-        if PhoneReach(url) == .macOnly, let url {
+        let reach = PhoneReach(url)
+        if let url, reach == .macOnly || (reach == .macLoopback && !native.canForward(macID: workspace?.macID)) {
             show("\(Self.addressLabel(url)) is on \(macName). It can only be mirrored.")
             CmuxMobileTheme.standard.haptics.error()
             return

@@ -19040,6 +19040,21 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/hook_queue": {
+        "ty": "object"
+      },
+      "/data/hook_queue/queued_events": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/hook_queue/reset_dropped_events": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/hook_queue/undeliverable_events": {
+        "ty": "uint64",
+        "required": true
+      },
       "/data/journal_writer": {
         "ty": "object",
         "required": true,

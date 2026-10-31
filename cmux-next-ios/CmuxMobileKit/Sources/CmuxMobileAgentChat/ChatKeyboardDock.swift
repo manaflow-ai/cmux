@@ -693,10 +693,14 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         return CGPoint(x: 0, y: min(max(-scrollView.contentInset.top, wanted), max(-scrollView.contentInset.top, bottomOffset.y)))
     }
 
+    /// Reduce Motion: a jump lands at once, with the transcript shown
+    /// throughout. Tests set it.
+    var reducesMotion: () -> Bool = { UIAccessibility.isReduceMotionEnabled }
+
     /// `settle`: the target again after the rows near it laid out (a jump past rows not yet measured).
     private func scroll(to target: CGPoint, animated: Bool, settle: (() -> CGPoint?)? = nil) {
         var target = target
-        if animated {
+        if animated, !reducesMotion() {
             // A long jump animated the offset across pages SwiftUI had not drawn yet (a
             // blank band and stale fragments for ~300 ms). Cut to one screen short of the
             // target, then animate only that last screen.

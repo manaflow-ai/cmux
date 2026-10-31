@@ -2662,7 +2662,8 @@ pre.cv-math-source {
   white-space: nowrap;
   user-select: none;
 }
-.cv-received > .cv-disclosure__line:hover,
+/* Pointing at the sender's name lights only the name (its own pill below), never the whole line. */
+.cv-received > .cv-disclosure__line:hover:not(:has(.cv-received__from--open:hover)),
 .cv-received > .cv-disclosure__line:focus-within,
 .cv-received > .cv-disclosure__line:has([aria-haspopup="menu"]:is([aria-expanded="true"], [data-popup-open])) {
   background: color-mix(in srgb, var(--cv-text) 6%, transparent);

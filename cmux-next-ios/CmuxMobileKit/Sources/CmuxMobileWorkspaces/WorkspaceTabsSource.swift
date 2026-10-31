@@ -1174,6 +1174,38 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
     }
 
+    /// A web link tapped in a terminal tab (the Mac's Cmd-click): a cmux browser tab at `url`
+    /// beside the terminal on the Mac, shown here once the Mac lists it.
+    public func openLink(_ url: URL, fromTab id: TabsKitTab.ID) async {
+        // No Mac to open it on (the workspace went away, the Mac is offline or doesn't let
+        // this iPhone open tabs): Safari, never nothing.
+        guard canEditTabs, let workspace, let creator, let tab = workspaceTab(id) else {
+            await UIApplication.shared.open(url)
+            return
+        }
+        if let pending = pendingTabTitle {
+            show("Still opening \(pending). Try again once it's open.")
+            return
+        }
+        let title = WorkspaceTabsSource.option(.browser).title
+        pendingTabTitle = title
+        defer { pendingTabTitle = nil }
+        do {
+            let opened = try await creator.backend.openLink(url, besides: tab, in: workspace)
+            if store.workspace(id: workspaceID)?.tabs.contains(where: { $0.id == opened.id }) != true {
+                store.appendTab(opened, to: workspaceID)
+            }
+            activate(opened.id)
+            openedTab = opened.id
+        } catch let error as WorkspaceCreationError where error.isForPerson {
+            show(named(error.message))
+            CmuxMobileTheme.standard.haptics.error()
+        } catch {
+            show(TabNotice(action: .open(optionTitle: title), macName: macName, reason: Self.message(error)))
+            CmuxMobileTheme.standard.haptics.error()
+        }
+    }
+
     /// The Mac's wording (`terminal.restart.button`, `action.tab.restart`).
     public static let restartShellTitle = "Restart Shell Here"
 
@@ -1757,7 +1789,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 ? [TabsKitMenuItem(title: Self.restartShellTitle, systemImage: "arrow.counterclockwise") { [weak self] in
                     Task { await self?.restartShell(tab.id) }
                 }] : []
-            // Files and Links, Paste, Clear | Copy Directory | Close Tab: no
+            // Files and Links, Paste, Find, Clear, Scroll to Bottom | Copy Directory | chats,
+            // Panes and Screens, edit rows | the close rows: no
             // "All Workspaces" (Back leaves the workspace; design/terminal P1).
             return [restart, own, [copy], chatsItems, layoutPages, edit, closes].filter { !$0.isEmpty }
         case .browser:
@@ -1885,9 +1918,11 @@ struct WorkspaceTabPage: View {
 
     private var terminalContext: TerminalTabContext {
         let context = context
+        let tabID = tabID
         return TerminalTabContext(safeAreaInsets: context.safeAreaInsets, isInteractive: context.isInteractive,
                                   isZoomGestureActive: context.isZoomGestureActive,
-                                  reportScroll: { context.reportScroll(fingerDelta: $0) })
+                                  reportScroll: { context.reportScroll(fingerDelta: $0) },
+                                  openLink: { [weak source] url in Task { await source?.openLink(url, fromTab: tabID) } })
     }
 }
 

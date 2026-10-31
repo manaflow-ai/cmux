@@ -265,6 +265,10 @@ pub mod method {
     /// `{sessionId, runId?, agentId, before?, after?, limit?}`
     /// (`claude_stdio/agent_transcript.rs`).
     pub const MUX_SUBAGENT_TRANSCRIPT: &str = "_acpmux/subagent_transcript";
+    /// A chat's older turns, read from its Claude Code transcript a page at a time:
+    /// `{sessionId, before}` → `{events, before, turns, read}`, `before` a `native_history`
+    /// cursor (`hub/native_history.rs`).
+    pub const MUX_NATIVE_HISTORY: &str = "_acpmux/native_history";
     /// Every Claude workflow of this daemon's chats: `{includeEnded?}` →
     /// `{workflows}` (`hub/workflow_index.rs`).
     pub const MUX_WORKFLOWS: &str = "_acpmux/workflows";

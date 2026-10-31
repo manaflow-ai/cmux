@@ -41,7 +41,10 @@ public struct ArtifactPreview: View {
         self.onClose = onClose
     }
 
-    private var rendersAsWeb: Bool { artifact.kind == .html || artifact.kind == .markdown }
+    private var rendersAsWeb: Bool {
+        guard case .success(.text) = content else { return false }
+        return artifact.kind == .html || artifact.kind == .markdown
+    }
 
     /// Accessibility identifier of the view shown when the Mac refuses the
     /// file (or it can't be read): the E2E rig's non-blank end state.

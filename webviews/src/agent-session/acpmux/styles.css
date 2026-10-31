@@ -378,7 +378,15 @@
 .acpmux-empty-choose .acpmux-project-button>span{text-decoration:none}
 .acpmux-project-host{display:inline-flex;align-items:center;gap:3px;flex:none;max-width:110px;color:var(--acpmux-composer-dim);font-size:var(--text-caption);letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-project-host>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acpmux-project-none-icon{margin:0 3px}
+/* One leading column for every row of the project menu (Leo, ":( alignemnt"): Do not work in a
+   project, New project, a typed path and each project put their mark in one 16px box with no tile,
+   as the environment, model and mode pickers do, so every title starts on one text inset
+   (leo-workspace design/grid.md 5.3). The pill's own badge keeps its tile. */
+.acpmux-project-menu :is(.acpmux-project-lead,.acpmux-project-badge){display:inline-flex;align-items:center;justify-content:center;flex:none;width:16px;height:auto;border-radius:0;background:none}
+/* The pinned actions and the folders are two sections: a hairline with the menu's 4px on either
+   side, never a blank gap, and none when no folder follows. */
+.acpmux-project-menu .ui-combobox-pinned{margin-bottom:0;padding-bottom:0}
+.acpmux-project-menu .ui-combobox-pinned-list:has(.ui-combobox-scroll [role="option"])>.ui-combobox-pinned::after{content:"";display:block;height:0;margin:var(--ds-space-1,4px) var(--acpmux-project-menu-edge);border-top:var(--cmux-hairline,.5px) solid var(--acpmux-composer-edge)}
 .acpmux-project-browse{display:flex;align-items:center;gap:8px}
 .acpmux-context-worktree{display:flex;align-items:center;gap:8px;margin-left:auto;padding-right:4px;color:var(--agent-muted);white-space:nowrap}
 .acpmux-switch{position:relative;width:26px;height:16px;border-radius:8px;background:color-mix(in srgb,var(--agent-text) 18%,transparent)}
