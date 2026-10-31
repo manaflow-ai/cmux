@@ -179,7 +179,7 @@ pub(super) fn follow(
         let Some(event) = adapt(&line, &session.conversation) else { continue };
         turn.on(&event);
         // A snapshot after a gap can add several replies at once.
-        for reply in &turn.replies[printed..] {
+        for reply in turn.replies.get(printed..).unwrap_or_default() {
             out.message(reply);
             drafts.on_message(reply);
         }
