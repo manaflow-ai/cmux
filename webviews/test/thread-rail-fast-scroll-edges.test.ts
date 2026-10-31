@@ -50,10 +50,19 @@ await requireBrowserLane("thread-rail-fast-scroll-edges.test.ts", async () => {
   /// A painted frame: the list's offset and view, the rows in that view with nothing on them (no tick
   /// drawn and no gap that paints resting ticks), the rows in it not drawn as ticks (the gap's), and
   /// the drawn ones in it that showed faded out (an entrance replayed at opacity 0).
-  type Frame = { top: number; height: number; blank: number[]; undrawn: number; faded: number[] };
+  type Frame = {
+    top: number;
+    height: number;
+    blank: number[];
+    undrawn: number;
+    faded: number[];
+    /// How far the open preview card's middle sits from the pointer, in px (the card centers on the
+    /// row under the pointer); undefined with no card open.
+    cardOff?: number;
+  };
   /// Starts recording every painted frame of the rail's list; `__railFrames()` stops and returns them.
-  const record = (page: Page) =>
-    page.evaluate(() => {
+  const record = (page: Page, pointerY: number) =>
+    page.evaluate((pointerY) => {
       const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
       const count = Number(list.querySelector("li[aria-setsize]")?.getAttribute("aria-setsize") ?? 0);
       const frames: Frame[] = [];
@@ -79,7 +88,13 @@ await requireBrowserLane("thread-rail-fast-scroll-edges.test.ts", async () => {
             undrawn += 1;
             if (!gaps.some(([from, to, paints]) => paints && row >= from && row < to)) blank.push(row);
           }
-          frames.push({ top, height, blank, undrawn, faded });
+          const card = document.querySelector<HTMLElement>(".acpmux-minimap__card");
+          let cardOff: number | undefined;
+          if (card) {
+            const box = card.getBoundingClientRect();
+            cardOff = Math.abs(box.top + box.height / 2 - pointerY);
+          }
+          frames.push({ top, height, blank, undrawn, faded, cardOff });
         },
         () => {
           // What this frame paints: its callbacks run after its input and scroll events.
@@ -103,7 +118,7 @@ await requireBrowserLane("thread-rail-fast-scroll-edges.test.ts", async () => {
         stop();
         return frames;
       };
-    });
+    }, pointerY);
   const frames = (page: Page) =>
     page.evaluate(() => (window as unknown as { __railFrames: () => Frame[] }).__railFrames());
 
@@ -122,8 +137,11 @@ await requireBrowserLane("thread-rail-fast-scroll-edges.test.ts", async () => {
           Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined))),
         );
         const box = (await list.boundingBox())!;
-        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-        await record(page);
+        const pointerY = box.y + box.height / 2;
+        await page.mouse.move(box.x + box.width / 2, pointerY);
+        // The pointer rests on the rail, so its card opens and stays on the row under it.
+        await page.locator(".acpmux-minimap__card").waitFor({ timeout: 10_000 });
+        await record(page, pointerY);
         // A flick of a mouse wheel with acceleration: long steps, then a momentum tail that decays,
         // down to the end and back up to the start.
         for (const sign of [-1, 1, -1]) {
@@ -156,6 +174,12 @@ await requireBrowserLane("thread-rail-fast-scroll-edges.test.ts", async () => {
             first: frame.blank[0],
           })),
         ).toEqual([]);
+        // The open card stays on the row under the still pointer on every frame: it never shows its
+        // old row at the list's new offset (its middle within a row and a half of the pointer).
+        const carded = seen.filter((frame) => frame.cardOff !== undefined);
+        expect(carded.length).toBeGreaterThan(seen.length / 2);
+        const strayed = carded.filter((frame) => frame.cardOff! > 15);
+        expect(strayed.slice(0, 3).map((frame) => ({ top: frame.top, cardOff: frame.cardOff }))).toEqual([]);
         // No row the fling brings into view replays the entrance (#26635): it would start at opacity 0.
         const faded = seen.filter((frame) => frame.faded.length > 0);
         expect(faded.slice(0, 3).map((frame) => ({ top: frame.top, faded: frame.faded.slice(0, 5) }))).toEqual([]);

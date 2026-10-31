@@ -944,8 +944,13 @@ export function ThreadMinimap({
               // event, whose update React renders in a task after the frame, so the frame showed the
               // list at its new offset with the rows of the old one (blank at the edge it scrolled
               // toward on a fast wheel, Leo 2026-10-31: "it can flicker and disapper at the edges").
-              flushSync(() => setListTop(listOffset.current));
-              followPointer(event.currentTarget);
+              // The row under a still pointer (and so the card's row) moves in the same commit, so the
+              // card never shows its old row at the list's new offset.
+              const node = event.currentTarget;
+              flushSync(() => {
+                setListTop(listOffset.current);
+                followPointer(node);
+              });
             }}
             onPointerOver={(event) => {
               pointerY.current = event.clientY;
