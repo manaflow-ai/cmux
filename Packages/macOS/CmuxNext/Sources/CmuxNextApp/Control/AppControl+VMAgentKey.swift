@@ -50,13 +50,11 @@ extension AppControl {
         var accessToken: String
     }
 
-    /// The signed-in session and its team, behind the Cloud policy and the Labs gate.
+    /// The signed-in session and its team, behind the Cloud policy (not Labs, Leo 2026-10-30).
     nonisolated static func vmIssuer(_ services: AppServices) async throws -> VMIssuer {
         let (cloud, baseURL) = try await MainActor.run { () throws -> (CloudService, URL) in
             if let refusal = ControlError.policyRefusal("vm.agent_key.create", disabled: services.registry.disabledFeatures) { throw refusal }
-            guard services.settings?.snapshot.previewFeatures == true else {
-                throw ControlError(code: "labs_off", message: Self.vmText(.labsOff))
-            }
+            guard services.cloud.mayCallCloud else { throw ControlError(code: "cloud_disabled", message: Self.vmText(.cloudUnavailable)) }
             guard services.cloud.isSignedIn else { throw ControlError(code: "not_signed_in", message: Self.vmText(.notSignedIn)) }
             guard let baseURL = Self.vmBaseURL(services.cloud.configuration.backend) else {
                 throw ControlError(code: "internal", message: "the cmux VM API address is invalid")
@@ -97,18 +95,18 @@ extension AppControl {
         }
     }
 
-    enum VMText { case labsOff, notSignedIn, noTeam, unreachable }
+    enum VMText { case notSignedIn, noTeam, unreachable, cloudUnavailable }
 
     nonisolated static func vmText(_ text: VMText) -> String {
         switch text {
-        case .labsOff:
-            String(localized: "vm.token.error.labsOff", defaultValue: "VM tokens are a preview. Turn on Settings > Advanced > Labs > Show Preview Features.", table: "Runs", bundle: .module)
         case .notSignedIn:
             String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux in the cmux app first.", table: "Runs", bundle: .module)
         case .noTeam:
             String(localized: "vm.token.error.noTeam", defaultValue: "Choose a cmux team in the cmux app first.", table: "Runs", bundle: .module)
         case .unreachable:
             String(localized: "vm.token.error.unreachable", defaultValue: "The cmux VM service didn't answer. Try again in a moment.", table: "Runs", bundle: .module)
+        case .cloudUnavailable:
+            String(localized: "runs.error.cloudUnavailable", defaultValue: "cmux Cloud is not available for this account or team.", table: "Runs", bundle: .module)
         }
     }
 }

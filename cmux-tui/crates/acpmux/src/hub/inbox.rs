@@ -131,6 +131,8 @@ pub(super) struct Item {
     pub(super) report: bool,
     pub(super) at: u64,
     pub(super) text: String,
+    /// Machine-readable report context; kept out of the visible words.
+    pub(super) details: Option<Value>,
     /// A notice told the agent of it (or carries it now).
     pub(super) noticed: bool,
     /// The agent read it (`inbox_thread` with `markRead`).
@@ -154,6 +156,7 @@ impl Item {
             report: false,
             at: now_ms(),
             text: text.to_owned(),
+            details: None,
             noticed: true,
             read: false,
             answer: None,
@@ -678,6 +681,7 @@ impl Hub {
                             report: is_report(provenance),
                             at: now_ms(),
                             text: text.clone(),
+                            details: provenance.and_then(|p| p.get("details")).cloned(),
                             noticed: false,
                             read: false,
                             answer: Some(tx.clone()),
@@ -738,6 +742,92 @@ impl Hub {
             );
             v
         })
+    }
+
+    /// Archive a lane result the parent already consumed through a wait or transcript read.
+    /// It is durable and available in its thread, but has no notice, queued turn or waiter.
+    pub(super) fn lane_report_delivered_read(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        lane: &str,
+        prompt_id: &str,
+        text: &str,
+        provenance: &Value,
+    ) {
+        let from = provenance.get("fromName").and_then(Value::as_str).unwrap_or(lane);
+        let thread = thread_key(None, from, text);
+        let at = now_ms();
+        let fresh = {
+            let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+            if inbox.items.iter().any(|i| i.prompt_id == prompt_id)
+                || inbox.trimmed.contains(prompt_id)
+            {
+                false
+            } else {
+                inbox.items.push(Item {
+                    prompt_id: prompt_id.to_owned(),
+                    notice: None,
+                    answered: None,
+                    thread: thread.clone(),
+                    from: from.to_owned(),
+                    from_session: Some(lane.to_owned()),
+                    class: PromptClass::Result,
+                    report: true,
+                    at,
+                    text: text.to_owned(),
+                    details: provenance.get("details").cloned(),
+                    noticed: true,
+                    read: true,
+                    answer: None,
+                });
+                trim(&mut inbox);
+                true
+            }
+        };
+        if !fresh {
+            return;
+        }
+        let mut opts = PromptOptions {
+            provenance: Some(provenance.clone()),
+            agent: Some(from.to_owned()),
+            message_id: Some(prompt_id.to_owned()),
+            ..PromptOptions::default()
+        };
+        let blocks = vec![json!({"type": "text", "text": text})];
+        // Rebuild the projection from the removed prompt's id. The queued acceptance path may
+        // already have written this message; using the canonical prompt id here lets the journal
+        // index deduplicate the read archive instead of creating a second projection when the
+        // transcript page races the queue removal.
+        let message =
+            super::message_events::message_context(self, session, &blocks, &opts, prompt_id);
+        super::message_events::embed_message_context(&mut opts, message.as_ref(), &session.id);
+        let msg = json!({
+            "promptId": prompt_id, "threadId": thread, "from": from, "fromSession": lane,
+            "class": "result", "kind": kind_of(PromptClass::Result), "client": "acpmux", "text": text,
+            "prompt": [{"type": "text", "text": text}], "report": true, "deliveredRead": true,
+        });
+        self.append(
+            session,
+            "mux",
+            "inbox",
+            crate::prompt_provenance::marked(msg, opts.provenance.as_ref()),
+        );
+        if let Some(message) = message.as_ref() {
+            super::message_events::record_message_context(self, &session.id, message);
+        }
+        // Existing readers can replay these marks without knowing the new deliveredRead flag.
+        self.append(
+            session,
+            "mux",
+            "inbox_read",
+            json!({"threadId": thread, "promptIds": [prompt_id]}),
+        );
+        self.append(
+            session,
+            "mux",
+            "inbox_noticed",
+            json!({"promptIds": [prompt_id], "noticePromptId": prompt_id}),
+        );
     }
 
     /// The first message to a chat that never ran a turn names its delegator: its later actions
@@ -1120,8 +1210,10 @@ impl Hub {
                         report: e.msg.get("report") == Some(&Value::Bool(true)),
                         at: e.at,
                         text: field("text").to_owned(),
-                        noticed: false,
-                        read: false,
+                        details: crate::prompt_provenance::recorded(&e.msg)
+                            .and_then(|p| p.get("details").cloned()),
+                        noticed: e.msg.get("deliveredRead") == Some(&Value::Bool(true)),
+                        read: e.msg.get("deliveredRead") == Some(&Value::Bool(true)),
                         answer: None,
                     });
                 }
@@ -1161,8 +1253,8 @@ impl Hub {
             }
             item.notice = noticed.get(&item.prompt_id).cloned().filter(|n| !n.is_empty());
             item.answered = item.notice.as_ref().and_then(|n| answered.get(n).cloned());
-            item.noticed = noticed.contains_key(&item.prompt_id);
-            item.read = read.contains(&item.prompt_id);
+            item.noticed |= noticed.contains_key(&item.prompt_id);
+            item.read |= read.contains(&item.prompt_id);
             inbox.items.push(item);
         }
         trim(&mut inbox);
@@ -1327,7 +1419,7 @@ impl Hub {
                 messages.push(json!({
                     "promptId": item.prompt_id, "from": item.from, "fromSession": item.from_session,
                     "class": item.class, "kind": kind_of(item.class), "at": item.at,
-                    "text": item.text, "read": item.read,
+                    "text": item.text, "read": item.read, "details": item.details,
                 }));
                 if mark_read && !item.read {
                     item.read = true;
