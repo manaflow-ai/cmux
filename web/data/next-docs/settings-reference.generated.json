@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 535,
+  "count": 534,
   "sections": [
     {
       "id": "general",
@@ -89,6 +89,18 @@
           "kind": "toggle",
           "default": false,
           "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.newChatsIn",
+          "title": "Start New Chats In",
+          "help": "Where a new chat runs. Cloud starts it on your own Cloud machine, with your project copied there. The new chat's composer can change it for that chat.",
+          "kind": "choice",
+          "default": "local",
+          "group": "Agent Chat",
+          "values": [
+            "local",
+            "cloud"
+          ]
         },
         {
           "key": "agentPane.scrollToBottomOnSend",
@@ -5715,26 +5727,6 @@
           "kind": "string_map",
           "default": {},
           "group": "Machine Colors"
-        },
-        {
-          "key": "cloud.newWorkspaceFolder",
-          "title": "New Cloud Workspaces Start In",
-          "help": "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder.",
-          "kind": "choice",
-          "default": "inherit",
-          "group": "Cloud Workspaces",
-          "values": [
-            "inherit",
-            "empty"
-          ]
-        },
-        {
-          "key": "cloud.newWorkspacesInCloud",
-          "title": "Run New Workspaces in Cloud",
-          "help": "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Cloud Workspaces"
         },
         {
           "key": "phone.allowConnections",

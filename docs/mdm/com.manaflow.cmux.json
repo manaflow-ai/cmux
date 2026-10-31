@@ -170,6 +170,16 @@
       "title" : "Needs You",
       "type" : "boolean"
     },
+    "agentPane.newChatsIn" : {
+      "default" : "local",
+      "description" : "Where a new chat runs. Cloud starts it on your own Cloud machine, with your project copied there. The new chat's composer can change it for that chat.",
+      "enum" : [
+        "local",
+        "cloud"
+      ],
+      "title" : "Start New Chats In",
+      "type" : "string"
+    },
     "agentPane.scrollToBottomOnSend" : {
       "default" : true,
       "description" : "When off, sending while you are reading up keeps your place and shows new messages below.",
@@ -1786,22 +1796,6 @@
       "default" : true,
       "description" : "A reaction you put on a Chief message can start a turn when it asks for one, such as a question mark on a question or a thumbs down on a plan. A cheap model decides first, so a reaction that needs no answer never shows the typing dots. Off, reactions are only noted.",
       "title" : "Reactions Can Wake the Chief",
-      "type" : "boolean"
-    },
-    "cloud.newWorkspaceFolder" : {
-      "default" : "inherit",
-      "description" : "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder.",
-      "enum" : [
-        "inherit",
-        "empty"
-      ],
-      "title" : "New Cloud Workspaces Start In",
-      "type" : "string"
-    },
-    "cloud.newWorkspacesInCloud" : {
-      "default" : false,
-      "description" : "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.",
-      "title" : "Run New Workspaces in Cloud",
       "type" : "boolean"
     },
     "computerUse.driver" : {
