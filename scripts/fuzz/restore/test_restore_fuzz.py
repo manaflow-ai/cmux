@@ -188,6 +188,24 @@ class ExecEnv(unittest.TestCase):
         self.assertEqual(env["CFFIXED_USER_HOME"], "/slot/home")
 
 
+class EnvLog(unittest.TestCase):
+    def test_only_state_path_values_are_logged(self):
+        saved_env, saved_run = rf.App.environment, rf.subprocess.run
+        rf.App.environment = staticmethod(lambda pid, every=False: {
+            "HOME": "/slot/home", "CMUX_TUI_STATE_DIR": "/slot/home/Library", "CMUX_API_TOKEN": "s3cret"})
+
+        class Done:
+            stdout = "/slot/app/cmux --headless\n"
+        rf.subprocess.run = lambda *a, **k: Done()
+        try:
+            row = rf.proc_env(1)
+        finally:
+            rf.App.environment, rf.subprocess.run = saved_env, saved_run
+        self.assertNotIn("s3cret", str(row))
+        self.assertEqual(row["env"]["CMUX_TUI_STATE_DIR"], "/slot/home/Library")
+        self.assertIn("CMUX_API_TOKEN", row["other_cmux_keys"])
+
+
 class Answers(unittest.TestCase):
     def test_bare_list_answer_is_listed(self):
         # `cmux --json workspace list` answers a bare list (fleet run seed 1004, cmux21).

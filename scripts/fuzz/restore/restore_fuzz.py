@@ -280,17 +280,21 @@ class App:
 
 
 ENV_KEYS = ("HOME", "TMPDIR", "XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_RUNTIME_DIR", "USER", "LOGNAME", "PATH")
+STATE_KEYS = ("CMUX_TUI_STATE_DIR", "CMUX_CHIEF_HOME", "CMUX_SOCKET_PATH", "CMUX_NEXT_CONFIG_FILE", "CMUX_CAPTURE_SLOT",
+              "CMUX_CAPTURE_SHELL_HOME", "CMUX_TAG", "CMUX_BUNDLE_ID")
 
 
 def proc_env(pid):
-    """A process's argv and the environment keys that pick state paths (ps eww, same user): for the C4 check."""
-    out = subprocess.run(["ps", "eww", "-o", "command=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
-    env = {}
-    for word in out.split():
-        key, sep, val = word.partition("=")
-        if sep and (key in ENV_KEYS or key.startswith("CMUX_")):
+    """A process's argv (no environment) and the values of the state-path keys only (for the C4 check). Other
+    CMUX_* keys are listed by name only: their values can hold a token and never go to OUT."""
+    argv = subprocess.run(["ps", "-o", "args=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+    env, names = {}, []
+    for key, val in App.environment(pid, every=True).items():
+        if key in ENV_KEYS or key in STATE_KEYS:
             env[key] = val
-    return {"pid": pid, "argv_head": out.split(" HOME=")[0][:600], "env": env}
+        elif key.startswith("CMUX_"):
+            names.append(key)
+    return {"pid": pid, "argv": argv[:600], "env": env, "other_cmux_keys": sorted(names)}
 
 
 def log_daemon_env(label):
