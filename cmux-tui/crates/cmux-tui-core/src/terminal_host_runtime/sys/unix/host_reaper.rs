@@ -205,7 +205,12 @@ mod queue {
                     }
                     return Err(error);
                 }
-                ready.extend(events[..count as usize].iter().map(|event| event.ident as u32));
+                ready.extend(
+                    events
+                        .iter()
+                        .take(usize::try_from(count).unwrap_or(0))
+                        .map(|event| event.ident as u32),
+                );
                 return Ok(());
             }
         }
@@ -273,7 +278,12 @@ mod queue {
                     }
                     return Err(error);
                 }
-                ready.extend(events[..count as usize].iter().map(|event| event.u64 as u32));
+                ready.extend(
+                    events
+                        .iter()
+                        .take(usize::try_from(count).unwrap_or(0))
+                        .map(|event| event.u64 as u32),
+                );
                 return Ok(());
             }
         }
