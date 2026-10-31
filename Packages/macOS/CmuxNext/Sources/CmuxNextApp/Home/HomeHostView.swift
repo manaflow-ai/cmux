@@ -43,7 +43,7 @@ final class HomeHostView: NSView {
     static let memoryOfferUsedKey = "home.firstRun.memoryOfferUsed"
     private var shortcutsWatch: Task<Void, Never>?
     private var spellCheckingWatch: Task<Void, Never>?
-    /// The Chief's avatar when its profile sets none: `picture` (`AppServices.avatarPicture(of:)`, its
+    /// The Chief's avatar when its profile sets none: `picture` (`AppServices.wornUpload(of:)`, its
     /// worn upload), else its monogram (``HomeChiefAvatar/chiefDefault``, CH; Lawrence 2026-10-30).
     static func defaultTileAvatar(picture: URL?) -> HomeChiefAvatar { picture.map(HomeChiefAvatar.picture) ?? .chiefDefault }
     private var firstPage: Task<Void, Never>?
@@ -218,7 +218,7 @@ final class HomeHostView: NSView {
             for await avatars in ObservationStream({ () -> [String: HomeChiefAvatar] in
                 guard let service else { return [:] }
                 let participants = store.rows.first { $0.summary.id == id }?.summary.participants ?? []
-                let fallback = HomeHostView.defaultTileAvatar(picture: services?.avatarPicture(of: nil))
+                let fallback = HomeHostView.defaultTileAvatar(picture: services?.wornUpload(of: nil)?.still)
                 return HomeChiefAvatar.bubbleAvatars(for: participants, own: service.chiefFaces, fallback: fallback)
             }) {
                 self?.transcript.setChiefBubbleAvatars(avatars)
@@ -470,7 +470,7 @@ final class HomeHostView: NSView {
 
     /// The picture the Chief shown here wears where its profile sets none: its worn upload, else nil.
     private var fallbackPicture: URL? {
-        control.services.avatarPicture(of: petRows.chief)
+        control.services.wornUpload(of: petRows.chief)?.still
     }
 
     /// The header avatar of the Chief shown here: its registry picture, else its profile's text,
@@ -496,8 +496,7 @@ final class HomeHostView: NSView {
             guard let self, control.brainHome == home,
                   fallback == fallbackPicture else { return }
             let picture = decoded.map { NSImage(cgImage: $0, size: .zero) }
-            // No text of its own: the header and the hero draw the monogram of the Chief's name (CH).
-            let text = avatar.text
+            let text = avatar.text  // nil: the header and the hero draw the name's monogram (CH)
             transcript.setChiefAvatar(picture: picture, text: text)  // the header and the first-run hero
             settingsView.setAvatar(picture: picture, text: text ?? transcript.shownMonogram)
         }
