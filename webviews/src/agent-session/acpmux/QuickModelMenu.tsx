@@ -52,6 +52,9 @@ export type QuickMenu = {
   };
   /// The chat's accounts (acpmux routes); absent for a chat with no session yet or off this Mac.
   account?: { sessionId: string; accounts: ChatAccounts };
+  /// The chat's harness picks its own model (the Chief, `picksOwnModel`): the menu says so in place
+  /// of its model list, and offers no More models, refresh or account.
+  ownModel?: boolean;
   /// Account presentation alternatives for the gallery; the compact submenu is the default. Every
   /// layout but inline lists Cmux routers under a Provider heading inside the Account choices.
   routeLayout?: "submenu" | "inline" | "grouped";
@@ -236,7 +239,8 @@ export function QuickModelMenu({
   // of the chip. This is only a side decision: the surface still fits its visible content.
   const { open: sideOpen, setOpen: setSideOpen, side } = useOpenSide(trigger, newTab ? "bottom" : "top", 320);
   if (sideOpen !== open) setSideOpen(open);
-  const { models, current, effort, account, auth, fast } = menu;
+  const { models, current, effort, auth, fast, ownModel } = menu;
+  const account = ownModel ? undefined : menu.account;
   const families = menu.families;
   const currentFamily = families?.list.find((family) => family.id === families.current);
   const currentModels = currentFamily ? [...currentFamily.models, ...currentFamily.more] : models;
@@ -709,7 +713,7 @@ export function QuickModelMenu({
         <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
           {query
             ? t(families ? "picker.noMatchesFor" : "picker.noMatchesForQuery", { query })
-            : (shown?.note ?? t("picker.noModels"))}
+            : (shown?.note ?? (ownModel ? t("picker.chiefOwnModel") : t("picker.noModels")))}
         </MenuItem>
       )}
       {!query && shown?.note && shown.logIn && (
@@ -851,7 +855,7 @@ export function QuickModelMenu({
         </Submenu>
       )}
       {!query && !forkTab && (!inlineMore || (onChatTab && account)) && <MenuSeparator />}
-      {!query && !inlineMore && families && (shown?.more.length ?? 0) > 0 && (
+      {!query && !ownModel && !inlineMore && families && (shown?.more.length ?? 0) > 0 && (
         <Submenu
           align="start"
           className="acpmux-quick-item acpmux-quick-sub"
@@ -886,7 +890,7 @@ export function QuickModelMenu({
           )}
         </Submenu>
       )}
-      {!query && !families && (
+      {!query && !families && !ownModel && (
         <MenuItem className="acpmux-quick-item acpmux-quick-sub" onSelect={() => onMore()}>
           <span className="acpmux-menu-label">{t("picker.moreModels")}</span>
           <span className="ui-submenu-chevron" aria-hidden="true" />
