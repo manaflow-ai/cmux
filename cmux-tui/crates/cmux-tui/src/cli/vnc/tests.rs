@@ -154,6 +154,12 @@ fn vnc_scaling_averages_boxes() {
 }
 
 #[test]
+fn vnc_scaling_large_white_image_does_not_overflow() {
+    let src = vec![255; 4112 * 4112 * 4];
+    assert_eq!(scale_rgb(&src, 4112, 4112, 1, 1), vec![255; 3]);
+}
+
+#[test]
 fn vnc_kitty_frames_chunk_and_replace_the_previous_image() {
     let rgb: Vec<u8> = (0..64 * 64 * 3).map(|i| (i * 7919 % 251) as u8).collect();
     let mut out = Vec::new();
