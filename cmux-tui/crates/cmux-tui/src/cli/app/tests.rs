@@ -196,39 +196,39 @@ fn cloud_is_an_app_scope() {
     assert!(APP_SCOPES.contains(&"cloud"));
 }
 
-/// `cmux team invite --email …` runs the app's `team.invite` action, which
-/// waits for the person's answer on the confirmation panel, so the CLI (and
-/// `cmux mcp`) wait as long as the app's person deadline.
+/// `cmux home invite-to-team --email …` (and its alias `cmux team invite`) runs
+/// the app's `home.inviteToTeam`, whose dialog waits for the person's Send, so
+/// the CLI (and `cmux mcp`) wait as long as the app's person deadline.
 #[test]
-fn team_invite_runs_the_app_action_and_waits_for_the_person() {
-    assert!(APP_SCOPES.contains(&"team"));
-    let parsed = parse(&args(&[
-        "team",
-        "invite",
-        "--email",
-        "leo@cmux.com",
-        "--team",
-        "cmux",
-        "--reason",
-        "user asked",
-    ]));
-    let sent = match parsed {
-        Ok(Some(AppCommand::Call { method, params, timeout, .. })) => {
-            Some((method, params, timeout))
+fn invite_to_team_runs_the_home_action_and_waits_for_the_person() {
+    for words in [
+        &["home", "invite-to-team", "--email", "leo@cmux.com"][..],
+        &["team", "invite", "--email", "leo@cmux.com"][..],
+    ] {
+        let sent = match parse(&args(words)) {
+            Ok(Some(AppCommand::Call { method, params, timeout, .. })) => {
+                Some((method, params, timeout))
+            }
+            _ => None,
+        };
+        assert!(sent.is_some(), "{words:?}: expected one action.run call");
+        if let Some((method, params, timeout)) = sent {
+            assert_eq!(timeout, Some(PERSON_RUN_TIMEOUT), "{words:?}");
+            assert_eq!(method, "action.run");
+            assert_eq!(params["action"], "home invite-to-team", "{words:?}");
+            assert_eq!(params["args"], json!({ "email": "leo@cmux.com" }), "{words:?}");
         }
-        _ => None,
-    };
-    assert!(sent.is_some(), "expected one action.run call");
-    if let Some((method, params, timeout)) = sent {
-        assert_eq!(timeout, Some(PERSON_RUN_TIMEOUT));
-        assert_eq!(method, "action.run");
-        assert_eq!(params["action"], "team invite");
-        assert_eq!(
-            params["args"],
-            json!({ "email": "leo@cmux.com", "team": "cmux", "reason": "user asked" })
-        );
     }
-    assert_eq!(waiting_run_timeout("team.invite"), PERSON_RUN_TIMEOUT);
+    assert_eq!(waiting_run_timeout("home.inviteToTeam"), PERSON_RUN_TIMEOUT);
+}
+
+/// A bare `cmux team invite` (nothing after the verb) still runs Invite to Team, with no arguments.
+#[test]
+fn a_bare_team_invite_runs_the_home_action_with_no_arguments() {
+    let (method, params) = call(parse(&args(&["team", "invite"])).unwrap().unwrap());
+    assert_eq!(method, "action.run");
+    assert_eq!(params["action"], "home invite-to-team");
+    assert!(params.get("args").is_none_or(|a| a == &json!({})), "{params}");
 }
 
 #[test]
