@@ -35,6 +35,8 @@
               "tabs.barPosition",
               "browser.toolbarPosition",
               "tabs.barOrder",
+              "appearance.metrics.tabFontSize",
+              "appearance.metrics.tabStripHeight",
               "tabs.overflow",
               "tabs.cmdWClosesPinnedTabs",
               "tabs.swapCmdTAndCmdN"
@@ -5130,6 +5132,304 @@
       "title" : {
         "key" : "settings.tabs.toolbarButtons",
         "text" : "Tab Bar Buttons"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        10,
+        18,
+        14
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.tabs.tabFontSize.default",
+        "text" : "Interface size"
+      },
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.tabFontSize.help",
+        "text" : "Text size of tab titles. Unset, tabs follow the interface size."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.tabFontSize",
+      "keywords" : [
+        "tab",
+        "tabs",
+        "font",
+        "text",
+        "size",
+        "title",
+        "bigger",
+        "smaller",
+        "readable",
+        "tabFontSize"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "metrics",
+        "tabFontSize"
+      ],
+      "range" : {
+        "max" : 18,
+        "min" : 10,
+        "placeholder" : 12,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        2,
+        26,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.metrics.tabFontSize"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.tabs.tabFontSize",
+        "text" : "Tab Text Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        22,
+        44,
+        33
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.tabStripHeight.help",
+        "text" : "Height of a pane's tab bar. Its tabs grow and shrink with it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.tabStripHeight",
+      "keywords" : [
+        "tab",
+        "tabs",
+        "bar",
+        "strip",
+        "height",
+        "size",
+        "taller",
+        "tabStripHeight"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "metrics",
+        "tabStripHeight"
+      ],
+      "range" : {
+        "max" : 44,
+        "min" : 22,
+        "placeholder" : 28,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        0,
+        66,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.metrics.tabStripHeight"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.tabs.tabStripHeight",
+        "text" : "Tab Bar Height"
       },
       "validation" : "portable"
     },
