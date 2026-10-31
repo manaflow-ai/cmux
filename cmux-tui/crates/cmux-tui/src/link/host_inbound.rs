@@ -101,7 +101,10 @@ where
                 hand_to_entry(
                     stream,
                     &peer,
-                    Some(StampCheck::LinkToken { issued_at_ms: verified.issued_at_ms }),
+                    Some(StampCheck::NativeLinkToken {
+                        issued_at_ms: verified.issued_at_ms,
+                        vm_kind: verified.vm_kind,
+                    }),
                     me.session_socket,
                 )
                 .await

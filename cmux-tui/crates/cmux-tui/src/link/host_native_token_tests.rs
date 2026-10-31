@@ -147,7 +147,8 @@ async fn native_token_receiver_daemon_stamps_backend_identity_and_signed_time() 
         assert_eq!(stamp["link_peer"]["install"], f["claims"]["sub"]);
         assert_eq!(stamp["link_peer"]["user"], f["claims"]["network"]["user"]);
         assert_eq!(stamp["link_peer"]["team"], f["claims"]["team"]);
-        assert_eq!(stamp["check"], "link_token");
+        assert_eq!(stamp["check"], "native_link_token");
+        assert!(stamp.get("native_vm_kind").is_none());
         assert_eq!(stamp["check_issued_at_ms"], 1_792_000_000_000u64);
         drop(client);
         Ok::<_, String>(())
