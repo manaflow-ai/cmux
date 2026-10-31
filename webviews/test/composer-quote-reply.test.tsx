@@ -248,3 +248,39 @@ for (const selected of [
     await act(async () => handle.current!.insertTyped("Reply"));
     expect(content().lastElementChild?.textContent).toBe("Reply");
   });
+
+test("a quote picked while the composer is unmounted appends after the draft once it returns", async () => {
+  // App's path: `chat.quoteReply` with no composer (a Sandboxed receipt in its place), then Back.
+  const { quoteIntoComposer, replayHeldForComposer } = await import("../src/agent-session/acpmux/composerRestore");
+  const composer = { current: null as { restore(): void; quoteReply(markdown: string): void } | null };
+  const heldBack = { current: undefined };
+  const heldQuotes = { current: undefined as string[] | undefined };
+  quoteIntoComposer(composer, heldQuotes, "> First\n\n");
+  quoteIntoComposer(composer, heldQuotes, "> Second\n\n");
+
+  const { createRoot } = await import("react-dom/client");
+  const { MarkdownField } = await import("../src/agent-session/acpmux/MarkdownField");
+  const mount = async () => {
+    root = createRoot(host);
+    await act(async () =>
+      root!.render(<MarkdownField ref={handle} value="Draft text" onChange={() => {}} onSubmit={() => {}} />),
+    );
+    composer.current = { restore() {}, quoteReply: (markdown) => handle.current!.quoteReply(markdown) };
+    replayHeldForComposer(composer.current, heldBack, heldQuotes);
+    for (let turn = 0; turn < 200 && !host.querySelector("blockquote, [contenteditable] p"); turn++)
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    for (let turn = 0; turn < 5; turn++) await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  };
+  await mount();
+  expect(content().firstElementChild?.textContent).toBe("Draft text");
+  expect([...content().querySelectorAll("blockquote")].map((node) => node.textContent)).toEqual(["First", "Second"]);
+  expect(content().lastElementChild?.tagName).toBe("P");
+
+  // A second remount (the receipt again, then Back) replays nothing.
+  act(() => root!.unmount());
+  root = undefined;
+  host.replaceChildren();
+  composer.current = null;
+  await mount();
+  expect(content().querySelectorAll("blockquote")).toHaveLength(0);
+});
