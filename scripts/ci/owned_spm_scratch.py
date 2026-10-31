@@ -446,6 +446,28 @@ def source_files(workspace: Path) -> list[str]:
     return list(names)
 
 
+def real_directory(source: Path, relative: str, made: set[str]) -> None:
+    """Make SOURCE/RELATIVE and every directory between it and SOURCE a real directory. A link (to a directory
+    or anywhere else, inside the root or outside it) or a file in the way is removed and replaced, never
+    followed: the last checkout's link at a path that is now a directory must not take this checkout's
+    writes. MADE remembers the directories already checked in this mirror."""
+    path, walked = source, ""
+    for part in Path(relative).parts:
+        walked = f"{walked}/{part}" if walked else part
+        path = path / part
+        if walked in made:
+            continue
+        try:
+            info = path.lstat()
+        except FileNotFoundError:
+            path.mkdir()
+        else:
+            if not stat.S_ISDIR(info.st_mode):  # lstat: a link to a directory is a link here
+                path.unlink()
+                path.mkdir()
+        made.add(walked)
+
+
 def mirror(workspace: Path, source: Path) -> dict[str, int]:
     """Make SOURCE hold exactly WORKSPACE's files (source_files). A file whose content SOURCE already has
     keeps its time there, so SwiftPM rebuilds only what changed; every other file is written now, so it
@@ -453,6 +475,11 @@ def mirror(workspace: Path, source: Path) -> dict[str, int]:
     is never built (the next lease mirrors again)."""
     copied = removed = kept = 0
     wanted: set[str] = set()
+    with contextlib.suppress(FileNotFoundError):
+        if not stat.S_ISDIR(source.lstat().st_mode):
+            source.unlink()  # a link or a file where the root's source belongs is never followed
+    source.mkdir(exist_ok=True)
+    made: set[str] = set()
     for name in source_files(workspace):
         origin, target = workspace / name, source / name
         try:
@@ -462,12 +489,13 @@ def mirror(workspace: Path, source: Path) -> dict[str, int]:
         if not (stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode)):
             continue  # a submodule gitlink: the job checks out no submodule
         wanted.add(name)
+        # Before reading or writing TARGET: every directory above it in SOURCE is a real one.
+        real_directory(source, os.path.dirname(name), made)
         if stat.S_ISLNK(info.st_mode):
             link_to = os.readlink(origin)
             if target.is_symlink() and os.readlink(target) == link_to:
                 kept += 1
                 continue
-            target.parent.mkdir(parents=True, exist_ok=True)
             if target.is_dir() and not target.is_symlink():
                 shutil.rmtree(target)
             target.unlink(missing_ok=True)
@@ -479,7 +507,6 @@ def mirror(workspace: Path, source: Path) -> dict[str, int]:
                 os.chmod(target, stat.S_IMODE(info.st_mode))
             kept += 1
             continue
-        target.parent.mkdir(parents=True, exist_ok=True)
         if target.is_dir() and not target.is_symlink():
             shutil.rmtree(target)
         staged = target.with_name(f".{target.name}.mirror-{os.getpid()}")
