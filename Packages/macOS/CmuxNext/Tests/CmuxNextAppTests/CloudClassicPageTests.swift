@@ -21,6 +21,7 @@ struct CloudClassicPageTests {
         var limits: CloudMachineLimits?
         var signedIn = true
         var unavailable: String?
+        var user = "user-a"
         @ObservationIgnored var ran: [String] = []
     }
 
@@ -97,6 +98,20 @@ struct CloudClassicPageTests {
         #expect(records.first?["revision"]?.stringValue == "1")
     }
 
+    @Test func theListKeepsAnOptimisticPowerChangeUntilItsRecordSettles() async throws {
+        let machines = Machines()
+        var machine = CloudMachine(id: "vm-1", status: .running)
+        machine.pendingChange = .pausing
+        machines.list = [machine]
+        let (provider, _) = Self.provider(machines)
+        let pending = try await provider.call("cmux.cloud.machine.list", params: .object([:]), context: Self.page)
+        #expect(pending["machines"]?.arrayValue?.first?["status"]?.stringValue == "pausing")
+
+        machines.list = [CloudMachine(id: "vm-1", status: .paused)]
+        let settled = try await provider.call("cmux.cloud.machine.list", params: .object([:]), context: Self.page)
+        #expect(settled["machines"]?.arrayValue?.first?["status"]?.stringValue == "paused")
+    }
+
     @Test func signedOutReadsAuthAndRefusesTheList() async throws {
         let machines = Machines()
         machines.signedIn = false
@@ -152,6 +167,69 @@ struct CloudClassicPageTests {
         machines.list.removeAll()
         await Self.settle { false }
         #expect(seen.items.count == count)
+    }
+
+    /// Dogfood 2026-10-31: the page listed `vm-1304f870…` for machines the sidebar and the CLI name
+    /// `kind-aqua-sandpiper`. A record's name is the sidebar's (``CloudMachine/shownName``).
+    @Test func aRecordIsNamedAsTheSidebarNamesIt() async throws {
+        let machines = Machines()
+        machines.list = [CloudMachine(id: "vm-1", status: .running, slug: "kind-aqua-sandpiper"),
+                         CloudMachine(id: "vm-2", status: .running, displayName: "fs-lane-1", slug: "tidy-yellow-tern"),
+                         CloudMachine(id: "vm-3", status: .paused)]
+        let (provider, _) = Self.provider(machines)
+        let list = try await provider.call("cmux.cloud.machine.list", params: .object([:]), context: Self.page)
+        let records = list["machines"]?.arrayValue ?? []
+        #expect(records.map { $0["name"]?.stringValue } == ["kind-aqua-sandpiper", "fs-lane-1", nil])
+        #expect(machines.list.map(\.title) == ["kind-aqua-sandpiper", "fs-lane-1", "vm-3"])
+    }
+
+    /// Dogfood 2026-10-31: a Cloud page opened while signed out kept its Sign In hero after the
+    /// app signed in. The page's account stream sends the current account, then each change.
+    @Test func theAccountStreamFollowsTheAppsSignIn() async throws {
+        let machines = Machines()
+        machines.signedIn = false
+        let ops = CloudClassicPageOps(backend: Self.backend(machines))
+        let provider = CloudPageProvider(op: CloudAppLinks.ops(classic: ops), feed: CloudAppLinks.feed(classic: ops),
+                                         account: { CloudPageProvider.accountValue(signedIn: machines.signedIn, user: machines.user, team: "team-1") })
+        let seen = Seen()
+        let subscription = try await provider.subscribe(CloudPageProvider.authStream, filter: .object([:]), context: Self.page) {
+            seen.items.append($0)
+        }
+        #expect(seen.items.map { $0["signedIn"]?.boolValue } == [false])
+        #expect(seen.items.first?["team"] == .null)
+
+        machines.signedIn = true
+        await Self.settle { seen.items.count >= 2 }
+        #expect(seen.items.last?["signedIn"]?.boolValue == true)
+        #expect(seen.items.last?["team"]?.stringValue == "team-1")
+        #expect(seen.items.last?["user"]?.stringValue == "user-a")
+
+        // Another signed-in account (same team shape): still a change the page must see.
+        machines.user = "user-b"
+        await Self.settle { seen.items.count >= 3 }
+        #expect(seen.items.last?["user"]?.stringValue == "user-b")
+
+        machines.signedIn = false
+        await Self.settle { seen.items.count >= 4 }
+        #expect(seen.items.last?["signedIn"]?.boolValue == false)
+        #expect(seen.items.last?["user"] == .null)
+
+        subscription.cancel()
+        #expect(provider.accountWatcherCount == 0)
+        machines.signedIn = true
+        await Self.settle { false }
+        #expect(seen.items.count == 4)
+    }
+
+    /// A provider given no account (tests, an older wiring) refuses the stream; the page goes on without it.
+    @Test func noAccountRefusesTheAccountStream() async throws {
+        let (provider, _) = Self.provider(Machines())
+        do {
+            _ = try await provider.subscribe(CloudPageProvider.authStream, filter: .object([:]), context: Self.page) { _ in }
+            Issue.record("the account stream was served with no account")
+        } catch let error as PageError {
+            #expect(error.code == PageError.unknownOp(CloudPageProvider.authStream).code)
+        }
     }
 
     @Test func pauseAndStartRunTheClassicCallsAndAnswerTheRecord() async throws {

@@ -193,7 +193,8 @@ const REFUSAL: Readonly<Record<Exclude<MachineExecReply, { ok: true }>["refusal"
   not_found: [404, "vm_not_found", "no such machine in this team"],
   forbidden: [403, "vm_forbidden", "this user may not use the team's machines"],
   not_running: [409, "vm_not_running", "the machine is not running; start it first"],
-  provider_failed: [502, "vm_unavailable", "the machine did not answer; retry"]
+  provider_failed: [502, "vm_unavailable", "the machine did not answer; retry"],
+  output_limit: [413, "vm_output_too_large", "the machine's answer exceeded the response limit; its output was discarded"]
 }
 
 /** A JSON object body of at most BODY_MAX bytes, or the refusal. */
