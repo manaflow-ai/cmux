@@ -35,6 +35,7 @@ struct PanesScreen: View {
                     .accessibilityIdentifier("panes.rename.field")
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") { Task { await source.renamePane(pane, to: paneName) } }
+                    .keyboardShortcut(.defaultAction)
             } message: { _ in
                 Text("Leave the name empty to clear it.")
             }

@@ -80,7 +80,14 @@ pub(super) fn run_for(
     let mut text = Vec::new();
     for _ in 0..2 {
         match rx.recv_timeout(limit.saturating_sub(started.elapsed())) {
-            Ok(part) => text.extend(part),
+            Ok(part) => {
+                // Each pipe is its own stream: end a control the first left open (ST) so it does
+                // not hide the second's lines from the cleaned answer.
+                if !text.is_empty() {
+                    text.extend_from_slice(b"\x1b\\\n");
+                }
+                text.extend(part);
+            }
             // Both pipes closed.
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
             // Something it started still holds the output.
@@ -121,7 +128,11 @@ pub fn installed_version(path: &str) -> Result<String, String> {
         Some(v) => Ok(v),
         None if ok => Err(format!("`{path} --version` printed no version")),
         None => {
-            Err(format!("`{path} --version` failed: {}", text.lines().next().unwrap_or("").trim()))
+            let first = crate::stderr::clean_stderr_lines(&text)
+                .into_iter()
+                .find(|line| !line.is_empty())
+                .unwrap_or_default();
+            Err(format!("`{path} --version` failed: {first}"))
         }
     }
 }
@@ -172,4 +183,25 @@ pub fn compare_versions(left: &str, right: &str) -> Option<std::cmp::Ordering> {
     a.resize(n, 0);
     b.resize(n, 0);
     Some(a.cmp(&b))
+}
+
+#[cfg(all(test, unix))]
+mod pipe_tests {
+    /// A control one pipe leaves open never hides the other pipe's lines.
+    #[test]
+    fn a_control_left_open_on_stdout_does_not_hide_stderr() {
+        let script = "printf '\\033Psecret'; printf 'error: not found\\n' >&2; exit 1";
+        let (ok, text) = super::run(
+            &["/bin/sh".to_owned(), "-c".to_owned(), script.to_owned()],
+            &std::collections::BTreeMap::new(),
+            std::time::Duration::from_secs(10),
+        )
+        .unwrap();
+        assert!(!ok);
+        let lines: Vec<String> = crate::stderr::clean_stderr_lines(&text)
+            .into_iter()
+            .filter(|l| !l.is_empty())
+            .collect();
+        assert_eq!(lines, vec!["error: not found"], "{text:?}");
+    }
 }
