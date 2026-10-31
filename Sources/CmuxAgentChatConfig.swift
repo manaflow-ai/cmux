@@ -195,6 +195,57 @@ struct AgentChatOwnedServerSession: Sendable, Hashable {
     }
 }
 
+/// The per-user token `cmux-chat` starts its server with. Loopback is
+/// reachable from every local account, so the CLI never runs the server
+/// without it; the token lives in an owner-only file that legacy default-URL
+/// mode reads to open that same server.
+enum AgentChatCLIToken {
+    static let homeRelativePath = ".cmuxterm/agent-chat/cli-token"
+
+    static func fileURL(
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> URL {
+        homeDirectory.appendingPathComponent(homeRelativePath, isDirectory: false)
+    }
+
+    /// Returns nil unless the file is a regular file (not a symlink) owned by
+    /// this user with no group or other permission bits.
+    static func read(from fileURL: URL = fileURL(), fileManager: FileManager = .default) -> String? {
+        guard let attributes = try? fileManager.attributesOfItem(atPath: fileURL.path),
+              attributes[.type] as? FileAttributeType == .typeRegular,
+              (attributes[.ownerAccountID] as? NSNumber)?.uint32Value == getuid(),
+              let permissions = (attributes[.posixPermissions] as? NSNumber)?.intValue,
+              permissions & 0o077 == 0,
+              let data = fileManager.contents(atPath: fileURL.path),
+              let text = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return parse(text)
+    }
+
+    static func parse(_ text: String) -> String? {
+        let token = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (16...256).contains(token.count),
+              token.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }) else {
+            return nil
+        }
+        return token
+    }
+
+    /// The token-prefixed page URL for a server at `baseURL`, or `baseURL`
+    /// unchanged when no CLI token exists (a manual tokenless dev server).
+    static func browserURL(baseURL: URL, token: String?) -> URL {
+        guard let token else { return baseURL }
+        return baseURL.appendingPathComponent(token, isDirectory: true)
+    }
+
+    static func themeURL(baseURL: URL, token: String) -> URL {
+        browserURL(baseURL: baseURL, token: token)
+            .appendingPathComponent("api", isDirectory: true)
+            .appendingPathComponent("theme")
+    }
+}
+
 struct AgentChatSidecarStateFile: Decodable, Sendable, Hashable {
     var port: Int
     var pid: Int
