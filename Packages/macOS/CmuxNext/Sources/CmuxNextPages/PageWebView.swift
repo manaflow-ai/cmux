@@ -118,6 +118,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// ``PageCrashReloads`` allows: the page is not reloaded, and the host shows its notice (with a
     /// button that calls ``reloadAfterCrashes()``).
     public var onCrash: ((PageWebView, _ reloading: Bool) -> Void)?
+    /// Why the last crash reported to ``onCrash`` ended the page's process (WebKit's reason and
+    /// pid); nil before any crash.
+    public internal(set) var lastTermination: PageTermination?
+    /// The last WebContent pid seen at a finished load: WebKit may report 0 for a process that ended.
+    var knownWebContentPid: Int32 = 0
     /// Whether a crashed page reloads by itself (up to ``PageCrashReloads/limit``). A host whose page
     /// holds the person's state (the agent chat: an open menu, the caret, an IME composition) sets it
     /// false: every crash shows its notice, and only its Reload button reloads.
