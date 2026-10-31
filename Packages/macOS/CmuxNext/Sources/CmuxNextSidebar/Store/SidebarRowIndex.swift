@@ -206,8 +206,8 @@ nonisolated extension SidebarLayout {
         section.isHostGroup
     }
 
-    /// The computer a workspace row of `section` names on its second line in
-    /// the one-list sidebar (never this Mac, nor the Chief on it, whose workspaces
+    /// The computer a workspace row of `section` names in the one-list sidebar
+    /// (an expanded row's meta line, the row's accessibility label) (never this Mac, nor the Chief on it, whose workspaces
     /// read like this Mac's: their hover card says who started them), with its
     /// status when it cannot connect; nil otherwise. The one rule for `make` and a row update.
     static func machineLabel(_ section: SidebarSection, options o: SidebarLayoutOptions) -> String? {
