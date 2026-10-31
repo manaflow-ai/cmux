@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextFocusUI
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import Foundation
