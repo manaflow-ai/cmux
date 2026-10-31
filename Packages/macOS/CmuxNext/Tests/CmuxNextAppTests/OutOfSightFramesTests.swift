@@ -11,7 +11,11 @@ import Testing
 /// covered stepped and laid out every frame (or every 100 ms stall tick), though nobody saw it.
 /// Now an animation that starts in such a window, or runs when it goes out of sight, ends at once at
 /// its final state (its completion runs), the window's display link goes, and its rows lay out once.
-/// A window in sight animates as before. Needs a WindowServer session (occlusion reports).
+/// A window in sight animates as before.
+///
+/// The swift test process runs no AppKit event loop, so WindowServer's occlusion reports never reach
+/// it (a window it orders in never reads `.visible`). Each test posts the report AppKit would post
+/// (`didChangeOcclusionStateNotification`) at the moment WindowServer would send it.
 @MainActor
 @Suite(.serialized, .closesItsWindows, .enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"))
 struct OutOfSightFramesTests {
@@ -47,16 +51,24 @@ struct OutOfSightFramesTests {
 
     static let frame = NSRect(x: 160, y: 160, width: 240, height: 600)
 
-    /// A window on screen, in sight, with a counting content view.
-    static func shownWindow() async throws -> (NSWindow, CountingView) {
+    /// A window ordered in, with a counting content view. The caller closes it.
+    static func orderedInWindow() -> (NSWindow, CountingView) {
         let view = CountingView(frame: NSRect(origin: .zero, size: frame.size))
         let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = view
         _ = FrameScheduler.forWindow(window)
         window.orderFrontRegardless()
-        try await until("the window is in sight") { window.occlusionState.contains(.visible) }
         return (window, view)
+    }
+
+    /// The occlusion report WindowServer sends AppKit when `window` is ordered in, covered or uncovered.
+    static func reportOcclusion(of window: NSWindow) {
+        // AppKit posts this report on the default center, which is where FrameScheduler's one occlusion observer
+        // listens; its object is a window only this test made and holds, so every observer that acts on it acts on
+        // that window alone (no other suite has it), as on WindowServer's own report.
+        // global-notice-allow: the object is this test's own window (see above)
+        NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
     }
 
     /// An opaque window that covers `frame` completely.
@@ -70,18 +82,12 @@ struct OutOfSightFramesTests {
         return cover
     }
 
-    static func until(_ what: String, _ condition: () -> Bool) async throws {
-        for _ in 0..<200 {
-            if condition() { return }
-            try await Task.sleep(for: .milliseconds(25))
-        }
-        try #require(condition(), "\(what) never happened")
-    }
-
     @Test func anAnimationInAnOrderedOutWindowEndsAtOnceWithNoDisplayLink() async throws {
-        let (window, view) = try await Self.shownWindow()
+        let (window, view) = Self.orderedInWindow()
         defer { window.close() }
+        Self.reportOcclusion(of: window)
         window.orderOut(nil)
+        Self.reportOcclusion(of: window)
         let scheduler = FrameScheduler.forWindow(window)
 
         let slot = SidebarCardSlotMotion(policy: { Self.moving })
@@ -105,7 +111,7 @@ struct OutOfSightFramesTests {
     }
 
     @Test func anAnimationRunningWhenItsWindowIsCoveredEndsAtOnce() async throws {
-        let (window, view) = try await Self.shownWindow()
+        let (window, view) = Self.orderedInWindow()
         defer { window.close() }
         let scheduler = FrameScheduler.forWindow(window)
         let glide = Glide(view: view)
@@ -114,7 +120,9 @@ struct OutOfSightFramesTests {
 
         let cover = Self.cover()
         defer { cover.close() }
-        try await Self.until("the cover hides the window") { !window.occlusionState.contains(.visible) }
+        // WindowServer reports the cover. On a host whose reports reach the process, the window reads
+        // covered; in the test process, which gets none, it never reads `.visible` at all.
+        Self.reportOcclusion(of: window)
         try await Task.sleep(for: .milliseconds(250))
         #expect(glide.ended, "the covered window's animation kept stepping")
         #expect(!scheduler.hasLink, "a covered window holds a display link")
@@ -127,7 +135,7 @@ struct OutOfSightFramesTests {
     }
 
     @Test func aWindowInSightStillAnimates() async throws {
-        let (window, view) = try await Self.shownWindow()
+        let (window, view) = Self.orderedInWindow()
         defer { window.close() }
         #expect(Motion.canAnimate(in: view))
         let glide = Glide(view: view)
