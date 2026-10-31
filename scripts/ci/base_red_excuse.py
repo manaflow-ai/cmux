@@ -29,6 +29,13 @@ lines are compared with commit shas masked, so a real red that names each run's 
 """
 from __future__ import annotations
 
+# This check is a deterministic version comparison. Blacksmith's Actions log
+# exposes only the generic exit annotation, so there is no useful output line
+# for the normal signature matcher to compare. Its failed step is the stable
+# failure identity; compare that step on the base just like a test name.
+CHROMIUM_CURRENCY_JOB = "Shipped Chromium is at most one stable milestone behind"
+CHROMIUM_CURRENCY_STEP = "Pinned Chromium against Chrome stable"
+
 import argparse
 import importlib.util
 import json
@@ -675,6 +682,10 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if test_reds.is_test_red(own, name) and (own.crashes or own.truncated):
             raise Refused(f"'{name}': " + "; ".join(own.crashes + own.truncated[:1])[:800]
                           + " (a crash or a cut-short run is never a base red)")
+        head_steps, head_tests, head_errors = signature(job, head_log)
+        chromium_without_diagnostics = (name == CHROMIUM_CURRENCY_JOB
+                                        and CHROMIUM_CURRENCY_STEP in head_steps
+                                        and not (head_tests or head_errors or crash_signals(head_log)))
         workflow = github.json(f"repos/{repo}/actions/runs/{job['run_id']}").get("workflow_id")
         if workflow not in base_runs:
             listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}&status=completed"
@@ -709,10 +720,12 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                           "fix it on this head")
         head_steps, head_tests, head_errors = signature(job, head_log)
         head_crash = crash_signals(head_log)
-        if not head_tests and not head_errors and not head_crash:
+        if not head_tests and not head_errors and not head_crash and not chromium_without_diagnostics:
             raise Refused(f"'{name}': no failing test or error line to match; nothing to compare with the base")
         base_log = github.log(repo, base_job)
         base_steps, base_tests, base_errors = signature(base_job, base_log)
+        if chromium_without_diagnostics and (base_tests or base_errors or crash_signals(base_log)):
+            raise Refused(f"'{name}': no failing test or error line to match; nothing to compare with the base")
         verdict = test_reds.classify(head_log, base_log, name, f"{base} run {base_run['id']}")
         if verdict is not None and verdict.own:
             raise Refused(f"'{name}': " + "; ".join(verdict.reasons)[:800])
