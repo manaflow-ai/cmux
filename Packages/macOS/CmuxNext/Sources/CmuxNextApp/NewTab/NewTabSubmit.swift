@@ -102,7 +102,7 @@ extension NewTabSubmit {
                 return
             }
             services.linkOpener.open(from: pane, kind: .terminal) { target, placed in
-                target.newTerminalTab(cwd: cwd, typing: command.isEmpty ? nil : command, placementOwner: placed != nil)
+                target.newTerminalTab(cwd: cwd, typing: command.isEmpty ? nil : command, placementOwner: placed != nil) { surface in placed?(surface) }
                 return true
             }
         case .browser(let url):

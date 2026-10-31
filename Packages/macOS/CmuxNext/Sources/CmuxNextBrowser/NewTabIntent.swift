@@ -1,11 +1,10 @@
-import CmuxNextBrowser
 import Foundation
 
 /// What the new tab field's text means (plans/cmux-next/new-tab.md section
 /// 3.1), for the paths with no page: CLI, MCP, palette. The page decides
 /// with `webviews/src/agent-session/acpmux/newTabIntent.ts`; both pass
 /// `webviews/test/fixtures/new-tab-intents.json`.
-nonisolated enum NewTabIntent: Equatable, Sendable {
+public nonisolated enum NewTabIntent: Equatable, Sendable {
     case none
     /// `!` first: the tab becomes a terminal with `command` typed (not run).
     case terminal(command: String)
@@ -19,14 +18,14 @@ nonisolated enum NewTabIntent: Equatable, Sendable {
     /// rule, `!` included.
     case refused(reason: String)
 
-    static let pairingLinkReason = "pairing_link"
+    public static let pairingLinkReason = "pairing_link"
 
-    static let terminalPrefix: Character = "!"
+    public static let terminalPrefix: Character = "!"
 
     /// File extensions that are also top-level domains or look like one: a
     /// bare `name.ext` with one is text; a scheme, `www.`, a port or a path
     /// makes it an address (decision Q4).
-    static let fileExtensions: Set<String> = [
+    public static let fileExtensions: Set<String> = [
         "c", "cc", "cfg", "cjs", "conf", "cpp", "cs", "css", "csv", "dart", "env", "ex", "exs", "gif", "go",
         "gradle", "gz", "h", "hpp", "html", "ini", "java", "jpeg", "jpg", "js", "json", "jsx", "kt", "lock",
         "log", "lua", "md", "mdx", "mjs", "mts", "nix", "pdf", "php", "pl", "plist", "png", "py", "rb", "rs",
@@ -34,7 +33,7 @@ nonisolated enum NewTabIntent: Equatable, Sendable {
         "yaml", "yml", "zig", "zip", "zsh",
     ]
 
-    static func classify(_ input: String, home: URL? = FileManager.default.homeDirectoryForCurrentUser) -> NewTabIntent {
+    public static func classify(_ input: String, home: URL? = FileManager.default.homeDirectoryForCurrentUser) -> NewTabIntent {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return .none }
         if BrowserURLResolver.containsPairingLink(trimmed) { return .refused(reason: pairingLinkReason) }
@@ -49,7 +48,7 @@ nonisolated enum NewTabIntent: Equatable, Sendable {
     /// `about:` alias) in canonical form, which opens in a Chromium tab;
     /// else BrowserURLResolver's address (WebKit rules), minus a bare file
     /// name. Without a home folder, `~` and `~/path` are text.
-    static func url(for text: String, home: URL?) -> URL? {
+    public static func url(for text: String, home: URL?) -> URL? {
         if let page = ChromiumInternalURL(typed: text) { return page.url }
         if text == "~" || text.hasPrefix("~/"), home == nil { return nil }
         if looksLikeFileName(text) { return nil }
@@ -59,7 +58,7 @@ nonisolated enum NewTabIntent: Equatable, Sendable {
 
     /// `node.js`, `readme.md`: one token, no port, no path, no `www.`,
     /// ending in a file extension.
-    static func looksLikeFileName(_ text: String) -> Bool {
+    public static func looksLikeFileName(_ text: String) -> Bool {
         if text.contains(where: { "/?#:".contains($0) || $0.isWhitespace }) { return false }
         let lower = text.lowercased()
         if lower.hasPrefix("www.") { return false }
@@ -70,7 +69,7 @@ nonisolated enum NewTabIntent: Equatable, Sendable {
 
 /// The fixture's shape: `{"kind": "terminal", "command": "ls"}` and so on,
 /// the same JSON the page's `NewTabIntent` type has.
-nonisolated extension NewTabIntent: Codable {
+public extension NewTabIntent {
     private enum CodingKeys: String, CodingKey { case kind, command, url, text, reason }
 
     init(from decoder: any Decoder) throws {

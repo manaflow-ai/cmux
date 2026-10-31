@@ -334,7 +334,8 @@ extension NewTabPage {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         // Native terminal and browser picks use the same right-column decision as web picks, including
         // same-kind reuse and a lower split for the opposite kind.
-        if kind.opensBesideChat {
+        let chatPlacement = ChatColumnPlacement.keepsNewTabPage(in: page) || Self.docksChat(page)
+        if kind.opensBesideChat && chatPlacement {
             let request = AgentPaneOpenTab(kind: kind, text: trimmed, cwd: cwd, search: search)
             servicesOpenNativeTool(request, from: page)
             return
