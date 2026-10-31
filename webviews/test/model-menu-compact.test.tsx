@@ -243,15 +243,20 @@ const modelRows = (popup: HTMLElement) => [
 ];
 const modelNames = (popup: HTMLElement) =>
   modelRows(popup).map((row) => row.querySelector(".acpmux-menu-label")?.textContent ?? "");
-const currentEffortSegments = (popup: HTMLElement) => {
+/// The running model's effort levels: its effort item opens them beside the row as a side dropdown
+/// (a submenu of their own), one per line.
+const currentEffortSegments = async (popup: HTMLElement) => {
   const row = modelRows(popup).find((item) => item.querySelector(".acpmux-menu-label")?.textContent === "Opus 5.5");
-  return row
-    ? [
-        ...row
-          .closest<HTMLElement>(".acpmux-quick-model-effort")!
-          .querySelectorAll<HTMLElement>(".acpmux-quick-effort-segment"),
-      ]
-    : [];
+  const trigger = row
+    ?.closest<HTMLElement>(".acpmux-quick-model-effort")
+    ?.querySelector<HTMLElement>(".acpmux-quick-effort-trigger");
+  if (!trigger) return [];
+  if (!trigger.hasAttribute("data-popup-open")) {
+    await act(async () => trigger.click());
+    await settle();
+  }
+  const dropdown = doc().querySelector<HTMLElement>(".acpmux-quick-effort-menu");
+  return [...(dropdown?.querySelectorAll<HTMLElement>(".acpmux-quick-effort-segment") ?? [])];
 };
 const railTabs = () => [...menu()!.querySelectorAll<HTMLElement>(".acpmux-quick-rail-tab")];
 const key = (value: string) =>
@@ -303,8 +308,12 @@ test("the compact chip names the model and its effort, and a click opens the sho
   expect(menu()?.querySelector(".ui-menu-group-label")).toBeNull();
   expect(doc().querySelector(".acpmux-mp")).toBeNull();
   const rows = itemsOf(menu()!);
-  const segments = currentEffortSegments(menu()!);
-  expect(segments.map((segment) => segment.textContent?.replace(/^✓/, "").trim())).toEqual(["Low", "Medium", "High"]);
+  const segments = await currentEffortSegments(menu()!);
+  expect(
+    segments.map((segment) =>
+      (segment.querySelector(".acpmux-menu-label")?.textContent ?? segment.textContent)?.replace(/^✓/, "").trim(),
+    ),
+  ).toEqual(["Low", "Medium", "High"]);
   expect(segments.find((segment) => segment.getAttribute("aria-checked") === "true")?.textContent).toContain("Medium");
   expect(rows.some((row) => row?.startsWith("Account"))).toBe(true);
   // Claude Code's order: the models (with inline effort), More models, then Account last.
@@ -347,12 +356,15 @@ test("Effort lists the model's levels and a pick sends it", async () => {
   const { sent } = await mount({ routes: [] });
   await open();
   const effort = menu()!;
-  expect(currentEffortSegments(effort).map((item) => item.textContent?.replace(/^✓/, "").trim())).toEqual([
-    "Low",
-    "Medium",
-    "High",
-  ]);
-  const high = currentEffortSegments(effort).find((item) => item.textContent?.replace(/^✓/, "").trim() === "High")!;
+  expect(
+    (await currentEffortSegments(effort)).map((item) =>
+      (item.querySelector(".acpmux-menu-label")?.textContent ?? item.textContent)?.replace(/^✓/, "").trim(),
+    ),
+  ).toEqual(["Low", "Medium", "High"]);
+  const high = (await currentEffortSegments(effort)).find(
+    (item) =>
+      (item.querySelector(".acpmux-menu-label")?.textContent ?? item.textContent)?.replace(/^✓/, "").trim() === "High",
+  )!;
   await act(async () => high.click());
   await settle();
   expect(sent).toEqual([{ method: "effort", value: "high" }]);
@@ -740,11 +752,11 @@ test("Fast mode is a checkbox row after Account, checked from the session, and a
   const fast = () => menu()!.querySelector<HTMLElement>('.acpmux-quick-fast[role="menuitemcheckbox"]')!;
   expect(fast()).not.toBeNull();
   expect(fast().getAttribute("aria-checked")).toBe("false");
-  expect(currentEffortSegments(menu()!).map((item) => item.textContent?.replace(/^✓/, "").trim())).toEqual([
-    "Low",
-    "Medium",
-    "High",
-  ]);
+  expect(
+    (await currentEffortSegments(menu()!)).map((item) =>
+      (item.querySelector(".acpmux-menu-label")?.textContent ?? item.textContent)?.replace(/^✓/, "").trim(),
+    ),
+  ).toEqual(["Low", "Medium", "High"]);
   await act(async () => fast().click());
   await settle();
   expect(sent).toEqual([{ method: "effort", value: "on" }]);

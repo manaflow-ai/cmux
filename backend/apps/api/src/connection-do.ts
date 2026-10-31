@@ -17,6 +17,7 @@ import * as ghTokens from "./integrations/github-tokens.ts"
 import { ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
+import { isAgentGatewayPrincipal, resolveConnectionPrincipal } from "./agent-gateway-principal.ts"
 
 export type { ExternalReply, ProviderEvent } from "./integrations/external.ts"
 
@@ -510,18 +511,31 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
   }
 
   private async callProvider(principal: Principal, op: string, params: Record<string, unknown>): Promise<unknown> {
+    if (isAgentGatewayPrincipal(principal)) {
+      const current = await resolveConnectionPrincipal(this.env, principal)
+      if (!current || "refused" in current) throw new ProviderError("policy.denied", "the caller no longer has access")
+      principal = current
+    }
     const { provider, c } = this.usableFor(principal, op, params)
     const impl = providers[provider]
     if (!impl.configured(this.env)) throw new ProviderError("integration.unavailable", `${provider} is not configured`)
-    // With granular consent a user may have granted fewer scopes than were asked for.
-    // A scope the deployment may no longer use (a restricted Gmail scope with the gate closed) does not count.
-    const usable = c.scopes_granted.filter((s) => !impl.refuseScopes?.(this.env, [s]))
-    const needs = impl.scopesFor?.(op)
-    if (needs && !needs.some((s) => usable.includes(s))) {
-      throw new ProviderError("integration.unavailable", `${op} needs the ${needs.join(" or ")} permission, which this connection was not granted; reconnect and allow it`)
+    const checkScopes = (connection: Connection) => {
+      // With granular consent a user may have granted fewer scopes than were asked for.
+      // A scope the deployment may no longer use does not count.
+      const usable = connection.scopes_granted.filter((s) => !impl.refuseScopes?.(this.env, [s]))
+      const needs = impl.scopesFor?.(op)
+      if (needs && !needs.some((s) => usable.includes(s))) {
+        throw new ProviderError("integration.unavailable", `${op} needs the ${needs.join(" or ")} permission, which this connection was not granted; reconnect and allow it`)
+      }
     }
+    checkScopes(c)
+    const beforeEffect = isAgentGatewayPrincipal(principal) ? async () => {
+      const current = await resolveConnectionPrincipal(this.env, principal)
+      if (!current || "refused" in current) throw new ProviderError("policy.denied", "the caller no longer has access")
+      checkScopes(this.usableFor(current, op, params).c)
+    } : undefined
     try {
-      const r = await impl.call(this.env, this.http, await this.usableCredential(c), op, params)
+      const r = await impl.call(this.env, this.http, await this.usableCredential(c), op, params, beforeEffect)
       return r.value
     } catch (e) {
       if (e instanceof ProviderError && e.code === "needs_reauth") {

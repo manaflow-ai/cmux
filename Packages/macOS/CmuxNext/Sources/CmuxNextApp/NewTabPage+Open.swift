@@ -62,8 +62,9 @@ extension NewTabPage {
         // A moved page (another pane, workspace or window) acts in the pane that shows it now; it
         // opened its pick in the pane it left, or nowhere once that pane closed. Its folder stays
         // the one the page shows (`page.cwd`), as a split's page does.
+        let machineID = pane.daemon.machineID
         var handler = Self.handler(services, cwd: cwd) { [weak pane, weak services] key, request in
-            guard let target = services.flatMap({ Self.hosting(key, $0) }) ?? pane else { return }
+            guard let target = services.flatMap({ Self.hosting(key, $0, onMachine: machineID) }) ?? pane else { return }
             BenchSpans.measure("newTab.replace") { Self.replace(key, with: request, cwd: request.cwd ?? cwd, in: target) }
         }
         handler.inputReady = { [weak pane] _, token in
@@ -142,7 +143,7 @@ extension NewTabPage {
         // The pick takes the page's place, like a browser's new tab (Leo 2026-10-20); the Debug toggle
         // `newTab.picksFollowLinks` lands it where links do (Lawrence 2026-10-19).
         if !keep, Self.opensBeside(key, in: pane) { return Self.openBeside(key, with: request, cwd: cwd, from: pane) }
-        let closePage = keep ? close : NewTabSlot.placing(replacing: key, services: services, then: close) ?? close // the page's slot
+        let closePage = keep ? close : NewTabSlot.placing(replacing: key, onMachine: pane.daemon.machineID, services: services, then: close) ?? close // the page's slot
         switch request.kind {
         case .terminal where !request.run:
             // `!` on the screen: type, never run; keys typed while the
@@ -193,15 +194,16 @@ extension NewTabPage {
             case .terminal where !request.run:
                 let typeAhead = services.newTabTypeAhead
                 if typeAhead.latest(key).isEmpty, !request.text.isEmpty { typeAhead.update(key, text: request.text) }
-                target.newTerminalTab(cwd: cwd, typingAhead: key, then: landed)
+                target.newTerminalTab(cwd: cwd, typingAhead: key, placementOwner: placed != nil, then: landed)
                 return true
             case .terminal:
                 guard let command = command(request.text) else { return false }
-                target.newTerminalTab(cwd: cwd, typing: command, then: landed)
+                target.newTerminalTab(cwd: cwd, typing: command, placementOwner: placed != nil, then: landed)
                 return true
             case .browser:
                 let url = browserURL(request, services: services)
-                return target.newBrowserTab(url: url, engine: BrowserEngineTag.engine(for: url), background: placed != nil, then: landed)
+                return target.newBrowserTab(url: url, engine: BrowserEngineTag.engine(for: url), background: placed != nil,
+                                            placementOwner: placed != nil, then: landed)
             case .agent:
                 return false
             }

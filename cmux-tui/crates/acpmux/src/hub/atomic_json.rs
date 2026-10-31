@@ -1,5 +1,5 @@
-//! A JSON file written whole or not at all: the transfer markers (`transfer.rs`,
-//! `transfer_in.rs`).
+//! A JSON file written whole or not at all, and the plain ids that name the files: the transfer
+//! markers (`transfer.rs`, `transfer_in.rs`).
 
 use super::*;
 
@@ -32,4 +32,14 @@ pub(super) fn write_json_atomic(path: &Path, value: &Value) -> Result<()> {
         std::fs::File::open(parent)?.sync_all()?;
     }
     Ok(())
+}
+
+/// True when `id` is a single plain path component, so it can name a file or directory under a
+/// root (no separator, `.`, `..` or root).
+pub(super) fn is_plain_id(id: &str) -> bool {
+    let mut parts = Path::new(id).components();
+    matches!(
+        (parts.next(), parts.next()),
+        (Some(std::path::Component::Normal(c)), None) if c.to_str() == Some(id)
+    )
 }
