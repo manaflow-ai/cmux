@@ -166,7 +166,7 @@ fn new_chat(client: &mut Client, daemon: &Daemon) -> String {
 /// Control: the second prompt comes once the first prompt's turn shows. It queues and is
 /// accepted at once.
 #[test]
-fn a_prompt_behind_a_running_turn_is_accepted_at_once() {
+fn fuzz_g1_control_a_prompt_behind_a_running_turn_is_accepted_at_once() {
     let daemon = Daemon::start("ctl");
     let mut client = Client::connect(&daemon.socket);
     let id = new_chat(&mut client, &daemon);
@@ -186,7 +186,7 @@ fn a_prompt_behind_a_running_turn_is_accepted_at_once() {
 /// its turn yet. It must be accepted (queued) within 2 s like any other; it hears nothing until
 /// the first turn ends, which here is never.
 #[test]
-fn a_prompt_right_behind_another_is_accepted_within_two_seconds() {
+fn fuzz_g1_a_prompt_right_behind_another_is_accepted_within_two_seconds() {
     let daemon = Daemon::start("race");
     let mut client = Client::connect(&daemon.socket);
     let trials = 20;
