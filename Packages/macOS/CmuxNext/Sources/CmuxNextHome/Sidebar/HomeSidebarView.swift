@@ -33,6 +33,9 @@ public final class HomeSidebarView: NSView {
     /// A teammate from the search section or a teammate row was chosen: start (or open) the DM.
     public var onStartTeammate: (HomeContact) -> Void = { _ in }
     public var onNewMessage: () -> Void = {}
+    /// The x on the New Message draft row (shown while the pointer is over it, as in Messages)
+    /// was clicked: the page discards the draft (`home.closeNewMessage`).
+    public var onCloseDraft: () -> Void = {}
     /// The compose button's right-click menu (New Chief, Invite), or nil for none.
     public var composeMenu: () -> NSMenu? = { nil }
     /// The Message Requests button was clicked (`showRequests`).
@@ -172,7 +175,8 @@ public final class HomeSidebarView: NSView {
     var onContentChange: () -> Void = {}
 
     /// Shows or removes the New Message draft row (first under the pinned
-    /// grid, no time, as in Messages).
+    /// grid, no time, as in Messages). The row shows an x while the pointer
+    /// is over it (``onCloseDraft``).
     public func setDraftRow(_ title: String?) {
         guard title != draftRowTitle else { return }
         draftRowTitle = title
