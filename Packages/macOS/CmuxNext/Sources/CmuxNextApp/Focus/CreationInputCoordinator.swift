@@ -146,29 +146,31 @@ final class CreationInputCoordinator {
         return true
     }
 
-    /// Runs held `keys` of `window` again as typed, in order. False when one started another creation (a new hold, or
-    /// another creation in `buffer`): the rest wait for it, in order.
-    private func runAgain(_ keys: [NSEvent], from buffer: CreationInputBuffer, in window: NSWindow) -> Bool {
+    /// Runs held `keys` of `window` again in order, each in its own terminal (never the focused one in its place; a gone
+    /// terminal's keys go with it). False when one started another creation (a new hold, or another in `buffer`).
+    private func runAgain(_ keys: [CreationInputBuffer.HeldKey], from buffer: CreationInputBuffer, in window: NSWindow) -> Bool {
         let opened = buffer.openedCount
         for (index, key) in keys.enumerated() {
             replaying = true
-            runKey(key, window)
+            switch key {
+            case .run(let event): runKey(event, window)
+            case .type(let event, let tab): router?.services?.cache.existingTerminal(tab)?.session.surfaceView.typeHeldKey(event)
+            }
             replaying = false
             if let next = buffers[window.windowNumber], next !== buffer || next.openedCount != opened {
-                next.prepend(keys.dropFirst(index + 1))
+                next.prepend(keys.dropFirst(index + 1).map(\.event))
                 return false
             }
         }
         return true
     }
 
-    /// The pending creation whose early view has the keyboard: focus names its tab, its pane shows it and the window's
-    /// first responder is that terminal's view (never another terminal, a composer or Home's message box).
+    /// The pending creation whose early view (focused, shown, the first responder; never another view) has the keyboard.
     private static func earlyLane(_ buffer: CreationInputBuffer, _ controller: WindowController, _ window: NSWindow) -> Int? {
         guard case .terminal(let pane, let tab) = controller.focus.state.resolved, let lane = buffer.earlyLane(tab: tab),
               let shown = controller.content?.paneController(key: pane), shown.currentTabKey == tab,
-              case .terminal(let entry)? = shown.currentContent, let responder = window.firstResponder as? NSView else { return nil }
-        return responder === entry.session.surfaceView || responder.isDescendant(of: entry.session.view) ? lane : nil
+              case .terminal(let entry)? = shown.currentContent else { return nil }
+        return entry.session.hasKeyboard(window.firstResponder) ? lane : nil
     }
 
     /// Keys the daemon gave back from terminal `terminalID`, a creation that did not take them: they
@@ -214,11 +216,9 @@ final class CreationInputCoordinator {
     /// `end`: why a forced end happened (``CreationHoldLog/end(in:forced:)``).
     private func flush(in window: NSWindow, force: Bool = false, end forcedEnd: CreationHoldEnd = .limitReached) {
         guard let buffer = buffers[window.windowNumber] else { return }
-        // Before every reply, only a creation whose early view has the keyboard takes its own keys (a focus settle).
-        if !force, !buffer.isResolved {
-            if let controller = router?.focus(for: window).0, let lane = Self.earlyLane(buffer, controller, window) {
-                _ = runAgain(buffer.take(lane: lane), from: buffer, in: window)
-            }
+        guard force || buffer.isResolved else {
+            // Before every reply, only a creation whose early view has the keyboard takes its own keys (a focus settle).
+            if let lane = router?.focus(for: window).0.flatMap({ Self.earlyLane(buffer, $0, window) }) { _ = runAgain(buffer.take(lane: lane), from: buffer, in: window) }
             return
         }
         guard let router, let controller = router.focus(for: window).0 else {
@@ -234,8 +234,7 @@ final class CreationInputCoordinator {
         }
         buffers[window.windowNumber] = nil
         let end = holdEnds.end(in: window.windowNumber, forced: force ? forcedEnd : nil)
-        let (pending, dropped) = buffer.take(focused: controller.focus.state.terminalTab) { router.services?.cache.existingTerminal($0)?.session.surfaceView.typeHeldKey }
-        if dropped > 0 { Self.logger.notice("creation hold of window \(window.windowNumber, privacy: .public): \(dropped, privacy: .public) held key(s) dropped with their closed terminal") }
+        let pending = buffer.take(focused: controller.focus.state.terminalTab)
         if end == .limitReached {
             // The person's keys for a new terminal waited the whole bound and go on now, into whatever has the focus.
             Self.logger.notice("creation hold of window \(window.windowNumber, privacy: .public) ended at its limit, not on focus: \(pending.count, privacy: .public) held key(s) go on now; last action \(router.lastInterception?.action.rawValue ?? "-", privacy: .public)")
@@ -256,7 +255,6 @@ extension CreationInputCoordinator {
         if paneController.currentTabKey != tab { return paneController.stripModel.selectedID?.rawValue != tab }
         guard case .terminal(let entry)? = paneController.currentContent else { return true }
         guard let responder = window.firstResponder as? NSView else { return false }
-        if responder === entry.session.surfaceView || responder.isDescendant(of: entry.session.view) { return true }
-        return !(responder is TerminalSurfaceView)
+        return entry.session.hasKeyboard(responder) || !(responder is TerminalSurfaceView)
     }
 }

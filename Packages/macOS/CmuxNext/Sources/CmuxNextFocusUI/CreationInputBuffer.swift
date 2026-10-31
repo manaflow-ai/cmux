@@ -96,7 +96,7 @@ public final class CreationInputBuffer {
 
     /// Holds `earlier` (keys taken and not run yet, typed after the key that started the newest
     /// creation) before the keys held now, typed for that creation.
-    public func prepend(_ earlier: ArraySlice<NSEvent>) {
+    public func prepend(_ earlier: [NSEvent]) {
         let creation = nextID > 0 ? nextID : nil
         events.insert(contentsOf: earlier.map { ($0, creation) }, at: 0)
     }
@@ -106,31 +106,36 @@ public final class CreationInputBuffer {
         return events.map(\.event)
     }
 
-    /// Takes the keys of lane `lane` only, in typing order (its early view has the keyboard); the others keep waiting.
-    public func take(lane: Int) -> [NSEvent] {
-        defer { events.removeAll { $0.creation == lane } }
-        return events.filter { $0.creation == lane }.map(\.event)
+    /// A held key at the hold's end, in typing order (``take(focused:)``).
+    public enum HeldKey {
+        /// A key of a lane whose terminal, tab `tab`, is not the focused one: that terminal's own key encoder types it,
+        /// never the focused terminal (a held Ctrl-C must not stop another terminal's process).
+        case type(NSEvent, tab: String)
+        /// A key that runs again as typed, at its place: the focused lane's, a key of no lane, or a Command chord (an
+        /// app action, such as a third Cmd-D, never terminal input).
+        case run(NSEvent)
+
+        public var event: NSEvent {
+            switch self {
+            case .type(let event, _), .run(let event): event
+            }
+        }
     }
 
-    /// Ends the hold. A key of a lane whose terminal is not the focused tab `focused` goes to that terminal only, by
-    /// `typer(tab)` (that terminal's own key encoder, nil when no view of it exists any more: its keys go with it, as a
-    /// closed creation's do), never to the focused one: a held Ctrl-C must not reach another terminal's process. A
-    /// Command chord is an app action, not terminal input: it runs again as typed, as before. Returns the keys to run
-    /// again as typed, in typing order (the focused lane's, keys of no lane, Command chords), and how many keys were
-    /// dropped because their terminal is gone.
-    public func take(focused: String?, typer: (String) -> (@MainActor (NSEvent) -> Void)?) -> (replay: [NSEvent], dropped: Int) {
-        var replay: [NSEvent] = [], dropped = 0
-        var typers: [String: (@MainActor (NSEvent) -> Void)?] = [:]
-        for (event, lane) in events {
-            guard let lane, let tab = laneTabs[lane], tab != focused, !event.modifierFlags.contains(.command) else {
-                replay.append(event)
-                continue
-            }
-            if typers[tab] == nil { typers[tab] = .some(typer(tab)) }
-            if let typeKey = typers[tab] ?? nil { typeKey(event) } else { dropped += 1 }
+    /// Takes the keys of lane `lane` only, in typing order, to run again as typed (its early view has the keyboard);
+    /// the others keep waiting.
+    public func take(lane: Int) -> [HeldKey] {
+        defer { events.removeAll { $0.creation == lane } }
+        return events.filter { $0.creation == lane }.map { .run($0.event) }
+    }
+
+    /// Ends the hold: every held key in typing order, each for its own terminal while the focus is on tab `focused`.
+    public func take(focused: String?) -> [HeldKey] {
+        defer { events.removeAll() }
+        return events.map { event, lane in
+            guard let lane, let tab = laneTabs[lane], tab != focused, !event.modifierFlags.contains(.command) else { return .run(event) }
+            return .type(event, tab: tab)
         }
-        events.removeAll()
-        return (replay, dropped)
     }
 
     /// Calls `expired` after `limit` unless a creation of this hold still waits for its reply then
