@@ -1,6 +1,666 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "chatMenu.transcriptView": {
+      "comment": "Agent pane: the chat's ··· menu Transcript view submenu (conversation/transcriptView.ts)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عرض السجل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaz transkripta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Transskriptvisning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Transkriptansicht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcript view"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vista de la transcripción"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Affichage de la transcription"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vista trascrizione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "トランスクリプト表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទិដ្ឋភាពប្រតិចារិក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "대화 기록 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Transkripsjonsvisning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Widok transkrypcji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Visualização da transcrição"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вид стенограммы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มุมมองบันทึกการสนทนา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Döküm görünümü"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вигляд стенограми"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chế độ xem bản ghi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "对话记录视图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "對話記錄檢視"
+          }
+        }
+      }
+    },
+    "chatMenu.transcriptView.normal": {
+      "comment": "Agent pane: the chat's ··· menu Transcript view submenu (conversation/transcriptView.ts)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عادي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normalno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Normal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "標準"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ធម្មតា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "보통"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normalny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обычный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปกติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Звичайний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bình thường"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标准"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "標準"
+          }
+        }
+      }
+    },
+    "chatMenu.transcriptView.thinking": {
+      "comment": "Agent pane: the chat's ··· menu Transcript view submenu (conversation/transcriptView.ts)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التفكير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Razmišljanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tænkning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denken"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thinking"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Razonamiento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Réflexion"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ragionamento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "思考"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការគិត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "생각"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tenkning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Myślenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Raciocínio"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Размышления"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การคิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Düşünme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Міркування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suy nghĩ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "思考"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "思考"
+          }
+        }
+      }
+    },
+    "chatMenu.transcriptView.verbose": {
+      "comment": "Agent pane: the chat's ··· menu Transcript view submenu (conversation/transcriptView.ts)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مفصّل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detaljno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detaljeret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ausführlich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbose"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detallado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Détaillé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dettagliato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "詳細"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លម្អិត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "자세히"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detaljert"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szczegółowy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detalhado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подробный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แบบละเอียด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ayrıntılı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Детальний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chi tiết"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "详细"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "詳細"
+          }
+        }
+      }
+    },
+    "chatMenu.transcriptView.makeDefault": {
+      "comment": "Agent pane: the chat's ··· menu Transcript view submenu (conversation/transcriptView.ts)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اجعل {view} الافتراضي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Postavi {view} kao zadano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gør {view} til standard"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{view} als Standard festlegen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make {view} the default"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usar {view} de forma predeterminada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Définir {view} par défaut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Imposta {view} come predefinito"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{view}をデフォルトにする"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណត់ {view} ជាលំនាំដើម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{view}을(를) 기본값으로 설정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gjør {view} til standard"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ustaw {view} jako domyślny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tornar {view} o padrão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сделать «{view}» по умолчанию"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตั้ง {view} เป็นค่าเริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{view} varsayılan olsun"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зробити «{view}» типовим"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đặt {view} làm mặc định"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "将{view}设为默认"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "將{view}設為預設"
+          }
+        }
+      }
+    },
     "cloudStart.title": {"comment":"Agent pane: a new chat starting in Cloud, the line under the person's message while the start runs","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"جارٍ البدء في السحابة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pokretanje u Cloudu"}},"da":{"stringUnit":{"state":"needs_review","value":"Starter i Cloud"}},"de":{"stringUnit":{"state":"translated","value":"Wird in der Cloud gestartet"}},"en":{"stringUnit":{"state":"translated","value":"Starting in Cloud"}},"es":{"stringUnit":{"state":"translated","value":"Iniciando en la nube"}},"fr":{"stringUnit":{"state":"translated","value":"Démarrage dans le cloud"}},"it":{"stringUnit":{"state":"needs_review","value":"Avvio nel cloud"}},"ja":{"stringUnit":{"state":"translated","value":"クラウドで開始しています"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងចាប់ផ្ដើមក្នុង Cloud"}},"ko":{"stringUnit":{"state":"translated","value":"클라우드에서 시작하는 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Starter i skyen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Uruchamianie w chmurze"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Iniciando na nuvem"}},"ru":{"stringUnit":{"state":"needs_review","value":"Запуск в облаке"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังเริ่มบนคลาวด์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bulutta başlatılıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Запуск у хмарі"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang khởi động trên đám mây"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在云端启动"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在雲端啟動"}}}},
     "cloudStart.step.machine": {"comment":"Agent pane: a new chat starting in Cloud, the step that takes or boots a Cloud machine","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"جارٍ تجهيز جهاز"}},"bs":{"stringUnit":{"state":"needs_review","value":"Dobavljanje mašine"}},"da":{"stringUnit":{"state":"needs_review","value":"Henter en maskine"}},"de":{"stringUnit":{"state":"translated","value":"Maschine wird bereitgestellt"}},"en":{"stringUnit":{"state":"translated","value":"Getting a machine"}},"es":{"stringUnit":{"state":"translated","value":"Obteniendo una máquina"}},"fr":{"stringUnit":{"state":"translated","value":"Obtention d'une machine"}},"it":{"stringUnit":{"state":"needs_review","value":"Recupero di una macchina"}},"ja":{"stringUnit":{"state":"translated","value":"マシンを準備しています"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងរកម៉ាស៊ីន"}},"ko":{"stringUnit":{"state":"translated","value":"머신을 준비하는 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Henter en maskin"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pobieranie maszyny"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Obtendo uma máquina"}},"ru":{"stringUnit":{"state":"needs_review","value":"Получение машины"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังเตรียมเครื่อง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Makine alınıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Отримання машини"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang lấy máy"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在获取机器"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在取得機器"}}}},
     "cloudStart.step.folder": {"comment":"Agent pane: a new chat starting in Cloud, the step that copies the chat's folder to the machine","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"جارٍ نسخ المجلد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Kopiranje foldera"}},"da":{"stringUnit":{"state":"needs_review","value":"Kopierer mappen"}},"de":{"stringUnit":{"state":"translated","value":"Ordner wird kopiert"}},"en":{"stringUnit":{"state":"translated","value":"Copying the folder"}},"es":{"stringUnit":{"state":"translated","value":"Copiando la carpeta"}},"fr":{"stringUnit":{"state":"translated","value":"Copie du dossier"}},"it":{"stringUnit":{"state":"needs_review","value":"Copia della cartella"}},"ja":{"stringUnit":{"state":"translated","value":"フォルダをコピーしています"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងចម្លងថត"}},"ko":{"stringUnit":{"state":"translated","value":"폴더를 복사하는 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kopierer mappen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Kopiowanie folderu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Copiando a pasta"}},"ru":{"stringUnit":{"state":"needs_review","value":"Копирование папки"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังคัดลอกโฟลเดอร์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Klasör kopyalanıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Копіювання папки"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang sao chép thư mục"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在复制文件夹"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在複製資料夾"}}}},
