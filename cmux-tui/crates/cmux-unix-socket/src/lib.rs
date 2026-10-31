@@ -24,6 +24,10 @@
     )
 )]
 
+/// Private Unix socket descriptor transfers.
+#[cfg(unix)]
+pub mod descriptor;
+
 use std::io;
 use std::path::Path;
 
