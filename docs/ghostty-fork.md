@@ -14,16 +14,21 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ### A scroll region scroll breaks the soft wrap across its edges; the formatter carries blanks only across a joined wrap (ghostty-next)
 
-- Fork release branch `release/cmux-9ce9b7d0-e2` (ghostty-next `8444cc1eb`): the pin `9ce9b7d08` plus only fork PR #66
-  (`fix-formatter-blank-carry`) and the release workflow change of fork PR #67. GhosttyNextKit
-  `xcframework-8444cc1eb8436b090fdccbdb2369e9c3816f9f26-apple-v6`.
+- Fork release branch `release/cmux-9ce9b7d0-e2` (ghostty-next `84a225487`): the pin `9ce9b7d08` plus only fork PRs #66
+  (`fix-formatter-blank-carry`) and #68 (`fix-wrap-edge-history-cost`) and the release workflow change of fork PR #67. GhosttyNextKit
+  `xcframework-84a225487372c53851b186864c867e469e7596d2-apple-v6`.
 - Root fix (`771194607` red Zig tests, `3c717e511` fix): `cursorScrollRegionUp` (fast and slow paths),
   `cursorScrollAbove` with a bottom margin, `insertLines` and `deleteLines` with a full-width region move the rows
   inside the region and keep the rows outside it. The row above the region kept `wrap` and the row below it kept
   `wrap_continuation` while their neighbour inside was replaced. `Screen.breakWrapAbove` now clears both flags of the
   pair (and a spacer head) at each edge after the scroll. At a bottom margin the cursor row moves up with its `wrap`:
-  a linefeed or SU first resets it (`cursorResetWrap`, red `93b615013`, fix `934f29984`); printWrap's index keeps its
+  a linefeed or SU first resets it (`cursorResetWrap`, red `e47ad0619`, fix `601585067`); printWrap's index keeps its
   wrap, which goes into the row the scroll makes. Left/right margin scrolls keep their old behavior.
+- Scroll-path cost (red `bc393a54b`, fix `db6d27f78`): `breakWrapAbove` decides on the resident row first (its
+  `wrap_continuation`, or for IL/DL the top row's flag read before the rows move) and reads a row in a compressed
+  history page only when the pair was joined, so a region scroll never restores a history page for nothing.
+- Commit IDs in this section are those on `release/cmux-9ce9b7d0-e2`; the same changes on the fork PR branches
+  have other IDs.
 - Defense (`19ab1cbcb` red test, `406763ee6` fix): with `unwrap`, `PageFormatter` carried a row's trailing blank
   cells into a `wrap_continuation` row even after it had emitted a line break, so a stale flag moved that row right.
   Blank cells now reset when a line break goes out before the row (`broke_before`).
