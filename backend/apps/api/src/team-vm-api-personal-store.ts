@@ -70,4 +70,6 @@ export class PersonalTenantStore {
     this.sql.exec("UPDATE team_vm_api_personal SET phase=?, attempts=attempts+1, next_at=? WHERE id=1 AND marker=? AND phase=? AND attempts=? AND phase<>'ready'", definitelyUnsent ? "prepared" : intent.phase, next, JSON.stringify(intent.marker), intent.phase, intent.attempts)
   }
   parkPrepared(): void { this.sql.exec("UPDATE team_vm_api_personal SET next_at=NULL WHERE id=1 AND phase='prepared'") }
+  /** Clear a due wake time; the next explicit create resumes a non-ready intent. */
+  park(): void { this.sql.exec("UPDATE team_vm_api_personal SET next_at=NULL WHERE id=1 AND phase<>'ready'") }
 }

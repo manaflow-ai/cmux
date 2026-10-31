@@ -10,7 +10,9 @@ export interface PersonalTenantStack {
 export class PersonalTenantIdentityError extends Error {
   constructor(readonly definitelyUnsent: boolean) { super("personal tenant identity service unavailable") }
 }
-const KEY = "cmuxVmPersonalTenant"
+/** Server metadata key that marks a Stack team as a cmux personal VM tenant. */
+export const PERSONAL_TENANT_METADATA_KEY = "cmuxVmPersonalTenant"
+const KEY = PERSONAL_TENANT_METADATA_KEY
 const API = "https://api.stack-auth.com/api/v1"
 interface Team { readonly id?: unknown; readonly server_metadata?: Record<string, unknown> | null }
 
