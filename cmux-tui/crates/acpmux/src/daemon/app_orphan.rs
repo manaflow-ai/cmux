@@ -53,6 +53,9 @@ use std::time::{Duration, Instant};
 pub(crate) const ORPHAN_EXIT_DELAY: Duration = Duration::from_secs(60 * 60);
 /// How often the daemon tries the app's socket.
 pub(crate) const ORPHAN_RECHECK: Duration = Duration::from_secs(10 * 60);
+/// How often the watch rereads where its live executable is, so an app that was moved is
+/// followed to its new place before an update there replaces the binary (see [`App::follow`]).
+const PATH_REFRESH: Duration = Duration::from_secs(30);
 
 /// The bundle id of a Release build, and the prefix of every other channel's.
 const APP_BUNDLE_ID: &str = "com.cmuxterm.app";
@@ -231,6 +234,20 @@ impl App {
         Some(Self { bundle, bundle_id, socket })
     }
 
+    /// Follows the app to where its executable is now. A moved or renamed app keeps its
+    /// executable (the same file under a new name), so the watch must read the app's install
+    /// path at its new place: an update there later replaces the binary, and the app it
+    /// installed is found there, not at the path the daemon started from (where nothing is
+    /// left, which would read as a deleted app and end its agents). No change once the
+    /// executable is gone, or when its path is not inside an app bundle.
+    fn follow(&mut self, executable: &Executable) {
+        if let Some(bundle) =
+            executable.current_path().and_then(|path| containing_app_bundle(&path))
+        {
+            self.bundle = bundle;
+        }
+    }
+
     /// For a daemon run from macOS's update clone of an app, whose file keeps its name in the
     /// clone whatever happens to the app: whether the app it cloned is gone from its install
     /// path (deleted, or another app there). False for every other bundle.
@@ -298,9 +315,47 @@ impl Executable {
         #[cfg(not(unix))]
         false
     }
+
+    /// Where the file is now (moved or renamed apps included), while a name still links to it;
+    /// None once it is gone or where the platform cannot tell.
+    pub(crate) fn current_path(&self) -> Option<PathBuf> {
+        let path = fd_path(self.0.as_ref()?)?;
+        // Read after the path: a file unlinked in between has no current path.
+        (!self.gone()).then_some(path)
+    }
 }
 
-async fn watch_app(app: App, executable: Executable) -> bool {
+/// The path an open file is linked at now.
+#[cfg(target_os = "macos")]
+fn fd_path(file: &std::fs::File) -> Option<PathBuf> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::ffi::OsStringExt;
+    let mut buf = vec![0u8; libc::PATH_MAX as usize];
+    // SAFETY: F_GETPATH writes at most PATH_MAX bytes into `buf`, which holds PATH_MAX bytes,
+    // for a descriptor `file` keeps open for the call.
+    let r = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETPATH, buf.as_mut_ptr()) };
+    if r == -1 {
+        return None;
+    }
+    let end = buf.iter().position(|&b| b == 0)?;
+    buf.truncate(end);
+    Some(PathBuf::from(std::ffi::OsString::from_vec(buf)))
+}
+
+/// The path an open file is linked at now.
+#[cfg(target_os = "linux")]
+fn fd_path(file: &std::fs::File) -> Option<PathBuf> {
+    use std::os::fd::AsRawFd;
+    std::fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd())).ok()
+}
+
+/// The path an open file is linked at now.
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn fd_path(_file: &std::fs::File) -> Option<PathBuf> {
+    None
+}
+
+async fn watch_app(mut app: App, executable: Executable) -> bool {
     let timing = Timing::for_daemon();
     match &app.socket {
         Some(socket) => tracing::info!(
@@ -318,6 +373,7 @@ async fn watch_app(app: App, executable: Executable) -> bool {
     let mut answered = false;
     let mut absent_since = None;
     loop {
+        app.follow(&executable);
         // No socket to try: only the executable decides.
         let reachable = match app.socket.clone() {
             Some(probe) => tokio::task::spawn_blocking(move || app_reachable(&probe)).await.ok(),
@@ -349,7 +405,19 @@ async fn watch_app(app: App, executable: Executable) -> bool {
                 );
                 return end_agents;
             }
-            Decision::Wait(after) => tokio::time::sleep(after).await,
+            Decision::Wait(after) => {
+                // Sleeps in steps, following a moved app at each, so a move and an update
+                // there in one recheck interval still find the updated app (see `App::follow`).
+                let until = tokio::time::Instant::now() + after;
+                loop {
+                    let now = tokio::time::Instant::now();
+                    if now >= until {
+                        break;
+                    }
+                    tokio::time::sleep((until - now).min(PATH_REFRESH)).await;
+                    app.follow(&executable);
+                }
+            }
         }
     }
 }
@@ -539,6 +607,48 @@ mod tests {
         // Not opened at the start: never gone, unless marked gone then (a binary unlinked).
         assert!(!Executable::open(&dir.join("missing")).gone());
         assert!(Executable::open(&dir.join("missing")).gone_at_start().gone());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn a_moved_then_updated_app_keeps_its_agents_a_deleted_one_ends_them() {
+        let dir = std::env::temp_dir().join(format!("amx-orph-move-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let plist = br#"<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.cmuxterm.app.nightly</string></dict></plist>"#;
+        let make = |bundle: &Path| {
+            std::fs::create_dir_all(bundle.join("Contents/MacOS")).unwrap();
+            std::fs::write(bundle.join("Contents/Info.plist"), plist).unwrap();
+            std::fs::write(bundle.join("Contents/MacOS/acpmux"), b"build one").unwrap();
+        };
+        let old = dir.join("Downloads/cmux NIGHTLY.app");
+        make(&old);
+        let executable = Executable::open(&old.join("Contents/MacOS/acpmux"));
+        let mut app = App::in_bundle(old.clone(), || executable.gone()).unwrap();
+        // Moved: the same file under a new name, so not gone, and the watch follows it.
+        let moved = dir.join("Applications/cmux NIGHTLY.app");
+        std::fs::create_dir_all(moved.parent().unwrap()).unwrap();
+        std::fs::rename(&old, &moved).unwrap();
+        assert!(!executable.gone(), "moved");
+        app.follow(&executable);
+        assert_eq!(app.bundle, std::fs::canonicalize(&moved).unwrap());
+        // Updated there: a new binary over its name. Gone, but the same app is installed where
+        // it moved to, so its agents stay for the next launch to adopt.
+        let next = moved.join("Contents/MacOS/acpmux.next");
+        std::fs::write(&next, b"build two").unwrap();
+        std::fs::rename(&next, moved.join("Contents/MacOS/acpmux")).unwrap();
+        assert!(executable.gone(), "updated");
+        app.follow(&executable);
+        assert_eq!(app.bundle, std::fs::canonicalize(&moved).unwrap(), "kept once gone");
+        let installed = bundle_id(&install_path(&app.bundle));
+        assert_eq!(installed.as_deref(), Some("com.cmuxterm.app.nightly"));
+        assert!(!app.ends_agents(true, installed.as_deref()), "moved, then updated");
+        // The path it started from holds nothing: read there, it would look deleted.
+        assert_eq!(bundle_id(&install_path(&old)), None);
+        // Deleted where it moved to: its agents end.
+        std::fs::remove_dir_all(&moved).unwrap();
+        assert!(app.ends_agents(true, bundle_id(&install_path(&app.bundle)).as_deref()), "deleted");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
