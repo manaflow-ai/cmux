@@ -39,11 +39,12 @@ with open(os.path.join(os.environ["FUZZ_LOG"]), "a") as f:
 seed = int(opts.get("fuzz_seed", 0))
 seq = json.loads(opts["fuzz_sequence"]) if "fuzz_sequence" in opts else [{"a": "split_right", "t": "pair"}] * 4
 fail = seed in side.get("fail_seeds", []) or ("fuzz_sequence" in opts and side.get("fail_sequences"))
+findings = [{"oracle": "desync", "signature": f, "detail": f, "count": 2, "first_n": 1, "sequence": []} for f in side.get("findings", [])]
 failure = {"oracle": "create", "detail": "split_right+split_right: no terminal, no refusal", "index": len(seq)} if fail else None
 speed = [{"a": "new_terminal", "t": "slow", "shown_ms": side.get("typeable_ms", 100) - 20, "typeable_ms": side.get("typeable_ms", 100)}
          for _ in range(3)]
 report = {"seed": seed, "played": len(seq), "seconds": float(side.get("seconds", 120)), "failure": failure,
-          "shrunk": seq[:2] if fail else None, "speed": speed, "sequence": seq}
+          "shrunk": seq[:2] if fail else None, "speed": speed, "sequence": seq, "findings": findings}
 json.dump(report, open(os.path.join(out, "action-fuzz", "fuzz.json"), "w"))
 row = {"id": "action-fuzz", "status": "fail" if fail else side.get("status", "pass"), "reason": "", "host": "cmux99", "build_job": build}
 open(os.path.join(out, "results.jsonl"), "w").write(json.dumps(row) + "\n")
@@ -156,6 +157,14 @@ class Verdicts(unittest.TestCase):
         self.assertTrue(summary["speed_reds"])
         self.assertIn("RED", (Path(summary["out"]) / "summary.txt").read_text())
 
+    def test_finding_only_on_build_is_red_base_shared_is_not(self):
+        done, summary, _, _ = self.run_fuzz({"jobT": {"findings": ["desync:W#"]}, "jobB": {"findings": ["desync:W#"]}}, "--base", "jobB")
+        self.assertEqual(summary["verdict"], "CLEAN", done.stdout)
+        self.assertTrue(summary["findings"][0]["on_base"])
+        done, summary, _, _ = self.run_fuzz({"jobT": {"findings": ["desync:W#", "stall:x"]}, "jobB": {"findings": ["desync:W#"]}}, "--base", "jobB")
+        self.assertEqual(summary["verdict"], "RED")
+        self.assertEqual([f["signature"] for f in summary["findings"] if not f["on_base"]], ["stall:x"])
+
     def test_diagnostic_never_clean(self):
         done, summary, calls, tmp = self.run_fuzz({"jobT": {}}, "--diagnostic")
         self.assertEqual(summary["verdict"], "DIAGNOSTIC (NOT JUDGED)")
@@ -164,8 +173,18 @@ class Verdicts(unittest.TestCase):
         self.assertTrue(all(c["opts"].get("fuzz_mode") == "diagnostic" for c in calls))
         self.assertFalse((tmp / "handoff" / "jobT.clean").exists())
 
+    def test_failed_round_without_fuzz_failure_is_red(self):
+        done, summary, _, tmp = self.run_fuzz({"jobT": {"status": "fail"}, "jobB": {}}, "--base", "jobB")
+        self.assertEqual(summary["verdict"], "RED")
+        self.assertFalse((tmp / "handoff" / "jobT.clean").exists())
+
+    def test_no_base_or_zero_minutes_never_clean(self):
+        done, summary, _, tmp = self.run_fuzz({"jobT": {}})
+        self.assertEqual(summary["verdict"], "NO A/B (NOT JUDGED)")
+        self.assertFalse((tmp / "handoff" / "jobT.clean").exists())
+
     def test_not_run_round_is_not_judged(self):
-        done, summary, _, _ = self.run_fuzz({"jobT": {"status": "not run", "seconds": 0}})
+        done, summary, _, _ = self.run_fuzz({"jobT": {"status": "not run", "seconds": 0}, "jobB": {}}, "--base", "jobB")
         self.assertEqual(summary["verdict"], "NOT JUDGED")
 
     def test_corpus_first(self):

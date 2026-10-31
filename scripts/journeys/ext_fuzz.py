@@ -24,9 +24,9 @@ Oracles (each a short name in the failure, `oracle:detail`):
   r3a         every shown terminal: grid == fitted grid == drawn grid == the daemon's screen size, and the grid
               fits the view's frame at the cell size (ext_window's grid_fits rule); the probe's `stty size` == the
               daemon's size (the PTY)
-  r3b         a new column (Cmd-D, split right) never changes the width of a column that was there (exact, 0.5 pt
-              for rounding): on a tree screen every pane except the one split keeps its width; on a column-strip
-              screen (the topology's `column`) every old column keeps its width
+  r3b         a new column (New Column, Cmd-D) never changes the width of a column that was there: every old column
+              (the topology's `column`, matched by its panes, ext_smoke's reading) keeps its width within 0.01 pt,
+              read until it holds for up to 3 s (a layout in flight is not a failure)
   focus       debug.focus: the model's target == AppKit's first responder (`consistent`, `mismatches`), read again
               0.5 s later before it counts
   topology    the daemon's terminals == the app topology's terminals (`cmux terminal list`); debug.desync check
@@ -39,7 +39,7 @@ Oracles (each a short name in the failure, `oracle:detail`):
 
 Speed: each create records, from its key, `shown_ms` (the first poll, every 25 ms, where the new terminal's pane is
 visible and not blank with a drawn grid, or the new tab or workspace is in the topology) and `typeable_ms` (a
-terminal: its prompt is in the app's viewport text, what the renderer draws; Cmd-T: the New Tab field has focus;
+terminal: the shell's first output, its prompt, is in the app's viewport text, what the renderer draws; Cmd-T: the New Tab field has focus;
 Cmd-Shift-L: the address bar has the keys). No build has a photon (present) timestamp yet, so these are the app's
 own drawn state, read the same way on both builds of an A/B; fuzz.py compares them build against build.
 
@@ -116,6 +116,12 @@ HOLD_SECONDS = 2.5  # driver.CREATION_HOLD_SECONDS; repeated so fuzz.py can impo
 DISTURB = {"close_tab", "close_pane", "close_workspace", "switch_workspace", "relaunch", "close_all"}
 # Actions that change pane sizes on purpose (R3b is off for that burst).
 RESIZE = {"resize_window", "drag_divider"}
+# Oracles that stop the sequence and are shrunk (a wrong layout, a lost create, a crash, a leak). The others (RECORD:
+# the app's own desync monitor, main-thread stalls, focus) are recorded once per signature with the seed and the
+# actions so far, and the run goes on, so one early finding (a cold CEF start, a page-window desync after Cmd-N) does
+# not hide the rest of the run. Both count in the verdict; fuzz.py compares each with the base build.
+STOP = {"create", "r3a", "r3b", "crash", "topology", "leak", "keys"}
+RECORD = {"desync", "stall", "focus"}
 # Leak tolerances after close-all (see Fuzz.leak).
 LEAK_FDS = 48
 LEAK_HELPERS = 4
@@ -368,6 +374,7 @@ class Fuzz:
         self.hang_seq = max([int(r.get("sequence") or 0) for r in hang_records(j, 0)] or [0])
         self.leak_base = None
         self.speed, self.played, self.notes = [], [], []
+        self.findings = {}  # signature -> {oracle, signature, detail, count, first_n, sequence}
 
     def left(self):
         return D.now() < self.end
@@ -401,7 +408,16 @@ class Fuzz:
         return None
 
     def play(self, item, before):
-        """Plays one action; returns its record (key time, reply). `before` is the state before the burst."""
+        """Plays one action; returns its record. An action whose input path fails (the app died mid-burst, a drag or
+        a quit that did not take) is recorded with its error, so the oracles (crash first) judge what is left."""
+        try:
+            return self.play_one(item, before)
+        except (D.StepError, OSError, ValueError, subprocess.TimeoutExpired) as error:
+            if ACTIONS[item["a"]].get("creates"):
+                self.last_create = D.now()
+            return {"a": item["a"], "t": item.get("t", "slow"), "at": D.now(), "error": str(error)[-300:]}
+
+    def play_one(self, item, before):
         name, j = item["a"], self.j
         spec = ACTIONS[name]
         rec = {"a": name, "t": item.get("t", "slow")}
@@ -433,9 +449,11 @@ class Fuzz:
             rec["at"] = D.now()
             rec["probe"] = self.probe(before, require_new=False)
         elif name == "paste":
-            text = f"fzp{j.nonce}{self.n}"
+            # A comment line: the shell runs nothing, and Return leaves the line empty for the next probe.
+            text = f": fzp{j.nonce}{self.n}"
             subprocess.run(["/usr/bin/pbcopy"], input=text.encode(), timeout=10, check=False)
             rec["at"], _ = self.press("v", ["cmd"])
+            j.key("return", [])
             rec["pasted"] = text
         elif name == "relaunch":
             self.wait_hold()
@@ -515,12 +533,14 @@ class Fuzz:
                 want = {k: 0 for k in want}
             elif kind == "workspace":
                 want["workspaces"] += 1
+                want["panes"] = 0  # the shown workspace changes: delta counts the new one's panes only
                 on_ws, sure = True, True
             elif kind == "terminal":
                 want["terminals"] += 1
                 want["tabs"] += 1
                 if on_ws is False:
                     want["workspaces"] += 1
+                    want["panes"] = 0  # Ctrl-` on Home opens a workspace: it is the shown one now
                 elif on_ws is None:
                     exact = False
                 on_ws, sure = True, True
@@ -740,7 +760,7 @@ class Fuzz:
             self.notes.append({"n": self.n, "daemon_only_terminals": extra[:6], "after_close_all": closed_all})
         check = (_rpc(self.j, "debug.desync", {"check": True}) or {}).get("check") or {}
         for v in check.get("violations") or [] if isinstance(check, dict) else []:
-            problems.append(("topology", f"desync {v.get('invariant')}: {str(v.get('detail'))[:200]}"))
+            problems.append(("desync", f"{v.get('invariant')}: {str(v.get('detail'))[:200]}"))
         return problems
 
     def crash(self, st, relaunched):
@@ -829,6 +849,9 @@ class Fuzz:
                     time.sleep(gap)
         problems, after, exact = self.creates(burst, before, recs, refused_before)
         for r in recs:
+            if r.get("error") and r["a"] in ("relaunch",):
+                problems.append(("crash", f"relaunch failed: {r['error'][:200]}"))
+        for r in recs:
             if r["a"] == "type_line":
                 problems += (r.get("probe") or {}).get("problems", [])
         made_terminal = any(ACTIONS[a].get("creates") in ("terminal", "pane") for a in names)
@@ -838,14 +861,16 @@ class Fuzz:
             problems += pr.get("problems", [])
         closed_all, relaunched = "close_all" in names, "relaunch" in names
         if relaunched:
-            self.hang_seq, self.leak_base = 0, None  # a new process: its own hang sequence and resources
+            # A new process: its launch stalls are not the burst's (skipped), and its resources are a new baseline.
+            self.hang_seq = max([int(r.get("sequence") or 0) for r in hang_records(j, 0)] or [0])
+            self.leak_base = None
         after = state(j)
         problems += self.crash(after, relaunched)
         if not any(p[0] == "crash" for p in problems):
             tags, self.pty_tags = self.pty_tags, {}
             problems += self.settle_check(lambda: self.r3a(state(j), tags))
             if before_w is not None:
-                problems += self.r3b(before_w, before, after)
+                problems += self.settle_check(lambda: self.r3b(before_w, before, state(j)))
             problems += self.focus()
             problems += self.settle_check(lambda: self.topology(state(j), closed_all))
             problems += self.stalls()
@@ -870,14 +895,30 @@ class Fuzz:
             setup = self.ensure_target(burst)
             if setup:
                 self.effective += setup
-                problems = self.run_burst(setup)
+                problems = self.split(self.run_burst(setup))
                 if problems and stop_at_first:
                     return self.failed(problems)
             self.effective += burst
-            problems = self.run_burst(burst)
+            problems = self.split(self.run_burst(burst))
             if problems and stop_at_first:
                 return self.failed(problems)
         return None
+
+    def split(self, problems):
+        """Records the RECORD oracles' problems as findings; returns the STOP ones."""
+        stop = []
+        for oracle, detail in problems:
+            if oracle not in RECORD:
+                stop.append((oracle, detail))
+                continue
+            sig = signature(oracle, detail)
+            row = self.findings.get(sig)
+            if row is None:
+                self.findings[sig] = {"oracle": oracle, "signature": sig, "detail": detail, "count": 1, "first_n": self.n,
+                                      "sequence": list(getattr(self, "effective", []))[-12:]}
+            else:
+                row["count"] += 1
+        return stop
 
     def failed(self, problems):
         oracle, detail = problems[0]
@@ -900,6 +941,14 @@ class Fuzz:
         self.n += 1
 
 
+def signature(oracle, detail):
+    """A finding's identity across runs: ids, numbers and hex removed (`W1: appkit content:pane_ab12 (PageWebView)
+    != model agentPage` and the same with another pane id are one finding)."""
+    text = re.sub(r"\b(pane|tab|ws|term|win|surface|screen)_[0-9a-zA-Z]+", r"\1_*", str(detail))
+    text = re.sub(r"0x[0-9a-fA-F]+|\d+(\.\d+)?", "#", text)
+    return f"{oracle}:{text[:160]}"
+
+
 def _short(value, limit=600):
     text = json.dumps(value, default=str)
     return value if len(text) <= limit else {"truncated": text[:limit]}
@@ -917,6 +966,8 @@ def step_fuzz_run(j, step):
     if failure and fz.shrink:
         prefix = failure["sequence"]
 
+        kept, kept_speed = dict(fz.findings), list(fz.speed)
+
         def fails(cand):
             if not fz.left():
                 return None
@@ -926,10 +977,11 @@ def step_fuzz_run(j, step):
                 return None
             return bool(got) and got["oracle"] == failure["oracle"]
         shrunk, tries = ddmin(prefix, fails, fz.left)
+        fz.findings, fz.speed = kept, kept_speed  # the shrink's replays repeat what the run saw: no new samples
     report = {"seed": fz.seed, "source": fz.source, "diagnostic": fz.diagnostic, "planned": len(fz.sequence),
               "played": played, "seconds": round(D.now() - started, 1), "failure": failure,
               "shrunk": shrunk, "shrink_tries": tries, "budget_out": budget_out, "speed": fz.speed,
-              "notes": fz.notes[-200:], "leak_baseline": fz.leak_base, "log": fz.played[-400:],
+              "findings": sorted(fz.findings.values(), key=lambda f: f["first_n"]), "notes": fz.notes[-200:], "leak_baseline": fz.leak_base, "log": fz.played[-400:],
               "sequence": getattr(fz, "effective", []) if failure is None else failure["sequence"]}
     (j.out / "fuzz.json").write_text(json.dumps(report, indent=1, default=str) + "\n")
     j.fuzz_report = report
@@ -943,7 +995,9 @@ def cond_fuzz_clean(j, want, cache):
     report = getattr(j, "fuzz_report", None)
     if report is None:
         return False, {"error": "no fuzz_run before this check"}
-    return report["failure"] is None, {"seed": report["seed"], "played": report["played"], "failure": report["failure"]}
+    return report["failure"] is None and not report["findings"], {"seed": report["seed"], "played": report["played"],
+                                                                   "failure": report["failure"],
+                                                                   "findings": [f["signature"] for f in report["findings"]]}
 
 
 def cond_fuzz_daemon_agrees(j, want, cache):

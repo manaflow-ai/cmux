@@ -46,7 +46,8 @@ import ext_fuzz  # noqa: E402  (plan, CORPUS; nothing of it runs at import)
 JOURNEY = "action-fuzz"
 HANDOFF = Path("/Users/lawrence/fun/wt/handoff/dogfood-fuzz")
 # cmux17 is reserved for the Cua grant (STATUS "CUA GRANTED cmux17"); cmux16 is Leo's builder.
-DEFAULT_HOSTS = "cmux18 cmux19 cmux20 cmux21 cmux22 cmux23 cmux24"
+# cmux20-bench is the quiet measurement host (cmux-ad 07:1xZ): no fuzz there except row m on --host cmux20, one lease.
+DEFAULT_HOSTS = "cmux18 cmux19 cmux21 cmux22 cmux23 cmux24"
 # A speed regression: at least MIN_SAMPLES on each side, the build's median above the base's by RATIO and by
 # FLOOR_MS, and its p90 worse too (one slow sample does not make a red).
 MIN_SAMPLES = 4
@@ -105,6 +106,32 @@ def fuzz_report(out):
         return json.loads(path.read_text())
     except ValueError:
         return None
+
+
+def journey_problems(out, report):
+    """What failed in the round's journey besides the fuzz's own verdict: a step that failed (smoke_ready, a fuzz_run
+    that stopped on a harness error and wrote no failure) or a check of the final expect other than fuzz_clean
+    (fuzz_daemon_agrees, the frame). A round with such a problem is never clean."""
+    path = out / JOURNEY / "result.json"
+    if not path.is_file():
+        return []
+    try:
+        result = json.loads(path.read_text())
+    except ValueError:
+        return ["result.json does not parse"]
+    problems = []
+    for st in result.get("steps") or []:
+        if st.get("ok") is not False or st.get("finally"):
+            continue
+        if st.get("do") == "fuzz_run" and (report or {}).get("failure"):
+            continue  # the fuzz's own failure, judged from fuzz.json
+        if st.get("do") == "expect":
+            continue  # judged check by check below
+        problems.append(f"step {st.get('index')} ({st.get('do')}): {(st.get('error') or '')[:240]}")
+    for ev in result.get("evidence") or []:
+        if ev.get("pass") is False and ev.get("check") != "fuzz_clean":
+            problems.append(f"check {ev.get('check')} failed: {json.dumps(ev.get('detail'), default=str)[:240]}")
+    return problems
 
 
 def journey_row(out):
@@ -172,15 +199,33 @@ def summarize(rounds, opts, started):
     fails = [r for r in test if r.get("failure")]
     base_fails = [r for r in rounds if r["build"] == "base" and r.get("failure")]
     not_run = [r for r in rounds if r["status"] == "not run" and not r.get("failure")]
+    broken = [r for r in test if r.get("journey_problems") or (r["status"] == "fail" and not r.get("failure")
+                                                               and not r.get("findings"))]
+    base_sigs = {f["signature"] for r in rounds if r["build"] == "base" for f in r.get("findings") or []}
+    base_fail_oracles = {(r.get("failure") or {}).get("oracle") for r in base_fails}
+    findings = {}
+    for r in test:
+        for f in r.get("findings") or []:
+            row = findings.setdefault(f["signature"], dict(f, seeds=[], rounds=0, on_base=f["signature"] in base_sigs))
+            row["rounds"] += 1
+            if r.get("seed") is not None and r["seed"] not in row["seeds"]:
+                row["seeds"].append(r["seed"])
+    new_findings = [f for f in findings.values() if not f["on_base"]]
+    for f in fails:
+        f["also_on_base"] = (f.get("failure") or {}).get("oracle") in base_fail_oracles
     speed = speed_table([dict(s, build=r["build"], seed=r["seed"]) for r in rounds for s in r.get("speed") or []])
     reds = [s for s in speed if s["red"]]
     fuzz_s = sum(r.get("seconds") or 0 for r in test)
     actions = sum(r.get("played") or 0 for r in test)
-    if fails or reds:
+    if fails or reds or broken or (new_findings if opts.base else findings):
         verdict = "RED"
     elif opts.diagnostic:
         verdict = "DIAGNOSTIC (NOT JUDGED)"
-    elif not_run or fuzz_s < opts.minutes * 60 * 0.6:
+    elif opts.replay:
+        verdict = "REPLAY PASSED (NOT JUDGED)"
+    elif not opts.base:
+        verdict = "NO A/B (NOT JUDGED)"  # a clean file needs the speed A/B against a base build
+    elif not_run or opts.minutes <= 0 or not actions or fuzz_s < opts.minutes * 60:
         verdict = "NOT JUDGED"
     else:
         verdict = "CLEAN"
@@ -188,7 +233,10 @@ def summarize(rounds, opts, started):
             "rounds": len(rounds), "test_rounds": len(test), "not_run": len(not_run), "actions": actions,
             "fuzz_seconds": round(fuzz_s), "wall_seconds": round(time.time() - started),
             "seeds": sorted({r["seed"] for r in test if r.get("seed") is not None}),
-            "failures": [{k: r.get(k) for k in ("round", "seed", "host", "failure", "shrunk", "confirmed", "repro", "corpus")} for r in fails],
+            "failures": [{k: r.get(k) for k in ("round", "seed", "host", "failure", "shrunk", "confirmed", "repro", "corpus",
+                                                "also_on_base")} for r in fails],
+            "findings": sorted(findings.values(), key=lambda f: (f["on_base"], f["oracle"])),
+            "broken_rounds": [{k: r.get(k) for k in ("round", "seed", "host", "status", "reason", "journey_problems")} for r in broken],
             "base_failures": [{k: r.get(k) for k in ("round", "seed", "host", "failure", "shrunk", "corpus")} for r in base_fails],
             "speed": speed, "speed_reds": reds,
             "weak_oracles": (["typeable at once (keys wait out the 2.5 s creation hold after a create)",
@@ -207,9 +255,17 @@ def text_of(summary):
         lines.append("DIAGNOSTIC (no key window on a slot): weak oracles: " + "; ".join(s["weak_oracles"]))
     for f in s["failures"]:
         fl = f["failure"] or {}
-        lines.append(f"  FAIL {fl.get('oracle')} seed {f['seed']} round {f['round']} on {f['host']}: {str(fl.get('detail'))[:220]}")
+        lines.append(f"  FAIL {fl.get('oracle')} seed {f['seed']} round {f['round']} on {f['host']}"
+                     + (" (the base fails the same oracle)" if f.get("also_on_base") else "") + f": {str(fl.get('detail'))[:220]}")
         lines.append(f"       shrunk to {len(f['shrunk'] or [])} actions: {json.dumps(f['shrunk'])[:400]}"
                      f" (confirmed in a fresh lease: {f.get('confirmed')}; repro {f.get('repro')})")
+    for r in s["broken_rounds"]:
+        lines.append(f"  BROKEN round {r['round']} seed {r['seed']} on {r['host']}: "
+                     + "; ".join(r.get("journey_problems") or [str(r.get("reason"))])[:300])
+    for f in s["findings"]:
+        lines.append(f"  {'base finding (also on the base)' if f['on_base'] else 'FINDING'} {f['oracle']} x{f['count']} in "
+                     f"{f['rounds']} rounds, seeds {f['seeds'][:5]}: {str(f['detail'])[:200]}")
+        lines.append(f"       actions before it: {' '.join(i['a'] for i in f.get('sequence') or [])[:200]}")
     for f in s["base_failures"]:
         fl = f["failure"] or {}
         lines.append(f"  base finding {fl.get('oracle')} seed {f['seed']}: {str(fl.get('detail'))[:200]}")
@@ -291,7 +347,8 @@ def main(argv=None):
                    "host": used, "status": row.get("status"), "reason": (row.get("reason") or "")[:300], "exit": code,
                    "played": (report or {}).get("played"), "seconds": (report or {}).get("seconds"),
                    "failure": (report or {}).get("failure"), "shrunk": (report or {}).get("shrunk"),
-                   "speed": (report or {}).get("speed") or [], "corpus": label == "corpus",
+                   "speed": (report or {}).get("speed") or [], "findings": (report or {}).get("findings") or [],
+                   "journey_problems": journey_problems(r_out, report), "corpus": label == "corpus",
                    "exclusive": gate.exclusive_line(r_out), "pressure": gate.pressure(r_out, opts.hog_swap_gb) if opts.hog_swap_gb else None}
             rounds.append(rec)
             print(f"round {n} {side} ({label}, seed {rec['seed']}) on {used}: {rec['status']}"

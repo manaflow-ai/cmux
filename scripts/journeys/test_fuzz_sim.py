@@ -202,6 +202,8 @@ class FakeApp:
         if method == "debug.toast":
             return {"refusals": list(self.toasts)}
         if method == "debug.desync":
+            if "desync" in self.bugs and self.ws():
+                return {"check": {"violations": [{"invariant": "W1", "detail": f"appkit content:{self.ws()['panes'][0]['id']} (PageWebView) != model agentPage"}]}}
             return {"check": {"violations": []}}
         if method == "debug.dialog":
             return {"dialogs": []}
@@ -324,9 +326,18 @@ class Sim(unittest.TestCase):
         report, error = run(bugs={"pty_mismatch"}, seq=ext_fuzz.CORPUS["lawrence-ctrl-backtick-twice"], shrink=False)
         self.assertEqual(report["failure"]["oracle"], "r3a", error)
 
-    def test_stall_in_cmux_code(self):
+    def test_stall_in_cmux_code_is_a_finding(self):
         report, error = run(bugs={"stall"}, seq=ext_fuzz.CORPUS["lawrence-column-widths"], shrink=False)
-        self.assertEqual(report["failure"]["oracle"], "stall", error)
+        self.assertIsNone(report["failure"], error)
+        self.assertEqual([f["oracle"] for f in report["findings"]], ["stall"])
+
+    def test_desync_is_recorded_once_and_the_run_goes_on(self):
+        report, error = run(bugs={"desync"}, seed=3, count=40)
+        self.assertIsNone(report["failure"])
+        self.assertGreater(report["played"], 30)
+        self.assertEqual(len(report["findings"]), 1)
+        self.assertEqual(report["findings"][0]["oracle"], "desync")
+        self.assertGreater(report["findings"][0]["count"], 1)
 
     def test_pty_leak_after_close_all(self):
         seq = [{"a": "new_workspace", "t": "slow"}, {"a": "new_terminal", "t": "slow"}, {"a": "close_all", "t": "slow"},
