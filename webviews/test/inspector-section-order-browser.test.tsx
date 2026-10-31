@@ -164,7 +164,9 @@ await requireBrowserLane("inspector-section-order-browser.test.tsx", async () =>
       }
     });
 
-    test("hovering a section shows its handle in the left padding, and nothing moves", async () => {
+    // Leo, 2026-10-31: "ok we can click and drag but my screenshots were literally claude code having
+    // it on the fucking right".
+    test("hovering a section shows its handle in the right padding, right of its title, and nothing moves", async () => {
       const page = await browser.newPage({ viewport: { width: 400, height: 1400 } });
       try {
         await show(page);
@@ -186,9 +188,17 @@ await requireBrowserLane("inspector-section-order-browser.test.tsx", async () =>
             .getBoundingClientRect();
           const body = document.querySelector(".acpmux-chat-inspector__body")!.getBoundingClientRect();
           const section = document.querySelector('section[data-section="outputs"]')!.getBoundingClientRect();
-          return { inBody: handle.left >= body.left - 0.5, beforeSection: handle.right <= section.left + 0.5 };
+          const title = document
+            .querySelector('section[data-section="outputs"] .acpmux-chat-inspector-section__title')!
+            .getBoundingClientRect();
+          return {
+            inBody: handle.right <= body.right + 0.5,
+            afterSection: handle.left >= section.right - 0.5,
+            rightOfTitle: handle.left > title.right,
+            titleAtTextColumn: Math.round(title.left - section.left),
+          };
         });
-        expect(inside).toEqual({ inBody: true, beforeSection: true });
+        expect(inside).toEqual({ inBody: true, afterSection: true, rightOfTitle: true, titleAtTextColumn: 8 });
       } finally {
         await page.close();
       }

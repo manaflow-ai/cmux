@@ -433,7 +433,7 @@ test("with Cloud picked, a send goes to onCloud with its prompt, not a new chat;
   expect(container.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("fix the flaky test");
 });
 
-test("with Cloud picked and Do not work in a project, a send copies nothing: not even the tab's inherited folder", async () => {
+test("with Cloud picked and Do not work in a project, a send names no folder: not even the tab's inherited one", async () => {
   const clouded: unknown[][] = [];
   await act(async () => {
     root!.render(
@@ -470,9 +470,10 @@ test("with Cloud picked and Do not work in a project, a send copies nothing: not
     field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
   });
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
-  expect(clouded).toEqual([]);
-  expect(container.querySelector('[role="alert"]')?.textContent).toBeTruthy();
-  expect(container.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("fix the flaky test");
+  // The App sends it as a start with nothing copied (cloudRun.ts cloudStartFolder: `home`).
+  expect(clouded.length).toBe(1);
+  expect((clouded[0] as unknown[])[1]).toBe("fix the flaky test");
+  expect((clouded[0] as unknown[])[2]).toBeUndefined();
 });
 
 test("while a Cloud start is out the box takes no edits, and takes them again once it ends", async () => {
