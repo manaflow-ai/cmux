@@ -1,5 +1,5 @@
-import AppKit
-import CmuxNextCredentialVault
+public import AppKit
+public import CmuxNextCredentialVault
 import Observation
 
 extension HomeNativeTranscriptView {
