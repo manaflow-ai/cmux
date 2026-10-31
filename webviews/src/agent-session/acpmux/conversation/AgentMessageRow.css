@@ -33,6 +33,9 @@
   gap: inherit;
   min-width: 0;
   overflow: hidden;
+  /* One line on every message row, the sent line (SentMessageLine.tsx, no .cv-agentmsg__line)
+     included: a multiword recipient never wraps inside its chip. */
+  white-space: nowrap;
 }
 .cv-agentmsg__sentence > :not(.cv-agentmsg__toggle, .cv-agentmsg__preview) {
   flex: none;
