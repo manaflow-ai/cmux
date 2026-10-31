@@ -173,6 +173,8 @@ final class HomeNewMessageView: NSView {
     private func showConversation(_ id: ConversationID, carrying text: String) {
         guard let services else { return }
         removeComposer()
+        // Stopped before the next view of a chat reads its kept scroll place (#27627), not later on release.
+        host?.transcript.stop()
         host?.removeFromSuperview()
         let store = services.home.homeStore
         if !text.isEmpty, (store.draft(for: id) ?? "").isEmpty { store.setDraft(text, for: id) }

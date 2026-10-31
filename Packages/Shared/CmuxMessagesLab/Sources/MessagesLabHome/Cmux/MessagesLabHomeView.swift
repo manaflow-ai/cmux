@@ -789,10 +789,17 @@ public final class MessagesLabHomeView: NSView {
     }
 
     /// Automation (DEBUG socket): scrolls the transcript by `dy` points
-    /// through AppKit's scroll view.
+    /// through AppKit's scroll view, within the loaded rows as a wheel does.
     public func debugScroll(by dy: CGFloat) {
         guard let demo = controller.demo else { return }
-        controller.host.scrollView.scroll(toModelOffset: demo.collection.contentOffset.y + dy)
+        let target = min(max(demo.collection.contentOffset.y + dy, demo.minOffset), demo.pinnedOffset)
+        controller.host.scrollView.scroll(toModelOffset: target)
+    }
+
+    /// Automation (DEBUG socket): the transcript shows its newest message, pinned there (#27627).
+    public var debugAtNewest: Bool {
+        guard let state = controller.store?.state else { return false }
+        return state.ui.scroll.pinnedToBottom && state.atNewest
     }
 
     /// Returns when every bubble picture asked for so far is ready (tests).

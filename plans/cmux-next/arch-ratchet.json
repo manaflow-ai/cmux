@@ -731,6 +731,16 @@
       "owner": "cloud-sidebar-vms",
       "receipt": "Review (codex gpt-6-astra): SHIP at 5f7db1579443b56e7f57e17ff14e9c82bba8578c",
       "expiry": "2026-12-31"
+    },
+    {
+      "date": "2026-10-31",
+      "row": "app_lines",
+      "allow": 6,
+      "why": "#27745 (Home: a Chief's chat opens at its newest message, or where you left it; #27627). The reading-place logic is in MessagesLabHome (HomeProjection+ReadingPlace, MessagesWindowView+ReadingPlace) and CmuxNextHome; the App keeps only what its own views must do: TopHomePageView and HomeNewMessageView stop the outgoing transcript (one call and its comment each, 5 lines) before they replace its HomeHostView, so the next view of that chat reads the kept place, and the DEBUG-only DebugHomeNativeFixture reports `atNewest` (+1 line). TopHomePageView, HomeNewMessageView and HomeHostView are App types today, so no lower package owns the swap. The lines were written and reviewed before the app_lines rise refusal reached this branch; the merge of feat-cmux-next (rereview-27745) only made the gate judge them.",
+      "author": "austinywang (#27745); exception added by the rereview-27745 conflict merge",
+      "owner": "Home area owner (move the transcript stop into HomeHostView's replacement once Home leaves CmuxNextApp)",
+      "receipt": "Review (claude-indep-reviewer): SHIP at 80820bc4cfdd5039593dc5689399579656cf5652",
+      "expiry": "2026-11-30"
     }
   ],
   "escape_reviews": [

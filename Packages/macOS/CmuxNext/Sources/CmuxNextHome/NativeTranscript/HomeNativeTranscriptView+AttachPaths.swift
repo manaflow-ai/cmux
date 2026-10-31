@@ -129,4 +129,6 @@ extension HomeNativeTranscriptView {
     public func debugPostEscape(outside: Bool) { transcript.debugPostEscape(outside: outside) }
     /// Scrolls the transcript by `dy` points through AppKit's scroll view.
     public func debugScroll(by dy: CGFloat) { transcript.debugScroll(by: dy) }
+    /// The transcript shows its newest message, pinned there.
+    public var debugAtNewest: Bool { transcript.debugAtNewest }
 }

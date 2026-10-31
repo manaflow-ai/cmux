@@ -1,0 +1,326 @@
+{
+ "title": "Where a chat opens: at its newest message, or where it was left scrolled up (#27627)",
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "Go to Home",
+   "cmux": [
+    "action",
+    "run",
+    "home.show"
+   ],
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "Channel A is made",
+   "rpc": {
+    "method": "debug.home.api",
+    "params": {
+     "call": "submit",
+     "op": {
+      "kind": "create_group",
+      "title": "Scroll A",
+      "participants": []
+     }
+    }
+   },
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Open channel A",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "id": "home.nextConversation",
+     "focus": true
+    }
+   },
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "A1 typed",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "type",
+     "text": "A1 line 1\nA1 line 2\nA1 line 3\nA1 line 4\nA1 line 5\nA1 line 6\nA1 line 7\nA1 line 8\nA1 line 9\nA1 line 10\nA1 line 11\nA1 line 12"
+    }
+   },
+   "wait": 0.1,
+   "shot": false
+  },
+  {
+   "title": "A1 sent",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "send"
+    }
+   },
+   "wait": 0.6,
+   "shot": false
+  },
+  {
+   "title": "A2 typed",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "type",
+     "text": "A2 line 1\nA2 line 2\nA2 line 3\nA2 line 4\nA2 line 5\nA2 line 6\nA2 line 7\nA2 line 8\nA2 line 9\nA2 line 10\nA2 line 11\nA2 line 12"
+    }
+   },
+   "wait": 0.1,
+   "shot": false
+  },
+  {
+   "title": "A2 sent",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "send"
+    }
+   },
+   "wait": 0.6,
+   "shot": false
+  },
+  {
+   "title": "A3 typed",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "type",
+     "text": "A3 line 1\nA3 line 2\nA3 line 3\nA3 line 4\nA3 line 5\nA3 line 6\nA3 line 7\nA3 line 8\nA3 line 9\nA3 line 10\nA3 line 11\nA3 line 12"
+    }
+   },
+   "wait": 0.1,
+   "shot": false
+  },
+  {
+   "title": "A3 sent",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "send"
+    }
+   },
+   "wait": 0.6,
+   "shot": false
+  },
+  {
+   "title": "A4 typed",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "type",
+     "text": "A4 line 1\nA4 line 2\nA4 line 3\nA4 line 4\nA4 line 5\nA4 line 6\nA4 line 7\nA4 line 8\nA4 line 9\nA4 line 10\nA4 line 11\nA4 line 12"
+    }
+   },
+   "wait": 0.1,
+   "shot": false
+  },
+  {
+   "title": "A4 sent",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "send"
+    }
+   },
+   "wait": 0.6,
+   "shot": false
+  },
+  {
+   "title": "A5 typed",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "type",
+     "text": "A5 line 1\nA5 line 2\nA5 line 3\nA5 line 4\nA5 line 5\nA5 line 6\nA5 line 7\nA5 line 8\nA5 line 9\nA5 line 10\nA5 line 11\nA5 line 12"
+    }
+   },
+   "wait": 0.1,
+   "shot": false
+  },
+  {
+   "title": "A5 sent",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "send"
+    }
+   },
+   "wait": 0.6,
+   "shot": false
+  },
+  {
+   "title": "Channel B is made",
+   "rpc": {
+    "method": "debug.home.api",
+    "params": {
+     "call": "submit",
+     "op": {
+      "kind": "create_group",
+      "title": "Scroll B",
+      "participants": []
+     }
+    }
+   },
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Open channel B",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "id": "home.previousConversation",
+     "focus": true
+    }
+   },
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "B1 typed",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "type",
+     "text": "B1 line 1\nB1 line 2\nB1 line 3\nB1 line 4\nB1 line 5\nB1 line 6\nB1 line 7\nB1 line 8\nB1 line 9\nB1 line 10\nB1 line 11\nB1 line 12"
+    }
+   },
+   "wait": 0.1,
+   "shot": false
+  },
+  {
+   "title": "B1 sent",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "send"
+    }
+   },
+   "wait": 0.6,
+   "shot": false
+  },
+  {
+   "title": "A, left at its newest: opens at A5 line 12",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "id": "home.nextConversation",
+     "focus": true
+    }
+   },
+   "wait": 3
+  },
+  {
+   "title": "A scrolled up 700 pt: the person reads an older message",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "scroll",
+     "dy": -700
+    }
+   },
+   "wait": 2
+  },
+  {
+   "title": "A's rows while reading",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "rows"
+    }
+   },
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "B opens at its newest",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "id": "home.previousConversation",
+     "focus": true
+    }
+   },
+   "wait": 3
+  },
+  {
+   "title": "A opens where the person was reading: the same lines as before",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "id": "home.nextConversation",
+     "focus": true
+    }
+   },
+   "wait": 3
+  },
+  {
+   "title": "A's rows after the reopen",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "rows"
+    }
+   },
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "A scrolled back down to its newest",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "scroll",
+     "dy": 100000
+    }
+   },
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "B again",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "id": "home.previousConversation",
+     "focus": true
+    }
+   },
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "A, scrolled back down before leaving: opens at A5 line 12",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "id": "home.nextConversation",
+     "focus": true
+    }
+   },
+   "wait": 3
+  },
+  {
+   "title": "A's rows at its newest",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "rows"
+    }
+   },
+   "wait": 0.2,
+   "shot": false
+  }
+ ]
+}
