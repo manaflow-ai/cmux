@@ -44,6 +44,9 @@ export function mergedDraft(typed: string, saved: string | undefined): string {
  *   (a relaunch, a reload, text typed while the chat loaded). Saved and held text are merged
  *   (`mergedDraft`): an empty or load-time editor never replaces acpmux's non-empty draft, and
  *   typed text is never dropped for it.
+ *   A write still queued for the chat (`pendingWrite`) is never a first read's: only a page that
+ *   read the draft queues one, so the queued text (an edit or a clear made while acpmux was away)
+ *   stays authoritative and is not merged with the older draft acpmux still holds.
  * - Otherwise the page already read it: what the page holds or still has queued is newer (the
  *   person's own edit, a clear included), as before.
  * `text` is the prompt to show, `shown` whether it differs from the editor, and `write` whether it
@@ -57,7 +60,7 @@ export function hydratedDraft(input: {
   firstRead: boolean;
 }): { text: string; shown: boolean; write: boolean } {
   const { current, restored, edited, pendingWrite, firstRead } = input;
-  if (firstRead && restored) {
+  if (firstRead && restored && !pendingWrite) {
     const text = mergedDraft(current, restored);
     return { text, shown: text !== current, write: text !== restored };
   }
@@ -308,9 +311,12 @@ export function markDraftRead(sessionId: string | undefined): void {
   if (sessionId?.trim()) readDrafts.add(sessionId);
 }
 
-/** A composer left a session; a later visit must merge that session's durable draft again. */
+/** A composer left a session; a later visit must merge that session's durable draft again. A
+ * session with a write still queued keeps its mark: that write was built on the read, and a later
+ * visit must not merge acpmux's older draft into it. */
 export function forgetDraftRead(sessionId: string | undefined): void {
-  if (sessionId?.trim()) readDrafts.delete(sessionId);
+  if (!sessionId?.trim() || pendingDraftWrites.has(sessionId)) return;
+  readDrafts.delete(sessionId);
 }
 
 /// Reads the daemon draft: `{ draft }` once acpmux answered (`draft` undefined when it holds none),

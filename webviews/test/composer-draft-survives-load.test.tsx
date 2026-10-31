@@ -175,9 +175,20 @@ test("the merge keeps both texts once, the saved draft first", () => {
   expect(mergedDraft("saved, then more", "saved")).toBe("saved, then more");
   expect(mergedDraft("typed", "saved\n\ntyped")).toBe("saved\n\ntyped");
   // A first read of acpmux's draft merges; an empty editor never writes over it.
-  expect(hydratedDraft({ current: "", restored: "saved", edited: true, pendingWrite: true, firstRead: true })).toEqual({
-    text: "saved",
-    shown: true,
+  expect(hydratedDraft({ current: "", restored: "saved", edited: true, pendingWrite: false, firstRead: true })).toEqual(
+    {
+      text: "saved",
+      shown: true,
+      write: false,
+    },
+  );
+  // A write still queued (an edit or a clear made after an earlier read) stands, even when the
+  // read bookkeeping was lost: acpmux's older draft is not merged into it.
+  expect(
+    hydratedDraft({ current: "buy bread", restored: "buy milk", edited: true, pendingWrite: true, firstRead: true }),
+  ).toEqual({
+    text: "buy bread",
+    shown: false,
     write: false,
   });
   // After the page read it, the person's own clear (queued) stands.
@@ -274,4 +285,31 @@ test("(d) the person's clear and a send still clear the saved draft", async () =
   await act(async () => void handle.current!.send());
   await until(() => prompt() === "", "the send's clear");
   await until(() => !acpmux.held.has("load-d"), "the send to clear acpmux's draft");
+});
+
+test("(e) an edit queued while disconnected survives switching away and back before the reconnect", async () => {
+  // cmux#28204 review: leaving the chat forgot that its draft was read, so the read after the
+  // reconnect counted as a first read and merged acpmux's old draft into the queued replacement.
+  const acpmux = daemon({ "load-e": "buy milk" });
+  await acpmux.connect();
+  await render("load-e");
+  await until(() => prompt() === "buy milk", "the saved draft");
+  // The connection drops: the replacement is queued, not yet acpmux's.
+  delete page().cmuxAcpmuxActions;
+  await act(async () => notifyDraftActionsChanged());
+  await act(async () => markdownField()!.type("buy bread"));
+  await until(() => prompt() === "buy bread", "the replacement");
+  await settle();
+  // Away to another chat and back, still disconnected.
+  await render("load-e-other");
+  await settle();
+  await render("load-e");
+  await settle();
+  await acpmux.connect();
+  await until(() => acpmux.held.get("load-e") === "buy bread", "acpmux to take the queued replacement");
+  await settle();
+  await settle();
+  expect(prompt()).toBe("buy bread");
+  expect(acpmux.held.get("load-e")).toBe("buy bread");
+  expect(acpmux.writes.some((write) => write.text.includes("buy milk\n\nbuy bread"))).toBe(false);
 });
