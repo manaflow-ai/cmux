@@ -38,19 +38,26 @@ public nonisolated struct AcpmuxSessionPage: Sendable {
 
     /// One session by id, open or closed, on this Mac or a peer it mirrors (`peer` names that
     /// peer, nil for this Mac's): the `cmux://session/<id>` question names it. Nil when acpmux has
-    /// no such session. The whole list, so only for one person's link, never per row.
+    /// no such session. `_acpmux/resolve` reads one local or mirrored row in
+    /// its exact-id mode.
     @concurrent public func session(_ id: String, deadline: Duration = .seconds(2)) async throws -> (chat: Chat, peer: String?)? {
-        let result = try await AcpmuxStatusClient.sessions(socketPath: socketPath, deadline: deadline).value
-        return Self.session(id, in: result)
+        guard let result = try await AcpmuxStatusClient.sessionSummary(socketPath: socketPath, sessionId: id, deadline: deadline) else { return nil }
+        return Self.chat(id, in: result)
     }
 
-    static func session(_ id: String, in result: [String: Any]) -> (chat: Chat, peer: String?)? {
-        guard let summary = (result["sessions"] as? [[String: Any]] ?? []).first(where: { $0["sessionId"] as? String == id }) else { return nil }
+    static func chat(_ id: String, in summary: [String: Any]) -> (chat: Chat, peer: String?)? {
+        guard summary["sessionId"] as? String == id else { return nil }
         let name = summary["name"] as? String ?? id
         let title = (summary["title"] as? String).flatMap { $0.isEmpty || $0 == name ? nil : $0 }
             ?? String(name.split(separator: "/").last ?? Substring(name))
         let peer = (summary["peer"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         return (Chat(id: id, title: title, harness: (summary["harness"] as? String).flatMap { $0.isEmpty ? nil : $0 }), peer)
+    }
+
+    /// Compatibility parser for a list result used by older callers and tests.
+    static func session(_ id: String, in result: [String: Any]) -> (chat: Chat, peer: String?)? {
+        guard let summary = (result["sessions"] as? [[String: Any]] ?? []).first(where: { $0["sessionId"] as? String == id }) else { return nil }
+        return chat(id, in: summary)
     }
 
     /// A `_acpmux/sessions` page (`{sessions: [summary], nextCursor}`), keeping only `peer`'s closed

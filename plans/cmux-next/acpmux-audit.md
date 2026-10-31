@@ -131,3 +131,37 @@ Landed f6dd9d4d2afc..2ab17f8e245d (panic-free JSON writes; lint (linux) green, r
   `pair.get(1)`; its test passes the systemctl path by value).
 - The panic ratchet has no slack: acpmux `indexing_slicing` 1021 -> 697. A new `v["k"] = x` or
   slice index turns lint (linux) red. Use `v.set("k", x)` or `get_mut` in new code.
+
+## Notice to PL-acpmux: Windows daemon start and the prompt-path stack (2026-10-29)
+
+Landed 04bb1db58d91..5a5ea9f488f2 (a837, red Rust tests on base; test (windows) green, run 40954644050).
+- Windows daemon start: since #27216, `daemon::run` called
+  `retain_own_machine_consent_requirement`, which resolves the OS account home first. On
+  Windows that lookup always fails, so every daemon exited "OS account home unavailable" before
+  its ready line (10 of 13 `windows_daemon` tests). It now resolves the account-wide authority
+  only when this daemon's own state holds `machine-credential.json` or `consent.json`
+  (`machine_consent::has_own_requirement`, `cli/cloud_join.rs`).
+- Prompt-path stack: #27484 put a second `child_for_since` and the fallback route checks inline
+  in the prompt future (`hub/turns.rs`). A debug daemon overflowed its 2 MiB tokio worker stack on
+  the first prompt ("fatal runtime error: stack overflow"; 9 `durable_agents` mdm-off tests and
+  `repeated_transcript_construction_has_bounded_peak_memory` saw "daemon closed the socket").
+  Those starts, `back_from_fallback` and `route_refusal` are now `Box::pin`ned, like
+  `reach_or_start` in `lifecycle.rs`. Keep new awaits on that path boxed.
+
+## Notice to PL-acpmux: test (linux) reds on base fixed (2026-10-29)
+
+a839, test (linux) green on run 40985398560. Product fixes in acpmux:
+- `hub/turns.rs`: since #27170 a Stop before a retry's or continuation's turn starts gave the
+  generic "stopped before this prompt reached the agent"; a prompt with `after_turn` now gets the
+  `auto_resume.stopped` refusal (`retry.stopped`) again.
+- `hub/own_host.rs`: #27018's early refusal for a key under a peer's name said
+  `no local session with the id …`, which told a peer this host's peer names and broke the
+  `no session matches` withdraw check in cmux-tui-core. It says `no session matches …` again;
+  routing is unchanged (old text still matched in `cli/run/launch.rs` for skewed daemons).
+- `cli/run/standard.rs`: #27255 sent a bare `@` (the caller's own session) to team messaging;
+  only `@name` goes there now.
+- `hub/turn_cap.rs` tests are `cfg(unix)` (mkfifo); 12 new `v["k"] = x` / index / slice hits from
+  #26447, #27512, #26108 use `set`/`get` (indexing_slicing back to 697).
+Test-only: fake agent sends `totalTokens` (#27132), session_pool expects a crashed daemon's
+pooled host to end itself (c7e99bd), remote_guard_modes expects the VM-boundary ambiguity
+refusal (#26276), agent_tools and tailnet_embedded_logout use the hermetic helper.

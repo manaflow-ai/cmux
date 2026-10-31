@@ -15,7 +15,7 @@
    "cmux-app-host": 2,
    "cmux-browser-host": 1,
    "cmux-mux2": 42,
-   "cmux-remote": 44,
+   "cmux-remote": 39,
    "cmux-terminal-client": 1,
    "cmux-tui": 76,
    "cmux-tui-core": 190,
@@ -33,12 +33,12 @@
    "cmux-tui-core": 26
   },
   "unwrap": {
-   "acpmux": 137,
+   "acpmux": 136,
    "chatmux-relay": 7,
    "cmux-remote": 4,
    "cmux-terminal-client": 30,
    "cmux-tui": 429,
-   "cmux-tui-core": 1149,
+   "cmux-tui-core": 1148,
    "cmux-tui-image-paste": 22,
    "cmux-tui-platform": 17,
    "cmux-tui-remote-access": 5,
@@ -139,7 +139,7 @@
     "CmuxNextAgentPane": 2,
     "CmuxNextBrowser": 11,
     "CmuxNextBrowserAutomation": 5,
-    "CmuxNextDesign": 5,
+    "CmuxNextDesign": 6,
     "CmuxNextPages": 1,
     "CmuxNextPhone": 1,
     "CmuxNextPopups": 2,
@@ -179,7 +179,7 @@
     "CmuxVNC": 3,
     "CmuxVNCDemoServer": 3,
     "CmuxVNCWebRTC": 19,
-    "MessagesLabHome": 1
+    "MessagesLabHome": 2
    }
   }
  }

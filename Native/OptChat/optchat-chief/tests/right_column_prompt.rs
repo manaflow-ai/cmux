@@ -1,8 +1,8 @@
 //! Every agent the Chief runs shows what it opens in one column right of
 //! its chat (Lawrence 2026-10-18: "always default to a split column to the
-//! right (so it's left and right and easier to manage)"), sorts its
-//! workspaces into sidebar groups ("use groups more aggressively so that you
-//! can organize and the user feels less overwhelmed") and pushes straight to
+//! right (so it's left and right and easier to manage)"), never makes or
+//! fills sidebar groups on its own (#27712: no topic groups; a subagent joins
+//! only the user's own "Chief agents" group) and pushes straight to
 //! the feature branch ("we don't want to really use [PRs] at all"), and work counts only once
 //! it is on that branch (2026-10-19: every subagent's work must really land
 //! on feat-cmux-next).
@@ -42,19 +42,26 @@ fn every_agent_prompt_keeps_one_column_right_of_the_chat() {
 }
 
 #[test]
-fn every_agent_prompt_groups_workspaces_and_pushes_without_pull_requests() {
+fn every_agent_prompt_makes_no_groups_and_pushes_without_pull_requests() {
     for (name, text) in prompts() {
         let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(
-            flat.contains("goes into a group named by its topic"),
+            flat.contains("never make a sidebar group"),
             "{name}: no group rule"
         );
+        for topic in [
+            "by its topic",
+            "sorted by topic",
+            "workspace group create",
+            "Agents & routing",
+        ] {
+            assert!(
+                !flat.contains(topic),
+                "{name}: still groups by topic ({topic})"
+            );
+        }
         assert!(
-            flat.contains("cmux workspace group create --name NAME"),
-            "{name}: no way to make a group"
-        );
-        assert!(
-            flat.contains("Never close or rename the user's workspaces to group them"),
+            flat.contains("Never close or rename the user's workspaces"),
             "{name}"
         );
         assert!(
@@ -63,6 +70,26 @@ fn every_agent_prompt_groups_workspaces_and_pushes_without_pull_requests() {
         );
         assert!(flat.contains("never force"), "{name}");
     }
+}
+
+/// #27712: the Chief may ask only for the user's own "Chief agents" group, and the spawn tool
+/// says the host ignores any other `Group:` value and never makes a group.
+#[test]
+fn the_chief_asks_only_for_chief_agents() {
+    for (name, text) in prompts()
+        .into_iter()
+        .filter(|(n, _)| n.starts_with("chief"))
+    {
+        let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(flat.contains("`Group: Chief agents`"), "{name}");
+        assert!(!flat.contains("`Group: <name>`"), "{name}");
+    }
+    let spawn = optchat_chief::prompt::SPAWN_DESCRIPTION;
+    assert!(
+        spawn.contains("any other `Group:` value is ignored"),
+        "{spawn}"
+    );
+    assert!(spawn.contains("none is made"), "{spawn}");
 }
 
 #[test]

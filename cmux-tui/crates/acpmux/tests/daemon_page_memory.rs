@@ -393,7 +393,11 @@ fn repeated_transcript_construction_has_bounded_peak_memory() {
             let child = TranscriptProcess(child);
             let mut rpc = Rpc::connect(&socket);
             rpc.call("initialize", json!({"protocolVersion": 1}));
-            // Synchronize loading without a list or a background probe workload.
+            // Synchronize loading without a list or a background probe workload. The daemon
+            // answers `_acpmux/status` while it still reads the session index (#27328); a
+            // request that needs the whole index (`_acpmux/watch_ls`, an empty local list)
+            // waits for it.
+            rpc.call("_acpmux/watch_ls", json!({}));
             assert_eq!(rpc.call("_acpmux/status", json!({}))["sessions"], retained + 1);
             let (rss0, _, cpu0) = transcript_cost(child.id());
             peak_kb(child.id(), true);

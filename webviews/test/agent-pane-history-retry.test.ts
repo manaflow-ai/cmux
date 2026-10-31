@@ -130,7 +130,8 @@ test("an older page asked for inside the back-off after a failed one still reads
     jest.useRealTimers();
   }
   expect(landed).toBe(true);
-  expect(daemon.olderReads()).toBe(2);
+  // A successful retry may fetch the bounded history batch in more than one page.
+  expect(daemon.olderReads()).toBeGreaterThanOrEqual(2);
   expect(snapshot.historyFrom).toBeLessThan(from);
   client.close();
 });

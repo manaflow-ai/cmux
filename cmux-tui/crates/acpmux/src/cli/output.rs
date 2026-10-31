@@ -4,6 +4,7 @@ use crate::client::Client;
 use crate::rpc::{Message, method};
 use crate::transcript::{Item, Transcript};
 use anyhow::{Result, anyhow};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::io::{Read, Write};
 use std::sync::Arc;
@@ -98,6 +99,13 @@ pub(crate) struct PromptId {
     /// `--supersede`: the same sender's prompt still queued under this key is replaced
     /// (`_meta.acpmux.supersede`, `hub/supersede.rs`).
     pub supersede: Option<String>,
+    /// `--class`: what the message asks of the receiver (`_meta.acpmux.class`,
+    /// `prompt_class.rs`).
+    pub class: Option<String>,
+    /// `--pr`: the pull request it is about, its inbox thread (`_meta.acpmux.pr`, `hub/inbox.rs`).
+    pub pr: Option<u64>,
+    /// `--thread`: its inbox thread, a topic or a threadId (`_meta.acpmux.topic`).
+    pub thread: Option<String>,
     /// The person's own send from a terminal: the machine it ran on (`_meta.acpmux.cliHost`,
     /// `cli/sender.rs`), which the transcript names under their prompt.
     pub cli_host: Option<String>,
@@ -113,6 +121,9 @@ impl PromptId {
                 resend: true,
                 from_agent: None,
                 supersede: None,
+                class: None,
+                pr: None,
+                thread: None,
                 cli_host: None,
                 attachments: Vec::new(),
             },
@@ -121,6 +132,9 @@ impl PromptId {
                 resend: false,
                 from_agent: None,
                 supersede: None,
+                class: None,
+                pr: None,
+                thread: None,
                 cli_host: None,
                 attachments: Vec::new(),
             },
@@ -145,6 +159,15 @@ impl PromptId {
         }
         if let Some(key) = &self.supersede {
             mux["supersede"] = json!(key);
+        }
+        if let Some(class) = &self.class {
+            mux.set("class", json!(class));
+        }
+        if let Some(pr) = self.pr {
+            mux.set("pr", json!(pr));
+        }
+        if let Some(thread) = &self.thread {
+            mux.set("topic", json!(thread));
         }
         if let Some(host) = &self.cli_host {
             mux["cliHost"] = json!(host);
@@ -1306,6 +1329,15 @@ mod prompt_tests {
         p.supersede = Some("k".into());
         let params = p.params("s", "t", false, None);
         assert_eq!(params.pointer("/_meta/acpmux/supersede"), Some(&json!("k")));
+    }
+
+    #[test]
+    fn a_class_goes_in_the_prompts_meta() {
+        let mut p = PromptId::new(None);
+        assert!(p.params("s", "t", false, None).pointer("/_meta/acpmux/class").is_none());
+        p.class = Some("block".into());
+        let params = p.params("s", "t", false, None);
+        assert_eq!(params.pointer("/_meta/acpmux/class"), Some(&json!("block")));
     }
 
     #[tokio::test]

@@ -9,6 +9,7 @@ same files the signed release notes use). Each file is one entry:
     category: improved                      (new | improved | fixed | security; default new)
     action: palette.checkForUpdates | Try it   (optional try-it action)
     docs: https://cmux.com/docs/updates        (optional)
+    pr: https://github.com/manaflow-ai/cmux/pull/123 (optional)
     platforms: macos, cli                      (optional; default macos)
     audience: all                              (optional; default all)
 
@@ -61,6 +62,8 @@ def parse(path, text):
         entry["tryIt"] = {"action": meta["action"].partition("|")[0].strip()}
     if meta.get("docs"):
         entry["docs"] = meta["docs"]
+    if meta.get("pr"):
+        entry["pr"] = meta["pr"]
     return entry
 
 

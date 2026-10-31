@@ -27,6 +27,7 @@ public actor AcpmuxConnection {
     private var readTask: Task<Void, Never>?
     private var sends: [Int: Task<Void, Never>] = [:]
     private var ended: (any Error)?
+    var isClosed: Bool { ended != nil }
     public nonisolated let notifications: AsyncStream<Notification>
     private let continuation: AsyncStream<Notification>.Continuation
 
@@ -36,7 +37,7 @@ public actor AcpmuxConnection {
     }
 
     public func start() {
-        guard readTask == nil else { return }
+        guard readTask == nil, ended == nil else { return }
         readTask = Task { await self.readLoop() }
     }
 
@@ -85,6 +86,7 @@ public actor AcpmuxConnection {
 
     /// A JSON-RPC notification (no id, no reply), e.g. `session/cancel`.
     public func notify(_ method: String, _ params: JSONValue) async throws {
+        if let ended { throw ended }
         start()
         let message: JSONValue = .object(["jsonrpc": .string("2.0"), "method": .string(method), "params": params])
         try await channel.send(try JSONEncoder().encode(message))
@@ -191,6 +193,7 @@ public actor AcpmuxConnection {
     }
 
     private func finish(_ error: any Error) {
+        guard ended == nil else { return }
         ended = error
         for task in sends.values { task.cancel() }
         sends.removeAll()
