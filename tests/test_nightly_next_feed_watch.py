@@ -196,13 +196,15 @@ class LegacyFeedTests(unittest.TestCase):
                 return {}
 
             def jobs(self, run):
-                return [{"id": 11, "name": "legacy-identity-target", "conclusion": "failure"},
-                        {"id": 12, "name": "sign-nightly-identity-legacy", "conclusion": "cancelled"}]
+                return [{"id": 11, "name": "legacy-identity-target", "conclusion": "success"},
+                        {"id": 12, "name": "sign-nightly-identity-legacy", "conclusion": "success",
+                         "steps": [{"name": "Notarize", "conclusion": "failure"}]},
+                        {"id": 13, "name": "nightly-identity-legacy-published", "conclusion": "failure"}]
 
         api = API()
         reason = watch.legacy_rerun(api, 4023540480101)
-        self.assertEqual(api.posts, ["/actions/jobs/11/rerun"])
-        self.assertIn("legacy-identity-target", reason)
+        self.assertEqual(api.posts, ["/actions/jobs/12/rerun"])
+        self.assertIn("sign-nightly-identity-legacy", reason)
 
     def test_legacy_rerun_leaves_an_active_run_alone(self):
         class API:

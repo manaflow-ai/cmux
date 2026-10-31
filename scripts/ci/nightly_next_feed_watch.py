@@ -38,7 +38,8 @@ CLASSIC_FEED_URL = "https://files.cmux.com/nightly/appcast-arm64.xml"
 # can leave cmux NEXT current while the app users actually run stays stale.
 LEGACY_FEED_URL = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
 LEGACY_JOBS = ("legacy-identity-target", "sign-nightly-identity-legacy",
-               "verify-nightly-identity-legacy", "publish-nightly-identity-legacy")
+               "verify-nightly-identity-legacy", "publish-nightly-identity-legacy",
+               "nightly-identity-legacy-published")
 LEGACY_MAX_LAG_MINUTES = 15.0
 LEGACY_MAX_ATTEMPTS = 3
 LEGACY_UNPUBLISHED = ("failure", "timed_out", "cancelled")
@@ -342,8 +343,17 @@ def legacy_rerun(gh: GitHub, build: int) -> str:
         return f"run {url} is not a nightly-next nightly.yml run"
     if run.get("status") in ACTIVE:
         return f"its run {url} is still running"
+    def unpublished(job: dict) -> bool:
+        if job.get("conclusion") in LEGACY_UNPUBLISHED:
+            return True
+        # These legacy jobs use continue-on-error, so GitHub can report a
+        # successful job even when an internal step failed. The final sentinel
+        # is the non-optional signal that the compatibility feed did not catch up.
+        return any(step.get("conclusion") in LEGACY_UNPUBLISHED
+                   for step in job.get("steps") or [])
+
     failed = {job["name"]: job for job in gh.jobs(run)
-              if job.get("name") in LEGACY_JOBS and job.get("conclusion") in LEGACY_UNPUBLISHED}
+              if job.get("name") in LEGACY_JOBS and unpublished(job)}
     if not failed:
         return f"run {url} has no failed legacy job to re-run"
     if int(run.get("run_attempt") or 1) >= LEGACY_MAX_ATTEMPTS:
