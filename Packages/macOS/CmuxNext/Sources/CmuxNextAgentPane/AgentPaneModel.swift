@@ -209,6 +209,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onLocalPaths: (@MainActor () -> Bool)?
     /// The file URLs of the person's last native drop or paste on the page.
     @ObservationIgnored var droppedPaths = AgentPaneDroppedPaths()
+    /// Where a dropped screenshot or recording preview is kept (``retainedDropURLs``); tests point it elsewhere.
+    @ObservationIgnored var chatUploadFolders = ChatUploadFolders.standard
     /// The icons of the apps this pane said attachments came from (`attachment.sourceIcon`).
     @ObservationIgnored let sourceIcons = AttachmentSourceIcons()
     @ObservationIgnored public internal(set) var composer = AgentPaneComposerSetting.fallback
