@@ -59,6 +59,7 @@ final class SuggestionRowView: NSView {
             guard let self else { return }
             let iconSize = CGFloat.iconRowSize(forLabelPointSize: OmnibarStyle.iconPointSize)
             if let iconKind, !showsFavicon { icon.image = NSImage.icon(iconKind, size: iconSize) }
+            if showsFavicon, let image = icon.image { image.size = NSSize(width: iconSize, height: iconSize) }
             applyColors()
             needsLayout = true
         }

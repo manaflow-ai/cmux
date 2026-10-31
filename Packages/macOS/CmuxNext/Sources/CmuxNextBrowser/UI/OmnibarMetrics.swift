@@ -27,9 +27,10 @@ public nonisolated struct OmnibarMetrics: Equatable, Sendable {
     /// The star and other trailing address-bar icons.
     public var trailingIconSize: CGFloat
 
-    /// `browser.omnibar.height`'s allowed range in points.
+    /// `browser.omnibar.height`'s allowed range in points (the settings row's range,
+    /// `BrowserOmnibarSetting.heightRange`; `OmnibarDensityTests` keeps the two equal).
     public static let heightRange: ClosedRange<Double> = 20...56
-    /// `browser.omnibar.fontSize`'s allowed range in points.
+    /// `browser.omnibar.fontSize`'s allowed range in points (`BrowserOmnibarSetting.fontSizeRange`).
     public static let fontSizeRange: ClosedRange<Double> = 10...24
     /// Space the bar keeps above and below its text line: the page-info chip's 2 pt inset on each
     /// side, then 2 pt of the chip's own padding.
@@ -38,14 +39,17 @@ public nonisolated struct OmnibarMetrics: Equatable, Sendable {
     /// The metrics at `tokens`, with the user's overrides (each clamped into its range).
     public init(tokens: DensityTokens, height: Double? = nil, fontSize: Double? = nil) {
         let densityFont = tokens.textSize(compact: TypeScale.field, comfortable: TypeScale.title)
-        let font = fontSize.flatMap { $0.isFinite ? CGFloat(Self.clamp($0, Self.fontSizeRange)) : nil } ?? densityFont
+        // Whole points: a fractional bar would sit off the pixel grid.
+        let font = fontSize.flatMap { $0.isFinite ? CGFloat(Self.clamp($0, Self.fontSizeRange).rounded()) : nil } ?? densityFont
         let densityHeight = tokens.resolve(compact: 28, comfortable: 34)
-        let requested = height.flatMap { $0.isFinite ? CGFloat(Self.clamp($0, Self.heightRange)) : nil } ?? densityHeight
+        let requested = height.flatMap { $0.isFinite ? CGFloat(Self.clamp($0, Self.heightRange).rounded()) : nil } ?? densityHeight
         barHeight = max(requested, Self.minimumBarHeight(fontSize: font))
         self.fontSize = font
         buttonSize = tokens.resolve(compact: 28, comfortable: 34)
-        // The chip is the bar less 2 pt on each side; its icon keeps 2 pt inside the chip.
-        iconPointSize = min(tokens.resolve(compact: 13, comfortable: 15), barHeight - 8)
+        // The chip is the bar less 2 pt on each side. Its glyph draws at `iconRowSize`, about 1.2
+        // times this point size (13 -> 16 at Standard), and keeps 2 pt inside the chip, so a short
+        // bar shrinks it (a suggestion row centers the glyph on the chip's center).
+        iconPointSize = min(tokens.resolve(compact: 13, comfortable: 15), ((barHeight - 8) / 1.2).rounded(.down))
         toolbarIconSize = min(tokens.resolve(compact: 20, comfortable: 22), buttonSize - 4)
         trailingIconSize = min(tokens.resolve(compact: 18, comfortable: 20), barHeight - 6)
     }
@@ -59,7 +63,7 @@ public nonisolated struct OmnibarMetrics: Equatable, Sendable {
     /// The metrics chrome draws now: the active density and cmux.json's overrides. Reading it in
     /// an Observation-tracked scope (`DensityBinding`) re-applies on a density or override change.
     @MainActor public static var current: OmnibarMetrics {
-        let overrides = OmnibarGlassAppearance.shared
+        let overrides = OmnibarGlassAppearance.current
         return OmnibarMetrics(tokens: Metrics.tokens, height: overrides.height, fontSize: overrides.fontSize)
     }
 

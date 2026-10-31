@@ -11,6 +11,24 @@ import Testing
 @MainActor @Suite(.serialized) struct OmnibarDensityTests {
     // MARK: Tokens
 
+    /// Fractional sizes round to whole points, so the bar stays on the pixel grid.
+    @Test func overridesRoundToWholePoints() {
+        let metrics = OmnibarMetrics(tokens: .compact, height: 30.4, fontSize: 15.6)
+        #expect(metrics.barHeight == 30 && metrics.fontSize == 16)
+    }
+
+    /// The glyph a suggestion row and the chip draw (`iconRowSize`, about 1.2 times the point size)
+    /// keeps 2 pt inside the chip even in the shortest bar.
+    @Test func theChipGlyphFitsTheShortestBar() {
+        for height in stride(from: 20.0, through: 34, by: 1) {
+            let metrics = OmnibarMetrics(tokens: .compact, height: height, fontSize: 10)
+            // `CGFloat.iconRowSize`: 1.2 times the point size, never under 12.
+            let glyph = max(12, (1.2 * metrics.iconPointSize).rounded())
+            let chip = metrics.barHeight - 4
+            #expect(glyph <= chip - 4, "a \(glyph) pt glyph in the \(chip) pt chip of a \(metrics.barHeight) pt bar")
+        }
+    }
+
     @Test func standardIsTodaysBarExactly() {
         let standard = OmnibarMetrics(tokens: DensityPreset.compact.tokens)
         #expect(standard == OmnibarMetrics(tokens: .compact))
@@ -109,22 +127,24 @@ import Testing
     /// The cases the layout test runs: every built-in density, and overrides that push the text
     /// against the bar (large text in a short bar, a tall bar with small text).
     static let cases: [(preset: DensityPreset, height: Double?, fontSize: Double?)] =
-        DensityPreset.allCases.map { ($0, nil, nil) } + [(.compact, 20, 24), (.comfortable, 56, 10), (.ultraCompact, nil, 24)]
+        DensityPreset.allCases.map { ($0, nil, nil) }
+            + [(.compact, 20, 24), (.compact, 20, 10), (.comfortable, 56, 10), (.ultraCompact, nil, 24), (.comfortable, 30.4, 15.6)]
 
     /// Long URL, "Not secure" chip, star, toolbar buttons and suggestion rows: each stays inside the
     /// bar or the toolbar row, the field is tall enough for its text, and nothing overlaps.
     @Test(arguments: cases.indices)
     func nothingClipsOrOverlaps(index: Int) throws {
         let (preset, height, fontSize) = Self.cases[index]
-        OmnibarGlassAppearance.shared.applySize(height: height, fontSize: fontSize)
-        defer { OmnibarGlassAppearance.shared.applySize(height: nil, fontSize: nil) }
-        try DensityTokens.$scoped.withValue(preset.tokens) {
+        // A scoped appearance: the app-wide `shared` (and every other suite) is never touched.
+        let overrides = OmnibarGlassAppearance()
+        overrides.applySize(height: height, fontSize: fontSize)
+        try OmnibarGlassAppearance.$scoped.withValue(overrides) { try DensityTokens.$scoped.withValue(preset.tokens) {
             let view = Chrome()
             defer { view.tearDown() }
             let bar = view.chrome.addressBar
             let long = "https://example.com/" + String(repeating: "a-very-long-path-segment/", count: 40) + "?q=" + String(repeating: "x", count: 200)
             bar.update(url: URL(string: long), security: .insecure)
-            bar.starButton.state = .off
+            bar.setBookmarkStar(.off)
             view.chrome.layoutSubtreeIfNeeded()
             bar.layoutSubtreeIfNeeded()
             let expected = OmnibarMetrics.current
@@ -142,10 +162,9 @@ import Testing
             #expect(field.height >= ceil(font.ascender - font.descender), "\(label): the field \(field.height) pt cuts its \(font.pointSize) pt text")
             #expect(Self.inside(chip, barRect), "\(label): the chip \(chip) leaves the bar")
             #expect(chip.maxX <= field.minX + 0.5, "\(label): the chip overlaps the URL")
-            if !bar.starButton.isHidden {
-                #expect(Self.inside(star, barRect), "\(label): the star \(star) leaves the bar")
-                #expect(field.maxX <= star.minX + 0.5, "\(label): the URL runs under the star")
-            }
+            #expect(!bar.starButton.isHidden, "\(label): the star shows for a bookmarkable page")
+            #expect(Self.inside(star, barRect), "\(label): the star \(star) leaves the bar")
+            #expect(field.maxX <= star.minX + 0.5, "\(label): the URL runs under the star")
             for button in [view.chrome.backButton, view.chrome.reloadButton] {
                 let frame = view.rect(button)
                 #expect(frame.width == expected.buttonSize && frame.height == expected.buttonSize, "\(label): a button is \(frame.size)")
@@ -174,17 +193,25 @@ import Testing
             for (upper, lower) in zip(rows, rows.dropFirst()) {
                 #expect(lower.maxY <= upper.minY + 0.5, "\(label): suggestion rows overlap")
             }
-        }
+        } }
     }
 
     /// A change of `browser.omnibar.*` sizes applies to an open chrome live, and back.
+    /// The scoped appearance reaches the views' re-apply loops (they re-arm in tasks started in
+    /// the scope), so the change below is seen only by this test's chrome.
     @Test func sizeChangesApplyLive() async {
+        let overrides = OmnibarGlassAppearance()
+        await OmnibarGlassAppearance.$scoped.withValue(overrides) { await DensityTokens.$scoped.withValue(.compact) {
+            await Self.liveChange(overrides)
+        } }
+    }
+
+    private static func liveChange(_ overrides: OmnibarGlassAppearance) async {
         let view = Chrome()
         defer { view.tearDown() }
         let bar = view.chrome.addressBar
         #expect(view.rect(bar).height == 28)
-        OmnibarGlassAppearance.shared.applySize(height: 40, fontSize: 18)
-        defer { OmnibarGlassAppearance.shared.applySize(height: nil, fontSize: nil) }
+        overrides.applySize(height: 40, fontSize: 18)
         await Self.settle()
         view.chrome.layoutSubtreeIfNeeded()
         #expect(view.rect(bar).height == 40)
@@ -192,7 +219,7 @@ import Testing
         #expect(view.chrome.currentToolbarHeight == OmnibarStyle.toolbarHeight(scale: view.window.backingScaleFactor))
         #expect(view.rect(view.chrome.toolbar).height == view.chrome.currentToolbarHeight)
 
-        OmnibarGlassAppearance.shared.applySize(height: nil, fontSize: nil)
+        overrides.applySize(height: nil, fontSize: nil)
         await Self.settle()
         view.chrome.layoutSubtreeIfNeeded()
         #expect(view.rect(bar).height == 28)

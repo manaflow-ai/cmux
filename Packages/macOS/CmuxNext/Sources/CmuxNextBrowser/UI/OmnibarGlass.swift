@@ -92,7 +92,11 @@ public final class OmnibarGlassAppearance {
     /// `browser.omnibar.height` and `fontSize` in points; nil follows density (`OmnibarMetrics.current`).
     public private(set) var height: Double?
     public private(set) var fontSize: Double?
-    private init() {}
+    init() {}
+
+    /// The appearance chrome reads: a scoped one (tests that change the bar's size without
+    /// touching the app-wide `shared`), else `shared`.
+    public static var current: OmnibarGlassAppearance { scoped ?? shared }
 
     /// Sets the bar's size overrides; nil follows density. Unchanged values notify nothing.
     public func applySize(height: Double?, fontSize: Double?) {
@@ -110,4 +114,10 @@ public final class OmnibarGlassAppearance {
                                     shadow: shadow, backgroundOpacity: backgroundOpacity)
         if look != next { look = next }
     }
+}
+
+nonisolated extension OmnibarGlassAppearance {
+    /// An appearance code inside `$scoped.withValue` reads instead of `shared` (task-local, so it
+    /// reaches only that scope and the tasks it starts, the omnibar's re-apply loops included).
+    @TaskLocal static var scoped: OmnibarGlassAppearance?
 }
