@@ -67,8 +67,10 @@ enum AgentBesidePlacement {
         // A lone chat docks left with the agent chat role and the new tab stays in its
         // pane (ChatColumnPlacement.dockChat, the rule a person's new tab follows), so
         // the column right of the chat is always in view; else the tab moves out.
-        let lone = (invocation.newColumnBeside ? controller : nil).flatMap { ChatColumnPlacement.resolve(from: $0, services: services) == .dockChat ? $0 : nil }
-        let chatID = lone?.pane.tabs.first { ChatColumnPlacement.isChat($0, services: services) }?.id
+        let caller = invocation.newColumnBeside ? controller : nil
+        let pendingChat = caller.flatMap { OutboundTab.dockingChat(in: $0) }
+        let lone = caller.flatMap { pendingChat != nil || ChatColumnPlacement.resolve(from: $0, services: services) == .dockChat ? $0 : nil }
+        let chatID = pendingChat ?? lone?.pane.tabs.first { ChatColumnPlacement.isChat($0, services: services) }?.id
         let chatHadFocus = lone.map { $0.workspace?.focusedPane === $0 } ?? false
         // The chat's strip never lists the tab on its way out: it first shows on the right (OutboundTab).
         let outbound = (invocation.newColumnBeside ? controller : nil).flatMap { $0.pane === anchor ? OutboundTab.begin(in: $0) : nil }

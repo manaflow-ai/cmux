@@ -33,6 +33,12 @@ final class OutboundTab {
     /// PaneController's extensions), as `NewTabSuccession` keeps its opens.
     private static var open: [ObjectIdentifier: [OutboundTab]] = [:]
 
+    /// A prior open is docking this pane's chat. Its outgoing provisional tab must not make
+    /// another simultaneous open lose that placement. A chat already gone is no longer pending.
+    static func dockingChat(in pane: PaneController) -> String? {
+        open[ObjectIdentifier(pane)]?.filter { $0.pane === pane }.compactMap(\.holding).first { id in pane.pane.tabs.contains { $0.id == id } }
+    }
+
     private weak var pane: PaneController?
     private let key: ObjectIdentifier
     /// The pane's tabs when the open began.
