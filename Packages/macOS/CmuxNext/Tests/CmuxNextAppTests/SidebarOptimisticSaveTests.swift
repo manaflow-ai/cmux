@@ -243,12 +243,37 @@ struct SidebarDocOptimisticGroupTests {
 
     /// A move into a group created a moment ago (its create still in flight) is the document's: it read the
     /// confirmed records, which do not have the group yet, and fell back to the older path.
-    @Test func aMoveIntoANewGroupIsTakenBeforeItsEcho() async throws {
+    @Test(arguments: ["confirmed", "adopted", "pending-pin"])
+    func aMoveIntoANewGroupIsTakenBeforeItsEcho(placement: String) async throws {
         let store = try await Self.store()
-        Self.send(.createGroup(GroupID("g_new"), name: "Fresh", color: .green, workspaces: [WorkspaceID("scratch")]), to: store)
-        let drag = SidebarDocDrag(item: { key in if case let .workspace(id) = key { "w_\(id.rawValue)" } else { nil } }, section: { _ in SidebarGroupDragRailTests.section }, begin: { _ in [:] }, drop: { _, _ in })
-        let handled = store.handle(.move([WorkspaceID("docs")], toGroup: GroupID("g_new")), model: SidebarModel(), drag: drag, pinTitle: "Pin", unpinTitle: "Unpin")
+        let refusals = SidebarOptimisticSaveTests.Notices()
+        store.onRefused = { refusals.shown.append($0) }
+        let first = WorkspaceID(placement == "confirmed" ? "scratch" : "unplaced")
+        let drag = SidebarDocDrag(item: { key in
+            if case let .workspace(id) = key, id.rawValue != "unplaced" { "w_\(id.rawValue)" } else { nil }
+        }, section: { id in id == .pinned ? SidebarDocStore.pinnedSection : SidebarGroupDragRailTests.section },
+           begin: { _ in [:] }, drop: { _, _ in }, adoptRef: { id in
+            ["session_id": "s1", "workspace_id": id.rawValue, "workspace_key": id.rawValue]
+        })
+        if placement == "pending-pin" {
+            try #require(store.handle(.setPinned([first], true), model: SidebarModel(), drag: drag, pinTitle: "Pin", unpinTitle: "Unpin"))
+        }
+        let created = store.handle(.createGroup(GroupID("g_new"), name: "Fresh", color: .green, workspaces: [first]), model: SidebarModel(),
+                                   drag: drag, pinTitle: "Pin", unpinTitle: "Unpin")
+        try #require(created)
+        let request = SidebarViewRequest(live: Self.live + [SidebarDocWorkspaceRef(sessionID: "s1", workspaceID: "unplaced")])
+        let group = try #require(store.rows(request)?.first(where: { $0.item == "g_new" }))
+        // A drop names a group the list already shows. Use the reducer's actual placement, including a pending pin.
+        let nodes: [SidebarNode] = [.group(SidebarGroup(id: GroupID("g_new"), name: "Fresh", workspaces: []))]
+        let section = group.section == SidebarDocStore.pinnedSection
+            ? SidebarSection(kind: .custom(SidebarCustomSection(id: group.section)), nodes: nodes)
+            : SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: nodes)
+        let model = SidebarModel(sections: [section])
+        let handled = store.handle(.move([WorkspaceID("docs")], toGroup: GroupID("g_new")), model: model, drag: drag, pinTitle: "Pin", unpinTitle: "Unpin")
         #expect(handled, "the document did not take a move into the new group before its echo")
+        let rows = try #require(store.rows(request))
+        #expect(rows.first(where: { $0.item == "w_docs" })?.parent == "g_new", "the accepted move must show before the echo")
+        #expect(refusals.shown.isEmpty, "the newly created group must have a valid drop target")
     }
 
     /// A collapse the document refuses at once (it is not active yet) says why, as a later refusal does.
