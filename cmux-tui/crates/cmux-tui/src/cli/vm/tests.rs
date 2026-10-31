@@ -88,3 +88,30 @@ fn workspace_new_points_at_the_app_action() {
     let error = planned(&["vm", "workspace", "new", "vm_1"]).unwrap_err();
     assert!(error.0.contains("cmux cloud new-workspace"), "{}", error.0);
 }
+
+/// The words `run_if_requested` hands `cmux-vm` for a whole `cmux …` command line.
+fn forwarded(words: &[&str]) -> Vec<String> {
+    let (global, command) = super::super::parse_globals(&args(words)).ok().expect("globals parse");
+    plan_with_globals(split(&command).expect("a vm command"), &global).expect("a plan")
+}
+
+#[test]
+fn an_idempotency_key_reaches_cmux_vm_wherever_it_was_typed() {
+    let want = args(&["create", "--name", "t", "--idempotency-key", "k-1"]);
+    assert_eq!(forwarded(&["vm", "new", "--name", "t", "--idempotency-key", "k-1"]), want);
+    assert_eq!(forwarded(&["vm", "new", "--name", "t", "--idempotency-key=k-1"]), want);
+    assert_eq!(forwarded(&["--idempotency-key", "k-1", "vm", "new", "--name", "t"]), want);
+    assert_eq!(
+        forwarded(&["vm", "snapshot", "create", "vm_1", "--idempotency-key", "k-2"]),
+        args(&["snapshot", "create", "vm_1", "--idempotency-key", "k-2"])
+    );
+}
+
+#[test]
+fn a_forwarded_key_stays_before_the_double_dash_and_words_after_it_are_the_commands() {
+    assert_eq!(
+        forwarded(&["vm", "exec", "vm_1", "--", "tool", "--idempotency-key", "x"]),
+        args(&["exec", "vm_1", "--", "tool", "--idempotency-key", "x"])
+    );
+    assert_eq!(forwarded(&["vm", "ls"]), args(&["list"]));
+}
