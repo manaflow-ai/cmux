@@ -186,17 +186,24 @@ impl Hub {
         .ok()
         .flatten()
         .unwrap_or((0, None));
-        let Some(mark) = mark else { return true };
         if start == 0 {
             return true;
         }
+        // A readable page boundary whose marker could not be computed must
+        // wait for the source to become readable again.
+        let Some(mark) = mark else { return false };
         self.commit_watch_page(session, start, mark).await
     }
 
     /// Publish the native-history seed ahead of its byte checkpoint. A failed
     /// append or fsync leaves the checkpoint at zero; a crash between a durable
     /// marker and metadata save retries the same marker only once.
-    async fn commit_watch_page(self: &Arc<Self>, session: &Arc<Session>, start: u64, mark: String) -> bool {
+    async fn commit_watch_page(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        start: u64,
+        mark: String,
+    ) -> bool {
         // The watched batch and Take Over use the same turn gate (#29181).
         let _turn = session.turn_lock.lock().await;
         if session.purged.load(std::sync::atomic::Ordering::SeqCst) {
