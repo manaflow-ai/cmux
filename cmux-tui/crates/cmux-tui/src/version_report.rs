@@ -8,12 +8,24 @@
 
 use std::path::Path;
 
+pub(crate) use cmux_tui_core::release::InstallChannel;
 use cmux_tui_core::release::is_release;
-pub(crate) use cmux_tui_core::release::{DISTRIBUTION_VERSION, InstallChannel};
+
+/// This binary's release stamp, `None` for a build that has none. Read only
+/// here: cmux-tui-core gets it at start (`install_distribution_version`), so a
+/// new stamp recompiles this crate and not the libraries.
+pub(crate) const DISTRIBUTION_STAMP: Option<&str> = option_env!("CMUX_TUI_DISTRIBUTION_VERSION");
+
+/// The npm/PyPI release that contains this binary, as
+/// `cmux_tui_core::release::distribution_version` reports it once installed.
+pub(crate) const DISTRIBUTION_VERSION: &str = match DISTRIBUTION_STAMP {
+    Some(version) if is_release(version) => version,
+    _ => env!("CARGO_PKG_VERSION"),
+};
 
 /// Whether this binary was stamped as an npm/PyPI release (not a `0.0.0-…`
 /// placeholder): crash forwarding and the update check run only then.
-pub(crate) const RELEASE_STAMPED: bool = match option_env!("CMUX_TUI_DISTRIBUTION_VERSION") {
+pub(crate) const RELEASE_STAMPED: bool = match DISTRIBUTION_STAMP {
     Some(version) => is_release(version),
     None => false,
 };

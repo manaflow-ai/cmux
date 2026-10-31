@@ -1710,6 +1710,7 @@ pub fn main() -> std::process::ExitCode {
     unsafe { startup_env::take_link_token_from_env() };
     // Before any mode can serve `identify` or `ping`.
     cmux_tui_core::server::install_build_stamp(build_stamp());
+    cmux_tui_core::release::install_distribution_version(version_report::DISTRIBUTION_STAMP);
     // `cmux` (CLI and mux) and `acpmux` (a symlink) are one binary, one version.
     #[cfg(unix)]
     if std::env::args_os()
