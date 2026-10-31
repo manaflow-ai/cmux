@@ -266,6 +266,21 @@ class RoutingTableTests(unittest.TestCase):
         included = ("    strategy:\n      matrix:\n        include:\n          - runner: ${{ needs.pick.outputs.label }}\n")
         self.assertEqual(self.run_fixture({"w.yml": self.pinned_job("${{ matrix.runner }}", included)},
                                           {"w.yml#test": "apple-app-build"}), [])
+        # Review round 3: an opaque include cannot vouch for a fixed axis, and one literal leg is a pin.
+        for strategy in (
+            "    strategy:\n      matrix:\n        runner: [blacksmith-6vcpu-macos-26]\n"
+            "        include: ${{ fromJSON(needs.pick.outputs.metadata) }}\n",
+            "    strategy:\n      matrix:\n        runner: ['${{ needs.pick.outputs.label }}', blacksmith-6vcpu-macos-26]\n",
+            "    strategy:\n      matrix:\n        include:\n          - runner: ${{ needs.pick.outputs.label }}\n"
+            "          - runner: blacksmith-6vcpu-macos-26\n",
+        ):
+            problems = self.run_fixture({"w.yml": self.pinned_job("${{ matrix.runner }}", strategy)},
+                                        {"w.yml#test": "apple-app-build"})
+            self.assertEqual(len(problems), 1, strategy)
+            self.assertIn("from a fixed label", problems[0])
+        opaque = "    strategy:\n      matrix:\n        include: ${{ fromJSON(needs.pick.outputs.legs) }}\n"
+        self.assertEqual(self.run_fixture({"w.yml": self.pinned_job("${{ matrix.runner }}", opaque)},
+                                          {"w.yml#test": "apple-app-build"}), [])
 
     def test_value_terms_cross_groups_and_fromjson(self) -> None:
         terms = table.value_terms(

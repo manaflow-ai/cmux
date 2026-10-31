@@ -175,18 +175,27 @@ def _picked_value(value: object, strategy: dict[str, Any], seen: frozenset[str] 
 
 
 def _picked_matrix_key(key: str, strategy: dict[str, Any], seen: frozenset[str]) -> bool:
-    """Whether the matrix value `key` the runs-on reads can come from a picker: the whole matrix is an
-    expression that does, or that key's values (the axis, or an `include` row's) are."""
+    """Whether every leg's value of the matrix key the runs-on reads comes from a picker.
+
+    Each leg runs on its own label, so one literal value (on the axis or in an `include` row) is a pinned
+    leg. A matrix that is one expression counts when it is a picker output. So does an `include` that is
+    one expression, but only when nothing else gives the key a value: GitHub keeps the axis's own legs
+    whatever an include adds."""
     matrix = strategy.get("matrix") if isinstance(strategy, dict) else None
     if not isinstance(matrix, dict):
         return _picked_value(matrix, strategy, seen)
-    values = [matrix.get(key)]
+    values: list[object] = []
+    axis = matrix.get(key)
+    if isinstance(axis, list):
+        values += axis
+    elif axis is not None:
+        values.append(axis)
     include = matrix.get("include")
     if isinstance(include, list):
-        values += [row.get(key) for row in include if isinstance(row, dict)]
+        values += [row.get(key) for row in include if isinstance(row, dict) and row.get(key) is not None]
     elif include is not None:
         values.append(include)
-    return any(_picked_value(value, strategy, seen) for value in values if value is not None)
+    return bool(values) and all(_picked_value(value, strategy, seen) for value in values)
 
 
 def picked(job: dict[str, Any]) -> bool:
