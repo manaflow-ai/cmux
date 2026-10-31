@@ -95,9 +95,10 @@ export function papercutEvents({
   return { events, session };
 }
 
-/// Starts the stand-in daemon and the dev server; returns `open`, `close` and `methods`. `open` waits
+/// Starts the stand-in daemon and the dev server; returns `open`, `close`, `drop` and `methods`. `open` waits
 /// for the last answer, or for `ready` (a selector) when the chat's end shows something else;
-/// `methods` lists every method the pages sent the daemon, in order (a stop is `session/cancel`).
+/// `methods` lists every method the pages sent the daemon, in order (a stop is `session/cancel`);
+/// `drop` closes every page's socket, as an acpmux restart does, and the pages connect again.
 export async function papercutPane(
   browser: () => Browser,
   options: {
@@ -106,6 +107,8 @@ export async function papercutPane(
     extra?: PapercutStep[];
     session?: Record<string, unknown>;
     ready?: string;
+    /// Additional chats reuse these fixture events with their own identity and folder.
+    otherSessions?: Array<{ sessionId: string; cwd: string }>;
     /// Test-only Vite plugins, kept optional so existing papercut lanes stay unchanged.
     vitePlugins?: PluginOption[];
   },
@@ -114,14 +117,23 @@ export async function papercutPane(
   const webviews = path.resolve(import.meta.dir, "../..");
   const { events, session } = papercutEvents(options);
   const methods: string[] = [];
-  const answer = (method: string): unknown => {
+  const sockets = new Set<{ close(code?: number, reason?: string): void }>();
+  const sessions = [session, ...(options.otherSessions ?? []).map((other) => ({ ...session, ...other }))];
+  const answer = (method: string, params?: Record<string, any>): unknown => {
     switch (method) {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
       case "_acpmux/watch":
-        return { sessions: [session] };
-      case "_acpmux/attach":
-        return { session, lastSeq: events.length, events, hasMore: false };
+        return { sessions };
+      case "_acpmux/attach": {
+        const selected = sessions.find((one) => one.sessionId === params?.sessionId) ?? session;
+        return {
+          session: selected,
+          lastSeq: events.length,
+          events: events.map((event) => ({ ...event, sessionId: selected.sessionId })),
+          hasMore: false,
+        };
+      }
       case "_acpmux/events":
         return { events: [], hasMore: false, lastSeq: events.length };
       default:
@@ -139,7 +151,9 @@ export async function papercutPane(
     socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }));
   };
   /// The connection drops (acpmux restarted): the page connects again and reads the log again.
-  const drop = () => socket?.close();
+  const drop = () => {
+    for (const socket of sockets) socket.close(1012, "restart");
+  };
   /// Waiters for a method's next send: `sent(method, after)` settles once the pages have sent `method`
   /// more than `after` times (an event, not a poll).
   const waiters: { method: string; after: number; done: () => void }[] = [];
@@ -153,6 +167,12 @@ export async function papercutPane(
       return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
     },
     websocket: {
+      open(ws) {
+        sockets.add(ws);
+      },
+      close(ws) {
+        sockets.delete(ws);
+      },
       message(ws, raw) {
         const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
         methods.push(message.method);
@@ -163,7 +183,7 @@ export async function papercutPane(
         socket = ws;
         if (message.method === "session/prompt") prompts.push(message.params ?? {});
         if (message.id !== undefined)
-          ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
+          ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params) }));
       },
     },
   });
@@ -175,9 +195,19 @@ export async function papercutPane(
   });
   await vite.listen();
   await warmViteServer(vite, "/");
-  const open = async (viewport = { width: 900, height: 700 }): Promise<Page> => {
-    const page = await browser().newPage({ viewport });
+  /// `prepare` runs before the page loads (a test's stand-in for the App's actions, say). `scale` and
+  /// `colorScheme` are for stills: a 2x page, light or dark.
+  const open = async (
+    viewport: { width: number; height: number; scale?: number; colorScheme?: "light" | "dark" } = {
+      width: 900,
+      height: 700,
+    },
+    prepare?: (page: Page) => Promise<void>,
+  ): Promise<Page> => {
+    const { scale, colorScheme, ...size } = viewport;
+    const page = await browser().newPage({ viewport: size, deviceScaleFactor: scale, colorScheme });
     await installPaintedFrames(page);
+    await prepare?.(page);
     const { port } = vite.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon.port}/`;
     await page.goto(

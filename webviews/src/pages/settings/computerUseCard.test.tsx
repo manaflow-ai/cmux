@@ -60,6 +60,23 @@ test("a cmux build the legacy helper can't verify says legacy Computer Use is of
   page.unmount();
 });
 
+test("driver upstream in a build without its helper says Legacy runs instead", async () => {
+  const page = await renderPage({ path: "/settings/agents" });
+  const state: ComputerUseState = {
+    phase: "ready",
+    accessibility: true,
+    screen_recording: true,
+    helper: "cmux Computer Use",
+    upstream_fallback: true,
+  };
+  await act(async () => page.provider.setHost({ ...page.provider.host, computer_use: state }));
+  await settle();
+  const text = card(page.container)!.textContent ?? "";
+  expect(text).toContain("Upstream helper isn't in this build; using Legacy.");
+  expect(text).not.toContain("Starting");
+  page.unmount();
+});
+
 test("the buttons run the shared actions; a policy lock hides the card", async () => {
   const page = await renderPage({ path: "/settings/agents" });
   await settle();

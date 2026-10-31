@@ -74,11 +74,11 @@ import CmuxNextDesignTokens
             window.contentView = NSView()
             return window
         }
-        let shell = window(), popup = window()
-        shell.contentView?.addSubview(ActiveLookGlassEffectView(frame: .zero))
+        let shell = window(), popup = window(), scope = ActiveLookScope()
+        shell.contentView?.addSubview(ActiveLookGlassEffectView(scope: scope))
         popup.contentView?.addSubview(NSGlassEffectView())
-        #expect(ActiveLookScope.keepsActiveLook(shell))
-        #expect(!ActiveLookScope.keepsActiveLook(popup))
+        #expect(scope.keepsActiveLook(shell))
+        #expect(!scope.keepsActiveLook(popup))
     }
 
     /// The key look lasts only while an `ActiveLookGlassEffectView` is in the window: a backdrop
@@ -92,17 +92,17 @@ import CmuxNextDesignTokens
             window.contentView = NSView()
             return window
         }
-        let first = window(), second = window()
-        let glass = ActiveLookGlassEffectView(frame: .zero), other = ActiveLookGlassEffectView(frame: .zero)
+        let first = window(), second = window(), scope = ActiveLookScope()
+        let glass = ActiveLookGlassEffectView(scope: scope), other = ActiveLookGlassEffectView(scope: scope)
         first.contentView?.addSubview(glass)
         first.contentView?.addSubview(other)
         other.removeFromSuperview()
-        #expect(ActiveLookScope.keepsActiveLook(first), "one backdrop is still in it")
+        #expect(scope.keepsActiveLook(first), "one backdrop is still in it")
         second.contentView?.addSubview(glass)
-        #expect(!ActiveLookScope.keepsActiveLook(first), "moved away")
-        #expect(ActiveLookScope.keepsActiveLook(second))
+        #expect(!scope.keepsActiveLook(first), "moved away")
+        #expect(scope.keepsActiveLook(second))
         glass.removeFromSuperview()
-        #expect(!ActiveLookScope.keepsActiveLook(second), "removed")
+        #expect(!scope.keepsActiveLook(second), "removed")
     }
 
     /// Only the window whose backdrop glass is updating is in scope, the innermost when updates
@@ -112,21 +112,23 @@ import CmuxNextDesignTokens
         let second = NSWindow(contentRect: .init(x: 0, y: 0, width: 10, height: 10), styleMask: [], backing: .buffered, defer: true)
         first.isReleasedWhenClosed = false
         second.isReleasedWhenClosed = false
-        #expect(ActiveLookScope.scopedWindow == nil)
-        ActiveLookScope.during(first) {
-            #expect(ActiveLookScope.scopedWindow == ObjectIdentifier(first))
-            ActiveLookScope.during(second) { #expect(ActiveLookScope.scopedWindow == ObjectIdentifier(second)) }
-            #expect(ActiveLookScope.scopedWindow == ObjectIdentifier(first))
-            ActiveLookScope.during(nil) { #expect(ActiveLookScope.scopedWindow == ObjectIdentifier(first)) }
+        let scope = ActiveLookScope()
+        #expect(scope.scopedWindow == nil)
+        scope.during(first) {
+            #expect(scope.scopedWindow == ObjectIdentifier(first))
+            scope.during(second) { #expect(scope.scopedWindow == ObjectIdentifier(second)) }
+            #expect(scope.scopedWindow == ObjectIdentifier(first))
+            scope.during(nil) { #expect(scope.scopedWindow == ObjectIdentifier(first)) }
         }
-        #expect(ActiveLookScope.scopedWindow == nil)
+        #expect(scope.scopedWindow == nil)
     }
 
-    /// The window backdrop's glass keeps its active look; other glass panels follow the key state
-    /// as before.
+    /// The window backdrop's glass keeps its active look through the app's scope; other glass
+    /// panels, and a backdrop given no scope, follow the key state as before.
     @Test func theWindowBackdropGlassKeepsItsActiveLook() {
+        let scope = ActiveLookScope()
         for material in Self.glassMaterials {
-            let view = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 320, height: 200))
+            let view = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 320, height: 200), images: .shared, activeLook: scope)
             view.apply(WindowBackdrop(backgroundOpacity: 0.55, backgroundBlur: material == .glass(.clear) ? -2 : -1,
                                       liquidGlass: true), tint: .black)
             let glass = view.materialView as? GlassPanelView
@@ -136,6 +138,9 @@ import CmuxNextDesignTokens
             }
         }
         #expect(GlassPanelView().keepsActiveLook == false)
+        let plain = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 320, height: 200))
+        plain.apply(WindowBackdrop(backgroundOpacity: 0.55, backgroundBlur: -1, liquidGlass: true), tint: .black)
+        #expect((plain.materialView as? GlassPanelView)?.keepsActiveLook == false)
     }
 
     /// Only the dim covers a window that is not key, clamped to 0...1; an opaque window never

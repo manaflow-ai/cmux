@@ -7,8 +7,10 @@
    never a capped height that scrolls with room left (Leo, 2026-10-26: "you still haven't done the
    full-length thing. It's still just this constrained height for, like, no reason at all"). Overlay (the
    default, in every pane): it floats outside the chat's layout and never takes a column (Leo, 2026-10-24:
-   "it was never supposed to be a sidebar; y'all kept doing sidebars"); the chat's column moves left only
-   when the two then fit side by side, and otherwise the panel floats over the chat. Push (Settings Push
+   "it was never supposed to be a sidebar; y'all kept doing sidebars"), and opening or closing it moves
+   nothing else: the chat's column stays where it is, and where the right gutter cannot hold the panel it
+   floats over the chat (Leo, 2026-10-29: "it's not supposed to be a fucking sidebar that pushes the
+   fucking layout"). Push (Settings Push
    always only): an item of the shell's flex row, so it reserves its width and the chat reflows narrower
    beside it, but top-aligned at its own height, so the column below it is the chat's own page, not an
    empty slab. Its width comes from the viewer's drag (inline style); it slides in from the right and back
@@ -43,7 +45,7 @@
   );
   border-radius: var(--acpmux-inspector-panel-radius);
 }
-/* Lying over the chat's column (the chat cannot move left for it), it stops above the composer's stack
+/* Lying over the chat's column (the right gutter cannot hold it), it stops above the composer's stack
    (ChatInspector.tsx inspectorOverChat, --acpmux-inspector-foot), so it never covers the composer. */
 .acpmux-chat-inspector[data-placement="overlay"][data-over-chat] {
   max-height: calc(
@@ -102,65 +104,6 @@
 .acpmux-chat-inspector[data-placement] .acpmux-chat-inspector__body {
   /* The card is as tall as its sections; past its max-height, the body scrolls. */
   flex: 0 1 auto;
-}
-/* When the chat and the floating card both fit with the chat moved left (ChatInspector.tsx
-   inspectorChatShift), the conversation and the composer's stack under it move left together, so the
-   card lies over neither. The header stays outside that shift: its top-right controls stay anchored in
-   the pane. */
-.acpmux-main > .acpmux-stage > .acpmux-scroll > :is(.acpmux-spacer, .acpmux-find, .acpmux-minimap),
-.acpmux-main > .acpmux-stage .acpmux-handoff-review,
-.acpmux-main > .acpmux-dock > * {
-  translate: calc(-1 * var(--acpmux-chat-shift, 0px)) 0;
-}
-/* Move content and the rail without moving the native scrollbar under Session Info. Clamp the
-   rail's final left edge to the pane: its 28px gutter can use up to 8px of text-edge overlap.
-   Its portaled card shares the same shift and transition, staying aligned on every painted frame. */
-.acpmux-main > .acpmux-stage > .acpmux-scroll > .acpmux-minimap,
-.acpmux-main > .acpmux-stage > .acpmux-minimap__card {
-  translate: max(calc(-1 * var(--acpmux-chat-shift, 0px)), calc(-1 * var(--acpmux-rail-left, 0px))) 0;
-}
-/* A part that joins the stack while the chat is moved rises from below its moved place
-   (bottomStack.css ui-enter), not from the unmoved one. Only the dock's own animated parts (the same
-   list as bottomStack.css): the parts nested in them enter inside a part already moved. */
-.acpmux-main > .acpmux-dock > :not(.acpmux-composer, .acpmux-home-area, .acpmux-asks-stack) {
-  --ui-enter-x: calc(-1 * var(--acpmux-chat-shift, 0px));
-}
-@media (prefers-reduced-motion: no-preference) {
-  .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll > :is(.acpmux-spacer, .acpmux-find, .acpmux-minimap),
-  .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-minimap__card,
-  .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-dock > *,
-  .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage .acpmux-handoff-review {
-    transition: translate var(--agent-motion-move, var(--cmux-motion-quick, 80ms))
-      var(--acpmux-motion-ease, ease-out);
-  }
-}
-:root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll > :is(.acpmux-spacer, .acpmux-find, .acpmux-minimap),
-:root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-minimap__card,
-:root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-dock > *,
-:root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage .acpmux-handoff-review,
-:root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll > :is(.acpmux-spacer, .acpmux-find, .acpmux-minimap),
-:root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-minimap__card,
-:root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-dock > *,
-:root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage .acpmux-handoff-review {
-  transition: none;
-}
-.acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-stage > .acpmux-scroll > :is(.acpmux-spacer, .acpmux-find, .acpmux-minimap),
-.acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-stage > .acpmux-minimap__card,
-.acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-dock > *,
-.acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-stage .acpmux-handoff-review {
-  transition: none;
-}
-
-/* A native browser/terminal pane changes the shell width outside this document. The ResizeObserver
-   writes the final Session Info shift in that same layout turn; keep the webview from starting a
-   second translate transition while the native split is still resizing. The rail and its portaled
-   card too: each took its own transition from values set in different commits, and the card trailed
-   the rail on the resize's frames (thread-minimap-left-rail-stays). */
-.acpmux-shell[data-inspector-chat-resizing] .acpmux-main > .acpmux-stage > .acpmux-scroll > :is(.acpmux-spacer, .acpmux-find, .acpmux-minimap),
-.acpmux-shell[data-inspector-chat-resizing] .acpmux-main > .acpmux-stage > .acpmux-minimap__card,
-.acpmux-shell[data-inspector-chat-resizing] .acpmux-main > .acpmux-dock > *,
-.acpmux-shell[data-inspector-chat-resizing] .acpmux-main > .acpmux-stage .acpmux-handoff-review {
-  transition: none;
 }
 /* It slides in from the pane's right edge and back out (ui/presence.ts, data-presence). Over the chat
    it travels the panel's few points. Pushing, the room it takes travels with it: entering, its right
@@ -889,6 +832,7 @@ button.acpmux-chat-inspector-port:hover,
 }
 .acpmux-chat-inspector-server__line {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   min-width: 0;

@@ -154,9 +154,17 @@ impl Message {
 
     /// The line to send when it fits in [`MAX_MESSAGE_BYTES`]. A reply that does not is sent as
     /// the error reply for its id instead; a request or notification that does not is `Err`, with
-    /// its size, for its sender to fail alone.
+    /// its size, for its sender to fail alone. A line near the cap or over it is counted and
+    /// warned of (`wire_size.rs`).
     pub fn bounded_line(&self) -> Result<String, usize> {
+        self.bounded_line_replying(None)
+    }
+
+    /// [`Self::bounded_line`] for a reply whose request's method the sender knows: the size
+    /// watch names it (`reply to <method>`).
+    pub fn bounded_line_replying(&self, reply_to: Option<&str>) -> Result<String, usize> {
         let line = self.to_line();
+        crate::wire_size::observe(crate::wire_size::What::of(self, reply_to), line.len());
         if line.len() <= MAX_MESSAGE_BYTES {
             return Ok(line);
         }
@@ -265,6 +273,10 @@ pub mod method {
     /// `{sessionId, runId?, agentId, before?, after?, limit?}`
     /// (`claude_stdio/agent_transcript.rs`).
     pub const MUX_SUBAGENT_TRANSCRIPT: &str = "_acpmux/subagent_transcript";
+    /// A chat's older turns, read from its Claude Code transcript a page at a time:
+    /// `{sessionId, before}` → `{events, before, turns, read}`, `before` a `native_history`
+    /// cursor (`hub/native_history.rs`).
+    pub const MUX_NATIVE_HISTORY: &str = "_acpmux/native_history";
     /// Every Claude workflow of this daemon's chats: `{includeEnded?}` →
     /// `{workflows}` (`hub/workflow_index.rs`).
     pub const MUX_WORKFLOWS: &str = "_acpmux/workflows";
@@ -272,6 +284,10 @@ pub mod method {
     pub const MUX_APP_REPLY: &str = "_acpmux/app_reply";
     pub const MUX_QUEUE_REMOVE: &str = "_acpmux/queue_remove";
     pub const MUX_QUEUE_EDIT: &str = "_acpmux/queue_edit";
+    /// One queued prompt's whole text and blocks, `{sessionId, promptId}` →
+    /// `{sessionId, promptId, turnId, text, prompt, fromAgent, fromSessionId, fromHarness}`
+    /// (`hub/queue_text.rs`); the queue list carries a 200-character preview only.
+    pub const MUX_QUEUE_TEXT: &str = "_acpmux/queue_text";
     /// To the agent adapter, `{sessionId}`: stop the agent's current step so it reads the steers
     /// that wait for it, and keep the turn (Send now on a steer, `hub/queue_edit.rs`). Answers
     /// `{interrupted}`, false when no steer waits; an agent without it answers an error.
@@ -282,6 +298,9 @@ pub mod method {
     pub const MUX_STEER_WITHDRAW: &str = "_acpmux/steer_withdraw";
     /// An agent message's sender takes it back (`hub/withdraw.rs`).
     pub const MUX_PROMPT_WITHDRAW: &str = "_acpmux/prompt_withdraw";
+    /// `acpmux session inbox NAME --digest`: the agent messages waiting go in as one digest
+    /// (`hub/inbox_digest.rs`).
+    pub const MUX_INBOX_DIGEST: &str = "_acpmux/inbox_digest";
     /// `acpmux send --no-wait`: queue a prompt for this daemon to deliver (`hub/outbox.rs`).
     pub const MUX_SEND_QUEUE: &str = "_acpmux/send_queue";
     pub const MUX_SEND_STATUS: &str = "_acpmux/send_status";
@@ -294,6 +313,8 @@ pub mod method {
     /// What this daemon knows of a chat's sign-in (`hub/session_auth.rs`).
     pub const MUX_SESSION_AUTH: &str = "_acpmux/session/auth";
     pub const MUX_INFO: &str = "_acpmux/info";
+    /// Sign a daemon-owned proof for the currently live turn.
+    pub const MUX_TURN_ATTESTATION: &str = "_acpmux/turn_attestation";
     /// Metadata-only paths for a session's config and state files; local Unix socket only.
     pub const MUX_SESSION_FILES: &str = "_acpmux/session_files";
     pub const MUX_EVENTS: &str = "_acpmux/events";
@@ -351,6 +372,12 @@ pub mod method {
     /// A session's turn cap (`hub/turn_cap.rs`): `{sessionId, turnCapMs?}`, a number sets it
     /// (0 turns it off), null clears it, absent reads it.
     pub const MUX_SET_TURN_CAP: &str = "_acpmux/set_turn_cap";
+    /// A chat's inbox threads (`hub/inbox.rs`): `{sessionId}`.
+    pub const MUX_INBOX_THREADS: &str = "_acpmux/inbox_threads";
+    /// One inbox thread's messages: `{sessionId, threadId, markRead?}`.
+    pub const MUX_INBOX_THREAD: &str = "_acpmux/inbox_thread";
+    /// An answer in an inbox thread, to its sender's inbox: `{sessionId, threadId, text}`.
+    pub const MUX_INBOX_REPLY: &str = "_acpmux/inbox_reply";
     pub const MUX_TAG: &str = "_acpmux/tag";
     /// The chat menu's Archive (`archived: true`) or Unarchive of one session:
     /// the `archived` tag, valued with when (milliseconds), set or removed.
@@ -543,6 +570,9 @@ pub mod method {
     pub const MUX_PAIR_REDEEM: &str = "_acpmux/pair_redeem";
     // Notifications from acpmux to attached clients.
     pub const MUX_EVENT: &str = "_acpmux/event";
+    /// A persisted session-to-session message, projected separately so chat clients can render
+    /// incoming and outgoing bubbles without decoding the generic event stream.
+    pub const MUX_MESSAGE: &str = "_acpmux/message";
     pub const MUX_SESSION_CHANGED: &str = "_acpmux/session_changed";
     pub const MUX_PERMISSION_PENDING: &str = "_acpmux/permission_pending";
     /// To watchers when a harness profile source changed and the catalog
@@ -557,6 +587,9 @@ pub mod method {
     /// Sent to the prompting connection as soon as a `session/prompt` is
     /// recorded, before the turn ends: `{sessionId, promptId, turnId, queued}`.
     pub const MUX_PROMPT_ACCEPTED: &str = "_acpmux/prompt_accepted";
+    /// To the connection whose `session/cancel` notification was refused, which has no answer to
+    /// read: `{sessionId, message, reason?, peer?}` (`server/requests/cancel_refused.rs`).
+    pub const MUX_CANCEL_REFUSED: &str = "_acpmux/cancel_refused";
     /// To attached and watching clients when a background process starts or
     /// ends: `{process}` (`server/processes.rs`).
     pub const MUX_PROCESS_UPDATE: &str = "_acpmux/process_update";

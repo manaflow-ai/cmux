@@ -4,17 +4,25 @@
 // erros for acpmux"): the cause in one human line, the way out first, the agent's own words under
 // Details with Copy. Compare arms shows the three surfaces of the `turn-error-card` experiment.
 import { agentPaneEntry } from "../../../gallery/format";
-import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
+import { assistant, CATALOG, chat, summary, user } from "../../../gallery/fixtures/acpmux";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 
 const prompt = "Run the sidebar tests and fix what fails";
 
-const failed = (error: string, errorCode?: string) =>
-  chat([
-    user(prompt, 6),
-    assistant("Running the sidebar tests first.", 5.8),
-    summary(5.5, { status: "failed", durationMs: 662_000, error, ...(errorCode ? { errorCode } : {}) }),
-  ]);
+const failed = (error: string, errorCode?: string, fields: Parameters<typeof chat>[1] = {}) =>
+  chat(
+    [
+      user(prompt, 6),
+      assistant("Running the sidebar tests first.", 5.8),
+      summary(5.5, { status: "failed", durationMs: 662_000, error, ...(errorCode ? { errorCode } : {}) }),
+    ],
+    fields,
+  );
+
+/// Claude Code's own /compact, as its `available_commands_update` lists it.
+const compactCommand = { name: "compact", description: "Clear conversation history but keep a summary in context" };
+const contextFull =
+  'API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 212043 tokens > 200000 maximum"}}';
 
 const cloudFailed = (error: string) => {
   const snapshot = chat([
@@ -28,13 +36,22 @@ const cloudFailed = (error: string) => {
   return snapshot;
 };
 
+/// The harnesses' logins as the catalog names them, so the chat has a login to run (Sign in again).
+const LOGINS: Record<string, string> = { claude: "claude /login", codex: "codex login" };
+const signedOutCatalog = CATALOG.map((entry) =>
+  LOGINS[entry.id] ? { ...entry, auth: { login: LOGINS[entry.id]! } } : entry,
+);
+const notLoggedIn = "Not logged in · Please run /login";
+const signedOut = (fields: Parameters<typeof chat>[1] = {}) =>
+  failed(notLoggedIn, undefined, { catalog: signedOutCatalog, ...fields });
+
 export default agentPaneEntry({
   id: "agent-pane.turn-error-card",
   title: "Turn error card",
   area: "Agent pane",
   height: 300,
   covers: ["agent-session/acpmux/conversation/TurnRows.tsx#TurnFooter", "agent-session/acpmux/failureCopy.ts"],
-  keywords: ["error", "failure", "disk full", "tailscale", "agent process closed"],
+  keywords: ["error", "failure", "disk full", "tailscale", "agent process closed", "context window", "compact"],
   variants: {
     "cloud-missing": {
       note: "Owner VM without a Claude login: explains the missing credential and offers confirmed setup. Compare the three existing surfaces; keep the glass card.",
@@ -74,8 +91,31 @@ export default agentPaneEntry({
       snapshot: failed("failed to spawn agent: spawn claude-code-acp ENOENT"),
     },
     "rate-limited": {
-      note: "Capacity: Switch model is the way out, Retry beside it.",
+      note: "Capacity after the turn did work (Lawrence 2026-10-29): Continue leads and resumes the turn with its context (Return on the focused card), Switch model beside it.",
       snapshot: failed("API Error: 529 overloaded_error"),
+    },
+    "rate-limited-before-work": {
+      note: "Capacity before anything ran: Retry leads and sends the prompt again, Switch model beside it.",
+      snapshot: chat([
+        user(prompt, 6),
+        summary(5.9, { status: "failed", durationMs: 4_000, error: "API Error: 529 overloaded_error" }),
+      ]),
+    },
+    "context-full": {
+      note: "A long chat that outgrew the model's context window: Compact (the agent's /compact) first, Retry after it. Before, it read as an unknown failure whose Retry failed the same way.",
+      snapshot: failed(contextFull, undefined, { commands: [compactCommand] }),
+    },
+    "context-full-no-compact": {
+      note: "The same failure from an agent that lists no /compact: Retry stays the way out.",
+      snapshot: failed(contextFull),
+    },
+    "sign-in": {
+      note: "Claude Code's login expired mid-chat: Sign in again leads (filled) and runs the login, Continue follows for once it is done, then Switch model.",
+      snapshot: signedOut(),
+    },
+    "sign-in-cannot-send": {
+      note: "The same expired login in a chat this pane cannot send to (a Codex chat seen over a remote connection): Sign in again leads, Switch model after it, and no Continue or Retry.",
+      snapshot: signedOut({ harness: "codex", model: "gpt-6-astra", origin: "remote" }),
     },
     unknown: {
       note: "An error nothing names still reads human; its words are under Details.",

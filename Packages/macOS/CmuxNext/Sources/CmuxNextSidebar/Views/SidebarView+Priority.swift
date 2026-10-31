@@ -23,6 +23,8 @@ extension SidebarViewComponents {
         // Uninstalled, the view empties too, which stops its minute ticker.
         priorityPanelView.show(panel ?? SidebarPriorityPanel(entries: []))
         if old?.shown != panel?.shown || old == nil || panel == nil { needsLayout = true }
+        // The bell takes a slot in the titlebar row, so the narrowest sidebar follows it.
+        if (old == nil) != (panel == nil) { titlebarReserveChanged() }
     }
 
     /// The person's choices in the Priority view and on its bell. Nil drops them.
