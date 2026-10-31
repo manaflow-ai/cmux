@@ -1472,7 +1472,11 @@ and `hasMore` says older ones exist. `kinds` filters records before `limit` coun
 `turn_started`, `turn_result`, permissions and `message_superseded`, and drops raw wire records,
 responses and `.replay` records. Categories `mux`, `wire` and `all`, or exact record kinds, also
 work. `eventStream: true` on attach delivers every live record (filtered by `kinds`) as
-`_acpmux/event`, with agent notifications nested in `msg`, instead of `session/update`.
+`_acpmux/event`, with agent notifications nested in `msg`, instead of `session/update`. A live
+record is the record as logged. So Claude Code's raw `claude.assistant` and `claude.user` lines
+come without the content-block bodies and tool data their translated updates carry (block `type`,
+`id`, `tool_use_id`, `name` and `is_error` stay; `_acpmux.bodiesLeftOut` says how many bytes went,
+`claude_stdio/logged_bodies.rs`), live and in a page alike.
 
 Turns: `queued`, `dequeued`, `queue_removed`, `user_message`, `turn_started`, `turn_end` and `turn_result`
 carry `turnId` (and `promptId`); `turn_result.turnSeq` is the seq of `turn_started`. A failed

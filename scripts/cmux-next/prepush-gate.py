@@ -39,7 +39,8 @@ Layers (each one only on files the push changes under Packages/macOS/CmuxNext, c
                source guard, fleet host names in gallery fixtures (also on Packages/ changes)
   ast-grep     scripts/cmux-next/lint/ast-grep-rules: try!, blocking calls, raw font sizes, system
                dialogs, opaque glass (tree-sitter, so comments, strings and `case .alert` never match)
-  swiftformat  --lint with scripts/cmux-next/lint/swiftformat.conf
+  swiftformat  --lint with scripts/cmux-next/lint/swiftformat.conf; local only: the pre-push hook and a plain
+               local run, never --base/--head, --commits or GitHub Actions (no new CI gate, lead 2026-10-27)
   swiftlint    swift-syntax rules only (scripts/cmux-next/lint/swiftlint.yml), no SourceKit
 Tool versions are pinned in scripts/cmux-next/lint-tools.lock and downloaded once (sha256 checked)
 to $CMUX_LINT_TOOLS_DIR (default ~/Library/Caches/cmux-lint-tools, ~/.cache/cmux-lint-tools on Linux).
@@ -650,6 +651,10 @@ def ast_grep(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
     return "\n".join(sorted(lines))
 
 
+# A SwiftFormat --lint finding line (0.64): `/abs/path/A.swift:3:1: error: (consecutiveBlankLines) Remove ...`.
+SWIFTFORMAT_FINDING = re.compile(r"^\S.*\.swift:\d+:\d+: (?:error|warning): \([A-Za-z]+\) ")
+
+
 def swiftformat(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
     present = [p for p in swift if (tree / p).is_file()]
     if not present:
@@ -657,8 +662,10 @@ def swiftformat(binary: Path, config: Path, tree: Path, swift: list[str]) -> str
     # No cache: the trees are fresh temporary folders on every run and SwiftFormat keys its cache by absolute path,
     # so a persistent one never hits. It only grew (335 MB on a busy machine) and every call spent ~50 s reading and
     # rewriting it, even for one file. Linting the changed files takes milliseconds without it.
-    _, out = run([str(binary), "--lint", "--config", str(config), "--cache", "ignore", "--quiet", *present], tree)
-    return "\n".join(l for l in out.splitlines() if LOCATION.search(l))
+    # No --quiet: with it SwiftFormat 0.64 prints only "Source input did not pass lint check." and no finding, so this
+    # layer never refused anything. Its findings are `<path>:<line>:<col>: error: (<rule>) <message>` lines.
+    _, out = run([str(binary), "--lint", "--config", str(config), "--cache", "ignore", *present], tree)
+    return "\n".join(l for l in out.splitlines() if SWIFTFORMAT_FINDING.match(l))
 
 
 def swiftlint(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
@@ -927,8 +934,11 @@ def sidebar_owner_by_commit(repo: Path, base: str, head: str, ack_rev: str | Non
 
 def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
          trusted_scripts: Path | None = None, ack_rev: str | None = None,
-         restrict: set[str] | None = None) -> list[tuple[str, list[str]]]:
-    """[(check, new findings)] that head adds over base; the tree checks read only RESTRICT's files when given."""
+         restrict: set[str] | None = None, swiftformat_layer: bool = False) -> list[tuple[str, list[str]]]:
+    """[(check, new findings)] that head adds over base; the tree checks read only RESTRICT's files when given.
+
+    SWIFTFORMAT_LAYER: run SwiftFormat (main() sets it for the local pre-push hook and a plain local run only), or
+    when `--only` names swiftformat."""
     reserved: list[tuple[str, list[str]]] = []
     if only is None or "reserved" in only:
         fresh = reserved_keys(repo, base, head, trusted_scripts)
@@ -997,7 +1007,9 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         if sources and (only is None or "ast-grep" in only):
             jobs["ast-grep (scripts/cmux-next/lint/ast-grep-rules)"] = ("fn", ast_grep, ensure_tool(lock, "ast-grep"),
                                                                        lint / "sgconfig.yml", sources)
-        if swift and (only is None or "swiftformat" in only):
+        # Local only (lead 2026-10-27): CI and the merge-time gates (fast gates, car guards: --base/--head; pushes:
+        # --commits) never refused a SwiftFormat finding, and must not start to (CLAUDE.md: no new CI gates).
+        if swift and (swiftformat_layer if only is None else "swiftformat" in only):
             jobs["SwiftFormat --lint"] = ("fn", swiftformat, ensure_tool(lock, "swiftformat"),
                                           lint / "swiftformat.conf", swift)
         if swift and (only is None or "swiftlint" in only):
@@ -1093,7 +1105,7 @@ def finding_key(record: str) -> str:
 
 
 def gate_own(repo: Path, own, only: set[str] | None, timings: bool,
-             trusted_scripts: Path | None = None) -> list[tuple[str, list[str]]]:
+             trusted_scripts: Path | None = None, swiftformat_layer: bool = False) -> list[tuple[str, list[str]]]:
     """[(check, findings)] the push's own range OWN (push_range.OwnRange) adds.
 
     gate() over own.base..own.head; for a merge (own.before), less what gate() finds over each range the push
@@ -1105,11 +1117,12 @@ def gate_own(repo: Path, own, only: set[str] | None, timings: bool,
     taken off and refuses (fails closed). A record without a file location in a check that also printed located
     ones describes them (`check-crash-safety: 1 violation(s)`): it is kept only when one of that check's located
     findings is."""
-    found = gate(repo, own.base, own.head, only, timings, trusted_scripts)
+    found = gate(repo, own.base, own.head, only, timings, trusted_scripts, swiftformat_layer=swiftformat_layer)
     if not own.before or not found:
         return found
     changed = set(changed_files(repo, own.base, own.head)) | set(deleted_package_swift(repo, own.base, own.head))
-    before = [dict(gate(repo, b, a, only, timings, trusted_scripts, restrict=changed)) for b, a in own.before]
+    before = [dict(gate(repo, b, a, only, timings, trusted_scripts, restrict=changed, swiftformat_layer=swiftformat_layer))
+              for b, a in own.before]
     push_range = sys.modules[PUSH_RANGE_MODULE]
     kept = []
     for name, fresh in found:
@@ -1444,9 +1457,12 @@ def main(argv: list[str] | None = None) -> int:
     # Local only: CI runs this script too (--commits, and --base/--head on pull requests), and must gain no gate.
     local_only = not args.no_guardrails and not os.environ.get("GITHUB_ACTIONS") and only is None
     started_guardrails = start_guardrails(repo, ranges, trusted_scripts) if local_only else None
+    # SwiftFormat only for the pre-push hook and a plain local run (no --base: CI's pull request run, the fast gates
+    # and the car guards name one), never on GitHub Actions.
+    swiftformat_layer = not args.base and not os.environ.get("GITHUB_ACTIONS")
     found_any = []
     for own in ranges:
-        found_any += gate_own(repo, own, only, args.timings, trusted_scripts)
+        found_any += gate_own(repo, own, only, args.timings, trusted_scripts, swiftformat_layer)
     if args.pre_push and trusted_scripts:
         stale_hook_warning(repo, trusted_scripts)
     guarded = False
