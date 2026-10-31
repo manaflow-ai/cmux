@@ -16,7 +16,7 @@ public struct SidebarMapping {
     private let homeFolderPrefix: String
 
     /// A mapping that shortens `home` (this Mac's home folder by default) to `~`.
-    public init(home: String = NSHomeDirectory()) {
+    init(home: String = NSHomeDirectory()) {
         var native = home
         native.makeContiguousUTF8()
         self.home = native
