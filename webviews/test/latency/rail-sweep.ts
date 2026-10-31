@@ -149,6 +149,7 @@ export function measureRailSweep(most: number) {
           painted(index, timeoutMs) {
             if (armed?.index === index && armed.paintAt !== null) return Promise.resolve(true);
             return new Promise((resolve) => {
+              // fixed-wait: a deadline fails a move whose tick and card never paint; a painted move clears it at once
               const timer = setTimeout(() => resolve(false), timeoutMs);
               waiter = {
                 index,

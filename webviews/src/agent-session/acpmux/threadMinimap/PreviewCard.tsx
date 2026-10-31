@@ -193,7 +193,10 @@ export const PreviewCard = React.forwardRef<
         replyNode.style.setProperty("height", "auto");
         replyNode.style.setProperty("max-height", "none");
         replyNode.style.setProperty("-webkit-line-clamp", "unset");
-        const naturalReplyLines = Math.max(1, Math.min(4, Math.ceil(replyNode.getBoundingClientRect().height / lineHeight)));
+        const naturalReplyLines = Math.max(
+          1,
+          Math.min(4, Math.ceil(replyNode.getBoundingClientRect().height / lineHeight)),
+        );
         if (clamp === null) replyNode.removeAttribute("style");
         else replyNode.setAttribute("style", clamp);
         // Match the old two-line prompt + four-line reply text budget for this same content. A
