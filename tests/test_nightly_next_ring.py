@@ -10,6 +10,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+
+import yaml
 from nightly_workflow_text import nightly_text
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -450,6 +452,18 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("--replace-sha256", step)
         self.assertIn('verdicts/${KEY##*/}', text)
 
+    def test_a_failed_old_feed_promotion_fails_the_verdict_run(self):
+        # The NEXT feed's promotion runs first and is kept when the old feed's
+        # write fails; that failure turns the run red instead of passing
+        # quietly with the two feeds on different rings.
+        steps = yaml.safe_load(VERDICT_YML.read_text())["jobs"]["write"]["steps"]
+        names = [s.get("name") for s in steps]
+        main = names.index("Move builds whose canary passed to Nightly")
+        legacy = names.index("Move the old feed's builds whose canary passed to Nightly")
+        self.assertLess(main, legacy)
+        self.assertNotIn("continue-on-error", steps[legacy])
+        self.assertNotIn("never fails the verdict", VERDICT_YML.read_text())
+
     def test_a_verdict_promotes_on_the_live_feed_with_if_match(self):
         text = VERDICT_YML.read_text()
         self.assertIn("nightly_next_ring.py retag", text)
@@ -474,7 +488,7 @@ class LegacyPublishedTests(unittest.TestCase):
         script = "\n".join(line[10:] for line in script.splitlines())
         base = {"DECIDED": "true", "ACTION": "new", "BUILD": "4023940374302", "NEXT_BUILD": "4023940374302",
                 "SIGN_SKIP": "false", "SIGN_PENDING": "false", "SIGN_OK": "true", "TESTED": "abc123", "ALREADY": "false",
-                "PUBLISHED": "true"}
+                "PUBLISHED": "true", "NEXT_OK": "true", "SOURCE_RUN": ""}
         return subprocess.run(["bash", "-c", script], env={"PATH": "/usr/bin:/bin", **base, **env},
                               capture_output=True, text=True)
 
@@ -483,11 +497,17 @@ class LegacyPublishedTests(unittest.TestCase):
         for env in ({"ACTION": "none", "BUILD": "", "PUBLISHED": ""}, {"SIGN_SKIP": "true", "PUBLISHED": ""},
                     {"ALREADY": "true", "PUBLISHED": "false"}, {"SIGN_PENDING": "true", "PUBLISHED": ""},
                     # A continued older build: the publisher runs only for this run's build.
-                    {"ACTION": "continue", "BUILD": "4023540480101", "PUBLISHED": ""}):
+                    {"ACTION": "continue", "BUILD": "4023540480101", "PUBLISHED": ""},
+                    # This run's own build, which cmux NEXT did not publish: the old feed waits for it.
+                    {"SOURCE_RUN": "41136161064", "NEXT_OK": "false", "PUBLISHED": ""},
+                    {"SOURCE_RUN": "41136161064", "NEXT_BUILD": "4023940374303", "PUBLISHED": ""}):
             self.assertEqual(self.gate(**env).returncode, 0, env)
         # A failed target leaves no outputs (continue-on-error reports it as success).
         for env in ({"DECIDED": "", "ACTION": "", "BUILD": "", "PUBLISHED": ""},
                     {"PUBLISHED": ""}, {"PUBLISHED": "false"},
+                    # A feed build a rescue's re-run signed (publish-nightly skipped there) that did not publish.
+                    {"NEXT_OK": "false", "NEXT_BUILD": "", "PUBLISHED": "false"},
+                    {"SOURCE_RUN": "41136161064", "PUBLISHED": "false"},
                     {"ACTION": "continue", "PUBLISHED": "false"},
                     # Pending, but the sign job failed after Apple took it (no stored bundle).
                     {"SIGN_PENDING": "true", "SIGN_OK": "false", "PUBLISHED": ""},
@@ -498,13 +518,18 @@ class LegacyPublishedTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1, env)
             self.assertIn("::error title=cmux NIGHTLY feed not published::", result.stdout)
 
-    def test_the_gate_reads_outputs_and_runs_whenever_cmux_next_published(self):
+    def test_the_gate_reads_outputs_and_runs_in_every_run_the_target_ran_in(self):
+        # Runs 41126559170 and 41136161064 (2026-10-30): the rescue's re-runs skipped publish-nightly, so this gate
+        # skipped too and the old feed sat 27 hours behind with no red. It runs whatever cmux NEXT's publication did.
         body = self.job("nightly-identity-legacy-published")
         for need in ("publish-nightly", "legacy-identity-target", "sign-nightly-identity-legacy",
                      "verify-nightly-identity-legacy", "publish-nightly-identity-legacy"):
             self.assertIn(need, body.split("\n", 1)[0])
-        self.assertIn("always() && !cancelled()", body)
-        self.assertIn("needs.publish-nightly.result == 'success'", body)
+        condition = re.search(r'\n    if: "(.*)"\n', body).group(1)
+        self.assertIn("always() && !cancelled()", condition)
+        self.assertNotIn("publish-nightly", condition)
+        self.assertIn("NEXT_OK: ${{ needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' }}", body)
+        self.assertIn("SOURCE_RUN: ${{ needs.legacy-identity-target.outputs.source_run }}", body)
         self.assertNotIn("\n    continue-on-error:", body)
         self.assertNotRegex(body, r"needs\.(?:legacy-identity-target|[a-z-]*identity-legacy)\.result")
         target = self.job("legacy-identity-target")

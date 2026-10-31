@@ -14,20 +14,9 @@ import CmuxNextWakeups
 // and diagnostics.
 extension CloudHandlers {
     static func bindCreation(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
-        bind("newCloudMachine", registry, reason: reason) { invocation in
-            let request = try newMachineRequest(invocation)
-            let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
-            if request.isDefault, origin(of: invocation) == .user, window != nil {
-                beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession, chat: CloudChatPick.chatTab(invocation, context.services))
-                return
-            }
-            let flow = creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession)
-            guard request.isDefault else { return createRequested(request, flow: flow, window: window, context) }
-            // The new machine's progress shows in the window at once; its
-            // first workspace opens there when its daemon is ready.
-            reportCreatedMachine(flow.start(in: window, existing: nil), context)
-        }
-        bind("newCloudWorkspace", registry, reason: reason) { invocation in
+        let cloud = context.services.cloud
+        bindMachineCreation(into: registry, context: context, reason: reason)
+        bind("newCloudWorkspace", registry, reason: { reason() ?? (cloud.isSignedIn ? nil : CloudStrings.signInFirst) }) { invocation in
             let target = try workspaceMachine(invocation, context)
             let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
             guard let session = target, session.daemon.connection != nil else {
@@ -75,7 +64,7 @@ extension CloudHandlers {
             let cloud = context.services.cloud, services = context.services
             let userID = cloud.auth.user?.id, teamID = cloud.auth.teamID
             let availability = CloudWorkspaceSetupWizard.CredentialAvailability.resolve(
-                teamID: cloud.auth.teamID, supportsFileRoute: cloud.configuration.linkSource == .legacy)
+                teamID: cloud.auth.teamID, supportsFileRoute: AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: cloud.configuration.linkSource, isSignedIn: true))
             let present: (CmuxDialogSpec) async -> CmuxDialogAnswer = { spec in
                 let scope: CmuxDialogScope = services.windows.active?.window.map(CmuxDialogScope.window) ?? .app
                 return await CmuxDialogCenter.shared.present(spec, in: scope)
@@ -172,7 +161,7 @@ extension CloudHandlers {
                     machineID: session.machineID, teamID: teamID, userID: userID, openTerminal: { [weak services] line in
                         await services?.openLocalProviderLogin(line) ?? false
                     })
-                try await transfer.run(api: cloud.api, currentTeamID: { cloud.auth.teamID },
+                try await transfer.run(api: cloud.machineAPI, currentTeamID: { cloud.auth.teamID },
                                        currentUserID: { cloud.auth.user?.id }, confirmed: true)
             }
         }
@@ -405,7 +394,7 @@ extension CloudHandlers {
             // The bootstrap and the machine config go with the machine, so a Retry starts each too while it
             // has not started.
             bootstrap: { creation, session in
-                let machine = CloudMachineBootstrap.Machine(api: cloud.api.pinningTeam(creation.request.team), machineID: session.machineID)
+                let machine = CloudMachineBootstrap.Machine(api: cloud.machineAPI.pinningTeam(creation.request.team), machineID: session.machineID)
                 await CloudCreationFlow.startBootstrap(creation, on: machine)
             }
         )
