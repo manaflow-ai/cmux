@@ -59,10 +59,9 @@ extension SidebarListViewComponents {
             payload = .item(item)
             hidden = [press.key]
             origin = .position(DropPosition(section: row.section, group: row.group, index: row.siblingIndex)) // a group's member item: inside it
-        case .tab, .section, .emptySection, .emptyGroup, .folder, .block, .doneFold, .showMore, .status:
+        case .section, .emptySection, .emptyGroup, .folder, .block, .doneFold, .showMore, .status:
             return
         }
-        hidden.formUnion(Self.tabKeys(of: hidden, in: model))
         // A group lifts as one block: its header and the member rows under it (cx-bp40).
         let rows = SidebarListLift.rows(self, for: key, hidden: hidden)
         guard let rowFrame = SidebarListLift.blockFrame(self, rows), let content = SidebarListLift.content(self, rows, in: rowFrame) else { return }

@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 import CmuxNextWakeupsTestSupport
 
@@ -8,7 +9,7 @@ import CmuxNextWakeupsTestSupport
 /// card just disappears." A wheel scroll with the pointer on the shown workspace card belongs to
 /// the card: it stays, and the scroll never reaches the sidebar under it. A scroll off the card
 /// still ends it, as before.
-@MainActor @Suite(.serialized) struct WorkspaceHoverCardScrollTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct WorkspaceHoverCardScrollTests {
     private static func sidebar(clock: ManualClock) -> (SidebarListView, NSWindow, HoverCardCoordinator, [SidebarRow]) {
         _ = NSApplication.shared
         let workspaces = (1...3).map {

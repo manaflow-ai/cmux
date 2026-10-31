@@ -81,7 +81,7 @@ import Testing
         #expect(counts[.edit] == 7)
         #expect(counts[.view] == 12)
         #expect(counts[.server] == 2)
-        #expect(counts[.window] == 9)
+        #expect(counts[.window] == 10) // Merge All Windows (Leo 2026-10-29)
         #expect(counts[.help] == 5)
         #expect(counts[.debug] == 0 || DevTools.isEnabled)
     }

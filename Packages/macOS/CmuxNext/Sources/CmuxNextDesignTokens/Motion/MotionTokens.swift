@@ -75,11 +75,10 @@ public nonisolated enum MotionSpring: String, Sendable, CaseIterable {
     /// not change it. Swift-only for now (cmux-motion's `MotionSpring` ends at `tabOpen`; parity
     /// compares the tokens both ports have).
     case split
-    /// A popup (a popover, a menu, a group editor) growing out of the control it opened from:
-    /// scale and fade on the card's own layer (``NSWindow/openPopup(pivot:)``). Slightly
-    /// under-damped, like `NSPopover`. Swift-only, like `split`.
+    /// The legacy popup entrance spring. Native popovers and menus now open in one frame;
+    /// this token remains for settings compatibility. Swift-only, like `split`.
     case popover
-    /// The same popup shrinking back toward its control as it fades out, faster than it opened.
+    /// A popup shrinking back toward its control as it fades out.
     /// Critically damped. Swift-only.
     case popoverClose
 

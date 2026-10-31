@@ -320,21 +320,9 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     rows.append(SidebarRow(
                         key: .workspace(ws.id), y: y, height: h, section: section.id,
                         group: nil, siblingIndex: index, parentIndex: nil, isLastInGroup: false,
-                        isCollapsed: false, childCount: 0, groupColor: nil,
-                        tabDisclosure: o.disclosure(ws), content: content
+                        isCollapsed: false, childCount: 0, groupColor: nil, content: content
                     ))
                     y += h + m.rowSpacing
-                    if o.listsTabs(ws) {
-                        for tab in ws.tabs {
-                            rows.append(SidebarRow(
-                                key: .tab(ws.id, tab.id), y: y, height: m.tabRowHeight, section: section.id,
-                                group: nil, workspace: ws.id, siblingIndex: 0, parentIndex: nil,
-                                isLastInGroup: false, isCollapsed: false, childCount: 0,
-                                groupColor: nil, tabKind: tab.kind
-                            ))
-                            y += m.tabRowHeight + m.rowSpacing
-                        }
-                    }
                 case let .item(item):
                     let content = WorkspaceRowContent() // one line, as a compact workspace row
                     let h = m.height(for: content)
@@ -360,7 +348,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     if let sole = Self.soleMember(group, members, hasSubgroups: subgroupParents.contains(group.id), options: o),
                        let depth = Self.liveDepth(of: sole, members, in: group, collapsed: groupCollapsed,
                                                   fold: SidebarDoneFoldID(section: section.id, group: group.id), options: o) {
-                        y = Self.appendSoleMember(sole, of: group, collapsed: groupCollapsed, treeDepth: depth, section: section.id,
+                        y = Self.appendSoleMember(sole, of: group, treeDepth: depth, section: section.id,
                                                   parent: index, machine: machineLabel, options: o, metrics: m, to: &rows, y: y)
                         // A drop gap in the group opens under the row, as it opened under the header: the row keeps the header's
                         // slot under the pointer, and the header never returns mid-drag.
@@ -391,8 +379,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                             let h = m.height(for: content)
                             rows.append(SidebarRow(key: .workspace(ws.id), y: y, height: h, section: section.id, group: group.id,
                                                    siblingIndex: childIndex, parentIndex: index, isLastInGroup: n == kept.count - 1,
-                                                   isCollapsed: false, childCount: 0, groupColor: group.color,
-                                                   tabDisclosure: o.disclosure(ws), content: content))
+                                                   isCollapsed: false, childCount: 0, groupColor: group.color, content: content))
                             y += h + m.rowSpacing
                         }
                         return
@@ -437,21 +424,9 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                             key: .workspace(ws.id), y: y, height: h, section: section.id,
                             group: group.id, siblingIndex: childIndex, parentIndex: index,
                             isLastInGroup: position == drawn.count - 1,
-                            isCollapsed: false, childCount: 0, groupColor: group.color,
-                            tabDisclosure: o.disclosure(ws), content: content
+                            isCollapsed: false, childCount: 0, groupColor: group.color, content: content
                         ))
                         y += h + m.rowSpacing
-                        if o.listsTabs(ws) {
-                            for tab in ws.tabs {
-                                rows.append(SidebarRow(
-                                    key: .tab(ws.id, tab.id), y: y, height: m.tabRowHeight, section: section.id,
-                                    group: group.id, workspace: ws.id, siblingIndex: childIndex, parentIndex: index,
-                                    isLastInGroup: false, isCollapsed: false, childCount: 0,
-                                    groupColor: group.color, tabKind: tab.kind
-                                ))
-                                y += m.tabRowHeight + m.rowSpacing
-                            }
-                        }
                     }
                     // The next row follows the last member by the row spacing alone (Leo 2026-10-21: no padding after groups).
                     openGapIfNeeded(section: section.id, group: group.id, index: members.count)

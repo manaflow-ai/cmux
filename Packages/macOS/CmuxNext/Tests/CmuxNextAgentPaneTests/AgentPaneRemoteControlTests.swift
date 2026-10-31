@@ -36,15 +36,14 @@ struct AgentPaneRemoteControlTests {
     }
 
     @Test func onlyThePersonsClickWritesIt() async {
-        let control = AgentPaneRemoteControl.shared
-        let (oldState, oldSet) = (control.state, control.set)
-        defer { (control.state, control.set) = (oldState, oldSet) }
+        let control = AgentPaneRemoteControl()
         let box = WriteBox()
         control.set = { on in box.writes.append(on) }
         control.state = { .init(on: false) }
 
         let gestures = AgentPaneUserGestures(now: { 100 })
         let model = AgentPaneModel(host: NoHost(), transport: AgentPaneTransport(gestures: gestures))
+        model.remoteControl = control
         let refused = await model.respond(to: .remoteControl(on: true))
         #expect(refused["ok"] as? Bool == false)
         #expect((refused["error"] as? [String: Any])?["code"] as? String == AgentPaneTransportError.gestureRequired.rawValue)
@@ -57,15 +56,14 @@ struct AgentPaneRemoteControlTests {
     }
 
     @Test func noSwitchOrARemoteChatWritesNothing() async {
-        let control = AgentPaneRemoteControl.shared
-        let (oldState, oldSet) = (control.state, control.set)
-        defer { (control.state, control.set) = (oldState, oldSet) }
+        let control = AgentPaneRemoteControl()
         let box = WriteBox()
         control.set = { on in box.writes.append(on) }
 
         // This Mac cannot serve phones: no row, and a call changes nothing.
         control.state = { nil }
         let model = AgentPaneModel(host: NoHost())
+        model.remoteControl = control
         let unavailable = await model.respond(to: .remoteControl(on: true), userGesture: true)
         #expect(unavailable["ok"] as? Bool == false)
 
@@ -75,6 +73,13 @@ struct AgentPaneRemoteControlTests {
         let remote = await model.respond(to: .remoteControl(on: true), userGesture: true)
         #expect(remote["ok"] as? Bool == false)
         #expect(box.writes.isEmpty)
+    }
+
+    /// A model with no switch (no iPhone host given) writes nothing.
+    @Test func aModelWithNoSwitchWritesNothing() async {
+        let model = AgentPaneModel(host: NoHost())
+        let reply = await model.respond(to: .remoteControl(on: true), userGesture: true)
+        #expect(reply["ok"] as? Bool == false)
     }
 
     @Test func aPageScriptCannotCallItThroughTheSharedHost() async throws {
