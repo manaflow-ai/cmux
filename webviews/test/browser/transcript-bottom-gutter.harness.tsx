@@ -90,7 +90,11 @@ function Harness() {
                 height: 30,
                 pointerEvents: "auto",
               }}
-            />
+            >
+              {/* Production strips put this full-width context box around their controls. The
+                  blank part must still be a valid transcript-selection start surface. */}
+              <div className="acpmux-composer-context" />
+            </div>
           </div>
         )}
       </div>
