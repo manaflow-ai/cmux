@@ -238,6 +238,38 @@ fn a_held_agent_finish_retries_after_notification_preparation_fails() {
     }
 }
 
+#[test]
+fn stale_child_hooks_cannot_hold_a_new_sessions_finish() {
+    for (new_session, replay_sequence) in [("new", 2), ("new", 6), ("old", 6)] {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal = surface.terminal_public_id().cloned().unwrap();
+        let ingress = |event: &str, session: &str, observed: u64| {
+            let mut ingress = crate::agent_hooks::agent_hook_journal_ingress(
+                "claude",
+                event,
+                Some(&terminal.to_string()),
+                serde_json::json!({"session_id": session, "agent_id": "old-child"}),
+            )
+            .unwrap();
+            crate::agent_hooks::stamp_agent_hook_observed_at(&mut ingress, observed);
+            ingress
+        };
+        let old_child = ingress("SubagentStart", "old", 200);
+        mux.apply_agent_hook_record(&ingress("SessionStart", "old", 100), 1).unwrap();
+        mux.apply_agent_hook_record(&old_child, 2).unwrap();
+        mux.apply_agent_hook_record(&ingress("SessionEnd", "old", 300), 3).unwrap();
+        mux.apply_agent_hook_record(&ingress("SessionStart", new_session, 400), 4).unwrap();
+        mux.apply_agent_hook_record(&ingress("UserPromptSubmit", new_session, 500), 5)
+            .unwrap();
+        mux.apply_agent_hook_record(&old_child, replay_sequence).unwrap();
+        mux.apply_agent_hook_record(&ingress("Stop", new_session, 700), 7).unwrap();
+        let posted = mux.resource_notifications(16);
+        assert_eq!(posted.len(), 1, "{new_session}, replay sequence {replay_sequence}");
+        assert_eq!(posted[0].title, "Claude finished");
+    }
+}
+
 fn assert_held_agent_finish_retries(release_event: &str) {
     let root = std::env::temp_dir()
         .join(format!("cmux-held-finish-retry-{}", WorkspacePublicId::random().unwrap()));

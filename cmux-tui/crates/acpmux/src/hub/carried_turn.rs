@@ -555,6 +555,32 @@ mod tests {
         (hub, s)
     }
 
+    #[tokio::test]
+    async fn a_carried_turn_waits_for_its_own_end_before_turning_unread() {
+        let (hub, s) = chat().await;
+        s.subagents.lock().unwrap().annotate_live(
+            &mut json!({"sessionId": s.id, "update": {
+                "sessionUpdate": "subagent_spawned", "subagentSessionId": "background",
+                "background": true
+            }}),
+            true,
+        );
+        hub.refresh_work_below(&s);
+        hub.mark_unread_unless_work_below(&s);
+        assert!(!s.meta().unread, "the previous turn still has background work");
+
+        let from = TurnInfo::prompted("test", "work", "t-1", "p-1", Control::Local);
+        let carried = Carried { seq: 1, prompt_ids: vec![] };
+        let (next, continues) = hub.carried_turn(&s, Some(&from), &carried);
+        *s.turn.lock().unwrap() = Some(next.clone());
+        hub.begin_carried(&s, &from.turn_id, &next, &carried, &continues);
+        hub.end_background_subagents(&s);
+        assert!(!s.meta().unread, "the carried turn is still running");
+
+        hub.mark_unread_unless_work_below(&s);
+        assert!(s.meta().unread, "the carried turn's own end earns its unread dot");
+    }
+
     /// A steer still waits on a turn many carries back (one steer read per carried turn): its
     /// forced Stop still reaches it (`succeeds`), past the successions kept with none waiting.
     #[tokio::test]
