@@ -191,8 +191,12 @@ extension AgentTabStore {
             // A page beside a chat of another machine shows that machine's folders (cx-k21v).
             // (A chat of this Mac keeps the plain page, as before.)
             let tab = beside.flatMap { services.locateTabOnAnyMachine($0)?.0 }.flatMap { services.machines.daemon(forTab: $0).isLocal ? nil : $0 }
-            var page = NewTabPage.page(services, selected: tab)
+            // Without the Commands palette's actions (30-50 ms on the main thread, most of Cmd-N's
+            // key time: instant-new-surfaces `newTab.paletteActions`): they fill in on the frame
+            // after the page shows, as Cmd-T's do (``NewTabPage/fillPaletteActions(_:)``).
+            var page = NewTabPage.page(services, selected: tab, paletteActions: false)
             page.cwd = cwd ?? page.cwd
+            NewTabPage.fillPaletteActions(services)
             // Keys typed since Cmd-N wait for this page's field (NewTabInputCoordinator, cx-kql5h);
             // the token comes per workspace (``firstPage(cwd:token:)``).
             let input = services.keyRouter.newTabInputCoordinator
