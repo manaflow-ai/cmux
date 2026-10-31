@@ -418,6 +418,9 @@ class Fuzz:
         self.leak_base = None
         self.speed, self.played, self.notes = [], [], []
         self.findings = {}  # signature -> {oracle, signature, detail, count, first_n, sequence}
+        # split + type at once: plays, plays whose keys took the hold path, reds, passes on the hold path (judged),
+        # passes with no held key (not judged: the hold path was not exercised).
+        self.split_stats = {"played": 0, "hold": 0, "red": 0, "pass_hold": 0, "pass_not_judged": 0}
         # Size history per terminal (journey option fuzz_trace=1; on in replays): every change of the daemon's size
         # (`cmux terminal list`), of the app's grid / fit_grid / drawn grid (debug.surfaces) and every SIGWINCH the
         # shell saw (a trap prints `FZW rows cols`), each with its ms since the run began: whether a size reached
@@ -442,10 +445,12 @@ class Fuzz:
         return t, reply
 
     def type_text(self, text):
+        """Types TEXT and Return, one debug.key per key; returns each key's path (debug.key `handled_by`: "app" is the
+        router's hold, a key held for a terminal still being made and replayed there; "responder" a key that went
+        straight to the focused view), the same per-key record as ext_smoke's smoke_type_now."""
         self.wait_hold()
-        for ch in text:
-            self.j.key(ch, [])
-        self.j.key("return", [])
+        replies = [self.j.key(ch, []) for ch in text] + [self.j.key("return", [])]
+        return [str(r.get("handled_by")) if isinstance(r, dict) else "?" for r in replies]
 
     def answer_dialog(self):
         """A close that asks (a running process): its default, as Return does."""
@@ -535,7 +540,7 @@ class Fuzz:
         self.splits = getattr(self, "splits", 0) + 1
         snap = f"fz-split-{self.splits}"
         ext_smoke.step_smoke_snapshot(j, {"name": snap})
-        lines, at = [], None
+        lines, at, paths = [], None, []
         for k, down in enumerate(item.get("down") or [False, False]):
             if k:
                 time.sleep(SPLIT_GAP)
@@ -544,9 +549,15 @@ class Fuzz:
             self.last_create = t
             line = f"st{j.nonce}-{self.splits}-{k + 1}"
             # At once in normal mode (type_text waits out the creation hold only in --diagnostic).
-            self.type_text(f"echo {line}")
+            paths.append(self.type_text(f"echo {line}"))
             lines.append(line)
-        return {"at": at, "split_lines": lines, "split_snapshot": snap, "at_once": not self.diagnostic}
+        # The hold-path rule of pa-d's TIP RED 1193 journey (ext_smoke smoke_hold_path, 90e79d90d35; cmux-ad 11:05Z):
+        # this action's pass counts only when at least one key typed at once after a split was held by the app's
+        # router (handled_by "app"); a failure counts on any path.
+        held = sum(p.count("app") for p in paths)
+        return {"at": at, "split_lines": lines, "split_snapshot": snap, "at_once": not self.diagnostic,
+                "split_paths": [{"line": ln, "held": p.count("app"), "paths": sorted(set(p))} for ln, p in zip(lines, paths)],
+                "hold_path": held > 0, "held_keys": held}
 
     def split_lines(self, rec):
         """The split_type oracle: ext_smoke.cond_smoke_new_terminals (placement new_panes, the last line on the focused
@@ -1013,7 +1024,17 @@ class Fuzz:
             if r["a"] == "type_line":
                 problems += (r.get("probe") or {}).get("problems", [])
             if r.get("split_lines") and not any(p[0] == "create" for p in problems):
-                problems += self.split_lines(r)
+                found = self.split_lines(r)
+                problems += found
+                # n(hold)/n(rounds): a pass counts only on the hold path; a red counts on any path.
+                self.split_stats["played"] += 1
+                self.split_stats["hold"] += 1 if r.get("hold_path") else 0
+                if found:
+                    self.split_stats["red"] += 1
+                elif r.get("hold_path"):
+                    self.split_stats["pass_hold"] += 1
+                else:
+                    self.split_stats["pass_not_judged"] += 1
         made_terminal = any(ACTIONS[a].get("creates") in ("terminal", "pane") for a in names)
         if made_terminal and not any(p[0] == "create" for p in problems):
             self.arm_winch(None)
@@ -1149,6 +1170,7 @@ def step_fuzz_run(j, step):
               "played": played, "seconds": round(D.now() - started, 1), "failure": failure,
               "shrunk": shrunk, "shrink_tries": tries, "budget_out": budget_out, "speed": fz.speed,
               "findings": sorted(fz.findings.values(), key=lambda f: f["first_n"]), "notes": fz.notes[-200:],
+              "split_type": fz.split_stats,
               "size_trace": fz.trace, "leak_baseline": fz.leak_base, "log": fz.played[-400:],
               "sequence": getattr(fz, "effective", []) if failure is None else failure["sequence"]}
     (j.out / "fuzz.json").write_text(json.dumps(report, indent=1, default=str) + "\n")

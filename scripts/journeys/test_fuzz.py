@@ -43,10 +43,11 @@ seq = json.loads(opts["fuzz_sequence"]) if "fuzz_sequence" in opts else [{"a": "
 fail = seed in side.get("fail_seeds", []) or ("fuzz_sequence" in opts and side.get("fail_sequences"))
 findings = [{"oracle": "desync", "signature": f, "detail": f, "count": 2, "first_n": 1, "sequence": []} for f in side.get("findings", [])]
 failure = {"oracle": "create", "detail": "split_right+split_right: no terminal, no refusal", "index": len(seq)} if fail else None
+split = {"played": 3, "hold": 1, "red": 0, "pass_hold": 1, "pass_not_judged": 2}
 speed = [{"a": "new_terminal", "t": "slow", "shown_ms": side.get("typeable_ms", 100) - 20, "typeable_ms": side.get("typeable_ms", 100)}
          for _ in range(3)]
 report = {"seed": seed, "played": len(seq), "seconds": float(side.get("seconds", 120)), "failure": failure,
-          "shrunk": seq[:2] if fail else None, "speed": speed, "sequence": seq, "findings": findings}
+          "shrunk": seq[:2] if fail else None, "speed": speed, "sequence": seq, "findings": findings, "split_type": split}
 json.dump(report, open(os.path.join(out, "action-fuzz", "fuzz.json"), "w"))
 row = {"id": "action-fuzz", "status": "fail" if fail else side.get("status", "pass"), "reason": "", "host": "cmux99", "build_job": build}
 open(os.path.join(out, "results.jsonl"), "w").write(json.dumps(row) + "\n")
@@ -163,6 +164,13 @@ class Verdicts(unittest.TestCase):
         self.assertEqual((run["shrink"], len(run["sequence"])), (False, 1))
         self.assertFalse((tmp / "handoff" / "jobT.clean").exists())
         self.assertTrue(any("fuzz_sequence" in c["opts"] for c in calls[-1:]))
+
+    def test_split_type_hold_counts_reported(self):
+        done, summary, _, _ = self.run_fuzz({"jobT": {}, "jobB": {}}, "--base", "jobB")
+        self.assertEqual(summary["split_type"]["played"] % 3, 0)
+        self.assertGreater(summary["split_type"]["played"], 0)
+        text = (Path(summary["out"]) / "summary.txt").read_text()
+        self.assertIn("n(hold)/n(rounds) = ", text)
 
     def test_speed_regression_is_red(self):
         done, summary, _, _ = self.run_fuzz({"jobT": {"typeable_ms": 400}, "jobB": {"typeable_ms": 150}}, "--base", "jobB")

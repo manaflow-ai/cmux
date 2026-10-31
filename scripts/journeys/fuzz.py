@@ -302,6 +302,10 @@ def summarize(rounds, opts, started):
     new_findings = [f for f in findings.values() if not f["on_base"]]
     for f in fails:
         f["also_on_base"] = (f.get("failure") or {}).get("oracle") in base_fail_oracles
+    split = {k: sum(((r.get("split_type") or {}).get(k) or 0) for r in test) for k in
+             ("played", "hold", "red", "pass_hold", "pass_not_judged")}
+    split_base = {k: sum(((r.get("split_type") or {}).get(k) or 0) for r in rounds if r["build"] == "base") for k in
+                  ("played", "hold", "red", "pass_hold", "pass_not_judged")}
     speed = speed_table([dict(s, build=r["build"], seed=r["seed"]) for r in rounds for s in r.get("speed") or []])
     reds = [s for s in speed if s["red"]]
     fuzz_s = sum(r.get("seconds") or 0 for r in test)
@@ -325,6 +329,7 @@ def summarize(rounds, opts, started):
             "failures": [{k: r.get(k) for k in ("round", "seed", "host", "failure", "shrunk", "shrink_leases", "confirmed",
                                                 "repro", "corpus", "also_on_base")} for r in fails],
             "findings": sorted(findings.values(), key=lambda f: (f["on_base"], f["oracle"])),
+            "split_type": split, "split_type_base": split_base,
             "broken_rounds": [{k: r.get(k) for k in ("round", "seed", "host", "status", "reason", "journey_problems")} for r in broken],
             "base_failures": [{k: r.get(k) for k in ("round", "seed", "host", "failure", "shrunk", "corpus")} for r in base_fails],
             "speed": speed, "speed_reds": reds,
@@ -340,6 +345,10 @@ def text_of(summary):
     lines = [f"action fuzz ({s['set']}) of build {s['build']}" + (f" vs base {s['base']}" if s["base"] else "")
              + f": {s['verdict']} ({s['test_rounds']} rounds, {s['actions']} actions, {s['fuzz_seconds']} s of fuzz, "
              f"{s['not_run']} rounds not run; seeds {s['seeds'][:10]})"]
+    for name, sp in (("build", s.get("split_type") or {}), ("base", s.get("split_type_base") or {})):
+        if sp.get("played"):
+            lines.append(f"  split + type at once ({name}): n(hold)/n(rounds) = {sp['hold']}/{sp['played']}; red {sp['red']}, "
+                         f"pass on the hold path {sp['pass_hold']}, pass not judged (no key held) {sp['pass_not_judged']}")
     if s["weak_oracles"]:
         lines.append("DIAGNOSTIC (no key window on a slot): weak oracles: " + "; ".join(s["weak_oracles"]))
     for f in s["failures"]:
@@ -461,7 +470,8 @@ def main(argv=None):
                    "played": (report or {}).get("played"), "seconds": (report or {}).get("seconds"),
                    "failure": (report or {}).get("failure"), "shrunk": (report or {}).get("shrunk"),
                    "speed": (report or {}).get("speed") or [], "findings": (report or {}).get("findings") or [],
-                   "journey_problems": journey_problems(r_out, report), "corpus": label == "corpus",
+                   "journey_problems": journey_problems(r_out, report),
+                   "split_type": (report or {}).get("split_type"), "corpus": label == "corpus",
                    "exclusive": gate.exclusive_line(r_out), "pressure": gate.pressure(r_out, opts.hog_swap_gb) if opts.hog_swap_gb else None}
             rounds.append(rec)
             print(f"round {n} {side} ({label}, seed {rec['seed']}) on {used}: {rec['status']}"

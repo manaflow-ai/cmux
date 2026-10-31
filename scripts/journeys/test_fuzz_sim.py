@@ -85,6 +85,12 @@ class FakeApp:
             pane["selected"] = pane["tabs"][-1]["id"]
 
     def key(self, key, mods):
+        reply = self._key(key, mods)
+        if "hold_path" in self.bugs and not mods and time.monotonic() - self.last_split < 0.3:
+            return dict(reply or {}, handled_by="app")  # held by the router for the pane being made, then replayed
+        return reply
+
+    def _key(self, key, mods):
         mods = set(mods)
         pane = self.focused_pane()
         if key == "n" and mods == {"cmd"}:
@@ -345,6 +351,17 @@ class Sim(unittest.TestCase):
         report, error = run(seq=seq, shrink=False, actions="full")
         self.assertIsNone(error, json.dumps(report["log"][-1:])[:800])
         self.assertTrue(report["log"][-1]["recs"][0].get("skipped"))
+
+    def test_split_type_counts_the_hold_path(self):
+        seq = [{"a": "new_terminal", "t": "slow"}, {"a": "split_type", "t": "slow"}, {"a": "split_type", "t": "slow"}]
+        report, error = run(seq=seq, shrink=False, actions="layout")
+        self.assertIsNone(error)
+        self.assertEqual(report["split_type"], {"played": 2, "hold": 0, "red": 0, "pass_hold": 0, "pass_not_judged": 2})
+        report, error = run(bugs={"hold_path"}, seq=seq, shrink=False, actions="layout")
+        self.assertIsNone(error, json.dumps(report["log"][-1:])[:800])
+        self.assertEqual(report["split_type"]["hold"], 2)
+        self.assertEqual(report["split_type"]["pass_hold"], 2)
+        self.assertTrue(report["log"][-1]["recs"][0]["hold_path"])
 
     def test_both_lines_in_the_second_pane_is_a_keys_red(self):
         seq = [{"a": "new_terminal", "t": "slow"}, {"a": "split_type", "t": "slow", "down": [False, False]}]
