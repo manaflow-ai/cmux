@@ -379,7 +379,7 @@ fn push_inner(
                 && listings.revision(&mut remote, &target)?.as_deref()
                     != Some(pushed.revision.as_str())
             {
-                summary.kept += 1;
+                summary.kept = summary.kept.saturating_add(1);
                 next.files.insert(relative.clone(), pushed.clone());
                 continue;
             }
