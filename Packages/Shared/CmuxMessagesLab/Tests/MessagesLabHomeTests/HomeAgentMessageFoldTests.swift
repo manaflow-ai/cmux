@@ -1,5 +1,6 @@
 import AppKit
 import CmuxHomeCore
+import CmuxHomeRender
 import Testing
 @testable import MessagesLabHome
 
