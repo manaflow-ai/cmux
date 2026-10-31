@@ -425,9 +425,22 @@ pub fn create_body(args: &TokenCreateArgs) -> Result<Value, CliError> {
 }
 
 /// Where `token create` and `revoke` serialize this user's changes to the
-/// store ([`lock_path_for`] with the account's home on macOS).
-fn create_lock_path(env: &dyn Fn(&str) -> Option<String>) -> Option<std::path::PathBuf> {
-    lock_path_for(account_home().as_deref(), env)
+/// store ([`lock_path_for`] with the account's home on macOS). On macOS it
+/// fails closed: without the account's home it never falls back to the
+/// environment, which would split the lock again.
+fn create_lock_path(
+    env: &dyn Fn(&str) -> Option<String>,
+) -> Result<Option<std::path::PathBuf>, CliError> {
+    if cfg!(target_os = "macos") {
+        let home = account_home().ok_or_else(|| {
+            CliError::unexpected(
+                "cannot find this user's home directory in the user database, so the VM token store cannot be locked",
+            )
+        })?;
+        Ok(lock_path_for(Some(&home), env))
+    } else {
+        Ok(lock_path_for(None, env))
+    }
 }
 
 /// The store lock. The file store is locked beside its file: both follow
@@ -457,8 +470,7 @@ fn lock_path_for(
 }
 
 /// This user's home from the user database (getpwuid), never the
-/// environment. `None` when there is no entry; the lock then falls back to
-/// the environment's config directory.
+/// environment. `None` when there is no entry or it is not absolute.
 #[cfg(target_os = "macos")]
 fn account_home() -> Option<std::path::PathBuf> {
     nix::unistd::User::from_uid(nix::unistd::geteuid())
@@ -468,7 +480,8 @@ fn account_home() -> Option<std::path::PathBuf> {
         .filter(|dir| dir.is_absolute())
 }
 
-/// The file store follows the environment, and so does its lock.
+/// The file store follows the environment, and so does its lock
+/// ([`create_lock_path`] does not ask for the account's home here).
 #[cfg(not(target_os = "macos"))]
 fn account_home() -> Option<std::path::PathBuf> {
     None
@@ -491,7 +504,7 @@ pub fn begin_create(
 /// This user's lock on the token store, held while a create or a revoke
 /// reads and changes it. `None` when there is no config directory.
 fn lock_store(env: &dyn Fn(&str) -> Option<String>) -> Result<Option<std::fs::File>, CliError> {
-    Ok(match create_lock_path(env) {
+    Ok(match create_lock_path(env)? {
         Some(path) => {
             if let Some(dir) = path.parent() {
                 std::fs::create_dir_all(dir).map_err(|e| {
@@ -932,7 +945,7 @@ mod tests {
         let xdg = dir.to_string_lossy().into_owned();
         let env = |name: &str| (name == "XDG_CONFIG_HOME").then(|| xdg.clone());
         let held = begin_create(&env, 0).unwrap().expect("a lock file");
-        let other = std::fs::File::open(create_lock_path(&env).unwrap()).unwrap();
+        let other = std::fs::File::open(create_lock_path(&env).unwrap().unwrap()).unwrap();
         assert!(matches!(
             other.try_lock(),
             Err(std::fs::TryLockError::WouldBlock)
@@ -975,8 +988,9 @@ mod tests {
     fn two_environments_of_one_user_share_the_macos_lock() {
         let a = |name: &str| (name == "XDG_CONFIG_HOME").then(|| "/tmp/a".to_owned());
         let b = |name: &str| (name == "HOME").then(|| "/tmp/b".to_owned());
-        assert!(create_lock_path(&a).is_some());
-        assert_eq!(create_lock_path(&a), create_lock_path(&b));
+        let a = create_lock_path(&a).unwrap();
+        assert!(a.is_some());
+        assert_eq!(a, create_lock_path(&b).unwrap());
     }
 
     // The file store; macOS keeps the token in the login Keychain.
