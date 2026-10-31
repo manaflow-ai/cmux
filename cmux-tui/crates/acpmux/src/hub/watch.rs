@@ -345,6 +345,38 @@ mod tests {
     use super::*;
     use std::io::Write;
 
+    /// A large transcript's newest 64 MiB may begin inside a JSONL line longer
+    /// than one MAX_READ chunk. Follow it to the next complete record instead of
+    /// rereading the same four megabytes forever.
+    #[test]
+    fn oversized_initial_partial_line_advances_to_the_next_record() {
+        use std::io::{Seek, SeekFrom};
+
+        let dir = std::env::temp_dir()
+            .join(format!("acpmux-watch-long-line-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("large.jsonl");
+        let mut input = std::fs::File::create(&file).unwrap();
+        // This sparse file is large enough to trigger the initial newest-64-MiB
+        // seek without allocating or writing 64 MiB of test fixture data.
+        input.set_len(MAX_BYTES + 32).unwrap();
+        let initial = 32_u64;
+        let chunk_end = initial + MAX_READ;
+        // No line feed in the first chunk, but a valid complete line just
+        // after it. A shorter partial record is allowed to wait for a writer.
+        input.seek(SeekFrom::Start(chunk_end + 3)).unwrap();
+        input.write_all(b"\n{\"after\":true}\n").unwrap();
+        drop(input);
+
+        let (first_lines, next) = read_lines(&file, 0).unwrap();
+        assert!(first_lines.is_empty());
+        assert_eq!(next, chunk_end, "the first oversized partial line must make progress");
+        let (following, end) = read_lines(&file, next).unwrap();
+        assert!(following.contains(&"{\"after\":true}".to_owned()));
+        assert!(end > next);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     #[test]
     fn only_complete_lines_are_read_and_the_offset_follows_them() {
         let dir = std::env::temp_dir().join(format!("acpmux-watch-lines-{}", std::process::id()));
