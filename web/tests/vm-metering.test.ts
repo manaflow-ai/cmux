@@ -65,7 +65,14 @@ function fakeClickHouse(options: { failInserts?: number } = {}) {
         return new Response("", { status: 200 });
       }
       // The only reads the job makes: the open intervals in ClickHouse.
-      const open = openIntervals(table);
+      let open = openIntervals(table);
+      const after = url.searchParams.get("param_after_interval_id");
+      if (after) open = open.filter((entry) => entry.interval_id > after);
+      if (sql.toUpperCase().includes("ORDER BY INTERVAL_ID")) {
+        open = [...open].sort((a, b) => a.interval_id.localeCompare(b.interval_id));
+      }
+      const limit = /\bLIMIT\s+(\d+)/i.exec(sql)?.[1];
+      if (limit) open = open.slice(0, Number(limit));
       return new Response(open.map((entry) => JSON.stringify(entry)).join("\n"), { status: 200 });
     }) as typeof fetch,
   };
@@ -239,6 +246,28 @@ describe("vm-metering job", () => {
       loadIntervals: async () => [row({ endedAt: new Date(T0 + 25 * MIN) })],
     }));
     expect(table.get("user-1|vm-1|i-1:stop")).toMatchObject({ event_time: "2026-10-01T00:20:00.000Z", source: "reconcile" });
+  });
+
+  test("reconciles a missed stop after the first ClickHouse open-interval page", async () => {
+    const { dependencies, table } = fakeClickHouse();
+    const openRows = Array.from({ length: 10_001 }, (_, index) => row({
+      intervalId: `i-${String(index + 1).padStart(5, "0")}`,
+      endedAt: null,
+    }));
+    for (const openRow of openRows) {
+      const [start] = vmRuntimeEvents(openRow, "postgres");
+      table.set(`user-1|vm-1|${start!.event_id}`, start!);
+    }
+    const closed = row({ intervalId: "i-10001", endedAt: new Date(T0 + 5 * MIN) });
+    await runVmMetering(deps({
+      clickhouse: dependencies,
+      loadOpenIntervals: async () => [],
+      loadIntervalsById: async (ids) => ids.includes(closed.intervalId) ? [closed] : [],
+    }));
+    expect(table.get("user-1|vm-1|i-10001:stop")).toMatchObject({
+      event_time: "2026-10-01T00:05:00.000Z",
+      source: "postgres",
+    });
   });
 
   test("a failed insert is reported and the next run writes the rows", async () => {

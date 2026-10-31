@@ -48,8 +48,10 @@ import Testing
         push(store, state: "adopting")
         #expect(label(store) == "Reconnecting to the shell…")
 
+        // The shell may still run and the daemon keeps retrying: no
+        // "Close the tab to end it" dead end (Oct 30, an ssh tab).
         push(store, state: "failed")
-        #expect(label(store) == "Terminal stopped: cmux lost its link to the shell · Close the tab to end it")
+        #expect(label(store) == "cmux lost its link to the shell · Still retrying")
         push(store, state: "unadoptable")
         #expect(label(store) == "Terminal stopped: another cmux build owns its shell · Close the tab to end it")
 
@@ -60,5 +62,31 @@ import Testing
         // An ended shell keeps the exit label (and its Restart button).
         push(store, state: "exited", dead: true)
         #expect(label(store) == "Process exited")
+    }
+
+    /// What the terminal offers above its label for the tab the store holds now.
+    private func button(_ store: DaemonStore) -> String? {
+        let view = TerminalHostView()
+        view.onRestart = {}
+        let tab = store.tab(surface: SurfaceID(rawValue: 1))
+        view.showStatus(tab?.dead == true ? .exited : .connected)
+        view.showShellStall(TerminalLinkWatch.shellStall(tab))
+        return view.restartButtonTitle
+    }
+
+    /// A lost link offers Recover (the daemon rehosts the still running
+    /// shell), an ended shell offers Restart, and a shell that runs or is
+    /// still reconnecting offers neither.
+    @Test func aLostLinkOffersRecover() {
+        let store = store()
+        push(store, state: "running")
+        #expect(button(store) == nil)
+        push(store, state: "reconnecting")
+        #expect(button(store) == nil)
+        push(store, state: "failed")
+        #expect(button(store) == "Recover")
+        #expect(TabRestart.isRestartable(store.tab(surface: SurfaceID(rawValue: 1))!))
+        push(store, state: "exited", dead: true)
+        #expect(button(store) == "Restart Shell Here")
     }
 }

@@ -10,5 +10,5 @@ test("/btw is in the shared slash completion for every harness", () => {
 test("a harness command with the same name cannot hide cmux /btw", () => {
   const commands = mergedCommands([{ name: "btw", description: "A harness command" }]);
   expect(commands.filter((command) => command.name === "btw")).toHaveLength(1);
-  expect(commands[3]).toMatchObject({ name: "btw", source: "cmux" });
+  expect(commands.find((command) => command.name === "btw")).toMatchObject({ name: "btw", source: "cmux" });
 });

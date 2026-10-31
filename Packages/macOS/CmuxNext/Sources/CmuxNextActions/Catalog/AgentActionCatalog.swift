@@ -84,6 +84,31 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 requires: [.agentPaneFocused], targets: [.pane], cliName: "agent toggle-session-info",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
             ),
+            // The chat header's toggles (AgentPageCommand): unavailable where the header has no button.
+            ActionDescriptor(
+                id: "agentPane.toggleFiles",
+                title: String(localized: "action.agentPane.toggleFiles", defaultValue: "Toggle Files Beside Chat", bundle: .module),
+                keywords: ["agent", "chat", "files", "file tree", "folder", "explorer", "beside", "split"],
+                category: .agents, symbol: "folder", surfaces: [.palette],
+                requires: [.agentPaneFocused], targets: [.pane], cliName: "agent toggle-files",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
+            ),
+            ActionDescriptor(
+                id: "agentPane.togglePreview",
+                title: String(localized: "action.agentPane.togglePreview", defaultValue: "Toggle Preview Beside Chat", bundle: .module),
+                keywords: ["agent", "chat", "preview", "page", "web", "localhost", "beside", "split"],
+                category: .agents, symbol: "play.rectangle", surfaces: [.palette],
+                requires: [.agentPaneFocused], targets: [.pane], cliName: "agent toggle-preview",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
+            ),
+            ActionDescriptor(
+                id: "agentPane.toggleSideTabs",
+                title: String(localized: "action.agentPane.toggleSideTabs", defaultValue: "Toggle Tabs Beside Chat", bundle: .module),
+                keywords: ["agent", "chat", "new tab", "hide tabs", "side tabs", "beside", "column"],
+                category: .agents, symbol: "rectangle.split.2x1", surfaces: [.palette],
+                requires: [.agentPaneFocused], targets: [.pane], cliName: "agent toggle-side-tabs",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
+            ),
             ActionDescriptor(
                 id: "agentPane.toggleInspector",
                 title: String(localized: "action.agentPane.toggleInspector", defaultValue: "Toggle Event Inspector", bundle: .module),
@@ -171,6 +196,16 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 defaultShortcut: Shortcut("v", modifiers: [.control, .command]),
                 category: .agents, symbol: "mic", surfaces: [.palette, .keyboard, .menu],
                 targets: [.pane], cliName: "agent toggle-dictation", mainMenu: .edit
+            ),
+            // Read aloud's Stop from anywhere (user, 2026-10-29: "I can't stop it"): the speaker under
+            // a message reads through the app's one voice (CmuxNextAgentPane AgentPaneReadAloud).
+            ActionDescriptor(
+                id: "agentPane.stopReadingAloud",
+                title: String(localized: "action.agentPane.stopReadingAloud", defaultValue: "Stop Reading Aloud", bundle: .module),
+                keywords: ["read aloud", "speak", "speech", "voice", "stop", "silence", "mute", "speaker", "tts"],
+                category: .agents, symbol: "speaker.slash", surfaces: [.palette],
+                cliName: "agent stop-reading-aloud",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
             ActionDescriptor(
                 id: "agentPane.continueIn",

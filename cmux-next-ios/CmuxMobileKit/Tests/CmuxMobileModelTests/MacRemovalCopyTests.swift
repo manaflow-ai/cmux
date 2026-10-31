@@ -14,8 +14,8 @@ import Testing
 
     @Test func theCopyMatchesWhatTheMacDoes() {
         #expect(MacRemovalCopy.online(honorsRemoval: true)
-            == "It's online, so it will disconnect now. It stays off until you choose Allow Again in Settings → Mobile on that Mac.")
-        #expect(MacRemovalCopy.online(honorsRemoval: false).contains("cmux on that Mac can add it back"))
+            == "Disconnects now. Reconnect with Allow Again in the Mac’s Settings → Mobile.")
+        #expect(MacRemovalCopy.online(honorsRemoval: false).contains("May return automatically"))
     }
 
     @Test func waitingPhrasesNameWhatTheAgentAsks() {

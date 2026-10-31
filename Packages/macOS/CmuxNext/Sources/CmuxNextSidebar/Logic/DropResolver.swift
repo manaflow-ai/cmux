@@ -53,14 +53,14 @@ public nonisolated enum DropResolver {
     /// - Parameter wholeRows: a workspace row takes the tab over its whole height (no slot at its edges).
     public static func resolveTabDrop(y: CGFloat, base: SidebarLayout, sections: [SidebarSection], sourceMachine: MachineID?,
                                       reordersTabRows: Bool = false, wholeRows: Bool = false) -> SidebarTabDrop? {
-        var request = RustTabRequest(y: Double(y), rows: RustRow.resolvable(base.rows), sections: RustSection.resolvable(sections), sourceMachine: sourceMachine?.rawValue, groupEdgeFraction: Double(groupEdgeFraction), groupExitFraction: Double(groupExitFraction), sectionTopFraction: Double(sectionTopFraction), reordersTabRows: reordersTabRows)
+        var request = RustTabRequest(y: Double(y), rows: RustRow.resolvable(base.rows, preservesTabRows: true), sections: RustSection.resolvable(sections), sourceMachine: sourceMachine?.rawValue, groupEdgeFraction: Double(groupEdgeFraction), groupExitFraction: Double(groupExitFraction), sectionTopFraction: Double(sectionTopFraction), reordersTabRows: reordersTabRows)
         if wholeRows { (request.tabIntoStart, request.tabIntoEnd) = (0, 1) }
         return RustSidebarClient.call("tab_drop", request, as: RustTabDrop.self)?.swiftValue
     }
 
     public static func tabDropRefusal(y: CGFloat, base: SidebarLayout, sections: [SidebarSection], sourceMachine: MachineID?,
                                       reordersTabRows: Bool = false) -> (row: SidebarRowKey, reason: SidebarTabDropRefusal)? {
-        let request = RustTabRequest(y: Double(y), rows: RustRow.resolvable(base.rows), sections: RustSection.resolvable(sections), sourceMachine: sourceMachine?.rawValue, groupEdgeFraction: Double(groupEdgeFraction), groupExitFraction: Double(groupExitFraction), sectionTopFraction: Double(sectionTopFraction), reordersTabRows: reordersTabRows)
+        let request = RustTabRequest(y: Double(y), rows: RustRow.resolvable(base.rows, preservesTabRows: true), sections: RustSection.resolvable(sections), sourceMachine: sourceMachine?.rawValue, groupEdgeFraction: Double(groupEdgeFraction), groupExitFraction: Double(groupExitFraction), sectionTopFraction: Double(sectionTopFraction), reordersTabRows: reordersTabRows)
         guard let refusal = RustSidebarClient.call("tab_refusal", request, as: RustTabRefusal.self), let row = refusal.row.swiftValue, let reason = refusal.swiftReason else { return nil }
         return (row, reason)
     }

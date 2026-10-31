@@ -28,7 +28,7 @@ nonisolated extension LayoutActionCatalog {
                 .tab, "pin", cli: "tab move-to-new-dock-column", keywords: ["tab", "column", "pin", "dock", "top", "bottom"],
                 targets: [.tab], arguments: [CatalogArgument.edgeChoice.optional, CatalogArgument.dockModeChoice.optional]),
             row("layout.toggleStripScrollbar", String(localized: "action.layout.toggleStripScrollbar", defaultValue: "Toggle Column Scroll Bar", table: "LayoutActions", bundle: .module),
-                .settings, "scroll", cli: "settings toggle-column-scrollbar", keywords: ["scrollbar", "column", "strip", "minimap"], targets: []),
+                .settings, "scroll", cli: "settings toggle-column-scrollbar", keywords: ["scrollbar", "column", "strip", "visible range", "overview"], targets: []),
         ]
     }
 }

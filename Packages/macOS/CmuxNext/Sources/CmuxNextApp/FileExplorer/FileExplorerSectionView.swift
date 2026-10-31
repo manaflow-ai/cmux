@@ -157,8 +157,8 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
         guard let menu = rowMenu(row != nil) else { return nil }
         // Open as Text only for a page cmux renders (HTML, SVG, Markdown): other files open as text already.
         if let row, row.isFolder || !FileOpenKind(fileName: row.name, isDirectory: false, isPackage: false).opensAsText,
-           let index = menu.items.firstIndex(where: { ActionRegistry.menuRun(of: $0)?.id == "fileExplorerOpenAsText" }) {
-            menu.removeItem(at: index)
+           let (holder, index) = ActionRegistry.locate("fileExplorerOpenAsText", in: menu) {
+            holder.removeItem(at: index)
         }
         if let row { openWithMenu?.attach(to: menu, for: row, apps: apps) }
         return menu

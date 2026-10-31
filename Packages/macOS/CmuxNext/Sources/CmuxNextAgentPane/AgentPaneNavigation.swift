@@ -92,6 +92,12 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         // never loads the pane's own page (a dev-server pane is on loopback too), which would make
         // it same-origin with the pane.
         if !mainFrame {
+            // Only the pane may create an artifact's script-capable frame. A loopback preview
+            // must not acquire that endpoint by creating a nested frame of its own.
+            if AgentPaneRenderFrame.isArtifact(url) {
+                if case .bundled = source, source.isTrusted(sourceFrameURL) { return .allow }
+                return .cancel
+            }
             if case .bundled = source, AgentPaneRenderFrame.isFrame(url) { return .allow }
             // A question's HTML option preview (question/HtmlPreview.tsx): the pane's own
             // document, written into a sandboxed frame with no scripts. It loads nothing itself.
