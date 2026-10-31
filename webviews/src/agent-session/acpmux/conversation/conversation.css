@@ -2933,8 +2933,8 @@ a.cv-sha:focus-visible {
 :is(.cv-tool-output, .cv-tool-output__markdown)[data-output-viewport][data-preview="all"] {
   max-height: min(70vh, 640px);
 }
-/* A tool output box that scrolls at a fixed height (an MCP call's request and response, a Markdown
-   result) fades its bottom edge out while more lies under it (moreBelow.ts), over the same height a
+/* A tool output box that scrolls at a fixed height (an MCP call's request, a Markdown result; an
+   MCP response reads in the shared tool output body, whose edge fades below) fades its bottom edge out while more lies under it (moreBelow.ts), over the same height a
    cut preview's bottom fades (below), never a hard cut mid-line; scrolled to the end, the edge is
    hard again. No transition. */
 :is(.cv-mcp-call__body, .cv-tool-output__markdown)[data-more-below] {
