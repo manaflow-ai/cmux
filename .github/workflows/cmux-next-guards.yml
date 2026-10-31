@@ -713,6 +713,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: python3 tests/test_app_crate_licenses.py
 
+      - name: The selector check's fleet step wrapper refuses other arguments (check-objc-selectors.sh)
+        if: ${{ !cancelled() }}
+        run: python3 tests/test_check_objc_selectors_step.py
+
       - name: The package lane's prebuild-one compiles or fails (package-test-lane.sh)
         if: ${{ !cancelled() }}
         run: python3 tests/test_ci_package_lane_prebuild.py
