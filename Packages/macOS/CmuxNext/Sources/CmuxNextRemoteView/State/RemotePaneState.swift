@@ -22,6 +22,12 @@ public nonisolated struct RemotePaneState: Sendable, Hashable {
     public var interactiveMaxRttMs: Int
     /// A decoded frame was shown in this session (ended states keep it).
     public var hasFrame = false
+    /// A Cloud machine's desktop, reached only over the app's own Cloud tunnel: the state card
+    /// says so instead of the phase-1 development note.
+    public var viaCloudTunnel = false
+    /// Connecting again after a session that showed frames: the card says "Reconnecting" over
+    /// the last frame. Cleared by the next frame shown.
+    public var reconnecting = false
 
     public init(hostName: String, requestedMode: RemoteControlMode = .control, interactiveMaxRttMs: Int = 80) {
         self.hostName = hostName

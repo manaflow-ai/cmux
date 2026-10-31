@@ -417,6 +417,18 @@ impl ClientRegistry {
     }
 
     pub(super) fn register(&self, transport: ClientTransport, writer: MessageWriter) -> u64 {
+        self.register_classified(transport, writer, false)
+    }
+
+    /// `register`, with `owner_plugin` true for a connection from the owner's
+    /// own journal plugin (orphan_shutdown.rs), fixed before the presence
+    /// observer hears of it.
+    pub(super) fn register_classified(
+        &self,
+        transport: ClientTransport,
+        writer: MessageWriter,
+        owner_plugin: bool,
+    ) -> u64 {
         let client = self.next_id.fetch_add(1, Ordering::Relaxed);
         let mut state = self.state.lock().recover_poison();
         if state.daemon_handoff.is_some() {
@@ -447,6 +459,7 @@ impl ClientRegistry {
                 writer,
                 origin: Default::default(),
                 person: false,
+                owner_plugin,
                 #[cfg(unix)]
                 machine_catalog: None,
             },
@@ -665,7 +678,7 @@ impl ClientRegistry {
                     || conversation_tabs_wire::negotiable(capability)
                     || capability == super::conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY
                     || capability == super::FRONTEND_BROWSER_TABS_CAPABILITY
-                    || capability == super::conversation_runs::CONVERSATION_RUNS_CAPABILITY
+                    || (capability == super::conversation_runs::CONVERSATION_RUNS_CAPABILITY || capability == super::conversation_runs::CONVERSATION_RUN_ANSWERS_CAPABILITY)
                     || capability == super::conversation_live::CHIEF_LIVE_CAPABILITY
                     || capability == super::cloud_conversations::CLOUD_TYPING_CAPABILITY
                     || capability == super::cloud_conversations::CLOUD_PRESENCE_CAPABILITY

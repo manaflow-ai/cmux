@@ -147,7 +147,8 @@ final class ChiefPetMascotCell: NSButton {
         setButtonType(.pushOnPushOff)
         imagePosition = .imageOnly
         imageScaling = .scaleProportionallyDown
-        image = ChiefPetMascot(rawValue: id)?.image.map { ChiefPetSettingsRows.thumbnail($0, side: Self.pictureSide) }
+        // Drawn from its PNG only when the cell draws: the grid is built with Home at launch.
+        image = ChiefPetMascot(rawValue: id).map { ChiefPetSettingsRows.lazyThumbnail(of: $0, side: Self.pictureSide) }
         image?.accessibilityDescription = title
         state = .off
         setAccessibilityRole(.radioButton)
@@ -170,11 +171,6 @@ final class ChiefPetMascotCell: NSButton {
     // An image-only button's title is empty: VoiceOver (and agents) read the character's name.
     override func isAccessibilityElement() -> Bool { true }
     override func accessibilityLabel() -> String? { name }
-
-    override func resetCursorRects() {
-        guard isEnabled else { return }
-        addCursorRect(bounds, cursor: .pointingHand)
-    }
 
     override var mouseDownCanMoveWindow: Bool { false }
 

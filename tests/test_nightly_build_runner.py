@@ -6,7 +6,7 @@ vars.CI_NIGHTLY_NEXT_BUILD_RUNNER alone on nightly-next, for every attempt
 (prepare-nightly-variant-primary did too until it moved to Linux, #25885). Runs 40446901975 and 40448164753 died at "Set up
 runner" on that label, and run 40453543604's rescue re-run was refused on the same
 label again. scripts/ci/nightly_build_runner.py now picks the dedicated nightly-next
-builder while it is free (waiting up to 5 min while it is busy), else an idle owned Mac,
+builder while it is free (waiting up to 1 min while it is busy), else an idle owned Mac,
 else a moving Blacksmith label, and a re-run of failed jobs that keeps the pick takes
 Blacksmith. A workflow_dispatch run and a re-run that picks again go through the same pick
 as attempt 1 of a push (until 2026-10-27 they never got the routing token).
@@ -121,11 +121,12 @@ class DedicatedRoute(unittest.TestCase):
         self.assertEqual(label, DEDICATED)
         self.assertEqual(clock.sleeps, [])
 
-    def test_a_busy_builder_is_waited_on_up_to_five_minutes(self) -> None:
+    def test_a_busy_builder_is_waited_on_up_to_a_minute(self) -> None:
         busy, idle = [runner(*BUILDER, busy=True)], [runner(*BUILDER)]
         (label, _), clock = self.route([busy, busy, idle])
         self.assertEqual(label, DEDICATED)
         self.assertEqual(clock.sleeps, [30, 30])
+        self.assertEqual(picker.DEDICATED_WAIT_SECONDS, 60)
         (label, why), clock = self.route([busy] * 100)
         self.assertEqual(label, "")
         self.assertIn("stayed busy", why)
@@ -140,6 +141,21 @@ class DedicatedRoute(unittest.TestCase):
                 (picked, _), clock = self.route(states, label)
                 self.assertEqual(picked, "")
                 self.assertEqual(clock.sleeps, [])
+
+    def test_a_pool_runner_carrying_the_label_is_not_the_builder(self) -> None:
+        # Run 40593692340 (2026-10-27): cmux15's trusted pool runners still carried the label beside
+        # the dedicated builder, read as "online and idle", and refused the build at "Set up runner"
+        # on attempts 1 and 2 (capacity units, then the attempt-1-only rule).
+        pool_runner = runner("self-hosted", "macOS", "glaeda-mini", "glaeda-trusted", DEDICATED)
+        (label, why), clock = self.route([[pool_runner]])
+        self.assertEqual((label, why), ("", f"`{DEDICATED}` is offline"))
+        self.assertEqual(clock.sleeps, [])
+        # The builder beside it still counts, busy or idle, whatever the pool runner is doing.
+        (label, _), _ = self.route([[pool_runner, runner(*BUILDER)]])
+        self.assertEqual(label, DEDICATED)
+        (label, why), _ = self.route([[pool_runner, runner(*BUILDER, busy=True)]] * 100)
+        self.assertEqual(label, "")
+        self.assertIn("stayed busy", why)
 
     def test_the_rescue_moves_a_build_queued_on_the_builder(self) -> None:
         # Two runs can both see it idle; the second waits on it until the rescue moves it.
@@ -163,11 +179,30 @@ class BlacksmithRoute(unittest.TestCase):
                 self.assertTrue(picker.blacksmith_route(variable, None, NOW)[0].startswith("blacksmith-"))
 
 
+class DeadLabel(unittest.TestCase):
+    """A stale snapshot still shows a dead label (nightly_sign_runner.dead()): the route never takes it."""
+
+    @staticmethod
+    def stale(dead: str) -> dict:
+        generated = NOW - dt.timedelta(minutes=38)
+        alive = SMALL if dead == LARGE else LARGE
+        stamp = (generated - dt.timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return {"generated_at": generated.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "pools": {dead: {"queued": 0, "running": 0}, alive: {"queued": 0, "running": 4}},
+                "label_started": {alive: stamp}}
+
+    def test_a_stale_snapshot_keeps_the_route_off_a_dead_label(self):
+        self.assertEqual(picker.blacksmith_route(LARGE, self.stale(LARGE), NOW)[0], SMALL)
+        # The excluded label's only alternative is dead: the route keeps the excluded one.
+        self.assertEqual(picker.blacksmith_route(SMALL, self.stale(LARGE), NOW, exclude=SMALL)[0], SMALL)
+
+
 class Main(unittest.TestCase):
     def run_main(self, env: dict, argv: tuple = (), **reads) -> dict:
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "out"
             base = {"GITHUB_REPOSITORY": "o/r", "GITHUB_OUTPUT": str(output), "GITHUB_RUN_ATTEMPT": "1",
+                    "GITHUB_EVENT_NAME": "push",
                     "ROUTE_TOKEN": "r", "SNAPSHOT_TOKEN": "s", "OWNED_LABELS": f"{DEV} {SIDE}", "CANDIDATE": LARGE}
             clock = Clock()
             self.assertEqual(picker.main({**base, **env}, now=NOW, argv=argv, sleep=clock.sleep, clock=clock,
@@ -176,7 +211,8 @@ class Main(unittest.TestCase):
 
     def test_idle_owned_first(self) -> None:
         out = self.run_main({}, read_runners=lambda t, r: [runner(SIDE)], read_snapshot=lambda t, r: snapshot({}))
-        self.assertEqual(out, {"dedicated": "", "owned": SIDE, "blacksmith": LARGE, "runner": SIDE, "attempt": "1"})
+        self.assertEqual(out, {"dedicated": "", "owned": SIDE, "blacksmith": LARGE, "runner": SIDE, "helper": SIDE,
+                               "attempt": "1"})
 
     def test_a_rerun_picks_like_attempt_one(self) -> None:
         # A re-run that runs the picker again (a full re-run, or one after the picker failed) picks
@@ -186,7 +222,7 @@ class Main(unittest.TestCase):
                 out = self.run_main({"GITHUB_RUN_ATTEMPT": attempt}, read_runners=lambda t, r: [runner(SIDE)],
                                     read_snapshot=lambda t, r: snapshot({LARGE: 90}))
                 self.assertEqual(out, {"dedicated": "", "owned": SIDE, "blacksmith": SMALL, "runner": SIDE,
-                                       "attempt": attempt})
+                                       "helper": SIDE, "attempt": attempt})
                 out = self.run_main({"GITHUB_RUN_ATTEMPT": attempt, "DEDICATED_LABEL": DEDICATED},
                                     read_runners=lambda t, r: [runner(*BUILDER), runner(SIDE)],
                                     read_snapshot=lambda t, r: snapshot({}))
@@ -195,33 +231,67 @@ class Main(unittest.TestCase):
     def test_busy_owned_goes_to_blacksmith(self) -> None:
         out = self.run_main({}, read_runners=lambda t, r: [runner(SIDE, busy=True)],
                             read_snapshot=lambda t, r: snapshot({LARGE: 90}))
-        self.assertEqual(out, {"dedicated": "", "owned": "", "blacksmith": SMALL, "runner": SMALL, "attempt": "1"})
+        self.assertEqual(out, {"dedicated": "", "owned": "", "blacksmith": SMALL, "runner": SMALL, "helper": "",
+                               "attempt": "1"})
 
     def test_failed_reads_never_fail_the_job(self) -> None:
         def broken(token: str, repo: str):
             raise OSError("HTTP 403")
         out = self.run_main({}, read_runners=broken, read_snapshot=broken)
-        self.assertEqual(out, {"dedicated": "", "owned": "", "blacksmith": LARGE, "runner": LARGE, "attempt": "1"})
+        self.assertEqual(out, {"dedicated": "", "owned": "", "blacksmith": LARGE, "runner": LARGE, "helper": "",
+                               "attempt": "1"})
 
     def test_the_dedicated_builder_comes_first(self) -> None:
         fleet = [runner(*BUILDER), runner(SIDE)]
         out = self.run_main({"DEDICATED_LABEL": DEDICATED}, read_runners=lambda t, r: fleet,
                             read_snapshot=lambda t, r: snapshot({}))
-        self.assertEqual(out, {"dedicated": DEDICATED, "owned": DEDICATED, "blacksmith": LARGE, "runner": DEDICATED, "attempt": "1"})
+        self.assertEqual(out, {"dedicated": DEDICATED, "owned": DEDICATED, "blacksmith": LARGE, "runner": DEDICATED,
+                               "helper": SIDE, "attempt": "1"})
+
+    def test_the_helper_takes_an_idle_owned_mac_while_the_app_build_holds_the_builder(self) -> None:
+        # Run 40990112293: the app build took the dedicated builder, so the helper took
+        # blacksmith-6vcpu-macos-26 and waited there 39 minutes while side Macs were idle.
+        out = self.run_main({"DEDICATED_LABEL": DEDICATED}, read_runners=lambda t, r: [runner(*BUILDER), runner(SIDE)],
+                            read_snapshot=lambda t, r: snapshot({}))
+        self.assertEqual((out["owned"], out["helper"]), (DEDICATED, SIDE))
+        # No idle owned Mac besides the builder: no owned helper pick, so the helper takes Blacksmith.
+        for fleet in ([runner(*BUILDER)], [runner(*BUILDER), runner(SIDE, busy=True)]):
+            with self.subTest(fleet=fleet):
+                out = self.run_main({"DEDICATED_LABEL": DEDICATED}, read_runners=lambda t, r: fleet,
+                                    read_snapshot=lambda t, r: snapshot({}))
+                self.assertEqual((out["owned"], out["helper"], out["blacksmith"]), (DEDICATED, "", LARGE))
+        # The helper pick is never the dedicated builder, even when only the builder carries a watched label.
+        out = self.run_main({"DEDICATED_LABEL": DEDICATED, "OWNED_LABELS": f"{DEV} {SIDE} {DEDICATED}"},
+                            read_runners=lambda t, r: [runner(*BUILDER)], read_snapshot=lambda t, r: snapshot({}))
+        self.assertNotEqual(out["helper"], DEDICATED)
+
+    def test_only_a_push_is_offered_the_builder(self) -> None:
+        # The builder admits only a push to nightly-next: run 40594111618, a dispatch, was refused at
+        # "Set up runner" ("event workflow_dispatch is not push"). Other events go to the owned pool.
+        fleet = [runner(*BUILDER), runner(SIDE)]
+        for event in ("workflow_dispatch", "schedule", ""):
+            with self.subTest(event=event):
+                out = self.run_main({"DEDICATED_LABEL": DEDICATED, "GITHUB_EVENT_NAME": event},
+                                    read_runners=lambda t, r: fleet, read_snapshot=lambda t, r: snapshot({}))
+                self.assertEqual(out, {"dedicated": "", "owned": SIDE, "blacksmith": LARGE, "runner": SIDE,
+                                       "helper": SIDE, "attempt": "1"})
+                out = self.run_main({"DEDICATED_LABEL": DEDICATED, "GITHUB_EVENT_NAME": event}, argv=("dedicated",),
+                                    read_runners=lambda t, r: fleet)
+                self.assertEqual(out, {"dedicated": ""})
 
     def test_a_builder_busy_past_the_wait_falls_back_to_the_owned_pool(self) -> None:
         fleet = [runner(*BUILDER, busy=True), runner(SIDE)]
         out = self.run_main({"DEDICATED_LABEL": DEDICATED}, read_runners=lambda t, r: fleet,
                             read_snapshot=lambda t, r: snapshot({}))
-        self.assertEqual(out, {"dedicated": "", "owned": SIDE, "blacksmith": LARGE, "runner": SIDE, "attempt": "1"})
+        self.assertEqual(out, {"dedicated": "", "owned": SIDE, "blacksmith": LARGE, "runner": SIDE, "helper": SIDE,
+                               "attempt": "1"})
         # No idle owned Mac either: Blacksmith.
         out = self.run_main({"DEDICATED_LABEL": DEDICATED}, read_runners=lambda t, r: [runner(*BUILDER, status="offline")],
                             read_snapshot=lambda t, r: snapshot({}))
         self.assertEqual(out["runner"], LARGE)
 
     def test_the_blacksmith_pick_reads_queue_ages_after_the_wait(self) -> None:
-        # LARGE had waited 8 min when the snapshot was read; after a 5 min wait it is past the
-        # 10 min stall bound, so the moving SMALL is picked.
+        # The Blacksmith pick reads queue ages after the wait: `now` moves by the time waited.
         fleet = [runner(*BUILDER, busy=True)]
         seen = {}
 
@@ -251,6 +321,52 @@ class Main(unittest.TestCase):
         out = self.run_main({"DEDICATED_LABEL": DEDICATED}, argv=("dedicated",),
                             read_runners=lambda t, r: [runner(*BUILDER)])
         self.assertEqual(out, {"dedicated": DEDICATED})
+
+    def test_the_verify_mode_prints_owned_only_and_never_the_dedicated_builder(self) -> None:
+        fleet = [runner(*BUILDER), runner(SIDE)]
+        out = self.run_main({"DEDICATED_LABEL": DEDICATED}, argv=("verify",), read_runners=lambda t, r: fleet,
+                            read_snapshot=lambda t, r: snapshot({}))
+        self.assertEqual(out, {"owned": SIDE})
+        out = self.run_main({}, argv=("verify",), read_runners=lambda t, r: [runner(SIDE, busy=True)],
+                            read_snapshot=lambda t, r: snapshot({LARGE: 90}))
+        self.assertEqual(out, {"owned": ""})
+        # While every Blacksmith label is stalled, a busy owned pool is queued on instead: it frees within
+        # one build, and the rescue holds the job there until the Blacksmith label moves.
+        out = self.run_main({}, argv=("verify",), read_runners=lambda t, r: [runner(SIDE, busy=True)],
+                            read_snapshot=lambda t, r: snapshot({LARGE: 90, SMALL: 90}))
+        self.assertEqual(out, {"owned": SIDE})
+
+    def test_every_blacksmith_label_stalled_queues_on_the_busy_owned_pool(self) -> None:
+        # Run 40622241620 (2026-10-28): build-nightly-app waited 15 min on a stalled Blacksmith label
+        # while the owned nightly slots took the next two tips.
+        stalled = snapshot({LARGE: 90, SMALL: 90})
+        out = self.run_main({}, read_runners=lambda t, r: [runner(SIDE, busy=True)],
+                            read_snapshot=lambda t, r: stalled)
+        self.assertEqual((out["owned"], out["runner"]), (SIDE, SIDE))
+        # One Blacksmith label still moves: it takes the build, as before.
+        out = self.run_main({}, read_runners=lambda t, r: [runner(SIDE, busy=True)],
+                            read_snapshot=lambda t, r: snapshot({LARGE: 90}))
+        self.assertEqual((out["owned"], out["runner"]), ("", SMALL))
+        # An offline-only pool still beats the stalled label: the job is watched there and picked again
+        # (review P1 on #26614: nothing watches a nightly build queued on a stalled Blacksmith label).
+        out = self.run_main({}, read_runners=lambda t, r: [runner(SIDE, status="offline")],
+                            read_snapshot=lambda t, r: stalled)
+        self.assertEqual((out["owned"], out["runner"]), (SIDE, SIDE))
+        # An online runner's label comes before an offline-only one.
+        out = self.run_main({},
+                            read_runners=lambda t, r: [runner(DEV, status="offline"), runner(SIDE, busy=True)],
+                            read_snapshot=lambda t, r: stalled)
+        self.assertEqual(out["owned"], SIDE)
+        # No snapshot, or no registered runner on the pool: Blacksmith.
+        for runners, snap in (([runner(SIDE, busy=True)], None), ([], stalled)):
+            with self.subTest(runners=runners, snap=snap):
+                out = self.run_main({}, read_runners=lambda t, r, runners=runners: runners,
+                                    read_snapshot=lambda t, r, snap=snap: snap)
+                self.assertEqual(out["owned"], "")
+                self.assertTrue(out["runner"].startswith("blacksmith-"))
+        # Unread runners (no routing token): Blacksmith.
+        out = self.run_main({"ROUTE_TOKEN": ""}, read_snapshot=lambda t, r: stalled)
+        self.assertEqual(out["owned"], "")
 
     def test_no_route_token_reads_no_runners(self) -> None:
         def unexpected(token: str, repo: str):
@@ -299,10 +415,10 @@ class Workflow(unittest.TestCase):
         self.assertIn("pick-nightly-build-runner", job["needs"])
         source = job["runs-on"].removeprefix("${{").removesuffix("}}")
         pick = "pick-nightly-build-runner"
-        for event, attempt, picked_for, owned, dedicated, blacksmith in itertools.product(
+        for event, attempt, picked_for, helper, dedicated, blacksmith in itertools.product(
                 ("push", "workflow_dispatch"), (1, 2), ("1", "2"), ("", SIDE, DEDICATED), ("", DEDICATED), ("", LARGE)):
-            if (owned == DEDICATED) != (dedicated == DEDICATED):
-                continue
+            if helper == DEDICATED and dedicated != DEDICATED:
+                continue  # the picker names the builder only as `dedicated` (see the Main helper tests)
             context = {"github.repository_owner": "manaflow-ai", "github.repository": "manaflow-ai/cmux",
                        "github.event_name": event, "github.ref": "refs/heads/nightly-next",
                        "github.run_attempt": attempt, "vars.CI_PR_POOL_OWNED": "1",
@@ -310,13 +426,15 @@ class Workflow(unittest.TestCase):
                        "vars.LINUX_RUNNER": "", "inputs.nightly_next_unsigned_run": "",
                        f"needs.{pick}.outputs.attempt": picked_for,
                        "needs.resolve-nightly-ghostty-cli-helper.outputs.hit": "false",
-                       f"needs.{pick}.outputs.owned": owned, f"needs.{pick}.outputs.dedicated": dedicated,
+                       f"needs.{pick}.outputs.owned": dedicated or helper,
+                       f"needs.{pick}.outputs.helper": helper, f"needs.{pick}.outputs.dedicated": dedicated,
                        f"needs.{pick}.outputs.blacksmith": blacksmith}
-            with self.subTest(event=event, attempt=attempt, picked_for=picked_for, owned=owned, dedicated=dedicated,
+            with self.subTest(event=event, attempt=attempt, picked_for=picked_for, helper=helper, dedicated=dedicated,
                               blacksmith=blacksmith):
                 label = evaluate(parse_expression(source), context)
-                # The same rule as build-nightly-app: only a pick made for this attempt.
-                if picked_for == str(attempt) and owned == SIDE:
+                # The same rule as build-nightly-app: only a pick made for this attempt; the helper
+                # pick, which stands while the app build holds the dedicated builder, never that builder.
+                if picked_for == str(attempt) and helper == SIDE:
                     self.assertEqual(label, SIDE)
                 else:
                     # The picker's moving label, else the default; never a dropped pick.
@@ -341,6 +459,10 @@ class Workflow(unittest.TestCase):
                 self.assertGreater(definition["timeout-minutes"], step["timeout-minutes"] + 2)
                 self.assertIn("steps.pick.outputs.owned", definition["outputs"]["owned"])
                 self.assertEqual(definition["outputs"]["blacksmith"], "${{ steps.pick.outputs.blacksmith }}")
+                # The helper's pick stands on the same terms as `owned`.
+                self.assertEqual(definition["outputs"]["helper"],
+                                 definition["outputs"]["owned"].replace("steps.pick.outputs.owned",
+                                                                        "steps.pick.outputs.helper"))
 
     def route_token_if(self, pick: str, **changes) -> bool:
         step = next(s for s in DOC["jobs"][pick]["steps"] if s.get("id") == "route-token")

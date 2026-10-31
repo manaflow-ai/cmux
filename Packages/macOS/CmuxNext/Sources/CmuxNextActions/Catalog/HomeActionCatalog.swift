@@ -9,13 +9,16 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
         // Owner round trips a caller that waits (`action.run` with `wait`) gets the
         // 40 s result deadline for: a group with invites takes several requests.
-        let waits: Set<ActionID> = ["home.newMessage", "home.invite", "home.newChief", "home.archiveChief", "home.deleteChief",
+        let waits: Set<ActionID> = ["home.newMessage", "home.invite", "home.inviteToTeam", "home.newChief", "home.archiveChief", "home.deleteChief",
                                     "home.renameConversation", "home.addMembers", "home.removeMember", "home.leaveConversation",
                                     "home.muteConversation", "home.unmuteConversation", "home.sendMessage",
                                     "home.createGroup", "home.setChiefReplies"]
         return all.map { descriptor in
             var descriptor = descriptor
             descriptor.waitsForResult = waits.contains(descriptor.id)
+            // Invite to Team sends only from its dialog, where the person sees the seat cost and
+            // presses Send: a CLI or agent run waits for that answer.
+            descriptor.waitsForPerson = descriptor.id == "home.inviteToTeam"
             // `home.chiefPetEnabled` is a user-only setting: only a person turns the pet on.
             descriptor.isPersonOnly = ["home.toggleChiefPet", "home.messageChiefPet", "home.messageChiefFromAnyApp"].contains(descriptor.id)
             return descriptor
@@ -179,6 +182,16 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 mainMenu: .file,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
+            // The New Message draft's x (shown on its list row while the pointer is over it, as in
+            // Messages), Escape in an empty To: field, the palette, `cmux home close-new-message`
+            // and MCP: one path that discards the draft, its page and its row.
+            ActionDescriptor(
+                id: "home.closeNewMessage", title: t("action.home.closeNewMessage", "Close New Message"),
+                keywords: ["home", "message", "new message", "draft", "close", "discard", "cancel", "compose"],
+                category: .window, symbol: "xmark.circle", surfaces: [.palette, .keyboard],
+                cliName: "home close-new-message",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
             ActionDescriptor(
                 id: "home.invite", title: t("action.home.invite", "Invite to cmux-next…"),
                 keywords: ["home", "invite", "email", "people", "team", "message", "join"],
@@ -187,6 +200,19 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                                            isRequired: false)],
                 cliName: "home invite", mainMenu: .file,
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject, mcpExemption: .credentials)
+            ),
+            // The active team's email invite (POST /api/teams/:id/invitations), always through its
+            // dialog: the Home compose menu and team menu, New Message's To: row for a typed
+            // address, the palette and the File menu open it; a CLI or agent run opens it prefilled
+            // and waits for the person's Send (a join can bill a seat).
+            ActionDescriptor(
+                id: "home.inviteToTeam", title: t("action.home.inviteToTeam", "Invite to Team…"),
+                keywords: ["home", "team", "invite", "member", "seat", "people", "email", "join", "add"],
+                category: .window, symbol: "person.2.badge.plus", surfaces: [.palette, .menu],
+                arguments: [ActionArgument(name: "email", title: t("argument.home.invite.email", "Email Address"), kind: .string,
+                                           isRequired: false)],
+                cliName: "home invite-to-team", mainMenu: .file,
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
             ActionDescriptor(
                 id: "home.newChief", title: t("action.home.newChief", "New Chief…"),
@@ -348,6 +374,23 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 cliName: "home pin-unpin",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
+            // A chat's own bubble and text colours (user 2026-10-28): the row's Chat Colors… and the
+            // palette open the picker; `cmux chat colors --conversation <id> --sent "#34C759"` sets one
+            // (`default` clears a role, `--reset` clears them all). Looks only, kept on this Mac.
+            ActionDescriptor(
+                id: "home.chatColors", title: t("action.home.chatColors", "Chat Colors…"),
+                keywords: ["home", "chat", "colors", "colours", "bubble", "text", "background", "theme", "imessage", "conversation"],
+                category: .window, symbol: "paintpalette", surfaces: [.palette, .keyboard],
+                arguments: [Self.conversation,
+                            Self.color("sent", t("argument.home.chatColors.sent", "My Bubble Color")),
+                            Self.color("sentText", t("argument.home.chatColors.sentText", "My Text Color")),
+                            Self.color("received", t("argument.home.chatColors.received", "Their Bubble Color")),
+                            Self.color("receivedText", t("argument.home.chatColors.receivedText", "Their Text Color")),
+                            ActionArgument(name: "reset", title: t("argument.home.chatColors.reset", "Reset to Default"), kind: .bool,
+                                           isRequired: false)],
+                cliName: "chat colors",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
             // `cmux home send --conversation <id> --text "…"`: a message as me, in a DM or group.
             ActionDescriptor(
                 id: "home.sendMessage", title: t("action.home.sendMessage", "Send Message…"),
@@ -387,6 +430,11 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                                            ActionEnumCase(value: "mentions", title: t("argument.home.replies.mentions", "Only When @Mentioned")),
                                            ActionEnumCase(value: "all", title: t("argument.home.replies.all", "To Every Message"))]),
                        isRequired: isRequired)
+    }
+
+    /// One bubble colour of `home.chatColors`: `#RRGGBB`, or `default` for the default for every chat.
+    private static func color(_ name: String, _ title: String) -> ActionArgument {
+        ActionArgument(name: name, title: title, kind: .string, isRequired: false)
     }
 
     /// The conversation a group action acts on (an id); without it, the one Home shows.

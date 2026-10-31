@@ -118,6 +118,16 @@ fn hosted_log() -> Log {
         true,
     );
     log.ask(6_000, false);
+    // Two fenced lines the host took (protocol 3); the harness has only the first.
+    let note =
+        |method: &str, params: Value| json!({"jsonrpc": "2.0", "method": method, "params": params});
+    for (method, params) in [
+        (agent_host::QUEUED_METHOD, json!({"receipt": 41})),
+        (agent_host::WRITTEN_METHOD, json!({"receipt": 41, "written": true})),
+        (agent_host::QUEUED_METHOD, json!({"receipt": 42})),
+    ] {
+        log.push("out", method, note(method, params), true);
+    }
     log.update(json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "working"}}));
     log
 }
@@ -214,12 +224,27 @@ async fn a_withdrawal_after_the_recovery_snapshot_is_not_lost() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+#[tokio::test]
+async fn adoption_recovers_a_main_compaction_in_progress() {
+    let mut log = hosted_log();
+    log.update(json!({"sessionUpdate": "compaction", "state": "running"}));
+    log.update_of("sub", json!({"sessionUpdate": "compaction", "state": "completed"}));
+    let (hub, root) = hub_with(1, &log).await;
+    let session = hub.resolve("chat0").unwrap();
+    let work = hub.recovery_work(&session, "inc", log.host_seq);
+    assert!(work.compacting, "main compaction was not recovered from the host log");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// Everything `open_work` recovers, in a fixed order.
 fn work_fields(w: &OpenWork) -> String {
     let permissions: std::collections::BTreeMap<_, _> = w.permissions.iter().collect();
     format!(
-        "{:?} {} {} {:?} {:?} {:?} {:?} {:?} {} {:?} {:?} {} {} {:?} {:?} {:?} {:?} {:?}",
+        "{:?} {} {:?} {} {} {:?} {:?} {:?} {:?} {:?} {} {:?} {:?} {} {} {:?} {:?} {:?} {:?} {:?} {:?}",
         w.turn.as_ref().map(|t| (t.0, &t.1, &t.2, &t.3, &t.4, t.5)),
+        w.turn_carried,
+        w.carry_next,
         w.turn_at,
         w.heard_at,
         w.open_tools.iter().collect::<std::collections::BTreeSet<_>>(),
@@ -237,7 +262,123 @@ fn work_fields(w: &OpenWork) -> String {
         w.withdrawn.iter().collect::<std::collections::BTreeSet<_>>(),
         w.cancelled_permissions.iter().collect::<std::collections::BTreeSet<_>>(),
         w.withdrawn_asks.iter().collect::<std::collections::BTreeSet<_>>(),
+        (&w.unwritten, w.receipts_unproven),
     )
+}
+
+/// A turn that carried into the next (`carried_turn.rs`): a restart before the next turn's start
+/// still finds it named (`carriedTo`), and once it started, its steers sent before its prompt are
+/// steers and its prompt is the hub's carried one.
+#[tokio::test]
+async fn adoption_finds_a_carried_turn_whose_prompt_had_not_gone_out() {
+    let mut log = Log { records: Vec::new(), host_seq: 0 };
+    log.push("mux", "host_started", json!({"incarnation": "inc"}), false);
+    log.turn(1, 1);
+    let carried = json!({"seq": 7, "promptIds": ["p-late"]});
+    let answer = json!({"stopReason": "end_turn", "_meta": {"claude": {"carried": carried}}});
+    log.push("in", "response", json!({"jsonrpc": "2.0", "id": 1, "result": answer}), true);
+    let to = json!({"turnId": "t2", "promptId": "p-late", "prompt": "late", "client": "cli", "control": "local", "trustGate": true, "seq": 7, "promptIds": ["p-late"]});
+    log.push(
+        "mux",
+        "turn_result",
+        json!({"turnId": "t1", "status": "completed", "carriedTo": to}),
+        false,
+    );
+    // A Web steer raised the carried turn before its start was logged.
+    log.push("mux", "turn_control", json!({"turnId": "t2", "control": "web"}), false);
+    let (hub, root) = hub_with(1, &log).await;
+    let session = hub.resolve("chat0").unwrap();
+    let work = hub.open_work(&session, "inc");
+    assert!(work.turn.is_none());
+    let (from, record) = work.carry_next.clone().expect("the carried turn is named");
+    assert_eq!(from, "t1");
+    let next = super::super::carried_turn::NextTurn::from_record(&record).unwrap();
+    assert_eq!((next.next.turn_id.as_str(), next.next.prompt_id.as_str()), ("t2", "p-late"));
+    assert_eq!(next.next.control, Control::Web, "raised before its start");
+    assert!(next.continues.trust_gate, "its trust gate");
+    assert_eq!((next.carried.seq, next.carried.prompt_ids.clone()), (7, vec!["p-late".to_owned()]));
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+
+    let started = json!({"turnId": "t2", "promptId": "p-late", "prompt": "late", "client": "cli", "carried": {"fromTurnId": "t1", "promptIds": ["p-late"]}});
+    log.push("mux", "turn_started", started, false);
+    let steer = json!({"jsonrpc": "2.0", "id": 3, "method": "session/prompt", "params": {"sessionId": "own", "_meta": {"steer": true}}});
+    log.push("out", "session/prompt", steer, true);
+    let (hub, root) = hub_with(1, &log).await;
+    let session = hub.resolve("chat0").unwrap();
+    let work = hub.open_work(&session, "inc");
+    assert_eq!(work.turn.as_ref().map(|t| t.1.as_str()), Some("t2"));
+    assert_eq!(work.turn.as_ref().map(|t| t.5), Some(Control::Web), "raised before its start");
+    assert!(work.turn_carried && work.carry_next.is_none());
+    assert_eq!(work.prompt_request, None, "a steer is not a carried turn's prompt");
+    assert_eq!(work.steers, vec![(json!(3), None)]);
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+
+    let prompt = json!({"jsonrpc": "2.0", "id": 4, "method": "session/prompt", "params": {"sessionId": "own", "prompt": [], "_meta": {"carried": true}}});
+    log.push("out", "session/prompt", prompt, true);
+    let (hub, root) = hub_with(1, &log).await;
+    let session = hub.resolve("chat0").unwrap();
+    let work = hub.open_work(&session, "inc");
+    assert_eq!(work.prompt_request, Some(json!(4)));
+    assert_eq!(work.steers, vec![(json!(3), None)], "its steers stay steers");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A Web steer raised the turn the open turn carried into before the open turn's end was logged:
+/// adoption knows the carried turn is a Web turn (`next_raised`).
+#[tokio::test]
+async fn adoption_knows_a_carried_turn_raised_before_its_turn_before_ended() {
+    let mut log = Log { records: Vec::new(), host_seq: 0 };
+    log.push("mux", "host_started", json!({"incarnation": "inc"}), false);
+    log.turn(1, 1);
+    log.push("mux", "turn_control", json!({"turnId": "t-next", "control": "web"}), false);
+    let (hub, root) = hub_with(1, &log).await;
+    let session = hub.resolve("chat0").unwrap();
+    let work = hub.open_work(&session, "inc");
+    assert_eq!(work.turn.as_ref().map(|t| t.1.as_str()), Some("t1"));
+    assert!(work.next_raised, "the carried turn's raise was not kept");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A receipt note that can not be read (no number) leaves adoption nothing to rule out: it fails
+/// closed (`OpenWork::receipts_unproven`), whatever the other notes say.
+#[tokio::test]
+async fn an_unreadable_receipt_note_fails_closed() {
+    let mut log = hosted_log();
+    let method = agent_host::WRITTEN_METHOD;
+    let params = json!({"receipt": "42", "written": true});
+    log.push("out", method, json!({"jsonrpc": "2.0", "method": method, "params": params}), true);
+    let (hub, root) = hub_with(1, &log).await;
+    let session = hub.resolve("chat0").unwrap();
+    let work = hub.open_work(&session, "inc");
+    assert!(work.receipts_unproven, "an unreadable receipt note was taken as proof");
+    assert!(!hub.open_work(&session, "old").receipts_unproven, "another host's note counted");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Review round 2: a log that can not be read to its end (a segment the store refuses: here one
+/// others may write), or that has no start of the adopted incarnation, proves no receipt.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_log_read_short_proves_no_receipt() {
+    use std::os::unix::fs::PermissionsExt;
+    let (hub, root) = hub_with(1, &hosted_log()).await;
+    let session = hub.resolve("chat0").unwrap();
+    assert!(!hub.open_work(&session, "inc").receipts_unproven, "a whole log proved nothing");
+    assert!(hub.open_work(&session, "gone").receipts_unproven, "a host the log never started");
+    let events = hub.store.session_dir("chat0").unwrap().join("events");
+    for segment in std::fs::read_dir(events).unwrap() {
+        let path = segment.unwrap().path();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o620)).unwrap();
+    }
+    let work = hub.open_work(&session, "inc");
+    assert!(work.receipts_unproven, "a log the store could not read was taken as proof");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(root);
 }
 
 /// What `open_work` recovers from the heads is what a parse of every record recovers: for the
@@ -270,6 +411,8 @@ async fn open_work_from_heads_matches_a_parse_of_every_record() {
             assert!(work.cancelled_permissions.contains("6000"));
             assert_eq!(work.permissions["6000"].2, Some(json!({"outcome": "cancelled"})));
             assert_eq!(work.steers.len(), 1);
+            // The #26241 residual risk: the line with no receipt logged is the one held again.
+            assert_eq!(work.unwritten, std::collections::BTreeSet::from([42]));
             assert!(work.harness_grant, "the answered ask chose allow always");
             assert!(work.doing.open_tools.contains("open"), "{:?}", work.doing);
             assert!(

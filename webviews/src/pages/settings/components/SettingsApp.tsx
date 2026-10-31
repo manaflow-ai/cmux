@@ -108,6 +108,8 @@ export function SettingsApp() {
       valueOf: (key) => valueOf(state, key),
       isChanged,
       devBuild: state.host?.dev_build === true,
+      scope: "user",
+      revision: state.revision,
     })[0]?.rows[0];
     if (first) reveal(first.key);
   };
@@ -115,6 +117,7 @@ export function SettingsApp() {
   return (
     <div className="settings" ref={keyboardRef}>
       <aside className="sidebar">
+        <h2 className="sidebar-title">{t("settingsPage.title")}</h2>
         <SearchField
           query={query}
           onQuery={setQuery}

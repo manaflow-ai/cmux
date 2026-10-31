@@ -98,6 +98,14 @@ public final class HomeNativeTranscriptView: NSView {
     /// The bubbles' look: iMessage's (the default) or the theme's colours; follows
     /// `home.chiefBubbleStyle` (`DesignSettings.homeChiefBubblesThemed`, `followBubbleStyle`).
     public var bubbleStyle: HomePalette.BubbleStyle = .iMessage { didSet { if bubbleStyle != oldValue { applyTheme() } } }
+    /// This chat's chosen bubble colours over the default for every chat (Chat Colors…,
+    /// `home.bubbleColors.*`); empty keeps the bubble style's colours.
+    public var bubbleColors = HomeBubbleColors() { didSet { if bubbleColors != oldValue { applyTheme() } } }
+    /// The chats' own colours (Chat Colors…): set, the view follows this conversation's, live, over the
+    /// default for every chat (`home.bubbleColors.*`, ``bubbleColors``). Nil keeps ``bubbleColors`` as set.
+    public var chatColors: HomeChatColorStore? { didSet { if chatColors !== oldValue { followChatColors() } } }
+    /// The conversation this view shows (the key of its ``chatColors``).
+    public let conversationID: ConversationID
     /// The first-run panel's open-a-terminal or start-an-agent row was
     /// picked (the host runs the matching registry action).
     public var onFirstRunAction: (HomeFirstRunAction) -> Void = { _ in }
@@ -112,6 +120,10 @@ public final class HomeNativeTranscriptView: NSView {
     /// first-run panel waits, so a Chief conversation with history never
     /// flashes it before its messages arrive (stability rule).
     public var holdsFirstRun = false { didSet { if holdsFirstRun != oldValue { updateFirstRun() } } }
+    /// Chief welcomes the person in the chat itself (`ChiefWelcome`: its typing dots, then its
+    /// messages as iMessage bubbles), so the first-run panel (hero, rows and starter buttons) stays
+    /// hidden on that empty conversation (user, 2026-10-30: reuse the iMessage code).
+    public var welcomesInChat = false { didSet { if welcomesInChat != oldValue { updateFirstRun() } } }
     /// Automation (DEBUG socket): the transcript sits this far from this view's origin, with no size change
     /// (a pane on a fraction of a point; MessagesLab b6760b6's typing snap). Zero in the product.
     public var debugTranscriptOffset = CGPoint.zero { didSet { needsLayout = true } }
@@ -138,6 +150,7 @@ public final class HomeNativeTranscriptView: NSView {
         self.me = me
         // Debug Settings > Home > Rich tables, before the transcript maps its first messages.
         MessagesLabHomeView.richTables = HomeTunables.richTables.value
+        conversationID = conversation
         transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(), diagrams: diagrams)
         // The running indicator's look (Debug Settings > Home), read at each of its ticks.
         transcript.turnProgressStyle = { HomeTunables.turnProgress.value.style }
@@ -182,6 +195,7 @@ public final class HomeNativeTranscriptView: NSView {
         followBubbleStyle()
         followHeroTunable()
         followChiefPet()
+        followPresence()
         applyTheme()
         followTopFadeStyle()
         updateFirstRun()
@@ -249,10 +263,19 @@ public final class HomeNativeTranscriptView: NSView {
     /// The header views that run ``onNamePill`` (the pill and the avatar).
     public var namePillToggles: [NSView] { transcript.namePillToggles }
 
-    /// The header avatar's text; nil shows the conversation's initials.
+    /// The header avatar's text; nil shows the monogram of the header's name (`MonogramAvatar`).
     public var avatarText: String? {
         get { transcript.avatarText }
         set { transcript.avatarText = newValue }
+    }
+
+    /// The header's name (a Chief's own name, its record's); nil shows the conversation's title.
+    public var headerTitle: String? {
+        get { transcript.headerTitle }
+        set {
+            transcript.headerTitle = newValue
+            applyHeroFace()  // the hero's monogram follows a rename
+        }
     }
 
     /// The header avatar's picture, over its text; nil shows the text.
@@ -372,6 +395,17 @@ public final class HomeNativeTranscriptView: NSView {
         }
     }
 
+    /// Chat Colors…: this conversation's colours over the default for every chat, live.
+    private func followChatColors() {
+        guard let store = chatColors else { return }
+        let id = conversationID.rawValue
+        withObservationTracking {
+            bubbleColors = store.colors(for: id).over(HomeChatColorStore.colors(fromHexes: DesignSettings.shared.homeBubbleColors))
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in self?.followChatColors() }
+        }
+    }
+
     func applyTextScale(_ scale: CGFloat) {
         firstRun.applyScale(scale)
         needsLayout = true
@@ -445,7 +479,7 @@ public final class HomeNativeTranscriptView: NSView {
 
     /// The first-run panel shows only in an empty Chief conversation.
     private func updateFirstRun() {
-        firstRun.isHidden = holdsFirstRun || !(transcript.isEmpty && transcript.conversationSummary?.kind(me: me) == .chief)
+        firstRun.isHidden = holdsFirstRun || welcomesInChat || !(transcript.isEmpty && transcript.conversationSummary?.kind(me: me) == .chief)
     }
 
     /// The typing hold gives back what it holds while the views are still in the old window.
@@ -482,9 +516,11 @@ public final class HomeNativeTranscriptView: NSView {
     /// The theme's palette (the key window's, for every window) for the MessagesLab
     /// Fixture colours, and the first-run panel's colours.
     private func applyTheme() {
-        let accent = accentOverride, style = bubbleStyle
-        let active = performWithTheme { HomeThemePalette.resolveInScope(active: true, style: style, accentOverride: accent) }
-        let measured = performWithTheme { HomeThemePalette.usesMessagesBlueInScope(style: style, accentOverride: accent) }
+        let accent = accentOverride, style = bubbleStyle, chosen = bubbleColors
+        let active = performWithTheme { HomeThemePalette.resolveInScope(active: true, style: style, accentOverride: accent) }.applying(chosen)
+        // A chosen sent colour replaces MessagesLab's measured blue (and its white text).
+        let measured = chosen.sent == nil && chosen.sentText == nil
+            && performWithTheme { HomeThemePalette.usesMessagesBlueInScope(style: style, accentOverride: accent) }
         transcript.applyTheme(active: active, measuredAccent: measured)
         // The header's top fade (Debug Settings > Home > Top of the chat; the glass band by default,
         // HeaderGlass.swift), or no header and the rows' own short fade (HomeNativeTranscriptView+TopFade.swift).

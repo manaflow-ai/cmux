@@ -6,7 +6,7 @@
 // section lists them under the chat's own subagents (summary/SubagentStatusList.tsx), and the
 // transcript's sub-session cards (conversation/SubsessionCallCard.tsx) read one's state live from
 // a small store fed from the session list, so a card never redraws its turn when a session changes.
-import { createContext, useContext, useSyncExternalStore } from "react";
+import { createContext, useContext, useMemo, useSyncExternalStore } from "react";
 import type { StringKey, Translate } from "../i18n";
 import type { RetryState } from "./retryState";
 import { cloudHost, type AcpmuxSessionEntry, type SessionWaiting } from "../sessionList";
@@ -32,6 +32,12 @@ export type SubsessionInfo = {
   slot?: true;
   /// Its model, as acpmux names it.
   model?: string;
+  /// Its thinking effort, as acpmux names it.
+  effort?: string;
+  /// Its parent session id, from the proven `startedBy` link.
+  parent?: string;
+  /// The latest bounded message text from the session summary.
+  lastMessage?: string;
   /// acpmux's retry of its failed turn, while one waits (retryState.ts).
   retry?: RetryState;
   /// acpmux settles, starts or runs its failed turn's retry: no Retry meanwhile.
@@ -88,6 +94,9 @@ export function subsessionInfo(entry: AcpmuxSessionEntry): SubsessionInfo {
     ...(state === "input" && entry.waitingOn ? { waiting: entry.waitingOn } : {}),
     ...(entry.waitsForSlot ? { slot: true as const } : {}),
     ...(entry.model ? { model: entry.model } : {}),
+    ...(entry.effort ? { effort: entry.effort } : {}),
+    ...(entry.startedBy ? { parent: entry.startedBy } : {}),
+    ...(entry.lastMessage ? { lastMessage: entry.lastMessage } : {}),
     // Read through retryState.ts ``sessionRetry``, which ignores them on a row that isn't failed.
     ...(entry.retry ? { retry: entry.retry } : {}),
     ...(entry.retryDeciding ? { retryDeciding: true as const } : {}),
@@ -286,6 +295,23 @@ const EMPTY = new SubsessionStore();
 export function useSubsessionInfo(sessionId: string | undefined): SubsessionInfo | undefined {
   const store = useContext(SubsessionContext)?.store ?? EMPTY;
   const read = () => (sessionId ? store.get(sessionId) : undefined);
+  return useSyncExternalStore(store.subscribe, read, read);
+}
+
+/// A group's children from the same store as useSubsessionInfo. Keep the snapshot stable when
+/// unrelated sessions change; subscribe once even when a group gains another start call.
+export function useSubsessionInfos(
+  sessionIds: readonly (string | undefined)[],
+): readonly (SubsessionInfo | undefined)[] {
+  const store = useContext(SubsessionContext)?.store ?? EMPTY;
+  const read = useMemo(() => {
+    let previous: readonly (SubsessionInfo | undefined)[] = [];
+    return () => {
+      const next = sessionIds.map((id) => (id ? store.get(id) : undefined));
+      if (next.length !== previous.length || next.some((info, index) => info !== previous[index])) previous = next;
+      return previous;
+    };
+  }, [store, sessionIds]);
   return useSyncExternalStore(store.subscribe, read, read);
 }
 

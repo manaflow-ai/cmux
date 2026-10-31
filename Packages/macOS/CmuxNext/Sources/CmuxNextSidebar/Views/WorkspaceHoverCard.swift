@@ -24,7 +24,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
     /// leaving the row and the card fades it out at once, as a tab card does. A gap or header
     /// between rows (`hoverCardBridges`) holds it for the reshow window, so the next row slides
     /// it over instead of hiding and reshowing it. Leo 2026-10-21: the card's top lines up with
-    /// its row's top, one device pixel off the sidebar's edge (`HoverCardPlacement.besideRow`).
+    /// its row's top, touching the row's fill (`HoverCardPlacement.besideRow`).
     var leave: HoverCardLeave { .hides(reshow: HoverCardTiming.reshowWindow) }
     weak var list: SidebarListView?
     /// The app's one coordinator; the App injects it.
@@ -78,7 +78,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
 
     /// This list's workspace whose card shows now.
     var shownID: WorkspaceID? {
-        guard let id = coordinator.machine.shownTarget?.id, let ws = workspaceID(id), list?.workspaces[ws] != nil else { return nil }
+        guard let id = coordinator.machine.shownTarget?.id, let ws = workspaceID(id), list?.hoverCardRow(ws) != nil else { return nil }
         return ws
     }
 
@@ -115,14 +115,14 @@ final class WorkspaceHoverCardController: HoverCardSource {
     }
 
     func hoverCardAnchor(for id: HoverTargetID) -> CGRect? {
-        // The row's band across the sidebar: the card's top on the row's, one pixel off the edge.
+        // Workspace fill or group band: the card touches its anchor, its top on the row's top.
         if let group = groupID(id) { return list?.hoverCardBand(forGroup: group) }
         return workspaceID(id).flatMap { list?.hoverCardBand(for: $0) }
     }
 
     func hoverCardTargetFrame(for id: HoverTargetID) -> CGRect? {
         if let group = groupID(id) { return list?.hoverCardAnchor(forGroup: group) }
-        return workspaceID(id).flatMap { list?.hoverCardAnchor(for: $0) }
+        return workspaceID(id).flatMap { list?.hoverCardBand(for: $0) }
     }
 
     /// The pointer is on a row's pull request badge, whose own card (`SidebarPullRequestCard`)
@@ -135,7 +135,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
 
     func hoverCardBody(for id: HoverTargetID) -> HoverCardBody? {
         if let group = groupID(id) { return groupCardBody(for: group, id: id) }
-        guard let list, let ws = workspaceID(id), let workspace = list.workspaces[ws] else { return nil }
+        guard let list, let ws = workspaceID(id), let workspace = list.hoverCardRow(ws) else { return nil }
         let body = body ?? WorkspaceHoverCardView()
         self.body = body
         let machine = list.sections.values.lazy.compactMap(\.machine).first { $0.id == workspace.machineID }
@@ -162,7 +162,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
         body.configure(Self.groupSummary(item, workspaces: list.subtreeWorkspaces(of: group),
                                          options: DesignSettings.shared.groupHoverCard, now: Date()))
         bodyID = id
-        // One rule for sidebar cards: beside the sidebar, its top on the header's, one pixel off the edge.
+        // One rule for sidebar cards: beside the sidebar, its top on the header's, touching the edge.
         return HoverCardBody(view: body, placement: .besideRow, themeAnchor: list) { [weak body] in body?.applyColors() }
     }
 

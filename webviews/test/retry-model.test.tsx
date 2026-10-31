@@ -159,9 +159,9 @@ test("Retry's model menu lists the top models, the rest under More models, one r
   await act(async () => button("Retry with another model")!.click());
   const menu = dom.window.document.querySelector('[role="menu"]')!;
   expect(menu.classList.contains("acpmux-quick-menu"), "the composer model menu's look").toBe(true);
-  expect(shownRows()).toEqual(["Fable 5.1", "Fable 5.1", "Opus 5.5", "Sonnet 5.5", "Haiku 5.5"]);
+  expect(shownRows()).toEqual(["Fable 5.1", "Opus 5.5", "Sonnet 5.5", "Haiku 5.5"]);
   const detail = [...menu.querySelectorAll(".acpmux-quick-value")].map((element) => element.textContent);
-  expect(detail).toEqual(["1M context"]);
+  expect(detail).toEqual([]);
   const checked = [...dom.window.document.querySelectorAll('[role="menuitemradio"][aria-checked="true"]')];
   expect(checked.map(rowName)).toEqual(["Opus 5.5"]);
   const more = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>

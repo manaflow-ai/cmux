@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+@testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextControl
 import CmuxNextDaemon
@@ -70,4 +71,71 @@ struct AgentChatInUnshownPaneTests {
             #expect(controller.stripModel.selectedID == selected, "the person's selected tab changed")
         }
     }
+
+    /// A user-targeted pane action permits view changes, so the explicit pane still wins over
+    /// the untargeted top-page placement route.
+    @Test func aUserTargetedChatOpensInAShownPane() async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-28064-target")
+            try #require(services.agentTabs.canHostChat, "this build has no agent page")
+            let window = try #require(services.windows.active)
+            let controller = try #require(window.focusedPane)
+            let tabs = controller.pane.tabs.count
+            let run = RegistryControlBridge(registry: services.registry).performActionTracked(
+                ControlActionRequest(actionID: "palette.newAgentChat",
+                                     target: ControlTargetRef(kind: "pane", id: controller.paneKey),
+                                     origin: ActionOrigin.user.rawValue)
+            )
+            #expect(run.outcome == .ran, "\(run.outcome)")
+            try await PasswordManagerRouteTests.until({ controller.pane.tabs.count > tabs },
+                                                      report: { "\(controller.pane.tabs.count) tabs, was \(tabs)" })
+        }
+    }
+
+    /// The action's explicit folder reaches the created tab, rather than being dropped by the
+    /// untargeted/targeted open paths. This observes the store's created tab after the action.
+    @Test func aTargetedChatKeepsTheRequestedCwd() async throws {
+        try await AgentChatActionFixture.withApp { services, _ in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-23016-cwd")
+            try #require(services.agentTabs.canHostChat, "this build has no agent page")
+            let window = try #require(services.windows.active)
+            let pane = try #require(window.focusedPane)
+            let before = Set(PasswordManagerRouteTests.tabs(services).map(\.id))
+            let run = RegistryControlBridge(registry: services.registry).performActionTracked(
+                ControlActionRequest(actionID: "palette.newAgentChat", target: ControlTargetRef(kind: "pane", id: pane.paneKey),
+                                     arguments: ["cwd": .string(AgentChatActionFixture.localCwd)], origin: ActionOrigin.cli.rawValue)
+            )
+            let fields = try await AgentChatActionFixture.finish(run)
+            let created = try await AgentChatActionFixture.created(in: services, after: before, fields: fields)
+            #expect(pane.pane.tabs.contains { $0.id == created.id })
+            // Automation keeps the tab unselected. Instantiate its actual page and ask the
+            // same ready request as the webview; existingView alone never mounts an unseen tab.
+            let view = try #require(services.agentTabs.view(for: created.id))
+            let reply = await view.model.respond(to: AgentPaneRequest(body: ["method": "ready"]))
+            let handshake = try #require(reply["value"] as? [String: Any], "\(reply)")
+            #expect(handshake["cwd"] as? String == AgentChatActionFixture.localCwd)
+            #expect(view.model.handshakeCwd == AgentChatActionFixture.localCwd)
+        }
+    }
+
+    @Test func anUntargetedChatKeepsTheRequestedCwd() async throws {
+        try await AgentChatActionFixture.withApp { services, _ in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-23016-cwd-untargeted")
+            try #require(services.agentTabs.canHostChat, "this build has no agent page")
+            let before = Set(PasswordManagerRouteTests.tabs(services).map(\.id))
+            let run = RegistryControlBridge(registry: services.registry).performActionTracked(
+                ControlActionRequest(actionID: "palette.newAgentChat", arguments: ["cwd": .string(AgentChatActionFixture.localCwd)],
+                                     origin: ActionOrigin.cli.rawValue))
+            let fields = try await AgentChatActionFixture.finish(run)
+            let created = try await AgentChatActionFixture.created(in: services, after: before, fields: fields)
+            // Automation keeps the tab unselected. Instantiate its actual page and ask the
+            // same ready request as the webview; existingView alone never mounts an unseen tab.
+            let view = try #require(services.agentTabs.view(for: created.id))
+            let reply = await view.model.respond(to: AgentPaneRequest(body: ["method": "ready"]))
+            let handshake = try #require(reply["value"] as? [String: Any], "\(reply)")
+            #expect(handshake["cwd"] as? String == AgentChatActionFixture.localCwd)
+            #expect(view.model.handshakeCwd == AgentChatActionFixture.localCwd)
+        }
+    }
+
 }

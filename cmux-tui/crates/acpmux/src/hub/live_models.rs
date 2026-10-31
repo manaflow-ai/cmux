@@ -67,13 +67,16 @@ impl Hub {
         tokio::spawn(async move { hub.probe_models_with(false, false, Some(names)).await });
     }
 
-    /// Whether the model probes may start harness `name`.
+    /// Whether the model probes may start harness `name`: never a capture
+    /// fixture's (`harness_fixture.rs`), which names no installed program.
     pub(super) fn probes(&self, name: &str) -> bool {
-        self.probe_only
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .as_ref()
-            .is_none_or(|names| names.contains(name))
+        !crate::harness_fixture::active().is_some_and(|fixture| fixture.names(name))
+            && self
+                .probe_only
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .as_ref()
+                .is_none_or(|names| names.contains(name))
     }
 
     /// `ACPMUX_PROBE_HARNESSES`: comma-separated harness names; unset, every harness.
@@ -91,6 +94,10 @@ impl Hub {
     /// Serves the cached lists whose programs are unchanged. Daemon start,
     /// before the login environment and the probes.
     pub(super) async fn load_live_cache(&self) {
+        // A capture fixture's harnesses show no list of this host's (`harness_fixture.rs`).
+        if crate::harness_fixture::active().is_some() {
+            return;
+        }
         let cached = tokio::task::spawn_blocking(|| Cache::new(Cache::default_dir()).load_all())
             .await
             .unwrap_or_default();
@@ -111,6 +118,11 @@ impl Hub {
         // launches are off (cx-9ettq).
         if crate::launch_policy::agent_launch_disabled() {
             tracing::info!("agent launch is disabled; live model probes skipped");
+            return;
+        }
+        // Nor for a capture fixture (`harness_fixture.rs`): its harnesses run nothing,
+        // and finding the CLIs would read this host's PATH.
+        if crate::harness_fixture::active().is_some() {
             return;
         }
         let handles: Vec<_> = {

@@ -2,13 +2,15 @@
 // A tab's chat that the daemon does not list (`sessionMustExist`): the pane says which case it is
 // (Leo 2026-10-21: "second pic is weird has "this chat isn't available""), centered where the chat
 // would be and in the pane's own type. Deleted: "This chat was deleted" and Remove from Sidebar.
-// Its machine is not connected: the machine, when it was last seen, and Reconnect. A chat that is
-// only loading (its attach in flight, or its machine still connecting) never reads as unavailable,
+// Its machine is not connected: a neutral "Reconnecting…" (Leo, #26115), when it was last seen, and
+// Reconnect. A chat that is only loading (its attach in flight, or its machine still connecting)
+// never reads as unavailable,
 // and a chat on another machine whose tab names it by another id than acpmux's opens.
 //
 // Real Chromium from Playwright, against a stand-in acpmux on a WebSocket and the pane's Vite dev
 // server; skipped where it is not installed.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
@@ -214,7 +216,9 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     );
     const connecting = waiting.locator('[data-unavailable="connecting"]');
     await connecting.waitFor({ timeout: 60_000 });
-    expect(await connecting.innerText()).toContain("Connecting to build-box");
+    // A neutral "Reconnecting…" with a spinner, never an error (86ebb89edfcf, #26115).
+    expect(await connecting.locator("h2").innerText()).toBe("Reconnecting…");
+    expect(await connecting.getAttribute("role")).toBe("status");
     // Loading: nothing to reconnect or remove yet; the missing-chat line's Resume and Close Tab stay.
     expect(await connecting.getByRole("button", { name: /Reconnect|Remove from Sidebar/ }).count()).toBe(0);
     expect(await connecting.getByRole("button", { name: "Close Tab" }).count()).toBe(1);
@@ -229,7 +233,7 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     await waiting.evaluate(
       () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)))),
     );
-    expect(await connecting.innerText()).toContain("Connecting to build-box");
+    expect(await connecting.locator("h2").innerText()).toBe("Reconnecting…");
     // The machine connects and acpmux lists its chats.
     scenario.peers = [{ name: "build-box", transport: "ssh", connected: true, state: "connected" }];
     const listed = summary("chat-on-box", { peer: "build-box" });
@@ -239,6 +243,150 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     expect((await state(waiting)).sessionId).toBe("chat-on-box");
     expect(await waiting.evaluate(() => (window as any).__unavailableSeen)).toEqual([]);
     await waiting.close();
+  });
+
+  test("loading spinner centers in the transcript area above the composer as the pane resizes", async () => {
+    scenario = {
+      sessions: [summary("chat-other", { peer: "build-box" })],
+      peers: [{ name: "build-box", transport: "ssh", connected: false, state: "connecting", attempts: 0 }],
+    };
+    const page = await open("chat-on-box");
+    const shown = page.locator('[data-unavailable="connecting"]');
+    await shown.waitFor({ timeout: 60_000 });
+    const spinner = shown.locator(".acpmux-unavailable-spinner");
+    await spinner.waitFor();
+    const field = page.locator('.acpmux-md-root [contenteditable="true"]');
+    await field.waitFor();
+    const captureDir = process.env.CMUX_LOADING_CENTER_CAPTURE_DIR;
+    if (captureDir) await mkdir(captureDir, { recursive: true });
+
+    const measure = async () =>
+      page.evaluate(() => {
+        const rect = (selector: string) => {
+          const node = document.querySelector<HTMLElement>(selector);
+          if (!node) throw new Error(`missing ${selector}`);
+          const box = node.getBoundingClientRect();
+          return {
+            top: box.top,
+            bottom: box.bottom,
+            left: box.left,
+            right: box.right,
+            width: box.width,
+            height: box.height,
+          };
+        };
+        return {
+          viewport: { width: window.innerWidth, height: window.innerHeight },
+          root: rect('[data-unavailable="connecting"]'),
+          stage: rect(".acpmux-stage"),
+          spinner: rect(".acpmux-unavailable-spinner"),
+          title: rect(".acpmux-unavailable-title"),
+          composer: rect(".acpmux-composer-box"),
+          dock: rect(".acpmux-dock"),
+          main: rect(".acpmux-main"),
+          copy: rect(".acpmux-unavailable-copy"),
+        };
+      });
+    const assertCentered = (layout: Awaited<ReturnType<typeof measure>>) => {
+      const targetY = (layout.root.top + layout.root.bottom) / 2;
+      const spinnerY = (layout.spinner.top + layout.spinner.bottom) / 2;
+      const targetX = (layout.root.left + layout.root.right) / 2;
+      const spinnerX = (layout.spinner.left + layout.spinner.right) / 2;
+      expect(Math.abs(spinnerY - targetY)).toBeLessThanOrEqual(2);
+      expect(Math.abs(spinnerX - targetX)).toBeLessThanOrEqual(2);
+      expect(layout.title.bottom).toBeLessThanOrEqual(layout.spinner.top);
+      expect(layout.copy.top).toBeGreaterThanOrEqual(layout.spinner.bottom);
+      for (const box of [layout.title, layout.spinner, layout.copy]) {
+        expect(box.top).toBeGreaterThanOrEqual(layout.root.top);
+        expect(box.bottom).toBeLessThanOrEqual(layout.root.bottom);
+        expect(box.left).toBeGreaterThanOrEqual(layout.root.left);
+        expect(box.right).toBeLessThanOrEqual(layout.root.right);
+      }
+      expect(layout.root.bottom).toBeLessThanOrEqual(layout.stage.bottom);
+      expect(layout.stage.bottom).toBeLessThanOrEqual(layout.composer.top + 1);
+      expect(layout.composer.height).toBeGreaterThan(0);
+      expect(layout.composer.bottom).toBeLessThanOrEqual(layout.main.bottom + 1);
+      expect(layout.dock.bottom).toBeLessThanOrEqual(layout.main.bottom + 1);
+    };
+    const settled = () =>
+      page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const assertActionsReachable = async () => {
+      const actions = shown.locator(".acpmux-unavailable-action");
+      expect(await actions.count()).toBe(2);
+      for (const action of await actions.all()) {
+        await action.scrollIntoViewIfNeeded();
+        await action.click({ trial: true });
+        const bounds = await action.evaluate((node) => {
+          const box = node.getBoundingClientRect();
+          const copy = node.closest(".acpmux-unavailable-copy")!.getBoundingClientRect();
+          const center = document.elementFromPoint((box.left + box.right) / 2, (box.top + box.bottom) / 2);
+          return {
+            top: box.top,
+            bottom: box.bottom,
+            copyTop: copy.top,
+            copyBottom: copy.bottom,
+            hit: center === node || node.contains(center),
+          };
+        });
+        expect(bounds.top).toBeGreaterThanOrEqual(bounds.copyTop - 1);
+        expect(bounds.bottom).toBeLessThanOrEqual(bounds.copyBottom + 1);
+        expect(bounds.hit).toBe(true);
+      }
+      await shown.locator(".acpmux-unavailable-copy").evaluate((node) => (node.scrollTop = 0));
+    };
+    const capture = async (name: string) => {
+      if (captureDir) await page.screenshot({ path: path.join(captureDir, `${name}.png`) });
+    };
+    const sizes = [
+      { width: 900, height: 760 },
+      { width: 900, height: 620 },
+      { width: 760, height: 760 },
+      { width: 400, height: 360 },
+      { width: 400, height: 275 },
+      { width: 400, height: 259 },
+    ];
+    for (const isDark of [true, false]) {
+      const theme = isDark ? "dark" : "light";
+      await page.evaluate((dark) => {
+        (window as any).cmuxAcpmuxBridge.applyTheme({
+          isDark: dark,
+          pageBackground: dark ? "#111111" : "#ffffff",
+          surfaceBackground: dark ? "#1b1b1b" : "#f8f8f8",
+          inputBackground: dark ? "#202020" : "#f4f4f4",
+          text: dark ? "#eeeeee" : "#171717",
+          mutedText: dark ? "#999999" : "#666666",
+          border: dark ? "#555555" : "#cccccc",
+        });
+      }, isDark);
+      for (const size of sizes) {
+        await page.setViewportSize(size);
+        await settled();
+        const layout = await measure();
+        console.info("loading-center", theme, JSON.stringify(layout));
+        await capture(`loading-center-${theme}-${size.width}x${size.height}`);
+        assertCentered(layout);
+        if (size.height === 259) expect(layout.root.height).toBeLessThanOrEqual(113);
+        await assertActionsReachable();
+        if (size.height === 259) {
+          await shown.getByRole("button", { name: "Close Tab" }).scrollIntoViewIfNeeded();
+          await capture(`loading-center-${theme}-minimum-actions`);
+          await shown.locator(".acpmux-unavailable-copy").evaluate((node) => (node.scrollTop = 0));
+        }
+      }
+      await page.setViewportSize({ width: 400, height: 360 });
+      await settled();
+      const initialComposer = await measure();
+      await field.fill("A loading-state draft that wraps across several lines.\n".repeat(8));
+      await settled();
+      const expandedComposer = await measure();
+      expect(expandedComposer.composer.height).toBeGreaterThan(initialComposer.composer.height);
+      console.info("loading-center-expanded", theme, JSON.stringify(expandedComposer));
+      assertCentered(expandedComposer);
+      await assertActionsReachable();
+      await capture(`loading-center-${theme}-expanded`);
+      await field.fill("");
+    }
+    await page.close();
   });
 
   test("a deleted chat says so, names its machine, and offers Remove from Sidebar", async () => {
@@ -264,7 +412,7 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     await page.close();
   });
 
-  test("a chat whose machine goes offline names it, says when it was last seen, and Reconnect opens it", async () => {
+  test("a chat whose machine goes offline says it is reconnecting, when it was last seen, and Reconnect opens it", async () => {
     scenario = {
       sessions: [summary("chat-kept"), summary("chat-on-box", { peer: "build-box" })],
       peers: [{ name: "build-box", transport: "ssh", connected: true, state: "connected", lastSeen: Date.now() }],
@@ -281,7 +429,18 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     notify("_acpmux/lagged", { watch: true, dropped: 1 });
     const shown = page.locator('[data-unavailable="offline"]');
     await shown.waitFor({ timeout: 60_000 });
-    expect(await shown.locator("h2").innerText()).toBe("build-box isn't connected");
+    // Neutral, as connecting (86ebb89edfcf, #26115): "Reconnecting…", when it was last seen, and Reconnect.
+    expect(await shown.locator("h2").innerText()).toBe("Reconnecting…");
+    expect(await shown.getAttribute("role")).toBe("status");
+    const offlineSpinnerColors = await shown.locator(".acpmux-unavailable-spinner").evaluate((node) => {
+      const probe = document.createElement("span");
+      probe.style.color = "var(--acpmux-composer-placeholder)";
+      node.parentElement?.append(probe);
+      const colors = { spinner: getComputedStyle(node).color, placeholder: getComputedStyle(probe).color };
+      probe.remove();
+      return colors;
+    });
+    expect(offlineSpinnerColors.spinner).toBe(offlineSpinnerColors.placeholder);
     await page.waitForFunction(() => document.body.innerText.includes("Last seen 5 minutes ago."));
     expect(await page.getByText(/isn't available|was deleted/).count()).toBe(0);
     const reconnect = shown.getByRole("button", { name: "Reconnect" });

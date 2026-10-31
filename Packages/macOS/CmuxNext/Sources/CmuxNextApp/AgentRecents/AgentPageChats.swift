@@ -1,3 +1,5 @@
+import CmuxNextAgentLanes
+import Foundation
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
@@ -28,6 +30,21 @@ final class AgentPageChats {
     var environments: (any AgentPaneEnvironmentStoring)?
     /// A new chat's Sandboxed send (``AgentPaneModel/onSandboxRun``), one runner for every page.
     var sandboxRun: (@MainActor (String, String?, String) async -> [String: Any])?
+    /// The app-level waiter on every Sandboxed send's Run, and its notification (``SandboxRunNotices``).
+    private(set) var runNotices: SandboxRunNotices?
+    /// The app-level waiter on every hand-off of a chat to a Cloud machine, and its notification.
+    private(set) var handoffNotices: HandoffNotices?
+
+    /// A click on banner `id` of a Run or a hand-off; false when it is neither's.
+    func openNotice(banner id: String) -> Bool {
+        runNotices?.open(banner: id) == true || handoffNotices?.open(banner: id) == true
+    }
+
+    /// The app quits: every Run's and hand-off's wait ends (the saved ones resume at the next launch).
+    func stopNotices() {
+        runNotices?.stop()
+        handoffNotices?.stop()
+    }
 
     /// Follows `feed` for every page of `tabs`; cards open through `opener`.
     static func wire(_ tabs: AgentTabStore, to feed: ChatsFeed, opener: ChatsOpenCoordinator) {
@@ -75,8 +92,15 @@ final class AgentPageChats {
     /// Sandboxed sends run through `services`' signed-in Cloud client (hq#3367), only while Labs >
     /// Show Preview Features is on and Cloud isn't turned off by policy. Each waits for its Run's
     /// receipt through ``CloudAPIClient/runSandbox(task:agent:timeoutMs:idempotencyKey:teardown:callsMargin:now:)``,
-    /// which answers by the task timeout plus teardown whatever the calls do.
+    /// which answers by the task timeout plus teardown whatever the calls do. The Run's wait is
+    /// ``SandboxRunNotices``': it goes on after the tab closes and notifies when the Run ends.
     static func wireSandbox(_ tabs: AgentTabStore, services: AppServices) {
+        let notices = SandboxRunNotices(services: services)
+        tabs.pageChats.runNotices = notices
+        notices.start()
+        let handoffs = HandoffNotices(services: services)
+        tabs.pageChats.handoffNotices = handoffs
+        handoffs.start()
         tabs.pageChats.sandboxRun = { [weak services] task, agent, key in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
             // Cloud turned off by policy, or the managed team it requires missing: a definite
@@ -88,8 +112,13 @@ final class AgentPageChats {
             guard services.cloud.isSignedIn else { return AgentPaneReply.failure(code: "not_signed_in", message: "not_signed_in") }
             // The send, its create's retry and its waits stay with the team it began with (and the
             // create's retry with its account: CloudAPIClient.runSandbox).
-            let api = services.cloud.api.pinningTeam(await services.cloud.api.currentTeam())
-            return await AgentPaneReply.sandbox({ try await api.runSandbox(task: task, agent: agent, idempotencyKey: key) },
+            // The Run is followed in the team it was created in (SandboxRunNotices).
+            let team = await services.cloud.api.currentTeam()
+            let api = services.cloud.api.pinningTeam(team)
+            let follow: @Sendable (String) async throws -> Data = { id in
+                try await notices.follow(id: id, task: task, key: key, team: team)
+            }
+            return await AgentPaneReply.sandbox({ try await api.runSandbox(task: task, agent: agent, idempotencyKey: key, follow: follow) },
                                                 code: AgentPageChats.sandboxCode)
         }
     }

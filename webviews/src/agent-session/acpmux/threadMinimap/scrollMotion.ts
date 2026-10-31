@@ -4,8 +4,22 @@
 // ends it where it is.
 import { bezierAt, type CubicBezier } from "../../../ui/cubicBezier";
 import { HIGHLIGHT_EASING, HIGHLIGHT_MS } from "./model";
+import { railOwnsWheel } from "./railWheel";
 
 const running = new WeakMap<HTMLElement, () => void>();
+
+/// Sent (not bubbling) on a scroller right after this module's motion writes its offset from a frame
+/// callback. The browser's own `scroll` event for that write comes on the next frame, after this one
+/// paints, so what must move with the scroll on its own frame (the minimap's band) listens for this too.
+export const MOTION_SCROLL_EVENT = "acpmux-motion-scroll";
+
+/// Tells `node`'s listeners that the motion just moved it (`MOTION_SCROLL_EVENT`).
+function announceScroll(node: HTMLElement): void {
+  // A stand-in scroller (a unit test's) may have no document or events of its own.
+  if (typeof node.dispatchEvent !== "function") return;
+  const Event_ = node.ownerDocument?.defaultView?.Event ?? globalThis.Event;
+  if (Event_) node.dispatchEvent(new Event_(MOTION_SCROLL_EVENT));
+}
 const READER_INPUTS = ["wheel", "pointerdown", "touchstart", "keydown"] as const;
 
 /// Reduce Motion: the system's, or the app's (its motion tokens are 0 when Reduce Motion is on or
@@ -130,6 +144,7 @@ function runScroll(
     }
     const progress = Math.min(1, Math.max(0, (now - start) / duration));
     write(bezierAt(curve, progress));
+    announceScroll(node);
     if (!active) return;
     if (progress < 1) frame = requestAnimationFrame(step);
     else {
@@ -147,7 +162,8 @@ function runScroll(
 /// far the target sits from where it should land (undefined while it is not mounted), and the scroll
 /// moves by that much, until it holds for three frames or `frames` run out. Any input anywhere in the
 /// page (a wheel, a press, a key: the reader scrolling, Find, Jump to Latest) or another scroll on
-/// `node` ends it.
+/// `node` ends it. A wheel over a rail that scrolls itself is not the reader's (railWheel.ts): the
+/// rail moves, and the landing goes on.
 export function settleScroll(node: HTMLElement, offset: () => number | undefined, frames: number): void {
   stopScroll(node);
   if (typeof requestAnimationFrame !== "function") return;
@@ -157,8 +173,11 @@ export function settleScroll(node: HTMLElement, offset: () => number | undefined
   const page = node.ownerDocument.defaultView ?? window;
   const end = () => {
     cancelAnimationFrame(frame);
-    for (const name of READER_INPUTS) page.removeEventListener(name, end, true);
+    for (const name of READER_INPUTS) page.removeEventListener(name, input, true);
     if (running.get(node) === end) running.delete(node);
+  };
+  const input = (event: Event) => {
+    if (!railOwnsWheel(event)) end();
   };
   const step = () => {
     // A scroller with no layout (hidden, or a DOM without one) has nothing to measure.
@@ -168,6 +187,7 @@ export function settleScroll(node: HTMLElement, offset: () => number | undefined
       const to = Math.max(0, Math.min(max, node.scrollTop + by));
       if (Math.abs(to - node.scrollTop) > 0.5) {
         node.scrollTop = to;
+        announceScroll(node);
         steady = 0;
       } else steady += 1;
     }
@@ -176,7 +196,7 @@ export function settleScroll(node: HTMLElement, offset: () => number | undefined
     else frame = requestAnimationFrame(step);
   };
   // Captured on the window: added during the input that started the jump, it does not see that one.
-  for (const name of READER_INPUTS) page.addEventListener(name, end, { capture: true, passive: true });
+  for (const name of READER_INPUTS) page.addEventListener(name, input, { capture: true, passive: true });
   running.set(node, end);
   frame = requestAnimationFrame(step);
 }

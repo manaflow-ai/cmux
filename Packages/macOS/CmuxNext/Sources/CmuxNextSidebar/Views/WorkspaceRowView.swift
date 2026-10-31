@@ -20,6 +20,8 @@ final class WorkspaceRowView: SidebarRowView {
     internal(set) var agentMarkVariant = SidebarAgentMarkVariant.off
     /// The last configuration, so a Debug Settings switch of `sidebar.agentMark` redraws the row.
     internal(set) var lastConfiguration: (SidebarWorkspace, SidebarRow, SidebarRowBadgeStyle?)?
+    /// Last rendered title column sent to disclosed child rows.
+    var lastTabAnchorTitleX: CGFloat?
     var activityState = StatusIndicatorState.idle
     let badge = UnreadBadgeView(), rowBadge = RowBadgeView() // the count, and its replacement (WorkspaceRowView+Badges)
     var rowBadgeStyle = SidebarRowBadgeStyle.corner
@@ -28,6 +30,10 @@ final class WorkspaceRowView: SidebarRowView {
     /// A muted workspace (`notifications.mutedWorkspaces`): a quiet bell-slash
     /// in the trailing cluster, in the tertiary text color; hidden otherwise.
     let mutedMark = DecorativeImageView()
+    /// A runaway agent chat in the workspace (`SidebarWorkspace.usageWarnings`: no autocompact
+    /// cap, a huge context, a storm of subagents): a small warning triangle in the trailing
+    /// cluster, apart from the working spinner; its tooltip says each rule and the number.
+    let usageWarningMark = DecorativeImageView()
     /// The computer the workspace runs on (`WorkspaceRowContent.machine`): its icon in its
     /// color, small, before the title; hidden while the sidebar lists one machine.
     let machineMark = DecorativeImageView() // the row's label names the machine
@@ -39,16 +45,16 @@ final class WorkspaceRowView: SidebarRowView {
     /// are muted. A click mutes or unmutes them (`onToggleAudio`).
     let audioButton = SidebarIconButton(icon: .browserTabAudio, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.muteTabs)
     internal(set) var audio: SidebarWorkspaceAudio?
-    let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.closeButton)
+    let closeButton = SidebarIconButton.rowClose(label: Strings.closeButton) // a listed tab row's too (SidebarRowCloseButton)
     /// The row's menu (cx-a9h6, ChatGPT project style): the right-click menu,
     /// under the button. Shows on hover only, over the end of the title
     /// behind a fade (Lawrence 2026-10-11: no layout shift).
     let moreButton = OverflowButton(label: Strings.workspaceMenu)
-    /// An expanded row's Pin or Unpin (cx-13w3), on hover beside the menu button.
-    let pinButton = SidebarIconButton(icon: .actionPin, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.pinWorkspace)
+    /// An expanded pinned row's Unpin (cx-13w3), on hover beside the menu button.
+    let pinButton = SidebarIconButton(icon: .statePinned, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.unpinWorkspace)
     /// `sidebar.showWorkspaceTabs`: hides or lists the workspace's tabs. Always drawn
     /// while the setting is on (never on hover), so rows never shift.
-    let disclosureButton = SidebarIconButton(icon: .disclosureCollapsed, pointSize: { Metrics.smallIconSize - Metrics.space2 },
+    let disclosureButton = SidebarIconButton(icon: .disclosureFolded, pointSize: { Metrics.smallIconSize - Metrics.space2 },
                                              label: Strings.showTabs)
     /// `sidebar.workspaceRow.tabCount`: the workspace's tab count, in a fixed-width slot.
     let tabCount = SidebarRowView.label(font: SidebarStyle.subtitleFont)
@@ -99,6 +105,18 @@ final class WorkspaceRowView: SidebarRowView {
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
     var onClose: (() -> Void)?
     var onMore: (() -> Void)?
+    /// The menu the more button opened is open (`SidebarRowMenu`): the hover controls stay shown and the more
+    /// button stays lit after the pointer leaves for the menu (Leo 2026-10-26: "you keep it on when you click the
+    /// context menu"). The row's own fill does not change: only the button lights (Leo 2026-10-27).
+    var showsMenu = false {
+        didSet {
+            guard showsMenu != oldValue else { return }
+            moreButton.showsMenu = showsMenu
+            needsLayout = true
+        }
+    }
+    /// The hover controls (more, close, the chevron) show: under the pointer, or while their menu is open.
+    var revealsHoverControls: Bool { isHovered || showsMenu }
     /// nil: the App offers no pin; the pin button does not show.
     var onPin: (() -> Void)?, isPinned: (() -> Bool?)?
     /// Activates this workspace from an accessibility AXPress.
@@ -137,9 +155,12 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.imageScaling = .scaleProportionallyDown
         mutedMark.isHidden = true
         mutedMark.setAccessibilityElement(false)
+        usageWarningMark.imageScaling = .scaleProportionallyDown
+        usageWarningMark.isHidden = true
+        usageWarningMark.setAccessibilityElement(false)
         machineMark.imageScaling = .scaleProportionallyDown
         machineMark.isHidden = true
-        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, machineMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock,
+        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, usageWarningMark, machineMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock,
          treeLine, pullRequests, keycap, treeFoldButton, rollUp].forEach(addSubview)
         setUpSessionTree()
         disclosureButton.isHidden = true
@@ -195,12 +216,14 @@ final class WorkspaceRowView: SidebarRowView {
         isDropTarget = false
         onClose = nil
         onMore = nil
+        showsMenu = false
         (onPin, isPinned) = (nil, nil)
         onSelect = nil
         onToggleTabs = nil
         onToggleTree = nil
         onToggleAudio = nil
         title.stopMarquee()
+        lastTabAnchorTitleX = nil
         title.layer?.removeAnimation(forKey: "workspace-title-motion")
         lastTitle = nil
         titleArrivalGeneration &+= 1
@@ -228,7 +251,7 @@ final class WorkspaceRowView: SidebarRowView {
         let tunables = observedTunables()
         let content = Content(
             ws: ws, group: row.group,
-            fontSize: SidebarStyle.titleFont.pointSize, iconSize: Metrics.smallIconSize,
+            fontSize: SidebarStyle.titleFont.pointSize, iconSize: SidebarStyle.leadingGlyphSide,
             agentMark: tunables.agentMark, presenceDots: tunables.presenceDots, rowBadge: badgeStyle ?? tunables.rowBadge, stackLimit: tunables.stackCap.limit,
             rowTitle: tunables.rowTitle, rowTitleSingleChat: tunables.rowTitleSingleChat,
             disclosure: row.tabDisclosure, row: row.content
@@ -290,9 +313,7 @@ final class WorkspaceRowView: SidebarRowView {
         activity.configure(badgesLead ? .idle : shown.activity, style: badgesLead ? nil : ws.activityStyle)
         activityState = shown.activity
         agentMarkVariant = content.agentMark
-        let markImage = agentMarkVariant == .off || isShowingPlaceholder ? nil
-            : ws.agentIcon.flatMap { agentIconImage($0) }
-                ?? ws.agentBrand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: agentMarkSize) }
+        let markImage = Self.agentMarkImage(ws, variant: agentMarkVariant, placeholder: isShowingPlaceholder)
         agentMark.image = markImage
         agentMark.isHidden = markImage == nil
         badge.configure(badgesLead ? .none : ws.unread)
@@ -303,16 +324,18 @@ final class WorkspaceRowView: SidebarRowView {
         // The bell-slash alone does not say what is muted: notifications, not the tabs' sound
         // (the row's accessibility label says it too).
         mutedMark.themedToolTip = mutedMark.isHidden ? nil : Strings.notificationsMuted
+        // acpmux's own lines name the rule and the number ("90 subagents started in the last hour, above 40").
+        usageWarningMark.image = ws.usageWarnings.isEmpty || isShowingPlaceholder ? nil
+            : NSImage.icon(symbol: "exclamationmark.triangle.fill", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1))
+        usageWarningMark.isHidden = usageWarningMark.image == nil
+        usageWarningMark.themedToolTip = usageWarningMark.isHidden ? nil : ws.usageWarnings.joined(separator: "\n")
         let previousMachine = machine
         machine = isShowingPlaceholder ? nil : shown.machine
         // A new image only when the mark or its size changes: every patch and every row scrolled in configures the row.
         let machineSize = CGFloat.iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)
         if machine != previousMachine || machineSize != machineMarkSize || (machine != nil && machineMark.image == nil) {
             machineMarkSize = machineSize
-            machineMark.image = machine.map { mark in
-                if let emoji = mark.emoji { return SidebarItemRowView.emojiImage(emoji, side: machineSize) }
-                return mark.symbol.map { NSImage.icon(symbol: $0, size: machineSize) } ?? NSImage.icon(mark.kindIcon, size: machineSize)
-            }
+            machineMark.image = machine.map { Self.machineMarkImage($0, side: machineSize) }
         }
         machineMark.isHidden = machineMark.image == nil
         audio = isShowingPlaceholder ? nil : ws.audio
@@ -321,7 +344,7 @@ final class WorkspaceRowView: SidebarRowView {
         audioButton.label = audio == .muted ? Strings.unmuteTabs : Strings.muteTabs
         disclosure = row.tabDisclosure
         count = row.tabCount
-        disclosureButton.icon = row.tabDisclosure == .expanded ? .disclosureExpanded : .disclosureCollapsed
+        disclosureButton.icon = row.tabDisclosure == .expanded ? .disclosureExpanded : .disclosureFolded // up, as Chrome's
         disclosureButton.label = row.tabDisclosure == .expanded ? Strings.hideTabs : Strings.showTabs
         disclosureButton.setAccessibilityExpanded(row.tabDisclosure == .expanded)
         tabCount.setString(row.tabCount.map(String.init) ?? "")

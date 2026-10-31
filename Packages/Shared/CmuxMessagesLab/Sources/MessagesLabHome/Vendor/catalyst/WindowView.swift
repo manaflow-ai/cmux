@@ -75,6 +75,10 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     private var sheetClosing = 0
     /// The next rebuild of the open thread view redraws even when its rows did not change.
     private var threadForceRebuild = false
+    /// cmux: how far an open thread view taller than its space is scrolled back from its newest row (0: that
+    /// row ends above the field), and the most it can be (0: the view fits and stays centered).
+    private(set) var threadScrollBack: CGFloat = 0
+    private(set) var threadScrollRange: CGFloat = 0
     /// The breadcrumb's names as drawn (hit testing reads these, not the drawn string).
     private var threadCrumbNames: [String] = []
     private(set) var sheetFrame: CGRect?
@@ -240,6 +244,20 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     private(set) var renderScale: CGFloat = Fixture.renderScale
     /// cmux: the zoom `renderScale` includes (HostView.contentZoom; 1 otherwise), from `setRenderScale`.
     private(set) var contentZoom: CGFloat = 1
+    /// cmux: this view's palette (its chat's theme and Chat Colors, PaletteScope), bound with its scale; nil draws
+    /// with the process palette. Set by `setPalette`.
+    private(set) var palette: PaletteBox?
+    /// cmux: the view draws with `box` (a Home chat's theme and Chat Colors…) from now on; its cells take it at
+    /// once (the host redraws them, MessagesLabHomeView.applyTheme). Rows of other views keep their own palette.
+    func setPalette(_ box: PaletteBox) {
+        guard palette !== box else { return }
+        palette = box
+        for case let cell as RowCell in collection.visibleCells { cell.paletteBox = box }
+    }
+    /// cmux: runs `body` with this view's scale and palette (its own work).
+    func scope<T>(_ body: () throws -> T) rethrows -> T {
+        try PaletteScope.with(palette) { try Fixture.withRenderScale(renderScale, body) }
+    }
 
     /// This view's window has another backing scale (it moved to a display with another scale, it was put in a
     /// window on another display, or a test forced one): every bitmap of this view is drawn again at the new scale,
@@ -263,7 +281,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         renderScale = s
         Fixture.renderScale = s
         MessagesWindowView.displayChangeSerial += 1
-        MessagesWindowView.displayChange { Fixture.withRenderScale(s) {
+        MessagesWindowView.displayChange { PaletteScope.with(palette) { Fixture.withRenderScale(s) {
             func walk(_ v: UIView) {
                 if let c = v as? CanvasView { c.layer.contentsScale = s; c.setNeedsDisplay() }
                 v.subviews.forEach(walk)
@@ -283,7 +301,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             } else {
                 deferDisplayWork([.compose, .header, .cells])
             }
-        } }
+        } } }
     }
 
     /// The display change's work of one view that runs once at the end of the outermost pass (cx-3cb display-budget:
@@ -309,7 +327,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             let w = v.displayWork
             v.displayWork = []
             if w.contains(.header) { headers.append(v) }
-            Fixture.withRenderScale(v.renderScale) {
+            v.scope {
                 if w.contains(.compose) { DisplayTiming.phase("work.compose") { v.compose.rescale() } }
                 if w.contains(.cells) { DisplayTiming.phase("work.cells") { v.refreshVisibleCells() } }
             }
@@ -317,7 +335,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         return headers
     }
     private func refreshHeader() {
-        Fixture.withRenderScale(renderScale) { DisplayTiming.phase("work.header") { header.refresh() } }
+        scope { DisplayTiming.phase("work.header") { header.refresh() } }
     }
 
     /// One display change (cx-3cb scale-redraw): a window's move to another display changes its views' scale
@@ -390,7 +408,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         displayChange { for v in live.allObjects { v.redrawForColorSpace() } }
     }
     private func redrawForColorSpace() {
-        Fixture.withRenderScale(renderScale) {
+        scope {
             backgroundColor = Fixture.background
             DisplayTiming.phase("space.canvases") {
                 chrome.setNeedsDisplay()
@@ -1250,7 +1268,17 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             return positions[id]
         }
         var idx: [Int] = []
-        for r in model.rows.suffix(400) where r.spec.key.hasPrefix("receipt:") {
+        // cmux: a receipt row moves only when a message or its status changes. The typing dots, the
+        // host's status line and a stream's text change neither, so their commits re-derive only the
+        // trailing rows. From the receipt down, the Chief's "working on" line re-derived every message
+        // after my last read one on each change (agents working: ~5 ms of main thread per line change
+        // with ~150 messages below the receipt, between the person's keys).
+        let receiptsMove: Bool
+        switch action {
+        case .typing, .setNotice, .streamBegin, .streamSet, .streamAppend, .streamEnd(_, nil): receiptsMove = false
+        default: receiptsMove = true
+        }
+        for r in model.rows.suffix(400) where receiptsMove && r.spec.key.hasPrefix("receipt:") {
             if let i = index(String(r.spec.key.dropFirst("receipt:".count))) { idx.append(i) }
         }
         switch action {
@@ -1263,8 +1291,15 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         // A stream's rows follow the newest loaded message (which may lose its tail to it); a final message is new.
         case .streamBegin, .streamSet, .streamAppend, .streamEnd: idx.append(max(0, old.conversation.messages.count - 1))
         case let .status(id, _): if let i = index(id) { idx.append(i) }
-        case let .cmuxSetAttachment(id, _): if let i = index(id) { idx.append(i) }  // cmux
+        case let .cmuxSetAttachments(updates): if let i = updates.compactMap({ index($0.id) }).min() { idx.append(i) }  // cmux
         case let .cmuxSetParts(id, _): if let i = index(id) { idx.append(i) }  // cmux
+        // cmux (2026-10-31): a link card's metadata or picture changes only the messages with that link (and the quotes
+        // of them, below them): from the first one down, not every row (each link picture that loaded re-derived the
+        // whole chat; NIGHTLY hang log, HomeQuoteRebuildCostTests).
+        case let .linkMetadata(url, _, _, _):
+            guard let i = msgs.firstIndex(where: { $0.parts.contains { if case let .link(u, _, _, _, _) = $0 { return u == url }; return false } })
+            else { return nil }
+            idx.append(i)
         case let .react(ref, _, _):
             guard let i = index(ref.messageId) else { return nil }
             idx.append(i)
@@ -1991,6 +2026,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         defer { step(2) }
         cell.fillSpan = fillSpan
         cell.renderScale = renderScale
+        cell.paletteBox = palette
         cell.contentZoom = contentZoom
         cell.inactive = inactive
         cell.crispEdge = crispSends[r.spec.key] != nil
@@ -2016,7 +2052,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         // Connector from the root's vertical center down to this bubble.
         if case let .part(p) = r.spec.kind, let rootKey = p.connectorRoot {
             let cellTop = layout.frame(for: i).minY
-            let rootCenter = model.index.value(for: rootKey).map { layout.contentTop($0) + (model.rows[checked: $0]?.spec.height ?? 0) / 2 } ?? layout.rowsTop
+            let rootCenter = model.index.value(for: rootKey).map { layout.contentTop($0) + (model.rows[checked: $0]?.spec.connectorAnchorY ?? 0) } ?? layout.rowsTop
             let myTop = layout.contentTop(i)
             cell.setConnector(top: myTop - 8.5 > rootCenter ? rootCenter - cellTop : nil, bottom: myTop - 8.5 - cellTop, mirrored: p.outgoing)
         } else {
@@ -2256,6 +2292,22 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         let headerHeight = header == nil ? 0 : ThreadHeaderDraw.height
         let total = rows.reduce(0) { $0 + $1.total } + headerHeight
         var y = MessagesWindowView.threadCenterY + (bounds.height - Fixture.windowSize.height) - total / 2
+        // cmux: a thread taller than the space between the header and the field ends above the field and
+        // scrolls (scrollThread); it opens, and a drill shows its branch, at the newest row.
+        let area = threadArea
+        if total > area.height {
+            if !wasOpen || drilled { threadScrollBack = 0 }
+            threadScrollRange = total - area.height
+            threadScrollBack = min(max(0, threadScrollBack), threadScrollRange)
+            y = area.maxY - total + threadScrollBack
+        } else {
+            threadScrollBack = 0
+            threadScrollRange = 0
+            // cmux: the center point sits 518 pt above the pane's bottom (the 1041 pt window's), not at the
+            // space's center: in a tall pane a thread that fits the space ended under the field with no scroll
+            // range (Lawrence 2026-10-28: "unable to scroll down here"). It stays centered where it can.
+            y = min(max(y, area.minY), area.maxY - total)
+        }
         placeThreadHeader(header, top: y, fade: (!wasOpen || drilled) && !still)
         y += headerHeight
         threadViews = rows.map { spec in
@@ -2263,12 +2315,12 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             y += spec.total
             // Drawn at this view's scale (weak: the canvas is this view's subview).
             let v = CanvasView(frame: CGRect(x: 0, y: top, width: bounds.width, height: spec.height + 2 * RowDraw.margin)) { [weak self] ctx, _ in
-                Fixture.withRenderScale(self?.renderScale ?? 0) {
+                PaletteScope.with(self?.palette) { Fixture.withRenderScale(self?.renderScale ?? 0) {
                     Fixture.elevated = true
                     // A just-sent reply is crisp in its copy too, until it is delivered (RowCell.crispEdge).
                     SoftBalloon.withCrispCopy(self?.crispSends[spec.key] != nil) { RowDraw.drawStatic(spec, ctx, windowY: top) }
                     Fixture.elevated = false
-                }
+                } }
             }
             v.layer.contentsScale = renderScale
             threadLayer.addSubview(v)
@@ -2339,6 +2391,33 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     }
 
     var threadOpen: Bool { store.state.ui.openThread != nil }
+
+    /// cmux: the space an open thread view's rows may take, between the header and the field (as a sheet's).
+    var threadArea: CGRect {
+        let top = Fixture.headerHeight + 12, bottom = max(top + 40, fieldTop - 12)
+        return CGRect(x: 0, y: top, width: bounds.width, height: bottom - top)
+    }
+
+    /// cmux: moves an open thread view taller than ``threadArea`` by `dy` points (positive: the rows move
+    /// down, toward the root), clamped to its ends (Lawrence 2026-10-28: "i cant scroll up/down after clicking
+    /// into like the thread ui"). True when the view is open and taller than its space (the wheel is the
+    /// thread's then, even at an end); false otherwise.
+    @discardableResult
+    func scrollThread(by dy: CGFloat) -> Bool {
+        guard threadOpen, threadClosing == 0, !threadViews.isEmpty, threadScrollRange > 0 else { return false }
+        let back = min(max(0, threadScrollBack + dy), threadScrollRange)
+        let d = back - threadScrollBack
+        guard abs(d) > 0.001 else { return true }
+        threadScrollBack = back
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        // A scroll ends the open's flight: the rows are where the scroll puts them.
+        for v in threadViews { v.layer.removeAnimation(forKey: "thread.fly"); v.frame.origin.y += d }
+        if let hv = threadHeaderView { hv.frame.origin.y += d }
+        threadHeaderHits = threadHeaderHits.map { ($0.0.offsetBy(dx: 0, dy: d), $0.1) }
+        CATransaction.commit()
+        return true
+    }
+
     /// cmux: Reduce Motion (the host's pin or the system setting): the thread view and a reply sent in it change at once.
     private var reducesMotion: Bool { MessagesLabHomeView.reducesMotion }
 
@@ -2417,8 +2496,25 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                 let r = cell.convert(cell.bounds, to: self)
                 if pv.outgoing {
                     if p.x >= r.minX + spec.metrics.rightEdge - max(pv.box.width, 90) { return pv.root }
-                } else if p.x <= r.minX + Fixture.leftEdge + max(pv.box.width, 90) { return pv.root }
+                } else if p.x <= r.minX + pv.cmuxLeft + max(pv.box.width, 90) { return pv.root } // cmux: group indent
             }
+        }
+        return nil
+    }
+
+    /// cmux: the key of the transcript row under `p` (a visible cell), or nil.
+    func rowKey(at p: CGPoint) -> String? {
+        for case let cell as RowCell in collection.visibleCells where cell.convert(cell.bounds, to: self).contains(p) {
+            return cell.spec?.key
+        }
+        return nil
+    }
+
+    /// cmux: where the transcript row `key` is in this view (a visible cell, under an open thread view's
+    /// blur too), or nil when it is not on screen.
+    func rowFrame(key: String) -> CGRect? {
+        for case let cell as RowCell in collection.visibleCells where cell.spec?.key == key {
+            return cell.convert(cell.bounds, to: self)
         }
         return nil
     }

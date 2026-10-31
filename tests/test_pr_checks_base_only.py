@@ -36,7 +36,9 @@ WORKFLOW_PATH = ROOT / ".github/workflows/pr-checks.yml"
 WORKFLOW = yaml.safe_load(WORKFLOW_PATH.read_text())
 JOBS = WORKFLOW["jobs"]
 STEP = next(s for s in JOBS["base-only"]["steps"] if s.get("id") == "decide")
-SKIPPED_ON_BASE_ONLY = ("link", "size", "split")
+# PR size answers on every push: a base-only skip would keep an older answer.
+SKIPPED_ON_BASE_ONLY = ("link", "split", "ui-review")
+ALWAYS = ("size",)
 ANSWER = "needs.base-only.outputs.base_only != 'true'"
 LINES = "".join(f"let a{i} = {i}\n" for i in range(60))
 SAME = "x\n" * 30  # identical lines: one replacement reads the same wherever it is
@@ -269,7 +271,7 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertEqual(JOBS["base-only"]["if"], "github.event.action == 'synchronize'")
 
     def test_only_advisory_jobs_and_every_one_waits_on_it(self):
-        self.assertEqual(set(JOBS), {"base-only", *SKIPPED_ON_BASE_ONLY})
+        self.assertEqual(set(JOBS), {"base-only", *SKIPPED_ON_BASE_ONLY, *ALWAYS})
         for job_id in SKIPPED_ON_BASE_ONLY:
             with self.subTest(job=job_id):
                 job = JOBS[job_id]
@@ -278,6 +280,14 @@ class WorkflowShapeTests(unittest.TestCase):
                 self.assertTrue(str(job["if"]).startswith("${{ !cancelled() && " + ANSWER))
                 self.assertNotIn("continue-on-error", job)
         self.assertNotIn("pull_request_target", WORKFLOW_PATH.read_text())
+
+    def test_the_size_check_never_skips_on_a_base_only_update(self):
+        for job_id in ALWAYS:
+            job = JOBS[job_id]
+            self.assertNotIn("needs", job)
+            self.assertNotIn("base_only", str(job["if"]))
+            self.assertTrue(str(job["if"]).startswith("${{ !cancelled() && "))
+            self.assertNotIn("continue-on-error", job)
 
     def test_the_run_title_names_the_event_the_previous_run_check_reads(self):
         title = WORKFLOW["run-name"]
@@ -291,7 +301,7 @@ class WorkflowShapeTests(unittest.TestCase):
         group = WORKFLOW["concurrency"]["group"]
         self.assertIn("github.event.action == 'edited' && 'edited' || 'push'", group)
         self.assertTrue(WORKFLOW["concurrency"]["cancel-in-progress"])
-        for job_id in SKIPPED_ON_BASE_ONLY:
+        for job_id in (*SKIPPED_ON_BASE_ONLY, *ALWAYS):
             self.assertNotIn("concurrency", JOBS[job_id])
 
     def test_every_push_group_event_runs_every_advisory(self):
@@ -306,8 +316,9 @@ class WorkflowShapeTests(unittest.TestCase):
     def test_check_names_are_unchanged(self):
         names = {job_id: job.get("name", job_id) for job_id, job in JOBS.items()}
         self.assertEqual(names["link"], "link")
-        self.assertEqual(names["size"], "PR size (advisory)")
+        self.assertEqual(names["size"], "PR size")
         self.assertEqual(names["split"], "split-plan advisory")
+        self.assertEqual(names["ui-review"], "UI review advisory")
 
 
 if __name__ == "__main__":

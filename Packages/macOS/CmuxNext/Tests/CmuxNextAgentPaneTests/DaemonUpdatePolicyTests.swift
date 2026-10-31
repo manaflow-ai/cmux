@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -159,6 +160,120 @@ import Testing
         #expect(fixture.notices.isEmpty)
     }
 
+    /// An unreachable machine (Leo's toast: ssh timed out connecting) is offline, not failed: no
+    /// notice and nothing recorded, its line says offline, and it is asked again with the busy
+    /// backoff. After six hours its line stays and it is not settled: offered again once it
+    /// connects, it updates in this run.
+    @Test func anUnreachableTargetIsOfflineAndUpdatesWhenItConnectsAfterSixHours() async throws {
+        let fixture = try PolicyFixture()
+        defer { fixture.remove() }
+        let clock = PolicyTestClock()
+        let minutes: [Int64] = [2, 4, 8, 16] + Array(repeating: 30, count: 11)
+        let target = fixture.target("swarm", build: Self.older,
+                                    outcomes: Array(repeating: .unreachable, count: minutes.count + 1) + [.updated(build: nil)])
+        let policy = fixture.policy([target], clock: clock)
+        await policy.run()
+
+        #expect(clock.sleeps == minutes.map { .seconds($0 * 60) })
+        #expect(fixture.states("swarm").suffix(3) == [.offline, .updating, .offline])
+        #expect(!fixture.states("swarm").contains(.retrying) && !fixture.states("swarm").contains(.cleared))
+        #expect(fixture.ledger.targets.isEmpty)
+        #expect(fixture.notices.isEmpty)
+
+        await policy.offer(target)
+        await policy.drained()
+        #expect(fixture.calls.count == minutes.count + 2)
+        #expect(fixture.ledger.targets == ["swarm": "updated"])
+        #expect(fixture.states("swarm").last == .updated(build: "abc123def"))
+    }
+
+    /// Offline for six hours, a machine that then connects already on this build (updated by
+    /// hand meanwhile) leaves the board: its offline line does not stay.
+    @Test func anOfflineTargetThatConnectsCurrentAfterSixHoursClearsItsLine() async throws {
+        let fixture = try PolicyFixture()
+        defer { fixture.remove() }
+        let clock = PolicyTestClock()
+        let minutes: [Int64] = [2, 4, 8, 16] + Array(repeating: 30, count: 11)
+        let target = fixture.target("swarm", build: Self.older,
+                                    outcomes: Array(repeating: .unreachable, count: minutes.count + 1))
+        let policy = fixture.policy([target], clock: clock)
+        await policy.run()
+        #expect(fixture.states("swarm").last == .offline)
+
+        target.reach(Self.bundled)
+        await policy.offer(target)
+        await policy.drained()
+        #expect(fixture.calls.count == minutes.count + 1)
+        #expect(fixture.states("swarm").last == .cleared)
+        #expect(fixture.ledger.targets.isEmpty)
+    }
+
+    /// An offline machine the daemon then reports disconnected (no build) keeps its offline line
+    /// rather than leaving the board, until it connects and is offered again.
+    @Test func anOfflineTargetThatDisconnectsKeepsItsLine() async throws {
+        let fixture = try PolicyFixture()
+        defer { fixture.remove() }
+        let started = UpdateSignal()
+        let release = UpdateSignal()
+        let target = fixture.target("swarm", build: Self.older, outcomes: [.unreachable, .updated(build: nil)], started: started, release: release)
+        let policy = fixture.policy([])
+        await policy.offer(target)
+        await started.wait()
+        target.reach(nil)
+        release.fire()
+        await policy.drained()
+        #expect(fixture.calls == ["swarm"])
+        #expect(fixture.states("swarm") == [.updating, .offline])
+
+        target.reach(Self.older)
+        await policy.offer(target)
+        await policy.drained()
+        #expect(fixture.calls == ["swarm", "swarm"])
+        #expect(fixture.states("swarm").last == .updated(build: "abc123def"))
+    }
+
+    /// An offline machine that disconnected, then connects already on this build (updated by hand
+    /// meanwhile), leaves the board: its offline line does not stay.
+    @Test func anOfflineTargetThatDisconnectsThenConnectsCurrentClearsItsLine() async throws {
+        let fixture = try PolicyFixture()
+        defer { fixture.remove() }
+        let started = UpdateSignal()
+        let release = UpdateSignal()
+        let target = fixture.target("swarm", build: Self.older, outcomes: [.unreachable], started: started, release: release)
+        let policy = fixture.policy([])
+        await policy.offer(target)
+        await started.wait()
+        target.reach(nil)
+        release.fire()
+        await policy.drained()
+        #expect(fixture.states("swarm") == [.updating, .offline])
+
+        target.reach(Self.bundled)
+        await policy.offer(target)
+        await policy.drained()
+        #expect(fixture.calls == ["swarm"])
+        #expect(fixture.states("swarm") == [.updating, .offline, .cleared])
+        #expect(fixture.ledger.targets.isEmpty)
+    }
+
+    /// Offered again while it waits out an offline backoff (a source offers only connected
+    /// machines, so it is back), a machine goes at once, not after the wait.
+    @Test(.timeLimit(.minutes(1))) func anOfflineTargetOfferedAgainDoesNotWaitOutItsBackoff() async throws {
+        let fixture = try PolicyFixture()
+        defer { fixture.remove() }
+        let clock = FirstSleepHeldClock()
+        let target = fixture.target("swarm", build: Self.older, outcomes: [.unreachable, .updated(build: nil)])
+        let policy = fixture.policy([], clock: clock)
+        await policy.offer(target)
+        await clock.sleeping.wait()
+        await policy.offer(target)
+        await policy.drained()
+
+        #expect(fixture.calls == ["swarm", "swarm"])
+        #expect(fixture.states("swarm") == [.updating, .offline, .updating, .updated(build: "abc123def")])
+        #expect(fixture.ledger.targets == ["swarm": "updated"])
+    }
+
     /// A failed update shows as failed on the board and asks for one notice, also when the app
     /// relaunches on the same build (the target is not tried again).
     @Test @MainActor func aFailureShowsItsStateAndAsksForOneNotice() async throws {
@@ -269,16 +384,18 @@ import Testing
     }
 
     /// Review of #25387: the bundled acpmux's `--version` never answers. The probe ends at its
-    /// bound with no build, so the queue drains (pushes nothing) instead of waiting forever.
+    /// bound with no build, so the queue drains (pushes nothing) instead of waiting forever. The
+    /// bound is on the probe's clock (a manual one here), so no wall time is measured.
     @Test(.timeLimit(.minutes(1))) func aBundledVersionThatNeverAnswersEndsAtItsBound() async throws {
-        let fixture = try PolicyFixture()
-        defer { fixture.remove() }
-        let hung = fixture.root.appendingPathComponent("acpmux")
-        try "#!/bin/sh\nexec sleep 120\n".write(to: hung, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hung.path)
-        let started = ContinuousClock.now
-        #expect(await DaemonUpdatePolicy.bundledBuild(of: hung, within: .milliseconds(500)) == nil)
-        #expect(ContinuousClock.now - started < .seconds(10))
+        let stall = try StalledAcpmux()
+        defer { stall.remove() }
+        let clock = ManualClock()
+        let probe = Task { await DaemonUpdatePolicy.bundledBuild(of: stall.executable, within: .milliseconds(500), clock: clock) }
+        await stall.waitUntilStarted()
+        try await clock.waitForSleeper(within: .seconds(60))
+        clock.advance(by: .milliseconds(500))
+        #expect(await probe.value == nil)
+        #expect(await stall.waitUntilStopped(), "the stalled --version was not stopped at its bound")
     }
 
     /// The probe reads the build from `acpmux --version`.
@@ -523,8 +640,9 @@ nonisolated final class FakeUpdateTarget: DaemonUpdateTarget {
 
     func currentBuild() async -> String? { state.withLock { $0.build } }
 
-    /// Moves the target to `build` outside the policy, as a hand-run update would.
-    func reach(_ build: String) { state.withLock { $0.build = build } }
+    /// Moves the target to `build` outside the policy, as a hand-run update would; nil: it
+    /// disconnected.
+    func reach(_ build: String?) { state.withLock { $0.build = build } }
 
     func update(to build: DaemonBuildCommit, whileBusy: Bool) async -> DaemonUpdateOutcome {
         fixture.began(id, whileBusy: whileBusy)

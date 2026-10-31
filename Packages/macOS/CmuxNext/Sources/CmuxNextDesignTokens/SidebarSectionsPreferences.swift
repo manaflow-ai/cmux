@@ -46,8 +46,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// False: the bands never scroll; the list shrinks instead (to a
     /// minimum of three rows).
     public var pinnedBandsScroll: Bool
-    /// Whether the workspace list expands each workspace into its tab rows. On by default
-    /// (Lawrence 2026-10-27: "show everything by default"); off hides every workspace's tabs.
+    /// Whether the workspace list expands each workspace into its tab rows. Off by default
+    /// (https://github.com/manaflow-ai/cmux/issues/26384): plain workspace rows; Settings >
+    /// Appearance > Sidebar > Show Workspace Tabs turns it on.
     public var showWorkspaceTabs: Bool
     /// `sidebar.groupByComputer`: one workspace section per computer, each
     /// under its header. Off (the default) shows one list of workspaces with
@@ -80,6 +81,10 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// `sidebar.noFade`: the whole left sidebar shows with no edge fade, and the bottom profile and
     /// search bar hides (Lawrence 2026-10-26). Off by default: the edges fade and the bar shows.
     public var noFade = false
+    /// `sidebar.controlsOnHover` (Show Sidebar Controls Only on Hover, Lawrence 2026-10-27): the sidebar's New Workspace
+    /// button, spaces strip, profile control and Search button show only while the pointer is over
+    /// the sidebar. Off by default: they always show.
+    public var controlsOnHover = false
     /// Minimal mode (`sidebar.minimal`, cx-w1r5; Lawrence 2026-10-09: "some
     /// people like minimal mode"): workspace rows draw only their icon, name,
     /// unread mark and attention state (no second line, no counts or badges,
@@ -112,6 +117,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// Compact (the default), comfortable or expanded workspace rows
     /// (`sidebar.density`); minimal mode wins over expanded content.
     public var density: SidebarDensity = .compact
+    /// How large the list's text, leading glyphs and rows are (`sidebar.textSize`, ``SidebarTextSize``):
+    /// the original size by default; Larger matches the ChatGPT app's sidebar.
+    public var textSize: SidebarTextSize = .standard
     /// Pinned bands that hide until the pointer is over the sidebar (R54).
     /// Off by default: a fresh profile's sidebar is pinned, its Settings and
     /// account band always shown; hover-reveal is opt-in (Leo 2026-10-11).
@@ -137,7 +145,7 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var style: SidebarLayoutStyle = .standard
 
     public init(look: String = "quiet", topBandMaxShare: Double = 1.0 / 3.0, bottomBandMaxShare: Double = 0.25,
-                pinnedBandsScroll: Bool = true, showWorkspaceTabs: Bool = true) {
+                pinnedBandsScroll: Bool = true, showWorkspaceTabs: Bool = false) {
         self.look = look
         self.topBandMaxShare = topBandMaxShare
         self.bottomBandMaxShare = bottomBandMaxShare

@@ -25,6 +25,8 @@ final class CloudMachineCreation: Identifiable {
     private(set) var session: CloudMachineSession?
     /// The workspace that opened when the machine was ready.
     private(set) var workspaceID: String?
+    /// The paid plan the last failure needs, for a CLI or agent caller's answer.
+    private(set) var planRefusal: ProRefusal?
     /// Time from the attempt's start to `ready`.
     private(set) var readyAfter: Duration?
     /// How the requested bootstrap started (``CloudMachineRequest/script``); nil without one.
@@ -50,12 +52,41 @@ final class CloudMachineCreation: Identifiable {
     /// What `cloud new-machine` asked for (size, idle pause); a Retry asks for the same, with
     /// the same idempotency key.
     private(set) var request: CloudMachineRequest
+    /// The name the first app server attempt sent (``CloudService/createMachine``): the one asked for, else
+    /// a readable default. Every Retry sends the same one, since an approval holds the exact params. Not
+    /// part of ``request``: a named request is a request option the app server's create refuses.
+    var pinnedMachineName: String?
 
     /// The create went to the server once, to `team`: a Retry may find the machine it made, and
     /// goes to that same team.
     func markRequestSent(team: String?) {
         if !request.wasSent { request.team = team }
         request.wasSent = true
+    }
+
+    /// The person answered approval `request` for `key`; nothing when the creation moved on to another key.
+    func markApproved(_ request: String, key: String) {
+        guard self.request.idempotencyKey == key else { return }
+        self.request.approvedRequest = request
+    }
+
+    /// An attempt with `key` is about to answer approval `request`; nothing when the creation moved on to another key.
+    func markAnswering(_ request: String, key: String) {
+        guard self.request.idempotencyKey == key else { return }
+        self.request.answeringRequest = request
+    }
+
+    /// The server refused the create outright and made no machine (``CloudService/isDefinitiveRefusal(_:)``):
+    /// the key's stored answer is that refusal, so a Retry after the person fixes it (frees a slot,
+    /// upgrades) needs a new key, which may also go to another team.
+    /// Only for the key the refused attempt sent: a Retry that started meanwhile keeps its own.
+    func renewKey(replacing key: String) {
+        guard request.idempotencyKey == key else { return }
+        request.idempotencyKey = UUID().uuidString
+        request.wasSent = false
+        request.team = nil
+        request.approvedRequest = nil
+        request.answeringRequest = nil
     }
 
     init(windowID: String?, session: CloudMachineSession? = nil, request: CloudMachineRequest = CloudMachineRequest(),
@@ -94,6 +125,30 @@ final class CloudMachineCreation: Identifiable {
 
     func noteBootstrap(_ outcome: CloudMachineBootstrap.Outcome) {
         bootstrap = outcome
+    }
+
+    /// What a create refused for a paid plan tells the person: the server's text, its
+    /// upgrade link, and the plan that lifts it (`pro` or `max`).
+    struct ProRefusal: Equatable, Sendable {
+        var message: String?
+        var upgradeURL: URL?
+        var plan = "pro"
+        /// The app already showed its own upgrade card (the plan gate): no second offer.
+        var offered = false
+    }
+
+    /// A create a paid plan would allow: the legacy `/api/vm` refusal that names one
+    /// (``CloudAPIError/planRequired(message:upgradeURL:plan:)``), the app's own free-plan gate,
+    /// or the app server's `plan_required`.
+    nonisolated static func proRefusal(_ error: any Error) -> ProRefusal? {
+        if case let CloudAPIError.planRequired(message, url, plan) = error { return ProRefusal(message: message, upgradeURL: url, plan: plan) }
+        // The plan gate refused a free plan before any request: a person's create already showed its
+        // card, and an agent's shows none (the agent reports the refusal), so no second offer either way.
+        if case CloudMachineCreateFlow.Failure.upgradeRequired(.freePlan) = error { return ProRefusal(plan: "pro", offered: true) }
+        guard let failure = error as? CloudAppOpFailure, failure.code == CloudAppOpFailure.planRequired else { return nil }
+        // The app server's message is the backend's English text, not the person's language: the dialog's own copy stands in.
+        let plan = failure.details?["plan"]?.stringValue == "max" ? "max" : "pro"
+        return ProRefusal(message: nil, upgradeURL: nil, plan: plan)
     }
 
     func noteBootstrapCompletion(_ completion: CloudMachineBootstrap.Completion) {
@@ -147,6 +202,8 @@ final class CloudMachineCreation: Identifiable {
     }
 
     func fail(_ error: any Error) {
+        // Before the phase: a caller that observes the failure reads the plan with it.
+        planRefusal = Self.proRefusal(error)
         phase = .failed(CloudStrings.errorText(error))
     }
 
@@ -162,6 +219,7 @@ final class CloudMachineCreation: Identifiable {
     func restart(now: ContinuousClock.Instant = ContinuousClock().now) {
         startedAt = now
         readyAfter = nil
+        planRefusal = nil
         if session == nil { phase = .requesting }
     }
 }
@@ -228,6 +286,12 @@ struct CloudCreationFlow {
     let open: @MainActor (CloudMachineSession) async throws -> String
     /// Places the opened workspace (`creation.workspaceID`) in its window.
     let show: @MainActor (String, CloudMachineCreation) -> Void
+    /// A refusal a paid plan lifts (``CloudMachineCreation/proRefusal(_:)``): offers that plan.
+    var planRequired: @MainActor (CloudMachineCreation.ProRefusal) -> Void = { _ in }
+    /// Whether a person's own gesture started the create: only then does a refusal reach
+    /// `planRequired` (an agent's or the CLI's create fails with the plan, which the caller offers).
+    var startedByPerson = false
+
     /// Starts the requested bootstrap (``CloudMachineRequest/script``), then applies the requested
     /// machine config (``CloudMachineRequest/machineConfig``), each only while ``needsScript`` or
     /// ``needsMachineConfig`` says so, noting the outcomes on the creation. A run calls it after the
@@ -294,7 +358,8 @@ struct CloudCreationFlow {
     }
 
     private func run(_ creation: CloudMachineCreation) {
-        let create = create, open = open, show = show, bootstrap = bootstrap, creations = creations
+        let create = create, open = open, show = show, bootstrap = bootstrap, creations = creations, planRequired = planRequired
+        let startedByPerson = startedByPerson
         // task-owner: the creation's one run; cancelled by retry, dismiss or machine removal
         creation.task = Task { @MainActor in
             do {
@@ -333,6 +398,7 @@ struct CloudCreationFlow {
             } catch {
                 guard !Task.isCancelled else { return }
                 creation.fail(error)
+                if let refusal = creation.planRefusal, startedByPerson { planRequired(refusal) }
             }
         }
     }

@@ -5,7 +5,7 @@
 // Vega runs with its AST interpreter (no eval); Mermaid draws with Ondine (WebAssembly, no imports),
 // Mermaid 11 as fallback, and the SVG is cleaned before it is shown. The block draws once it nears the
 // viewport; Code shows the source. A source the renderer refuses shows the source and why.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { DiagramLibraries, renderMermaid, renderVega } from "../../../pages/markdown/diagrams";
 import { useT } from "../i18n";
 import { useNearViewport } from "../useNearViewport";
@@ -28,7 +28,7 @@ export function isChart(lang: string, code: string): boolean {
 
 const libraries = new DiagramLibraries((name) => new URL(`__lib/${name}.js`, document.baseURI).href);
 
-export function DiagramBlock({ lang, code }: { lang: string; code: string }) {
+export function DiagramBlock({ lang, code, actions }: { lang: string; code: string; actions?: ReactNode }) {
   const t = useT();
   const [frame, setFrame] = useState<HTMLDivElement | null>(null);
   const near = useNearViewport(frame);
@@ -62,6 +62,7 @@ export function DiagramBlock({ lang, code }: { lang: string; code: string }) {
             {showCode ? t("diagram.chart") : t("diagram.code")}
           </button>
         )}
+        {actions}
       </div>
       {failure && <div className="cv-diagram__error">{t("diagram.failed", { reason: failure })}</div>}
       <div ref={chart} className="cv-diagram__chart" hidden={showCode || Boolean(failure)} />

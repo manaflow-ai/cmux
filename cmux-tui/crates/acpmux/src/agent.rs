@@ -31,6 +31,14 @@ pub enum Direction {
     In,
 }
 
+/// Which pipe of an agent a line of `Inbound::Stderr` came from: its stderr, or a `[non-json
+/// stdout]` note. The hub cleans each as its own stream.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum StderrPipe {
+    Stderr,
+    Stdout,
+}
+
 /// Something the agent sent that acpmux must act on.
 #[derive(Debug)]
 pub enum Inbound {
@@ -58,8 +66,9 @@ pub enum Inbound {
         /// withdrawal marker is stored. The reader owns the receiver.
         persisted: Option<oneshot::Sender<bool>>,
     },
-    /// One stderr line; `host_seq` names the agent host entry it came from.
-    Stderr(String, Option<u64>),
+    /// One stderr line of the agent of `agent` (its generation and which of its pipes); `host_seq`
+    /// names the agent host entry it came from. A `[non-json stdout]` note is the agent's stdout.
+    Stderr(String, Option<u64>, Option<(u64, StderrPipe)>),
     /// The agent process with this pid exited. The pid tells a late exit of
     /// a replaced process apart from the current one.
     Exited { pid: Option<u32>, code: Option<i32>, host_seq: Option<u64> },
@@ -72,6 +81,11 @@ pub enum Inbound {
     /// (`ReplayHold` in `hub/lifecycle.rs`). Queued through the agent's own sender, behind
     /// everything its reader already queued.
     ReplayDone { agent: u64 },
+    /// The reader of this generation's host link stopped: an entry could not be logged, or the
+    /// link closed (the host died, or another owner took it), so what the host reports from there
+    /// is not heard until a reattach. The hub's full-access bound treats such an agent as unheard
+    /// (#23322).
+    LinkBroken { agent: u64 },
 }
 
 /// Tests only: the agent generation `ChildAgent::replay_pending` reports as replaying.
@@ -127,6 +141,11 @@ struct Hosted {
     /// not known (from a reattach or an adoption until it is learned, or for good when the host did
     /// not say).
     replay_to: std::sync::atomic::AtomicU64,
+    /// The reader of the current link stopped otherwise (the link closed, or an acknowledgement
+    /// failed while its socket still looked open): the agent is not heard through this link
+    /// (`is_stopped`, review 68 of #23322); a reattach clears it. Under MDM's off only: with it
+    /// unset the agent counts as alive as before (`is_alive`, review 1 of #26059).
+    stopped: std::sync::atomic::AtomicBool,
 }
 
 impl Hosted {
@@ -208,6 +227,9 @@ enum Writer {
     },
     /// A hosted agent: its host, proven by its start nonce's live lock.
     Hosted(crate::agent_host::HostRecord),
+    /// A host of this session (of every session: `None`) an adoption could not resolve
+    /// (`agent_host::unresolved`).
+    Unresolved(Option<String>),
 }
 
 impl std::fmt::Debug for Fence {
@@ -243,6 +265,27 @@ impl Fence {
 
     fn now(&self) -> u8 {
         *self.0.step.borrow()
+    }
+
+    /// A fenced line a previous daemon handed to `host`, held again at adoption
+    /// (`link::adopt_receipt`): its host has it, so only its receipt or its host's end settles
+    /// it, and a cut ends that host (`Self::cut_or_end`).
+    pub fn held_by_host(host: crate::agent_host::HostRecord) -> Self {
+        Self::taken_by(Writer::Hosted(host))
+    }
+
+    /// What a host of `session` (of every session: `None`) an adoption could not resolve may
+    /// still write (`agent_host::unresolved`): only a cut settles it, once that proves no such
+    /// host lives (fail closed).
+    pub fn unresolved(session: Option<String>) -> Self {
+        Self::taken_by(Writer::Unresolved(session))
+    }
+
+    fn taken_by(writer: Writer) -> Self {
+        let fence = Self::default();
+        let _ = fence.0.writer.set(writer);
+        fence.begin();
+        fence
     }
 
     /// The writer takes it: false when it was cut, and it is dropped.
@@ -332,6 +375,19 @@ impl Fence {
                 }
                 ended
             }
+            Some(Writer::Unresolved(session)) => {
+                let running = self.0.ending.lock().unwrap_or_else(|e| e.into_inner()).take();
+                let mut ending = running.unwrap_or_else(|| end_unresolved(session.clone()));
+                let Ok(ended) = tokio::time::timeout(budget * 4, &mut ending).await else {
+                    *self.0.ending.lock().unwrap_or_else(|e| e.into_inner()) = Some(ending);
+                    return false;
+                };
+                let ended = ended.unwrap_or(false);
+                if ended {
+                    self.failed();
+                }
+                ended
+            }
             None => false,
         }
     }
@@ -381,6 +437,13 @@ async fn end_direct(
 
 /// Ends the host behind `record` (`Fence::cut_or_end`) by its start nonce: proven by its live
 /// lock (`terminate_unadoptable`), with its harness. Its caller bounds the wait.
+/// [`crate::agent_host::unresolved::end_unresolved`], off the runtime.
+fn end_unresolved(session: Option<String>) -> tokio::task::JoinHandle<bool> {
+    tokio::task::spawn_blocking(move || {
+        crate::agent_host::unresolved::end_unresolved(session.as_deref())
+    })
+}
+
 fn end_hosted(record: crate::agent_host::HostRecord) -> tokio::task::JoinHandle<bool> {
     tokio::task::spawn_blocking(move || {
         for dir in crate::agent_host::live_lock_dirs(&record) {
@@ -492,6 +555,38 @@ async fn pause_input(seam: &InputSeam, line: &str, writing: bool) {
     }
 }
 
+/// How acpmux started a harness: its argv, the part of its environment that decides which MCP
+/// configs it reads and which program a name runs, and its folder (`hub/idle_census.rs`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Launch {
+    pub args: Vec<String>,
+    pub env: std::collections::BTreeMap<String, String>,
+    pub cwd: std::path::PathBuf,
+}
+
+impl Launch {
+    const ENV: [&str; 4] = ["PATH", "HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME"];
+
+    /// From a spawn's program, args, full environment and folder.
+    pub fn new(
+        program: &str,
+        args: &[String],
+        env: &[(String, String)],
+        cwd: &std::path::Path,
+    ) -> Self {
+        let args = std::iter::once(program.to_owned()).chain(args.iter().cloned()).collect();
+        let env = env.iter().filter(|(k, _)| Self::ENV.contains(&k.as_str())).cloned().collect();
+        Launch { args, env, cwd: cwd.to_path_buf() }
+    }
+
+    /// From the command a direct child runs.
+    fn of(cmd: &tokio::process::Command, cwd: &std::path::Path) -> Self {
+        let std = cmd.as_std();
+        let args: Vec<String> = std.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+        Self::new(&std.get_program().to_string_lossy(), &args, &command_env(cmd), cwd)
+    }
+}
+
 pub struct ChildAgent {
     pub name: String,
     /// Shared with the fences its writer takes (`Writer::Direct`, a weak reference).
@@ -519,6 +614,12 @@ pub struct ChildAgent {
     /// Its cmux MCP server lists every tool (`agent_tools::lists_all_tools`,
     /// decided at its session/new or load), for a fork through it.
     pub all_tools: std::sync::atomic::AtomicBool,
+    /// The `mcpServers` acpmux gave it at its session/new or load (`spawn.rs` `acp_params`), for
+    /// the idle census (`hub/idle_census.rs`). None for an agent adopted from another daemon.
+    pub given_servers: std::sync::Mutex<Option<Value>>,
+    /// The MCP servers its harness's configs named as it started (`LaunchServers::read`, before
+    /// it started), for the idle census. None for a harness another daemon started.
+    pub(crate) launch: std::sync::Mutex<Option<crate::hub::LaunchServers>>,
     /// Set once the agent is replaced or stopped (`retire`): a /context answer it still sends
     /// is not the chat's context any more, and is neither logged nor handed to the hub. A lock,
     /// not a flag: the reader holds it while it checks and logs such an answer (`tap_live`), so a
@@ -608,10 +709,27 @@ impl ChildAgent {
             inbound: inbound.clone(),
             order: Mutex::new(()),
         });
+        // A delivery may have updated or removed the machine's secrets since
+        // daemon startup. Never build a process env from stale cached values.
+        anyhow::ensure!(
+            crate::login_env::machine_env_fresh_before_spawn().await,
+            "machine environment changed; login env refresh failed"
+        );
         let mut cmd = harness_command(name, profile, cwd, command_line, session)?;
+        // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).
+        let launch = crate::hub::LaunchServers::read(
+            &Launch::of(&cmd, cwd),
+            crate::config::derive_family(name, profile),
+        )
+        .await;
         let preview_format = Some(pinned_preview_format(&cmd));
         #[cfg(windows)]
         cmd.creation_flags(crate::job::AGENT_FLAGS);
+        // Below the GUI's CPU class (macOS), the tools it starts with it (`cpu_class.rs`).
+        // From the harness's own env: its profile's value as resolved.
+        let env = command_env(&cmd);
+        crate::cpu_class::CpuClass::for_session(env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
+            .apply(&mut cmd);
         let mut child = cmd.spawn().map_err(|e| spawn_error(&format!("spawn agent {name}"), e))?;
         #[cfg(windows)]
         let job = {
@@ -648,6 +766,8 @@ impl ChildAgent {
             codex,
             hosted: None,
             all_tools: std::sync::atomic::AtomicBool::new(false),
+            given_servers: std::sync::Mutex::new(None),
+            launch: std::sync::Mutex::new(Some(launch)),
             retired: std::sync::Mutex::new(false),
             ended_on_purpose: std::sync::atomic::AtomicBool::new(false),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
@@ -702,10 +822,13 @@ impl ChildAgent {
 
         let stderr_done = {
             let inbound = inbound.clone();
+            let generation = agent.generation;
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stderr).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
-                    let _ = inbound.send(Inbound::Stderr(line, None)).await;
+                    let _ = inbound
+                        .send(Inbound::Stderr(line, None, Some((generation, StderrPipe::Stderr))))
+                        .await;
                 }
             })
         };
@@ -721,6 +844,8 @@ impl ChildAgent {
                 // open; watch it so its exit is reported regardless.
                 let mut leader_check = tokio::time::interval(LEADER_CHECK);
                 let mut leader_gone: Option<tokio::time::Instant> = None;
+                // The carry whose hold was waited out (`claude_stdio/carry.rs`): once per carry.
+                let mut held: Option<u64> = None;
                 loop {
                     let next = tokio::select! {
                         next = lines.next_line() => next,
@@ -760,6 +885,7 @@ impl ChildAgent {
                                     .send(Inbound::Stderr(
                                         format!("[non-json stdout] {line}"),
                                         None,
+                                        Some((agent_for_exit.generation, StderrPipe::Stdout)),
                                     ))
                                     .await;
                                 continue;
@@ -798,6 +924,7 @@ impl ChildAgent {
                                     .send(Inbound::Stderr(
                                         format!("[non-json stdout] {line}"),
                                         None,
+                                        Some((agent_for_exit.generation, StderrPipe::Stdout)),
                                     ))
                                     .await;
                                 continue;
@@ -832,6 +959,7 @@ impl ChildAgent {
                                     .send(Inbound::Stderr(
                                         format!("[non-json stdout] {line}"),
                                         None,
+                                        Some((agent_for_exit.generation, StderrPipe::Stdout)),
                                     ))
                                     .await;
                                 continue;
@@ -873,6 +1001,20 @@ impl ChildAgent {
                                     .await;
                             }
                         }
+                    }
+                    // Claude Code ended its turn and runs on with steers it had not read: its next
+                    // line waits until the hub logged that turn's end and the next one's start
+                    // (the next turn's prompt), bounded (`claude_stdio/carry.rs`).
+                    // Each carry holds once, also one made while an earlier one still holds.
+                    let tr = agent_for_exit.translator.as_ref();
+                    let holding = tr.and_then(|tr| tr.holding().map(|carry| (tr, carry)));
+                    match holding {
+                        Some((tr, carry)) if held != Some(carry) => {
+                            tr.wait_unheld(crate::claude_stdio::CARRY_HOLD_MAX).await;
+                            held = Some(carry);
+                        }
+                        Some(_) => {}
+                        None => held = None,
                     }
                 }
                 // Claude's background shells ended with it (cx-ncc.84).
@@ -949,6 +1091,28 @@ impl ChildAgent {
     /// Whether [`Self::end_on_purpose`] ran.
     pub fn ended_on_purpose(&self) -> bool {
         self.ended_on_purpose.load(Ordering::SeqCst)
+    }
+
+    /// Fails every request still waiting on this agent: it was ended, and no exit may be read for
+    /// it (a host whose reader stopped, #23322 review 65). A request already answered is not here.
+    pub async fn fail_pending(&self) {
+        let mut p = self.pending.lock().await;
+        for (_, tx) in p.map.drain() {
+            let _ = tx.send(Err(RpcError::internal(AGENT_CLOSED)));
+        }
+    }
+
+    /// `fail_pending` while this agent's link is still broken or stopped: a reattach clears those
+    /// under the same lock, so a late notice of an old link never fails the open requests of the
+    /// link that replaced it (review 2 of #26059).
+    pub async fn fail_pending_if_unheard(&self) {
+        let mut p = self.pending.lock().await;
+        if !self.is_broken() && !self.is_stopped() {
+            return;
+        }
+        for (_, tx) in p.map.drain() {
+            let _ = tx.send(Err(RpcError::internal("agent process closed")));
+        }
     }
 
     /// Whether [`Self::retire`] ran.
@@ -1289,6 +1453,32 @@ impl ChildAgent {
         fence: Option<&Fence>,
         on_written: F,
     ) -> Result<Value, RpcError> {
+        self.request_hook(method, params, fence, false, on_written).await
+    }
+
+    /// Like `request_with_hook`, but the callback requires confirmation from the stdin writer
+    /// (or hosted harness receipt), not acceptance into the transport queue.
+    pub(crate) async fn request_with_confirmed_hook<F: FnOnce()>(
+        &self,
+        method: &str,
+        params: Value,
+        fence: Option<&Fence>,
+        on_written: F,
+    ) -> Result<Value, RpcError> {
+        let own_fence = Fence::default();
+        let fence = fence.unwrap_or(&own_fence);
+        let _unsent = CutOnDrop(Some(fence));
+        self.request_hook(method, params, Some(fence), true, on_written).await
+    }
+
+    async fn request_hook<F: FnOnce()>(
+        &self,
+        method: &str,
+        params: Value,
+        fence: Option<&Fence>,
+        confirmed: bool,
+        on_written: F,
+    ) -> Result<Value, RpcError> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
         self.pending.lock().await.map.insert(key(&Value::from(id)), tx);
@@ -1299,6 +1489,23 @@ impl ChildAgent {
             let mut unhanded = CutOnDrop(fence);
             self.write_fenced(&msg, fence).await.map_err(|e| RpcError::internal(e.to_string()))?;
             unhanded.0 = None;
+            let mut rx = rx;
+            if confirmed && let Some(fence) = fence {
+                // A legacy host may answer without a write receipt. Return its answer, but
+                // never consume information or report read from an unconfirmed transport.
+                tokio::select! {
+                    () = fence.settled() => {}
+                    answer = &mut rx => {
+                        if fence.now() == Fence::WRITTEN { on_written(); }
+                        return answer.unwrap_or_else(|_| Err(RpcError::internal("agent response channel dropped")));
+                    }
+                }
+                if fence.now() != Fence::WRITTEN {
+                    return Err(RpcError::internal(
+                        "agent process closed before the prompt write was confirmed",
+                    ));
+                }
+            }
             on_written();
             let answer = rx.await;
             // No answer proves its line was written: an error may be this side's own "closed" or
@@ -1481,6 +1688,12 @@ impl ChildAgent {
         self.hosted.as_ref().is_some_and(|h| h.broken.load(Ordering::SeqCst))
     }
 
+    /// The reader of the current host link stopped otherwise (`Hosted::stopped`): what the host
+    /// reports is not heard until a reattach.
+    pub fn is_stopped(&self) -> bool {
+        self.hosted.as_ref().is_some_and(|h| h.stopped.load(Ordering::SeqCst))
+    }
+
     /// Reconnect to the same host after the reader stopped, keeping every
     /// open request, answer waiter and turn of this process: resume after
     /// the last logged entry on a new owner connection. No recovery runs:
@@ -1496,13 +1709,19 @@ impl ChildAgent {
             Connect::Incompatible { .. } => return Err(anyhow!("agent host refused this build")),
         };
         {
-            // Under the link's lock, which `learn_replay_end` keeps an end under: an end learned
-            // through the old link never stands for this one.
+            // Under the requests' lock: `fail_pending_if_unheard` sees the link whole or not, and
+            // the old link's reader marks it unheard before this or not at all
+            // (`mark_link_unheard`, reviews 2 and 3 of #26059). And under the link's lock, which
+            // `learn_replay_end` keeps an end under: an end learned through the old link never
+            // stands for this one.
+            let _pending = self.pending.lock().await;
             let mut current = h.link.write_or_recover();
             h.replay_to.store(u64::MAX, Ordering::SeqCst);
             *current = link.clone();
+            drop(current);
+            h.broken.store(false, Ordering::SeqCst);
+            h.stopped.store(false, Ordering::SeqCst);
         }
-        h.broken.store(false, Ordering::SeqCst);
         self.start_reader(link);
         Ok(())
     }
@@ -1618,11 +1837,14 @@ impl ChildAgent {
                 logged: tokio::sync::watch::channel(resume_after).0,
                 broken: std::sync::atomic::AtomicBool::new(false),
                 replay_to: std::sync::atomic::AtomicU64::new(0),
+                stopped: std::sync::atomic::AtomicBool::new(false),
                 exited: std::sync::atomic::AtomicBool::new(false),
                 exit_seen: std::sync::atomic::AtomicBool::new(false),
                 exit: tokio::sync::Notify::new(),
             }),
             all_tools: std::sync::atomic::AtomicBool::new(false),
+            given_servers: std::sync::Mutex::new(None),
+            launch: std::sync::Mutex::new(None),
             retired: std::sync::Mutex::new(false),
             ended_on_purpose: std::sync::atomic::AtomicBool::new(false),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
@@ -1637,6 +1859,24 @@ impl ChildAgent {
         (agent, responses)
     }
 
+    /// Sets `flag` (`Hosted::broken` or `stopped`) while `link` is still this agent's link, under
+    /// the requests' lock a reattach replaces the link and clears those flags under (`reattach`):
+    /// a reader of a replaced link marks nothing on the one that replaced it (review 3 of #26059).
+    /// False once the link was replaced or the agent detached.
+    async fn mark_link_unheard(
+        &self,
+        hosted: &Hosted,
+        link: &Arc<crate::agent_host::link::Link>,
+        flag: &std::sync::atomic::AtomicBool,
+    ) -> bool {
+        let _pending = self.pending.lock().await;
+        if hosted.detached.load(Ordering::SeqCst) || !Arc::ptr_eq(&hosted.link(), link) {
+            return false;
+        }
+        flag.store(true, Ordering::SeqCst);
+        true
+    }
+
     /// Read `link`'s entries: log each, act on it, then acknowledge it.
     fn start_reader(self: &Arc<Self>, link: Arc<crate::agent_host::link::Link>) {
         let reader = self.clone();
@@ -1645,11 +1885,30 @@ impl ChildAgent {
             let mut entries = link.entries.lock().await;
             while let Some((h, entry)) = entries.recv().await {
                 let is_exit = matches!(entry, crate::agent_host::Entry::Exit { .. });
+                #[cfg(debug_assertions)]
+                let ack_fails = ack_fails_once(&entry);
+                #[cfg(not(debug_assertions))]
+                let ack_fails = false;
                 if !reader.on_host_entry(h, entry, &hosted.inbound).await {
                     // Not stored: never acknowledge it or anything after it.
                     // Open requests stay open; the next request reattaches.
                     tracing::warn!(agent = %reader.name, "agent host entry {h} not logged; acks stop");
-                    hosted.broken.store(true, Ordering::SeqCst);
+                    if !reader.mark_link_unheard(hosted, &link, &hosted.broken).await {
+                        return;
+                    }
+                    // Debug builds only: `ACPMUX_TEST_LINK_BROKEN_DELAY_MS` holds the notice of a
+                    // broken link before it is sent, as a busy inbound loop does, so the daemon's
+                    // integration tests can reattach the link first. Bounded; release builds have
+                    // no seam.
+                    #[cfg(debug_assertions)]
+                    if let Some(ms) = std::env::var("ACPMUX_TEST_LINK_BROKEN_DELAY_MS")
+                        .ok()
+                        .and_then(|v| v.parse::<u64>().ok())
+                    {
+                        tokio::time::sleep(std::time::Duration::from_millis(ms.min(10_000))).await;
+                    }
+                    let _ =
+                        hosted.inbound.send(Inbound::LinkBroken { agent: reader.generation }).await;
                     return;
                 }
                 hosted.logged.send_replace(h);
@@ -1664,20 +1923,26 @@ impl ChildAgent {
                     }
                     continue;
                 }
-                if link.ack(h).await.is_err() {
+                if ack_fails || link.ack(h).await.is_err() {
                     break;
                 }
             }
-            // A detach hands the agent and its open requests to the next
-            // daemon; a replaced link hands them to its own reader.
-            if hosted.detached.load(Ordering::SeqCst) || !Arc::ptr_eq(&hosted.link(), &link) {
-                return;
+            #[cfg(debug_assertions)]
+            reader_stop_hold().await;
+            // The host died or another owner took it, or an acknowledgement failed: the link is
+            // not heard from here, before anything is told. A detach hands the agent and its open
+            // requests to the next daemon; a replaced link hands them to its own reader.
+            {
+                let mut p = reader.pending.lock().await;
+                if hosted.detached.load(Ordering::SeqCst) || !Arc::ptr_eq(&hosted.link(), &link) {
+                    return;
+                }
+                hosted.stopped.store(true, Ordering::SeqCst);
+                for (_, tx) in p.map.drain() {
+                    let _ = tx.send(Err(RpcError::internal(AGENT_CLOSED)));
+                }
             }
-            // The host died or another owner took it.
-            let mut p = reader.pending.lock().await;
-            for (_, tx) in p.map.drain() {
-                let _ = tx.send(Err(RpcError::internal(AGENT_CLOSED)));
-            }
+            let _ = hosted.inbound.send(Inbound::LinkBroken { agent: reader.generation }).await;
         });
     }
 
@@ -1803,7 +2068,13 @@ impl ChildAgent {
                 if !(self.tap)(Direction::In, &note, Some(h)) {
                     return false;
                 }
-                let _ = inbound.send(Inbound::Stderr(line, Some(h))).await;
+                let _ = inbound
+                    .send(Inbound::Stderr(
+                        line,
+                        Some(h),
+                        Some((self.generation, StderrPipe::Stderr)),
+                    ))
+                    .await;
                 true
             }
             Entry::Exit { code } => {
@@ -1858,6 +2129,33 @@ async fn end_still_running(procs: Vec<crate::agent_host::tree::Started>) {
     let _ =
         tokio::task::spawn_blocking(move || crate::agent_host::tree::kill_still_running(&procs))
             .await;
+}
+
+/// Debug builds only: `ACPMUX_TEST_READER_STOP_HOLD_MS` holds a host link's reader once it stopped,
+/// before it marks the link stopped, as a busy runtime does, so the daemon's integration tests
+/// can reattach the link meanwhile. Bounded; release builds have no seam.
+#[cfg(debug_assertions)]
+async fn reader_stop_hold() {
+    if let Some(ms) =
+        std::env::var("ACPMUX_TEST_READER_STOP_HOLD_MS").ok().and_then(|v| v.parse::<u64>().ok())
+    {
+        tokio::time::sleep(std::time::Duration::from_millis(ms.min(10_000))).await;
+    }
+}
+
+/// Debug builds only: `ACPMUX_TEST_ACK_FAILS_ONCE=TEXT` fails the acknowledgement of the first
+/// host entry whose text holds TEXT, once per process, as a link whose writer stopped first does:
+/// the reader stops while the socket still looks open. Release builds have no seam.
+#[cfg(debug_assertions)]
+fn ack_fails_once(entry: &crate::agent_host::Entry) -> bool {
+    use crate::agent_host::Entry;
+    static FIRED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    let Ok(text) = std::env::var("ACPMUX_TEST_ACK_FAILS_ONCE") else { return false };
+    let msg = match entry {
+        Entry::Tap { msg, .. } | Entry::In { msg } => msg.to_string(),
+        _ => return false,
+    };
+    msg.contains(&text) && !FIRED.swap(true, Ordering::SeqCst)
 }
 
 /// The error of an agent (or its agent host) that did not start; `what` says which, e.g.

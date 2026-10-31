@@ -102,7 +102,7 @@ final class QuitCoordinator {
             case .quit(let choice):
                 await complete(choice, remember: false, sender)
             case .ask(let prompt):
-                ask(prompt, sender, activate: Self.shouldActivate(origin, isActive: NSApp.isActive,
+                ask(prompt, sender, activate: Self.shouldActivate(origin, isActive: sender.isActive,
                                                                   noActivate: WindowPlacement.noActivate))
             }
         }
@@ -132,7 +132,7 @@ final class QuitCoordinator {
 
     private func ask(_ prompt: QuitPrompt, _ sender: NSApplication, activate: Bool) {
         lastAskActivated = activate
-        if activate { NSApp.activate() }
+        if activate { sender.activate() }
         let sheet = QuitAlert(prompt: prompt) { [weak self] answer in
             guard let self else { return }
             self.sheet = nil
@@ -164,6 +164,7 @@ final class QuitCoordinator {
         // Awaited (bounded) so `quitting` is on disk before the quit can end
         // the process; the write itself runs off the main thread.
         await services.crashRecovery.quitBegan()
+        await services.cloud.prepareForTermination()
         await QuitCompletion.run(choice, remember: remember, QuitSteps(
             remember: { behavior in
                 guard let settings = services.settings,
@@ -241,7 +242,7 @@ final class QuitCoordinator {
 
     /// The active shell window when it can carry a sheet.
     private func sheetWindow() -> NSWindow? {
-        let candidates = [services.windows.active?.window, NSApp.mainWindow] + services.windows.controllers.map(\.window)
+        let candidates = [services.windows.active?.window, NSApp?.mainWindow] + services.windows.controllers.map(\.window)
         return candidates.compactMap { $0 }.first { $0.isVisible && !$0.isMiniaturized && $0.attachedSheet == nil }
     }
 

@@ -38,6 +38,20 @@ import Testing
         #expect(CloudVmHost().failure(old) == "error: unrecognized subcommand 'vm-host'", "an older cmux-tui says why")
     }
 
+    /// The machine's own answer cannot tell a team VM from the owner's (`vmHost` is on by default on
+    /// any Linux machine; `cmuxVm` is a record its agents can write): the switch shows only while
+    /// the link in use says the signed-in caller owns the machine (the Cloud API's `vmKind`).
+    @Test func theSwitchShowsOnlyWhenTheCloudAPISaysTheCallerOwnsTheMachine() {
+        let team = CloudVmHostStore.Entry.known(CloudVmHost.State(on: true, cmuxVM: true))
+        #expect(SettingsWindowService.vmHostSwitch(team, callerOwnsVM: false, busy: false) == nil)
+        #expect(SettingsWindowService.vmHostSwitch(team, callerOwnsVM: true, busy: false)
+            == ["on": true, "busy": false, "error": .null])
+        let notMarked = CloudVmHostStore.Entry.known(CloudVmHost.State(on: false, cmuxVM: false))
+        #expect(SettingsWindowService.vmHostSwitch(notMarked, callerOwnsVM: true, busy: true)
+            == ["on": false, "busy": true, "error": .null], "the owner's answer, not the guest's marker")
+        #expect(SettingsWindowService.vmHostSwitch(nil, callerOwnsVM: true, busy: false) == nil)
+    }
+
     @MainActor final class Machine {
         var on = true
         var commands: [String] = []
@@ -182,6 +196,8 @@ import Testing
         let recorder = Recorder()
         page.setMachineVmHost = { id, on in recorder.sets.append("\(id) \(on)"); return nil }
         page.setDeviceFullAccess = { id, on in recorder.sets.append("device \(id) \(on)"); return nil }
+        page.ownerConfirm = SettingsWideningSwitchPersonGateTests.AlwaysConfirms() // the confirm: SettingsWideningSwitchPersonGateTests
+        page.personBacksGesture = { _ in true }
         return (page, recorder, directory)
     }
 

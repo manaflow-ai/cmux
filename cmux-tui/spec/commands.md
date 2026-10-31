@@ -582,10 +582,12 @@ Reports where the daemon spends its time so an operator or agent can locate a
 bottleneck without sampling the process: registry mutex contention with the
 source site that holds it, journal writer batch shape and commit latency, and
 control-socket admission. Counters accumulate since daemon start. The command
-reads atomics and never touches SQLite or the journal, so it is safe to poll.
+reads atomics (and, for `hook_queue`, the small hook queue files) and never
+touches SQLite or the journal, so it is safe to poll.
 
 Params: `{include?: array<string>|null}`. `include` names optional result
-sections: `resource_projection` and `write_path`; unknown names are ignored.
+sections: `resource_projection`, `write_path`, `locks` and `hook_queue`;
+unknown names are ignored.
 An optional section is absent unless requested, because SDK decoders refuse
 unknown result fields.
 
@@ -623,9 +625,24 @@ object{
     effect_intents:uint64, effect_intent_failures:uint64,
     effect_intent_batches:uint64, request_effect_commits:uint64,
     writer_registry_locks:uint64
-  }
+  },
+  locks?:object{registry:lock_detail, state:lock_detail},
+  hook_queue?:object{queued_events:uint64,reset_dropped_events:uint64,undeliverable_events:uint64}
 }
 histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99:uint64}
+lock_detail = object{
+  wait_us:histogram, hold_us:histogram,
+  contended_acquisitions:uint64, stalls:uint64,
+  holder:object{site:string,held_for_us:uint64}|null,
+  last_stall:object{waiter:string,blocker:string|null,waited_us:uint64}|null,
+  sites:uint64,
+  by_hold_total:array<lock_site>, by_hold_p99:array<lock_site>
+}
+lock_site = object{
+  site:string, acquisitions:uint64,
+  hold_total_us:uint64, hold_max_us:uint64, hold_p99_us:uint64,
+  wait_total_us:uint64, wait_max_us:uint64, wait_p99_us:uint64
+}
 ```
 
 `resource_projection` splits the topology projection that every topology
@@ -664,6 +681,30 @@ registry lock, registry connection or mux state lock acquisitions on a
 journal writer thread. It is always `0`: a request thread holds the registry
 lock (and may hold state) while it waits for its writer receipt, so the
 writer never takes either.
+
+`locks` reports the workspace registry lock (`registry`) and the mux state
+lock (`state`) by acquiring site, so a convoy names the code that holds it.
+`by_hold_total` lists at most twenty sites by total hold time and
+`by_hold_p99` at most twenty by 99th percentile hold; `sites` counts every
+distinct site seen. A site's `hold_p99_us` and `wait_p99_us` are power-of-two
+bucket bounds: at most twice the true value and never above its maximum.
+`wait_*` is how long that site waited to acquire the lock. Recording costs
+no allocation after a site's first acquisition.
+
+`hook_queue` shows the agent hook queue. The hook helper keeps each
+agent's hook events in a queue on disk (`hook-spool/` beside the session
+socket) until a daemon answers them; a stopped, restarting or crashed owner
+leaves them queued for the next owner. `queued_events` counts the lines in
+this session's queues (events not answered yet, and answered ones a sender
+has not removed yet). `reset_dropped_events` counts the events that
+`cmux session NAME reset-state` dropped with a session's saved state, for
+the sessions whose sockets share this directory. `undeliverable_events`
+counts events a live daemon took several times in a row and never answered
+(it closed on them, or did not reply within its own longest journal wait),
+so their senders gave them up and the agent's later events went on. Unlike
+the other sections,
+it reads these small files. It is present only when the session serves a
+socket.
 
 `schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
 events. Percentiles are log-linear bucket upper bounds and overestimate by at
@@ -2019,6 +2060,16 @@ absent) for an agent session source, and `{page}` for a page source. A connectio
 `session.events` and `session.journal.subscribe` stream items alike. Every
 browser command and browser operation refuses the tab.
 
+Closed agent chat tabs use the same canonical `conversation` kind in
+`closed.list` and closed snapshot/event records, with only safe
+`agent_session:{session,harness}` metadata. This requires the separate
+`closed-conversation-tabs-v1` declaration: older connections, including
+clients that understand live conversation tabs, retain `browser` and the
+safe metadata. Merged history similarly uses `closed_kind:"conversation_tab"`
+only for declared connections, otherwise `browser_tab`. Private host/install
+identity stays in the daemon's restore record; reopening still restores the
+original conversation source.
+
 Params: `conversation` and `owner`, `agent_session`, or `page` (one source required);
 `pane` or `workspace`, `split` (with `pane`), `origin`, `mutation_id`, `cols`, `rows`, `transaction` (optional).
 
@@ -2693,6 +2744,7 @@ Params:
 | `width` | `float32` | default `0.6666667` | From 0.1 through 1.0 |
 | `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
 | `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
+| `side` | `string` | default `"right"` | With `column-left-v1`: `"left"` opens the column immediately left of `pane`'s column (New Column Left), `"right"` after it; `"left"` takes a PTY column only |
 | `shell_args` | `string[]` | default null | With `terminal-shell-args-v1`: arguments for the terminal's shell, its `SHELL` in `env` or else the daemon's default shell; none or empty keeps the bare shell |
 | `pane_id` | `string` | default null | With `split-client-keys-v1`: caller-minted id of the new pane, `pane_` and 32 lowercase hex digits; see "Client-minted pane ids" |
 | `tab_id` | `string` | default null | With `split-client-keys-v1`: caller-minted id of the new pane's tab, `tab_` and 32 lowercase hex digits; terminal panes only |
@@ -2712,6 +2764,7 @@ Errors:
 | `pane <id> has no workspace` | Target pane is not in a screen |
 | `viewport pane width must be between 0.1 and 1.0` | `width` is outside the supported range |
 | `pane creation failed` | PTY creation or child spawn fails; raw runtime details are logged internally only |
+| `bad request: side ...` | `side` is not `"left"` or `"right"`, or `"left"` with `kind:"browser"`; nothing is created |
 | `bad request: <cmd> kind ...` | Unknown `kind`, `kind:"browser"` without `url`, `url` without `kind:"browser"`, or `cwd`, `env`, `keep`, `terminal_id` or `shell_args` with `kind:"browser"`; nothing is created |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
@@ -7036,15 +7089,15 @@ poster?:DerivedImage, preview?:DerivedImage}`. An upload belongs to the
 connection that began it, ends with that connection, and expires after 15
 minutes. At most 32 uploads are open at once. A record no message references
 is removed after 24 hours, with its bytes when no other record names them.
-The store holds at most 10 GB (decimal) across every conversation, uploads in
-flight included: a `begin` that does not fit first removes the oldest records
-no message references, and is refused with `storage_full` when only bytes
-that messages reference are left.
+The store has an advisory 10 GB (decimal) budget across every conversation,
+including uploads in flight. A `begin` above that budget logs a warning and
+continues. Budget pressure never removes fresh unsent or referenced attachments;
+the normal 24-hour sweep still removes abandoned uploads. Filesystem failures,
+including a full disk, remain errors when creating, writing or syncing bytes.
 Refusals have `error_code` `attachment_rejected` and one of the reasons
 `validation_invalid`, `type_refused`, `too_large`, `poster_refused`,
 `preview_refused`, `unknown_upload`, `unknown_piece`, `bad_offset`,
-`chunk_too_large`, `incomplete`, `hash_mismatch`, `too_many_uploads` or
-`storage_full`;
+`chunk_too_large`, `incomplete`, `hash_mismatch` or `too_many_uploads`;
 `unknown_conversation` and `not_participant` are `conversation_rejected`.
 
 A `message.send` or `message.edit` with an `attachment` part commits only
@@ -7182,10 +7235,13 @@ increases by one for every step written and every summary change, so a step's
 `{event:"conversation-run-changed", conversation, run, steps}` on `subscribe`
 to the connections that echoed `conversation-runs-v1` in `set-client-info`.
 
-`conversation-runs` `{conversation, turns?:[key], before_started_at?, limit?}`
-answers `{runs:[Run], has_more}`: with `turns` (at most 200 keys) the runs of
-those replies, else the newest runs that started before `before_started_at`
-(`limit` 1-200, default 50).
+`conversation-runs` `{conversation, turns?:[key], answers?:[key],
+before_started_at?, limit?}` answers `{runs:[Run], has_more}`: with `turns` (at
+most 200 keys) the runs of those replies. With `answers` (at most 200 message
+keys), a local owner advertising `conversation-run-answers-v1` returns runs
+whose `answers` include those messages; this exact lookup is for silent runs
+whose start predates the visible message window. Otherwise it returns the
+newest runs that started before `before_started_at` (`limit` 1-200, default 50).
 
 `conversation-run` `{conversation, run, after_rev?, limit?}` answers
 `{run:Run, steps:[Step], has_more}`: the steps written after `after_rev`
@@ -7668,6 +7724,15 @@ refused before anything is sent, with `cloud_conversation_rejected`,
 plans/cmux-next/home-cloud-proxy.md.
 `cloud-conversation-snapshot` and `cloud-conversation-history` pass the
 owner's `threads` field through unchanged when it sends one.
+`cloud-inbox-list {limit?, include_archived?, cursor?}` returns one page of
+UserDO `inbox.list` as `object{entries, revision, next_cursor}`: `limit` (1-200,
+default 200) entries from `cursor` (the `next_cursor` of the page before; absent
+for the first page). `next_cursor` is null on the last page. One page per call,
+so every reply is one bounded read; a client reads the whole inbox by following
+`next_cursor`. `home-inbox`'s Cloud rows do: every page, at most 50, asking for
+no page after 8 s from the start of the read, an entry a later page lists again kept once where it was
+first listed; any page's failure, a refusal included, leaves the Cloud rows
+`unavailable` (`signed_out` only without a usable lease).
 
 ### cloud-requests-list
 
@@ -9109,7 +9174,7 @@ exact public `terminal_id`, the current attachment `lease`, a 32-hex-character
 
 | `op` | Additional fields | Effect |
 | --- | --- | --- |
-| `begin` | `mime`, `size` | Reserve bounded capacity and create a private daemon-owned file. |
+| `begin` | `mime`, `size` | Reserve an upload slot and create a private daemon-owned file. |
 | `chunk` | `offset`, `data` | Append one sequential, standard-base64 chunk (at most 48 KiB decoded). |
 | `commit` | none | Verify byte count and MIME, then invoke the authoritative terminal paste operation once. |
 | `cancel` | none | Remove an unpublished upload; idempotent when already absent. |
@@ -9121,9 +9186,9 @@ destination path is accepted and no image path or content is returned in an
 acknowledgement. Stable error codes begin with `image-`; clients must treat a
 lost commit acknowledgement as uncertain delivery and must not retry it blindly.
 
-The policy is 20 MiB per PNG/JPEG/GIF/WebP image, eight images per connection,
-32 retained uploads and 128 MiB reserved per daemon. Pending uploads expire in
-two minutes; committed uploads expire in ten minutes. Ownership receipts permit
+The policy is PNG/JPEG/GIF/WebP images of any size, eight images per connection
+and 32 retained uploads per daemon, with no byte budget. A pending upload expires
+two minutes after its last accepted chunk; committed uploads expire in ten minutes. Ownership receipts permit
 restart cleanup with a twelve-minute expiry from creation and recurring bounded
 recovery sweeps. Receipts match a persistent random file ownership marker as well
 as inode identity; the filesystem must support extended attributes. See
@@ -9449,7 +9514,7 @@ own unbound same-user Unix connection may ask (otherwise
 
 ### agent-session-start
 
-`agent-session-start-v1`: `{id, cmd:"agent-session-start", surface, cwd, harness?}`
+`agent-session-start-v1`: `{id, cmd:"agent-session-start", surface, cwd, harness?}` (and, when `agent-session-start-model-v1` is advertised, optional `model`)
 starts a new chat for an agent tab of this store in this machine's own
 acpmux and binds it to the tab, then answers
 `{surface, session, conversation}` (the tab's record, as
@@ -9473,14 +9538,26 @@ Claude and Codex), checked before the agent starts and again for the family
 it runs; otherwise `agent_session.untrusted_folder` (the daemon never answers
 the trust question; the person answers it on the machine or through
 `agent-session-trust`). There is no command, env, policy, mode,
-peer, preset or MCP server param; an unknown param is
-`agent_session.bad_request`. The daemon's machine decides first, from its
-own identity read at each start and never from the request: on a Cloud VM, a
-team VM (kind `team` in the root-owned `/etc/cmux/vm-kind` that cmux-host
-writes at a team enroll, or the team files root `/srv/team`, root:`cmux-ssh`)
-answers `agent_session.team_vm_blocked`, and a VM with no readable kind or a
-kind other than `owner` answers `agent_session.host_unverified`; Macs, SSH
-hosts and owner VMs (kind `owner`, written at a machine bind) go on. The session starts with permission policy `ask`
+peer, preset or MCP server param; `model` is only accepted with the additive
+`agent-session-start-model-v1` capability and is passed to the first session; an unknown param is
+`agent_session.bad_request`. The machine kind decides first, read again at
+each start: a team VM (kind `team` in the root-owned `/etc/cmux/vm-kind` that
+cmux-host writes at a team enroll, or the team files root `/srv/team`,
+root:`cmux-ssh`) answers `agent_session.team_vm_blocked`; Macs and SSH hosts
+go on; any other Cloud VM goes on only with `vm_kind: "owner"` and otherwise
+answers `agent_session.host_unverified`. `vm_kind`
+(`agent-session-start-vm-kind-v1`) is the Cloud API's `vmKind` for the
+caller, as the caller read it on its link to this machine (attach-endpoint);
+only the exact string `owner` counts. Any other value says the caller knows
+this machine is a Cloud VM it does not own, so it answers
+`agent_session.host_unverified` on any host (a guest's root can remove every
+Cloud sign the daemon reads). The app starts a chat on a machine it knows as
+Cloud only on the `owner` answer for the link the start goes over, through any
+daemon. The VM's own
+kind `owner` (written at a machine bind) never allows a start by itself: the
+agents there keep sudo and can write it. A chat move in
+(`agent-transfer-receive`, `-finish`) and `agent-session-trust` take the same
+rule with their own `vm_kind`. The session starts with permission policy `ask`
 whatever the daemon default is. It must then be in a mode that acpmux's
 remote table (`_acpmux/web_modes`) says asks before acting: a family that
 table refuses (Codex, opencode) is refused, and a session that starts in a
@@ -9540,9 +9617,11 @@ absolute (at most 4096 bytes, no control characters) or an unknown param is
 `home_confirmed: true` (the person chose it as the chat's folder first, as
 Use Home Folder on the Mac), else `agent_session.home_unconfirmed`. The tab
 must be an `agent_session` tab of this store whose `host` names this store
-(bound or not), else `agent_session.unknown_tab`; the machine kind gate,
-the trusted local connection rule and the acpmux start are those of
-`agent-session-start`. The daemon never answers by itself: a client sends a
+(bound or not), else `agent_session.unknown_tab`; the machine kind gate
+(with `vm_kind`, `agent-session-trust-vm-kind-v1`), the trusted local
+connection rule and the acpmux start are those of `agent-session-start`. A
+page cannot vouch for the Cloud API's answer: the routed operations take no
+`vm_kind` (`agent_session.bad_request`), so they reach no Cloud VM's trust. The daemon never answers by itself: a client sends a
 `level` only for the person's own answer (the app's agent pane relay needs
 a fresh gesture for a set that trusts, as for a chat on the Mac's own
 acpmux). Pages reach the same verb only as the routed v2 operations
@@ -9898,9 +9977,19 @@ daemon keeps the receive's folder in memory for its finish; at most 16
 receives are kept, checked before acpmux makes one.
 
 Machine kind: receive and finish read this machine's kind at each call, as
-`agent-session-start` does, and answer `agent_session.team_vm_blocked` on a
-team VM and `agent_session.host_unverified` on a Cloud VM of unknown kind
-(or a daemon never told its kind). A chat under peer control keeps its
+`agent-session-start` does, each with its own `vm_kind`
+(`agent-transfer-vm-kind-v1`, only `owner` counts), and answer
+`agent_session.team_vm_blocked` on a team VM and
+`agent_session.host_unverified` on a Cloud VM without the caller's
+`vm_kind: "owner"` (its own `owner` record never counts) or on a daemon never
+told its kind. `cmux link agent move --vm-kind KIND` (the caller says the
+target is a Cloud machine) sends it to a daemon that serves it; to an older
+one it sends none and refuses any kind but `owner` before the chat freezes,
+whatever that daemon advertises. Without the flag the caller says the target
+is not a Cloud machine. With `--to-pid PID` (the Cloud link process the
+caller read the kind from) the pump sends the receive and the finish only over
+a connection whose peer is that process, else it refuses before the receive
+and gives the chat back. A chat under peer control keeps its
 permission policy and mode and runs its queue at once, so it lands only on
 a Mac, an SSH host or a personal (owner) Cloud VM; under web control
 acpmux also requires a policy and mode that ask.

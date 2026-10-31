@@ -8,10 +8,12 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
     public let model: OnboardingModel
     /// Called once when the window has closed.
     public var onClose: (() -> Void)?
-    public init(model: OnboardingModel) {
+    /// `activeLook`: the app's ``ActiveLookScope``, for the window's backdrop (nil follows the key state).
+    public init(model: OnboardingModel, activeLook: ActiveLookScope?) {
         self.model = model
+        let size = model.step.screen.size
         let window = OnboardingWindow(
-            contentRect: NSRect(origin: .zero, size: OnboardingMetrics.windowSize),
+            contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered, defer: false
         )
@@ -24,15 +26,15 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         // The close button stays visible (Lane 20: every window of its own
         // shows it); Escape and Skip also dismiss.
         // A fixed size: content never grows the window.
-        window.contentMinSize = OnboardingMetrics.windowSize
-        window.contentMaxSize = OnboardingMetrics.windowSize
+        window.contentMinSize = size
+        window.contentMaxSize = size
         window.identifier = NSUserInterfaceItemIdentifier("cmux.onboarding")
         super.init(window: window)
         window.delegate = self
         // Kind `.onboarding`: a clear window with only a close button; each
         // variant's surface draws its own glass or opaque background
         // (`OnboardingSurfaceView`).
-        window.install(kind: .onboarding, content: OnboardingHostView(model: model), scope: .app)
+        window.install(kind: .onboarding, content: OnboardingHostView(model: model), scope: .app, activeLook: activeLook)
         window.onKey = { [weak model] key in
             switch key {
             case .next: model?.next()

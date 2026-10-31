@@ -24,8 +24,12 @@ public final class MockOnboardingServices: OnboardingServices {
 
     /// How many times browsers were detected (each one reads other apps' data).
     public private(set) var detections = 0
+    /// With `holdsDetection`, detection waits at `detectionGate` until a test resumes it.
+    public var holdsDetection = false
+    public var detectionGate: CheckedContinuation<Void, Never>?
     public func detectBrowsers() async -> [BrowserSource] {
         detections += 1
+        if holdsDetection { await withCheckedContinuation { detectionGate = $0 } }
         return sources
     }
 
@@ -69,7 +73,11 @@ public final class MockOnboardingServices: OnboardingServices {
     public var awaitingAccess: [ImportBrowser] = []
     public var grantsAccess = true
     public private(set) var accessRequests: [ImportBrowser] = []
-    public func browsersAwaitingAccess() async -> [ImportBrowser] { awaitingAccess }
+    public private(set) var awaitingProbes = 0
+    public func browsersAwaitingAccess() async -> [ImportBrowser] {
+        awaitingProbes += 1
+        return awaitingAccess
+    }
     public var accessFolders: [ImportBrowser: URL] = [:]
     public func accessFolder(for browser: ImportBrowser) -> URL? { accessFolders[browser] }
     public func requestFolderAccess(for browser: ImportBrowser) async -> Bool {

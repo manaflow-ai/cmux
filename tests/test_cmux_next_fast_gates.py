@@ -133,6 +133,91 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn("needs.resolve.outputs.base", prepare["env"]["BASE"])
         self.assertIn('--head "$HEAD_SHA" --base "$BASE"', prepare["run"])
 
+    def resolve_dispatch(self, *, fields=None, error=None, failures=0):
+        """Execute the real resolver with bounded API and sleep stubs."""
+        body = step_named(job(workflow(), "resolve")["steps"], "Resolve")["run"]
+        with tempfile.TemporaryDirectory(prefix="fast-gates-resolve-") as tmp:
+            root = Path(tmp)
+            gh = root / "gh"
+            gh.write_text("#!/usr/bin/env python3\n" + textwrap.dedent("""\
+                import json, os, pathlib, sys
+                calls = pathlib.Path(os.environ["CALLS"])
+                previous = calls.read_text().splitlines() if calls.exists() else []
+                with calls.open("a") as stream:
+                    stream.write(json.dumps(sys.argv[1:]) + "\\n")
+                if len(previous) < int(os.environ["FAILURES"]):
+                    print(os.environ["API_ERROR"], file=sys.stderr)
+                    sys.exit(17)
+                if "/pulls/" in sys.argv[2]:
+                    print(os.environ["PR_FIELDS"])
+                else:
+                    print("b" * 40)
+                """))
+            gh.chmod(0o755)
+            sleep = root / "sleep"
+            sleep.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$WAITS"\n')
+            sleep.chmod(0o755)
+            output, calls, waits = (root / name for name in ("output", "calls", "waits"))
+            env = {
+                **os.environ,
+                "PATH": f"{root}:{os.environ['PATH']}",
+                "EVENT_NAME": "workflow_dispatch", "PR": "28116", "BRANCH": "feat-cmux-next",
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_OUTPUT": str(output),
+                "CALLS": str(calls), "WAITS": str(waits), "FAILURES": str(failures),
+                "API_ERROR": error or "",
+                "PR_FIELDS": fields.replace("|", "\t") if fields is not None else "open\tmanaflow-ai/cmux\tfeat-cmux-next\t" + "a" * 40,
+            }
+            result = subprocess.run(["bash", "-c", body], env=env, capture_output=True, text=True, timeout=10)
+            return (result, calls.read_text().splitlines(),
+                    waits.read_text().splitlines() if waits.exists() else [],
+                    output.read_text() if output.exists() else "")
+
+    def test_dispatch_api_failure_surfaces_the_github_error(self):
+        result, calls, waits, output = self.resolve_dispatch(
+            error="gh: API rate limit exceeded for installation (HTTP 403)", failures=100)
+        self.assertEqual(result.returncode, 17)
+        self.assertIn("rate limit exceeded", result.stderr)
+        self.assertNotIn("comes from", result.stdout + result.stderr)
+        # The resolve step makes one API read.  A shell retry loop here is
+        # indistinguishable from token polling to the CI guard and spends the
+        # shared GitHub-token budget; transient failures are surfaced for the
+        # workflow retry machinery instead.
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(waits, [])
+        self.assertEqual(output, "")
+
+    def test_dispatch_empty_owner_is_not_reported_as_a_fork(self):
+        result, calls, waits, output = self.resolve_dispatch(fields="open||feat-cmux-next|" + "a" * 40)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("incomplete", result.stdout + result.stderr)
+        self.assertNotIn("comes from", result.stdout + result.stderr)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(output, "")
+
+    def test_dispatch_transient_server_error_surfaces_without_retry(self):
+        result, calls, waits, output = self.resolve_dispatch(error="gh: Bad Gateway (HTTP 502)", failures=1)
+        self.assertEqual(result.returncode, 17)
+        self.assertIn("Bad Gateway", result.stderr)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(waits, [])
+        self.assertEqual(output, "")
+
+    def test_dispatch_permission_failure_is_not_retried(self):
+        result, calls, waits, output = self.resolve_dispatch(
+            error="gh: Resource not accessible by integration (HTTP 403)", failures=100)
+        self.assertEqual(result.returncode, 17)
+        self.assertIn("Resource not accessible", result.stderr)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(waits, [])
+        self.assertEqual(output, "")
+
+    def test_dispatch_valid_fork_is_still_refused(self):
+        result, calls, waits, output = self.resolve_dispatch(fields="open|fork/cmux|feat-cmux-next|" + "a" * 40)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("comes from fork/cmux", result.stdout + result.stderr)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(output, "")
+
     def test_concurrency_per_pull_request(self):
         concurrency = workflow()["concurrency"]
         self.assertEqual(concurrency["group"], "fast-gates-${{ github.event.pull_request.number || inputs.pr }}")
@@ -265,6 +350,7 @@ class WorkflowShape(unittest.TestCase):
         self.assertNotRegex(steps[0]["run"], r"bun run \S+ \|\| status=1")
         module = load(WEBVIEWS_CHECKS)
         self.assertIn("check:fixed-waits", module.CHECKS)
+        self.assertIn("check:effect-cleanup", module.CHECKS)
         self.assertIn("typecheck", module.CHECKS)  # #23763's TS2339 hid behind a red base
 
     def test_no_web_check_waits_on_an_earlier_red(self):
@@ -297,7 +383,8 @@ class WorkflowShape(unittest.TestCase):
             path = ROOT / package / "package.json"
             if not path.is_file():
                 continue
-            pieces = [p.strip() for p in json.loads(path.read_text())["scripts"]["check"].split("&&")]
+            scripts = json.loads(path.read_text())["scripts"]
+            pieces = [p.strip() for p in scripts.get("check:pieces", scripts["check"]).split("&&")]
             with self.subTest(package=package):
                 self.assertNotIn("vp check", pieces)
                 self.assertIn("vp fmt --check", pieces)

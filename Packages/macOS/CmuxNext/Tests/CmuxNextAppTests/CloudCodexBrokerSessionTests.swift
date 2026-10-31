@@ -1,8 +1,15 @@
 import Foundation
+import Darwin
 import Testing
 @testable import CmuxNextCloud
 
-@Suite("Cloud Codex broker private pipe", .timeLimit(.minutes(1)))
+/// No `.timeLimit`: every wait here is on a reply or an exit, and none checks
+/// a deadline. Each test starts a python3 holder; in the full parallel package run,
+/// where tests take 100-500 s of wall clock, the 1 minute limit expired on
+/// cancellationOnlySettlesItsCaller before its replies arrived. A holder that
+/// never answers is a hang that scripts/cmux-next/swift-test-with-hang-sampler.sh
+/// names and samples.
+@Suite("Cloud Codex broker private pipe")
 struct CloudCodexBrokerSessionTests {
     private func withSession(_ body: (CodexBrokerSession, URL) async throws -> Void) async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -56,6 +63,24 @@ struct CloudCodexBrokerSessionTests {
         }
     }
 
+    @Test func shutdownEscalatesOnlyOwnedHolderThatIgnoresTERM() async throws {
+        try await withSession { session, _ in
+            let reply = try await session.request(method: "ignore-term")
+            let pid = try #require(reply.chatgptAccountID.flatMap(Int32.init))
+            // The holder ignores SIGTERM, so both shutdowns returning with the
+            // holder gone proves the SIGKILL escalation; without it they never
+            // return, a hang the sampler names. No wall-clock bound: a starved
+            // full parallel run took 71 s for the 2 s grace and the exit hop.
+            async let first: Void = session.shutdown()
+            async let second: Void = session.shutdown()
+            _ = await (first, second)
+            let killResult = kill(pid, 0)
+            let killErrno = errno
+            #expect(killResult == -1)
+            #expect(killErrno == ESRCH)
+        }
+    }
+
     @Test func childKeepsTLSAndTemporaryDirectoryEnvironment() async throws {
         try await withSession { session, root in
             let reply = try await session.request(method: "environment")
@@ -95,6 +120,9 @@ for line in sys.stdin:
         reply(id, error='codex_auth_timeout')
         sys.exit(0)
     elif method == 'account': reply(id, error='codex_auth_account_changed')
+    elif method == 'ignore-term':
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        reply(id, str(os.getpid()))
     elif method == 'environment':
         reply(id, json.dumps({k: os.environ[k] for k in ('TMPDIR', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'UNRELATED_SECRET') if k in os.environ}))
     else: reply(id)

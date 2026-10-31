@@ -38,6 +38,32 @@ import Testing
         #expect(reveal.restAlpha == 0)
     }
 
+    /// The pane-type chooser (#27004) sits beside the plus, so it hides, shows and stays for its menu with
+    /// it: a hover-only plus never leaves the chevron alone next to an empty slot.
+    @Test func thePaneTypeChooserFadesWithThePlus() throws {
+        DesignSettings.shared.plusButton = .hover
+        defer { DesignSettings.shared.plusButton = .hover }
+        let (strip, window) = Self.strip()
+        defer { window.orderOut(nil) }
+        strip.showsNewTabMenuButton = true
+        let chooser = strip.newTabMenuButton
+        #expect(!chooser.isHidden)
+        let reveal = try #require(HoverReveal.owner(of: strip.newTabButton))
+        #expect(HoverReveal.owner(of: chooser) === reveal, "the chooser fades with the plus")
+        #expect(chooser.alphaValue == strip.newTabButton.alphaValue, "chooser at rest: \(chooser.alphaValue)")
+        reveal.setPointerInside(true)
+        #expect(chooser.alphaValue == 1)
+        reveal.setPointerInside(false)
+        let hold = reveal.hold() // an open strip menu, the chooser's own included
+        #expect(chooser.alphaValue == 1, "the chooser stays shown while its menu is open")
+        hold.release()
+        #expect(chooser.alphaValue == reveal.restAlpha)
+        DesignSettings.shared.plusButton = .always
+        strip.reveal.applyPlusButtonMode()
+        #expect(HoverReveal.owner(of: chooser) == nil)
+        #expect(chooser.alphaValue == 1, "always keeps the chooser fully shown, like the plus")
+    }
+
     @Test func aRevealsRestAlphaIsWhatItsViewsShowAtRest() {
         let region = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 20))
         let reveal = HoverReveal(region: region, tracksPointer: false)
@@ -89,6 +115,19 @@ import Testing
         #expect(toolbar.view.reservedCount == 1)
         toolbar.update(target: "chat", kind: nil)
         #expect(toolbar.view.reservedCount == 0)
+    }
+
+    /// The native creation actions are offered by the pane's + and "…" menu, never duplicated as
+    /// resting buttons. This applies to chat and every other pane kind.
+    @Test func creationActionsAreNeverRestingButtons() {
+        let registry = ActionRegistry.standard()
+        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { nil },
+                                   paneTarget: ActionTargetRef(kind: .pane, id: "pane"))
+        let kinds: [PaneToolbar.Kind?] = [.newTab, .terminal, .browser, .other, nil]
+        for (index, kind) in kinds.enumerated() {
+            toolbar.update(target: "pane-\(index)", kind: kind)
+            #expect(toolbar.view.items.map(\.id).filter { PaneToolbar.creationActions.map(\.rawValue).contains($0) }.isEmpty)
+        }
     }
 
     /// New Tab and the chat pane share this toolbar. Revealing it changes opacity alone,

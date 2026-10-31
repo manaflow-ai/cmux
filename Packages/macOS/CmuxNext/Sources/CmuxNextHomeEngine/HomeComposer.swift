@@ -6,7 +6,8 @@ import Foundation
 /// through the one store (`HomeStore.perform`, so each op has its key and
 /// the cloud owner decides): one person is `dm.open`, several people are
 /// `conversation.create`, addresses become DM invites (`dm.open` with the
-/// address; a verified team domain is the owner's call). The owner's
+/// address; a verified team domain is the owner's call), and people with
+/// addresses are one `conversation.create` that invites each address. The owner's
 /// refusals become outcomes the sheet can say.
 @MainActor
 public struct HomeComposer {
@@ -33,9 +34,11 @@ public struct HomeComposer {
             }
         }
         guard !recipients.isEmpty else { return .refused("") }
-        if !people.isEmpty, !addresses.isEmpty { return .mixedRecipients }
         let op: HomeOp
-        if let person = people.first, people.count == 1 {
+        if !people.isEmpty, !addresses.isEmpty {
+            // People and addresses: one group with the people, each address invited into it.
+            op = .createGroup(title: title, participants: people.map(\.id), invites: addresses)
+        } else if let person = people.first, people.count == 1 {
             op = .openDirect(peer: person.id)
         } else if !people.isEmpty {
             op = .createGroup(title: title, participants: people.map(\.id))
@@ -66,6 +69,8 @@ public struct HomeComposer {
 
     /// The owner's refusal as the sheet says it.
     func outcome(for error: any Error, naming: String) -> HomeComposeOutcome {
+        // Sent, but no answer came (the store resends it, or gave up): a state, not a reason to show.
+        if error is HomeSendState { return .cloudUnreachable }
         guard let rejection = error as? HomeRejection else { return .refused(describe(error)) }
         switch rejection {
         case .rateLimited: return .rateLimited

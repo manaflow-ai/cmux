@@ -36,6 +36,7 @@ use crate::client::Client;
 use crate::rpc::{RpcError, method};
 use anyhow::Context;
 use base64::Engine;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -278,7 +279,7 @@ impl Sent {
         let (id, name) = (&self.id, &self.name);
         let mut upload = json!({"uploadId": id, "fileName": name});
         if let Some(token) = &self.owner {
-            upload["owned"] = json!(token);
+            upload.set("owned", json!(token));
         }
         let meta = json!({"acpmux": {"upload": upload}});
         match image_type(&self.head) {
@@ -409,9 +410,10 @@ pub fn receive(
         let sniffed = crate::hub::prompt_images::sniffed_type(&bytes);
         let mime = sniffed.unwrap_or("application/octet-stream");
         saved.push(format!("- {} ({mime}, {})", path.display(), mib(bytes.len())));
-        blocks[index] = match image_type(&bytes) {
+        let Some(block) = blocks.get_mut(index) else { continue };
+        *block = match image_type(&bytes) {
             Some(mime) => json!({"type": "image", "mimeType": mime, "name": name,
-                                 "data": data_of(&blocks[index]).unwrap_or_default()}),
+                                 "data": data_of(block).unwrap_or_default()}),
             None => {
                 json!({"type": "resource_link", "uri": file_uri(&path), "name": name, "mimeType": mime})
             }

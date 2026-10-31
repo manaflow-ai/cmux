@@ -49,7 +49,7 @@ Object.assign(scope, replacements);
 // and a scroll offset the test moves as the reader would.
 const VIEWPORT = 600;
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => VIEWPORT });
-// Wide enough for the minimap's usable gutter (ThreadMinimap RAIL_MIN_GUTTER).
+// Wide enough for the minimap's pane-edge rail in these layout tests.
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 1040 });
 const offsets = new WeakMap<object, number>();
 Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
@@ -109,7 +109,9 @@ test("Previous Turn and Next Turn step the transcript through its prompts", asyn
       let read = 0;
       prompts.forEach((entry, index) => {
         const node = dom.window.document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${entry.id}"]`);
-        const top = Number.parseFloat(node?.style.top ?? "") - 16; // less the thread's top padding
+        // Less the thread's top padding.
+        const top =
+          Number.parseFloat(node?.style.top ?? "") + (Number.parseFloat(node?.style.marginTop ?? "") || 0) - 16;
         if (Math.max(0, 16 + top - 35) <= scroller.scrollTop + 1) read = index;
       });
       return read;
@@ -180,7 +182,8 @@ test("Next Turn steps past a retried prompt beside acpmux's echo of it", async (
       let read = 0;
       prompts.forEach((entry, index) => {
         const node = dom.window.document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${entry.id}"]`);
-        const top = Number.parseFloat(node?.style.top ?? "") - 16;
+        const top =
+          Number.parseFloat(node?.style.top ?? "") + (Number.parseFloat(node?.style.marginTop ?? "") || 0) - 16;
         if (Math.max(0, 16 + top - 35) <= scroller.scrollTop + 1) read = index;
       });
       return read;

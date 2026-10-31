@@ -780,11 +780,11 @@ fn start(
     let engine_choice = env("OPTCHAT_CHIEF_ENGINE");
     // Section 9's subagents run on this harness (default the Chief's).
     let mut sub_harness = sub_set.clone().unwrap_or_else(|| harness.clone());
-    // The monitoring trace (trace.rs); OPTCHAT_TRACE_FULL=1 adds whole texts.
-    let trace = match crate::trace::Trace::open(
-        &paths.traces,
-        env("OPTCHAT_TRACE_FULL").as_deref() == Some("1"),
-    ) {
+    // The monitoring trace (trace.rs); OPTCHAT_TRACE_FULL=1 or the Chief's
+    // `trace.full` setting adds whole texts (the app passes no OPTCHAT_ env).
+    let trace_full = env("OPTCHAT_TRACE_FULL").as_deref() == Some("1")
+        || crate::chief_settings::ChiefSettings::load(&paths.root.join("settings.json")).trace_full;
+    let trace = match crate::trace::Trace::open(&paths.traces, trace_full) {
         Ok(trace) => trace,
         Err(e) => {
             log(format!(
@@ -1445,7 +1445,11 @@ fn start(
         // `control cloud PEER` sets a peer at run time with no env.
         .with_cloud_text(sub_text.clone())
         .with_cloud_vms(cloud_vms.clone())
-        .with_agent_keys(agent_keys.clone());
+        .with_agent_keys(agent_keys.clone())
+        // cloud_workspace: the app's own Cloud actions (#25596).
+        .with_cloud_workspaces(
+            crate::cloud_workspace::CloudWorkspaces::from_env(&|k: &str| env(k)).map(Arc::new),
+        );
         let spawner = Arc::new(spawner);
         sub_starter = Some(spawner.queue_starter());
         spawner as Arc<dyn crate::tools::Orchestrator>
@@ -1619,6 +1623,7 @@ fn start(
         home_view: Some(home_view),
         membership: membership.clone(),
         keep_turn_session: env("CHIEF_KEEP_TURN_SESSION").as_deref() != Some("0"),
+        screen_share: Some(paths.screen.clone()),
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));
     // Section 10: persist after each turn.
@@ -1627,8 +1632,11 @@ fn start(
         paths,
         &crate::migrate::backup_id(home),
     ));
-    let retention =
-        crate::turn_retention::TurnRetention::new(paths, &crate::compactor::user_claude_home());
+    let retention = crate::turn_retention::TurnRetention::new(
+        paths,
+        &crate::compactor::user_claude_home(),
+        &crate::compactor::compactor_work(home),
+    );
     if let Err(e) = retention.cleanup() {
         log(format!(
             "cleaning expired turn transcripts at start failed: {e}"

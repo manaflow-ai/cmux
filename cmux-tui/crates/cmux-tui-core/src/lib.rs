@@ -84,6 +84,7 @@ mod scripts;
 mod session_shutdown;
 mod shell_history;
 mod shell_integration;
+pub mod startup_timings;
 use cmux_tui_util::short_id;
 mod sidebar_resource;
 pub mod sizing_policy;

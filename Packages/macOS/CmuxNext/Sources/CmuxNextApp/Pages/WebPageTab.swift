@@ -12,10 +12,15 @@ final class WebPageTab: InternalPageProvider {
     let icon: IconName?
     /// Read once, when the tab registers: page titles do not change while the app runs.
     let title: String
-    private let make: () -> PageWebView?
-    private var pages: [String: PageWebView] = [:]
+    private let make: (String) -> NSView?
+    private var pages: [String: NSView] = [:]
 
-    init(_ page: InternalPageID, symbol: String, icon: IconName? = nil, title: String, make: @escaping () -> PageWebView?) {
+    convenience init(_ page: InternalPageID, symbol: String, icon: IconName? = nil, title: String, make: @escaping () -> PageWebView?) {
+        self.init(page, symbol: symbol, icon: icon, title: title, view: { _ in make() })
+    }
+
+    /// A page whose tabs are native views made per tab `key` (the native New Tab page).
+    init(_ page: InternalPageID, symbol: String, icon: IconName? = nil, title: String, view make: @escaping (String) -> NSView?) {
         self.page = page
         self.symbol = symbol
         self.icon = icon
@@ -24,10 +29,10 @@ final class WebPageTab: InternalPageProvider {
     }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        guard let view = make() else { return NSView() }
+        guard let view = make(key) else { return NSView() }
         pages[key] = view
         return view
     }
 
-    func tabClosed(_ key: String) { pages.removeValue(forKey: key)?.close() }
+    func tabClosed(_ key: String) { (pages.removeValue(forKey: key) as? PageWebView)?.close() }
 }

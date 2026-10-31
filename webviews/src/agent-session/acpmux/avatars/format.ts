@@ -1,3 +1,5 @@
+// l10n-allow-file: a manifest validator; its reasons name avatar.json fields, and today only the built-in sets reach it
+// (an upload that shows a reason must put it through the pane's strings first).
 // Animated avatars (`cmux-avatar/1`): a sprite sheet of same-size frames, one row per agent state,
 // and a small JSON manifest naming each state's row and frame count (after Codex's pets, whose
 // sheets keep one animation per row and draw running-left/running-right as their own rows). The

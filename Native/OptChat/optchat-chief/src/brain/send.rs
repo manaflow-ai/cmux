@@ -19,6 +19,20 @@ use crate::tools::SendCall;
 impl Brain {
     /// The `send` tool.
     pub(super) fn send(&mut self, call: SendCall) -> Result<String, String> {
+        // The length gate: the first long send of a turn comes back for
+        // Chief to cut; the next one posts (chief_kernel::replies).
+        if let Some(refusal) = chief_kernel::replies::length_check(
+            call.text.as_deref().unwrap_or(""),
+            self.chief.reply_max_words,
+            self.length_refused,
+        ) {
+            self.length_refused = true;
+            self.trace.emit(
+                "chief.reply_too_long",
+                serde_json::json!({"words": chief_kernel::replies::reply_words(call.text.as_deref().unwrap_or(""))}),
+            );
+            return Err(refusal);
+        }
         let home = std::env::var_os("HOME").map(PathBuf::from);
         // Every attachment is checked before anything is posted, so a bad
         // call can be fixed and sent again whole.
