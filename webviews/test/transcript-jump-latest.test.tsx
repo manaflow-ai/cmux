@@ -94,14 +94,8 @@ test("a stale queued latest frame reports the live parked state to its parent", 
   try {
     await act(async () => draw(rows));
     const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
-    const spacer = dom.window.document.querySelector<HTMLElement>(".acpmux-spacer")!;
-    Object.defineProperty(scroller, "scrollHeight", {
-      configurable: true,
-      get: () => parseFloat(spacer.style.height),
-    });
     const latest = scroller.scrollHeight - VIEWPORT;
-    // The scroller keeps whole pixels (jsdomScroller), as WebKit does.
-    const parked = Math.floor(latest - VIEWPORT);
+    const parked = latest - VIEWPORT;
     changes.length = 0;
     await act(async () => {
       // Queue bottom-follow, then a rail/native default moves the DOM before the queued RAF.

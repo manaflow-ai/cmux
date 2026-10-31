@@ -30,6 +30,8 @@ final class MessageCell: UICollectionViewCell {
     let footerLabel = UILabel()
     let editedLabel = UILabel()
     let repliesLabel = UILabel()
+    /// "N Replies" under the quote: the quoted message's own thread.
+    let quoteRepliesLabel = UILabel()
     let translationLabel = UILabel()
     let failedBadge = UIImageView(image: UIImage(systemName: "exclamationmark.circle.fill"))
     let timeLabel = UILabel()
@@ -86,11 +88,12 @@ final class MessageCell: UICollectionViewCell {
         shiftable.addSubview(replyPinned)
         replyPinned.layer.addSublayer(threadLine)
         threadLine.fillColor = nil
-        threadLine.lineWidth = 2.5
+        threadLine.lineWidth = ConversationReplyThread.lineWidth
         threadLine.lineCap = .round
         senderLabel.font = ConversationTheme.senderNameFont
         senderLabel.textColor = ConversationTheme.secondaryText
-        quoteLabel.numberOfLines = 2
+        // Messages' quote is one line, truncated (`replyBalloon…`).
+        quoteLabel.numberOfLines = 1
         quoteLabel.lineBreakMode = .byTruncatingTail
         textLabel.numberOfLines = 0
         // A row scrolled on before its effect glyphs were rendered ahead
@@ -105,13 +108,15 @@ final class MessageCell: UICollectionViewCell {
         editedLabel.textColor = .systemBlue
         repliesLabel.font = ConversationTheme.editedFont
         repliesLabel.textColor = .systemBlue
+        quoteRepliesLabel.font = ConversationTheme.editedFont
+        quoteRepliesLabel.textColor = .systemBlue
         failedBadge.tintColor = ConversationTheme.notDelivered
         failedBadge.contentMode = .scaleAspectFit
         timeLabel.font = ConversationTheme.timestampDrawerFont
         timeLabel.textColor = ConversationTheme.timestampText
         timeLabel.alpha = 0
         translationLabel.accessibilityIdentifier = "conversation.message.translation"
-        for view in [senderLabel, quoteBubble, quoteLabel, avatar] {
+        for view in [senderLabel, quoteBubble, quoteLabel, quoteRepliesLabel, avatar] {
             replyPinned.addSubview(view)
         }
         for view in [bubble, textLabel, emojiLabel, reactionBadge, editedLabel, repliesLabel, translationLabel] {
@@ -186,17 +191,24 @@ final class MessageCell: UICollectionViewCell {
             quoteLabel.isHidden = false
             quoteBubble.side = quote.isOutgoing ? .trailing : .leading
             quoteBubble.hasTail = true
-            // Quotes are outline-only, stroked in the original bubble's color.
+            // Quotes are outline-only (ChatKit's unfilled reply balloon), the
+            // outline and text in the original bubble's reply colors.
             quoteBubble.fillColor = .clear
-            quoteBubble.strokeColor = quote.isOutgoing ? ConversationTheme.outgoingBubble : ConversationTheme.quoteStroke
+            quoteBubble.strokeColor = quote.isOutgoing ? ConversationTheme.quoteOutgoingStroke : ConversationTheme.quoteStroke
             quoteBubble.frame = quoteFrame
             quoteLabel.font = ConversationTheme.quoteFont
             quoteLabel.text = quote.text
-            quoteLabel.textColor = quote.isOutgoing ? ConversationTheme.outgoingBubble : ConversationTheme.secondaryText
+            quoteLabel.textColor = quote.isOutgoing ? ConversationTheme.quoteOutgoingText : ConversationTheme.quoteText
             quoteLabel.frame = quoteTextFrame
         } else {
             quoteBubble.isHidden = true
             quoteLabel.isHidden = true
+        }
+        quoteRepliesLabel.isHidden = layout.quoteRepliesFrame == nil
+        if let frame = layout.quoteRepliesFrame, let count = model.replyQuote?.replyCount {
+            quoteRepliesLabel.text = Self.repliesText(count)
+            quoteRepliesLabel.frame = frame
+            quoteRepliesLabel.textAlignment = model.replyQuote?.isOutgoing == true ? .right : .left
         }
         threadLine.path = layout.threadPath
         threadLine.isHidden = layout.threadPath == nil
@@ -358,9 +370,7 @@ final class MessageCell: UICollectionViewCell {
         }
         repliesLabel.isHidden = layout.repliesFrame == nil
         if let frame = layout.repliesFrame {
-            repliesLabel.text = message.replyCount == 1
-                ? String(localized: "conversation.message.oneReply", defaultValue: "1 Reply", bundle: .module)
-                : String(format: String(localized: "conversation.message.replies", defaultValue: "%d Replies", bundle: .module), message.replyCount)
+            repliesLabel.text = Self.repliesText(message.replyCount)
             repliesLabel.frame = frame
             repliesLabel.textAlignment = model.isOutgoing ? .right : .left
         }
@@ -623,6 +633,12 @@ final class MessageCell: UICollectionViewCell {
             ($0.formatted(date: .omitted, time: .shortened) as NSString).size(withAttributes: [.font: font]).width
         }.max() ?? 0
         return TimestampDrawerPhysics.drawerWidth(widestReferenceTime: widest, margin: timestampDrawerMargin)
+    }
+
+    static func repliesText(_ count: Int) -> String {
+        count == 1
+            ? String(localized: "conversation.message.oneReply", defaultValue: "1 Reply", bundle: .module)
+            : String(format: String(localized: "conversation.message.replies", defaultValue: "%d Replies", bundle: .module), count)
     }
 
     /// 58 pt with "11:00 AM" at 50.07 pt, as Messages on an iPhone 17 Pro.

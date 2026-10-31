@@ -972,6 +972,42 @@ class CrashIsNeverABaseRed(unittest.TestCase):
             self.judge()
 
 
+class EchoedStepScriptIsNoEvidence(unittest.TestCase):
+    """The runner echoes each step's script before it runs, so the script's own text (an `echo "::error::..."`
+    branch, a grep for test names) is in every run's log. 2026-10-30: cmux#28145's kit job at c39d28ef failed two
+    iOS simulator tests that base run 41138142557 passed, and was excused because both logs echo the same
+    `::error::` lines of the xcodebuild step's script."""
+
+    KIT = "CmuxMobileKit tests (macOS swift test, iOS simulator)"
+    STEP = "xcodebuild test (iOS simulator)"
+    FIXTURES = ROOT / "tests/fixtures/test_reds"
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, self.KIT, self.STEP),
+                        2: failed_job(2, 20, BASE_SHA, self.KIT, self.STEP)}
+        self.gh.logs = {1: (self.FIXTURES / "ios-kit-head-run-41079430021.log").read_text(),
+                        2: (self.FIXTURES / "ios-kit-base-run-41138142557.log").read_text()}
+
+    def test_the_28145_kit_red_is_not_excused_by_the_echoed_script(self):
+        with self.assertRaisesRegex(excuse.Refused, "HomeRetryTests.failedHomeLoadRetriesTheFeedOnTheExistingLink"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+
+    def test_echoed_script_lines_are_not_error_lines(self):
+        _, tests, errors = excuse.signature(self.gh.jobs[2], self.gh.logs[2])
+        self.assertEqual(tests, {"TerminalSurfaceFramePacingTests.busyOutputDrawsAtMostOneFramePerDisplayRefresh()"})
+        self.assertEqual(errors, set(), "every `::error::` in this log is the step script's echo")
+
+    def test_an_error_only_the_echo_names_cannot_excuse_a_head_error(self):
+        echo = ["##[group]Run make", 'echo "::error::Python is required"', "shell: /bin/bash -e {0}", "##[endgroup]"]
+        name = "cmux-next fast tier"
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, name, "Install"), 2: failed_job(2, 20, BASE_SHA, name, "Install")}
+        self.gh.logs[1] = log(name, "Install", *echo, "##[error]Python is required")
+        self.gh.logs[2] = log(name, "Install", *echo, "##[error]Could not find a version for foo")
+        with self.assertRaisesRegex(excuse.Refused, "errors not on feat-cmux-next run 20: Python is required"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+
+
 class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
     """A compile check with no verdict (the build-fleet controller unreachable or timed out) compiled
     nothing, so it is never a base red, even when the base shows the same "no result" with only its own
@@ -1170,6 +1206,109 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
         self.gh.logs[1] = log(self.FLEET, self.STEP, line.format(HEAD))
         self.gh.logs[2] = log(self.FLEET, self.STEP, line.format(BASE_SHA))
         self.assertIn(f"excused '{self.FLEET}'", "\n".join(self.judge()))
+
+
+CLIPPY = "clippy (changed cmux-tui packages)"
+RATCHET_STEP = "Rust panic ratchet on changed cmux-tui packages"
+
+
+def ratchet_log(scope, *rows, other=()):
+    """A panic ratchet step's log, shaped like run 41176610742's (cmux#26849): each ROWS entry is
+    (crate, lint, count, where) with two hit locations under it; OTHER lines are the ratchet's other failures."""
+    lines = [f"cmux-tui-clippy-changed: panic ratchet on {scope}",
+             "##[warning]acpmux: clippy::arithmetic_side_effects 1496 > baseline 1430",
+             "rust-panic-ratchet: 50 crates checked, 17 at deny", "rust-panic-ratchet: RED"]
+    for crate, lint, count, where in rows:
+        lines += [f"  {crate}: clippy::{lint} {count} > {where}",
+                  f"      crates/{crate}/src/lib.rs:{count}:9", f"      crates/{crate}/src/main.rs:{count + 1}:13"]
+    lines += [f"  {line}" for line in other]
+    lines += ["Fix the hit (a typed error handled at a boundary), or put a reviewed",
+              '#[allow(clippy::<lint>, reason = "...")] on the smallest item. Never raise the baseline.',
+              f"##[error]the panic ratchet is red for {scope}; its log above names each new hit "
+              "(plans/cmux-next/rust-panic-free.md)",
+              "##[error]Process completed with exit code 1."]
+    return log(CLIPPY, RATCHET_STEP, *lines)
+
+
+HEAD_ROWS = (("acpmux", "indexing_slicing", 692, "baseline 686"), ("cmux-tui", "indexing_slicing", 836, "baseline 831"))
+RD_LINK = ("cmux-rd-link", "indexing_slicing", 7, "new crate (must be 0)")
+CHANGED = "cmux-remote, cmux-terminal-client, cmux-tui, cmux-tui-core"
+WHOLE = "the whole cmux-tui workspace"
+
+
+class PanicRatchet(unittest.TestCase):
+    """The ratchet's error line names the packages a run checked, and a base run can check the whole workspace
+    while a PR's checks only its changed packages: its red is compared by its per-lint rows instead (cmux#26849's
+    run 41176610742 was refused against base run 41176544319, which failed on the same two rows and one more)."""
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, CLIPPY, RATCHET_STEP),
+                        2: failed_job(2, 20, BASE_SHA, CLIPPY, RATCHET_STEP)}
+        self.gh.logs[1] = ratchet_log(CHANGED, *HEAD_ROWS)
+        self.gh.logs[2] = ratchet_log(WHOLE, HEAD_ROWS[0], RD_LINK, HEAD_ROWS[1])
+
+    def judge(self):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh))
+
+    def test_rows_all_on_a_whole_workspace_base_run_are_excused(self):
+        text = self.judge()
+        self.assertIn(f"excused '{CLIPPY}'", text)
+        self.assertIn("acpmux: clippy::indexing_slicing 692 > baseline 686", text)
+
+    def test_a_base_count_above_the_heads_still_covers_it(self):
+        self.gh.logs[1] = ratchet_log(CHANGED, ("acpmux", "indexing_slicing", 690, "baseline 686"), HEAD_ROWS[1])
+        self.assertIn(f"excused '{CLIPPY}'", self.judge())
+
+    def test_a_head_count_above_the_bases_blocks(self):
+        self.gh.logs[1] = ratchet_log(CHANGED, ("acpmux", "indexing_slicing", 693, "baseline 686"), HEAD_ROWS[1])
+        with self.assertRaisesRegex(excuse.Refused, "acpmux: clippy::indexing_slicing 693 > baseline 686"):
+            self.judge()
+
+    def test_a_head_count_above_the_bases_blocks_with_the_same_scope_too(self):
+        self.gh.logs[1] = ratchet_log(WHOLE, ("acpmux", "indexing_slicing", 693, "baseline 686"), RD_LINK, HEAD_ROWS[1])
+        with self.assertRaisesRegex(excuse.Refused, "693 > baseline 686"):
+            self.judge()
+
+    def test_a_row_not_on_the_base_blocks(self):
+        self.gh.logs[1] = ratchet_log(CHANGED, *HEAD_ROWS, ("cmux-wg", "indexing_slicing", 3, "baseline 1"))
+        with self.assertRaisesRegex(excuse.Refused, "cmux-wg: clippy::indexing_slicing 3 > baseline 1"):
+            self.judge()
+
+    def test_a_row_of_another_lint_blocks(self):
+        self.gh.logs[1] = ratchet_log(CHANGED, HEAD_ROWS[0], ("cmux-tui", "unwrap_used", 836, "baseline 831"))
+        with self.assertRaisesRegex(excuse.Refused, "unwrap_used"):
+            self.judge()
+
+    def test_a_different_baseline_blocks(self):
+        # The PR raised (or set) the row's baseline: base's row is not the same red.
+        self.gh.logs[1] = ratchet_log(CHANGED, ("acpmux", "indexing_slicing", 692, "baseline 680"), HEAD_ROWS[1])
+        with self.assertRaisesRegex(excuse.Refused, "692 > baseline 680"):
+            self.judge()
+
+    def test_another_ratchet_failure_not_on_the_base_blocks(self):
+        reason = 'crates/acpmux/src/lib.rs:12: allow(indexing_slicing) needs reason = "..."'
+        self.gh.logs[1] = ratchet_log(CHANGED, *HEAD_ROWS, other=[reason])
+        with self.assertRaisesRegex(excuse.Refused, "needs reason"):
+            self.judge()
+        self.gh.logs[2] = ratchet_log(WHOLE, HEAD_ROWS[0], RD_LINK, HEAD_ROWS[1], other=[reason])
+        self.assertIn(f"excused '{CLIPPY}'", self.judge())
+
+    def test_a_ratchet_red_with_no_rows_blocks(self):
+        # The ratchet refuses a clippy run that did not finish: nothing in it can be compared.
+        self.gh.logs[1] = log(CLIPPY, RATCHET_STEP,
+                              "rust-panic-ratchet: the clippy run did not finish successfully (no build-finished "
+                              "success line); counts from a partial build prove nothing",
+                              f"##[error]the panic ratchet is red for {WHOLE}; its log above names each new hit "
+                              "(plans/cmux-next/rust-panic-free.md)")
+        self.gh.logs[2] = self.gh.logs[1]
+        with self.assertRaisesRegex(excuse.Refused, "no per-lint row"):
+            self.judge()
+
+    def test_another_error_beside_the_ratchet_is_still_compared(self):
+        self.gh.logs[1] += "\n" + log(CLIPPY, RATCHET_STEP, "error: could not compile `acpmux`")
+        with self.assertRaisesRegex(excuse.Refused, "could not compile"):
+            self.judge()
 
 
 class Script(unittest.TestCase):

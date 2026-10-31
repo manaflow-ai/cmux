@@ -81,7 +81,8 @@ public final class SidebarView: NSView {
     /// footer has none (SIDEBAR-FOOTER-MINIMAL).
     let aboveLine = CALayer()
     let newButton = SidebarIconButton(icon: .actionAdd, label: Strings.newWorkspace)
-    /// A separate compact chooser control: the + itself remains a one-click workspace action.
+    /// The +'s menu segment, right of the + as one split button (Lawrence 2026-10-30: "the dropdown
+    /// on left of plus is ugly"): the + itself remains a one-click workspace action.
     let newWorkspaceOptionsButton = TitlebarBandButton(symbol: "chevron.down")
     /// The footer's Search button, after the profile avatar (plans/cmux-next/sidebar-search.md):
     /// a press runs ``onSearch`` (the centered Search palette). `sidebar.showSearchButton` hides it.
@@ -253,6 +254,13 @@ public final class SidebarView: NSView {
         newButton.onPress = { [weak self] in self?.model.send(.newWorkspace(machine: nil, group: nil)) }
         newButton.menuProvider = { [weak self] in self?.list.contextMenuProvider?(.background) }
         newWorkspaceOptionsButton.longPressOpensMenu = false
+        newWorkspaceOptionsButton.symbolPointSize = { SidebarStyle.toolbarMenuChevronPointSize }
+        // The chooser opens under the whole split button, from the +'s leading edge, as a
+        // toolbar menu item's does.
+        newWorkspaceOptionsButton.presentMenu = { [weak self] menu, button in
+            let anchor: NSView = self?.newButton ?? button
+            menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: anchor, gap: Metrics.space1), in: anchor)
+        }
         newWorkspaceOptionsButton.pressMenu = { [weak self] in self?.list.contextMenuProvider?(.background) }
         newWorkspaceOptionsButton.target = self
         newWorkspaceOptionsButton.action = #selector(openNewWorkspaceOptions)
@@ -297,6 +305,14 @@ public final class SidebarView: NSView {
         buildUpdateAvailable()
     }
 
+    /// The + and its chevron segment share one rounded outline: their hover and pressed fills
+    /// keep only the pair's outer corners while the chevron shows.
+    private func joinSplitButtonCorners(_ joined: Bool) {
+        let all: CACornerMask = [.layerMinXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner]
+        newButton.layer?.maskedCorners = joined ? [.layerMinXMinYCorner, .layerMinXMaxYCorner] : all
+        newWorkspaceOptionsButton.layer?.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
+    }
+
     @objc private func openNewWorkspaceOptions() {
         newWorkspaceOptionsButton.performPressMenu()
     }
@@ -328,17 +344,22 @@ public final class SidebarView: NSView {
         // tabs and the toolbar band do too); the row's middle without them.
         let button = SidebarStyle.toolbarButtonSize
         let rowMidY = window.flatMap(WindowTitlebar.trafficLightsFrame(in:)).map { convert($0, from: nil).midY } ?? titlebarHeight / 2
-        newButton.frame = NSRect(x: b.width - Metrics.space3 - button, y: (rowMidY - button / 2).rounded(), width: button, height: button)
-        newWorkspaceOptionsButton.frame = NSRect(x: newButton.frame.minX - Metrics.space1 - button,
-                                                  y: newButton.frame.minY, width: button, height: button)
         let x = titlebarLeadingX
-        // The chevron is the optional extra (the +'s right-click menu holds the same chooser): on a
-        // sidebar too narrow for it and the Priority button beside the +, it hides before either one
-        // reaches the leading reserve (the toolbar band sits above it there and takes the clicks).
-        let optionsMinX = newWorkspaceOptionsButton.frame.minX - (priorityButton.isHidden ? 0 : Metrics.space1 + button)
-        newWorkspaceOptionsButton.isHidden = optionsMinX < x
-        let titlebarButtonsMinX = layoutPriorityButton(before: newWorkspaceOptionsButton.isHidden ? newButton.frame
-                                                                                                 : newWorkspaceOptionsButton.frame)
+        let buttonY = (rowMidY - button / 2).rounded()
+        let trailing = b.width - Metrics.space3
+        // The + and its chooser chevron are one split button: the + first, the narrow chevron
+        // segment right after it, touching. The chevron is the optional extra (the +'s right-click
+        // menu holds the same chooser): on a sidebar too narrow for it and the Priority button
+        // beside the +, it hides before either one reaches the leading reserve (the toolbar band
+        // sits above it there and takes the clicks), and the + takes the trailing slot alone.
+        let segment = SidebarStyle.toolbarMenuSegmentWidth
+        let pairMinX = trailing - segment - button - (priorityButton.isHidden ? 0 : Metrics.space1 + button)
+        let showsChevron = pairMinX >= x
+        newWorkspaceOptionsButton.isHidden = !showsChevron
+        newButton.frame = NSRect(x: trailing - button - (showsChevron ? segment : 0), y: buttonY, width: button, height: button)
+        newWorkspaceOptionsButton.frame = NSRect(x: newButton.frame.maxX, y: buttonY, width: segment, height: button)
+        joinSplitButtonCorners(showsChevron)
+        let titlebarButtonsMinX = layoutPriorityButton(before: newButton.frame)
         if let accessory = titlebarAccessory {
             let size = accessory.fittingSize
             let width = max(0, min(size.width, titlebarButtonsMinX - Metrics.space2 - x))
