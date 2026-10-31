@@ -133,40 +133,64 @@ async fn answer(stream: tokio::net::TcpStream, mut restart: tokio::sync::watch::
     }
 }
 
-/// A fake peer daemon on a loopback port. Until `down_until` it accepts and closes each
-/// connection before the 101, as huge-blue did while its new daemon started ("WebSocket
-/// protocol error: Handshake not finished"); then it answers.
+/// A fake peer daemon on a loopback port. The next `refuse` connections it reads the upgrade
+/// request of and closes before the 101, as a daemon that is not serving yet does ("WebSocket
+/// protocol error: Handshake not finished"); it answers the others. `accepts` gets the time of
+/// each connection, so a test reads the client's waits between attempts off the server.
 struct Daemon {
     port: u16,
-    down_until: std::sync::Arc<StdMutex<Instant>>,
+    refuse: std::sync::Arc<std::sync::atomic::AtomicU32>,
     restart: tokio::sync::watch::Sender<u32>,
+    accepts: mpsc::UnboundedReceiver<Instant>,
     task: tokio::task::JoinHandle<()>,
 }
 
 impl Daemon {
-    async fn start(down_for: Duration) -> Self {
+    async fn start(refuse: u32) -> Self {
+        use tokio::io::AsyncReadExt;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
-        let down_until = std::sync::Arc::new(StdMutex::new(Instant::now() + down_for));
+        let refuse = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(refuse));
         let (restart, restarts) = tokio::sync::watch::channel(0);
-        let until = down_until.clone();
+        let (accepted, accepts) = mpsc::unbounded_channel();
+        let left = refuse.clone();
         let task = tokio::spawn(async move {
             loop {
-                let (stream, _) = listener.accept().await.unwrap();
-                if Instant::now() < *until.lock().unwrap() {
-                    drop(stream);
-                } else {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let _ = accepted.send(Instant::now());
+                let refused = left
+                    .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                    .is_ok();
+                if !refused {
                     tokio::spawn(answer(stream, restarts.clone()));
+                    continue;
                 }
+                // The whole request read first: the close is a FIN the client reads as the
+                // upgrade ending early, never a reset of unread bytes.
+                let mut head = Vec::new();
+                let mut chunk = [0u8; 1024];
+                while !head.windows(4).any(|w| w == b"\r\n\r\n") {
+                    match stream.read(&mut chunk).await {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => head.extend_from_slice(chunk.get(..n).unwrap_or_default()),
+                    }
+                }
+                drop(stream);
             }
         });
-        Self { port, down_until, restart, task }
+        Self { port, refuse, restart, accepts, task }
     }
 
-    /// Closes the live link with 1012 and is down for `down_for`.
-    fn restart(&self, down_for: Duration) {
-        *self.down_until.lock().unwrap() = Instant::now() + down_for;
+    /// Closes the live link with 1012; the next `refuse` connections are refused.
+    fn restart(&self, refuse: u32) {
+        self.refuse.store(refuse, Ordering::SeqCst);
         self.restart.send_modify(|n| *n += 1);
+    }
+
+    /// The time of the next connection.
+    async fn accepted(&mut self) -> Instant {
+        let next = tokio::time::timeout(Duration::from_secs(120), self.accepts.recv()).await;
+        next.expect("the client connects again").expect("the daemon runs")
     }
 }
 
@@ -175,62 +199,68 @@ async fn next_notice(notices: &mut mpsc::Receiver<(String, u64, PeerNotice)>) ->
     wait.expect("the link moves on").expect("the link runs").2
 }
 
-/// huge-blue's updates (2026-10-30): its daemon restarted with 1012 and took a while to
-/// listen again; Leo's chat waited 32-57 s for each next link. Three restarts, each down
-/// `DOWN`: every reconnect comes within 1.5 s of the peer listening
-/// again. Gaps on the base (2 s doubling, never reset by a restart): see the PR.
+/// The wait between a refused attempt and the next, its first time. Base: 1-2 s (the 2 s backoff
+/// base). Head: 0.25-0.5 s.
+const FIRST_NEXT_ATTEMPT_WITHIN: Duration = Duration::from_millis(950);
+
+/// The same wait later in an outage the client waits out. Base: doubling, 2-4 s, 4-8 s, ...
+/// Head: at most 1 s (`Backoff::WANTED_CAP`).
+const NEXT_ATTEMPT_WITHIN: Duration = Duration::from_millis(1_500);
+
+/// The remote host's daemon updates (2026-10-30): each restart closed the link with 1012, the
+/// client's one immediate retry was refused, and its next attempt came 32-57 s later, since the
+/// backoff grew by a step at every restart and a restart never started it over. Three
+/// restarts: each next attempt comes within about a second of the refused one.
 #[tokio::test]
 async fn a_peer_that_restarts_again_and_again_is_back_within_a_second_each_time() {
-    const DOWN: Duration = Duration::from_millis(1_500);
-    let daemon = Daemon::start(Duration::ZERO).await;
+    let mut daemon = Daemon::start(0).await;
     let (tx, mut notices) = mpsc::channel(64);
     let url = format!("ws://127.0.0.1:{}", daemon.port);
     let peer = Peer::new("huge-blue", &url, None, None, tx);
     let running = tokio::spawn(peer.clone().run());
+    daemon.accepted().await;
     while !matches!(next_notice(&mut notices).await, PeerNotice::Connected) {}
-    let mut gaps = Vec::new();
+    let mut waits = Vec::new();
     for _ in 0..3 {
-        let restarted = Instant::now();
-        daemon.restart(DOWN);
+        daemon.restart(1);
+        let refused = daemon.accepted().await;
+        waits.push(daemon.accepted().await.duration_since(refused));
         while !matches!(next_notice(&mut notices).await, PeerNotice::Connected) {}
-        gaps.push(restarted.elapsed());
     }
-    eprintln!("reconnect gaps after a restart down {DOWN:?}: {gaps:?}");
-    for gap in &gaps {
-        assert!(*gap < DOWN + Duration::from_millis(1_500), "{gaps:?}");
-    }
+    eprintln!("wait after the refused attempt, restarts 1-3: {waits:?}");
+    assert!(waits[0] < FIRST_NEXT_ATTEMPT_WITHIN, "{waits:?}");
+    assert!(waits.iter().all(|w| *w < NEXT_ATTEMPT_WITHIN), "{waits:?}");
     peer.stop();
     let _ = tokio::time::timeout(Duration::from_secs(10), running).await;
     daemon.task.abort();
 }
 
-/// Leo's huge-blue chat: the upgrade ended before its answer once ("WebSocket protocol
+/// Leo's chat on the remote host: the upgrade ended before its answer once ("WebSocket protocol
 /// error: Handshake not finished"), and the chat took 30+ s to load. The next attempt comes
-/// within the first backoff step, under a second, not after the 2 s base it had.
+/// within the first backoff step, under a second, not after the 2 s base's 1-2 s.
 #[tokio::test]
 async fn a_handshake_that_fails_once_reconnects_within_a_second() {
-    // Down for the first attempt only.
-    let daemon = Daemon::start(Duration::from_millis(100)).await;
-    let port = daemon.port;
+    let mut daemon = Daemon::start(1).await;
     let (tx, mut notices) = mpsc::channel(64);
-    let peer = Peer::new("huge-blue", &format!("ws://127.0.0.1:{port}"), None, None, tx);
+    let url = format!("ws://127.0.0.1:{}", daemon.port);
+    let peer = Peer::new("huge-blue", &url, None, None, tx);
     let running = tokio::spawn(peer.clone().run());
-    let mut failed_at = None;
-    let ready_after = loop {
-        let (_, _, notice) = tokio::time::timeout(Duration::from_secs(10), notices.recv())
-            .await
-            .expect("the link connects")
-            .expect("the link runs");
-        match notice {
+    let refused = daemon.accepted().await;
+    let wait = daemon.accepted().await.duration_since(refused);
+    let mut failed = false;
+    loop {
+        match next_notice(&mut notices).await {
             PeerNotice::Disconnected(why) => {
                 assert!(why.contains("Handshake not finished"), "{why}");
-                failed_at = Some(Instant::now());
+                failed = true;
             }
-            PeerNotice::Connected => break failed_at.expect("one attempt failed").elapsed(),
+            PeerNotice::Connected => break,
             _ => {}
         }
-    };
-    assert!(ready_after < Duration::from_secs(1), "ready {ready_after:?} after the failure");
+    }
+    assert!(failed, "the first attempt failed");
+    eprintln!("wait after the refused attempt: {wait:?}");
+    assert!(wait < FIRST_NEXT_ATTEMPT_WITHIN, "next attempt {wait:?} after the refused one");
     peer.stop();
     let _ = tokio::time::timeout(Duration::from_secs(10), running).await;
     daemon.task.abort();
