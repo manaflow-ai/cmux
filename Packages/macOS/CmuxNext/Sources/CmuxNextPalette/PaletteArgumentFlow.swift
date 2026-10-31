@@ -32,6 +32,8 @@ struct PaletteArgumentFlow {
             collected.target = target
         }
         switch argument.kind {
+        case .string where argument.suggestions?.allowsMultiple == true:
+            return .push(multipleChoicePage(for: argument, chosen: [], collected: collected))
         case .string where argument.suggestions != nil:
             return .push(withPreview(suggestionPage(for: argument, collected: collected), argument, collected))
         case .string, .int:
@@ -126,7 +128,7 @@ struct PaletteArgumentFlow {
         return nil
     }
 
-    private func adding(_ argument: ActionArgument, _ text: String, to collected: ActionInvocation) -> ActionInvocation? {
+    func adding(_ argument: ActionArgument, _ text: String, to collected: ActionInvocation) -> ActionInvocation? {
         guard let value = argument.parse(text) else { return nil }
         var next = collected
         next.arguments[argument.name] = value
@@ -222,10 +224,20 @@ struct PaletteArgumentFlow {
         item.id.hasPrefix("option:") ? String(item.id.dropFirst("option:".count)) : nil
     }
 
+    /// An action title without the trailing ellipsis that marks it as asking for more ("New Group
+    /// Chat…" is "New Group Chat"): "…" or "...", and the space some locales put before it ("Neuer
+    /// Gruppenchat …").
+    static func baseTitle(_ title: String) -> String {
+        var text = Substring(title)
+        if text.hasSuffix("…") { text = text.dropLast() } else if text.hasSuffix("...") { text = text.dropLast(3) }
+        while let last = text.last, last.isWhitespace { text = text.dropLast() }
+        return text.isEmpty ? title : String(text)
+    }
+
     /// "Set Tab Group Color: Color" reads badly; use the action title for
     /// single-argument actions and "Title › Argument" otherwise.
     static func stepTitle(_ descriptor: ActionDescriptor, _ argument: ActionArgument) -> String {
-        let base = descriptor.title.hasSuffix("…") ? String(descriptor.title.dropLast()) : descriptor.title
+        let base = baseTitle(descriptor.title)
         let required = descriptor.arguments.filter(\.isRequired)
         return required.count <= 1 ? base : "\(base) › \(argument.title)"
     }
