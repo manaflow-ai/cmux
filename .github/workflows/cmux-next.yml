@@ -112,8 +112,6 @@ on:
       - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
-      - scripts/ci/fast_tier_anchor.py
-      - tests/test_ci_fast_tier_anchor.py
       - scripts/ci/swiftpm_build_metrics.py
       - scripts/ci/build_metrics.py
       - tests/test_ci_swiftpm_build_metrics.py
@@ -389,8 +387,6 @@ on:
       - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
-      - scripts/ci/fast_tier_anchor.py
-      - tests/test_ci_fast_tier_anchor.py
       - scripts/ci/swiftpm_build_metrics.py
       - scripts/ci/build_metrics.py
       - tests/test_ci_swiftpm_build_metrics.py
@@ -1029,18 +1025,6 @@ jobs:
             echo "own_tui=false" >> "$GITHUB_OUTPUT"
           else
             echo "own_tui=true" >> "$GITHUB_OUTPUT"
-          fi
-          # A feat-cmux-next push's fast tier can end with no verdict: its job
-          # concurrency group replaces it while pending, or the head preflight
-          # skips it. So route the diff since the last push whose fast tier
-          # FINISHED (its cmux-next-fast-tier-finished marker), not since the
-          # previous push: a cancelled push's Swift is tested by the next one
-          # (2026-10-30: no run with c5dd001a, #27931, finished the fast tier).
-          # Fails open: the script answers true on any error, and a crash or
-          # timeout here answers true too.
-          if [[ "$EVENT_NAME" == push && "$GITHUB_REF" == refs/heads/feat-cmux-next ]]; then
-            timeout 150 python3 scripts/ci/fast_tier_anchor.py --head "$GITHUB_SHA" \
-              || echo "fast_tier=true" >> "$GITHUB_OUTPUT"
           fi
 
       # One look (and one short re-check of a missing run list), no wait.
@@ -1921,6 +1905,7 @@ jobs:
             # Version skew: the capability-text lint.
             bash scripts/cmux-next/tests/capability-text.test.sh
             bash scripts/cmux-next/tests/release-compile-derived-data.test.sh
+            bash scripts/cmux-next/tests/release-compile-fleet-cas.test.sh
             bash scripts/cmux-next/tests/scheme-compile-derived-data.test.sh
             bash scripts/cmux-next/tests/scheme-compile-browser-import.test.sh
             bash scripts/cmux-next/tests/dev-account-guard.test.sh
@@ -2835,7 +2820,7 @@ jobs:
   # still runs, and a route with no answer (a failed path_route) runs it as before.
   fast-tier:
     needs: [macos-placement, path_route, push-head-preflight]
-    if: ${{ !cancelled() && inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && needs.path_route.outputs.macos != 'false' && needs.path_route.outputs.fast_tier != 'false') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.path_route.outputs.fast_tier != 'false')) }}
+    if: ${{ !cancelled() && inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && needs.path_route.outputs.macos != 'false' && needs.path_route.outputs.fast_tier != 'false') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) }}
     name: cmux-next fast tier
     # The cache saves name the R2 write credentials, which live in the ci-cache-writer
     # environment (main only; tests/test_ci_pull_request_caches_are_read_only.py). This job
@@ -3014,7 +2999,6 @@ jobs:
         run: python3 -I scripts/ci/e2e_warm_derived_data.py replay "$GITHUB_WORKSPACE" Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json
 
       - name: Run the fast tier
-        id: fast-tier-run
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         env:
           CMUX_FAST_SWIFT_CACHE_KEY: ${{ steps.fast-cache-key.outputs.swift-key }}
@@ -3043,28 +3027,6 @@ jobs:
           path: ${{ runner.temp }}/cmux-next-fast-tier.json
           if-no-files-found: warn
           retention-days: 14
-
-      # A feat-cmux-next push whose fast tier ran to a verdict (passed or failed) marks its commit:
-      # path_route anchors the next pushes' fast tier on it (scripts/ci/fast_tier_anchor.py). A
-      # cancelled job, one that failed before the tier ran, or a reused pass marks nothing, so the
-      # next push routes from an older anchor and runs it (fail open).
-      - name: Mark this push's fast tier finished
-        if: ${{ always() && !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.reuse.outputs.hit != 'true' && (steps.fast-tier-run.outcome == 'success' || steps.fast-tier-run.outcome == 'failure') }}
-        continue-on-error: true
-        run: |
-          mkdir -p "$RUNNER_TEMP/fast-tier-finished"
-          printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/fast-tier-finished/sha.txt"
-
-      - name: Upload the finished marker
-        if: ${{ always() && !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.reuse.outputs.hit != 'true' && (steps.fast-tier-run.outcome == 'success' || steps.fast-tier-run.outcome == 'failure') }}
-        continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cmux-next-fast-tier-finished
-          path: ${{ runner.temp }}/fast-tier-finished
-          if-no-files-found: error
-          retention-days: 1
-          overwrite: true
 
       # A pass records itself for the next run on the same inputs: an artifact named after
       # the key, which every pull request and the base can list (scripts/ci/job_reuse.py
@@ -4910,15 +4872,22 @@ jobs:
           echo "::notice title=cmux-next Release compile (Xcode 26) reused::$RUN_URL passed on the same inputs (${SHA:0:12})"
           echo "Reused $RUN_URL: it passed on \`${SHA:0:12}\` with the same inputs (\`$KEY\`)." >> "$GITHUB_STEP_SUMMARY"
 
+      # On a mini, the compile reads the fleet's shared compile cache (glaeda fleet-cas, the store
+      # on cmux-lawrence's SSD) from the host's canonical root, read-only: only the trusted
+      # writer fills it (scripts/cmux-next/release-compile-fleet-cas.sh). A node that does not
+      # answer or a root another compile holds builds per runner as before, at once.
+      # vars.CMUX_NEXT_RELEASE_FLEET_CAS=off turns it off.
       - name: Release compile
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         env:
           CMUX_BUILD_METRICS_DIR: ${{ runner.temp }}/cmux-next-build-metrics/release
           CMUX_BUILD_METRICS_OUTPUT: ${{ runner.temp }}/cmux-next-build-metrics/release/metrics.json
           CMUX_BUILD_METRICS_SUMMARY: ${{ runner.temp }}/cmux-next-build-metrics/release/summary.md
+          CMUX_NEXT_RELEASE_FLEET_CAS: ${{ vars.CMUX_NEXT_RELEASE_FLEET_CAS == 'off' && 'off' || 'read' }}
         run: |
           derived_data="$(scripts/cmux-next/release-derived-data-path.sh release-compile Release)"
-          scripts/cmux-next/check-release-compile.sh "$derived_data"
+          [[ "$CMUX_NEXT_RUNNER" == glaeda-* ]] || export CMUX_NEXT_RELEASE_FLEET_CAS=off
+          scripts/cmux-next/release-compile-fleet-cas.sh "$derived_data"
 
       # Early advisory for a newly bundled binary. The signed nightly check
       # remains authoritative, but this names an unmapped file during review.
@@ -4927,7 +4896,9 @@ jobs:
         continue-on-error: true
         run: |
           set -uo pipefail
-          derived_data="$(scripts/cmux-next/release-derived-data-path.sh release-compile Release)"
+          # The compile's DerivedData: the canonical root's on a fleet-cache build (until another
+          # compile takes the root), else this runner's.
+          derived_data="${CMUX_NEXT_RELEASE_DERIVED_DATA:-$(scripts/cmux-next/release-derived-data-path.sh release-compile Release)}"
           app="$(find "$derived_data/Build/Products/Release" -maxdepth 2 -type d -name '*.app' -print -quit 2>/dev/null || true)"
           if [[ -z "$app" ]]; then
             echo "::warning title=Release bundle notices::no Release .app product was found for the advisory notice scan"

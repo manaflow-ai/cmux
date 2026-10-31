@@ -333,7 +333,6 @@
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
     "nightly.yml#sign-nightly-identity-legacy": "apple-signing-release",
-    "nightly.yml#sign-nightly-identity-legacy-blacksmith": "apple-signing-release",
     "nightly.yml#signer-dmg-image": "apple-signing-release",
     "nightly.yml#verify-final-dmg-nightly": "apple-signing-release",
     "nightly.yml#verify-nightly-identity-legacy": "apple-signing-release",
