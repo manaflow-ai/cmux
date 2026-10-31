@@ -470,5 +470,55 @@ class EndPhaseFindingTests(unittest.TestCase):
         self.assertTrue(verdicts[0].startswith("BROWSER-FUZZ-VERDICT FAIL 1 finding(s) before HANG in end:kill"), verdicts)
 
 
+class EndSlotTests(unittest.TestCase):
+    """Re-review of #29662 (BLOCK at c88eca0b1f7): run_ops wrote the seed's failure into the shrink's pending slot.
+    A failure already reported (report() returns early) stayed there and was printed again by a later hang, and a
+    shrink replay's own failure overwrote the failure being shrunk."""
+
+    def run_standin(self, body):
+        script = (EndPhaseFindingTests.STANDIN % HERE) + body
+        return subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=60)
+
+    def lines(self, out, head):
+        return [l for l in out.stdout.splitlines() if l.startswith(head)]
+
+    def test_an_already_reported_failure_is_not_printed_again_by_a_later_hang(self):
+        out = self.run_standin(
+            "rec = {'target': 'browser', 'oracle': 'app_crash', 'detail': 'the app process 1 ended', 'extra': {}, 'seed': 1}\n"
+            "b.LIVE['findings'].append(rec)\n"
+            "b.LIVE['seen'].add(b.finding_key(rec))\n"
+            "def crash(self, op, index): raise b.Failure('app_crash', 'the app process 1 ended', index)\n"
+            "S.run_op = crash\n"
+            "b.Session = S\n"
+            "threading.Thread(target=b.watchdog, args=(O,), daemon=True).start()\n"
+            "b.run_ops(O, None, [{'op': 'open'}], 'fz', lambda l: None, 'seed 2', seed=2)\n"
+            "S.run_op = lambda self, op, index: None\n"
+            "S.kill_app = lambda self: time.sleep(60)\n"
+            "b.run_ops(O, None, [{'op': 'open'}], 'fz', lambda l: None, 'seed 3', seed=3)\n"
+            "print('NOT REACHED')\n")
+        self.assertEqual(self.lines(out, "BROWSER-FUZZ-FINDING "), [], out.stdout + out.stderr)
+        verdicts = self.lines(out, "BROWSER-FUZZ-VERDICT ")
+        self.assertEqual(len(verdicts), 1, out.stdout + out.stderr)
+        self.assertTrue(verdicts[0].startswith("BROWSER-FUZZ-VERDICT FAIL 1 finding(s) before HANG in end:kill"), verdicts)
+
+    def test_a_shrink_replays_own_failure_does_not_replace_the_failure_being_shrunk(self):
+        out = self.run_standin(
+            "b.LIVE['pending'] = {'target': 'browser', 'oracle': 'app_crash', 'detail': 'the app process 1 ended',"
+            " 'extra': {}, 'seed': 4, 'ops': [{'op': 'open'}]}\n"
+            "def answerless(self, op, index): raise b.Failure('no_answer', 'system.ping gave no answer in 30 s', index)\n"
+            "S.run_op = answerless\n"
+            "S.kill_app = lambda self: time.sleep(60)\n"
+            "b.Session = S\n"
+            "threading.Thread(target=b.watchdog, args=(O,), daemon=True).start()\n"
+            "b.run_ops(O, None, [{'op': 'open'}], 'fz', lambda l: None, 'shrink 4', seed=4)\n"
+            "print('NOT REACHED')\n")
+        found = self.lines(out, "BROWSER-FUZZ-FINDING ")
+        self.assertEqual(len(found), 1, out.stdout + out.stderr)
+        self.assertIn('"oracle": "app_crash"', found[0])
+        verdicts = self.lines(out, "BROWSER-FUZZ-VERDICT ")
+        self.assertEqual(len(verdicts), 1, out.stdout + out.stderr)
+        self.assertTrue(verdicts[0].startswith("BROWSER-FUZZ-VERDICT FAIL 1 finding(s) before HANG in end:kill"), verdicts)
+
+
 if __name__ == "__main__":
     unittest.main()
