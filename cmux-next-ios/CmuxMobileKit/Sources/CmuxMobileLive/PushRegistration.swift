@@ -36,6 +36,13 @@ public final class PushRegistration {
     /// What the service last accepted, so a repeat sends nothing.
     private var sent: String?
     private var serverStateUncertain = false
+    /// The event kinds of the registration the service last accepted; nil
+    /// when none is (no token, not signed in, signed out).
+    public private(set) var acceptedKinds: Set<String>?
+
+    /// Whether the service pushes this phone Chief's replies (`chief`), so
+    /// the app must not alert them itself as well (``ChiefAlerts``).
+    public var receivesChiefPushes: Bool { acceptedKinds?.contains("chief") == true }
     private(set) var task: Task<Void, Never>?
     private var taskID: UUID?
     private var pending: Registration?
@@ -93,6 +100,7 @@ public final class PushRegistration {
             api = nil
             deviceID = nil
             sent = nil
+            acceptedKinds = nil
             serverStateUncertain = false
         }
         guard let api, let deviceID, sent != nil else { return }
@@ -139,6 +147,7 @@ public final class PushRegistration {
                 try await register(registration)
                 guard taskID == id, !Task.isCancelled else { return }
                 sent = registration.key
+                acceptedKinds = Set(registration.preferences.kinds)
                 serverStateUncertain = false
                 log.info("push registered (\(registration.environment, privacy: .public), \(registration.preferences.kinds.count, privacy: .public) kinds)")
             } catch {
