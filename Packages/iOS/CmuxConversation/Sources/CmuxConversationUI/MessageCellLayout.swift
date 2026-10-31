@@ -358,29 +358,25 @@ extension MessageCellLayout {
         return ConversationBubbleGeometry.iOSTailDrop(radius: radius)
     }
 
-    // Messages' reply preview (iPhone 17 Pro Max, iOS 27, Large text): a
-    // caption2 line in a 29 pt outline, its text 10 pt in from each side.
+    // Messages' reply preview (iPhone 17 Pro Max, iOS 27, Large text): one
+    // caption2 line, truncated, its text 10 pt in from each side; the outline
+    // shows 29.33 pt tall (this frame plus its hairline), and grows with the
+    // font under Dynamic Type.
     static let quoteTextInset: CGFloat = 10
-    static let quoteMaximumLines: CGFloat = 3
+    static let quoteHeight: CGFloat = 28
     static let quoteMinimumWidth: CGFloat = 48
-    /// The one-line outline is 29 pt at 11 pt (Large); it keeps that padding
-    /// share as Dynamic Type scales the font.
-    static func quoteVerticalInset(font: UIFont) -> CGFloat {
-        let lineAtLarge = 11 * font.lineHeight / font.pointSize
-        return (29 - lineAtLarge) / 2 * font.pointSize / 11
-    }
     /// "N Replies" under the quote when the quoted message has two or more
     /// (Messages: "3 Replies" under both quotes of "ill merge ok?", none under
     /// a quote with one): its glyphs 7.33 pt under the quote, 12 pt in.
     static let quoteRepliesGap: CGFloat = 17.0 / 3
     static let quoteRepliesInset: CGFloat = 12
     /// To the reply's top: from the quote, 12 pt on one side (the line runs
-    /// between them) and 9.67 pt across; from "N Replies", 11.33 pt and
-    /// 3 pt from its glyphs.
+    /// between them) and 10.33 pt across; from "N Replies", 11.33 pt and
+    /// 3 pt from its glyphs (each measured to the outline Messages draws).
     static let quoteToSameSideReply: CGFloat = 12
-    static let quoteToOtherSideReply: CGFloat = 29.0 / 3
-    static let repliesToSameSideReply: CGFloat = 28.0 / 3
-    static let repliesToOtherSideReply: CGFloat = 1
+    static let quoteToOtherSideReply: CGFloat = 31.0 / 3
+    static let repliesToSameSideReply: CGFloat = 32.0 / 3
+    static let repliesToOtherSideReply: CGFloat = 7.0 / 3
 
     static func measure(_ text: NSAttributedString, maxWidth: CGFloat) -> CGSize {
         let rect = text.boundingRect(
@@ -435,9 +431,9 @@ extension MessageCellLayout {
             let quoteString = NSAttributedString(string: quote.text, attributes: [.font: quoteFont])
             let inset = Self.quoteTextInset
             let size = measure(quoteString, maxWidth: maxBubbleWidth - 2 * inset)
-            let textHeight = min(size.height, ceil(quoteFont.lineHeight * Self.quoteMaximumLines))
+            let textHeight = min(size.height, ceil(quoteFont.lineHeight))
             let bodyWidth = min(maxBubbleWidth, max(Self.quoteMinimumWidth, size.width + 2 * inset))
-            let h = pixelRound(textHeight + 2 * Self.quoteVerticalInset(font: quoteFont))
+            let h = pixelRound(Self.quoteHeight * quoteFont.pointSize / 11)
             // The quote sits on the original sender's side.
             let quoteLeading = margin + (model.isGroup ? t.avatarSize + t.avatarGap : 0)
             let frame = quote.isOutgoing

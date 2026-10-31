@@ -26,7 +26,7 @@ import Testing
         #expect(abs(box.minX - 34.33) < 0.5, "the line's outer edge, as Messages (34.0-34.7)")
         #expect(abs(box.maxX - 70.33) < 0.5, "the arm reaches x 69.7")
         #expect(abs(box.minY - 261.8) < 0.5, "the arm's top edge at the quote's middle (262.0)")
-        #expect(abs(thread.bottom.y - 289.3) < 0.5, "the line stops ~7.7 pt above the reply (ink to 291.3)")
+        #expect(abs(thread.bottom.y + Thread.lineWidth / 2 - 291.3) < 0.5, "the line's ink stops at 291.3, 5.7 pt above the reply")
         #expect(thread.top == .arm(y: quote.midY + Thread.armDrop))
     }
 

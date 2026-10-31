@@ -15,7 +15,7 @@ import CoreGraphics
 /// circular 19 pt radius at the line's center (21 pt `replyLineBracketRadius` at the
 /// outer edge), an arm sits 2.33 pt under its bubble's middle, a line under a
 /// quote starts 1.33 pt below the quote's edge and one above a reply stops
-/// 7.67 pt short of it (`replyLineViewVerticalPadding`, round cap).
+/// 7 pt short of it (`replyLineViewVerticalPadding`, round cap).
 /// Top-left-origin coordinates, the cell's.
 public struct ConversationReplyThread: Equatable, Sendable {
     /// Where the line ends at the quote (top) or at the reply (bottom).
@@ -50,7 +50,7 @@ public struct ConversationReplyThread: Equatable, Sendable {
     /// A line under a leading quote starts this far below its bottom edge.
     public static let quoteGap: CGFloat = 4.0 / 3
     /// A line above a leading reply stops this far above it.
-    public static let replyGap: CGFloat = 23.0 / 3
+    public static let replyGap: CGFloat = 7
 
     public init(columnX: CGFloat, top: End, bottom: End) {
         self.columnX = columnX
