@@ -183,26 +183,56 @@ def _realkey():
 _MOD_NAMES = {"cmd": "cmd", "shift": "shift", "opt": "option", "ctrl": "control"}
 
 
+# configString key tokens (ShortcutBindingFormat.configToken) that CuaDriver and debug.key name differently, and
+# the plain tokens both accept: letters, digits, the US punctuation keys, and these names.
+_KEY_TOKENS = {"plus": "=", "minus": "-", "backtick": "`", "grave": "`"}
+_KEY_NAMES = {"left", "right", "up", "down", "home", "end", "pageup", "pagedown", "return", "tab", "escape", "space",
+              "delete"}
+
+
 def _bound_key(j, step):
-    """`command` (an action id, e.g. newColumn): the key the BUILD binds to it now (`keybinding.list {command}`, its
-    first single-stroke binding without a `when`, else its first single-stroke binding), so the gate presses the key
-    the build ships (New Column's default changes off Ctrl-Cmd-D, coordinator 13:2xZ: macOS's Look Up owns that key).
-    A build without keybinding.list, or with no binding: the step's own key and modifiers. Returns (key, modifiers,
-    where the key came from)."""
+    """`command` (an action id, e.g. newColumn): the key the BUILD runs that action with in the journey's window now
+    (Lawrence changes New Column's default off Ctrl-Cmd-D, which macOS's Look Up owns): each live single-stroke row of
+    `keybinding.list {command}` (not `removed`) is checked with `keybinding.resolve {keys, window}`, and the first one
+    whose winner is that command is pressed. Its source must be the build's (default or app): a user or Ghostty
+    binding of the lease's home is the host's, so not run. A build without keybinding.list (method_not_found): the
+    step's own key and modifiers. Any other answer or no key that runs it: not run. Returns (key, modifiers, record)."""
     if not step.get("command"):
-        return step["key"], list(step.get("modifiers", [])), "journey"
+        return step["key"], list(step.get("modifiers", [])), {"source": "journey"}
+    command = step["command"]
     try:
-        reply = j.app.rpc("keybinding.list", {"command": step["command"]}) or {}
+        reply = j.app.rpc("keybinding.list", {"command": command}) or {}
     except D.StepError as error:
-        return step["key"], list(step.get("modifiers", [])), f"journey (keybinding.list: {str(error)[:120]})"
-    rows = [r for r in reply.get("bindings") or [] if isinstance(r, dict) and r.get("command") == step["command"]
-            and r.get("key") and " " not in str(r["key"]) and not r.get("unset")]
-    rows.sort(key=lambda r: r.get("when") is not None)
-    if not rows:
-        return step["key"], list(step.get("modifiers", [])), "journey (the build binds no single key to it)"
-    parts = str(rows[0]["key"]).split("+")
-    mods = [_MOD_NAMES.get(m, m) for m in parts[:-1]]
-    return parts[-1], mods, f"build ({rows[0]['key']}, {rows[0].get('source')})"
+        if "method_not_found" in str(error) or "unknown method" in str(error).lower():
+            return step["key"], list(step.get("modifiers", [])), {"source": "journey (no keybinding.list)"}
+        raise D.NotRun(f"keybinding.list {command} failed: {str(error)[:200]}")
+    rows = [r for r in reply.get("bindings") or [] if isinstance(r, dict) and r.get("command") == command
+            and r.get("key") and " " not in str(r["key"]) and not r.get("removed")]
+    default_keys = [r["key"] for r in reply.get("bindings") or [] if isinstance(r, dict)
+                    and r.get("command") == command and r.get("source") == "default"]
+    window = getattr(j, "key_window", None)
+    tried = []
+    for row in rows:
+        try:
+            got = j.app.rpc("keybinding.resolve", dict({"keys": row["key"]}, **({"window": window} if window else {}))) or {}
+        except D.StepError as error:
+            raise D.NotRun(f"keybinding.resolve {row['key']} failed: {str(error)[:200]}")
+        winner = got.get("winner") or {}
+        tried.append({"key": row["key"], "outcome": got.get("outcome"), "winner": winner.get("command"),
+                      "winner_source": winner.get("source")})
+        if got.get("outcome") != "run" or winner.get("command") != command:
+            continue
+        if winner.get("source") not in ("default", "app"):
+            raise D.NotRun(f"{command}'s key {row['key']} comes from a {winner.get('source')} binding of the host, "
+                           f"not the build (defaults {default_keys})")
+        parts = str(row["key"]).split("+")
+        token = _KEY_TOKENS.get(parts[-1], parts[-1])
+        if not (len(token) == 1 or token in _KEY_NAMES):
+            raise D.NotRun(f"{command}'s key {row['key']}: the kit cannot press the key {parts[-1]!r}")
+        mods = [_MOD_NAMES.get(m, m) for m in parts[:-1]]
+        return token, mods, {"source": "build", "binding": row["key"], "binding_source": winner.get("source"),
+                             "defaults": default_keys, "resolved": tried}
+    raise D.NotRun(f"no key runs {command} in the journey's window (defaults {default_keys}; tried {json.dumps(tried)[:300]})")
 
 
 def step_smoke_key(j, step):

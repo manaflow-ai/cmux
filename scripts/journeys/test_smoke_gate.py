@@ -401,15 +401,42 @@ class RealKeySteps(unittest.TestCase):
         finally:
             self.rk.subprocess.run = real_run
 
-    def test_a_command_key_is_the_builds_own_binding(self):
+    def bindings(self, rows, resolves):
+        def rpc(method, params=None):
+            if method == "keybinding.list":
+                return {"bindings": rows}
+            return resolves.get(params["keys"], {"outcome": "none"})
+        return rpc
+
+    def test_a_command_key_is_the_one_the_build_resolves_to_that_command(self):
         j = self.journey("real")
-        j.app.rpc = lambda method, params=None: {"bindings": [
-            {"command": "newColumn", "key": "cmd+opt+ctrl+n", "when": "terminalFocus", "source": "default"},
-            {"command": "newColumn", "key": "cmd+opt+n", "when": None, "source": "default"},
-            {"command": "newColumnLeft", "key": "cmd+ctrl+d", "when": None, "source": "default"}]}
+        j.key_window = "W1"
+        rows = [{"command": "newColumn", "key": "cmd+ctrl+d", "when": None, "source": "default", "removed": True},
+                {"command": "newColumn", "key": "cmd+opt+n", "when": None, "source": "default"},
+                {"command": "newColumn", "key": "cmd+opt+m", "when": None, "source": "default"}]
+        resolves = {"cmd+opt+n": {"outcome": "run", "winner": {"command": "newTab", "source": "user"}},
+                    "cmd+opt+m": {"outcome": "run", "winner": {"command": "newColumn", "source": "default"}}}
+        j.app.rpc = self.bindings(rows, resolves)
         done = self.ext.step_smoke_key(j, {"command": "newColumn", "key": "d", "modifiers": ["control", "cmd"]})
-        self.assertEqual(self.sent, [("hotkey", {"scope": "desktop", "keys": ["cmd", "option", "n"]})])
-        self.assertTrue(done["key_source"].startswith("build (cmd+opt+n"))
+        self.assertEqual(self.sent, [("hotkey", {"scope": "desktop", "keys": ["cmd", "option", "m"]})])
+        self.assertEqual(done["key_source"]["binding"], "cmd+opt+m")  # the removed row and the shadowed key skipped
+
+    def test_a_host_binding_or_no_runnable_key_is_not_run(self):
+        j = self.journey("real")
+        rows = [{"command": "newColumn", "key": "cmd+opt+n", "when": None, "source": "user"}]
+        j.app.rpc = self.bindings(rows, {"cmd+opt+n": {"outcome": "run", "winner": {"command": "newColumn", "source": "user"}}})
+        with self.assertRaises(self.NotRun):
+            self.ext.step_smoke_key(j, {"command": "newColumn", "key": "d", "modifiers": ["control", "cmd"]})
+        j.app.rpc = self.bindings(rows, {})
+        with self.assertRaises(self.NotRun):
+            self.ext.step_smoke_key(j, {"command": "newColumn", "key": "d", "modifiers": ["control", "cmd"]})
+
+        def busy(method, params=None):
+            raise self.ext.D.StepError("keybinding.list: timeout")
+        j.app.rpc = busy  # not method_not_found: never fall back to Look Up's key
+        with self.assertRaises(self.NotRun):
+            self.ext.step_smoke_key(j, {"command": "newColumn", "key": "d", "modifiers": ["control", "cmd"]})
+        self.assertEqual(self.sent, [])
 
     def test_a_build_without_keybinding_list_keeps_the_journeys_key(self):
         j = self.journey("real")
@@ -419,7 +446,7 @@ class RealKeySteps(unittest.TestCase):
         j.app.rpc = rpc
         done = self.ext.step_smoke_key(j, {"command": "newColumn", "key": "d", "modifiers": ["control", "cmd"]})
         self.assertEqual(self.sent, [("hotkey", {"scope": "desktop", "keys": ["ctrl", "cmd", "d"]})])
-        self.assertTrue(done["key_source"].startswith("journey"))
+        self.assertTrue(done["key_source"]["source"].startswith("journey"))
 
     def test_the_debug_key_mode_says_so(self):
         self.assertEqual(self.ext.step_smoke_key(self.journey("debug"), {"key": "n", "modifiers": ["cmd"]})["key_path"], "debug.key")
