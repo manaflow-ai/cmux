@@ -59,7 +59,14 @@ jobs:
       # one fetches blobs one by one, past its timeout on busy files. This takes about 60 s and
       # 270 MB, then blame takes seconds. Capped at 120 s so the job (8 min) always finishes: a
       # slow fetch skips the check with a warning instead of turning the check red.
+      # recent_reverts() only examines base-side line ranges deleted by a PR.
+      # A webhook's explicit zero deletions proves there is nothing to blame:
+      # avoid the 9-day, ~270 MB Git fetch for additions-only pull requests.
+      # Unknown/missing metadata still fetches, so API/event drift cannot waive
+      # a takeback check. Only this optional fetch is skipped: every event
+      # continues to run the classifier, risk evidence and sign-off checks.
       - name: Fetch the base's recent history
+        if: ${{ github.event.pull_request.deletions == null || github.event.pull_request.deletions > 0 }}
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           REPO: ${{ github.repository }}
