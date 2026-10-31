@@ -90,9 +90,7 @@ struct CloudStartChat {
         let move = CloudMove(services: services)
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user)
         // This person's free machine (or one for chats), else a new one; a retry stays on its first try's (+Machine).
-        let machine = try await self.machine(for: start, invocation: invocation) {
-            await CloudChatPick(services: services).read(folder: chat, tab: tab, requiresLabs: false)
-        }
+        let machine = try await self.machine(for: start, invocation: invocation) { await CloudChatPick(services: services).read(folder: chat, tab: tab) }
         let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)
         guard let socket = await machine.daemon.connection?.endpoint?.socketPath else {
             throw CloudMove.Failure(message: CloudMoveStrings.notConnected(name))
