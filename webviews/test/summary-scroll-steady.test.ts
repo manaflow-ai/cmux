@@ -13,64 +13,63 @@ import { chromium, webkit, type Browser, type BrowserType, type Page } from "pla
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane } from "./support/papercutChat";
 
-const update = (update: Record<string, unknown>) => ({
-  method: "session/update",
-  params: { sessionId: "agent-1", update },
-});
+await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
+  const update = (update: Record<string, unknown>) => ({
+    method: "session/update",
+    params: { sessionId: "agent-1", update },
+  });
 
-/// A background command per turn, finished, so the card has Background tasks and Outputs to list.
-const extra = Array.from({ length: 6 }, (_, index) => {
-  const id = `bg${index}`;
-  const command = `bun run watch:${index}`;
-  return [
+  /// A background command per turn, finished, so the card has Background tasks and Outputs to list.
+  const extra = Array.from({ length: 6 }, (_, index) => {
+    const id = `bg${index}`;
+    const command = `bun run watch:${index}`;
+    return [
+      [
+        "in",
+        "tool_call",
+        update({
+          sessionUpdate: "tool_call",
+          toolCallId: id,
+          title: command,
+          kind: "execute",
+          status: "in_progress",
+          rawInput: { command, run_in_background: true, description: `Watcher ${index}` },
+        }),
+      ],
+      [
+        "in",
+        "tool_call_update",
+        update({
+          sessionUpdate: "tool_call_update",
+          toolCallId: id,
+          status: "completed",
+          rawOutput: `Command running in background with ID: ${id}`,
+        }),
+      ],
+    ] as [string, string, Record<string, unknown>][];
+  }).flat();
+
+  /// The chat's first turn, far above what attach sends a paged chat: it ran the background commands
+  /// and wrote the file the card lists, so they arrive only once the reader scrolls up to them.
+  const firstTurn = [
+    ["mux", "user_message", { text: "Start the watchers" }],
+    ["mux", "turn_started", {}],
+    ...extra,
     [
       "in",
       "tool_call",
       update({
         sessionUpdate: "tool_call",
-        toolCallId: id,
-        title: command,
-        kind: "execute",
-        status: "in_progress",
-        rawInput: { command, run_in_background: true, description: `Watcher ${index}` },
-      }),
-    ],
-    [
-      "in",
-      "tool_call_update",
-      update({
-        sessionUpdate: "tool_call_update",
-        toolCallId: id,
+        toolCallId: "w1",
+        title: "Write notes.md",
+        kind: "edit",
         status: "completed",
-        rawOutput: `Command running in background with ID: ${id}`,
+        locations: [{ path: "/home/dev/cmux/notes.md" }],
+        rawInput: { file_path: "/home/dev/cmux/notes.md", content: "notes" },
       }),
     ],
+    ["mux", "turn_result", { status: "completed" }],
   ] as [string, string, Record<string, unknown>][];
-}).flat();
-
-/// The chat's first turn, far above what attach sends a paged chat: it ran the background commands
-/// and wrote the file the card lists, so they arrive only once the reader scrolls up to them.
-const firstTurn = [
-  ["mux", "user_message", { text: "Start the watchers" }],
-  ["mux", "turn_started", {}],
-  ...extra,
-  [
-    "in",
-    "tool_call",
-    update({
-      sessionUpdate: "tool_call",
-      toolCallId: "w1",
-      title: "Write notes.md",
-      kind: "edit",
-      status: "completed",
-      locations: [{ path: "/home/dev/cmux/notes.md" }],
-      rawInput: { file_path: "/home/dev/cmux/notes.md", content: "notes" },
-    }),
-  ],
-  ["mux", "turn_result", { status: "completed" }],
-] as [string, string, Record<string, unknown>][];
-
-await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
   setDefaultTimeout(150_000);
   const browsers = new Map<string, Browser>();
   for (const [name, engine] of [
@@ -166,8 +165,6 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
       const errors: string[] = [];
       await new Promise<void>((done) => {
         let frame = 0;
-        // A read that throws, or frames that stop painting, still end the watch.
-        const bail = setTimeout(done, 20_000);
         window.cmuxAfterPaint(
           () => {
             try {
@@ -177,7 +174,6 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
             }
             frame += 1;
             if (frame < frames) return true;
-            clearTimeout(bail);
             done();
             return false;
           },
@@ -275,7 +271,10 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
         }));
         const seen = await scrollAndWatch(page, selector, 400);
         // Once the scroll settles, what it paged in reaches the card, in one change.
-        await page.waitForTimeout(800);
+        await page.waitForFunction(
+          (selector) => document.querySelector(selector)?.textContent?.includes("watch:0"),
+          selector,
+        );
         const after = await page.locator(selector).first().evaluate((card) => ({
           reserve: card.classList.contains("acpmux-summary-card--reserve"),
           text: card.textContent,
@@ -313,7 +312,10 @@ await requireBrowserLane("summary-scroll-steady.test.ts", async () => {
         await page.locator(`${selector}[data-presence=shown]`).waitFor({ timeout: 10_000 });
         await settle(page);
         const seen = await scrollAndWatch(page, selector, 400);
-        await page.waitForTimeout(800);
+        await page.waitForFunction(
+          (selector) => document.querySelector(selector)?.textContent?.includes("watch:0"),
+          selector,
+        );
         const after = await page.locator(selector).evaluate((panel) => panel.textContent ?? "");
         expect(after).toContain("watch:0");
         console.log(

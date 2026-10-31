@@ -4019,6 +4019,10 @@ export function VirtualTranscript({
       if (event?.type === "touchstart") touchY = (event as TouchEvent).touches[0]?.clientY;
       else if (touch) touchY = touch.clientY;
       readerAt.current = performance.now();
+      // Wheeling on at the top of the loaded rows scrolls nothing while older history pages in: the
+      // reader's input, not only its scroll events, keeps the right-hand card held
+      // (summary/heldWhileScrolling.ts).
+      noteReaderScroll();
       followTrace.input();
       // Release the follow intent synchronously when a reader starts moving up. The browser can
       // deliver the input before its scroll event; a streamed snapshot in that gap must not pin
