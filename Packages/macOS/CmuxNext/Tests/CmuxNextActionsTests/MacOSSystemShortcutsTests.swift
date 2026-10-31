@@ -142,6 +142,12 @@ import Testing
         """)
     }
 
+    /// The shortcut recorder (Settings > Keyboard, the palette) refuses Look Up's key, so a person
+    /// cannot record New Column back onto a key that never reaches cmux.
+    @Test func theRecorderRefusesLookUp() {
+        #expect(SystemReservedShortcuts.shared.table[Shortcut("d", modifiers: [.control, .command])] == "Look Up")
+    }
+
     @Test func everyWaitingKeyStillConflicts() throws {
         let actions = Set(try Self.conflicts().map(\.action))
         for (action, why) in Self.awaitingNewKey {

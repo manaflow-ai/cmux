@@ -42,7 +42,7 @@ path. The ownership lead owns the crate after its first landing and reviews fiel
   macOS's Look Up (system hot key 70, on by default) takes a real Ctrl-Cmd-D in every app before
   cmux sees it, so New Column never ran on a Mac with default settings. `MacOSSystemShortcutsTests`
   keeps every default cmux key off the macOS shortcuts that are on by default. Rebind under
-  `shortcuts.bindings.newColumn` in cmux.json or in Settings > Shortcuts. Cmd-Opt-D is macOS's
+  `shortcuts.bindings.newColumn` in cmux.json or in Settings > Keyboard. Cmd-Opt-D is macOS's
   Dock shortcut and still Split Browser Right's default, which waits for a new key.
 - The refusal HUD stays for every action refused from the keyboard or menu (user decision).
 - Not done: `layout.closeSizing` (even/neighbor). The app cannot apply it to closes it does not
