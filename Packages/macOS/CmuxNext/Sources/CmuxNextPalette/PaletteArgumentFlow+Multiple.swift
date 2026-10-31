@@ -39,7 +39,7 @@ extension PaletteArgumentFlow {
             let next = adding(argument, value, to: collected)
             items.insert(PaletteItem(
                 id: Self.continueRowID, title: PaletteStrings.continueWith(names), symbol: "arrow.right.circle",
-                section: PaletteSection(id: "continue", title: descriptor.title, order: 0),
+                section: PaletteSection(id: "continue", title: Self.baseTitle(descriptor.title), order: 0),
                 isEnabled: next != nil,
                 primary: PaletteCommand(id: "choose", title: PaletteStrings.choose, symbol: "return",
                                         effect: next.map { effect(collected: $0) } ?? .performKeepingOpen {})
