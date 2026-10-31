@@ -101,14 +101,11 @@ function lineOf(value: string): number | undefined {
   return match ? Number(match[1]) : undefined;
 }
 
-/// A raster image on the web the pane draws as a thumbnail: PNG, JPEG, GIF or WebP, by file extension.
+/// A raster image the pane draws as a thumbnail: PNG, JPEG, GIF or WebP, by file extension.
 const IMAGE_FILE = /\.(?:png|jpe?g|gif|webp)$/i;
-/// A local image file the pane draws as a thumbnail: the web's raster types, HEIC (the host decodes
-/// it) and SVG (the host redraws it without script or links).
-const LOCAL_IMAGE_FILE = /\.(?:png|jpe?g|gif|webp|heic|svg)$/i;
 
 export function isImagePath(path: string): boolean {
-  return LOCAL_IMAGE_FILE.test(path) && !isTemplatePath(path);
+  return IMAGE_FILE.test(path) && !isTemplatePath(path);
 }
 
 /// A path that is a template or placeholder, not a file: it holds `${`, `{{`, `<` or `>`, or a glob

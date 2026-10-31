@@ -12,6 +12,8 @@ import { toolImages } from "../src/agent-session/acpmux/toolImages";
 const TEMPLATE = "/Users/me/site/public/${variant}-320.png";
 const OUTSIDE = "/Volumes/Shots/sidebar-320.png";
 const GONE = "/Volumes/Shots/gone-320.png";
+// Its own path: an image that loaded once stays cached for the page's life (ReplyImage `loaded`).
+const GATED = "/Volumes/Shots/gated-320.png";
 const IMAGE = "data:image/png;base64,iVBORw0KGgo=";
 
 describe("template paths", () => {
@@ -25,8 +27,6 @@ describe("template paths", () => {
   test("a real path is not a template", () => {
     expect(isTemplatePath(OUTSIDE)).toBe(false);
     expect(isImagePath(OUTSIDE)).toBe(true);
-    expect(isImagePath("/a/photo.HEIC")).toBe(true);
-    expect(isImagePath("/a/chart.svg")).toBe(true);
   });
 
   test("a tool's output names no template image", () => {
@@ -77,7 +77,11 @@ describe("rendered", () => {
     const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
     resetLinkStore();
     seedLinkStore({
-      paths: { [OUTSIDE]: { place: "outside", folder: false }, [GONE]: { place: "missing", folder: false } },
+      paths: {
+        [OUTSIDE]: { place: "outside", folder: false },
+        [GATED]: { place: "outside", folder: false },
+        [GONE]: { place: "missing", folder: false },
+      },
       policy: { outsideRoots, remoteImages: "click", clickFreeImageHosts: [] },
     });
     calls.length = 0;
@@ -130,13 +134,14 @@ describe("rendered", () => {
   test("Open asks the host to open the path the chip names", async () => {
     const { ReplyImage } = await import("../src/agent-session/acpmux/chips/ReplyImage");
     const { container, act, unmount } = await render(
-      (h) => h(ReplyImage, { src: OUTSIDE, alt: "", fallback: "fallback" }),
+      (h) => h(ReplyImage, { src: GATED, alt: "", fallback: "fallback" }),
       "confirm",
     );
     const open = container.querySelector<HTMLButtonElement>(".cv-image-file__open");
     expect(open).not.toBeNull();
     await act(async () => open!.click());
-    expect(calls).toContainEqual(["link.openPath", { path: OUTSIDE }]);
+    expect(calls).toContainEqual(["link.openPath", { path: GATED }]);
+    expect(calls.some(([method]) => method === "image.load")).toBe(false);
     await unmount();
   });
 });

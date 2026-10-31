@@ -25,7 +25,7 @@ import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
 import { linkedText, PathChip, UrlChip } from "../chips/LinkChips";
 import { SoftBroken, softBreakNodes } from "./softBreaks";
 import { BareReferenceChip } from "../chips/BareReferenceChip";
-import { codePath, linkPath, pathName, textLinks } from "../chips/paths";
+import { codePath, isTemplatePath, linkPath, pathName, textLinks } from "../chips/paths";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import "../../../markdown-task-checkbox.css";
 import { TaskCheckbox } from "../../../ui/TaskCheckbox";
@@ -622,6 +622,8 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
             {renderInline(lm[1], labelOpts)}
           </a>,
         );
+      // A template (`${variant}.png`) names no file: its text.
+      else if (isTemplatePath(lm[2])) out.push(<Fragment key={k++}>{renderInline(lm[1], labelOpts)}</Fragment>);
       else if (linkKind(lm[2]) === "file")
         out.push(
           <span key={k++} className="cv-link is-file">
