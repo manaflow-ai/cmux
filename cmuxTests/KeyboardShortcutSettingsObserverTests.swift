@@ -1,4 +1,5 @@
 import Carbon
+import CmuxSettings
 import Foundation
 import Testing
 
@@ -107,6 +108,34 @@ extension GlobalSearchShortcutBehaviorTests {
         defaults.set(try JSONEncoder().encode(mediaShortcut), forKey: action.defaultsKey)
 
         #expect(KeyboardShortcutSettings.shortcut(for: action) == action.defaultShortcut)
+    }
+
+    /// Positional `ctrl+N` defaults follow the visible right-sidebar tabs, and
+    /// Cloud's visibility comes from a remote feature flag and managed policy
+    /// that can resolve after launch. A gate change must rebuild the matcher,
+    /// or the Nth tab shows a `ctrl+N` hint that the keypress never reaches.
+    @Test(arguments: [
+        Notification.Name.cmuxFeatureFlagsDidChange,
+        ManagedDevicePolicy.didChangeNotification,
+    ])
+    func availabilityGateChangeReloadsRightSidebarModeShortcuts(_ gate: Notification.Name) {
+        let notificationCenter = NotificationCenter()
+        var cloudLookupCount = 0
+        let observer = KeyboardShortcutSettingsObserver(
+            notificationCenter: notificationCenter,
+            distributedNotificationCenter: DistributedNotificationCenter(),
+            shortcutProvider: { action in
+                if action == .switchRightSidebarToMachines { cloudLookupCount += 1 }
+                return .unbound
+            }
+        )
+        let initialLookupCount = cloudLookupCount
+        let initialRevision = observer.revision
+
+        notificationCenter.post(name: gate, object: nil)
+
+        #expect(cloudLookupCount == initialLookupCount + 1)
+        #expect(observer.revision == initialRevision &+ 1)
     }
 
     @Test func inputSourceChangeRefreshesGlobalSearchSnapshot() async {
