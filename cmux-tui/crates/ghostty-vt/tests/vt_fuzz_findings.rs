@@ -50,7 +50,7 @@ fn replay_difference(start: (u16, u16), ops: &[Op]) -> Option<String> {
 /// off, so its last cell overwrites column 20 and the wrapped "a" is lost:
 /// the view shows "00 0A0a  0A0AA AaAAa" for "00 0A0a  0A0AA AaAA0" + "a".
 #[test]
-fn e1_replay_keeps_a_soft_wrapped_row_when_autowrap_is_off() {
+fn vt_fuzz_finding_e1_replay_keeps_a_soft_wrapped_row_when_autowrap_is_off() {
     let ops = [Op::Write(b"00 0A0a  0A0AA AaAA0a"), Op::Write(b"\x1b[?7l")];
     let difference = replay_difference((20, 5), &ops);
     assert!(difference.is_none(), "E1: {}", difference.unwrap_or_default());
@@ -73,7 +73,7 @@ fn e2_ops() -> Vec<Op> {
 }
 
 #[test]
-fn e2_replay_matches_the_terminal_after_a_resize_and_a_scroll_region() {
+fn vt_fuzz_finding_e2_replay_matches_the_terminal_after_a_resize_and_a_scroll_region() {
     let difference = replay_difference((20, 5), &e2_ops());
     assert!(difference.is_none(), "E2: {}", difference.unwrap_or_default());
 }
@@ -82,7 +82,7 @@ fn e2_replay_matches_the_terminal_after_a_resize_and_a_scroll_region() {
 /// byte, resizes kept as atoms. Fails with the minimal stream while E2 is
 /// red, so its log is the shrunk repro.
 #[test]
-fn e2_shrink() {
+fn vt_fuzz_finding_e2_shrink() {
     #[derive(Clone, Copy)]
     enum Atom {
         Byte(u8),
@@ -178,7 +178,7 @@ fn snapshot_difference(start: (u16, u16), ops: &[Op]) -> Option<String> {
 /// Probe: does E1 also break the snapshot path? Red here means the app's
 /// GHOSTSNP attach has the fault too; green means only the byte replay has it.
 #[test]
-fn e1_snapshot_path_probe() {
+fn vt_fuzz_finding_e1_snapshot_path_probe() {
     let ops = [Op::Write(b"00 0A0a  0A0AA AaAA0a"), Op::Write(b"\x1b[?7l")];
     let difference = snapshot_difference((20, 5), &ops);
     assert!(difference.is_none(), "E1 snapshot path: {}", difference.unwrap_or_default());
@@ -186,7 +186,7 @@ fn e1_snapshot_path_probe() {
 
 /// Probe: does E2 also break the snapshot path?
 #[test]
-fn e2_snapshot_path_probe() {
+fn vt_fuzz_finding_e2_snapshot_path_probe() {
     let difference = snapshot_difference((20, 5), &e2_ops());
     assert!(difference.is_none(), "E2 snapshot path: {}", difference.unwrap_or_default());
 }
