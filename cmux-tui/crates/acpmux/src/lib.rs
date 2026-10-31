@@ -123,6 +123,7 @@ pub mod sha256;
 pub mod sr2_cost_labels;
 pub(crate) mod ssh_forward;
 pub mod stats;
+pub(crate) mod stderr;
 pub mod store;
 pub mod subagents;
 pub mod subrouter_session;
