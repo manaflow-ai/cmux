@@ -97,7 +97,7 @@ import {
   useAttachmentIntake,
   useSendWhenAttached,
 } from "./composer/attachmentIntake";
-import { type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
+import { keepElsewhere, type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import { holdWebSwap, takeWebSwapFocus, WEB_SWAP_FOCUS, WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
 import { DropOverlay } from "./composer/DropOverlay";
@@ -626,12 +626,7 @@ export function Composer({
     // A chat on this Mac (Quick Chat too): its attached videos show their posters.
     localChat: opensProcessTerminal(snapshot.summary),
     elsewhere: (chat, chips) => {
-      if (!keptAttachments) return;
-      void keptAttachments
-        .read(chat)
-        .catch(() => [])
-        .then((kept) => keptAttachments.write(chat, appendAttachments(kept, chips)))
-        .catch(() => {});
+      if (keptAttachments) void keepElsewhere(keptAttachments, chat, chips);
     },
     carries: () => carryPrompt.current || Boolean(switching),
   });
