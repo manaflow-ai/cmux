@@ -390,6 +390,12 @@ class Fuzz:
         self.leak_base = None
         self.speed, self.played, self.notes = [], [], []
         self.findings = {}  # signature -> {oracle, signature, detail, count, first_n, sequence}
+        # Size history per terminal (journey option fuzz_trace=1; on in replays): every change of the daemon's size
+        # (`cmux terminal list`), of the app's grid / fit_grid / drawn grid (debug.surfaces) and every SIGWINCH the
+        # shell saw (a trap prints `FZW rows cols`), each with its ms since the run began: whether a size reached
+        # the PTY at any time, or only a report field.
+        self.trace_on = str(opts.get("fuzz_trace", step.get("trace", ""))).lower() in ("1", "true", "yes")
+        self.trace, self.trace_last, self.t0 = {}, {}, D.now()
 
     def left(self):
         return D.now() < self.end
@@ -587,6 +593,38 @@ class Fuzz:
                 "browsers": after["browsers"] - before["browsers"],
                 "panes": len(after["panes"].get(ws, [])) - len(before["panes"].get(ws, []))}
 
+    def trace_sizes(self, st=None):
+        """One sample of every terminal's sizes into self.trace (only changes are kept)."""
+        if not self.trace_on:
+            return
+        ms = round((D.now() - self.t0) * 1000)
+        try:
+            for term, row in daemon_terminals(self.j).items():
+                self._trace(term, "daemon", f"{row.get('cols')}x{row.get('rows')}", ms)
+        except D.StepError:
+            pass
+        st = st or state(self.j)
+        for p in surfaces(self.j, text=True):
+            term = (st["terminals"].get(str(p.get("terminal_id") or "")) or {}).get("term")
+            if not term:
+                continue
+            surf = p.get("surface") or {}
+            self._trace(term, "app", f"grid {surf.get('grid')} fit {surf.get('fit_grid')} drawn {surf.get('drawn_grid')}", ms)
+            winch = re.findall(r"FZW (\d+) (\d+)", p.get("text") or "")
+            if winch:
+                self._trace(term, "winch", " ".join(f"{c}x{r}" for r, c in winch), ms)
+
+    def _trace(self, term, source, value, ms):
+        key = (term, source)
+        if self.trace_last.get(key) != value:
+            self.trace_last[key] = value
+            self.trace.setdefault(term, []).append([ms, source, value])
+
+    def arm_winch(self, term_key):
+        """In the new terminal: a SIGWINCH trap that prints the PTY's new size (traced runs only)."""
+        if self.trace_on:
+            self.type_text("trap 'echo FZW $(stty size)' WINCH")
+
     def creates(self, burst, before, recs, refused_before):
         """The `create` oracle and the speed marks: polls until the model's prediction holds or CREATE_TIMEOUT."""
         want, exact = self.predict(burst, before)
@@ -603,6 +641,7 @@ class Fuzz:
         held = lambda g: all(g[k] >= v for k, v in want.items() if v > 0) if exact else fresh()
         while D.now() < t_end:
             after = state(self.j)
+            self.trace_sizes(after)
             got = self.delta(before, after)
             new = [k for k in after["terminals"] if k not in old]
             for p in surfaces(self.j, text=bool(new)):
@@ -860,6 +899,7 @@ class Fuzz:
         """An oracle must hold within SETTLE seconds (a layout in flight is not a failure); its last reading."""
         end = D.now() + SETTLE
         while True:
+            self.trace_sizes()
             found = fn()
             if not found or D.now() >= end:
                 return found
@@ -894,6 +934,7 @@ class Fuzz:
                 problems += (r.get("probe") or {}).get("problems", [])
         made_terminal = any(ACTIONS[a].get("creates") in ("terminal", "pane") for a in names)
         if made_terminal and not any(p[0] == "create" for p in problems):
+            self.arm_winch(None)
             pr = self.probe(before, require_new=exact)
             recs[-1]["new_probe"] = pr
             problems += pr.get("problems", [])
@@ -970,7 +1011,7 @@ class Fuzz:
     def ensure_target(self, burst):
         """The layout set acts on a workspace: when none shows (launch, or a close took the last pane), a Ctrl-` first
         (it opens a workspace with a terminal on Home), played and kept in the sequence like any action."""
-        if not (self.set == "layout" or self.fresh) or burst[0]["a"] in ("new_terminal", "relaunch", "close_all"):
+        if not (self.set == "layout" or self.fresh) or burst[0]["a"] in ("new_terminal", "new_workspace", "relaunch", "close_all"):
             return None
         if shown_ws(state(self.j)):
             return None
@@ -1025,7 +1066,8 @@ def step_fuzz_run(j, step):
     report = {"seed": fz.seed, "source": fz.source, "diagnostic": fz.diagnostic, "planned": len(fz.sequence),
               "played": played, "seconds": round(D.now() - started, 1), "failure": failure,
               "shrunk": shrunk, "shrink_tries": tries, "budget_out": budget_out, "speed": fz.speed,
-              "findings": sorted(fz.findings.values(), key=lambda f: f["first_n"]), "notes": fz.notes[-200:], "leak_baseline": fz.leak_base, "log": fz.played[-400:],
+              "findings": sorted(fz.findings.values(), key=lambda f: f["first_n"]), "notes": fz.notes[-200:],
+              "size_trace": fz.trace, "leak_baseline": fz.leak_base, "log": fz.played[-400:],
               "sequence": getattr(fz, "effective", []) if failure is None else failure["sequence"]}
     (j.out / "fuzz.json").write_text(json.dumps(report, indent=1, default=str) + "\n")
     j.fuzz_report = report

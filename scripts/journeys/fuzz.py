@@ -325,7 +325,8 @@ def main(argv=None):
     if opts.replay:
         data = json.loads(Path(opts.replay).read_text())
         seq = data if isinstance(data, list) else (data.get("shrunk") or data.get("sequence"))
-        work.append(("replay", {"fuzz_sequence": json.dumps(seq, separators=(",", ":")), "fuzz_shrink": "false"}, None))
+        work.append(("replay", {"fuzz_sequence": json.dumps(seq, separators=(",", ":")), "fuzz_shrink": "false",
+                                "fuzz_set": opts.set, "fuzz_trace": "1"}, None))
     else:
         if opts.corpus:
             # Lawrence's reported bugs, one round (a close-all between them): ext_fuzz.CORPUS_SETS[--set].
