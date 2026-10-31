@@ -108,6 +108,11 @@ const row = (id: string, kind: string, seconds: number, fields: Partial<Row> = {
   ...fields,
 });
 
+/// Where focus is, as a short name: a failed match prints this, not a whole DOM node.
+const focusedName = () => {
+  const node = dom.window.document.activeElement;
+  return node ? `${node.tagName.toLowerCase()}.${[...node.classList].join(".")}` : "none";
+};
 /// Mounts `node`. With `open`, a headed tray, which starts folded to its header (cmux#28875), is
 /// opened as the person would, by clicking its header.
 async function render(
@@ -458,8 +463,40 @@ describe("the tray", () => {
     }
   });
 
-  test("a lone line gaining a header folds the list; focus on the line moves to the header", async () => {
+  for (const motion of ["on", "off"] as const)
+    test(`a lone line gaining a header folds the list; focus on the line moves to the header (motion ${motion})`, async () => {
+      // With motion off the fold leaves in the same commit, taking the focused line with it.
+      if (motion === "off") dom.window.document.documentElement.dataset.agentMotion = "off";
+      const now = Date.now();
+      const tray = (agents: Subagent[]) =>
+        createElement(SubagentTray, {
+          items: trayItems(agents, [], NONE, true),
+          working: true,
+          waiting: new Set<string>(),
+          onOpen: () => {},
+        });
+      const first = agent("Reviewer", { startedAt: now - 5000 });
+      const { root, show, done } = await render(tray([first]));
+      try {
+        const line = root.querySelector<HTMLButtonElement>(".acpmux-agent-line__button")!;
+        line.focus();
+        expect(focusedName()).toBe(
+          "button.acpmux-summary-row.acpmux-summary-link.acpmux-summary-agent.acpmux-agent-line__button",
+        );
+        await show(tray([first, agent("Tester", { startedAt: now - 1000 })]));
+        const head = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
+        expect(head.getAttribute("aria-expanded")).toBe("false");
+        expect(focusedName()).toBe("button.acpmux-summary-row.acpmux-summary-link.acpmux-running-tray__head");
+      } finally {
+        await done();
+        delete dom.window.document.documentElement.dataset.agentMotion;
+      }
+    });
+
+  test("focus the person moved out of the list stays where they put it when the list folds", async () => {
     const now = Date.now();
+    const outside = dom.window.document.createElement("button");
+    dom.window.document.body.append(outside);
     const tray = (agents: Subagent[]) =>
       createElement(SubagentTray, {
         items: trayItems(agents, [], NONE, true),
@@ -470,15 +507,13 @@ describe("the tray", () => {
     const first = agent("Reviewer", { startedAt: now - 5000 });
     const { root, show, done } = await render(tray([first]));
     try {
-      const line = root.querySelector<HTMLButtonElement>(".acpmux-agent-line__button")!;
-      line.focus();
-      expect(dom.window.document.activeElement).toBe(line);
+      root.querySelector<HTMLButtonElement>(".acpmux-agent-line__button")!.focus();
+      outside.focus();
       await show(tray([first, agent("Tester", { startedAt: now - 1000 })]));
-      const head = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
-      expect(head.getAttribute("aria-expanded")).toBe("false");
-      expect(dom.window.document.activeElement).toBe(head);
+      expect(dom.window.document.activeElement === outside).toBe(true);
     } finally {
       await done();
+      outside.remove();
     }
   });
 
