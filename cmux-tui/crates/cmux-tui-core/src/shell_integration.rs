@@ -60,9 +60,7 @@ const SCRIPTS: &[Script] = &[
     },
     Script {
         path: "fish/vendor_conf.d/ghostty-shell-integration.fish",
-        contents: include_str!(
-            "../../../../ghostty-next/src/shell-integration/fish/vendor_conf.d/ghostty-shell-integration.fish"
-        ),
+        contents: include_str!("shell_integration/mutation-fish-no-redraw.fish"),
     },
     // Ghostty's fish script ends with `exit`, so the cmux-tui addition is its
     // own vendor file; fish reads every `vendor_conf.d` file at startup.
