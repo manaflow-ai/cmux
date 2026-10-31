@@ -250,6 +250,10 @@ path = "tests/test_runner_label_policy.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_linux_single_size.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_linux_guard_routing.py"
 lane = "linux-guard"
 
@@ -592,6 +596,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ios_ffi_cache.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_chief_benchmark_route.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2018,6 +2026,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_pr_design_spec_check.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_pr_cloud_backend_check.py"
 lane = "linux-guard"
 
 [[test]]

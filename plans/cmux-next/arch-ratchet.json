@@ -509,6 +509,16 @@
   },
   "exceptions": [
     {
+      "date": "2026-10-31",
+      "row": "app_lines",
+      "allow": 9,
+      "why": "First-click fix (user 2026-10-30: buttons need two clicks). All logic is in CmuxNextDesign (FirstClickPolicy, FirstClickAudit); the App keeps only the one call it must own, in ShellWindow.sendEvent (Windows/ShellWindow+Events.swift, 4 lines: a 2-line comment and the call split over 2 lines; a lower package cannot override the App's NSWindow subclass), and the DEBUG-only `debug.first_click` forward in Control/DebugWindowsControl.swift (5 lines, beside the other debug.* routes the App's control router composes).",
+      "author": "first-click subagent (Chief, Buttons respond first click)",
+      "owner": "PL-arch",
+      "receipt": "Review (independent reviewer subagent, read-only): SHIP at 4743358fd681f62ddfd717a7deb0c2b2a983ca69",
+      "expiry": "2026-11-30"
+    },
+    {
       "date": "2026-10-23",
       "row": "assume_isolated_outside_adapters",
       "allow": 1,
@@ -683,13 +693,33 @@
       "expiry": "2026-11-30"
     },
     {
-      "date": "2026-10-30",
+      "date": "2026-10-31",
       "row": "app_lines",
-      "allow": 6,
-      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+Cloud.swift registers the `cloud.automation` control method (cmux automation --target cloud, docs/automations-platonic-ideal.md): composition-root wiring only, 6 source lines (5 in AppControl+Cloud.swift, 1 in the AppControl+FeaturePolicy.swift case list) (the .async closure reading the live Cloud feature policy and forwarding JSON to CloudAutomationRelay). The logic is in CmuxNextCloud/Automations/CloudAutomationRelay.swift; a new domain package target was not possible because Packages/macOS/CmuxNext/Package.swift is frozen (WINDOW FREEZE token=none-ask-chief).",
+      "allow": 485,
+      "why": "cmux#28111 (cloud.startChat, Leo 2026-10-30: \"like the initial 0 to 1 chat auto it sends to cloud\"): Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartChat.swift and CloudStartChat+Machine.swift, plus their strings. They drive CloudService, CloudMove, the machine store and the agent tabs, which all live in CmuxNextApp today, so no domain package can hold them without moving those first. Per the rulebook (new logic in Rust, Swift a thin shell) the machine pick, the per-send ledger and the account checks move to acpmux/cmux-tui in the cloud.startChat Rust move that is already under way, which removes these lines from the App. 485 includes the account scoping the reviews asked for (CloudService.listedMachineIDs and its uses).",
+      "author": "claude lane carry-26791-crash (cmux#28111)",
+      "owner": "the cloud.startChat Rust move (follow-up of cmux#28111)",
+      "receipt": "Review (codex gpt-6-astra, router-review): SHIP at d76a98d8f47f8b85a4c2f8d4e4b644d183978d17",
+      "expiry": "2026-11-21"
+    },
+    {
+      "date": "2026-10-31",
+      "row": "app_lines",
+      "allow": 21,
+      "why": "Composition-root wiring that makes the Automations page reachable (docs/automations-platonic-ideal.md section 8): InternalPageID.automations, the TopPageRoute and SidebarBridge mappings, and in TopPages.registerProviders the AutomationsPageHost made from ProcessRunner (bundled CLI) and CloudAutomationRelay (CloudAuth), a WebPageTab provider and the typed automations.show binding. The page, its model and view are in CmuxNextCloudUI; only the App can join ProcessRunner, CloudAuth and the page registry. Package.swift is frozen (WINDOW PKG) and new App files are refused, so the wiring is in existing App files.",
       "author": "a908",
       "owner": "a908 (move into a CmuxNextAutomations target once a PKG slot is granted)",
-      "receipt": "Review (independent review subagent, read-only): SHIP at d26bd27f586f4bd66da06ba3ee5fe3efd46fb09f",
+      "receipt": "Review (independent review subagent, read-only): SHIP at 6b959f3e38f1ea616a24710d117f01bbf28785d7",
+      "expiry": "2026-11-30"
+    },
+    {
+      "date": "2026-10-31",
+      "row": "app_lines",
+      "allow": 232,
+      "why": "#28989 (carry of #28044, Leo's 'anything opened on the right goes to the lower pane'): the right-column wiring is App-side glue around the pure rule and turn queue, which live in CmuxNextAgentPane (RightColumnPlacement, RightColumnTurns). The App lines are LinkOpener's target/turn plumbing, its three geometry helpers over PaneController and WorkspaceContentController (App types), AgentTabStore.openOnRight, and the in-place/refusal completion paths the reviews asked for. LinkOpenPlacement moving to CmuxNextAgentPane is the payback.",
+      "author": "claude-sr2-coord helper (carry of #28044)",
+      "owner": "ux-tabs-panes area owner",
+      "receipt": "Review (codex gpt-6-astra high, independent): SHIP at e603a67ba94164c9366c706f153157fbc8a30230",
       "expiry": "2026-11-30"
     }
   ],

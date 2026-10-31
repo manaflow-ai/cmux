@@ -883,11 +883,18 @@ export class SettingsStore {
     return this.write({ kind: "resetAll" });
   }
 
-  preview(key: string, value: unknown): void {
+  /** The host holds one live preview at a time, whatever its key: its latest owner. */
+  private previewOwner: object | null = null;
+
+  preview(key: string, value: unknown, owner?: object): void {
+    this.previewOwner = owner ?? {};
     if (this.ui.connected) void this.request("cmux.settings.preview", { key, value });
   }
 
-  previewEnd(key: string): void {
+  /** With an `owner`, ends the preview only while that owner's is still the one showing. */
+  previewEnd(key: string, owner?: object): void {
+    if (owner && this.previewOwner !== owner) return;
+    this.previewOwner = null;
     void this.request("cmux.settings.preview.end", { key });
   }
 
