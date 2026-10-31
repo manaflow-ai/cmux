@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1237,
+    "entries": 1236,
     "shortcuts": 189
   },
   "sections": [
@@ -5318,12 +5318,6 @@
           "title": "Show Spaces",
           "shortcut": null,
           "command": "cmux sidebar show-spaces"
-        },
-        {
-          "id": "sidebar.workspaceTabs.toggle",
-          "title": "Show Tabs Under Workspaces",
-          "shortcut": null,
-          "command": null
         },
         {
           "id": "switchRightSidebarToSessions",
