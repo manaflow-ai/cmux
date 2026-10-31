@@ -1,0 +1,161 @@
+{
+  "version": 1,
+  "build": "4116264351601",
+  "notes": "notes/4116264351601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 28354,
+      "title": "perf(acpmux): read the editable prompts from the rows after the first change",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28811,
+      "title": "base red: revert \"test(chief memory): the unasked detect never lists ~/Downloads or ~/Desktop (red)\"",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28807,
+      "title": "base red: register tests/test_check_objc_selectors_step.py as a run-by-hand test",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28572,
+      "title": "ci: cmux-tui's cold cargo jobs keep a rust-cache like their siblings",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27884,
+      "title": "cmux NEXT Cloud: agents' and lane-pool machines stay out of the sidebar until you open them",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28644,
+      "title": "ci(cmux-tui-spec): run acpmux's lib and hub_integration tests on PRs that touch acpmux",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28772,
+      "title": "fix(acpmux): classify socket-only home watcher losses",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28475,
+      "title": "fix(next): clicking outside a context menu closes it at once (menus no longer track inside a main-queue job)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28800,
+      "title": "ci: PR test-compile leaves CmuxNext to swift test",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28055,
+      "title": "Chats: acpmux owns the chat list; the sidebar history holds only its window (P0 stall)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27499,
+      "title": "cmux NEXT updater: Restart to Update installs the newest build; a pulled build is dropped, never offered",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28183,
+      "title": "carry of #27518: notarize app beside DMG download",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28802,
+      "title": "ci(nightly-next): the legacy-identity sign drains an owned mini instead of waiting on a stalled Blacksmith label",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28783,
+      "title": "base red: crash ratchet records the reviewed active-look marker selector waiver (#28266)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28642,
+      "title": "ci(signing): trust glaeda runner hook f612f5a8",
+      "author": "cmux-bot[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28790,
+      "title": "base red: revert \"cmux-app-ffi: link the chat index mirror (CCmuxChatsMirrorFFI)\"",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27015,
+      "title": "NEXT: Home attachment parts over the Worker's request limit go straight to R2, verified in bounded steps",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28147,
+      "title": "cmux-tui: the daemon no longer deadlocks settling a late registry receipt; server-stats reports both locks by site",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28157,
+      "title": "acpmux: a peer chat whose attach fails is attached again, and says why",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28395,
+      "title": "fix(settings): Escape cancels a typed text field",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28406,
+      "title": "carry of #27985: wait for the current Cloud tree before opening a workspace",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28213,
+      "title": "debug(next): the subagents fixture can start more than two subagents (agents), plus capture states",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28318,
+      "title": "test(ci): cover iOS simulator FFI cache hit and miss",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28067,
+      "title": "devbox: pin upstream bubblewrap 0.13.1 on feat-cmux-next (port of #27152)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28260,
+      "title": "ci: anchor push routing to finished fast tier",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
