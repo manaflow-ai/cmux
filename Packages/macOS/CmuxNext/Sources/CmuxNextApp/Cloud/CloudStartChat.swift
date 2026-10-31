@@ -81,7 +81,7 @@ struct CloudStartChat {
             where AgentHome.isHomeOrAbove(path, home: canonicalHome) || AgentHome.isHomeOrAbove(path, home: home) {
                 return false
             }
-            return true
+            return AgentPaneCloudStart.gitFoldersAreInside(folder.root) // its git folders are copied too
         }
         return start.uploadRoot == folder.root
     }

@@ -95,6 +95,17 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         return folders
     }
 
+    /// Whether every one of `root`'s ``gitFolders(of:)`` is `root` or below it (by canonical path
+    /// components): a folder copied with no pane check behind it (a tab's own folder) never uploads
+    /// a repository a `.git` file or `commondir` names elsewhere. Reads the disk.
+    public nonisolated static func gitFoldersAreInside(_ root: String) -> Bool {
+        let base = ((AcpmuxPathPolicy.canonical(root) ?? root) as NSString).pathComponents
+        return gitFolders(of: root).allSatisfy { folder in
+            let parts = ((AcpmuxPathPolicy.canonical(folder) ?? (folder as NSString).standardizingPath) as NSString).pathComponents
+            return parts.count >= base.count && Array(parts.prefix(base.count)) == base
+        }
+    }
+
     /// The seed of the chat on the Cloud machine, in `cwd` (the folder's copy there): the person's
     /// prompt, sent once with the Send's gesture, on the agent and model the page picked.
     public func seed(cwd: String) -> AgentPaneSeed {

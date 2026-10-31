@@ -231,6 +231,27 @@ struct CloudStartChatMachineTests {
         #expect(CloudStartChat.uploads(atRoot, as: tabs, home: "/Users/me"))
     }
 
+    /// Router review at 6beb0f2: with no `cwd` the tab's own folder is copied, and its `.git` file
+    /// can name a repository elsewhere (a linked worktree): that send is refused, like one with `cwd`.
+    @Test func aTabsFolderWhoseGitFolderIsElsewhereIsNeverCopied() throws {
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("cn-start-\(UUID().uuidString.prefix(8))")
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let project = scratch.appendingPathComponent("project"), external = scratch.appendingPathComponent("repo.git")
+        let worktree = external.appendingPathComponent("worktrees/project")
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: worktree, withIntermediateDirectories: true)
+        try "../..\n".write(to: worktree.appendingPathComponent("commondir"), atomically: true, encoding: .utf8)
+        try "gitdir: \(worktree.path)\n".write(to: project.appendingPathComponent(".git"), atomically: true, encoding: .utf8)
+        let tabs = try #require(AgentPaneCloudStart(params: ["task": "t", "key": UUID().uuidString]))
+        let folder = try #require(CloudMoveFolder(chat: project.path))
+        #expect(folder.subpath.isEmpty)
+        #expect(!CloudStartChat.uploads(folder, as: tabs, home: "/Users/nobody"))
+        // A working copy whose git folder is its own `.git` folder is copied.
+        try FileManager.default.removeItem(at: project.appendingPathComponent(".git"))
+        try FileManager.default.createDirectory(at: project.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        #expect(CloudStartChat.uploads(try #require(CloudMoveFolder(chat: project.path)), as: tabs, home: "/Users/nobody"))
+    }
+
     /// The create's key is the send's, so a retry after a lost create answer never makes a second VM;
     /// and its team is the send's, fixed for every try, so a team switch during a slow create never
     /// makes the machine in the other team (router review at 2208632).
