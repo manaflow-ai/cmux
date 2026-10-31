@@ -374,6 +374,7 @@ export function QuickModelMenu({
     !forkTab &&
     !shown?.launch &&
     !!shown &&
+    !shown.starred &&
     [...shown.models, ...shown.more].some((model) => model.canFast && !model.disabled);
   const inlineMore = newTab && families !== undefined;
   // The symbols layout names a harness's other models Legacy models with their count, as the
@@ -433,6 +434,7 @@ export function QuickModelMenu({
     // Another tab's model lands with the Fast mode its tab's row holds.
     const row =
       heldFast !== undefined &&
+      !query &&
       families &&
       picked.family === heldFast &&
       picked.family !== families.current &&
