@@ -1252,9 +1252,19 @@ fn apps_list_and_info_read_the_store_from_the_cli() {
             .unwrap()
     };
 
+    let parsed = |out: &Output| -> Value {
+        serde_json::from_slice(&out.stdout).unwrap_or_else(|error| {
+            panic!(
+                "{error}: status {:?}, stdout {:?}, stderr {:?}",
+                out.status,
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            )
+        })
+    };
     let out = cli(&["apps", "list", "--json"]);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    let listed: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let listed = parsed(&out);
     let standup = listed["apps"]
         .as_array()
         .unwrap()
@@ -1273,7 +1283,7 @@ fn apps_list_and_info_read_the_store_from_the_cli() {
     assert!(text.contains("Standup"), "the name shows: {text}");
 
     let out = cli(&["apps", "list", "--installed", "--json"]);
-    let installed: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let installed = parsed(&out);
     assert!(
         installed["apps"].as_array().unwrap().iter().all(|row| row["installed"] == true),
         "{installed}"
@@ -1281,7 +1291,7 @@ fn apps_list_and_info_read_the_store_from_the_cli() {
 
     let out = cli(&["apps", "info", "manaflow-ai/standup", "--json"]);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    let info: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let info = parsed(&out);
     assert_eq!(info["scopes"][0]["scope"], "storage:local", "{info}");
 
     let out = cli(&["apps", "info", "acme/nothing"]);
