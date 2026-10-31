@@ -12,7 +12,7 @@ const config = parseConfig(raw);
 function captures(reviewMarkX = 30, reviewLabelX = 54) {
   return config.required.map((tuple) => ({ file: "synthetic-boxes", artifact: {
     schemaVersion: 1,
-    revision: { sha: config.revision.sha, source: "unit fixture replaying measured Home column x coordinates" },
+    revision: { sha: config.revision.sha, source: tuple.source ?? config.revision.source },
     capture: { ...tuple, viewport: { width: 560, height: 640 }, deviceScaleFactor: 2, screenshot: "fixture.png", screenshotSha256: "0".repeat(64), coordinateSpace: "css-px" },
     elements: ["home-marks", "home-labels"].flatMap((group) => Array.from({ length: 6 }, (_, index) => {
       const rect = { x: group === "home-marks" ? index < 4 ? 30 : reviewMarkX : index < 4 ? 54 : reviewLabelX, y: 50 + index * 28, width: 16, height: 16 };
@@ -28,6 +28,7 @@ test("Home capture contract exercises every inbox and review row in both appeara
   for (const tuple of config.required) {
     const item = cases.find((item) => item.id === tuple.caseId)!;
     expect(item.params?.colorScheme).toBe(tuple.theme);
+    expect(tuple.source ?? config.revision.source).toBe(item.params?.source);
     expect(item.params?.auditScroll).toBe(".acpmux-home-area");
     expect(raw.selectors[tuple.caseId].filter((selection: { group: string }) => ["home-marks", "home-labels"].includes(selection.group)).every((selection: { selector: string }) => selection.selector.includes(".acpmux-home-row >") && selection.selector.includes(".acpmux-home-inbox-"))).toBe(true);
   }

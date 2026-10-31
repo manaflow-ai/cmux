@@ -8,12 +8,14 @@
     {
       "caseId": "home-columns-light",
       "engine": "chromium",
-      "theme": "light"
+      "theme": "light",
+      "source": "src/agent-session/acpmux/HomeLists.gallery.tsx"
     },
     {
       "caseId": "home-columns-dark",
       "engine": "chromium",
-      "theme": "dark"
+      "theme": "dark",
+      "source": "src/agent-session/acpmux/HomeLists.gallery.tsx"
     }
   ],
   "rules": [
