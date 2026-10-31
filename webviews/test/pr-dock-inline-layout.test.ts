@@ -327,6 +327,25 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
               return { left: rect.left >= row.left, right: rect.right <= row.right + 1 };
             });
           });
+          if (variant === "received" && width === 320)
+            console.log(
+              "DEBUG-RECEIVED",
+              await page.locator(".acpmux-pr-dock").evaluate((node) => {
+                const box = (el: Element) => {
+                  const r = el.getBoundingClientRect();
+                  return `${el.tagName}.${String(el.className).slice(0, 40)} x=${r.x.toFixed(0)} w=${r.width.toFixed(0)}`;
+                };
+                const line = node.parentElement!;
+                return JSON.stringify({
+                  line: box(line),
+                  lineKids: [...line.children].map(box),
+                  dock: box(node),
+                  dockKids: [...node.children].map(box),
+                  measure: [...node.querySelector(".acpmux-pr-dock__measure")!.children].map(box),
+                  row: box(node.closest(".acpmux-row")!),
+                });
+              }),
+            );
           for (const box of boxes) expect(box).toEqual({ left: true, right: true });
           if (variant === "notes-tail") {
             expect(await page.locator(".cv-footnote").last().locator(".acpmux-pr-dock").count()).toBe(1);

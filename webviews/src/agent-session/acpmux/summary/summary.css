@@ -249,6 +249,7 @@ html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-inline: 4px;
+  outline: none;
 }
 .acpmux-pr-dock__popover .acpmux-pr-dock__bar {
   height: 24px;
@@ -267,8 +268,11 @@ html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
   min-width: 0;
   margin-top: 4px;
 }
+/* On its own line nothing else shares the width, so titles may take more of it. */
 .cv-tail-line > .acpmux-pr-dock {
-  flex: 0 1 360px;
+  flex: 0 1 auto;
+  width: 70%;
+  max-width: 560px;
   margin-inline-start: 0;
 }
 .cv-inline-tail{display:inline-flex;align-items:baseline;gap:8px;max-width:100%;vertical-align:baseline}
