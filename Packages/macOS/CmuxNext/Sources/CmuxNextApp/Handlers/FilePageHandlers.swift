@@ -127,11 +127,13 @@ enum FilePageHandlers {
         }.first
     }
 
-    /// Sends a shared find action to an editor page tab; false for any other page.
+    /// Sends a shared find action to a file page tab (the code editor's or the markdown page's
+    /// find pill; both take the same command names); false for any other page.
     static func sendFind(_ action: String, _ id: String, _ services: AppServices, text: String? = nil) -> Bool {
         let key = providerKey(id, services)
-        guard LocalPageTab.page(of: key) == .editor, let command = EditorPageCommand.forAction[action],
-              let page = services.viewers.editorPages.pageView(key) else { return false }
+        guard sharedFindActions.contains(action), let command = EditorPageCommand.forAction[action],
+              let kind = FilePageKind.allCases.first(where: { LocalPageTab.page(of: key) == $0.page }),
+              let page = service(kind, services).pageView(key) else { return false }
         return page.send(command: command, arguments: text.map { ["text": .string($0)] } ?? [:])
     }
 }
