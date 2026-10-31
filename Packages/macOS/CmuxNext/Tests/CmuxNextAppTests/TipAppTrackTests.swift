@@ -22,7 +22,7 @@ import Testing
     @Test func theTipStampedDevAppIsNightlyAndRunsSparkle() {
         let tip = Self.identity("com.cmuxterm.app.debug.next", feed: Self.tipFeed)
         #expect(tip.isTipBuild)
-        #expect(tip.track == .nightly)
+        #expect(tip.track == .nightlyNext)
         #expect(tip.sparkleDisabledReason(managedPolicyDisablesUpdates: false) == nil)
         // A managed DisableAutoUpdate still wins.
         #expect(tip.sparkleDisabledReason(managedPolicyDisablesUpdates: true) == .managedPolicy)
@@ -38,7 +38,7 @@ import Testing
 
     @Test func theTipAppWithoutAKeyDoesNotRunSparkle() {
         let tip = Self.identity("com.cmuxterm.app.debug.next", feed: Self.tipFeed, hasPublicKey: false)
-        #expect(tip.track == .nightly)
+        #expect(tip.track == .nightlyNext)
         #expect(tip.sparkleDisabledReason(managedPolicyDisablesUpdates: false) == .missingPublicKey)
     }
 
