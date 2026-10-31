@@ -354,9 +354,8 @@ extension AgentTabStore {
             // A Cloud machine (the app's own record, never the guest's) starts a chat or asks folder
             // trust only on the Cloud API's owner answer on the link the call goes over, checked as
             // it is sent, through any daemon (the legacy link's or the app link's own answer).
-            let ownerLink = services.machines.session(daemon.machineID).map { AgentTabRemoteHost.ownerLink(appLink: $0.appLink, link: $0.link) }
-            host.ownerLink = ownerLink
-            let teammate = services.machines.session(daemon.machineID).map { AgentTabRemoteHost.teammate(appLink: $0.appLink, link: $0.link) }
+            let links = services.machines.session(daemon.machineID).map { CloudMachineLinks(appLink: $0.appLink, link: $0.link) }
+            host.ownerLink = links?.ownerLink
             if started {
                 // The tab may still be provisional here: each handshake reads its store surface.
                 host.existing = { [weak tabs] in
@@ -373,7 +372,7 @@ extension AgentTabStore {
                 host.start = { [weak tabs] cwd, harness, model, personKey in
                     guard let tabs else { throw CancellationError() }
                     return try await tabs.startRemoteChat(key, machine: machine, cwd: cwd, harness: harness, model: model, personKey: personKey,
-                                                          ownerLink: ownerLink, teammate: teammate, reconnect: reconnect, endpoint: endpoint)
+                                                          ownerLink: links?.ownerLink, teammate: links?.teammate, reconnect: reconnect, endpoint: endpoint)
                 }
             }
             // cx-0q7o: the app's own ssh exec to that machine restarts its acpmux with a key.
