@@ -1,0 +1,17 @@
+{
+  "title": "New workspace position: Before Current Workspace",
+  "steps": [
+    {"title": "Launch", "wait": 3, "shot": false},
+    {"title": "New workspace position: Before Current Workspace", "cmux": ["settings", "set", "workspaces.newPlacement", "beforeCurrent"], "wait": 1, "shot": false},
+    {"title": "Workspace alpha", "cmux": ["workspace", "new", "--name", "alpha"], "wait": 1, "shot": false},
+    {"title": "Workspace beta", "cmux": ["workspace", "new", "--name", "beta"], "wait": 1, "shot": false},
+    {"title": "Workspace gamma", "cmux": ["workspace", "new", "--name", "gamma"], "wait": 1, "shot": false},
+    {"title": "beta is the current workspace", "cmux": ["workspace", "name:beta", "focus"], "wait": 1.5},
+    {"title": "Cmd-N: the new workspace draws right above beta", "rpc": {"method": "action.run", "params": {"action": "workspace.new", "origin": "script"}}, "wait": 2},
+    {"title": "Record the sidebar order", "rpc": {"method": "debug.windows"}, "record": true, "shot": false},
+    {"title": "Dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 2,
+     "optional": "debug.appearance is DEBUG only"},
+    {"title": "Back to the system appearance", "rpc": {"method": "debug.appearance", "params": {"mode": "system"}}, "wait": 1, "shot": false,
+     "optional": "debug.appearance is DEBUG only"}
+  ]
+}
