@@ -52,10 +52,10 @@ const marked = (rows: readonly AcpmuxRow[]) =>
   );
 const read: AcpmuxActivity = {
   kind: "tool",
-  text: "Read turns.ts",
+  text: "Read /r/turns.ts",
   tool: {
     id: "read-1",
-    title: "Read turns.ts",
+    title: "Read /r/turns.ts",
     kind: "read",
     status: "completed",
     locations: [{ path: "/r/turns.ts" }],
@@ -100,7 +100,7 @@ test("the footer copies the whole turn: every reply in order and each tool run's
   );
   const footer = rows.find((one) => one.kind === "turnSummary")!;
   expect(turnCopyText(t, footer.turnCopy!)).toBe(
-    [BEFORE_STEER, "Ran 2 commands, read a file", "Read turns.ts", ANSWER].join("\n\n"),
+    [BEFORE_STEER, "Ran 2 commands, read a file", "Read /r/turns.ts", ANSWER].join("\n\n"),
   );
   const html = renderToStaticMarkup(<TurnFooter row={footer} />);
   expect(html).toContain('aria-label="Copy"');
