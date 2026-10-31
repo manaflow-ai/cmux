@@ -153,6 +153,14 @@ export default componentEntry<Props>({
       },
       note: "A refusal whose holder is no app bundle offers the same Restart acpmux.",
     },
+    "too-large": {
+      props: {
+        message: "This chat is too large to open. Update acpmux, then Retry.",
+        initialRetrying: false,
+        withRetry: true,
+      },
+      note: 'acpmux refused the chat\'s open as larger than one message (message.too_large, an acpmux before #28754): said at once in plain words, never the byte count, and the pane does not ask again on its own; Retry still asks (Leo, 2026-10-31: "this is completely hardlocked bc of message size").',
+    },
     waiting: {
       props: { message: "", initialRetrying: false, withRetry: false, waitedMs: 95_000 },
       play: restartService,

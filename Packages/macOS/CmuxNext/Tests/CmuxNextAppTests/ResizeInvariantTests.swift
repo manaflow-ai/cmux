@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextLayout
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -11,7 +12,7 @@ import Testing
 /// shrink over a blurred fill or shift for the columns over it, so nothing jumps while resizing.
 /// And every column keeps a width its content can use (the Home chat wrapped one word per line at
 /// ~60 pt).
-@MainActor @Suite(.serialized) struct ResizeInvariantTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct ResizeInvariantTests {
     /// Sizes a window goes through: live resize steps, a narrow window, fullscreen-like, back.
     static let sizes: [CGSize] = [
         CGSize(width: 1512, height: 945), CGSize(width: 1100, height: 700), CGSize(width: 720, height: 900),
