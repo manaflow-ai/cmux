@@ -301,7 +301,9 @@ export function incomingPrompt(
       kind: "message",
       message: {
         name: signed?.name ?? name,
-        ...(provenance.kind === "lane_report" ? { report: true, details: provenance.details } : {}),
+        ...(provenance.kind === "lane_report"
+          ? { report: true, ...(provenance.details !== undefined ? { details: provenance.details } : {}) }
+          : {}),
         ...(sessionId && { sessionId }),
         ...(chief && { chief }),
         ...(relation && { relation }),

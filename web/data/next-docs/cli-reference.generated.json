@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 757,
-    "mcp": 675
+    "verbs": 769,
+    "mcp": 685
   },
   "nouns": [
     {
@@ -526,6 +526,20 @@
           "mcpTool": "app_apps_hide"
         },
         {
+          "command": "cmux apps install",
+          "title": "Install App…",
+          "id": "app.install",
+          "mcp": true,
+          "mcpTool": "app_apps_install"
+        },
+        {
+          "command": "cmux apps remove",
+          "title": "Remove App…",
+          "id": "app.remove",
+          "mcp": true,
+          "mcpTool": "app_apps_remove"
+        },
+        {
           "command": "cmux apps unhide",
           "title": "Show Hidden App…",
           "id": "app.unhide",
@@ -688,6 +702,13 @@
           "id": "palette.disableBrowser",
           "mcp": false,
           "mcpTool": null
+        },
+        {
+          "command": "cmux browser edit-source",
+          "title": "Edit Source",
+          "id": "browser.editSource",
+          "mcp": true,
+          "mcpTool": "app_browser_edit_source"
         },
         {
           "command": "cmux browser enable",
@@ -863,6 +884,13 @@
           "id": "browser.pageInfo.setPermission",
           "mcp": true,
           "mcpTool": "app_browser_set_site_permission"
+        },
+        {
+          "command": "cmux browser show-cookie-banner",
+          "title": "Show Import Cookies Banner",
+          "id": "browser.showCookieImportBanner",
+          "mcp": true,
+          "mcpTool": "app_browser_show_cookie_banner"
         },
         {
           "command": "cmux browser split-down",
@@ -1062,17 +1090,59 @@
       "noun": "chief",
       "verbs": [
         {
+          "command": "cmux chief look-at-screen",
+          "title": "Chief: Look at Screen Now",
+          "id": "chief.screenShare.look",
+          "mcp": true,
+          "mcpTool": "app_chief_look_at_screen"
+        },
+        {
           "command": "cmux chief memory",
           "title": "Chief: Open Memory Inspector",
           "id": "chief.openMemoryInspector",
           "mcp": true,
           "mcpTool": "app_chief_memory"
+        },
+        {
+          "command": "cmux chief share-screen",
+          "title": "Share Screen with Chief",
+          "id": "chief.screenShare.start",
+          "mcp": false,
+          "mcpTool": null
+        },
+        {
+          "command": "cmux chief stop-sharing-screen",
+          "title": "Stop Sharing Screen with Chief",
+          "id": "chief.screenShare.stop",
+          "mcp": true,
+          "mcpTool": "app_chief_stop_sharing_screen"
+        },
+        {
+          "command": "cmux chief toggle-screen-share",
+          "title": "Chief: Toggle Screen Sharing",
+          "id": "chief.screenShare.toggle",
+          "mcp": false,
+          "mcpTool": null
         }
       ]
     },
     {
       "noun": "cloud",
       "verbs": [
+        {
+          "command": "cmux cloud api-key-list",
+          "title": "List Cloud API Keys",
+          "id": "cloudAPIKeyList",
+          "mcp": true,
+          "mcpTool": "app_cloud_api_key_list"
+        },
+        {
+          "command": "cmux cloud api-key-revoke",
+          "title": "Revoke Cloud API Key",
+          "id": "cloudAPIKeyRevoke",
+          "mcp": true,
+          "mcpTool": "app_cloud_api_key_revoke"
+        },
         {
           "command": "cmux cloud apply-machine-config",
           "title": "Apply Machine Config",
@@ -1345,6 +1415,13 @@
           "id": "palette.cloud.promoteTemplate",
           "mcp": true,
           "mcpTool": "app_cloud_promote_machine_to_template"
+        },
+        {
+          "command": "cmux cloud provision-api",
+          "title": "Provision API on Machine…",
+          "id": "cloudProvisionAPI",
+          "mcp": true,
+          "mcpTool": "app_cloud_provision_api"
         },
         {
           "command": "cmux cloud publication-list",
@@ -1692,6 +1769,13 @@
           "id": "file.open",
           "mcp": true,
           "mcpTool": "app_file_open"
+        },
+        {
+          "command": "cmux file open-as-page",
+          "title": "Open as Page",
+          "id": "file.openAsPage",
+          "mcp": true,
+          "mcpTool": "app_file_open_as_page"
         }
       ]
     },
@@ -5528,6 +5612,6 @@
   "mcpExempt": {
     "credentials": 6,
     "endsApp": 4,
-    "systemChange": 72
+    "systemChange": 74
   }
 }
