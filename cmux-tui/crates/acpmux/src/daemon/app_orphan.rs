@@ -542,6 +542,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_bundle_deleted_between_the_open_and_the_plist_read_is_still_watched() {
         let dir = std::env::temp_dir().join(format!("amx-orph-plist-{}", std::process::id()));
