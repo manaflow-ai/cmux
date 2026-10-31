@@ -128,6 +128,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                    launchImages: launchReads.images, relaunchWake: launchReads.wake)
         AppProcessRoot.shared.adopt(services)
         self.services = services
+        #if DEBUG
+        services.windowRecord.watchLaunch() // `--record-launch`: before the first window is made
+        #endif
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
         AppProcessRoot.shared.adopt(hangReports: WatchdogReporting.install(control.watchdog, services: services))
         services.quit.watchdog = control.watchdog

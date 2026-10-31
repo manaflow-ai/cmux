@@ -92,6 +92,8 @@ final class AppServices {
     var errorJournal: ErrorJournalService?
     /// Agents' and scripts' Cloud machine creates waiting on the person in every window's sidebar card.
     let machineAsks = SidebarAsks()
+    /// Set and Clear Space Terminal Defaults…: one run at a time per space.
+    let roomDefaults = RoomDefaultsUpdates()
     /// Auto-archive of idle workspaces (plans/cmux-next/auto-archive-DESIGN.md); started at launch.
     private(set) lazy var autoArchive = AutoArchiveCoordinator(host: self, ledgerStore: AutoArchiveLedgerStore(defaults: .standard))
     /// Each window's own Home (cmux#27880).
@@ -118,14 +120,28 @@ final class AppServices {
     private(set) lazy var addDevice = AddDeviceCard(services: .app(self))
     private(set) lazy var devices = DeviceDirectory.app(self)
     #if DEBUG
-    /// `debug.joined_machines`: the joined machines' calls in place of the CLI while set (captures).
-    var debugJoinedMachines: MachineJoinService?
+    /// The `debug.*` capture fixtures this app reads while set (a test's services hold their own).
+    let debugFixtures = DebugFixtures()
+    /// One app's DEBUG capture fixtures: each set by its debug call, read where a Release build reads the live state.
+    final class DebugFixtures {
+        /// `debug.cloud_machine_fixture`: the registry context holds `cloudWorkspace` (AppServices+Cloud).
+        var holdsCloudWorkspace = false
+        /// `debug.add_device`: what Add Device shows (``AddDeviceServices/app(_:)``).
+        var addDevice: DebugAddDevice.Listing?
+        /// `debug.joined_machines`: the joined machines' calls in place of the CLI.
+        var joinedMachines: MachineJoinService?
+        /// `debug.join_consent`: the join status the app reads (``JoinConsentServices/app(_:)``), and its person line.
+        var joinStatus: JoinStatus?
+        let joinLine = DebugJoinConsent.FixtureLine()
+        /// `debug.object_menu`: the tab or pane menu it opened last; nil after a workspace menu.
+        weak var objectMenu: NSMenu?
+    }
     #endif
     /// The Machines section's joined machines (Labs `labs.machineJoin`); empty while it is off.
     private(set) lazy var joinedMachines = JoinedMachineStore(service: { [weak self] in
         guard let self, self.settings?.snapshot.machineJoin == true else { return nil }
         #if DEBUG
-        if let fixture = self.debugJoinedMachines { return fixture }
+        if let fixture = self.debugFixtures.joinedMachines { return fixture }
         #endif
         return MachineJoinService.app(self)
     })
@@ -173,6 +189,8 @@ final class AppServices {
     let tabMirrors = TabMirrors()
     private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, stores: browserStores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared, contextMenus: self.contextMenus), fileInput: openPanel, resizes: resizes)  // first read in init (no IUO)
     #if DEBUG || CMUX_BENCH_HOOKS
+    /// `debug.window_record` and `--record-launch`'s recordings.
+    let windowRecord = DebugWindowRecord()
     /// `debug.terminal_final_grid`: a split's or close's terminal grids, sent, drawn and announced.
     private(set) lazy var finalGridTrace: TerminalFinalGridTrace = {
         let trace = TerminalFinalGridTrace { [weak self] in self?.cache.terminals.map { ($0.key, $0.value.session, ObjectIdentifier($0.value.io)) } ?? [] }
