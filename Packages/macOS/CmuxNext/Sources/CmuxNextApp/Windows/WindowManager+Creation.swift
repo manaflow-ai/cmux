@@ -81,10 +81,13 @@ extension WindowManager {
             pendingClaims[workspaceID] = windowID
             if let frame, registry.value.window(windowID) == nil { pendingFrames[windowID] = frame }
             if !ActionRunScope.viewChangeAllowed() {
+                backgroundClaims.insert(workspaceID)
                 if registry.value.window(windowID)?.isOpen == true { quietClaims.insert(workspaceID) } else { behindWindows.insert(windowID) }
             }
             return
         }
+        // A background create on a Cloud machine nobody opened here waits with its machine (#28609).
+        if !ActionRunScope.viewChangeAllowed(), isHeldCloudWorkspace(workspaceID) { return }
         // Already mirrored (the claim came after the delta): place it now.
         pendingClaims[workspaceID] = nil
         if let state = states[windowID], registry.value.window(windowID)?.isOpen == true {
