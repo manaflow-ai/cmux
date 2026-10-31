@@ -659,35 +659,6 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
       },
     },
-    // TEMPORARY (removed before review): base's guess, This Mac titled with the remote tab's machine.
-    "environment-picker-older-host-remote-before": {
-      height: 420,
-      note: "Before: an older host's remote tab titled This Mac with that machine (build-mini).",
-      props: {
-        ...baseProps,
-        environments: true,
-        // build-mini's daemon reports the chat as local on its own host.
-        summary: { sessionId: "", harness: "claude", host: "build-mini", hostKind: "local" as const },
-        sessions: [
-          {
-            sessionId: "gallery-build-mini",
-            displayTitle: "Fix the build",
-            cwd: "/Users/dev/app",
-            host: "build-mini",
-            hostKind: "local" as const,
-            updatedAt: 0,
-          },
-        ],
-        peers: ["gpu-box"],
-        peerKinds: { "gpu-box": "ssh" },
-        peerConnected: { "gpu-box": true },
-        localName: "build-mini",
-      },
-      play: async (ctx) => {
-        await ctx.click({ role: "button", name: /^Environment/ });
-        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
-      },
-    },
     "environment-picker-sandboxed-option": {
       note: "Labs (hq#3367): Sandboxed is New Cloud Machine's other face, with no row of its own. Holding ⌥ while the list is open shows it, as a Mac menu's alternate: a pick runs the new chat's first message once on a throwaway Cloud VM.",
       props: {
