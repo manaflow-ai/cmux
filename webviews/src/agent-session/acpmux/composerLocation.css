@@ -78,6 +78,24 @@
   padding: 0 var(--acpmux-strip-pad, 4px);
   box-sizing: border-box;
 }
+/* A started chat's chooser can fail after its menu closes. Give the recovery line its own flex row
+   below the fixed-height controls instead of letting it overlay the composer box. */
+.acpmux-composer-strip:has(> .acpmux-composer-context > .acpmux-folder-choice),
+.acpmux-composer-context:has(> .acpmux-folder-choice) {
+  height: auto;
+  min-height: var(--acpmux-strip-height);
+}
+.acpmux-composer-context:has(> .acpmux-folder-choice) {
+  flex-wrap: wrap;
+}
+.acpmux-composer-context:has(> .acpmux-folder-choice) > .acpmux-location-picker:last-child {
+  order: 2;
+}
+.acpmux-composer-context > .acpmux-folder-choice {
+  order: 3;
+  flex: 0 0 100%;
+  min-width: 0;
+}
 /* Folder and computer share the same small inter-control gap, told apart by their icons; no "·"
    floats between them against the folder's chevron. */
 .acpmux-composer-context > .acpmux-location-leading { display: flex; align-items: center; gap: var(--acpmux-location-gap, 4px); min-width: 0; flex: 1 1 0; }
@@ -373,7 +391,7 @@
   font-family: var(--font-ui);
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
-  cursor: pointer;
+  cursor: default;
   letter-spacing: var(--text-control--letter-spacing);
 }
 .acpmux-access-grant-remove:hover { color: var(--agent-text); background: var(--agent-control-hover); }
@@ -664,49 +682,55 @@
    2026-10-21: a 410 px composer read "Opus Med" with about 250 px of the row free). */
 [data-fit-part]:not([data-fit-forms~="full"]),
 .acpmux-model-short { display: none; }
-.acpmux-composer-bar .acpmux-picker-button { position: relative; overflow: clip; }
-.acpmux-composer-bar .acpmux-picker-button [data-fit-part] { display: block; white-space: nowrap; }
-.acpmux-composer-bar .acpmux-picker-button > span { overflow: visible; text-overflow: clip; }
-.acpmux-composer-bar .acpmux-model-name[data-short] { display: none; }
-.acpmux-composer-bar .acpmux-model-short { color: var(--agent-text); }
+/* New Tab's row takes the same forms: with Codex's look its chips sit there (NewTabScreen.tsx), so
+   the model's family and short names must draw as they do in the chat's box row. */
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button { position: relative; overflow: clip; }
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button [data-fit-part] { display: block; white-space: nowrap; }
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button > span { overflow: visible; text-overflow: clip; }
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-model-name[data-short] { display: none; }
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-model-short { color: var(--agent-text); }
 .acpmux-fit-label::before { content: attr(data-label); }
 .acpmux-composer-bar .acpmux-composer-actions { position: relative; }
 .acpmux-fit-mic { display: inline-flex; }
 /* A mic hidden from the row by its menu leaves no empty slot (and no gap) before Send. */
 .acpmux-fit-mic:empty { display: none; }
-.acpmux-composer-bar[data-fit-model="family"] [data-fit-part="model"][data-fit-forms~="family"],
-.acpmux-composer-bar[data-fit-effort="short"] [data-fit-part="effort"][data-fit-forms~="short"] {
+:is(.acpmux-composer-bar, .nt-pickers)[data-fit-model="family"] [data-fit-part="model"][data-fit-forms~="family"],
+:is(.acpmux-composer-bar, .nt-pickers)[data-fit-effort="short"] [data-fit-part="effort"][data-fit-forms~="short"] {
   position: static;
   visibility: visible;
   pointer-events: auto;
 }
 .acpmux-composer-bar [data-fit-part]:not([data-fit-forms~="full"]),
-.nt-pickers [data-fit-part="effort"]:not([data-fit-forms~="full"]),
-.acpmux-composer-bar[data-fit-access="icon"] [data-fit-part="access"]:not([data-fit-forms~="icon"]),
-.acpmux-composer-bar[data-fit-effort="short"] [data-fit-part="effort"]:not([data-fit-forms~="short"]),
-.acpmux-composer-bar[data-fit-model="family"] [data-fit-part="model"]:not([data-fit-forms~="family"]),
-.acpmux-composer-bar[data-fit-model="icon"] [data-fit-part="model"]:not([data-fit-forms~="icon"]) {
+/* New Tab's row: the effort always, and with Codex's look the model's and mode's other forms too
+   (its chips sit in this row, NewTabScreen.tsx), as the chat's box row does. */
+.nt-pickers [data-fit-part]:not([data-fit-forms~="full"]),
+:is(.acpmux-composer-bar, .nt-pickers)[data-fit-access="icon"] [data-fit-part="access"]:not([data-fit-forms~="icon"]),
+:is(.acpmux-composer-bar, .nt-pickers)[data-fit-effort="short"] [data-fit-part="effort"]:not([data-fit-forms~="short"]),
+:is(.acpmux-composer-bar, .nt-pickers)[data-fit-model="family"] [data-fit-part="model"]:not([data-fit-forms~="family"]),
+:is(.acpmux-composer-bar, .nt-pickers)[data-fit-model="icon"] [data-fit-part="model"]:not([data-fit-forms~="icon"]) {
   position: absolute;
   top: 0;
   inset-inline-start: 0;
   visibility: hidden;
   pointer-events: none;
 }
-/* The width steps below skip the quiet row, which is the plain look, not the element: ComposerFoot
-   draws the same `.acpmux-composer-bar.acpmux-composer-foot` in both looks and marks only the plain
-   one `data-footer-look="plain"`, so with the plain footer off its row takes these steps as the one
-   row always did. The guard is `:where(:not([data-footer-look="plain"]))`, never a bare `:not(...)`:
+/* The width steps below skip the plain quiet row only: ComposerFoot draws the same
+   `.acpmux-composer-bar.acpmux-composer-foot` in both footer looks and marks only the plain one
+   `data-footer-look="plain"`, so with the plain footer off its row takes these steps as the one row
+   always did. The box's own row keeps them whatever its footer look, since Codex's look puts the
+   mode, model and ring there (composerLook.ts). The guard is
+   `:where(:not(.acpmux-composer-foot[data-footer-look="plain"]))`, never a bare `:not(...)`:
    these rules sit after the hiding rules above and must keep losing to them, so the row's measured
    fit (data-fit-model="icon" at a width whose step only asks for "family") still wins. A bare
    `:not()` adds to the selector, ties the hider at (0,4,0) and would bring a label back that the
    fit had taken away. */
 @container composer (max-width: 470px) {
-  :is(.acpmux-composer-bar:where(:not([data-footer-look="plain"])), .nt-pickers) [data-fit-part="effort"][data-fit-forms~="short"] {
+  :is(.acpmux-composer-bar:where(:not(.acpmux-composer-foot[data-footer-look="plain"])), .nt-pickers) [data-fit-part="effort"][data-fit-forms~="short"] {
     position: static;
     visibility: visible;
     pointer-events: auto;
   }
-  :is(.acpmux-composer-bar:where(:not([data-footer-look="plain"])), .nt-pickers) [data-fit-part="effort"]:not([data-fit-forms~="short"]) {
+  :is(.acpmux-composer-bar:where(:not(.acpmux-composer-foot[data-footer-look="plain"])), .nt-pickers) [data-fit-part="effort"]:not([data-fit-forms~="short"]) {
     position: absolute;
     top: 0;
     inset-inline-start: 0;
@@ -715,12 +739,12 @@
   }
 }
 @container composer (max-width: 440px) {
-  .acpmux-composer-bar:where(:not([data-footer-look="plain"])) [data-fit-part="model"][data-fit-forms~="family"] {
+  .acpmux-composer-bar:where(:not(.acpmux-composer-foot[data-footer-look="plain"])) [data-fit-part="model"][data-fit-forms~="family"] {
     position: static;
     visibility: visible;
     pointer-events: auto;
   }
-  .acpmux-composer-bar:where(:not([data-footer-look="plain"])) [data-fit-part="model"]:not([data-fit-forms~="family"]) {
+  .acpmux-composer-bar:where(:not(.acpmux-composer-foot[data-footer-look="plain"])) [data-fit-part="model"]:not([data-fit-forms~="family"]) {
     position: absolute;
     top: 0;
     inset-inline-start: 0;
@@ -729,7 +753,7 @@
   }
 }
 @container composer (max-width: 370px) {
-  .acpmux-composer-bar:where(:not([data-footer-look="plain"])) [data-fit-part="model"]:not([data-fit-forms~="icon"]) {
+  .acpmux-composer-bar:where(:not(.acpmux-composer-foot[data-footer-look="plain"])) [data-fit-part="model"]:not([data-fit-forms~="icon"]) {
     position: absolute;
     top: 0;
     inset-inline-start: 0;
@@ -753,7 +777,7 @@
   }
 }
 @container composer (max-width: 420px) {
-  .acpmux-composer-bar:where(:not([data-footer-look="plain"])) [data-fit-part="access"]:not([data-fit-forms~="icon"]) {
+  .acpmux-composer-bar:where(:not(.acpmux-composer-foot[data-footer-look="plain"])) [data-fit-part="access"]:not([data-fit-forms~="icon"]) {
     position: absolute;
     top: 0;
     inset-inline-start: 0;
@@ -1013,6 +1037,12 @@
   border-radius: 14px 14px 0 0;
   background: var(--acpmux-top-tray);
   box-shadow: inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-strip-edge);
+}
+/* Folder-browse recovery adds a second row. In the tray, keep that row below the raised composer
+   instead of letting the fixed tray height clip it under the card. */
+:root[data-top-strip="tray"] .acpmux-composer-strip:has(> .acpmux-composer-context > .acpmux-folder-choice) {
+  height: auto;
+  min-height: calc(var(--acpmux-strip-height) + var(--acpmux-tray-tuck));
 }
 /* The strip keeps the card's blur (composerStates.css), and glass is never opaque: off Reduce
    Transparency the tray's step goes over the card's glass tint, as Codex's tray does

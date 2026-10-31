@@ -15,10 +15,10 @@ import typealias CmuxNextDaemon.SurfaceID
 /// `<config dir>/<section>/theme.css`, the editor's syntax theme and language pack). Both pages use
 /// this one service type; ``FilePageKind`` says where they differ.
 ///
-/// Entry points: ``open(_:in:focus:)`` (the file routing, ``FilePageOpener``, behind Open File...,
-/// the picker, `file.open`, links and drops) and ``openEmpty(in:focus:)`` (the empty state, where
-/// the page lists recents, asks the picker or takes a dropped file). Every open records the file
-/// in the viewers' recents (R89).
+/// Entry point: ``open(_:in:focus:)`` (the file routing, ``FilePageOpener``, behind Open File...,
+/// the picker, `file.open`, links and drops). A tab with no file shows the empty state, where the
+/// page lists recents, asks the picker or takes a dropped file. Every open records the file in the
+/// viewers' recents (R89).
 final class FilePageService: InternalPageProvider {
     private struct Tab {
         var file: URL?
@@ -210,12 +210,6 @@ final class FilePageService: InternalPageProvider {
         tabs[key]?.stopFlush = nil
         guard let url else { return }
         documents.release(url, holder: holder(key))
-    }
-
-    /// Opens (or selects) the window's empty tab of this page.
-    @discardableResult
-    func openEmpty(in pane: PaneController, focus: Bool) -> String {
-        show(in: pane, focus: focus, Tab(file: nil)) { key in self.file(key) == nil }
     }
 
     /// The tab opens as a store tab where the pane's daemon holds page tabs
