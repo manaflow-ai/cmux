@@ -72,6 +72,8 @@ PINNED: dict[str, tuple[str, set[str]]] = {
      {'pick', 'pick-canary-runner', 'verdict', 'failed'}),
     'nightly-next-launch-smoke.yml': ('not yet on a pool; moves in its own PR',
      {'pick'}),
+    'stable-next-rollback.yml': ('holds the stable feed R2 token: an ephemeral label the secret-runner rule (test_ci_fork_runner_routing) checks literally',
+     {'rollback'}),
     'nightly-next-rollback.yml': ('not yet on a pool; moves in its own PR',
      {'rollback'}),
     'nightly-next-train.yml': ('not yet on a pool; moves in its own PR',

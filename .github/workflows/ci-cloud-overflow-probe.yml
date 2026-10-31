@@ -174,8 +174,10 @@ jobs:
           SWITCH_TOKEN: ${{ steps.switch-token.outputs.token }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.probe_label != '') && 'true' || 'false' }}
           RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
-          # Read live through the API first; this is the job-start value, the fallback.
+          # Read live through the API first; these are the job-start values, the fallback.
           CI_CLOUD_LABEL_HEALTH: ${{ vars.CI_CLOUD_LABEL_HEALTH }}
+          LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}
+          CI_CLOUD_OVERFLOW_SAVED: ${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
         run: python3 scripts/ci/runner_pools.py
 
       # Last, in its own step so the summary above is already saved. If the
