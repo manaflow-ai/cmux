@@ -27,6 +27,7 @@ use tokio::sync::{Semaphore, broadcast, mpsc};
 #[cfg(windows)]
 pub use windows_socket::{UnixListener, bind_unix, router_admin, serve_unix};
 
+mod ws_peek;
 mod ws_shutdown;
 pub(crate) use ws_shutdown::DRAIN_BUDGET as WS_DRAIN_BUDGET;
 pub use ws_shutdown::WsShutdown;
@@ -211,6 +212,8 @@ pub struct Conn {
     pub(super) remote_media: media_forward::RemoteMedia,
     /// Requests this daemon sent the client, waiting on its answer (`client_request.rs`).
     client_requests: client_request::ClientRequests,
+    /// Its windows over the chat index (`chat_windows.rs`).
+    chat_windows: chat_windows::ConnWindows,
     /// Its refused Stops that wait for room (`requests/cancel_refused.rs`).
     cancel_refusals: Arc<requests::cancel_refused::Waiting>,
     /// A WebSocket's compression, which its `initialize` turns on (`frame_compress.rs`); None
@@ -399,6 +402,12 @@ impl Conn {
     }
 
     fn send(&self, msg: &Message) {
+        self.send_replying(msg, None);
+    }
+
+    /// [`Self::send`] of the reply to a request whose method is `reply_to`: the size watch names
+    /// it (`wire_size.rs`).
+    fn send_replying(&self, msg: &Message, reply_to: Option<&str>) {
         // A request to the client waits on its answer, so it is never dropped as lossy.
         let control = matches!(msg, Message::Response { .. } | Message::Request { .. });
         if msg.method() == Some(method::MUX_SESSION_CHANGED) {
@@ -424,7 +433,7 @@ impl Conn {
         let msg = masked.as_ref().unwrap_or(base);
         // No message larger than one frame (`rpc::MAX_MESSAGE_BYTES`): a reply goes as its error,
         // a notification is left out and the client reads again from its last record.
-        match msg.bounded_line() {
+        match msg.bounded_line_replying(reply_to) {
             Ok(line) => {
                 enqueue_outbound(
                     &self.out,
@@ -436,23 +445,28 @@ impl Conn {
                     &self.outbound_pending_controls,
                 );
             }
-            Err(bytes) => {
-                tracing::warn!(conn = %self.id, method = ?msg.method(), bytes, "left out a notification too large to send");
-                enqueue_outbound(
-                    &self.out,
-                    Message::notification(
-                        "_acpmux/lagged",
-                        json!({"dropped": 1, "reason": "message_too_large"}),
-                    )
-                    .to_line(),
-                    false,
-                    &self.outbound_dropped,
-                    &self.outbound_gap_pending,
-                    &self.outbound_lock,
-                    &self.outbound_pending_controls,
-                );
-            }
+            Err(bytes) => self.left_out_too_large(msg.method(), bytes),
         }
+    }
+
+    /// A notification of `bytes`, larger than a frame, was left out (`bounded_line` counted it
+    /// and warned of it, at most once a minute per method): the client is told it lagged and
+    /// reads again from its last record.
+    fn left_out_too_large(&self, method: Option<&str>, bytes: usize) {
+        tracing::debug!(conn = %self.id, method = ?method, bytes, "left out a notification too large to send");
+        enqueue_outbound(
+            &self.out,
+            Message::notification(
+                "_acpmux/lagged",
+                json!({"dropped": 1, "reason": "message_too_large"}),
+            )
+            .to_line(),
+            false,
+            &self.outbound_dropped,
+            &self.outbound_gap_pending,
+            &self.outbound_lock,
+            &self.outbound_pending_controls,
+        );
     }
     /// The reply for `id` whose result is already serialized (`list_reply.rs`), masked
     /// already for a peer, read when [`Conn::notices`] was `seen`. Under the outbound lock:
@@ -462,9 +476,19 @@ impl Conn {
     /// One larger than a frame goes as its error, as in [`Self::send`].
     /// None if it was not sent; else whether it went whole into an open queue (not as its
     /// too-large error, nor into a queue whose reader is gone).
-    fn send_serialized(&self, id: &Value, result: &str, seen: u64, anyway: bool) -> Option<bool> {
+    /// `method` is the request's, if known, for the size watch (`wire_size.rs`), which counts
+    /// the reply once it goes, never a list left for a newer one.
+    fn send_serialized(
+        &self,
+        id: &Value,
+        method: Option<&str>,
+        result: &str,
+        seen: u64,
+        anyway: bool,
+    ) -> Option<bool> {
         let mut line = list_reply::reply_line(id, result);
-        let whole = line.len() <= crate::rpc::MAX_MESSAGE_BYTES;
+        let bytes = line.len();
+        let whole = bytes <= crate::rpc::MAX_MESSAGE_BYTES;
         if !whole {
             line = Message::err(id.clone(), RpcError::too_large(line.len())).to_line();
         }
@@ -477,6 +501,8 @@ impl Conn {
         if stale && !anyway {
             return None;
         }
+        let what = method.map_or(crate::wire_size::What::Reply, crate::wire_size::What::ReplyTo);
+        crate::wire_size::observe(what, bytes);
         match self.out.try_send(line) {
             Ok(()) if stale => self.enqueue_control_locked(lag()),
             Ok(()) => {}
@@ -987,10 +1013,7 @@ pub async fn serve_ws_until(
         connections.spawn(async move {
             let _handshake_slot = handshake_slot;
             let mut head = [0u8; 4096];
-            let n = match tokio::time::timeout(WS_HANDSHAKE_TIMEOUT, stream.peek(&mut head)).await {
-                Ok(Ok(n)) => n,
-                _ => return,
-            };
+            let Some(n) = ws_peek::request(&stream, &mut head, peer).await else { return };
             // The peek only routes the request. Each path checks the full head it parses:
             // serve_http reads it, tungstenite parses the upgrade request for the callback.
             let head_text = String::from_utf8_lossy(head.get(..n).unwrap_or(&head)).into_owned();
@@ -1487,6 +1510,7 @@ async fn serve_connection_from(
         },
         remote_media: media_forward::RemoteMedia::default(),
         client_requests: Default::default(),
+        chat_windows: Default::default(),
         cancel_refusals: Default::default(),
         wire,
     });
@@ -1564,20 +1588,21 @@ async fn serve_connection_from(
                 tokio::spawn(async move {
                     let _slot = slot;
                     let route = chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null));
-                    let (result, sent) = list_reply::scope(id.clone(), route).await;
+                    let (result, sent) = list_reply::scope(id.clone(), &m, route).await;
                     // Its answer went whole into an open queue: one sent as its too-large error, or
                     // to a reader that is gone, opened nothing.
                     let watched = m == method::MUX_WATCH && result.is_ok() && sent == Some(true);
                     // A shared session list, sent already as the bytes it was serialized to.
                     if !(sent.is_some() && result.is_ok()) {
-                        conn.send(&match result {
+                        let reply = match result {
                             Ok(v) => Message::ok(id, v),
                             Err(mut e) => {
                                 // What kind of failure, and what to do (`recovery.rs`).
                                 crate::recovery::annotate(&mut e, None);
                                 Message::err(id, e)
                             }
-                        });
+                        };
+                        conn.send_replying(&reply, Some(&m));
                     }
                     // A Mac that lends GitHub counts from here: its watch answer is queued, so
                     // no action reaches it before the answer that opens its side.
@@ -1871,6 +1896,8 @@ mod client_request;
 mod clock_text;
 pub(crate) use clock_text::iso;
 mod change_kind;
+mod chat_windows;
+pub use chat_windows::live_tasks as live_chat_window_tasks;
 mod chats;
 pub mod conn_auth;
 mod ephemeral;
