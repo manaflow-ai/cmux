@@ -117,6 +117,7 @@ button.cv-agentmsg__name:focus-visible {
   border-radius: 4px;
 }
 .cv-agentmsg__preview {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
