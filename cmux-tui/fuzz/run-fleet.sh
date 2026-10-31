@@ -48,20 +48,29 @@ export PATH="$CARGO_HOME/bin:/home/cmux/.cargo/bin:$HOME/.cargo/bin:/opt/zig-0.1
 export CMUX_GHOSTTY_VT_ZIG_CPU="${CMUX_GHOSTTY_VT_ZIG_CPU:-baseline}"
 mkdir -p "$CARGO_HOME/bin"
 
+# rustup itself needs the CARGO_HOME it was installed in (the image's); the
+# nightly goes into this job's own RUSTUP_HOME, and cargo then runs straight
+# from the nightly's bin directory, so no proxy is in the way.
+rustup_image() { CARGO_HOME="${CMUX_FUZZ_RUSTUP_CARGO_HOME:-/home/cmux/.cargo}" rustup "$@"; }
+
 need_nightly() {
-  if ! rustup run "$nightly" rustc --version >/dev/null 2>&1; then
+  if ! rustup_image run "$nightly" rustc --version >/dev/null 2>&1; then
     echo "installing $nightly (the pool image has stable only)"
-    rustup toolchain install "$nightly" --profile minimal --component rust-src >/dev/null || die_noverdict "rustup could not install $nightly"
+    rustup_image toolchain install "$nightly" --profile minimal --component rust-src --no-self-update >/dev/null \
+      || die_noverdict "rustup could not install $nightly"
   fi
-  rustup component add --toolchain "$nightly" rust-src >/dev/null 2>&1 || die_noverdict "rustup could not add rust-src to $nightly"
-  echo "toolchain: $(rustup run "$nightly" rustc --version)"
+  rustup_image component add --toolchain "$nightly" rust-src >/dev/null 2>&1 || die_noverdict "rustup could not add rust-src to $nightly"
+  local bin
+  bin="$(dirname "$(rustup_image which --toolchain "$nightly" cargo)")" || die_noverdict "no cargo in $nightly"
+  export PATH="$bin:$PATH" RUSTUP_TOOLCHAIN="$nightly"
+  echo "toolchain: $(rustc --version) at $bin"
 }
 
 need_cargo_fuzz() {
   if ! command -v cargo-fuzz >/dev/null 2>&1; then
     echo "installing cargo-fuzz into $CARGO_HOME"
-    cargo +"$nightly" install --locked cargo-fuzz --version 0.13.1 >/dev/null 2>&1 \
-      || cargo +"$nightly" install --locked cargo-fuzz >/dev/null 2>&1 || die_noverdict "cargo install cargo-fuzz failed"
+    cargo install --locked cargo-fuzz --version 0.13.1 >/dev/null 2>&1 \
+      || cargo install --locked cargo-fuzz >/dev/null 2>&1 || die_noverdict "cargo install cargo-fuzz failed"
   fi
 }
 
@@ -76,7 +85,7 @@ need_ghostty() {
 need_lock() {
   if [[ ! -f "$here/Cargo.lock" ]]; then
     cp "$tui/Cargo.lock" "$here/Cargo.lock"
-    (cd "$here" && cargo +"$nightly" metadata --format-version 1 >/dev/null) || die_noverdict "resolve the fuzz workspace"
+    (cd "$here" && cargo metadata --format-version 1 >/dev/null) || die_noverdict "resolve the fuzz workspace"
     echo "FUZZ-ARTIFACT-BEGIN Cargo.lock"
     gzip -9c "$here/Cargo.lock" | base64 -w0
     echo
@@ -126,7 +135,7 @@ case "$mode" in
     echo "fuzz $target for ${seconds}s, sanitizer $sanitizer, $jobs workers, corpus $(ls "$corpus" | wc -l) inputs"
     export ASAN_OPTIONS="detect_leaks=1:allocator_may_return_null=0:abort_on_error=1:symbolize=1"
     set +e
-    cargo +"$nightly" fuzz run --fuzz-dir "$here" --sanitizer "$sanitizer" --debug-assertions "$target" "$corpus" -- \
+    cargo fuzz run --fuzz-dir "$here" --sanitizer "$sanitizer" --debug-assertions "$target" "$corpus" -- \
       -max_total_time="$seconds" -rss_limit_mb=4096 -max_len=1048576 -timeout=20 \
       -jobs="$jobs" -workers="$jobs" -print_final_stats=1 2>&1 | tee "$cache/fuzz-$target.log" | \
       grep -E "^#[0-9]+.*(INITED|DONE|pulse)|stat::|==[0-9]+==|ERROR|panicked|SUMMARY|Test unit written|thread '" | tail -200
@@ -159,7 +168,7 @@ case "$mode" in
     set +e
     if [[ "$mode" == live ]]; then
       need_nightly; need_lock
-      cargo +"$nightly" test --release -p cmux-tui-fuzz-live -- --nocapture 2>&1 | tail -150
+      cargo test --release -p cmux-tui-fuzz-live -- --nocapture 2>&1 | tail -150
       rc=${PIPESTATUS[0]}
     else
       need_nightly; need_lock
@@ -167,7 +176,7 @@ case "$mode" in
       export CMUX_WIRE_FUZZ_WITNESS_MS="${CMUX_WIRE_FUZZ_WITNESS_MS:-10000}"
       export TSAN_OPTIONS="suppressions=$supp:halt_on_error=0:second_deadlock_stack=1:report_signal_unsafe=0"
       RUSTFLAGS="-Zsanitizer=thread -Cforce-frame-pointers=yes" RUSTDOCFLAGS="-Zsanitizer=thread" \
-        cargo +"$nightly" test -Zbuild-std --target "$target_triple" -p cmux-tui-fuzz-live -- --nocapture 2>&1 | \
+        cargo test -Zbuild-std --target "$target_triple" -p cmux-tui-fuzz-live -- --nocapture 2>&1 | \
         tee "$cache/live-tsan.log" | grep -E "WIRE-FUZZ-RESULT|WARNING: ThreadSanitizer|SUMMARY: ThreadSanitizer|test result|panicked|error(\[|:)" | tail -150
       rc=${PIPESTATUS[0]}
       grep -A30 "WARNING: ThreadSanitizer" "$cache/live-tsan.log" | head -400
@@ -198,7 +207,7 @@ case "$mode" in
     for f in "${filters[@]}"; do
       echo "=== tsan cmux-tui-core $f"
       CARGO_TARGET_DIR="$cache/tsan-target" RUSTFLAGS="-Zsanitizer=thread -Cforce-frame-pointers=yes" \
-        cargo +"$nightly" test --locked -Zbuild-std --target "$target_triple" -p cmux-tui-core --lib -- "$f" --test-threads 8 2>&1 | \
+        cargo test --locked -Zbuild-std --target "$target_triple" -p cmux-tui-core --lib -- "$f" --test-threads 8 2>&1 | \
         tee -a "$cache/tsan.log" | grep -E "WARNING: ThreadSanitizer|SUMMARY: ThreadSanitizer|test result|panicked|^error" | tail -60
     done
     set -e
@@ -214,7 +223,7 @@ case "$mode" in
     need_nightly; need_lock
     cd "$here"
     set +e
-    RUSTFLAGS="--cfg loom" cargo +"$nightly" test --release -p cmux-tui-loom -- --nocapture --test-threads 4 2>&1 | tail -120
+    RUSTFLAGS="--cfg loom" cargo test --release -p cmux-tui-loom -- --nocapture --test-threads 4 2>&1 | tail -120
     rc=${PIPESTATUS[0]}
     set -e
     case $rc in
@@ -232,7 +241,7 @@ case "$mode" in
       local name="$1" dir="$2" flags="$3"
       shift 3
       echo "=== check $name"
-      if ! CARGO_TARGET_DIR="$dir" RUSTFLAGS="$flags" cargo +"$nightly" check "$@" > "$cache/check-$name.log" 2>&1; then
+      if ! CARGO_TARGET_DIR="$dir" RUSTFLAGS="$flags" cargo check "$@" > "$cache/check-$name.log" 2>&1; then
         rc=1
       fi
       grep -E -A12 "^(warning|error)" "$cache/check-$name.log" | head -300

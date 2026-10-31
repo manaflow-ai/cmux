@@ -21,8 +21,10 @@
 //!   (loom fails a run where every thread is blocked);
 //! - every event a producer was told is queued reaches the writer exactly
 //!   once, and none a producer was refused does;
-//! - after `close_admission`, a waiting producer returns an error instead of
-//!   waiting, and the writer stops once the queue is empty.
+//! - after `close_admission`, a waiting producer is answered (committed, or a
+//!   typed error), never left waiting, and the writer stops;
+//! - a background event `enqueue` accepted is committed, also when admission
+//!   closes right after (its producer hears of nothing else).
 //!
 //! Run: `RUSTFLAGS='--cfg loom' cargo test --release -p cmux-tui-loom --test journal_queue`.
 #![cfg(loom)]
@@ -39,9 +41,39 @@ fn explore(model: impl Fn() + Sync + Send + 'static) {
     builder.check(model);
 }
 
+/// A queued event's completion (`JournalIngressCompletion`): the writer
+/// answers it after the commit; when the writer exits with the event still
+/// queued, the sender drops and the waiter reads `Disconnected`, a typed
+/// error (`wait_for_commit_result` -> `writer_error`). `None`: a background
+/// event nobody waits for.
+type Completion = Option<Arc<(Mutex<Option<Result<(), &'static str>>>, Condvar)>>;
+
+struct Event {
+    id: u32,
+    completion: Completion,
+}
+
+fn answer(completion: &Completion, result: Result<(), &'static str>) {
+    if let Some(slot) = completion {
+        *slot.0.lock().unwrap() = Some(result);
+        slot.1.notify_all();
+    }
+}
+
+fn wait_answer(completion: &Completion) -> Result<(), &'static str> {
+    let slot = completion.as_ref().expect("a waited event has a completion");
+    let mut result = slot.0.lock().unwrap();
+    loop {
+        if let Some(result) = *result {
+            return result;
+        }
+        result = slot.1.wait(result).unwrap();
+    }
+}
+
 /// A bounded channel's `try_send` / `try_recv` (`sync_channel`).
 struct Lane {
-    queue: Mutex<VecDeque<u32>>,
+    queue: Mutex<VecDeque<Event>>,
     capacity: usize,
 }
 
@@ -109,7 +141,8 @@ impl State {
     }
 
     /// journal_ingress.rs `JournalIngressSender::enqueue`.
-    fn enqueue(&self, event: u32) -> Result<(), &'static str> {
+    fn enqueue(&self, event: Event) -> Result<(), &'static str> {
+        let mut event = Some(event);
         loop {
             let space_epoch = self.queue_space_epoch();
             let sent = {
@@ -119,7 +152,7 @@ impl State {
                 }
                 let mut queue = self.lane.queue.lock().unwrap();
                 if queue.len() < self.lane.capacity {
-                    queue.push_back(event);
+                    queue.extend(event.take());
                     true
                 } else {
                     false
@@ -136,10 +169,10 @@ impl State {
     }
 
     /// journal_ingress.rs `receive_batch`.
-    fn receive_batch(&self) -> Option<Vec<u32>> {
+    fn receive_batch(&self) -> Option<Vec<Event>> {
         loop {
             *self.wake.pending.lock().unwrap() = false;
-            let batch: Vec<u32> = self.lane.queue.lock().unwrap().drain(..).collect();
+            let batch: Vec<Event> = self.lane.queue.lock().unwrap().drain(..).collect();
             if !batch.is_empty() {
                 self.publish_queue_space();
                 return Some(batch);
@@ -155,28 +188,50 @@ impl State {
     }
 }
 
+/// journal_ingress.rs `run`: commit each batch and answer it; when
+/// `receive_batch` ends, return. The receivers drop then: every event still
+/// queued drops with them (its completion reads `Disconnected`).
+fn writer(state: &State, stop_after: usize) -> Vec<u32> {
+    let mut committed = Vec::new();
+    while committed.len() < stop_after {
+        let Some(batch) = state.receive_batch() else { break };
+        for event in batch {
+            committed.push(event.id);
+            answer(&event.completion, Ok(()));
+        }
+    }
+    for event in state.lane.queue.lock().unwrap().drain(..) {
+        answer(&event.completion, Err("session journal writer stopped"));
+    }
+    committed
+}
+
+fn waited(id: u32) -> Event {
+    Event { id, completion: Some(Arc::new((Mutex::new(None), Condvar::new()))) }
+}
+
+fn background(id: u32) -> Event {
+    Event { id, completion: None }
+}
+
 #[test]
 fn producers_waiting_for_space_are_woken_and_every_event_lands_once() {
     explore(|| {
         let state = State::new(1);
         let producers: Vec<_> = (1..=2u32)
-            .map(|event| {
+            .map(|id| {
                 let state = state.clone();
-                thread::spawn(move || state.enqueue(event))
+                thread::spawn(move || {
+                    let event = waited(id);
+                    let completion = event.completion.clone();
+                    state.enqueue(event)?;
+                    wait_answer(&completion)
+                })
             })
             .collect();
         let writer = {
             let state = state.clone();
-            thread::spawn(move || {
-                let mut got = Vec::new();
-                while got.len() < 2 {
-                    match state.receive_batch() {
-                        Some(batch) => got.extend(batch),
-                        None => break,
-                    }
-                }
-                got
-            })
+            thread::spawn(move || writer(&state, 2))
         };
         for producer in producers {
             assert_eq!(producer.join().unwrap(), Ok(()), "a producer was refused while open");
@@ -187,15 +242,23 @@ fn producers_waiting_for_space_are_woken_and_every_event_lands_once() {
     });
 }
 
+/// A waiting producer at close: it is answered (committed, or a typed error),
+/// never left waiting and never told success for an event that was not
+/// committed.
 #[test]
-fn closing_admission_releases_a_waiting_producer_and_stops_the_writer() {
+fn closing_admission_answers_a_waiting_producer() {
     explore(|| {
         let state = State::new(1);
         // The queue is full: the producer must wait for space.
-        state.enqueue(1).unwrap();
+        state.enqueue(background(1)).unwrap();
         let producer = {
             let state = state.clone();
-            thread::spawn(move || state.enqueue(2))
+            thread::spawn(move || {
+                let event = waited(2);
+                let completion = event.completion.clone();
+                state.enqueue(event)?;
+                wait_answer(&completion)
+            })
         };
         let closer = {
             let state = state.clone();
@@ -203,22 +266,48 @@ fn closing_admission_releases_a_waiting_producer_and_stops_the_writer() {
         };
         let writer = {
             let state = state.clone();
-            thread::spawn(move || {
-                let mut got = Vec::new();
-                while let Some(batch) = state.receive_batch() {
-                    got.extend(batch);
-                }
-                got
-            })
+            thread::spawn(move || writer(&state, usize::MAX))
         };
         let produced = producer.join().unwrap();
         closer.join().unwrap();
         let got = writer.join().unwrap();
-        assert!(got.contains(&1), "a queued event was dropped at close");
-        match produced {
-            Ok(()) => assert!(got.contains(&2), "an accepted event was dropped at close"),
-            Err(_) => assert!(!got.contains(&2), "a refused event reached the writer"),
+        assert!(got.contains(&1), "an event queued before close was not committed");
+        assert_eq!(
+            produced.is_ok(),
+            got.contains(&2),
+            "the producer's answer disagrees with the commit"
+        );
+        assert!(got.iter().filter(|&&id| id == 2).count() <= 1, "an event landed twice");
+    });
+}
+
+/// A background event (no completion) that `enqueue` accepted: is it
+/// committed even when admission closes right after? Its producer was told
+/// Ok and nobody hears of a drop.
+#[test]
+fn an_accepted_background_event_is_committed_across_close() {
+    explore(|| {
+        let state = State::new(2);
+        let producer = {
+            let state = state.clone();
+            thread::spawn(move || state.enqueue(background(7)))
+        };
+        let closer = {
+            let state = state.clone();
+            thread::spawn(move || state.close_admission())
+        };
+        let writer = {
+            let state = state.clone();
+            thread::spawn(move || writer(&state, usize::MAX))
+        };
+        let accepted = producer.join().unwrap().is_ok();
+        closer.join().unwrap();
+        let got = writer.join().unwrap();
+        if accepted {
+            assert!(
+                got.contains(&7),
+                "enqueue said Ok, then the writer stopped without committing it"
+            );
         }
-        assert_eq!(got.len(), if produced.is_ok() { 2 } else { 1 }, "an event landed twice");
     });
 }
