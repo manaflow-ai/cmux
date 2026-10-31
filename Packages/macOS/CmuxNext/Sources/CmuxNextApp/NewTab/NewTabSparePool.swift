@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextWakeups
 
@@ -422,9 +423,10 @@ final class NewTabSparePool {
 }
 
 /// Where the spare waits: in the target window (WebKit renders only views in
-/// a window and not hidden), fully transparent, never hit by the mouse, and
+/// a window and not hidden), fully transparent (to AppKit only: a Chromium spare's child window
+/// ignores alpha and keeps drawing, off screen, so Cmd-T adopts a page that already painted), never hit by the mouse, and
 /// out of the accessibility tree. Adopting the spare reparents it into a pane.
-final class NewTabSpareParking: NSView {
+final class NewTabSpareParking: NSView, PageChromiumOffscreenParking {
     /// The size of the pane content the spare will fill (nil: the window content's), far
     /// outside the window content. A web view's tracking areas ignore alpha and hit testing:
     /// parked over the content, the spare's cards hovered and set the cursor under the tab in
