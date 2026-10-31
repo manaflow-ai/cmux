@@ -51,6 +51,9 @@ public final class AcpmuxChatWindows {
             self.query = query
         }
 
+        /// The New Tab cards' window over acpmux's index: its newest top-level chats, no more than the cards show.
+        public static let newTabCards = Spec(window: "newtab.cards", limit: AgentPaneDeviceChat.maximumPushed, topLevel: true)
+
         /// The request's params for generation `generation` of the window's spec.
         func params(generation: UInt64) -> [String: any Sendable] {
             var params: [String: any Sendable] = ["window": window, "gen": generation, "limit": max(1, limit), "topLevel": topLevel]

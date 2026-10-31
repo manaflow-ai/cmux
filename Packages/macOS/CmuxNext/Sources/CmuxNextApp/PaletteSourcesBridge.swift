@@ -15,7 +15,7 @@ enum PaletteSourcesBridge {
         // kind and the agent chats join the palette's own sources. Cmd-P lists only the open items. Agent chats
         // and agent sessions also make up the Chats & agents scope.
         sources.searchContributions = HistoryPalettePages.searchContributions(services) + [
-            PaletteSearchContribution(id: "agentChats", title: AgentChatsPaletteStrings.title, order: 30, searchesChats: true) { [weak services] in
+            PaletteSearchContribution(id: "agentChats", title: AgentChatsPalettePage.title, order: 30, searchesChats: true) { [weak services] in
                 services.map { AgentChatsPalettePage(services: $0).page() }
             },
         ]
