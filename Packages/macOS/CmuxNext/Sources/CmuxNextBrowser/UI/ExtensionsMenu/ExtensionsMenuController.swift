@@ -213,6 +213,12 @@ final class ExtensionsMenuController {
         closed()
     }
 
+    /// Closes the bubble's panel for good (its page is closing): ``close()`` only orders it out.
+    func closePanel() {
+        close()
+        popup.closePanel()
+    }
+
     /// Closes the bubble, then runs `work` with the handler (an item that opens a page, a popup
     /// or Chromium's own menu must not open under the bubble).
     private func closeThen(_ work: @escaping (any ExtensionMenuHandling) -> Void) {

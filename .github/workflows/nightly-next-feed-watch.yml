@@ -10,11 +10,15 @@ name: nightly-next feed watch
 # (scripts/ci/nightly_next_feed_watch.py, tested by
 # tests/test_nightly_next_feed_watch.py). It also requests the continuation
 # run that publishes a build Apple accepted after its run stopped waiting, and
-# dispatches a current-tip build after 25 minutes without a publication when
-# no nightly or promotion run is active. The guard covers classic NIGHTLY too.
+# dispatches an automatic nightly-next tick after 25 minutes without a
+# publication when no promotion request is active and the newest tree-ready
+# commit is not already building. Older nightlies keep running beside the new
+# tip. The guard covers classic NIGHTLY too.
 on:
   schedule:
-    - cron: "7,37 * * * *"
+    # Five-minute checks keep the 25-minute starvation threshold below the
+    # 30-minute freshness bound without cancelling a started nightly.
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 permissions: {}
