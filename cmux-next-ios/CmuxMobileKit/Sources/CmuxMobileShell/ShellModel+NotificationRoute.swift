@@ -39,10 +39,15 @@ enum NotificationTarget: Equatable {
             (route.mac == nil || ws.macID == route.mac)
                 && ws.tabs.contains { $0.id == route.tabID && $0.kind == .terminal }
         } == true
-        if route.kind != "terminal", !terminalTab, let destination = chat(route),
-           // A stale session id must not open another Mac's chat.
-           (route.mac == nil || workspace(destination.workspaceID)?.macID == route.mac) {
-            return .chat(destination)
+        if route.kind != "terminal", !terminalTab, let destination = chat(route) {
+            // The chat resolver already uses the source Mac. Its tree can arrive
+            // ahead of the workspace cache, so accept a missing cache entry;
+            // reject a cached entry that proves a different Mac owns this chat.
+            if let sourceMac = route.mac, let owner = workspace(destination.workspaceID)?.macID {
+                if owner == sourceMac { return .chat(destination) }
+            } else {
+                return .chat(destination)
+            }
         }
         if let id = route.workspaceID, let ws = workspace(id), route.mac == nil || ws.macID == route.mac {
             let tab = route.tabID.flatMap { tab in ws.tabs.contains(where: { $0.id == tab }) ? tab : nil }
