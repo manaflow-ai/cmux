@@ -2,7 +2,9 @@ import { env, exports } from "cloudflare:workers"
 import { runInDurableObject } from "cloudflare:test"
 import { base64url, importJWK, SignJWT, type JWK } from "jose"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
-import { type FireBody, jobsStoreName, type StoreOp } from "../src/chief-brain-cc/jobs-store.ts"
+import { type FireBody, type JobEvent, jobsStoreName, type StoreOp } from "../src/chief-brain-cc/jobs-store.ts"
+import { chiefJobsEvent } from "../src/chief-brain-cc/jobs-upstash.ts"
+import type { Env } from "../src/env.ts"
 import { storePlan } from "../src/inference/plan.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 import { fakeCloud, notes, type Started } from "./chief-brain-cc-fake.ts"
@@ -462,6 +464,32 @@ describe("Chief jobs on Upstash Workflow", { timeout: 120_000 }, () => {
     await storeOf(a.team).cjStore(a.team, { op: "pause", id, paused: true })
     expect((await ghHook("workflow_run", { ...red, workflow_run: { ...red.workflow_run, id: 778 } })).json.runs).toBe(0)
     await settled(a.chief.id, a.chief.main_conversation)
+  })
+
+  it("an event is not acknowledged before its run is saved, and redelivery starts it once", async () => {
+    fakeCloud(() => "ok")
+    const q = fakeQStash()
+    const a = await enabledChief("chief-upstash-event-retry")
+    const id = `cj-${a.chief.id.replace(/[^A-Za-z0-9]/g, "")}-00000000000000000002`
+    const st = storeOf(a.team)
+    await st.cjStore(a.team, { op: "insert", job: { id, agent: a.chief.id, owner: a.user, conversation: a.chief.main_conversation, name: "CI red", prompt: "CI failed", trigger: { type: "event", provider: "github", event: "workflow_run.completed", filter: {} } } })
+    const ev: JobEvent = { connection: "github-retry", sharing: "private", created_by: a.user, provider: "github", event: "workflow_run.completed", delivery_id: "ci-retry-777", payload: { workflow_run: { id: 777, conclusion: "failure" } } }
+    const unavailable = new Error("Chief store temporarily unavailable")
+    const cjStore = vi.fn((team: string, o: StoreOp) => st.cjStore(team, o)).mockRejectedValueOnce(unavailable)
+    const retryEnv = {
+      ...env,
+      CHIEF_BRAIN_DO: { idFromName: (name: string) => testEnv.CHIEF_BRAIN_DO.idFromName(name), get: () => ({ cjStore }) }
+    } as unknown as Env
+    // The RPC fails before the outbox can save anything. The caller must retain the event for retry.
+    await expect(chiefJobsEvent(retryEnv, a.team, ev)).rejects.toThrow("Chief store temporarily unavailable")
+    expect(q.runs()).toHaveLength(0)
+    expect(await inDO(st, async (i) => i.ctx.storage.sql.exec(`SELECT COUNT(*) AS n FROM cc_job_runs`).one().n)).toBe(0)
+    // Store recovery and provider redelivery save and send one run; further redelivery deduplicates it.
+    expect(await chiefJobsEvent(retryEnv, a.team, ev)).toBe(1)
+    expect(await chiefJobsEvent(retryEnv, a.team, ev)).toBe(0)
+    expect(q.runs()).toHaveLength(1)
+    expect(q.runs()[0]!.body).toMatchObject({ team: a.team, job: id, trigger: "event" })
+    expect(await inDO(st, async (i) => i.ctx.storage.sql.exec(`SELECT COUNT(*) AS n FROM cc_job_runs`).one().n)).toBe(1)
   })
 
   it("a run that cannot reach Upstash waits in the outbox and starts when it is back", async () => {
