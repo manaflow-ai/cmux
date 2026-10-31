@@ -21,7 +21,7 @@ struct AppWindowImage {
     let services: AppServices
 
     /// The window's image at its backing scale, raw: only a person's own run in the app gets
-    /// this (``ScreenshotHandlers/isPersonsRun(_:)``). An agent's or a script's run goes through
+    /// this (``ActionInvocation/isPersonsOwnRun``). An agent's or a script's run goes through
     /// ``maskedCapture(_:)``, which covers every page area and chat.
     /// - Throws: ``WindowScreenshotFailure`` when the window server gives no image.
     func capture(_ window: NSWindow) async throws -> CGImage {
