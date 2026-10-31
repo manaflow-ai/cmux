@@ -197,3 +197,21 @@ public final class AgentSubagentPanes {
     /// `SUBAGENT_REVEAL`).
     public static func reveal(_ agent: String) -> String { "subagent:\(agent)" }
 }
+
+// One tracker per source chat, and where its remembered tabs still count as beside it (#29676).
+extension AgentSubagentPanes {
+    /// The tracker of source chat `source` on acpmux session `session`: a session can have several chat
+    /// tabs, and each keeps its own remembered subagent tabs, so a click in one chat never reuses a tab
+    /// opened beside another (and never pulls the person into another workspace).
+    public static func chat(_ session: String, source: String) -> AgentSubagentPanes { self.session("\(session):\(source)") }
+
+    /// Whether a remembered subagent tab at `candidate` is still in the clicked chat's pane (`source`) or
+    /// in one of the panes of its current right column (`column`). Pane keys are scoped to a daemon (a
+    /// workspace's store), so both the pane and its owner must match. Nil: not located.
+    public static func isBeside<Pane: Equatable>(source: (pane: Pane, owner: ObjectIdentifier)?, candidate: (pane: Pane, owner: ObjectIdentifier)?,
+                                                 column: () -> [(pane: Pane, owner: ObjectIdentifier)?]) -> Bool {
+        guard let source, let candidate, source.owner == candidate.owner else { return false }
+        if source.pane == candidate.pane { return true }
+        return column().contains { $0.map { $0.owner == candidate.owner && $0.pane == candidate.pane } ?? false }
+    }
+}
