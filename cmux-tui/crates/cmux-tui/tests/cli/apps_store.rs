@@ -1142,3 +1142,80 @@ fn the_documented_customize_template_installs_as_is() {
         "{entry}"
     );
 }
+
+/// Copies the App Store examples shipped with cmux (`samples/apps/<name>`
+/// with a `STORE` marker, the folder the Mac app hands its daemon as
+/// `CMUX_APPS_DIRS`) into `root`; returns their app ids.
+fn copy_store_examples(root: &Path) -> Vec<String> {
+    let samples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../samples/apps");
+    let mut ids = Vec::new();
+    for entry in std::fs::read_dir(&samples).unwrap() {
+        let dir = entry.unwrap().path();
+        if !dir.join("STORE").is_file() {
+            continue;
+        }
+        let manifest: Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("cmux-app.v2.json")).unwrap())
+                .unwrap();
+        ids.push(manifest["id"].as_str().unwrap().to_string());
+        let status = Command::new("cp")
+            .arg("-R")
+            .arg(&dir)
+            .arg(root.join(dir.file_name().unwrap()))
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
+    ids.sort();
+    ids
+}
+
+/// The examples the App Store ships (a command-only app, a web app and a
+/// scene app) pass the supervisor's validator, list as installable
+/// third-party apps, and install and uninstall for the user only.
+#[test]
+fn the_store_examples_list_and_install_for_the_user() {
+    let apps = Apps::new("examples");
+    let ids = copy_store_examples(&apps.dir.join("bundled"));
+    assert_eq!(
+        ids,
+        ["manaflow-ai/cmux-docs", "manaflow-ai/quick-links", "manaflow-ai/standup"],
+        "the shipped examples"
+    );
+    apps.start();
+
+    let mut agent = apps.agent();
+    let reply = agent.rpc(json!({ "cmd": "apps-logs", "app": "cmux/supervisor" }));
+    let rejected = ok(&reply)["lines"].as_array().cloned().unwrap_or_default();
+    assert!(rejected.is_empty(), "no example is rejected: {rejected:?}");
+    let reply = agent.store("cmux.apps.catalog.list", json!({}), "cli");
+    let catalog = ok(&reply).clone();
+    for id in &ids {
+        let row = listing(&catalog, id);
+        assert_eq!(
+            (row["hide_only"].clone(), row["tier"].clone(), row["install"].clone()),
+            (json!(false), json!("unverified"), Value::Null),
+            "{row}"
+        );
+    }
+
+    // An agent cannot install an example; the person can, and can remove it.
+    let args =
+        json!({ "app": "manaflow-ai/standup", "grant_optional": false, "idempotency_key": "e1" });
+    let refused = agent.store("cmux.apps.install", args.clone(), "user");
+    assert_eq!(error_code(&refused), "origin.forbidden", "{refused}");
+    let mut app = apps.app();
+    let installed = app.store("cmux.apps.install", args, "user");
+    assert_eq!(ok(&installed)["app"]["state"]["installed"], true, "{installed}");
+    let listed = app.store("cmux.apps.installed.list", json!({}), "user");
+    assert!(
+        ok(&listed)["apps"].as_array().unwrap().iter().any(|a| a["app"] == "manaflow-ai/standup"),
+        "{listed}"
+    );
+    let removed = app.store(
+        "cmux.apps.uninstall",
+        json!({ "app": "manaflow-ai/standup", "idempotency_key": "e2" }),
+        "user",
+    );
+    assert_eq!(ok(&removed)["app"]["state"]["installed"], false, "{removed}");
+}
