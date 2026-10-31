@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "build": "4123639147801",
+  "notes": "notes/4123639147801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 29601,
+      "title": "backend: bound a Cloud VM fs/dir listing by bytes so it fits the provider response cap",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29551,
+      "title": "arch: an SSH machine header's status mapping moves to CmuxNextBridge (offsets #28794's app_lines +24 exception)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
