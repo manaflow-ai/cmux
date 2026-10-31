@@ -366,7 +366,6 @@ export const SubagentTray = memo(function SubagentTray({
           // subtitles are bad"); the tooltip keeps them under its task.
           title={agentTooltip(t, item.agent)}
           label={t("subagents.open", { name: item.agent.name })}
-          kind={t("tray.kind.subagent")}
           chevron
           trayColumns
           // A narrow tray's second line is its time and controls: the stats wrap under the title.
@@ -444,7 +443,6 @@ export const SubagentTray = memo(function SubagentTray({
       <AgentLine
         name={item.session.title}
         title={item.session.doing}
-        kind={t("tray.kind.subagent")}
         chevron
         icon="agent.chat"
         status={sessionRetrying ? "running" : SESSION_STATUS[item.session.state]}
