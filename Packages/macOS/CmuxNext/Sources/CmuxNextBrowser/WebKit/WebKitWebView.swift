@@ -1,9 +1,10 @@
 import AppKit
 import WebKit
 
-/// `WKWebView` with cmux context menu wording. App shortcuts reach the host
-/// before the page: the host routes system and navigation keys app-wide and
-/// content keys in its window, before any view (the page is in-window).
+/// `WKWebView` with cmux context menu wording. The host routes app shortcuts
+/// app-wide before any view; the keys a page may own (Find, the editing
+/// chords) go to the page first, and the host runs its action when WebKit
+/// sends the key back unhandled (`KeyRouter+PageFirstKeys`).
 // webview-allow: the WebKit browser engine; BrowserEngineResolver picks it
 final class WebKitWebView: WKWebView {
     weak var owner: WebKitTab?

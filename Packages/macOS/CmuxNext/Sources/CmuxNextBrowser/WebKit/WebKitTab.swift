@@ -163,6 +163,17 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
         }
     }
 
+    /// Whether this page has the keyboard in `window`, the key window, and answers for every key:
+    /// the web view itself is the first responder (WebKit hands a key equivalent to the page only
+    /// then) and its WebContent process runs. WebKit sends a key the page left unhandled back to
+    /// `NSApp.sendEvent` (`WebViewImpl::doneWithKeyEvent`); with no process (before the first load,
+    /// after a crash) it drops the key and sends nothing back, so cmux must run its action first.
+    public func pageHasKeyboard(in window: NSWindow) -> Bool {
+        guard !isClosed, webView.window === window, window.firstResponder === webView,
+              case .pids = contentProcesses else { return false }
+        return true
+    }
+
     /// WebKit draws in-view and throttles hidden views itself.
     public func setContentVisible(_ visible: Bool) {}
 

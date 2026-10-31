@@ -62,6 +62,15 @@ struct PageFirstKeyOffer {
         return held.tab == tab ? held : nil
     }
 
+    /// The held action when `event` is the very key-down that was offered, sent back by its page
+    /// (WebKit's report). Releases it and every older key, as ``take(_:from:)`` does.
+    mutating func takeResent(_ event: NSEvent) -> Held? {
+        guard let index = entries.firstIndex(where: { $0.event === event }) else { return nil }
+        let held = entries[index].held
+        entries.removeFirst(index + 1)
+        return held
+    }
+
     mutating func clear() {
         entries.removeAll()
     }
