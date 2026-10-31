@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 533,
+  "count": 534,
   "sections": [
     {
       "id": "general",
@@ -4569,6 +4569,14 @@
           "kind": "host_list",
           "default": [],
           "group": "Opening Links"
+        },
+        {
+          "key": "browser.import.cookieBanner",
+          "title": "Offer to Import Cookies",
+          "help": "Browser tabs offer to import cookies from your other browsers, so you stay signed in. Nothing imports until you click Import. Don't Show Again on the banner turns this off.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Import"
         },
         {
           "key": "browser.import.enabled",
