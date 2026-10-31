@@ -21,7 +21,9 @@ describe("machineShareOutcome", () => {
     expect(machineShareOutcome({ ok: false, error })).toEqual({ kind: "forbidden" });
   });
   test("the Cloud API's other refusals are keyed on their code, never their words", () => {
-    expect(machineShareOutcome({ ok: false, error: { code: "vm_chat_grants_personal_machine", message: "x" } })).toEqual({
+    expect(
+      machineShareOutcome({ ok: false, error: { code: "vm_chat_grants_personal_machine", message: "x" } }),
+    ).toEqual({
       kind: "failed",
       key: "switch.share.personal",
     });
@@ -31,10 +33,16 @@ describe("machineShareOutcome", () => {
     });
   });
   test("anything else says the app's reason, or none", () => {
-    expect(machineShareOutcome({ ok: false, error: new NativeError({ code: "gesture_required", userMessage: " Click again. " }) })).toEqual(
-      { kind: "failed", key: "switch.share.failed", reason: "Click again." },
-    );
-    expect(machineShareOutcome({ ok: false, error: undefined })).toEqual({ kind: "failed", key: "switch.share.failed" });
+    expect(
+      machineShareOutcome({
+        ok: false,
+        error: new NativeError({ code: "gesture_required", userMessage: " Click again. " }),
+      }),
+    ).toEqual({ kind: "failed", key: "switch.share.failed", reason: "Click again." });
+    expect(machineShareOutcome({ ok: false, error: undefined })).toEqual({
+      kind: "failed",
+      key: "switch.share.failed",
+    });
   });
 });
 

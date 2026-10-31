@@ -36,11 +36,19 @@ export function SwitchNotice({
         <div className="acpmux-host-error-actions">
           {machineShare.button}
           {action && onAction && (
-            <button type="button" data-secondary={machineShare.button ? "" : undefined} onClick={() => onAction(action)}>
+            <button
+              type="button"
+              data-secondary={machineShare.button ? "" : undefined}
+              onClick={() => onAction(action)}
+            >
               {t(action === "newCloudMachine" ? "switch.action.newCloudMachine" : "switch.action.chooseFolder")}
             </button>
           )}
-          <button type="button" data-secondary={action && onAction ? "" : undefined} onClick={machineShare.retry ?? onRetry}>
+          <button
+            type="button"
+            data-secondary={action && onAction ? "" : undefined}
+            onClick={machineShare.retry ?? onRetry}
+          >
             {t("switch.retry")}
           </button>
         </div>
