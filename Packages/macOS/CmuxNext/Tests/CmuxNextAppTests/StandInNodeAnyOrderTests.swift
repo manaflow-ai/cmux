@@ -31,12 +31,24 @@ struct StandInNodeAnyOrderTests {
         let standInNode = cache.node(for: standIn)
         try Self.select(standInNode, in: pane, after: nil)
 
-        // The pane selects the daemon's tab (its node is made now) before the create's reply moves the page.
+        // The pane selects the daemon's tab (its node is made now, and the pane holds it) before the create's reply moves
+        // the page.
         let made = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 91), tabResourceID: ResourceID(rawValue: "tab_browser91"), kind: .browser))
-        try Self.select(cache.node(for: made.id), in: pane, after: standInNode)
-        #expect(cache.moveBrowser(standIn, to: made))
-        #expect(standInNode.effective == .visible,
-                "the moved page follows the stand-in's node, which the pane hid: it never shows while its tab is selected")
+        let other = VisibilityNode("tab:other", own: .hidden, parent: pane)
+        do {
+            let selected = cache.node(for: made.id)
+            try Self.select(selected, in: pane, after: standInNode)
+            #expect(cache.moveBrowser(standIn, to: made))
+            #expect(standInNode.effective == .visible,
+                    "the moved page follows the stand-in's node, which the pane hid: it never shows while its tab is selected")
+            // The pane shows another tab: the page hides with its tab.
+            try Self.select(other, in: pane, after: selected)
+            #expect(standInNode.effective == .hidden, "the moved page stays shown after its tab was deselected")
+        }
+        // Nothing outside the cache holds the daemon tab's node now (a WebKit page holds only the moved node). The pane
+        // selects the tab again: the moved page shows with it.
+        try Self.select(cache.node(for: made.id), in: pane, after: other)
+        #expect(standInNode.effective == .visible, "the moved page lost its tab's node: it never shows again")
         cache.release(made.id)
     }
 
@@ -54,10 +66,12 @@ struct StandInNodeAnyOrderTests {
         // Something else made and holds the daemon tab's node first (`node(for:)`, not the pane's `selectedNode`).
         let made = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 92), tabResourceID: ResourceID(rawValue: "tab_term92"), terminalID: terminal, kind: .pty))
         let first = cache.node(for: made.id)
-        try Self.select(first, in: pane, after: standInNode)
-        #expect(cache.terminal(for: made, daemon: services.daemon) === entry)
-        #expect(entry.session.surfaceView.visibilityNode.effective == .visible,
-                "the adopted terminal is hidden while its pane shows its daemon tab: its sizes wait for a show")
+        try withExtendedLifetime(first) {
+            try Self.select(first, in: pane, after: standInNode)
+            #expect(cache.terminal(for: made, daemon: services.daemon) === entry)
+            #expect(entry.session.surfaceView.visibilityNode.effective == .visible,
+                    "the adopted terminal is hidden while its pane shows its daemon tab: its sizes wait for a show")
+        }
         cache.release(made.id)
     }
 }
