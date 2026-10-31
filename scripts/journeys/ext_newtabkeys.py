@@ -97,7 +97,11 @@ def step_newtab_first_keys_probe(j, step):
     out = j.out / "newtab-first-keys.json"
     import json
     out.write_text(json.dumps({"summary": summary, "rows": rows}, indent=1))
-    return {"summary": summary, "file": out.name}
+    # The out folder's extra files do not come back from the mini: the rows ride in the step result, compact.
+    compact = [{k: r.get(k) for k in ("cycle", "ready_age_ms", "ended_before_typing", "held", "end", "delay_ms", "result", "handled_by")}
+               | {"at_ready": r.get("at_ready"), "log": r.get("log") if (r.get("late") or "result" in r or not r.get("ended_before_typing")) else None}
+               for r in rows]
+    return {"summary": summary, "rows": compact}
 
 
 STEPS = {"newtab_first_keys_probe": step_newtab_first_keys_probe}
