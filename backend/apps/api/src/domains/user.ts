@@ -136,7 +136,7 @@ export const liveInstallGrant = (state: UserState, p: Principal, now: number) =>
   if (p.kind !== "install" || !p.install || !p.grant) return undefined
   const inst = state.installs[p.install], grant = state.grants[p.grant]
   if (!inst || !grant || inst.revoked_at !== null || inst.grant !== p.grant || grant.grantee !== p.install || grant.revoked_at !== null
-    || (grant.expires_at !== null && grant.expires_at <= now) || p.install_authority !== undefined) return undefined
+    || (grant.expires_at !== null && (!Number.isFinite(grant.expires_at) || grant.expires_at <= now))) return undefined
   return grant
 }
 
