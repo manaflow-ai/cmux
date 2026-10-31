@@ -34,6 +34,8 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 JOURNEY = "smoke-dogfood"
 HANDOFF = Path("/Users/lawrence/fun/wt/handoff/dogfood-smoke")
+# Everything run.py ships to the mini: a change in any of them means the gate is not its commit.
+GATE_PATHS = ("scripts/journeys", "scripts/cmux-next/build_names.py", "scripts/ci/pr_media_ocr.swift")
 # The gate cmux-ad set (2026-10-30): a .pass file needs at least this many rounds under at least this much hog.
 GATE_ROUNDS = 10
 GATE_SWAP_GB = 15.0
@@ -144,7 +146,7 @@ def main(argv=None):
     out.mkdir(parents=True, exist_ok=True)
     gate_run = opts.rounds >= GATE_ROUNDS and opts.swap_gb >= GATE_SWAP_GB
     gate_sha = git("rev-parse", "HEAD").stdout.strip()
-    dirty = bool(git("status", "--porcelain", "--", "scripts/journeys").stdout.strip())
+    dirty = bool(git("status", "--porcelain", "--", *GATE_PATHS).stdout.strip())
 
     rounds = []
     for n in range(1, opts.rounds + 1):
@@ -203,7 +205,7 @@ def main(argv=None):
     (out / "summary.txt").write_text(text + "\n")
     print(text)
     if verdict in ("PASS", "TRIAL PASS"):
-        if dirty or git("status", "--porcelain", "--", "scripts/journeys").stdout.strip() \
+        if dirty or git("status", "--porcelain", "--", *GATE_PATHS).stdout.strip() \
                 or git("rev-parse", "HEAD").stdout.strip() != gate_sha:
             print("smoke-gate: PASS, but the gate has (or got) uncommitted changes: no .pass file written", file=sys.stderr)
             return 75

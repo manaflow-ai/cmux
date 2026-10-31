@@ -301,10 +301,11 @@ when `journeys/dogfood/smoke-dogfood.json` passed every round (10 of 10). Each r
   `kern.memorystatus_level` down to 20), and reports what each round reached.
 
 The journey (group `ext_smoke.py`): Cmd-N then Ctrl-\` three times (three workspaces, each with a
-terminal: a person's Cmd-N shows the New Tab page), a line typed into each new terminal at once;
+terminal: a person's Cmd-N shows the New Tab page; Ctrl-\` comes as soon as the workspace shows,
+as a person presses it, before the daemon may have confirmed it), a line typed into each new terminal at once;
 Cmd-D twice fast, a line typed into each new pane at once; Ctrl-\` twice fast, a line typed into
 each new tab at once; Cmd-Shift-L, example.com, Return; Cmd-Q and reopen, the same three
-workspaces (ids) with their output back; close all. Each step is checked by the app's state
+workspaces (ids, as recorded once the daemon confirmed them) with their output back; close all. Each step is checked by the app's state
 (topology, `debug.surfaces`, `debug.focus`, `debug.windows`, `debug.window_list`, `debug.crashes`),
 the daemon's screens and a window frame (`check-NN.png`). `smoke_new_terminals` proves the keys
 went to the new terminals: each line is on exactly one terminal, that terminal is new, it is where
@@ -316,7 +317,8 @@ gained exactly that many tabs), and the last line is on the focused terminal.
 (`CMUX_NEXT_NO_ACTIVATE`), and held keys are replayed through `NSApplication.sendEvent`, which
 reaches only the key window. So the journey first makes its window key without activating the
 app (`smoke_make_key`: `debug.window.focus`, which calls `makeKey()` and reports the key window),
-and each check reads that a main window is still key (`smoke_key_window`, `debug.window_list`).
+and each check and each type-at-once step reads that a main window is still key
+(`smoke_key_window`, `debug.window_list`; not key before typing: known gap).
 If the window did not become key, the round is "not run: known gap", which never passes the gate.
 `capture-host launch --activate` (a real foreground app) needs a whole-host lease, which needs
 CuaDriver's grants on the mini.

@@ -187,7 +187,11 @@ class NewTerminals(unittest.TestCase):
         class StepError(Exception):
             pass
 
-        ext_smoke.install(type("D", (), {"StepError": StepError, "now": staticmethod(lambda: 0.0)}))
+        class NotRun(Exception):
+            pass
+
+        ext_smoke.install(type("D", (), {"StepError": StepError, "NotRun": NotRun, "now": staticmethod(lambda: 0.0)}))
+        self.NotRun = NotRun
         self.ext = ext_smoke
 
     def journey(self, layout, screens, focused):
@@ -207,12 +211,17 @@ class NewTerminals(unittest.TestCase):
                 return x
 
             def topology(self_):
-                return {"layout": layout}
+                return {"layout": layout, "workspaces": [{"id": w} for w in sorted({row[0] for row in layout})]}
 
             @staticmethod
             def places(topo):
-                for ws, pane, tab, term, selected in topo["layout"]:
-                    yield {"id": ws}, {"id": pane, "selected_tab": tab if selected else None}, {"id": tab}, term
+                for row in topo["layout"]:
+                    ws, pane, tab, term, selected = row[:5]
+                    key = row[5] if len(row) > 5 else term
+                    yield {"id": ws}, {"id": pane, "selected_tab": tab if selected else None}, {"id": tab, "terminal_key": key}, term
+
+            def topology_workspaces(self_):
+                return sorted({row[0] for row in layout})
         return J()
 
     def check(self, before, after, screens, focused, lines, placement, focused_line=None):
@@ -242,6 +251,39 @@ class NewTerminals(unittest.TestCase):
         self.assertTrue(any("old terminal T0" in p for p in detail["problems"]), detail)
         ok, detail = self.check(before, after, {"T1": "d1", "T2": "d2"}, "p3", ["d1", "d2"], "new_panes", "d2")
         self.assertTrue(ok, detail)
+
+    def test_a_stand_in_terminal_whose_public_id_changes_is_not_new(self):
+        # The snapshot saw the stand-in (public id = its key K0); the daemon's tab then gave it the id T0.
+        before = [("w", "p1", "a", "K0", True, "K0")]
+        after = [("w", "p1", "a", "T0", False, "K0"), ("w", "p1", "b", "T1", False, "K1"), ("w", "p1", "c", "T2", True, "K2")]
+        ok, detail = self.check(before, after, {"T1": "t1", "T2": "t2"}, "p1", ["t1", "t2"], "focused_pane", "t2")
+        self.assertTrue(ok, detail)
+        ok, detail = self.check(before, after, {"T0": "t1", "T2": "t2"}, "p1", ["t1", "t2"], "focused_pane", "t2")
+        self.assertFalse(ok)
+        self.assertTrue(any("old terminal K0" in p for p in detail["problems"]), detail)
+
+    def test_the_restore_compares_ids_taken_once_confirmed(self):
+        ext = self.ext
+        layout = [("w0", "p0", "a", "T0", True), ("ws_1", "p1", "b", "T1", True)]
+        j = self.journey(layout, {}, "p1")
+        j.topology = lambda: {"layout": layout, "workspaces": [{"id": "w0"}, {"id": "ws_1"}]}
+        j.smoke_baseline = {"w0"}
+        ext.step_smoke_snapshot(j, {"as": "confirmed"})
+        ok, detail = ext.cond_smoke_workspaces(j, {"new": 1, "same_as": "confirmed"}, {})
+        self.assertTrue(ok, detail)
+        j.topology = lambda: {"layout": layout, "workspaces": [{"id": "w0"}, {"id": "ws_2"}]}
+        ok, detail = ext.cond_smoke_workspaces(j, {"new": 1, "same_as": "confirmed"}, {})
+        self.assertFalse(ok, detail)
+
+    def test_typing_after_the_window_lost_key_is_a_known_gap(self):
+        j = self.journey([("w", "p1", "a", "T0", True)], {}, "p1")
+        j.smoke_key_ok, typed = True, []
+        j.app.rpc = lambda method, params=None: {"windows": [{"id": 1, "kind": "main", "key": False}]}
+        j.key = lambda *a: typed.append(a)
+        with self.assertRaises(self.NotRun) as caught:
+            self.ext.step_smoke_type_now(j, {"text": "echo x"})
+        self.assertIn("known gap", str(caught.exception))
+        self.assertEqual(typed, [])
 
     def test_each_workspace_line_in_its_own_new_workspace(self):
         before = [("w0", "p0", "a", "T0", True)]

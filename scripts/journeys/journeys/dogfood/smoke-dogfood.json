@@ -10,7 +10,7 @@
     {"do": "smoke_make_key"},
     {"do": "smoke_snapshot", "as": "before_workspaces"},
     {"do": "key", "key": "n", "modifiers": ["cmd"], "mark": "ws1"},
-    {"do": "expect", "title": "Cmd-N (1 of 3) makes a workspace (the frame kept: not blank)", "since": "ws1", "timeout": 20,
+    {"do": "expect", "title": "Cmd-N (1 of 3) makes a workspace; Ctrl-` follows as soon as it shows, at a person's speed (the frame kept: not blank)", "since": "ws1", "timeout": 20,
      "all": [
        {"smoke_workspaces": {"new": 1}},
        {"smoke_frame": {}}
@@ -18,7 +18,7 @@
     {"do": "key", "key": "`", "modifiers": ["control"], "mark": "wsterm1"},
     {"do": "smoke_type_now", "text": "echo w1-${nonce}-$((6*7))"},
     {"do": "key", "key": "n", "modifiers": ["cmd"], "mark": "ws2"},
-    {"do": "expect", "title": "Cmd-N (2 of 3) makes a workspace (the frame kept: not blank)", "since": "ws2", "timeout": 20,
+    {"do": "expect", "title": "Cmd-N (2 of 3) makes a workspace; Ctrl-` follows as soon as it shows, at a person's speed (the frame kept: not blank)", "since": "ws2", "timeout": 20,
      "all": [
        {"smoke_workspaces": {"new": 2}},
        {"smoke_frame": {}}
@@ -26,7 +26,7 @@
     {"do": "key", "key": "`", "modifiers": ["control"], "mark": "wsterm2"},
     {"do": "smoke_type_now", "text": "echo w2-${nonce}-$((6*7))"},
     {"do": "key", "key": "n", "modifiers": ["cmd"], "mark": "ws3"},
-    {"do": "expect", "title": "Cmd-N (3 of 3) makes a workspace (the frame kept: not blank)", "since": "ws3", "timeout": 20,
+    {"do": "expect", "title": "Cmd-N (3 of 3) makes a workspace; Ctrl-` follows as soon as it shows, at a person's speed (the frame kept: not blank)", "since": "ws3", "timeout": 20,
      "all": [
        {"smoke_workspaces": {"new": 3}},
        {"smoke_frame": {}}
@@ -87,7 +87,7 @@
        {"app_rpc": {"method": "debug.windows", "path": "windows", "len": 1}},
        {"app_rpc": {"method": "debug.crashes", "path": "launch.recovery", "equals": "clean"}},
        {"app_rpc": {"method": "debug.surfaces", "path": "blank_panes", "equals": 0}},
-       {"smoke_workspaces": {"new": 3, "same": true}},
+       {"smoke_workspaces": {"new": 3, "same_as": "before_splits"}},
        {"app_layout": {"panes": 3}},
        {"smoke_daemon_lines": {"lines": ["w1-${nonce}-42", "w2-${nonce}-42", "w3-${nonce}-42", "d1-${nonce}-42", "d2-${nonce}-42", "t1-${nonce}-42", "t2-${nonce}-42"]}},
        {"frame_text": "Example Domain"}
