@@ -96,6 +96,22 @@ extension DaemonStore {
         return .createdWorkspace(key: provisional.key, inserted: inserted)
     }
 
+    /// The daemon's pane that took Cmd-N's stand-in pane over: in the daemon's workspace `key`, the pane that holds a
+    /// daemon tab (the first tab, so a create there lands after the New Tab page, as pressed), its screen's active
+    /// pane first. Nil while the daemon's workspace holds no tab yet (the stand-in still shows).
+    static func adoptedPane(of key: WorkspaceKey, in store: DaemonStore) -> PaneID? {
+        guard let workspace = store.workspacesByKey[key], !workspace.isProvisional else { return nil }
+        func adopted(_ pane: PaneModel) -> Bool {
+            pane.handle.rawValue < ProvisionalPane.firstHandle && pane.tabs.contains { !ProvisionalTab.isProvisional(surface: $0.surface) }
+        }
+        let screens = workspace.screens.filter(\.isActive) + workspace.screens.filter { !$0.isActive }
+        for screen in screens {
+            if let active = screen.panes.first(where: { $0.handle == screen.defaultPane }), adopted(active) { return active.handle }
+            if let pane = screen.panes.first(where: adopted) { return pane.handle }
+        }
+        return nil
+    }
+
     static func undo(key: WorkspaceKey, inserted: Bool, in store: DaemonStore) {
         guard let workspace = store.workspacesByKey[key] ?? store.provisionalWorkspaces.workspacesByID[key.rawValue] else {
             return store.reportMirrorViolation("intent overlay undo found workspace \(key) missing")
