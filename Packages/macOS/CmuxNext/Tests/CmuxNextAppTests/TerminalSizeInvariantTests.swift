@@ -78,6 +78,26 @@ import Testing
         #expect(invariant.violations == 1, "counted \(invariant.violations) violations for one unapplied resize")
     }
 
+    /// A grid held for an echo that cannot come (after an attach, the link records no announcement of the
+    /// attach's grid, so its first claim of that same grid waits for an echo the daemon never sends): every
+    /// size agrees, but the next resize waits behind it. Two checks a settle apart count it once.
+    @Test func aGridHeldForAnEchoThatNeverComesCountsOneViolation() async throws {
+        let fixture = Fixture()
+        defer { fixture.close() }
+        try #require(fixture.session.surfaceView.surface != nil, "libghostty created no surface")
+        await fixture.settle()
+        let invariant = TerminalSizeInvariant()
+
+        fixture.io.link.echoDue = true
+        let sample = try #require(fixture.session.sizeSample?.sample)
+        try #require(sample.fit != nil && sample.grid == sample.fit && sample.link?.sent == sample.fit && sample.link?.awaitingAck == true,
+                     "the setup did not hold an equal grid for an echo: \(sample)")
+
+        #expect(fixture.check(invariant) == 0, "the first check counted a held grid before confirming it: \(sample)")
+        #expect(fixture.check(invariant) == 1, "a grid held for an echo that never comes counted no violation: \(sample)")
+        #expect(invariant.violations == 1)
+    }
+
     @Test func aResizeThePTYAppliesCountsNone() async throws {
         let fixture = Fixture()
         defer { fixture.close() }
@@ -100,6 +120,8 @@ import Testing
 nonisolated final class LinkedTerminalIO: TerminalIO {
     @MainActor final class Link {
         var applies = true
+        /// The link expects an echo whatever it sent (a claim of the size the owner already has).
+        var echoDue = false
         var sent: TerminalGridSize?
         var acked: TerminalGridSize?
     }
@@ -139,7 +161,7 @@ nonisolated final class LinkedTerminalIO: TerminalIO {
     @MainActor func appliesViewGrid(reporting: Bool) -> Bool { true }
 
     @MainActor var linkGrids: TerminalLinkGrids? {
-        TerminalLinkGrids(sent: link.sent, acked: link.acked, awaitingAck: link.sent != link.acked)
+        TerminalLinkGrids(sent: link.sent, acked: link.acked, awaitingAck: link.echoDue || link.sent != link.acked)
     }
 
     /// Returns at the next marker.
