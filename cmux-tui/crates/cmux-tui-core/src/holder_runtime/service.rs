@@ -9,6 +9,7 @@ use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
+use std::time::{Duration, Instant};
 
 use cmux_holder::link::{HolderLink, LinkEnd, TerminalSink};
 use cmux_holder::{Listed, SpawnRequest};
@@ -67,7 +68,18 @@ pub(crate) struct HolderService {
     /// The standalone holder failed to start once: this daemon starts the
     /// holder built into its host executable from then on.
     standalone_failed: AtomicBool,
+    /// Spacing of relinks after links that ended before they were healthy
+    /// ([`RELINK_HEALTHY`]): a holder that takes every link and drops it
+    /// at once is not reconnected in a tight loop.
+    relink: Mutex<crate::backoff::Backoff>,
 }
+
+/// A link that stayed up this long was healthy: when it ends, the next link
+/// is made at once (a holder crash), and the relink spacing starts over.
+const RELINK_HEALTHY: Duration = Duration::from_secs(10);
+/// First and longest wait before a relink after a link that ended sooner.
+const RELINK_INITIAL: Duration = Duration::from_millis(10);
+const RELINK_MAX: Duration = Duration::from_secs(5);
 
 impl HolderService {
     /// The service of `host_root`, made on first use. One per root in the
@@ -99,7 +111,20 @@ impl HolderService {
             listed: Mutex::default(),
             superseded: AtomicBool::new(false),
             standalone_failed: AtomicBool::new(false),
+            relink: Mutex::new(crate::backoff::Backoff::new(RELINK_INITIAL, RELINK_MAX)),
         }
+    }
+
+    /// The wait before relinking after a link that was made at `linked_at`
+    /// ended: none after a healthy link, else growing with each such end
+    /// in a row.
+    fn relink_delay(&self, linked_at: Instant) -> Duration {
+        let mut relink = self.relink.lock().recover_poison();
+        if linked_at.elapsed() >= RELINK_HEALTHY {
+            relink.reset();
+            return Duration::ZERO;
+        }
+        relink.next_delay()
     }
 
     /// Whether a holder of `host_root` may run: its socket exists. Asking
@@ -451,6 +476,7 @@ impl HolderService {
 
     fn connect(self: &Arc<Self>) -> io::Result<(Arc<HolderLink>, Vec<Listed>)> {
         let weak = Arc::downgrade(self);
+        let linked_at = Instant::now();
         HolderLink::connect(
             &self.socket,
             &self.token,
@@ -473,8 +499,16 @@ impl HolderService {
                     );
                 }
                 // The holder died: start a new one and hand it every master.
+                // A link that ended before it was healthy waits first, longer
+                // each time in a row: a holder that drops every link (or a
+                // daemon link it faults at once) would otherwise be linked
+                // again in a tight loop of connects, LISTs and threads.
+                let delay = service.relink_delay(linked_at);
                 let _ =
                     std::thread::Builder::new().name("holder-restart".into()).spawn(move || {
+                        if !delay.is_zero() {
+                            std::thread::sleep(delay);
+                        }
                         if let Err(error) = service.link() {
                             // No holder streams their output any more: their
                             // terminals end as lost (the shells may still run).

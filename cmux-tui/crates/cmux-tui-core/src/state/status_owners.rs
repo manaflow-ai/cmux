@@ -451,10 +451,17 @@ impl ExpiryPass {
     /// One daemon's part: its clear of every entry due at `cleared_at_ms`
     /// (`cleared` false when it failed), then its earliest deadline left
     /// (`None` when it could not be read). True when it has no deadline left.
-    fn add(&mut self, _cleared_at_ms: u64, cleared: bool, next: Option<Option<u64>>) -> bool {
+    fn add(&mut self, cleared_at_ms: u64, cleared: bool, next: Option<Option<u64>>) -> bool {
         self.failed |= !cleared;
         match next {
             Some(Some(deadline)) => {
+                // A successful clear removes every row due at `cleared_at_ms`
+                // (`status_meta::owned_entries`), so a deadline at or before
+                // it is a row the clear did not remove and will not remove on
+                // the next pass either: a failure, never a 1 ms retry.
+                if deadline <= cleared_at_ms {
+                    self.failed = true;
+                }
                 self.next = Some(self.next.map_or(deadline, |current| current.min(deadline)));
                 false
             }
