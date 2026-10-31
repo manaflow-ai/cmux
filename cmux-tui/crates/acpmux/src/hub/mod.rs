@@ -321,11 +321,9 @@ pub struct TurnInfo {
     pub client: String,
     pub prompt_preview: String,
     /// The line its prompt leaves on the session summary (`turn.prompt`: the sidebar's step, the
-    /// hover card's task): another agent's message as "name: first line", never its envelope
-    /// (`prompt_line.rs`). `prompt_preview` stays the prompt as sent, for the turn's records.
-    pub prompt_line: String,
-    /// `prompt_line` masked before its cut, for the sub-session tools
-    /// (`subsession_row`): a secret across the cut leaves no head there.
+    /// hover card's task, the sub-session tools): another agent's message as "name: first line",
+    /// never its envelope (`prompt_line.rs`), masked before its cut, so a secret across the cut
+    /// leaves no head. `prompt_preview` stays the prompt as sent, for the turn's records.
     pub masked_preview: String,
     /// Stable turn identifier, assigned when the prompt is accepted and
     /// carried by `queued`, `user_message`, `turn_started` and `turn_result`.

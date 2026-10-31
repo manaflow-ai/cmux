@@ -389,7 +389,6 @@ impl TurnInfo {
             started_at: super::now_ms(),
             client: client.to_owned(),
             prompt_preview: super::short_text(text, 200),
-            prompt_line: String::new(),
             masked_preview: String::new(),
             turn_id: turn_id.to_owned(),
             prompt_id: prompt_id.to_owned(),
@@ -400,36 +399,23 @@ impl TurnInfo {
         .shown_as(&super::prompt_line::prompt_line(text, client, None))
     }
 
-    /// The turn with `line` as the line its prompt leaves on the summary (`prompt_line`): a
+    /// The turn with `line` as the line its prompt leaves on the summary (`prompt_line.rs`): a
     /// prompt's turn names it from the prompt's provenance (`turns.rs`), which `prompted` lacks.
     pub(super) fn shown_as(mut self, line: &str) -> Self {
         self.show(line);
         self
     }
 
-    /// Sets the line its prompt leaves on the summary ([`TurnInfo::shown_as`]).
+    /// Sets the line its prompt leaves on the summary ([`TurnInfo::shown_as`]): masked, then cut
+    /// to 200 characters. A line it gave comes back the same (`promptLine` on a restart).
     pub(super) fn show(&mut self, line: &str) {
-        self.prompt_line = shown_line(line);
-        self.masked_preview = super::session::masked_preview(line, 200);
+        self.masked_preview = shown_line(line);
     }
 }
 
-/// `line` as a turn's summary shows it: folded and cut to 200 characters at a word's end. The
-/// summary's step masks it after (`views.rs` `lane_step`): a cut inside a word could leave a
-/// secret's head the scan no longer knows.
+/// `line` as a turn's summary shows it ([`TurnInfo::show`]): its secrets masked, then cut.
 pub(super) fn shown_line(line: &str) -> String {
-    let mut out = super::short_text(line, 200);
-    if out.ends_with('…') {
-        out.pop();
-        let whole = line.split_whitespace().collect::<Vec<_>>().join(" ");
-        // Cut inside a word: that word goes.
-        if whole.chars().nth(out.chars().count()).is_some_and(|c| !c.is_whitespace()) {
-            let end = out.rfind(' ').unwrap_or(0);
-            out.truncate(end);
-        }
-        out.push('…');
-    }
-    out
+    super::session::masked_preview(line, 200)
 }
 
 impl Hub {

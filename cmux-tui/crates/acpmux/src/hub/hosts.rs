@@ -1163,8 +1163,7 @@ impl Hub {
                     *session.turn.lock().unwrap() = Some(TurnInfo {
                         started_at,
                         client,
-                        masked_preview: super::session::masked_preview(&line, 200),
-                        prompt_line: super::auto_resume::shown_line(&line),
+                        masked_preview: super::auto_resume::shown_line(&line),
                         prompt_preview: prompt,
                         turn_id: turn_id.clone(),
                         prompt_id: prompt_id.clone(),

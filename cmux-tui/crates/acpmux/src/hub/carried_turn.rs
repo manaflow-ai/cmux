@@ -111,7 +111,7 @@ impl NextTurn {
             "turnId": t.turn_id,
             "promptId": t.prompt_id,
             "prompt": t.prompt_preview,
-            "promptLine": t.prompt_line,
+            "promptLine": t.masked_preview,
             "client": t.client,
             "control": control.as_str(),
             "trustGate": self.continues.trust_gate,
@@ -325,7 +325,7 @@ impl Hub {
         }
         let msg = json!({
             "prompt": turn.prompt_preview,
-            "promptLine": turn.prompt_line,
+            "promptLine": turn.masked_preview,
             "client": turn.client,
             "promptId": turn.prompt_id,
             "turnId": turn.turn_id,
@@ -612,10 +612,9 @@ mod tests {
             continues: Continues::default(),
         };
         let back = NextTurn::from_record(&next.record(Control::Local)).unwrap();
-        assert_eq!(back.next.prompt_line, "coord-deputy: Merged #1");
         assert_eq!(back.next.masked_preview, "coord-deputy: Merged #1");
         let old = json!({"turnId": "t-3", "promptId": "p-3", "prompt": "[coord] Fix it", "client": "acpmux-cli#1", "seq": 2});
-        assert_eq!(NextTurn::from_record(&old).unwrap().next.prompt_line, "coord: Fix it");
+        assert_eq!(NextTurn::from_record(&old).unwrap().next.masked_preview, "coord: Fix it");
     }
 
     /// A carried turn whose steers were all lane reports runs on reports only: it reports

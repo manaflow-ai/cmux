@@ -181,7 +181,7 @@ fn a_secret_across_the_title_cut_is_masked_before_the_cut() {
 #[test]
 fn another_agents_message_steps_as_its_sender_and_first_line_never_its_envelope() {
     use super::super::{Control, TurnInfo, prompt_line::prompt_line};
-    let step = |t: &TurnInfo| lane(&running(&t.prompt_line))["step"].clone();
+    let step = |t: &TurnInfo| lane(&running(&t.masked_preview))["step"].clone();
     // `acpmux send` at a shell: the sender's name in brackets.
     let shell = "[coord] Fix the grid spacing\nmore below";
     let t = TurnInfo::prompted("acpmux-cli#7", shell, "t1", "p1", Control::Local);
@@ -216,8 +216,8 @@ fn another_agents_message_steps_as_its_sender_and_first_line_never_its_envelope(
     );
     assert!(!t.masked_preview.contains(&token), "{}", t.masked_preview);
     assert!(!step(&t).as_str().unwrap_or_default().contains(&token));
-    // A secret the cleaned line's cut falls inside goes whole, never its head: the step's scan
-    // could not tell a token's head.
+    // A secret the cleaned line's cut falls inside is masked before the cut, never its head left:
+    // the step's scan could not tell a token's head.
     let words = format!("{}{token} tail", "word ".repeat(36));
     let envelope = format!(
         "[cmux agent message] from coord-deputy (acp:abc)\nMessage id: m2\n---\n{words}\n--- end of message m2 ---"
@@ -225,10 +225,22 @@ fn another_agents_message_steps_as_its_sender_and_first_line_never_its_envelope(
     let p = json!({"kind": "agent_message", "from": "acp:abc", "fromName": "coord-deputy", "msgId": "m2"});
     let t = TurnInfo::prompted("cmux", &envelope, "t6", "p6", Control::Local)
         .shown_as(&prompt_line(&envelope, "cmux", Some(&p)));
-    assert!(!t.prompt_line.contains("gh"), "{}", t.prompt_line);
-    assert!(t.prompt_line.ends_with("word…"), "{}", t.prompt_line);
-    assert!(!step(&t).as_str().unwrap_or_default().contains("gh"));
     assert!(!t.masked_preview.contains("ghp_"), "{}", t.masked_preview);
+    assert!(
+        t.masked_preview.contains("word [GitHu"),
+        "the mask starts where the token did: {}",
+        t.masked_preview
+    );
+    assert!(!step(&t).as_str().unwrap_or_default().contains("ghp_"));
+    // A restart shows the line the turn recorded (`promptLine`) as it was: no word is lost again.
+    let again = TurnInfo::prompted("cmux", &envelope, "t6", "p6", Control::Local)
+        .shown_as(&t.masked_preview);
+    assert_eq!(again.masked_preview, t.masked_preview);
+    let t = TurnInfo::prompted("acpmux-cli#7", "[coord] Checking…", "t7", "p7", Control::Local);
+    assert_eq!(t.masked_preview, "coord: Checking…");
+    let again =
+        TurnInfo::prompted("x", "y", "t7", "p7", Control::Local).shown_as(&t.masked_preview);
+    assert_eq!(again.masked_preview, "coord: Checking…");
     // The person's own prompt stays as it is.
     let t =
         TurnInfo::prompted("acpmux-cli#7", "Run the guard\n  tests", "t5", "p5", Control::Local);
