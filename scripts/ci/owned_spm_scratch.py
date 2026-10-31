@@ -95,6 +95,7 @@ import signal
 import stat
 import subprocess
 import sys
+import tempfile
 from typing import Mapping
 
 DEFAULT_STORE = Path("/Users/Shared/cmux-build-fleet/ci")
@@ -468,6 +469,22 @@ def real_directory(source: Path, relative: str, made: set[str]) -> None:
         made.add(walked)
 
 
+def copy_into(origin: Path, target: Path, mode: int) -> None:
+    """Replace TARGET with a copy of ORIGIN (mode MODE). The copy is staged in a file this call creates
+    exclusively (O_EXCL never opens an existing path, a link included) and written and chmodded through
+    its descriptor, so no path the checkout may name takes the write; a failed copy leaves no staged file."""
+    fd, staged = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".mirror", dir=target.parent)
+    try:
+        with os.fdopen(fd, "wb") as out, open(origin, "rb") as source:
+            shutil.copyfileobj(source, out, 1 << 20)
+            os.fchmod(out.fileno(), mode)
+        os.replace(staged, target)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(staged)
+        raise
+
+
 def mirror(workspace: Path, source: Path) -> dict[str, int]:
     """Make SOURCE hold exactly WORKSPACE's files (source_files). A file whose content SOURCE already has
     keeps its time there, so SwiftPM rebuilds only what changed; every other file is written now, so it
@@ -509,10 +526,7 @@ def mirror(workspace: Path, source: Path) -> dict[str, int]:
             continue
         if target.is_dir() and not target.is_symlink():
             shutil.rmtree(target)
-        staged = target.with_name(f".{target.name}.mirror-{os.getpid()}")
-        shutil.copyfile(origin, staged, follow_symlinks=False)
-        os.chmod(staged, stat.S_IMODE(info.st_mode))
-        staged.replace(target)
+        copy_into(origin, target, stat.S_IMODE(info.st_mode))
         copied += 1
     parents = {str(Path(name).parent) for name in wanted}
     parents |= {str(parent) for name in parents for parent in Path(name).parents}
