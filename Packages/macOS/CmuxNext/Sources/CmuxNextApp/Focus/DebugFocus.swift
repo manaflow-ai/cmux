@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextSettings
 import CmuxNextFocus
+import CmuxNextPalette
 
 /// `debug.focus`: per window, the coordinator state next to what AppKit,
 /// Ghostty and the layout actually show, and whether they agree
@@ -30,8 +31,20 @@ enum DebugFocus {
                 "agent_focused": .bool(context.contains(.agentPaneFocused)),
                 "palette_open": .bool(context.contains(.paletteOpen)),
             ]),
+            "palette": palette(services.palette),
             "consistent": .bool(windowProblems.isEmpty && windows.allSatisfy { $0["consistent"]?.boolValue == true }),
         ])
+    }
+
+    /// The open palette as drawn: its field's text, the model's query and the selected row, so a
+    /// capture asserts what its still shows (an empty field over a set query is a failure).
+    private static func palette(_ palette: PaletteController) -> JSONValue {
+        guard let field = palette.visibleFieldText else { return ["open": .bool(false)] }
+        let model = palette.model
+        return ["open": .bool(true), "field": .string(field), "query": .string(model.query),
+                "page": .string(model.pageTitle), "ranking": .bool(model.isRanking), "loading": .bool(model.isLoading),
+                "selected": model.selectedItem.map { .string($0.actionID?.rawValue ?? $0.id) } ?? .null,
+                "selected_title": model.selectedItem.map { .string($0.title) } ?? .null]
     }
 
     /// No-activate mode: how often the keyboard was given back, and the last time.
