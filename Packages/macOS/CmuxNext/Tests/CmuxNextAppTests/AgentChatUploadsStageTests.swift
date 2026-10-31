@@ -6,10 +6,10 @@ import Testing
 
 /// A screen recording attached to a chat on this Mac that has not started yet (a new chat, the New
 /// Tab page) streams to Chat Uploads like any other file (https://github.com/manaflow-ai/cmux/issues/28647).
-/// The page streams every file over 24 MiB (`chat.upload.begin`, `.chunk`, `.finish`); the pane
+/// The page streams every file it uploads (`chat.upload.begin`, `.chunk`, `.finish`); the pane
 /// refused a chat with no session as `unsupported`, which the page reads as a host too old to
-/// stream: the tile said "This host cannot stream an attachment this large." with Retry, which
-/// failed the same way. A chat that gets its session while the file still streams (the person
+/// stream, so a file over 24 MiB showed "This host cannot stream an attachment this large." with
+/// Retry, which failed the same way. A chat that gets its session while the file still streams (the person
 /// sent the prompt meanwhile) keeps the upload, and the file lands in that chat's folder.
 @MainActor @Suite(.serialized)
 struct AgentChatUploadsStageTests {
@@ -42,6 +42,8 @@ struct AgentChatUploadsStageTests {
         let begin = await Self.ask(model, "chat.upload.begin", ["name": "Screen Recording.mov", "size": first.count + second.count])
         #expect(begin["ok"] as? Bool == true, "a chat with no session refused the upload: \(begin)")
         let token = try #require(Self.value(begin)["token"] as? String)
+        // Never left in the real Chat Uploads, whatever fails below.
+        defer { try? FileManager.default.removeItem(at: root.root.appending(path: "staged-" + token)) }
         let one = await Self.ask(model, "chat.upload.chunk", ["token": token, "offset": 0, "data": first.base64EncodedString()])
         #expect(Self.value(one)["offset"] as? Int == first.count)
 
@@ -57,31 +59,32 @@ struct AgentChatUploadsStageTests {
         #expect(try Data(contentsOf: URL(fileURLWithPath: path)) == first + second)
     }
 
-    @Test func anotherChatsPageCannotFeedAStageOnceItsChatStarted() async throws {
+    @Test func anotherNewChatsPageCannotFeedTheStage() async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
         let tab = "tab-\(UUID().uuidString)", other = "tab-\(UUID().uuidString)"
+        // Two chats on this Mac, neither with a session yet: both stage as "new".
         services.agentTabs.gitLink = { _ in services.agentGit.local }
         let model = AgentPaneModel(host: NoHost()), stranger = AgentPaneModel(host: NoHost())
         services.agentTabs.wire(model, key: tab)
         services.agentTabs.wire(stranger, key: other)
-        let session = "own-\(UUID().uuidString.lowercased())", strangerSession = "other-\(UUID().uuidString.lowercased())"
         let root = try #require(ChatUploadFolders.standard)
-        defer {
-            try? FileManager.default.removeItem(at: root.chat(session))
-            try? FileManager.default.removeItem(at: root.chat(strangerSession))
-        }
 
         model.transport.gestures.record()
         let begin = await Self.ask(model, "chat.upload.begin", ["name": "clip.mov", "size": 2])
         let token = try #require(Self.value(begin)["token"] as? String, "\(begin)")
-        _ = await Self.ask(model, "chat.persistSession", ["sessionId": session])
-        _ = await Self.ask(stranger, "chat.persistSession", ["sessionId": strangerSession])
-        // Another started chat holding the token feeds nothing into this chat's stage.
-        let fed = await Self.ask(stranger, "chat.upload.chunk", ["token": token, "offset": 0, "data": Data([1, 2]).base64EncodedString()])
+        defer { try? FileManager.default.removeItem(at: root.root.appending(path: "staged-" + token)) }
+        let data = Data([1, 2]).base64EncodedString()
+        for method in ["chat.upload.chunk", "chat.upload.cancel"] {
+            _ = await Self.ask(stranger, method, ["token": token, "offset": 0, "data": data])
+        }
+        let fed = await Self.ask(stranger, "chat.upload.chunk", ["token": token, "offset": 0, "data": data])
         #expect(fed["ok"] as? Bool == false)
-        let own = await Self.ask(model, "chat.upload.chunk", ["token": token, "offset": 0, "data": Data([1, 2]).base64EncodedString()])
+        // The stranger's cancel left it: the chat that began it still feeds it.
+        let own = await Self.ask(model, "chat.upload.chunk", ["token": token, "offset": 0, "data": data])
         #expect(Self.value(own)["offset"] as? Int == 2, "\(own)")
+        _ = await Self.ask(model, "chat.upload.cancel", ["token": token])
+        #expect(!FileManager.default.fileExists(atPath: root.root.appending(path: "staged-" + token).path))
     }
 }

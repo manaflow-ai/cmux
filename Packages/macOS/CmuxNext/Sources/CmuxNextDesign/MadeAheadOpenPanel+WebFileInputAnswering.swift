@@ -11,13 +11,6 @@ public import AppKit
 extension MadeAheadOpenPanel: WebFileInputAnswering {
     public func answerFileInput(allowsMultipleSelection: Bool, allowsDirectories: Bool, window: NSWindow?,
                                 completion: @escaping @MainActor ([URL]?) -> Void) {
-        #if DEBUG || CMUX_BENCH_HOOKS
-        if let answer = debugAnswer {
-            debugAnswer = nil
-            completion(answer)
-            return
-        }
-        #endif
         guard let panel = panel() else {
             completion(nil)
             return

@@ -32,11 +32,6 @@ public final class MadeAheadOpenPanel {
     public var warmChecks: Int { store.warmChecks }
     /// Whether a warm-up check is pending.
     public var isWarming: Bool { store.isWarming }
-    #if DEBUG || CMUX_BENCH_HOOKS
-    /// The files the next page file input gets instead of showing the panel (`debug.open_panel_bench {answer}`), so
-    /// automation reaches a page's real chooser path on a window that is never key; used once.
-    public var debugAnswer: [URL]?
-    #endif
 
     public init() {
         let gate = OpenPanelWarmGate()

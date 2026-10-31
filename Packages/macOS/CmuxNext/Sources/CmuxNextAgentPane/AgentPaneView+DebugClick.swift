@@ -76,6 +76,12 @@ extension AgentPaneView {
         await page?.debugPress(x: x, y: y) ?? false
     }
 
+    /// The chat's file input `selector` takes the files at `paths`, as a pick in Chromium's open panel
+    /// (``PageWebView/debugSetFiles(selector:paths:)``); nil when it did, else why not.
+    public func debugSetFiles(selector: String, paths: [String]) async -> String? {
+        await page?.debugSetFiles(selector: selector, paths: paths) ?? "the chat does not show in Chromium"
+    }
+
     /// The screen point of `x`,`y` (CSS pixels) on the chat's Chromium page, nil on WebKit. Chromium draws the
     /// page in its own child window over ``chromiumPage``'s container view (which stays in the pane's window):
     /// `debug.agent_pane click` turns the point into that window's mouse down for ``judge(_:eventWindow:)``,
