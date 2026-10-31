@@ -105,7 +105,7 @@ class FakeApp:
                 return {"handled_by": "keyRouter"}
             self.last_split = time.monotonic()
             ws = self.ws()
-            column = "shift" not in mods  # Cmd-D and Ctrl-Cmd-D add a column (a column strip); Cmd-Shift-D splits down
+            column = mods == {"control", "cmd"}  # New Column adds a column; Cmd-D and Cmd-Shift-D split inside one
             new = {"id": f"pane_{next(ids)}", "column": (max(p["column"] for p in ws["panes"]) + 1) if column else pane["column"],
                    "width": 600.0 if column else pane["width"],
                    "tabs": [{"id": f"tab_{next(ids)}", "kind": "terminal", "term": self.new_term()}]}
@@ -113,6 +113,10 @@ class FakeApp:
             if "column_resize" in self.bugs and column:
                 for p in ws["panes"]:
                     p["width"] -= 7
+            if "split_resizes_other" in self.bugs and not column:
+                for p in ws["panes"]:
+                    if p["column"] != pane["column"]:
+                        p["width"] -= 7
             ws["panes"].append(new)
             ws["focus_pane"] = new["id"]
             if "stall" in self.bugs:
@@ -317,6 +321,24 @@ class Sim(unittest.TestCase):
     def test_column_resize_is_r3b(self):
         report, error = run(bugs={"column_resize"}, seq=ext_fuzz.CORPUS["lawrence-column-widths"], shrink=False)
         self.assertEqual(report["failure"]["oracle"], "r3b", error)
+
+    def test_split_inside_a_column_that_resizes_another_column_is_r3b(self):
+        seq = [{"a": "new_terminal", "t": "slow"}, {"a": "new_column", "t": "slow"}, {"a": "split_right", "t": "slow"}]
+        report, error = run(bugs={"split_resizes_other"}, seq=seq, shrink=False, actions="layout")
+        self.assertEqual(report["failure"]["oracle"], "r3b", error)
+        self.assertIn("a split inside another column", report["failure"]["detail"])
+
+    def test_split_alone_is_not_r3b(self):
+        seq = [{"a": "new_terminal", "t": "slow"}, {"a": "new_column", "t": "slow"}, {"a": "split_right", "t": "pair"},
+               {"a": "split_down", "t": "slow"}]
+        report, error = run(seq=seq, shrink=False, actions="layout")
+        self.assertIsNone(error)
+
+    def test_plan_starts_a_burst_at_new_column(self):
+        for burst in ext_fuzz.bursts(ext_fuzz.plan(77, 600, actions="layout")):
+            for k, item in enumerate(burst):
+                if item["a"] == "new_column" and k:
+                    self.assertEqual(burst[k - 1]["a"], "new_column")
 
     def test_grid_mismatch_is_r3a(self):
         report, error = run(bugs={"grid_mismatch"}, seq=ext_fuzz.CORPUS["lawrence-cmd-d-twice"], shrink=False)

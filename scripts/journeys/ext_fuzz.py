@@ -24,9 +24,10 @@ Oracles (each a short name in the failure, `oracle:detail`):
   r3a         every shown terminal: grid == fitted grid == drawn grid == the daemon's screen size, and the grid
               fits the view's frame at the cell size (ext_window's grid_fits rule); the probe's `stty size` == the
               daemon's size (the PTY)
-  r3b         a new column (New Column, Cmd-D) never changes the width of a column that was there: every old column
-              (the topology's `column`, matched by its panes, ext_smoke's reading) keeps its width within 0.01 pt,
-              read until it holds for up to 3 s (a layout in flight is not a failure)
+  r3b         (cmux-ad 08:06Z) New Column (the action's key, Ctrl-Cmd-D) keeps every old column's width; Cmd-D and
+              Split Down split inside a column, and no OTHER column changes width. Columns are the topology's
+              `column`, matched by their panes, with ext_smoke's width reading; exact within 0.01 pt, read until it
+              holds for up to 3 s (a layout in flight is not a failure). New Column always starts its burst.
   focus       debug.focus: the model's target == AppKit's first responder (`consistent`, `mismatches`), read again
               0.5 s later before it counts
   topology    the daemon's terminals == the app topology's terminals (`cmux terminal list`); debug.desync check
@@ -75,9 +76,12 @@ D = None  # the driver module (install)
 ACTIONS = {
     "new_tab": {"key": "t", "mods": ["cmd"], "creates": "tab_page"},              # Cmd-T: the New Tab page
     "new_workspace": {"key": "n", "mods": ["cmd"], "creates": "workspace"},       # Cmd-N
-    "split_right": {"key": "d", "mods": ["cmd"], "creates": "pane", "column": True},  # Cmd-D (also adds a column)
+    # R3b (cmux-ad 08:06Z, final scope): New Column adds a column and every old column keeps its exact width; Cmd-D
+    # and Split Down split inside a column, and no OTHER column changes width. `column`: adds a column; `inside`: a
+    # split inside the focused pane's column.
+    "split_right": {"key": "d", "mods": ["cmd"], "creates": "pane", "inside": True},  # Cmd-D
     "new_column": {"key": "d", "mods": ["control", "cmd"], "creates": "pane", "column": True},  # Ctrl-Cmd-D
-    "split_down": {"key": "d", "mods": ["cmd", "shift"], "creates": "pane"},      # Cmd-Shift-D
+    "split_down": {"key": "d", "mods": ["cmd", "shift"], "creates": "pane", "inside": True},  # Cmd-Shift-D
     "new_terminal": {"key": "`", "mods": ["control"], "creates": "terminal"},     # Ctrl-`
     "open_url": {"special": True, "creates": "browser"},                          # Cmd-Shift-L, a URL, Return
     "close_tab": {"key": "w", "mods": ["cmd"], "closes": "tab"},                  # Cmd-W
@@ -144,8 +148,9 @@ CORPUS = {
                         {"a": "resize_window", "t": "slow", "by": [300, 140]}, {"a": "drag_divider", "t": "slow", "by": -120},
                         {"a": "type_line", "t": "slow"}],
     "lawrence-column-widths": [{"a": "new_workspace", "t": "slow"}, {"a": "new_terminal", "t": "slow"},
-                               {"a": "split_right", "t": "slow"}, {"a": "split_right", "t": "slow"},
-                               {"a": "split_right", "t": "slow"}],
+                               {"a": "new_column", "t": "slow"}, {"a": "new_column", "t": "slow"},
+                               {"a": "split_right", "t": "slow"}, {"a": "split_down", "t": "slow"},
+                               {"a": "new_column", "t": "pair"}, {"a": "new_column", "t": "slow"}],
     "lawrence-cmd-t-slow": [{"a": "new_workspace", "t": "slow"}, {"a": "new_terminal", "t": "slow"},
                             {"a": "new_tab", "t": "slow"}, {"a": "new_tab", "t": "pair"}, {"a": "new_tab", "t": "slow"}],
 }
@@ -193,6 +198,10 @@ def plan(seed, count, weights=None, actions="full"):
             item["t"] = "slow"
             if out and out[-1]["t"] != "slow":
                 out[-1]["t"] = "slow"
+        elif ACTIONS[name].get("column") and out and out[-1]["t"] != "slow" and out[-1]["a"] != name:
+            # New Column starts its burst (a pair of New Column stays one): R3b then knows which column must keep
+            # its width exactly (all of them) and which split may change one (the split's own column).
+            out[-1]["t"] = "slow"
         if name == "resize_window":
             item["by"] = [rng.randint(-320, 320), rng.randint(-200, 200)]
         elif name == "drag_divider":
@@ -366,7 +375,13 @@ class Fuzz:
             # after which warm singletons exist) only once something was made, so it ends with one too.
             self.sequence = self.sequence[:max(0, self.count - 1)] + [{"a": "close_all", "t": "slow"}]
         self.source = "sequence" if seq else "seed"
-        self.baseline = set(getattr(j, "smoke_baseline", None) or state(j)["workspaces"])
+        # The layout set starts every run and every shrink try from the same state: no workspace (each one closed
+        # through the app's own closeWorkspace), then a Ctrl-` that opens a fresh workspace with a terminal. A shrink
+        # try then replays from where the run began, not from a workspace an earlier try changed.
+        self.fresh = str(opts.get("fuzz_fresh", step.get("fresh", "layout"))) in ("true", "1", "yes") or \
+            str(opts.get("fuzz_fresh", step.get("fresh", "layout"))) == "layout" and \
+            str(opts.get("fuzz_set") or step.get("set", "full")) == "layout"
+        self.baseline = set() if self.fresh else set(getattr(j, "smoke_baseline", None) or state(j)["workspaces"])
         self.n = 0
         self.probes = 0
         self.pty_tags = {}
@@ -703,9 +718,22 @@ class Fuzz:
             return None
         return {"workspace": ws, "widths": ext_smoke._widths(self.j, ws), "columns": ext_smoke._columns(self.j, ws)}
 
-    def r3b(self, snap, before, after):
+    @staticmethod
+    def split_column(burst, before, snap):
+        """The column a split inside a column may change (cmux-ad 08:06Z): the focused pane's column before the burst,
+        when a Cmd-D or Split Down comes before any New Column in the burst (after a New Column, the focus and every
+        later split are in the new column, which the snapshot does not have). None: every old column is exact."""
+        for item in burst:
+            if ACTIONS[item["a"]].get("column"):
+                return None
+            if ACTIONS[item["a"]].get("inside"):
+                pane = before["focus"].get("pane")
+                return next((k for k, m in (snap or {}).get("columns", {}).items() if pane in m), None)
+        return None
+
+    def r3b(self, snap, before, after, exempt=None):
         """Every column the snapshot had (matched by its panes, as ext_smoke.cond_smoke_same_widths does) keeps its
-        exact width (0.01 pt) after a burst whose only layout change is new columns."""
+        exact width (0.01 pt), except EXEMPT (the column a Cmd-D or Split Down split inside)."""
         if not snap or not after or shown_ws(after) != snap["workspace"]:
             return []
         import ext_smoke
@@ -715,10 +743,11 @@ class Fuzz:
         for index, members in snap["columns"].items():
             match = next((k for k, m in now_cols.items() if set(members) <= set(m)), None)
             old, new = snap["widths"].get(index), now_w.get(match) if match is not None else None
-            if match is None or old is None or new is None:
-                continue  # closed, or scrolled out of view: no width to compare
+            if match is None or old is None or new is None or index == exempt:
+                continue  # closed, scrolled out of view, or the column a split inside a column may change
             if abs(old - new) > 0.01:
-                problems.append(("r3b", f"column {index} (panes {members}): width {old:g} -> {new:g} after a new column"))
+                what = "a split inside another column" if exempt is not None else "a new column"
+                problems.append(("r3b", f"column {index} (panes {members}): width {old:g} -> {new:g} after {what}"))
         return problems
 
     def focus(self):
@@ -835,8 +864,10 @@ class Fuzz:
         j = self.j
         names = [i["a"] for i in burst]
         before = state(j)
-        # R3b: only a burst whose sole layout change is its creates (no resize, drag, close or switch in it).
-        column = any(ACTIONS[a].get("column") for a in names) and not any(a in DISTURB or a in RESIZE for a in names)
+        # R3b: a burst whose only layout changes are its creates (no resize, drag, close or switch in it) and that
+        # makes a column or splits inside one.
+        column = any(ACTIONS[a].get("column") or ACTIONS[a].get("inside") for a in names) \
+            and not any(a in DISTURB or a in RESIZE for a in names)
         before_w = self.widths() if column else None
         refused_before = refusals(j) if any(ACTIONS[a].get("creates") for a in names) else []
         recs = []
@@ -870,7 +901,8 @@ class Fuzz:
             tags, self.pty_tags = self.pty_tags, {}
             problems += self.settle_check(lambda: self.r3a(state(j), tags))
             if before_w is not None:
-                problems += self.settle_check(lambda: self.r3b(before_w, before, state(j)))
+                exempt = self.split_column(burst, before, before_w)
+                problems += self.settle_check(lambda: self.r3b(before_w, before, state(j), exempt))
             problems += self.focus()
             problems += self.settle_check(lambda: self.topology(state(j), closed_all))
             problems += self.stalls()
@@ -889,6 +921,9 @@ class Fuzz:
         """Plays SEQ (the oracles after each burst); the first failure: {oracle, detail, index, sequence: the actions
         played up to it, setup ones included}, or None; "budget" when the time ran out."""
         self.effective = []
+        if self.fresh:
+            self.close_all()
+            self.last_create = None
         for burst in bursts(seq):
             if not self.left():
                 return "budget"
@@ -928,7 +963,7 @@ class Fuzz:
     def ensure_target(self, burst):
         """The layout set acts on a workspace: when none shows (launch, or a close took the last pane), a Ctrl-` first
         (it opens a workspace with a terminal on Home), played and kept in the sequence like any action."""
-        if self.set != "layout" or burst[0]["a"] in ("new_terminal", "relaunch", "close_all"):
+        if not (self.set == "layout" or self.fresh) or burst[0]["a"] in ("new_terminal", "relaunch", "close_all"):
             return None
         if shown_ws(state(self.j)):
             return None
