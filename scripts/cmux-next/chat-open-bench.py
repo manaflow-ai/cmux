@@ -85,10 +85,11 @@ parser.add_argument("--record-launch", type=float, default=0,
                     help="restore: record each relaunch's windows for SECONDS from the first frame (the app's "
                          "--record-launch) into --launch-frames, and list the pictures the quit saved")
 parser.add_argument("--launch-frames", default="artifacts/launch-frames.tar.gz",
-                    help="with --record-launch: the archive of every relaunch's recorded frames")
+                    help="with --record-launch: the archive of every relaunch's recorded frames (.tar.gz is added when missing)")
 parser.add_argument("--backdrop", choices=["opaque", "frosted", "glass", "glass-clear"], default="opaque",
                     help="the window material (appearance.backgroundBlur at 85%% opacity; opaque leaves the default): "
                          "a page over a translucent window is clear, which a saved picture must keep")
+parser.add_argument("--tag", default="chatopen", help="the tag the app was built with (its state folder)")
 parser.add_argument("--json")
 parser.add_argument("--md")
 opts = parser.parse_args()
@@ -98,6 +99,8 @@ CASES = [c.strip() for c in opts.cases.split(",") if c.strip()]
 SUBAGENTS = opts.subagents or opts.runs + 1
 # A new workspace goes last, so `workspace.selectLast` shows the one an open just made (the default
 # placement is the top of the list). Over --config: another placement would show the wrong workspace.
+# The tagged build's state folder (scripts/measure/chat-open.sh builds --tag, default "chatopen").
+TAG_DIR = os.path.join("tags", opts.tag)
 BACKDROP = {} if opts.backdrop == "opaque" else {"appearance": {"backgroundBlur": opts.backdrop, "backgroundOpacity": 0.85}}
 CONFIG = bm.merged(bm.merged(json.loads(opts.config), BACKDROP), {"workspaces": {"newPlacement": "bottom"}})
 AGENT = os.path.join(HERE, "chat_open_agent.py")
@@ -252,7 +255,9 @@ class Run:
             # the trace reads it, so a launch trace armed by the variable never ran.
             args = ["--chat-open-trace-launch"] if trace_launch else []
             if record:
-                # The app's own launch recorder (DebugWindowRecord): every window from its first frame.
+                # The app's own launch recorder (DebugWindowRecord): every window from its first frame,
+                # into a folder that must exist.
+                os.makedirs(record, exist_ok=True)
                 args += ["--record-launch", record, "--record-launch-seconds", str(opts.record_launch)]
             self.pid, self.sock = relaunch(self.scratch, env, args)
         self.app = bm.App(APP, self.sock)
@@ -285,11 +290,17 @@ class Run:
         bm.end_bundle(APP)  # the bundle's daemons and helpers: this run's only (bm.launch checked)
 
     def saved_pictures(self):
-        """The agent pages' pictures the last quit saved for this launch's first frame (AgentPaneLaunchImages)."""
+        """The agent pages' pictures the last quit saved for this launch's first frame (AgentPaneLaunchImages).
+
+        In the build's folder under Application Support (SidebarSnapshotFile.buildDirectory), which
+        Foundation resolves from the account's own home, not the scratch HOME; both are read."""
+        import pwd
+        homes = [os.path.join(self.scratch or "", "home"), pwd.getpwuid(os.getuid()).pw_dir]
         found = []
-        for folder, _dirs, files in os.walk(self.scratch or ""):
-            if os.path.basename(folder) == "agent-pane-images":
-                found += sorted(files)
+        for home in homes:
+            for folder, _dirs, files in os.walk(os.path.join(home, "Library", "Application Support", "cmux")):
+                if os.path.basename(folder) == "agent-pane-images" and TAG_DIR in folder:
+                    found += sorted(files)
         return found
 
     def end(self):
@@ -504,8 +515,8 @@ def main():
             run.end()
         if opts.record_launch and os.path.isdir(frames_root):
             os.makedirs(os.path.dirname(os.path.abspath(opts.launch_frames)), exist_ok=True)
-            archive = os.path.abspath(opts.launch_frames)
-            shutil.make_archive(archive.removesuffix(".tar.gz"), "gztar", frames_root)
+            # make_archive adds the suffix itself: the path it returns is the one written.
+            archive = shutil.make_archive(os.path.abspath(opts.launch_frames).removesuffix(".tar.gz"), "gztar", frames_root)
             say(f"chat-open: launch frames in {archive}")
         shutil.rmtree(root, ignore_errors=True)
     table = markdown(results)
