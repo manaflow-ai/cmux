@@ -3,6 +3,7 @@ import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { noChat } from "../../../gallery/fixtures/acpmux";
+import { ClosedList } from "./ClosedList";
 import { NewTabScreen } from "./NewTabScreen";
 import { registerHarnessesPage } from "../harnesses/harnessesPage";
 import type { SavedEnvironment } from "../environments";
@@ -494,4 +495,18 @@ test("a page that goes with an unsent draft hands it over; an untouched page han
   await act(async () => input.dispatchEvent(new dom!.window.Event("change", { bubbles: true })));
   await act(async () => root!.render(<main />));
   expect(left).toEqual([["", [expect.objectContaining({ path: "/tmp/notes.txt" })]]]);
+});
+
+test("a closed agent chat uses the semantic agent glyph and preserves its title", async () => {
+  await act(async () => {
+    root!.render(
+      <ClosedList
+        items={[{ id: "closed:chat", kind: "agent", title: "Pinned chat", closedAt: 1, available: true }]}
+        onReopen={() => {}}
+      />,
+    );
+  });
+
+  expect(container.querySelector('.nt-row-glyph[data-kind="agent"] svg[data-icon="agent.chat"]')).toBeTruthy();
+  expect(container.querySelector(".nt-row-title")?.textContent).toBe("Pinned chat");
 });
