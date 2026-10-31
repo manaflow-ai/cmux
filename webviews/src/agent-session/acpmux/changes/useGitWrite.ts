@@ -8,6 +8,7 @@ import {
   canPush,
   commitParams,
   failureText,
+  isNoRepository,
   pushParams,
   readCommitDone,
   readNewFiles,
@@ -58,7 +59,10 @@ export function useGitWrite(
   onChanged: (op?: GitWriteOp) => void,
   keys?: WriteKeys,
 ): GitWrite {
-  const available = !!(source?.status && source.commit && source.push);
+  const capable = !!(source?.status && source.commit && source.push);
+  // A folder outside a repository has no branch to read: no Commit or Push, and no error either.
+  const [noRepository, setNoRepository] = useState(false);
+  const available = capable && !noRepository;
   const [status, setStatus] = useState<WriteStatus>();
   const [statusFailed, setStatusFailed] = useState(false);
   const [state, setState] = useState<GitWriteState>();
@@ -79,13 +83,16 @@ export function useGitWrite(
         statusRef.current = next;
         setStatus(next);
         setStatusFailed(!next);
+        setNoRepository(false);
       }
       return next;
-    } catch {
+    } catch (error) {
       if (read === reads.current) {
+        const outside = isNoRepository(error);
         statusRef.current = undefined;
         setStatus(undefined);
-        setStatusFailed(true);
+        setStatusFailed(!outside);
+        setNoRepository(outside);
       }
       return undefined;
     }
@@ -93,8 +100,8 @@ export function useGitWrite(
 
   // The status is read when the view opens.
   useEffect(() => {
-    if (available) void readStatus();
-  }, [available, readStatus]);
+    if (capable) void readStatus();
+  }, [capable, readStatus]);
 
   const run = useCallback(
     async (op: GitWriteOp, params: Record<string, unknown>): Promise<boolean> => {
