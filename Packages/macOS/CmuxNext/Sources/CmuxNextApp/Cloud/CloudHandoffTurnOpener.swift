@@ -18,6 +18,9 @@ struct CloudHandoffTurnOpener {
     let services: AppServices
 
     /// The page's runner for every pane (``AgentPageChats/seed(_:)``): `view` is the pane that asked.
+    /// The session it names must be the one recorded on the pane's tab (``ownsSession(recorded:asked:)``),
+    /// never only what the page says: a new chat whose session is not bound to its tab yet is refused,
+    /// and its prompt goes under its own id.
     /// The pane's chat and its machine are read before the store's calls and again after them: an
     /// answer for a pane that moved to another chat or machine meanwhile names no turn and starts no
     /// watch. The gate (``refusal(_:)``) is read before any store call, so a refused ask posts nothing.
@@ -28,6 +31,7 @@ struct CloudHandoffTurnOpener {
             let place = { () -> (tab: String, machine: String, host: String?)? in
                 guard let view, let key = tabs?.views.first(where: { $0.value === view })?.key, let (tab, _) = services.locateTab(key),
                       view.model.sessionId == nil || view.model.sessionId == session,
+                      ownsSession(recorded: tab.agentSession?.session, asked: session),
                       let daemon = try? services.machines.agentDaemon(forTab: tab), !daemon.isLocal,
                       let machine = services.machines.session(daemon.machineID)?.machineID else { return nil }
                 return (tab.id, machine, tab.agentSession?.host)
@@ -42,6 +46,14 @@ struct CloudHandoffTurnOpener {
             services.agentTabs.pageChats.handoffNotices?.watch(handoff: id, session: session, host: before.host)
             return AgentPaneReply.success(["turn": number])
         }
+    }
+
+    /// Whether a pane may name hand-off turns for `asked`: only the acpmux session recorded on its
+    /// tab (`bind-conversation-tab-session`), so a page cannot open a hand-off for a session it
+    /// does not show.
+    nonisolated static func ownsSession(recorded: String?, asked: String) -> Bool {
+        guard let recorded, !recorded.isEmpty else { return false }
+        return recorded == asked
     }
 
     /// The store's answer for `session` on `machine`, or a refusal code.

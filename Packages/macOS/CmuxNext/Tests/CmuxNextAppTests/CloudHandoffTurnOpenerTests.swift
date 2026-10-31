@@ -107,4 +107,12 @@ struct CloudHandoffTurnOpenerTests {
         #expect(CloudHandoffTurnOpener.storeCode(CloudAPIError.http(status: 500, code: "Bad Thing <x>", message: nil)) == nil)
         #expect(CloudHandoffTurnOpener.storeCode(CloudAPIError.timedOut("/v1/handoffs")) == nil)
     }
+
+    @Test func onlyTheSessionRecordedOnThePanesTabNamesTurns() {
+        #expect(CloudHandoffTurnOpener.ownsSession(recorded: "s1", asked: "s1"))
+        #expect(!CloudHandoffTurnOpener.ownsSession(recorded: "s1", asked: "s2"))
+        // A new chat whose session is not bound to its tab yet names no turn for any session.
+        #expect(!CloudHandoffTurnOpener.ownsSession(recorded: nil, asked: "s1"))
+        #expect(!CloudHandoffTurnOpener.ownsSession(recorded: "", asked: ""))
+    }
 }
