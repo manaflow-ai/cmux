@@ -29,7 +29,7 @@ impl Hub {
             || session.replaced.load(std::sync::atomic::Ordering::SeqCst)
             || session.status() == SessionStatus::Closed
             || session.turn().is_some()
-            || session.queue().iter().any(|q| !q.held)
+            || session.queue().iter().any(|q| !q.aside())
         {
             return;
         }
