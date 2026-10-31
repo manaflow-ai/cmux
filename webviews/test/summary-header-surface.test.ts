@@ -296,7 +296,7 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
       await panel.waitFor();
       const titles = await panel.locator("h3").allTextContents();
       expect(titles.filter((title) => title.startsWith("Subagents"))).toHaveLength(1);
-      expect(await panel.getByText("Audit the retry callers").count()).toBe(1);
+      expect(await panel.locator('.acpmux-summary-dot[title^="Audit the retry callers"]').count()).toBe(1);
     } finally {
       await page.close();
     }
