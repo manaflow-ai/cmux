@@ -70,6 +70,7 @@ extension WorkspaceRowView {
             }
             tabCount.setColor(Palette.textTertiary)
             mutedMark.setTint(Palette.textTertiary)
+            usageWarningMark.setTint(Palette.attention)
             if let machine { machineMark.setTint(machine.color) }
             prBadge.setColor(Palette.textSecondary)
             tintSessionTree()
@@ -201,6 +202,18 @@ extension WorkspaceRowView {
             mutedMark.frame = NSRect(x: trailing - ind, y: cy - ind / 2, width: ind, height: ind)
             trailing -= ind + Metrics.space2
         }
+        if !usageWarningMark.isHidden {
+            // The triangle takes a status mark's box (the spinner's, `statusGlyphFrame`); with no spinner it is the
+            // column's mark (`layoutColumnMark`), centered where every spinner above it centers (Lawrence 2026-10-30:
+            // "triangle not aligned, not sure if triangle is even centered": it ended at the row's inset, in a smaller
+            // box). It never gives way to the hover controls: while they show it sits just left of them, so a person
+            // who hovers the row can still point at it and read its tooltip.
+            let onColumn = columnMark?.view === usageWarningMark
+            let end = onColumn ? usageWarningMark.frame.maxX : trailing
+            let shown = overlayStart.map { min(end, $0 - Metrics.space1) } ?? end
+            if !onColumn || shown < end { usageWarningMark.frame = statusGlyphFrame(trailing: shown, centerY: cy) }
+            if !onColumn { trailing = usageWarningMark.frame.minX - Metrics.space2 }
+        }
         if !audioButton.isHidden {
             audioButton.frame = NSRect(x: trailing - control, y: cy - control / 2, width: control, height: control)
             trailing -= control + Metrics.space1
@@ -238,15 +251,18 @@ extension WorkspaceRowView {
         // line fade out before them (alpha masks, every backdrop), and the
         // marks they cover hide while they show.
         let fade = SidebarStyle.titleFadeWidth
-        title.setTrailingOcclusion(overlayStart.map { max(0, title.frame.maxX - ($0 - Metrics.space1)) } ?? 0, animated: fades)
+        let warningStart = usageWarningMark.isHidden ? nil : usageWarningMark.frame.minX
+        // The text and marks give way to the controls and to the badge beside them.
+        let coverStart = overlayStart.map { min($0, warningStart ?? $0) }
+        title.setTrailingOcclusion(coverStart.map { max(0, title.frame.maxX - ($0 - Metrics.space1)) } ?? 0, animated: fades)
         updateCalmTitleTip()
         subtitle.wantsLayer = true
-        subtitle.setTrailingFade(occlusion: overlayStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
-        for mark in [activity, rowBadge, agentMark, mutedMark, machineMark, audioButton, presenceDots, timeLabel] as [NSView] {
+        subtitle.setTrailingFade(occlusion: coverStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
+        for mark in [activity, rowBadge, agentMark, mutedMark, usageWarningMark, machineMark, audioButton, presenceDots, timeLabel] as [NSView] {
             // The column's mark gives way while the hover controls show; so does a status spinner left of it.
             let status = mark === activity || (mark === agentMark && markReplacesStatus)
-            let covered = mark === columnMark?.view ? markGivesWay
-                : (status && overlayStart != nil) || overlayStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true
+            let covered = mark === usageWarningMark ? false : mark === columnMark?.view ? markGivesWay
+                : (status && coverStart != nil) || coverStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true
             fadeOpacity(mark, to: covered ? 0 : 1, fades: fades)
         }
         layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)

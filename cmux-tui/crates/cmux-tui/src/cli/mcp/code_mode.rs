@@ -151,27 +151,35 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              - pane_neighbor_get {{pane: \"current\", direction: \"right\"}} answers {{pane: \
              {{id, ...}}}} for the pane on the person's right, or {{pane: null}}; \
              terminal_process_get {{terminal}} names the program running in a terminal.\n\
-             - To run a command for the person: tab_create_terminal {{name}} opens a shell \
-             on the person's right (a tab in the column right of this chat, or a new column \
+             - To run a command for the person: tab_create_terminal {{name}}, with no pane \
+             (pane: \"current\" is this chat's own pane; for a tab beside it, pass its id from pane_get), opens a shell on the person's right (a tab in the column right of this chat, or a new column \
              when there is none), then terminal_input_write {{terminal: value.terminal_id, \
              text: \"cmd\\n\"}} runs it there and the tab stays open with its output. Use this \
              for 'open a terminal', 'run X on my right', 'next to my logs'. With shell (or \
              argv) the tab runs only that command and closes when it exits.\n\
-             - pane_split {{pane, direction}}: only when the person says \"split\" or wants \
-             two terminals \"side by side\" (split the workspace's pane, then use the new \
-             value.pane_id). \"Next to my logs\", \"beside X\" or \"on the right\" means a \
+             - pane_split {{pane, direction}}: only when the person says \"split\", \"below\" \
+             or \"underneath\" (direction: \"down\"), or wants two terminals \"side by side\". \
+             The split makes the new pane's terminal (value.terminal_id): write into it, do not \
+             add a tab. \"Next to my logs\", \"beside X\" or \"on the right\" means a \
              new tab in that pane: tab_create_terminal {{pane}}, or no pane for the column \
              right of this chat (pane: \"current\" is this chat's own pane, not the right).\n\
              - terminal_input_write {{terminal, text: \"cmd\\n\"}}; terminal_wait {{terminal, \
              pattern, timeout_ms}} waits for a regex on the screen (never sleep or poll). The \
              typed command is on the screen too, so match the output line: pattern \
              \"(?m)^DONE\" for `cmd; echo DONE`. terminal_screen_read and terminal_history_read \
-             {{terminal}} read it.\n\
+             {{terminal}} read it (history answers {{text}}, the scrollback's lines); return only the \
+             lines you need: (await cmux.terminal_history_read({{terminal}})).text.split(\"\\n\").\
+             filter((l) => l.includes(\"error\")). Return small results: a list's ids and names, \
+             not every record.\n\
              - tab_rename {{tab, name}}, tab_close {{tab}}, tab_focus {{tab}}; workspace_rename \
-             {{workspace, name}}.\n\
+             {{workspace, name}}; tab_move {{tab, destination_pane}} (or destination_workspace: \
+             its active pane; it goes last); workspace_create {{name}}; terminal_input_keys \
+             {{terminal, keys: [\"ctrl+c\"]}} presses keys (enter, escape, up).\n\
              - Groups: tab_group_create {{tabs: [ids], name}}; workspace_group_create {{name}}, \
              then workspace_place {{workspace, group: <its id>}} for each member.\n\
              - workspace_status_set {{workspace, key, text}} (a sidebar status pill); \
+             workspace_status_clear {{workspace, key}} removes it (an empty text leaves an empty \
+             pill); \
              notification_create {{title, body}}.\n\n\
              Anything else: `await cmux.docs(\"words\")` answers {{tools: [{{name, description, \
              inputSchema}}], more: [names]}}; a tool's exact name finds it first. \
@@ -253,6 +261,36 @@ pub(super) fn docs(tools: &[Value], arguments: &Map<String, Value>) -> Result<Va
     let Some(query) = query else {
         return Ok(json!({"families": families(tools)}));
     };
+    // A query of exact tool names (`cmux.docs("tab_create_browser")`, or several) answers
+    // those tools only; the rest of the search goes in `more` by name. A full search put
+    // 8 schemas (11k characters) in front of the model for one name (tests/tool-evals r13a).
+    let mut words: Vec<&str> = query.split([' ', ',']).filter(|w| !w.is_empty()).collect();
+    words.dedup();
+    let exact: Vec<&Value> = words
+        .iter()
+        .filter_map(|word| {
+            tools.iter().find(|tool| tool.get("name").and_then(Value::as_str) == Some(*word))
+        })
+        .collect();
+    if !exact.is_empty() && exact.len() == words.len() && exact.len() <= DOCS_MAX_LIMIT {
+        let mut answer = search(tools, &query, limit);
+        let named: Vec<&str> =
+            exact.iter().filter_map(|tool| tool.get("name").and_then(Value::as_str)).collect();
+        let rest = answer
+            .get("tools")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+            .filter(|name| !named.contains(name))
+            .map(|name| json!(name));
+        let more: Vec<Value> = rest
+            .chain(answer.get("more").and_then(Value::as_array).into_iter().flatten().cloned())
+            .collect();
+        answer.set("tools", Value::Array(exact.into_iter().map(compact).collect()));
+        answer.set("more", Value::Array(more));
+        return Ok(answer);
+    }
     Ok(search(tools, &query, limit))
 }
 
@@ -337,8 +375,9 @@ fn search(tools: &[Value], query: &str, limit: usize) -> Value {
 /// Up to five tool names for a name no tool has: what a docs search for
 /// its words finds, daemon tools first.
 pub(super) fn nearest_names(tools: &[Value], name: &str) -> Vec<String> {
-    search(tools, &name.to_lowercase(), 5)["tools"]
-        .as_array()
+    search(tools, &name.to_lowercase(), 5)
+        .get("tools")
+        .and_then(Value::as_array)
         .into_iter()
         .flatten()
         .filter_map(|tool| tool["name"].as_str().map(str::to_owned))
@@ -359,8 +398,9 @@ fn compact(tool: &Value) -> Value {
     if !own {
         return tool.clone();
     }
-    let required = tool["inputSchema"]["required"]
-        .as_array()
+    let required = tool
+        .pointer("/inputSchema/required")
+        .and_then(Value::as_array)
         .map(|names| names.iter().filter_map(Value::as_str).map(str::to_owned).collect::<Vec<_>>())
         .unwrap_or_default();
     let mut description = tool["description"].as_str().unwrap_or_default().to_owned();
@@ -399,16 +439,16 @@ fn compact(tool: &Value) -> Value {
         "inputSchema": {"type": "object", "properties": properties},
     });
     if let Some(required) = schema.get("required").filter(|required| required != &&json!([])) {
-        compact["inputSchema"]["required"] = required.clone();
+        compact.set_path(&["inputSchema", "required"], required.clone());
     }
     if !common.is_empty() {
-        compact["alsoTakes"] = json!(common);
+        compact.set("alsoTakes", json!(common));
     }
-    if tool["annotations"]["readOnlyHint"] == true {
-        compact["readOnly"] = json!(true);
+    if tool.pointer("/annotations/readOnlyHint").and_then(Value::as_bool) == Some(true) {
+        compact.set("readOnly", json!(true));
     }
-    if tool["annotations"]["destructiveHint"] == true {
-        compact["destructive"] = json!(true);
+    if tool.pointer("/annotations/destructiveHint").and_then(Value::as_bool) == Some(true) {
+        compact.set("destructive", json!(true));
     }
     compact
 }
@@ -615,6 +655,8 @@ const PRELUDE: &str = r#"
       });
     },
   });
+  // `({cmux}) => {...}` takes the object a function script is called with: cmux itself.
+  base.cmux = globalThis.cmux;
   globalThis.__cmuxFinish = (promise) => promise.then(
     (value) => native.done(true, encode(value)),
     (error) => native.done(false, encode({
@@ -643,31 +685,34 @@ fn function_body(script: &str) -> std::borrow::Cow<'_, str> {
         && called.ends_with(')')
         && function_body(called) != std::borrow::Cow::Borrowed(called)
     {
-        return std::borrow::Cow::Owned(format!("return await {trimmed};"));
+        // Called with cmux, as an uncalled function is: `(async ({cmux}) => {...})()`
+        // would destructure undefined.
+        return std::borrow::Cow::Owned(format!("return await {called}(cmux);"));
     }
     let inner = match trimmed.strip_prefix('(').and_then(|rest| rest.strip_suffix(')')) {
         Some(inner) => inner.trim(),
         None => trimmed,
     };
     let head = inner.strip_prefix("async").map_or(inner, str::trim_start);
-    let opens = if let Some(rest) = head.strip_prefix("function") {
-        rest.trim_start().starts_with('(')
-    } else if let Some(params) = head.strip_prefix('(') {
-        // `(params) => {`: the parameter list closes, then the arrow and a brace follow.
-        params.split_once(')').is_some_and(|(list, rest)| {
-            !list.contains(['(', '{'])
-                && rest
-                    .trim_start()
-                    .strip_prefix("=>")
-                    .is_some_and(|r| r.trim_start().starts_with('{'))
-        })
-    } else {
-        false
+    // The `{` that opens the body: after `function (params)` or `(params) =>`. The
+    // parameter list may destructure (`({cmux}) => {`, tests/tool-evals r8e: GLM 5.3
+    // FlashX ran it four times and got null), so the body is the brace after the list.
+    let (arrow, params) = match head.strip_prefix("function") {
+        Some(rest) => (false, rest.trim_start()),
+        None => (true, head),
     };
-    let body_start = inner.find('{');
+    let body_start = params.strip_prefix('(').and_then(|list| {
+        let (list, rest) = list.split_once(')')?;
+        if list.contains('(') {
+            return None;
+        }
+        let rest = rest.trim_start();
+        let rest = if arrow { rest.strip_prefix("=>")?.trim_start() } else { rest };
+        rest.starts_with('{').then(|| inner.len() - rest.len())
+    });
     let closes_at_end =
         body_start.is_some_and(|start| block_end(inner, start) == Some(inner.len() - 1));
-    if opens && closes_at_end {
+    if closes_at_end {
         std::borrow::Cow::Owned(format!("return await ({inner})(cmux);"))
     } else {
         std::borrow::Cow::Borrowed(script)
@@ -679,23 +724,23 @@ fn function_body(script: &str) -> std::borrow::Cow<'_, str> {
 fn block_end(text: &str, open: usize) -> Option<usize> {
     let bytes = text.as_bytes();
     let (mut depth, mut i) = (0usize, open);
-    while i < bytes.len() {
-        match bytes[i] {
+    while let Some(&byte) = bytes.get(i) {
+        match byte {
             b'"' | b'\'' | b'`' => {
-                let quote = bytes[i];
+                let quote = byte;
                 i += 1;
-                while i < bytes.len() && bytes[i] != quote {
-                    i += if bytes[i] == b'\\' { 2 } else { 1 };
+                while let Some(&inner) = bytes.get(i).filter(|&&inner| inner != quote) {
+                    i += if inner == b'\\' { 2 } else { 1 };
                 }
             }
             b'/' if bytes.get(i + 1) == Some(&b'/') => {
-                while i < bytes.len() && bytes[i] != b'\n' {
+                while bytes.get(i).is_some_and(|&inner| inner != b'\n') {
                     i += 1;
                 }
             }
             b'/' if bytes.get(i + 1) == Some(&b'*') => {
                 i += 2;
-                while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                while i + 1 < bytes.len() && bytes.get(i..i + 2) != Some(b"*/".as_slice()) {
                     i += 1;
                 }
                 i += 1;
@@ -1025,5 +1070,37 @@ mod bg_steer_tests {
         assert!(text.contains("hibernates after 2 idle minutes"), "{text}");
         let without = descriptors(&[json!({"name": "pane_split"})]);
         assert!(!without[0]["description"].as_str().unwrap().contains("acpmux_bg_start"));
+    }
+}
+
+#[cfg(test)]
+mod block_end_tests {
+    use super::*;
+
+    /// Braces inside strings, template literals and comments are skipped; a block that never
+    /// closes, or a string, escape or comment cut off at the end, is `None`, not a panic.
+    #[test]
+    fn block_end_skips_quoted_and_commented_braces_and_stops_at_the_end() {
+        let script = "{ \"}\" '}' `}` /* } */ // }\n }";
+        assert_eq!(block_end(script, 0), Some(script.len() - 1));
+        for cut in ["{ \"open", "{ 'a\\", "{ /* never closed", "{ // to the end", "{ {", "{ /"] {
+            assert_eq!(block_end(cut, 0), None, "{cut:?}");
+        }
+    }
+
+    /// Only the descriptor's own reads change: a cmux tool keeps its required list,
+    /// read-only and destructive hints in the compact form.
+    #[test]
+    fn compact_keeps_required_and_hints() {
+        let tool = json!({
+            "name": "pane_close",
+            "description": "Close a pane (cmux.protocol/2 `pane.close`).",
+            "inputSchema": {"type": "object", "properties": {"pane": {"type": "string"}}, "required": ["pane"]},
+            "annotations": {"readOnlyHint": false, "destructiveHint": true},
+        });
+        let out = compact(&tool);
+        assert_eq!(out["inputSchema"]["required"], json!(["pane"]));
+        assert_eq!(out.get("destructive"), Some(&json!(true)));
+        assert_eq!(out.get("readOnly"), None);
     }
 }
