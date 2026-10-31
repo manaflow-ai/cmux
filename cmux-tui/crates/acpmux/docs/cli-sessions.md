@@ -27,6 +27,7 @@ Running the same `new --worktree ... --prompt-file ...` again reuses the session
 | From an agent session, say what the message asks of the receiver | `acpmux send coord --class block "Base is red; I cannot push"` |
 | Send a file with it | `acpmux send fix-27310 --attach ~/notes/before.png "The caret jumps after paste"` |
 | Check a `--no-wait` delivery | `acpmux send --status DELIVERY_ID` |
+| From an agent session, message several sessions at once | the `send` tool of the `acpmux` MCP server with `messages: [{to, text}, {to, file}]` (or `tag`), not a shell loop of `acpmux send --no-wait` |
 | Retry a failed last turn | `acpmux retry review-27310` |
 | Cancel the running turn | `acpmux session cancel coord` |
 

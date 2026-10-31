@@ -80,9 +80,268 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
     let send = tools[0]["description"].as_str().unwrap();
     assert!(send.contains("Message another agent session"), "{send}");
     assert!(send.contains("instead of running `acpmux send` in a shell"), "{send}");
-    assert_eq!(tools[0]["inputSchema"]["required"], json!(["to", "text"]));
+    assert!(send.contains("batch them in one call with messages"), "{send}");
     assert_eq!(tools[6]["inputSchema"]["required"], json!(["to", "body"]));
     assert_eq!(tools[8]["inputSchema"]["required"], json!(["id"]));
+}
+
+/// The first shape's fields are as they were (a snapshot): only new optional fields were added,
+/// and `required` went, because a batch names its recipients and texts in `messages`; a call
+/// without them is still refused for want of to and text (below).
+#[test]
+fn the_send_schema_keeps_its_first_shape() {
+    let props = &tools()[0]["inputSchema"]["properties"];
+    let first = json!({
+        "to": {"type": "string", "description": "The session: its name, id, or host/name for a session on a peer (as ls lists them)."},
+        "text": {"type": "string", "description": "The message, self-contained."},
+        "steer": {"type": "boolean", "description": "true (default): into a running turn at its next tool step. false: queued behind the running turn."},
+        "class": {"type": "string", "enum": ["block", "question", "result", "fyi", "blocker", "action"], "description": "What the message asks of the receiver: block or blocker (you cannot go on until it acts; wakes an idle receiver), question (you wait for its answer; wakes it too), result or action (work you finished or work for it; the default; wakes an idle receiver only when you started it or gave it its first work) or fyi (wakes no one)."},
+        "pr": {"type": "integer", "description": "The pull request this message is about: the receiver's inbox threads it with the others about it."},
+        "thread": {"type": "string", "description": "The thread this message goes in, a topic or a threadId from inbox_read (default: your messages about the PR its first line names, else all your messages)."}
+    });
+    for (key, want) in first.as_object().unwrap() {
+        assert_eq!(&props[key], want, "{key}");
+    }
+    let mut names: Vec<&String> = props.as_object().unwrap().keys().collect();
+    names.sort_unstable();
+    assert_eq!(
+        names,
+        ["class", "file", "messages", "pr", "steer", "supersede", "tag", "text", "thread", "to"]
+    );
+    assert!(tools()[0]["inputSchema"].get("required").is_none());
+    let item = &props["messages"]["items"]["properties"];
+    let mut item_keys: Vec<&String> = item.as_object().unwrap().keys().collect();
+    item_keys.sort_unstable();
+    assert_eq!(
+        item_keys,
+        ["class", "file", "pr", "steer", "supersede", "tag", "text", "thread", "to"]
+    );
+    assert_eq!(props["messages"]["maxItems"], json!(send::MAX_MESSAGES));
+}
+
+/// Waits for a user message carrying `needle` in `session`'s log.
+async fn received(hub: &crate::hub::Hub, session: &str, needle: &str) -> bool {
+    for _ in 0..100 {
+        let events = hub.events(session, 0, 1000).unwrap();
+        if events.iter().any(|e| e.kind == "user_message" && e.msg.to_string().contains(needle)) {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    false
+}
+
+/// A batch of three with one bad recipient: two rows sent, one row with its error, and the bad
+/// one stops neither of the others (the one after it still goes).
+#[tokio::test]
+async fn a_batch_sends_every_good_recipient_and_names_the_bad_one() {
+    let (hub, client, _dir) = daemon().await;
+    let a = session(&client, "batch-a").await;
+    let b = session(&client, "batch-b").await;
+    let args = json!({"class": "fyi", "messages": [
+        {"to": "batch-a", "text": "first order"},
+        {"to": "nobody-here", "text": "lost"},
+        {"to": "batch-b", "text": "second order"}
+    ]});
+    let started = std::time::Instant::now();
+    let r = call(&client, &tool("send", args)).await;
+    let took = started.elapsed();
+    assert_eq!(r["isError"], false, "{r}");
+    let rows = r["structuredContent"]["results"].as_array().unwrap();
+    assert_eq!(rows.len(), 3, "{r}");
+    let oks: Vec<bool> = rows.iter().map(|r| r["ok"].as_bool().unwrap()).collect();
+    assert_eq!(oks, [true, false, true], "{r}");
+    assert_eq!(rows[0]["to"], "batch-a");
+    assert_eq!(rows[0]["sessionId"], json!(a));
+    assert_eq!(rows[2]["sessionId"], json!(b));
+    assert_eq!(rows[1]["status"], "failed");
+    assert_eq!(rows[1]["index"], 1);
+    assert!(rows[1]["error"].as_str().unwrap().contains("nobody-here"), "{r}");
+    for row in [&rows[0], &rows[2]] {
+        assert!(!row["promptId"].as_str().unwrap().is_empty(), "{row}");
+        assert!(!row["deliveryId"].as_str().unwrap().is_empty(), "{row}");
+        assert_eq!(row["status"], "delivered", "{row}");
+    }
+    assert_eq!(r["structuredContent"]["sent"], 2);
+    assert_eq!(r["structuredContent"]["failed"], 1);
+    assert!(text(&r).ends_with("2 of 3 sent."), "{r}");
+    assert!(received(&hub, &a, "first order").await, "batch-a never got its message");
+    assert!(received(&hub, &b, "second order").await, "batch-b never got its message");
+    // The deliveries settle together: the batch takes no longer than one send's wait.
+    eprintln!("batch of 3 (one bad) answered in {took:?}");
+    assert!(took < STATUS_WAIT * 2, "{took:?}");
+    // A batch where nothing went is the call's error.
+    let none = json!({"messages": [{"to": "nobody-1", "text": "x"}, {"text": "no recipient"}]});
+    let r = call(&client, &tool("send", none)).await;
+    assert_eq!(r["isError"], true, "{r}");
+    assert_eq!(r["structuredContent"]["results"][1]["error"], "to (or tag) is required", "{r}");
+}
+
+/// Top-level fields are each item's defaults: one text to many sessions, or many texts to one.
+#[test]
+fn top_level_fields_are_each_items_defaults() {
+    let args = json!({"text": "rebase", "class": "fyi", "steer": false, "messages": [
+        {"to": "a"}, {"to": "b", "class": "block", "steer": true}, {"tag": "area=x", "file": "f.md"}
+    ]});
+    let items: Vec<send::Item> =
+        send::items(&args).unwrap().into_iter().map(Result::unwrap).collect();
+    assert_eq!(items[0].to.as_deref(), Some("a"));
+    assert_eq!(items[0].text.as_deref(), Some("rebase"));
+    assert_eq!(items[0].class.as_deref(), Some("fyi"));
+    assert!(!items[0].steer);
+    assert_eq!(items[1].class.as_deref(), Some("block"));
+    assert!(items[1].steer);
+    // An item's own message (a file) replaces the default text; its tag the default to.
+    assert_eq!((items[2].text.as_deref(), items[2].file.as_deref()), (None, Some("f.md")));
+    assert_eq!((items[2].to.as_deref(), items[2].tag.as_deref()), (None, Some("area=x")));
+    let both = json!({"messages": [{"to": "a", "tag": "t", "text": "x"}, {"to": "a", "text": "x", "file": "y"}, 3]});
+    let errors: Vec<String> =
+        send::items(&both).unwrap().into_iter().map(Result::unwrap_err).collect();
+    assert_eq!(
+        errors,
+        ["give to or tag, not both", "give text or file, not both", "not an object"]
+    );
+    assert!(send::items(&json!({"messages": []})).is_err());
+    let many: Vec<Value> =
+        (0..=send::MAX_MESSAGES).map(|_| json!({"to": "a", "text": "x"})).collect();
+    assert!(send::items(&json!({"messages": many})).unwrap_err().contains("at most 32"));
+}
+
+/// `file`: the message is the file's contents, read from a file of the caller's, bounded.
+#[tokio::test]
+async fn a_message_can_be_a_file_of_yours() {
+    let (hub, client, _dir) = daemon().await;
+    let lane = session(&client, "file-lane").await;
+    let dir = tempfile::tempdir().unwrap();
+    let brief = dir.path().join("brief.md");
+    std::fs::write(
+        &brief,
+        "Brief: land #1 when green.
+",
+    )
+    .unwrap();
+    let args = json!({"to": "file-lane", "file": brief.to_str().unwrap()});
+    let r = call(&client, &tool("send", args)).await;
+    assert_eq!(r["isError"], false, "{r}");
+    // The first shape's result, as for text.
+    assert!(text(&r).starts_with("Sent to file-lane:"), "{r}");
+    assert_eq!(r["structuredContent"]["sessionId"], json!(lane), "{r}");
+    assert!(received(&hub, &lane, "Brief: land #1 when green.").await, "the file never arrived");
+
+    let big = dir.path().join("big.md");
+    std::fs::write(&big, "x".repeat(usize::try_from(send::MAX_FILE_BYTES).unwrap() + 1)).unwrap();
+    let binary = dir.path().join("bin");
+    std::fs::write(&binary, [0xff, 0xfe, 0x00]).unwrap();
+    let empty = dir.path().join("empty");
+    std::fs::write(
+        &empty, "  
+",
+    )
+    .unwrap();
+    let cases = [
+        (big.clone(), "more than 256 KiB"),
+        (binary, "not UTF-8 text"),
+        (empty, "the file is empty"),
+        (dir.path().to_owned(), "not a regular file"),
+        (dir.path().join("missing"), "cannot read"),
+    ];
+    for (path, want) in cases {
+        let r = call(&client, &tool("send", json!({"to": "file-lane", "file": path}))).await;
+        assert_eq!(r["isError"], true, "{r}");
+        assert!(text(&r).contains(want), "{want}: {r}");
+    }
+    // Another user's file is refused even when readable.
+    #[cfg(unix)]
+    {
+        // SAFETY: geteuid has no preconditions.
+        if unsafe { libc::geteuid() } != 0 {
+            let err = send::read_message_file("/etc/passwd").unwrap_err();
+            assert!(err.contains("not your file"), "{err}");
+        }
+    }
+    let both = json!({"to": "file-lane", "text": "x", "file": brief});
+    let r = call(&client, &tool("send", both)).await;
+    assert_eq!(text(&r), "give text or file, not both", "{r}");
+}
+
+/// `supersede`: a second message under the same key replaces the first while it still waits.
+#[tokio::test]
+async fn supersede_replaces_your_queued_message() {
+    let (hub, client, _dir) = daemon().await;
+    let lane = session(&client, "sup-lane").await;
+    // "slow" streams for about a second, so the two after it queue.
+    let r = call(&client, &tool("send", json!({"to": "sup-lane", "text": "slow", "steer": false})))
+        .await;
+    assert_eq!(r["isError"], false, "{r}");
+    let order = json!({"to": "sup-lane", "text": "order", "steer": false, "supersede": "cause-1"});
+    let first = call(&client, &tool("send", order)).await;
+    assert_eq!(first["structuredContent"]["delivery"], "queued", "{first}");
+    assert_eq!(first["structuredContent"]["replaced"], 0, "{first}");
+    let fix = json!({"messages": [{"to": "sup-lane", "text": "correction", "steer": false, "supersede": "cause-1"}]});
+    let second = call(&client, &tool("send", fix)).await;
+    let row = &second["structuredContent"]["results"][0];
+    assert_eq!(row["replaced"], 1, "{second}");
+    assert_eq!(
+        row["replacedPromptIds"],
+        json!([first["structuredContent"]["promptId"]]),
+        "{second}"
+    );
+    let removed: Vec<Value> = hub
+        .events(&lane, 0, 1000)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == "queue_removed")
+        .map(|e| e.msg)
+        .collect();
+    assert_eq!(removed.len(), 1, "{removed:?}");
+    assert_eq!(removed[0]["reason"], "superseded");
+}
+
+/// `tag`: every live session carrying it, expanded into one row each; none is an error row.
+#[tokio::test]
+async fn a_tag_expands_to_every_live_session_carrying_it() {
+    let (hub, client, _dir) = daemon().await;
+    let tagged = |name: &str, area: &str| {
+        let client = client.clone();
+        let (name, area) = (name.to_owned(), area.to_owned());
+        async move {
+            let s = client
+                .request(
+                    method::SESSION_NEW,
+                    json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                        "_meta": {"acpmux": {"name": name, "tags": {"area": area}}}}),
+                )
+                .await
+                .unwrap();
+            s["sessionId"].as_str().unwrap().to_owned()
+        }
+    };
+    let x = tagged("tag-x", "acpmux").await;
+    let y = tagged("tag-y", "acpmux").await;
+    tagged("tag-z", "cloud").await;
+    let r = call(&client, &tool("send", json!({"tag": "area=acpmux", "text": "all hands"}))).await;
+    assert_eq!(r["isError"], false, "{r}");
+    let rows = r["structuredContent"]["results"].as_array().unwrap();
+    let mut names: Vec<&str> = rows.iter().map(|r| r["to"].as_str().unwrap()).collect();
+    names.sort_unstable();
+    assert_eq!(names, ["tag-x", "tag-y"], "{r}");
+    assert!(rows.iter().all(|r| r["ok"] == true && r["tag"] == "area=acpmux"), "{r}");
+    assert!(received(&hub, &x, "all hands").await);
+    assert!(received(&hub, &y, "all hands").await);
+    let r = call(
+        &client,
+        &tool(
+            "send",
+            json!({"messages": [
+                {"tag": "area=nowhere", "text": "x"}, {"to": "tag-z", "text": "just you"}
+            ]}),
+        ),
+    )
+    .await;
+    let rows = r["structuredContent"]["results"].as_array().unwrap();
+    assert_eq!(rows[0]["ok"], false, "{r}");
+    assert!(rows[0]["error"].as_str().unwrap().contains("no live session carries"), "{r}");
+    assert_eq!(rows[1]["ok"], true, "{r}");
 }
 
 #[tokio::test]
