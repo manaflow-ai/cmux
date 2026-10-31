@@ -1,0 +1,143 @@
+{
+ "id": "ctrlbt-real-after-stall",
+ "priority": "P1",
+ "title": "A real Ctrl-` makes a terminal that takes keys after the daemon did not answer for 40 s (heavy swap)",
+ "why": "Lawrence on v2.2.10-opt: Ctrl-` does not work. debug.key skips the window server, the menu and AppKit; this sends the real key.",
+ "source": "cmux-ad 2026-10-31 10:2xZ (Ctrl-` repro owner)",
+ "budget_seconds": 240,
+ "steps": [
+  {
+   "do": "action",
+   "action": "home.show",
+   "title": "set-up: Go to Home (its menu item); Home's message box has the keyboard"
+  },
+  {
+   "do": "wait",
+   "seconds": 2
+  },
+  {
+   "do": "rpc",
+   "method": "debug.focus",
+   "title": "record what has the keyboard (Home)"
+  },
+  {
+   "do": "real_key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "home-key",
+   "title": "a REAL Ctrl-` on Home (CuaDriver HID key event)"
+  },
+  {
+   "do": "key_outcome",
+   "action": "newSurface",
+   "title": "Home: the real Ctrl-` reached cmux and ran New Terminal Tab"
+  },
+  {
+   "do": "focused_terminal",
+   "as": "main",
+   "title": "Home: a new terminal has the keyboard and the daemon knows it"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo base-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "base-typed"
+  },
+  {
+   "do": "expect",
+   "title": "Home: the typed line runs in the new terminal",
+   "since": "base-typed",
+   "timeout": 15,
+   "all": [
+    {
+     "daemon_line": "base-${nonce}-42"
+    },
+    {
+     "app_text_line": "base-${nonce}-42"
+    },
+    {
+     "app_pane": {
+      "focused": true
+     }
+    },
+    {
+     "frame_text": "base-${nonce}-42"
+    }
+   ]
+  },
+  {
+   "do": "daemon_pause",
+   "seconds": 40,
+   "title": "the daemon does not answer for 40 s (SIGSTOP), as under heavy swap; then it answers again"
+  },
+  {
+   "do": "wait",
+   "seconds": 3
+  },
+  {
+   "do": "rpc",
+   "method": "debug.focus",
+   "title": "record what has the keyboard before the real Ctrl-`"
+  },
+  {
+   "do": "real_key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "ctrlbt",
+   "title": "a REAL Ctrl-` (CuaDriver HID key event)"
+  },
+  {
+   "do": "key_outcome",
+   "action": "newSurface",
+   "title": "the real Ctrl-` reached cmux and ran New Terminal Tab (action log, keyboard entrypoint)"
+  },
+  {
+   "do": "focused_terminal",
+   "as": "ra",
+   "title": "a new terminal has the keyboard and the daemon knows it"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo ra-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "ra-typed"
+  },
+  {
+   "do": "expect",
+   "title": "the typed line runs in the new terminal",
+   "since": "ra-typed",
+   "timeout": 15,
+   "all": [
+    {
+     "daemon_line": "ra-${nonce}-42"
+    },
+    {
+     "app_text_line": "ra-${nonce}-42"
+    },
+    {
+     "app_pane": {
+      "focused": true
+     }
+    },
+    {
+     "frame_text": "ra-${nonce}-42"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "leave_full_screen"
+  }
+ ]
+}
