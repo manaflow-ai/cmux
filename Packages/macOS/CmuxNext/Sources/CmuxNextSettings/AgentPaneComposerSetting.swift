@@ -4,7 +4,7 @@ import CmuxNextDesign
 /// webviews/src/agent-session/acpmux/composerSettings.ts):
 ///
 /// ```jsonc
-/// "agentPane": { "showContextUsage": true, "showDictation": true, "spellChecking": false, "attachmentView": "inline", "scrollToBottomOnSend": true }
+/// "agentPane": { "showContextUsage": true, "showDictation": true, "spellChecking": false, "attachmentView": "inline", "scrollToBottomOnSend": true, "showMachineLoadWarnings": true }
 /// ```
 ///
 /// `showContextUsage`: the context usage ring beside the model. The ring's right-click hides it,
@@ -18,6 +18,8 @@ import CmuxNextDesign
 /// `scrollToBottomOnSend`: when enabled, sending while reading up jumps to the newest row (the
 /// current behavior); when disabled, sending preserves the visible row and offset while new rows
 /// arrive below it. A reader at the bottom still follows streaming output.
+/// `showMachineLoadWarnings`: the Computer menu adds cached high-load or low-memory details to
+/// remote machine rows. It is on by default and does not start another health poller.
 ///
 /// `reasoningSlider` is not a cmux.json key: the Debug Settings toggle `agent.reasoningSlider`
 /// (CmuxNextAgentPane AgentPaneTunables, DEV and NIGHTLY, off by default) sets it, and it rides the
@@ -30,12 +32,14 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
     public static let spellCheckingPath = ["agentPane", "spellChecking"]
     public static let attachmentViewPath = ["agentPane", "attachmentView"]
     public static let scrollToBottomOnSendPath = ["agentPane", "scrollToBottomOnSend"]
+    public static let showMachineLoadWarningsPath = ["agentPane", "showMachineLoadWarnings"]
 
     public var showContextUsage = true
     public var showDictation = true
     public var spellChecking = false
     public var attachmentView = AgentPaneAttachmentView.inline
     public var scrollToBottomOnSend = true
+    public var showMachineLoadWarnings = true
     /// The Debug Settings opt-in (`agent.reasoningSlider`); never parsed from cmux.json.
     public var reasoningSlider = false
     /// The Debug Settings visual choice (`agent.reasoningSliderStyle`); never parsed from cmux.json.
@@ -45,7 +49,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
 
     public static let fallback = AgentPaneComposerSetting()
 
-    /// The page's value (the `composer` host event): `{showContextUsage, showDictation, spellChecking, attachmentView, scrollToBottomOnSend, reasoningSlider, reasoningSliderStyle}`.
+    /// The page's value (the `composer` host event): `{showContextUsage, showDictation, spellChecking, attachmentView, scrollToBottomOnSend, showMachineLoadWarnings, reasoningSlider, reasoningSliderStyle}`.
     public var pageValue: JSONValue {
         [
             "showContextUsage": .bool(showContextUsage),
@@ -53,6 +57,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
             "spellChecking": .bool(spellChecking),
             "attachmentView": .string(attachmentView.rawValue),
             "scrollToBottomOnSend": .bool(scrollToBottomOnSend),
+            "showMachineLoadWarnings": .bool(showMachineLoadWarnings),
             "reasoningSlider": .bool(reasoningSlider),
             "reasoningSliderStyle": .string(reasoningSliderStyle)
         ]
@@ -79,6 +84,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
             if descriptor.path == showDictationPath { setting.showDictation = flag }
             if descriptor.path == spellCheckingPath { setting.spellChecking = flag }
             if descriptor.path == scrollToBottomOnSendPath { setting.scrollToBottomOnSend = flag }
+            if descriptor.path == showMachineLoadWarningsPath { setting.showMachineLoadWarnings = flag }
         }
         return setting
     }
@@ -143,6 +149,14 @@ nonisolated enum AgentPaneComposerSettingsSchema {
                 kind: .toggle, default: .bool(AgentPaneComposerSetting.fallback.scrollToBottomOnSend),
                 keywords: ["scroll", "bottom", "send", "message", "chat", "latest", "follow"]
             ),
+            SettingDescriptor(
+                AgentPaneComposerSetting.showMachineLoadWarningsPath, section: .general, group: group,
+                title: SettingsText.keyed("settings.agentPane.showMachineLoadWarnings", "Show Machine Load Warnings"),
+                help: SettingsText.keyed("settings.agentPane.showMachineLoadWarnings.help",
+                                         "Shows a warning when a remote machine is at its CPU or memory budget in the Computer menu."),
+                kind: .toggle, default: .bool(AgentPaneComposerSetting.fallback.showMachineLoadWarnings),
+                keywords: ["machine", "load", "memory", "cpu", "warning", "computer", "composer", "agent"]
+            ),
         ]
     }
 
@@ -151,6 +165,7 @@ nonisolated enum AgentPaneComposerSettingsSchema {
         Set([AgentPaneComposerSetting.showContextUsagePath,
              AgentPaneComposerSetting.showDictationPath,
              AgentPaneComposerSetting.spellCheckingPath,
-             AgentPaneComposerSetting.attachmentViewPath].map { $0.joined(separator: ".") })
+             AgentPaneComposerSetting.attachmentViewPath,
+             AgentPaneComposerSetting.showMachineLoadWarningsPath].map { $0.joined(separator: ".") })
     }
 }

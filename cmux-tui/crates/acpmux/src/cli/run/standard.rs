@@ -76,7 +76,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             )
             .await
         }
-        Command::Ensure { name, model, preset, host, cwd, policy, effort, tags } => {
+        Command::Ensure { name, model, preset, host, cwd, policy, effort, tags, harness_from } => {
             orchestrate::ensure(
                 connect(true).await?,
                 &name,
@@ -87,6 +87,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 policy,
                 effort,
                 tags,
+                harness_from,
                 json_out,
             )
             .await
@@ -183,7 +184,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::Pending => {
             let client = connect(true).await?;
-            let v = client.request(method::MUX_SESSIONS, json!({})).await?;
+            let v = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
             let mut out = Vec::new();
             for s in v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default() {
                 if s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) == 0 {
@@ -323,6 +324,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if let Some(e) = &args.effort {
                 meta["effort"] = json!(e);
             }
+            launch::successor_meta(&args, &mut meta);
             meta["argv"] = json!(crate::cli::entry::original_args());
             if let Some(prompt) = &launch.file_prompt {
                 meta["promptFileText"] = json!(prompt);
@@ -415,12 +417,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // legitimately return the same raw id as a local session; using the raw id
             // here would send prompts, info and lifecycle controls to the local chat.
             let route_id = id.as_str();
-            // Started past this host's lane cap: a warning, never a refusal (`hub/admission.rs`).
-            if reused.is_none()
-                && let Some(w) =
-                    v.pointer("/_meta/acpmux/admission/warning").and_then(Value::as_str)
-            {
-                eprintln!("acpmux: warning: {w}");
+            if reused.is_none() {
+                launch::print_new_warnings(&v);
             }
             let name = v
                 .pointer("/_meta/acpmux/name")
@@ -659,7 +657,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             status,
             supersede,
             class,
+            inbox,
             attach,
+            tag,
+            dry_run,
         } => {
             if let Some(delivery) = status {
                 let client = before_deadline(deadline, &delivery, connect(true)).await?;
@@ -670,7 +671,6 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 )
                 .await;
             }
-            let session = session.ok_or_else(|| anyhow!("a session is required"))?;
             let mut prompt_id = PromptId::new(prompt_id);
             prompt_id.from_agent = from.or_else(crate::cli::sender::of_this_process);
             prompt_id.cli_host = crate::cli::sender::person_host(prompt_id.from_agent.is_some());
@@ -678,9 +678,27 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             prompt_id.supersede = supersede;
             let classed = class.is_some();
             prompt_id.class = class;
+            (prompt_id.pr, prompt_id.thread) = (inbox.pr, inbox.thread);
             // An agent's send and a message (--no-wait) steer; the person's waiting send queues.
             let agent = crate::cli::sender::from_an_agent(prompt_id.from_agent.is_some());
             let mut steer = send_steers(steer, no_steer, no_wait, agent);
+            if let Some(tag) = tag {
+                if !attach.is_empty() {
+                    return Err(errors::AppError::usage(
+                        "send --tag carries text only, not --attach",
+                    )
+                    .into());
+                }
+                // No SESSION with --tag: clap read the prompt's first word as one.
+                let words: Vec<String> = session.into_iter().chain(prompt).collect();
+                let text = arg_or_stdin(&words)?;
+                let steer = send_steers(false, no_steer, true, agent);
+                return super::fanout::send_to_tag(
+                    &tag, &text, &prompt_id, steer, dry_run, json_out,
+                )
+                .await;
+            }
+            let session = session.ok_or_else(|| anyhow!("a session is required"))?;
             let text = arg_or_stdin(&prompt)?;
             // A team address (`@member/agent`, `@team/role`); a bare `@` is the caller's own
             // session (`orchestrate::expand_session_key`), never the team path.
@@ -965,10 +983,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             orchestrate::tail(connect(true).await?, &session, last, since, follow, suppress_reads)
                 .await
         }
-        Command::Info { session } => {
+        Command::Info { session, fields } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
             let v = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+            if let Some(fields) = fields {
+                return super::fanout::print_info_fields(&v, &fields, json_out);
+            }
             if json_out {
                 print_json(&v);
                 return Ok(());
@@ -1140,6 +1161,14 @@ async fn briefs(client: Arc<Client>, cmd: BriefsCmd, json_out: bool) -> Result<(
                 b.get("briefId").and_then(Value::as_str).unwrap_or("?"),
                 b.get("status").and_then(Value::as_str).unwrap_or("?"),
                 b.get("title").and_then(Value::as_str).unwrap_or("")
+            );
+        }
+        // Peers whose briefs are missing from the list, and why (`server/requests/briefs.rs`).
+        for f in v.get("peersFailed").and_then(Value::as_array).into_iter().flatten() {
+            eprintln!(
+                "left out {}: {}",
+                f.get("peer").and_then(Value::as_str).unwrap_or("?"),
+                f.get("error").and_then(Value::as_str).unwrap_or("?")
             );
         }
     } else {

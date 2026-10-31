@@ -18,7 +18,7 @@ import Testing
             entries.flatMap { entry -> [ActionID] in
                 switch entry {
                 case let .action(id), let .choices(id), let .submenu(id, _): [id]
-                case let .folder(_, children): ids(children)
+                case let .folder(_, children), let .group(_, children): ids(children)
                 case .separator: []
                 }
             }
