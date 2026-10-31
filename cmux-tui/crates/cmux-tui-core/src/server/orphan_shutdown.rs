@@ -1,8 +1,9 @@
 //! The core half of the DEV owner orphan exit (the policy and its watcher
 //! live in the cmux-tui crate, `headless/dev_orphan_exit.rs`).
 //!
-//! The registry tells one observer each time a client connects or leaves, so
-//! the watcher can time how long the owner has had no client at all. The
+//! The registry tells its observers each time a client connects or leaves,
+//! so the watcher can time how long the owner has had no client at all (the
+//! lost-paths exit, cmux-tui `headless/lost_paths.rs`, listens too). The
 //! owner's own journal plugin (the bundled screen detector, which connects
 //! back at start and stays) is not such a client: a connection from that
 //! plugin's process group is classified before it registers and is not

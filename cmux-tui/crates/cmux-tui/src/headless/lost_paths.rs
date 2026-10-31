@@ -33,9 +33,21 @@
 //! of the folder or of the state directory, on a client arriving or
 //! leaving, and on [`LostPaths::stop`]. Each wake drains what woke it
 //! before it waits again, so a descriptor left readable can never spin it.
-//! A rename of a folder above these (not their removal) is not seen. A path
-//! that cannot be read at start is never watched, so a path the owner never
-//! had is never taken for a loss. macOS and Linux only.
+//! A rename of a folder above these (not their removal) is not seen.
+//!
+//! The identities are read before the owner writes its readiness byte (the
+//! process that started it may remove the root the moment it has the byte),
+//! so a socket or folder that cannot be read then is already lost: the
+//! owner bound that socket a moment before. A state directory is optional
+//! (an in-memory session has none). Symlinks are followed, as the watch's
+//! own open does.
+//!
+//! Only an owner that clients find through its socket's folder alone is
+//! watched (main.rs `reached_only_by_socket`): a Cloud daemon's remote
+//! runtime and link entry, and a WebSocket listener with a configured token,
+//! reach it by other ways, so those owners never start the watch. The app's
+//! owner's loopback WebSocket token is minted into a file beside the socket,
+//! so that listener is found through the folder too. macOS and Linux only.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -48,37 +60,60 @@ struct Identity {
     ino: u64,
 }
 
-/// The identity of `path` itself (a symlink is not followed); `None` when
+/// The identity of the file `path` names (symlinks followed); `None` when
 /// it cannot be read.
 fn identity(path: &Path) -> Option<Identity> {
     use std::os::unix::fs::MetadataExt;
-    std::fs::symlink_metadata(path).ok().map(|meta| Identity { dev: meta.dev(), ino: meta.ino() })
+    std::fs::metadata(path).ok().map(|meta| Identity { dev: meta.dev(), ino: meta.ino() })
 }
 
 /// The paths that make an owner reachable, with the identity each had when
-/// the owner started.
+/// it was read (`None`: already gone then).
 #[derive(Debug)]
 pub(crate) struct Reachable {
-    paths: Vec<(PathBuf, Identity)>,
+    folder: Option<PathBuf>,
+    state: Option<PathBuf>,
+    paths: Vec<(PathBuf, Option<Identity>)>,
 }
 
 impl Reachable {
-    /// The identities of `paths` now, leaving out any that cannot be read;
-    /// `None` when none can.
-    pub(crate) fn now(paths: &[&Path]) -> Option<Self> {
-        let paths: Vec<(PathBuf, Identity)> = paths
-            .iter()
-            .filter_map(|path| identity(path).map(|id| (path.to_path_buf(), id)))
-            .collect();
-        (!paths.is_empty()).then_some(Self { paths })
+    /// This owner's socket, its folder and its session state directory, read
+    /// now. `None` only for a socket path with no folder and no state
+    /// directory to watch.
+    pub(crate) fn for_owner(mux: &cmux_tui_core::Mux, socket: &Path) -> Option<Self> {
+        let folder =
+            socket.parent().filter(|folder| !folder.as_os_str().is_empty()).map(Path::to_path_buf);
+        let state = mux.session_state_directory().filter(|state| state.exists());
+        let required = std::iter::once(socket.to_path_buf()).chain(folder.clone());
+        Self::read(folder, state, required)
+    }
+
+    /// `required` paths count as lost when they cannot be read now; the
+    /// state directory is read only when it exists.
+    fn read(
+        folder: Option<PathBuf>,
+        state: Option<PathBuf>,
+        required: impl Iterator<Item = PathBuf>,
+    ) -> Option<Self> {
+        let mut paths: Vec<(PathBuf, Option<Identity>)> =
+            required.map(|path| (path.clone(), identity(&path))).collect();
+        let state = state.and_then(|state| identity(&state).map(|id| (state, id)));
+        if let Some((state, id)) = &state {
+            paths.push((state.clone(), Some(*id)));
+        }
+        let state = state.map(|(state, _)| state);
+        (folder.is_some() || state.is_some()).then_some(Self { folder, state, paths })
     }
 
     /// The first path that is no longer the file it was, and why.
     pub(crate) fn lost(&self) -> Option<String> {
-        self.paths.iter().find_map(|(path, was)| match identity(path) {
-            None => Some(format!("{} was removed", path.display())),
-            Some(now) if now != *was => Some(format!("{} was replaced", path.display())),
-            Some(_) => None,
+        self.paths.iter().find_map(|(path, was)| match (was, identity(path)) {
+            (None, _) => Some(format!("{} was gone before the owner was ready", path.display())),
+            (Some(_), None) => Some(format!("{} was removed", path.display())),
+            (Some(was), Some(now)) if now != *was => {
+                Some(format!("{} was replaced", path.display()))
+            }
+            _ => None,
         })
     }
 }
@@ -105,21 +140,15 @@ impl LostPaths {
     }
 }
 
-/// Starts the watch for this headless owner, serving on `socket`. `None`
-/// when there is nothing to watch or the watch cannot start (logged).
-pub(crate) fn start_for_owner(mux: &Arc<cmux_tui_core::Mux>, socket: &Path) -> Option<LostPaths> {
-    let folder = socket.parent().filter(|folder| !folder.as_os_str().is_empty());
-    let state = mux.session_state_directory();
-    let mut paths: Vec<&Path> = vec![socket];
-    paths.extend(folder);
-    paths.extend(state.as_deref());
-    let reachable = Reachable::now(&paths)?;
+/// Starts the watch for this headless owner on what `reachable` read.
+/// `None` when the watch cannot start (logged).
+pub(crate) fn start(mux: &Arc<cmux_tui_core::Mux>, reachable: Reachable) -> Option<LostPaths> {
     let mut dirs: Vec<watch::Dir> = Vec::new();
-    if let Some(folder) = folder {
-        dirs.push(watch::Dir { path: folder.to_path_buf(), entries: true });
+    if let Some(folder) = &reachable.folder {
+        dirs.push(watch::Dir { path: folder.clone(), entries: true });
     }
-    if let Some(state) = state {
-        dirs.push(watch::Dir { path: state, entries: false });
+    if let Some(state) = &reachable.state {
+        dirs.push(watch::Dir { path: state.clone(), entries: false });
     }
     let session = mux.session.clone();
     let (wake, events) = match watch::Wake::new().and_then(|wake| {
@@ -149,11 +178,20 @@ pub(crate) fn start_for_owner(mux: &Arc<cmux_tui_core::Mux>, socket: &Path) -> O
     });
     let watched = Arc::downgrade(mux);
     let waiter = shared.clone();
-    let thread = std::thread::Builder::new()
+    let thread = match std::thread::Builder::new()
         .name("owner-lost-paths".into())
         .spawn(move || run(&waiter, events, &reachable, &watched, &session))
-        .ok();
-    Some(LostPaths { shared, thread })
+    {
+        Ok(thread) => thread,
+        Err(error) => {
+            crate::client_log::stderr_log!(
+                "lifecycle",
+                "{BIN}: owner cannot watch its socket and state directory: {error}"
+            );
+            return None;
+        }
+    };
+    Some(LostPaths { shared, thread: Some(thread) })
 }
 
 /// Waits until the owner is unreachable and unused, then stops it; returns
@@ -467,32 +505,68 @@ mod watch {
 #[cfg(test)]
 mod tests {
     use super::Reachable;
+    use std::path::Path;
+
+    fn read(socket: &Path, state: Option<&Path>) -> Option<Reachable> {
+        let folder = socket.parent().map(Path::to_path_buf);
+        let required = std::iter::once(socket.to_path_buf()).chain(folder.clone());
+        Reachable::read(folder, state.map(Path::to_path_buf), required)
+    }
 
     #[test]
     fn a_removed_or_replaced_path_is_lost_and_an_unchanged_one_is_not() {
         let root = tempfile::tempdir().unwrap();
         let state = root.path().join("state");
         std::fs::create_dir(&state).unwrap();
-        let socket = root.path().join("owner.sock");
+        let socket = root.path().join("run").join("owner.sock");
+        std::fs::create_dir(socket.parent().unwrap()).unwrap();
         std::fs::write(&socket, "").unwrap();
-        let reachable = Reachable::now(&[socket.as_path(), state.as_path()]).unwrap();
+        let reachable = read(&socket, Some(&state)).unwrap();
         assert_eq!(reachable.lost(), None);
         // Replaced: another file renamed over it (made while the first one
         // exists, so it cannot reuse the first one's inode).
         std::fs::write(root.path().join("other"), "").unwrap();
         std::fs::rename(root.path().join("other"), &socket).unwrap();
         assert!(reachable.lost().unwrap().ends_with("was replaced"), "{:?}", reachable.lost());
-        let reachable = Reachable::now(&[state.as_path()]).unwrap();
+        let reachable = read(&socket, Some(&state)).unwrap();
         std::fs::remove_dir_all(&state).unwrap();
         assert!(reachable.lost().unwrap().ends_with("was removed"), "{:?}", reachable.lost());
     }
 
+    /// The process that started the owner may remove its root the moment it
+    /// reads the readiness byte; a socket already gone then is a loss.
     #[test]
-    fn a_path_that_cannot_be_read_at_start_is_never_watched() {
+    fn a_socket_gone_before_the_owner_was_ready_is_lost() {
         let root = tempfile::tempdir().unwrap();
-        let missing = root.path().join("missing");
-        assert!(Reachable::now(&[missing.as_path()]).is_none());
-        let reachable = Reachable::now(&[missing.as_path(), root.path()]).unwrap();
-        assert_eq!(reachable.lost(), None, "a path never seen is not a loss");
+        let socket = root.path().join("owner.sock");
+        let reachable = read(&socket, None).expect("the folder is watched");
+        assert!(reachable.lost().unwrap().ends_with("before the owner was ready"));
+    }
+
+    /// An in-memory session has no state directory: that is no loss.
+    #[test]
+    fn a_missing_state_directory_is_optional() {
+        let root = tempfile::tempdir().unwrap();
+        let socket = root.path().join("owner.sock");
+        std::fs::write(&socket, "").unwrap();
+        let reachable = read(&socket, Some(&root.path().join("no-state"))).unwrap();
+        assert_eq!(reachable.lost(), None);
+    }
+
+    /// A symlinked state directory is the directory it names: removing the
+    /// target is a loss.
+    #[test]
+    fn a_symlinked_state_directory_follows_its_target() {
+        let root = tempfile::tempdir().unwrap();
+        let socket = root.path().join("owner.sock");
+        std::fs::write(&socket, "").unwrap();
+        let target = root.path().join("target");
+        std::fs::create_dir(&target).unwrap();
+        let link = root.path().join("state");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let reachable = read(&socket, Some(&link)).unwrap();
+        assert_eq!(reachable.lost(), None);
+        std::fs::remove_dir(&target).unwrap();
+        assert!(reachable.lost().unwrap().ends_with("was removed"), "{:?}", reachable.lost());
     }
 }

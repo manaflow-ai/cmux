@@ -193,7 +193,14 @@ fn orphaned_owner_exits_when_its_socket_and_state_are_removed() {
     let root = scratch("removed");
     fs::create_dir_all(&root).unwrap();
     let owner = Owner::ensure(&root, Path::new(env!("CARGO_BIN_EXE_cmux-tui")), &root);
-    let client = UnixStream::connect(&owner.socket).unwrap();
+    // An answered request proves the owner registered this client before
+    // its root goes (a bare connect is only queued in the kernel).
+    let mut client = UnixStream::connect(&owner.socket).unwrap();
+    client.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    client.write_all(b"{\"id\":1,\"cmd\":\"identify\"}\n").unwrap();
+    let answered = std::io::BufRead::lines(std::io::BufReader::new(&client))
+        .any(|line| line.is_ok_and(|line| line.contains("\"id\":1")));
+    assert!(answered, "the owner never answered identify");
     let before = cpu(owner.pid()).expect("the owner is running");
     fs::remove_dir_all(&root).unwrap();
     std::thread::sleep(Duration::from_secs(2));

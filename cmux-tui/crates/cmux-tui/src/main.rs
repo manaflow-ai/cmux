@@ -2276,6 +2276,13 @@ fn run_server(
     let ws_addr = args.ws.clone().or(config.server.ws.clone());
     let headless::WsToken { token: ws_token, minted: ws_token_minted } =
         headless::ws_token(&args, &ws_addr, &config.server.ws_token)?;
+    // Whether clients find this owner only through its socket's folder (the
+    // lost-paths watch, headless/lost_paths.rs): not a Cloud daemon's remote
+    // runtime or link entry, and no WebSocket listener but a loopback one
+    // whose token is minted into a file beside the socket.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    let reached_only_by_socket =
+        !args.remote && !args.link_entry && (ws_addr.is_none() || ws_token_minted);
     let mut loopback_forward_policy =
         loopback_forward_policy(config.server.loopback_forward.as_ref());
     // Compute the socket path up front so a normal interactive launch can
@@ -2694,12 +2701,27 @@ fn run_server(
             config.machine_sidebar.create_sources.clone(),
         )
     });
+    // Read before the readiness byte: once `server ensure` has it, the
+    // process that started this owner may exit and remove the owner's root
+    // at once (headless/lost_paths.rs).
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    let reachable = (args.headless && reached_only_by_socket)
+        .then(|| headless::lost_paths::Reachable::for_owner(&mux, &socket_path))
+        .flatten();
     let result = if args.headless {
         mux.mark_server_lifecycle_ready();
         if let Some(fd) = args.owner_ready_fd {
             local_owner::signal_ready(fd);
         }
-        #[cfg(unix)]
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        {
+            run_headless(&mux, &socket_path, args.exit_with_pid, reachable, || {
+                remote_runtime
+                    .as_ref()
+                    .is_some_and(remote_runtime::DaemonRuntimeHandle::is_finished)
+            })
+        }
+        #[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
         {
             run_headless(&mux, &socket_path, args.exit_with_pid, || {
                 remote_runtime
