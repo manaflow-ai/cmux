@@ -720,6 +720,9 @@ mod line_tests {
         for message in [
             Message::request(1, "session/prompt", json!({"z": 1, "a": [1, 2]})),
             Message::notification("_acpmux/event", json!({"kind": "x"})),
+            Message::Request { id: json!(5), method: "session/cancel".into(), params: None },
+            Message::Notification { method: "_acpmux/ping".into(), params: None },
+            Message::Response { id: json!(6), result: None, error: None },
             Message::ok(json!("id"), json!({"ok": true})),
             Message::ok(json!(2), Value::Null),
             Message::err(json!(3), error),
