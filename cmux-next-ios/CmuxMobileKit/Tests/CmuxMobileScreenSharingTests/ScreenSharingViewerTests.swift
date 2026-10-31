@@ -9,7 +9,7 @@ import Testing
 /// The phone's side of a device hub session (PROTOCOL.md, Session flow): what
 /// the viewer shows for each answer and push, and that every session it leaves
 /// is ended on the hub.
-@MainActor @Suite struct ScreenSharingViewerTests {
+@MainActor @Suite(.timeLimit(.minutes(1))) struct ScreenSharingViewerTests {
     let hostID = "4f6b8a2c-1d3e-4b5a-8c7d-9e0f1a2b3c4d"
 
     @Test func aPendingRequestWaitsForTheMacThenItsTicketStartsTheStream() throws {
@@ -79,6 +79,8 @@ import Testing
     @Test func aRequestCancelledBeforeItsAnswerEndsTheSessionItMadeEvenAfterTheViewerIsGone() async throws {
         let (service, ends) = makeService()
         weak var weakViewer = service.connect(to: mac(), scope: .full)
+        // The request is out (its call waits for an answer) before the person cancels.
+        await ends.waitForRequest()
         service.dismissViewer()
         #expect(service.viewer == nil)
         #expect(weakViewer == nil)
@@ -225,7 +227,20 @@ import Testing
     /// Open request answers (kept so their streams stay open until the request is cancelled).
     private var answers: [AsyncStream<HubSession>.Continuation] = []
 
-    func hold(_ answer: AsyncStream<HubSession>.Continuation) { answers.append(answer) }
+    private var requestWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func hold(_ answer: AsyncStream<HubSession>.Continuation) {
+        answers.append(answer)
+        let waiting = requestWaiters
+        requestWaiters = []
+        for waiter in waiting { waiter.resume() }
+    }
+
+    /// Returns once a request's HTTP call is waiting for its answer.
+    func waitForRequest() async {
+        guard answers.isEmpty else { return }
+        await withCheckedContinuation { requestWaiters.append($0) }
+    }
 
     /// Delivers the HTTP answer to the oldest request still out, even one already cancelled.
     func answer(_ session: HubSession) {
