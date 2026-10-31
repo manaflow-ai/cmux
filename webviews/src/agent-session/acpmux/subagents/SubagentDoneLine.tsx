@@ -128,7 +128,11 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
           onClick={() => open?.(agent.id)}
         >
           <span className="cv-tool__icon">
-            {waiting ? <Spinner size={16} loading /> : <AgentIdentity harness={agent.harness} tone={agentTone(agent.id)} size={16} />}
+            {waiting ? (
+              <Spinner size={16} loading />
+            ) : (
+              <AgentIdentity harness={agent.harness} tone={agentTone(agent.id)} size={16} />
+            )}
           </span>
           {/* tooltip-allow: the line is cut at the pane's width; its whole text, the failure included */}
           <span className="cv-tool__text" title={whole}>

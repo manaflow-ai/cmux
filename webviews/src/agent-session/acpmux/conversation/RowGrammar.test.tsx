@@ -232,7 +232,7 @@ test("the subagent row's one button reaches its trailing markers", () => {
   const hitArea = /\.cv-subagent-done::before \{([^}]*)\}/.exec(css)?.[1] ?? "";
   expect(hitArea).toContain('content: ""');
   expect(hitArea).toContain("inset: 0");
-  expect(hitArea).toContain("z-index: -1");
+  expect(hitArea).toContain("z-index: var(--layer-backdrop)");
 });
 
 test("a started sub-session's row names the session, with no narration in front of it", () => {
