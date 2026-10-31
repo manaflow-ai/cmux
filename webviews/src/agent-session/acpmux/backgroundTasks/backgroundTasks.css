@@ -1,0 +1,377 @@
+/* The Background tasks panel (BackgroundTasksPanel.tsx) and where it docks (App.tsx). Our theme
+   tokens and type throughout, on the side panel's own surface, with the hairline that parts it
+   from the chat and from what sits above it. */
+
+/* ---------- Docking: the chat's right column ---------- */
+/* Alone, the panel is the chat's right column, as the side panel is (ArtifactPanel.tsx). With the
+   side panel open it docks under it in the same column: the side panel keeps its place and its
+   state (it never remounts) and gives up the bottom share of its height; the panel fills that
+   share. Expanded, the panel takes the whole column over the side panel, which rests under it. */
+.acpmux-shell {
+  --acpmux-bg-share: 0.46;
+  --acpmux-bg-top: 0px;
+  --acpmux-bg-column: var(--acpmux-artifact-width, clamp(320px, 46vw, 760px));
+}
+.acpmux-shell[data-tab-row] {
+  --acpmux-bg-top: var(--acpmux-tab-row-height);
+}
+.acpmux-shell > .acpmux-bg {
+  --ui-enter-distance: 100%;
+  flex: 0 0 var(--acpmux-bg-column);
+  min-width: 0;
+  margin-top: var(--acpmux-bg-top);
+  max-height: calc(100% - var(--acpmux-bg-top));
+  box-shadow: inset 1px 0 0 var(--agent-border);
+  background: var(--agent-page-bg);
+}
+.acpmux-shell[data-tab-row]:has(> .acpmux-bg) {
+  --acpmux-artifact-push: var(--acpmux-bg-column);
+}
+.acpmux-shell:has(> .acpmux-artifact) > .acpmux-bg {
+  --ui-enter-distance: 0px;
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: var(--acpmux-bg-column);
+  height: calc((100% - var(--acpmux-bg-top)) * var(--acpmux-bg-share));
+  max-height: none;
+  margin: 0;
+  z-index: var(--layer-raised);
+  box-shadow:
+    inset 1px 0 0 var(--agent-border),
+    inset 0 1px 0 var(--agent-border);
+}
+.acpmux-shell:has(> .acpmux-bg) > .acpmux-artifact {
+  height: calc((100% - var(--acpmux-bg-top)) * (1 - var(--acpmux-bg-share)));
+  max-height: calc((100% - var(--acpmux-bg-top)) * (1 - var(--acpmux-bg-share)));
+  align-self: flex-start;
+}
+.acpmux-shell:has(> .acpmux-artifact) > .acpmux-bg[data-expanded] {
+  height: calc(100% - var(--acpmux-bg-top));
+}
+@media (max-width: 720px) {
+  .acpmux-shell > .acpmux-bg {
+    position: absolute;
+    inset: var(--acpmux-bg-top) 0 0 0;
+    width: auto;
+    z-index: var(--layer-overlay);
+    box-shadow: none;
+  }
+  .acpmux-shell:has(> .acpmux-artifact) > .acpmux-bg {
+    inset: auto 0 0 0;
+    width: auto;
+    z-index: calc(var(--layer-overlay) + 1);
+    box-shadow: inset 0 1px 0 var(--agent-border);
+  }
+  .acpmux-shell:has(> .acpmux-bg) > .acpmux-artifact {
+    bottom: auto;
+    height: calc((100% - var(--acpmux-bg-top)) * (1 - var(--acpmux-bg-share)));
+  }
+  .acpmux-shell[data-tab-row]:has(> .acpmux-bg) {
+    --acpmux-artifact-push: 0px;
+  }
+}
+
+/* ---------- The panel ---------- */
+.acpmux-bg {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  color: var(--agent-text);
+  font-family: var(--cv-font);
+  font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
+}
+.acpmux-bg__head {
+  flex: 0 0 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 16px;
+  box-sizing: border-box;
+  box-shadow: inset 0 -1px 0 var(--cmux-hairline, var(--agent-border));
+}
+.acpmux-bg__head > .cv-iconbtn:first-child {
+  margin-left: -6px;
+}
+.acpmux-bg__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+.acpmux-bg__tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.acpmux-bg__list,
+.acpmux-bg__transcript {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px 8px 12px;
+}
+.acpmux-bg__empty {
+  margin: 16px 8px;
+  color: var(--agent-muted);
+}
+
+/* An agent's block: its line, then its counts line, then its tasks. */
+.acpmux-bg__group {
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--agent-text) 3%, transparent);
+  padding: 4px;
+}
+.acpmux-bg__group + .acpmux-bg__group {
+  margin-top: 8px;
+}
+.acpmux-bg__agent,
+.acpmux-bg__task {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding-right: 4px;
+  border-radius: 8px;
+}
+.acpmux-bg__agent {
+  min-height: 32px;
+}
+.acpmux-bg__name,
+.acpmux-bg__task-open,
+.acpmux-bg__fold,
+.acpmux-bg__counts,
+.acpmux-bg__more,
+.acpmux-bg__line--fold {
+  appearance: none;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  cursor: default;
+}
+.acpmux-bg__name,
+.acpmux-bg__task-open {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: stretch;
+  padding: 0 0 0 8px;
+  border-radius: 8px;
+}
+.acpmux-bg__name:disabled,
+.acpmux-bg__task-open:disabled {
+  cursor: default;
+}
+/* A hover lights only the control it belongs to (rulebook). */
+.acpmux-bg__name:hover:not(:disabled),
+.acpmux-bg__task-open:hover:not(:disabled),
+.acpmux-bg__fold:hover,
+.acpmux-bg__counts:hover,
+.acpmux-bg__more:hover,
+.acpmux-bg__line--fold:hover {
+  background: color-mix(in srgb, var(--agent-text) 7%, transparent);
+}
+.acpmux-bg__name:focus-visible,
+.acpmux-bg__task-open:focus-visible,
+.acpmux-bg__fold:focus-visible,
+.acpmux-bg__counts:focus-visible,
+.acpmux-bg__more:focus-visible,
+.acpmux-bg__line--fold:focus-visible,
+.acpmux-bg__stop:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: -2px;
+}
+.acpmux-bg__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-bg__agent .acpmux-bg__label {
+  font-weight: 500;
+}
+.acpmux-bg__chevron,
+.acpmux-bg__disclosure {
+  flex: none;
+  display: inline-flex;
+  color: var(--agent-muted);
+}
+.acpmux-bg__time {
+  flex: none;
+  min-width: 48px;
+  text-align: right;
+  color: var(--agent-muted);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-bg__stop-slot {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+}
+.acpmux-bg__stop {
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  color: var(--agent-text);
+  cursor: default;
+}
+.acpmux-bg__stop:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--agent-text) 16%, transparent);
+}
+.acpmux-bg__stop:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.acpmux-bg__stop[data-state="failed"] {
+  color: var(--agent-status-failure);
+}
+.acpmux-bg__fold,
+.acpmux-bg__counts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 0 8px;
+  border-radius: 8px;
+  color: var(--agent-muted);
+}
+.acpmux-bg__fold {
+  width: 100%;
+}
+.acpmux-bg__counts {
+  flex: none;
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-bg__failed {
+  color: var(--agent-status-failure);
+}
+.acpmux-bg__tasks {
+  padding: 0 0 4px 16px;
+}
+.acpmux-bg__task {
+  color: var(--agent-muted);
+}
+.acpmux-bg__task[data-state="running"] {
+  color: var(--agent-text);
+}
+.acpmux-bg__task[data-state="failed"] .acpmux-bg__label {
+  color: var(--agent-status-failure);
+}
+.acpmux-bg__finished {
+  padding-left: 16px;
+}
+.acpmux-bg__more {
+  min-height: 28px;
+  padding: 0 8px;
+  border-radius: 8px;
+  color: var(--agent-muted);
+}
+.acpmux-bg__list[hidden] {
+  display: none;
+}
+
+.acpmux-bg__list[data-look="flat"] .acpmux-bg__tasks {
+  padding-left: 8px;
+}
+
+/* ---------- A subagent's transcript ---------- */
+.acpmux-bg__transcript {
+  padding: 12px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-anchor: none;
+}
+.acpmux-bg__sentinel {
+  flex: none;
+  height: 0;
+}
+.acpmux-bg__prompt {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* A workflow agent's transcript state line: Loading, or why it is short. */
+.acpmux-bg__notice {
+  margin: 0;
+  padding: 0 4px;
+  color: var(--agent-muted);
+}
+.acpmux-bg__reply {
+  overflow-wrap: anywhere;
+}
+.acpmux-bg__line {
+  margin: 0;
+  color: var(--agent-muted);
+}
+.acpmux-bg__line--fold {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-height: 24px;
+  padding: 0 4px;
+  margin-left: -4px;
+  border-radius: 6px;
+  color: var(--agent-muted);
+}
+.acpmux-bg__tool[data-failed] .acpmux-bg__line--fold {
+  color: var(--agent-status-failure);
+}
+.acpmux-bg__thought-text {
+  margin: 4px 0 0;
+  color: var(--agent-muted);
+  white-space: pre-wrap;
+}
+.acpmux-bg__output {
+  margin: 4px 0 0;
+  padding: 8px 12px;
+  max-height: 240px;
+  overflow: auto;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--agent-text) 5%, transparent);
+  font-family: var(--cv-mono, ui-monospace, monospace);
+  font-size: var(--text-detail);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.acpmux-bg__ran {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--agent-muted);
+}
+.acpmux-bg__working {
+  display: flex;
+  padding: 4px 0;
+  color: var(--agent-accent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-bg * {
+    transition: none !important;
+  }
+}

@@ -174,7 +174,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "tab.restart",
                 title: String(localized: "action.tab.restart", defaultValue: "Restart Shell Here", bundle: .module),
-                keywords: ["tab", "terminal", "restart", "relaunch", "respawn", "dead", "lost", "shell"], category: .tab,
+                keywords: ["tab", "terminal", "restart", "relaunch", "respawn", "dead", "lost", "shell", "recover", "reconnect", "stuck", "ssh"], category: .tab,
                 symbol: "arrow.clockwise", surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab restart"
             ),
             ActionDescriptor(
@@ -393,8 +393,8 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "palette.copyIdentifiers",
-                title: String(localized: "action.palette.copyIdentifiers", defaultValue: "Copy Identifiers", bundle: .module),
-                keywords: ["id", "ref"], category: .tab, symbol: "number.circle", surfaces: [.palette, .contextMenu],
+                title: String(localized: "action.palette.copyIdentifiers", defaultValue: "Copy IDs", bundle: .module),
+                keywords: ["id", "ref", "identifiers"], category: .tab, symbol: "number.circle", surfaces: [.palette, .contextMenu],
                 targets: [.tab], cliName: "tab copy-identifiers"
             ),
             // A PNG of the tab's content as on screen, never changing focus or selection

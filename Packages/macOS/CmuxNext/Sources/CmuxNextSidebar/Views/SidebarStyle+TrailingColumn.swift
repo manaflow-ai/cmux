@@ -12,7 +12,7 @@ extension SidebarStyle {
         SidebarColumns(rowWidth: rowWidth, comfortable: SidebarDensityTokens.isComfortable,
                        depth: depth, leadingOffset: leadingOffset,
                        leadingInset: LayoutGrid.sidebarLead - horizontalInset,
-                       trailingInset: rowEdgeGap)
+                       trailingInset: rowEdgeGap, minIconBox: iconBox)
     }
 
     static var trailingSlotSide: CGFloat { controlSize }

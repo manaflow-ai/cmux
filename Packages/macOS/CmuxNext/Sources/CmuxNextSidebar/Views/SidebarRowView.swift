@@ -208,6 +208,7 @@ class SidebarRowView: NSView {
 
 final class EmptySectionRowView: SidebarRowView {
     private let label = SidebarRowView.label(font: SidebarStyle.subtitleFont)
+    private let hint = SidebarRowView.label(font: SidebarStyle.subtitleFont)
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
@@ -215,25 +216,44 @@ final class EmptySectionRowView: SidebarRowView {
         // list reads as the list's first line, not a caption floating in
         // the middle of an empty column.
         label.alignment = .natural
-        addSubview(label)
+        hint.alignment = .natural
+        [label, hint].forEach(addSubview)
     }
 
-    func configure(pinned: Bool) { // a document Pinned too (`.custom(sec_pinned)`, SidebarListView.configure)
+    func configure(pinned: Bool, shortcut: String?) { // a document Pinned too (`.custom(sec_pinned)`, SidebarListView.configure)
         label.setString(pinned ? Strings.pinnedEmpty : Strings.sectionEmpty)
         label.setFont(SidebarStyle.subtitleFont)
+        hint.setString(Strings.sectionEmptyHint(shortcut: shortcut))
+        hint.setFont(SidebarStyle.subtitleFont)
+        hint.isHidden = pinned
         needsLayout = true
     }
 
     override func layout() {
         super.layout()
         let b = layoutBounds
-        let h = ceil(label.intrinsicContentSize.height)
         let x = SidebarStyle.columns(rowWidth: b.width).text(hasLeadingMark: false) - SidebarStyle.labelCellPadding
-        label.frame = NSRect(x: x, y: SidebarStyle.textY(label, centerY: b.midY), width: max(0, b.width - x - Metrics.space2), height: h)
+        let width = max(0, b.width - x - Metrics.space2)
+        let titleHeight = ceil(label.intrinsicContentSize.height)
+        guard !hint.isHidden else {
+            label.frame = NSRect(x: x, y: SidebarStyle.textY(label, centerY: b.midY), width: width, height: titleHeight)
+            hint.frame = .zero
+            needsDisplay = true
+            return
+        }
+        let hintHeight = ceil(hint.intrinsicContentSize.height)
+        let lineGap = Metrics.space1
+        let stackHeight = titleHeight + lineGap + hintHeight
+        let top = (b.height - stackHeight) / 2
+        label.frame = NSRect(x: x, y: top, width: width, height: titleHeight)
+        hint.frame = NSRect(x: x, y: top + titleHeight + lineGap, width: width, height: hintHeight)
         needsDisplay = true
     }
 
     override func updateLayer() {
-        performWithTheme { label.setColor(Palette.textTertiary) }
+        performWithTheme {
+            label.setColor(Palette.textTertiary)
+            hint.setColor(Palette.textSecondary)
+        }
     }
 }

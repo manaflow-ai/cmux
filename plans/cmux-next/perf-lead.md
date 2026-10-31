@@ -279,3 +279,11 @@ Landed f6dd9d4d2afc..2ab17f8e245d (panic-free JSON writes; lint (linux) green, r
 - The panic ratchet has no slack: `indexing_slicing` cmux-tui-core 1058 -> 853, cmux-tui
   1141 -> 833. A new `v["k"] = x` or slice index turns lint (linux) red. Use `v.set("k", x)` or
   `get_mut` in new code.
+
+## Notice to PL-daemon: a failed tool call notifies again (2026-10-29)
+
+a839, test (linux) green on run 40985398560. `cmux-tui-core/src/mux/agent_roster_fold.rs`:
+since 915bab1 a PostToolUse/PostToolUseFailure of a working agent changed no state, and the
+fold returned before posting the notification, so "Claude reported an error" never reached the
+feed (`command_activity::an_error_notification_carries_the_error_text_for_the_feed`). The
+notification is posted now with no new state; the 915bab1 state rule is unchanged.

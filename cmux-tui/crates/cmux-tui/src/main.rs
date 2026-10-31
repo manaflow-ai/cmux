@@ -38,11 +38,11 @@ mod daemon_build;
 mod headless;
 #[cfg(unix)]
 mod host_orphan_policy;
-#[cfg(unix)]
-mod share_room;
 mod local_actor;
 mod page_listener;
 mod private_mode;
+#[cfg(unix)]
+mod share_room;
 #[cfg(unix)]
 mod signal_sender;
 mod websocket_credential;
@@ -53,6 +53,10 @@ mod hook_helper;
 mod host_colors;
 mod keys;
 mod layout_undo;
+// Decided on every Unix so its tests run off the Mac; used on macOS only.
+#[cfg(unix)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod launchd_refresh;
 #[cfg(unix)]
 mod link;
 mod local_owner;
@@ -2504,7 +2508,7 @@ fn run_server(
                 start_local_owner_event_loop(&mux)
             }
         });
-    let pending_server = restoring_server.attach(mux.clone());
+    let pending_server = hook_helper::resume(restoring_server.attach(mux.clone()), &socket_path);
     // From here the restoring server's waiting clients get answers.
     startup_timings.lap("server.attach");
     mux.record_startup_timings(&startup_timings);

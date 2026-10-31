@@ -91,8 +91,9 @@ import Testing
             view.layout()
             #expect(view.window == nil)
             let hasLeadingMark = c.kind == .workspace || c.kind == .item
-            // A workspace's tab sits one grid indent (16) in, under its workspace.
-            let child: CGFloat = c.kind == .tab ? 16 : 0
+            // A tab row keeps #27530's hierarchy (its parent's title + the 24 pt child indent, its label 2 pt into
+            // its cell); with no list here the parent's title is the lead. grid.md has no separate tab-row line.
+            let child: CGFloat = c.kind == .tab ? 26 : 0
             let text: CGFloat = (hasLeadingMark ? Self.text(c.comfortable) : Self.lead(c.comfortable)) + child
             if let workspace = view as? WorkspaceRowView {
                 #expect(abs(origin + workspace.title.frame.minX - text - CGFloat(c.depth * 7)) <= 0.5)

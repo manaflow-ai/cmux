@@ -187,6 +187,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_perf_section_check.py
 
+      - name: Validate the PR design spec check
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_pr_design_spec_check.py
+
       - name: Validate gh-merge-green --revert
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_gh_merge_green_revert.py
@@ -496,6 +500,10 @@ jobs:
       - name: Test the cmux NEXT media tour's app window capture
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_cmux_next_tour.py
+
+      - name: Test the cmux NEXT nightly visual gate
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
+        run: python3 tests/test_cmux_next_visual_gate.py
 
       - name: Test XCStrings catalog lint
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
@@ -946,6 +954,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_runner_label_policy.py
 
+      - name: Validate no new job takes one Linux runner size
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_linux_single_size.py
+
       - name: Validate the INTERNAL iOS builder decisions
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ios_internal_builder.py
@@ -997,6 +1009,10 @@ jobs:
       - name: Validate pr-checks skips advisory jobs only on base-only updates
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_checks_base_only.py
+
+      - name: Validate the advisory UI review section check
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ui_review_advisory.py
 
       - name: Validate gh-call attribution lines make no extra API call
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1385,6 +1401,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_point_channel.py
 
+      - name: Validate owned minis skip the cmux-tui caches that never restore
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_owned_mini_caches.py
+
       - name: Validate superseded cmux-tui pushes skip their builds and daemon tests
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_superseded_push.py
@@ -1624,6 +1644,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_ghostty_helper_cache.py
 
+      - name: Validate the nightly OptChat Chief cache repair
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_chief_cache_repair.py
+
       - name: Validate the nightly web bundles build before the Release build
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_web_bundles_order.py
@@ -1679,6 +1703,7 @@ jobs:
           python3 tests/test_ci_nightly_off_blacksmith.py
           python3 tests/test_ci_nightly_no_hosted_mac.py
           python3 tests/test_ci_runs_on_fallback.py
+          python3 tests/test_ci_warm_sources.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
           python3 tests/test_ci_killpg_tolerates_eperm.py
 
@@ -1776,6 +1801,10 @@ jobs:
       - name: Validate Blacksmith Linux labels fail over to another Blacksmith size
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_blacksmith_linux_failover.py
+
+      - name: Validate cmux-tui artifacts Linux jobs take the shared 32/16 vCPU set
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_tui_artifacts_linux_runner_set.py
 
       - name: Validate the macOS cross-compile shadow jobs stay compare-only
         if: ${{ !cancelled() && matrix.group == 'ci' }}

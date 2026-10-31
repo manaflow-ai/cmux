@@ -1,4 +1,5 @@
 import type { Domain, EventFrame, OpFrame, OwnerEngine, OwnerFrame, Principal } from "@cmux/ownership"
+import { mcpScopesForGrant } from "./mcp-grant.ts"
 import { isMachineInstallKind } from "./machine-installs.ts"
 import { conversation as homeConversation, inbox as homeInbox, invites, user as homeUser } from "@cmux/home-core"
 import { challengeMessagePrefix, type PushTarget } from "@cmux/protocol"
@@ -585,7 +586,11 @@ export class UserDO extends OwnerDO<UserState> {
     const emailDomain = emailDomainOf(now.user.email)
     if (row.team !== null && !isClientInstall(current.kind)) return { ok: false, code: "auth.forbidden", message: "a scoped challenge requires a client install" }
     const team = row.team ?? ((isMachineInstallKind(current.kind) || current.kind === "daemon") && current.bound_team ? current.bound_team : now.user.personal_team)
-    return { ok: true, user: now.user.id, team, install, grant: grant.id, ...(current.sso_team ? { sso_team: current.sso_team } : {}), ...(emailDomain ? { email_domain: emailDomain } : {}), ...(agent ? { agent } : {}), ...(current.kind === "vm" ? { vm: true as const } : {}), ...(current.kind === "team-vm" ? { team_vm: true as const } : {}) }
+    // Existing proof-of-possession mint: no separate hosted token endpoint. Agent/chief and
+    // non-CLI credentials cannot acquire MCP authority by supplying a scope in the request.
+    const scopes = this.env.PLATFORM_AGENT_GATEWAY === "on" && ["development", "test"].includes(this.env.ENVIRONMENT) && agent === undefined
+      ? mcpScopesForGrant(current.kind, held.op_classes) : []
+    return { ok: true, user: now.user.id, team, install, grant: grant.id, ...(scopes.length ? { scope: scopes.join(" ") } : {}), ...(current.sso_team ? { sso_team: current.sso_team } : {}), ...(emailDomain ? { email_domain: emailDomain } : {}), ...(agent ? { agent } : {}), ...(current.kind === "vm" ? { vm: true as const } : {}), ...(current.kind === "team-vm" ? { team_vm: true as const } : {}) }
   }
 }
 

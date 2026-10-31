@@ -11,7 +11,7 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { ChatInspector } from "../src/agent-session/acpmux/inspector/ChatInspector";
 import { chatProject, internalFolder } from "../src/agent-session/acpmux/inspector/chatFolders";
-import { environmentToSave } from "../src/agent-session/acpmux/inspector/EnvironmentSection";
+import { EnvironmentSection, environmentToSave } from "../src/agent-session/acpmux/inspector/EnvironmentSection";
 import { resetInspectorState } from "../src/agent-session/acpmux/inspector/inspectorState";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { activity, chat, tool } from "../src/gallery/fixtures/acpmux";
@@ -221,4 +221,66 @@ test("without the App's actions the rows are plain text, and no Remote Control r
   expect(environment.querySelector("li[title]")?.getAttribute("title")).toBe(`${HOME}/Projects`);
   expect(environment.textContent).not.toContain("glaeda");
   expect(environment.textContent).not.toContain("Remote Control");
+});
+
+test("Environment Save blocks duplicates while pending and exposes a retry after rejection", async () => {
+  const container = installDom();
+  let attempts = 0;
+  let reject!: (reason: unknown) => void;
+  const onSave = () => {
+    attempts++;
+    return attempts === 1
+      ? new Promise<void>((_resolve, fail) => {
+          reject = fail;
+        })
+      : Promise.resolve();
+  };
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <EnvironmentSection
+        summary={{ ...chat([]).summary!, cwd: "/Users/demo/Projects/atlas" }}
+        machineName="Studio"
+        onSave={onSave}
+      />,
+    );
+  });
+  const button = container.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-link")!;
+  await act(async () => {
+    button.click();
+    button.click();
+  });
+  expect(attempts).toBe(1);
+  expect(button.disabled).toBe(true);
+  expect(button.getAttribute("aria-busy")).toBe("true");
+  await act(async () => reject(new TypeError("internal transport details")));
+  expect(button.disabled).toBe(false);
+  expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+    translate("environment.saveFailed", { reason: translate("error.requestFailed") }),
+  );
+  expect(container.textContent).not.toContain("internal transport details");
+  await act(async () => button.click());
+  expect(attempts).toBe(2);
+  expect(button.textContent).toBe(translate("artifact.saved"));
+  expect(button.disabled).toBe(true);
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+});
+
+test("Environment Save also handles a synchronous callback failure", async () => {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <EnvironmentSection
+        summary={{ ...chat([]).summary!, cwd: "/Users/demo/Projects/atlas" }}
+        onSave={() => {
+          throw new Error("fixture refusal");
+        }}
+      />,
+    );
+  });
+  const button = container.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-link")!;
+  await act(async () => button.click());
+  expect(button.disabled).toBe(false);
+  expect(container.querySelector('[role="alert"]')).not.toBeNull();
 });

@@ -40,14 +40,16 @@ extension WorkspaceRowView {
         return columns.trailingEdge(before: timeLabel.frame)
     }
 
-    /// The pin button of an expanded row, with the menu button (hover, not
-    /// renaming): left of it, Pin or Unpin by the row's section, fading in
-    /// and out in place with it. Returns its minX while it shows.
+    /// The Unpin button of an expanded pinned row, with the menu button (hover,
+    /// not renaming): left of it, fading in and out in place with it. Returns
+    /// its minX while it shows. An unpinned row draws no pin, at rest or on
+    /// hover; Pin Workspace stays in its ⋮ menu (Leo 2026-10-21: "no empty pin
+    /// symbol by default").
     func layoutPin(showMore: Bool, control: CGFloat, fades: Bool) -> CGFloat? {
-        let pinned = isExpanded ? isPinned?() : nil
-        setHoverShown(pinButton, showMore && pinned != nil, fades: fades)
-        guard let pinned else { return nil }
-        (pinButton.icon, pinButton.label) = pinned ? (.statePinned, Strings.unpinWorkspace) : (.actionPin, Strings.pinWorkspace)
+        let pinned = isExpanded && isPinned?() == true
+        setHoverShown(pinButton, showMore && pinned, fades: fades)
+        guard pinned else { return nil }
+        (pinButton.icon, pinButton.label) = (.statePinned, Strings.unpinWorkspace)
         pinButton.frame = moreButton.frame.offsetBy(dx: -LayoutGrid.sidebarSecondMarkPitch, dy: 0)
         return showMore ? pinButton.frame.minX : nil
     }

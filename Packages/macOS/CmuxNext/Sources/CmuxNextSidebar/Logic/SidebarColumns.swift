@@ -10,8 +10,10 @@ nonisolated struct SidebarColumns: Hashable, Sendable {
     var leadingOffset: CGFloat = 0
     var leadingInset: CGFloat = LayoutGrid.sidebarHighlightInset
     var trailingInset: CGFloat = LayoutGrid.sidebarHighlightInset
+    /// The least icon column width: a glyph box that grows with a larger text size widens the column.
+    var minIconBox: CGFloat = 0
 
-    var iconBox: CGFloat { comfortable ? LayoutGrid.iconBoxComfortable : LayoutGrid.iconBox }
+    var iconBox: CGFloat { max(comfortable ? LayoutGrid.iconBoxComfortable : LayoutGrid.iconBox, minIconBox) }
     var lead: CGFloat { LayoutGrid.sidebarLead - leadingInset + CGFloat(max(0, depth)) * LayoutGrid.sidebarDepthIndent + leadingOffset }
     var text: CGFloat { lead + iconBox + LayoutGrid.gap }
     /// Only a visible leading icon or pin reserves the icon column. Text-only rows start
