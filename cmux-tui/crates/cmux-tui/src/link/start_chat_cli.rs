@@ -7,11 +7,12 @@
 //!
 //! - `plan --request JSON`: the machine the send takes ([`pick::destination`]):
 //!   the one its first try took while that machine exists; for a send from a
-//!   Mac workspace, that workspace's own machine, else a new one (Leo,
-//!   2026-10-30: "we'll want a vm for every single workspace"); for one from
-//!   no workspace, this person's free one, else a new one named for chats;
-//!   and the send's keys ([`Keys`]). A machine that exists is pinned to the
-//!   send before anything runs there, so a retry of the send names it.
+//!   Mac workspace, the machine that workspace picked; else an existing one
+//!   reused (this person's one for chats or a free one), else a new one named
+//!   for chats; and the send's keys ([`Keys`]). Many workspaces share a
+//!   machine and a person has any number of them (Leo, 2026-10-31: "JUST GO
+//!   ARBITRARILY MANY"). A machine that exists is pinned to the send before
+//!   anything runs there, so a retry of the send names it.
 //! - `pin --key K --account A --machine ID [--workspace W]`: pins the send
 //!   to the machine the App just made for it, and makes it the workspace's.
 //! - `copy --key K --account A --machine ID --socket PATH --local ROOT

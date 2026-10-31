@@ -119,6 +119,20 @@ fn a_changing_machine_is_skipped_even_when_marked_for_chats() {
     }
 }
 
+/// SW-05 review (hq#5685): a machine the server failed or is removing is
+/// never taken, even marked for chats while a stale link still reads as
+/// connected.
+#[test]
+fn a_failed_or_removed_machine_is_never_picked() {
+    for status in ["failed", "deleted", "destroyed"] {
+        let gone = with(machine("vm-gone", "cloud-chats"), |m| m.status = status.into());
+        let free = machine("vm-free", "spare");
+        let both = [gone.clone(), free];
+        assert_eq!(pick::pick(&both, Some(ME), &none()).as_deref(), Some("vm-free"), "{status}");
+        assert_eq!(pick::pick(&[gone], Some(ME), &none()), None, "{status}");
+    }
+}
+
 #[test]
 fn lane_shell_vms_are_never_picked() {
     let lanes =
@@ -686,13 +700,14 @@ fn the_sends_the_app_kept_before_carry_over_once() {
     assert_eq!(import(&path, "{")["error_code"], json!("bad_request"));
 }
 
-/// Leo, 2026-10-30: "we'll want a vm for every single workspace". A Mac
-/// workspace's first send to Cloud makes a machine that is its own from then
-/// on; no other workspace, and no send from no workspace, shares it.
+/// Leo, 2026-10-31: "THE IDEA WAS ONE WORKSPACE PER MACHINE BUT IDK WHY THAT
+/// SHOULD BE THE LIMIT. JUST GO ARBITRARILY MANY". A Mac workspace's first
+/// send reuses this person's machine (one for chats, else a free one) and
+/// keeps it from then on; other workspaces may pick the same machine, and a
+/// new machine is made only when none can be reused.
 #[test]
-fn each_workspace_gets_its_own_machine_and_keeps_it() {
+fn workspaces_reuse_a_machine_share_it_and_keep_it() {
     let mut pins = Ledger::default();
-    let shared = [machine("vm-free", "spare"), machine("vm-chats", "cloud-chats")];
     let first = key();
     let to = |pins: &mut Ledger,
               key: &str,
@@ -701,44 +716,51 @@ fn each_workspace_gets_its_own_machine_and_keeps_it() {
               loaded: bool| {
         pick::destination(&send(key), ACCOUNT, workspace, pins, listed, &[], Some(ME), loaded)
     };
-    assert_eq!(to(&mut pins, &first, Some("ws-a"), &shared, true), Destination::New);
-    // The App made vm-a for it and pinned it (`pin --workspace`).
+    // Nothing to reuse: a new machine, which the App pins to the workspace (`pin --workspace`).
+    let busy = [with(machine("vm-busy", "spare"), |m| m.chats = Some(1))];
+    assert_eq!(to(&mut pins, &first, Some("ws-a"), &busy, true), Destination::New);
     pins.record("vm-a", &send(&first));
     pins.bind("ws-a", ACCOUNT, "vm-a");
-    let listed = [
-        machine("vm-free", "spare"),
-        with(machine("vm-a", "cloud-chats-2"), |m| m.chats = Some(2)),
-    ];
+    let listed =
+        [machine("vm-free", "spare"), with(machine("vm-a", "cloud-chats"), |m| m.chats = Some(2))];
     // Its next send, busy with chats or not, goes back to it.
     assert_eq!(
         to(&mut pins, &key(), Some("ws-a"), &listed, true),
         Destination::Machine("vm-a".into())
     );
     // Paused (by a person or the idle timer), it resumes there.
-    let paused = [offline(machine("vm-a", "cloud-chats-2"), "paused", Some("user"))];
+    let paused = [offline(machine("vm-a", "cloud-chats"), "paused", Some("user"))];
     assert_eq!(
         to(&mut pins, &key(), Some("ws-a"), &paused, true),
         Destination::Machine("vm-a".into())
     );
-    // Another workspace never shares it, nor the free one.
-    assert_eq!(to(&mut pins, &key(), Some("ws-b"), &listed, true), Destination::New);
+    // Another workspace reuses a machine too, the one for chats first: ws-a's is shared.
+    assert_eq!(
+        to(&mut pins, &key(), Some("ws-b"), &listed, true),
+        Destination::Machine("vm-a".into())
+    );
+    // A workspace that picked the free machine keeps it once it has chats.
+    pins.bind("ws-c", ACCOUNT, "vm-free");
+    let working = [with(machine("vm-free", "spare"), |m| m.chats = Some(3)), listed[1].clone()];
+    assert_eq!(
+        to(&mut pins, &key(), Some("ws-c"), &working, true),
+        Destination::Machine("vm-free".into())
+    );
     // Before the App's list is loaded, the workspace's machine is kept.
     assert_eq!(
         to(&mut pins, &key(), Some("ws-a"), &[], false),
         Destination::Machine("vm-a".into())
     );
-    // A send from no workspace keeps the shared pick, but never takes a workspace's own machine,
-    // even one marked for chats.
-    assert_eq!(to(&mut pins, &key(), None, &listed, true), Destination::Machine("vm-free".into()));
-    assert_eq!(to(&mut pins, &key(), None, &listed[1..], true), Destination::New);
-    // In another team the workspace has no machine yet.
+    // A send from no workspace reuses a machine as well, one a workspace picked included.
+    assert_eq!(to(&mut pins, &key(), None, &listed, true), Destination::Machine("vm-a".into()));
+    // In another team the workspace has picked nothing yet, and none of that team's is the person's.
     assert_eq!(
         pick::destination(
             &Send::new(&key(), "user-leo/team-b"),
             "user-leo/team-b",
             Some("ws-a"),
             &mut pins,
-            &listed,
+            &[with(machine("vm-b", "spare"), |m| m.created_by = None)],
             &[],
             Some(ME),
             true
@@ -749,9 +771,9 @@ fn each_workspace_gets_its_own_machine_and_keeps_it() {
 }
 
 #[test]
-fn a_workspaces_gone_teammates_or_failed_machine_is_replaced_by_a_new_one() {
+fn a_workspaces_gone_teammates_or_failed_machine_is_dropped_for_another() {
     for gone in [
-        vec![machine("vm-other", "spare")],
+        vec![with(machine("vm-other", "spare"), |m| m.chats = Some(1))],
         vec![with(machine("vm-a", "cloud-chats-2"), |m| m.created_by = Some(TEAMMATE.into()))],
         vec![offline(machine("vm-a", "cloud-chats-2"), "failed", None)],
         // A stale link still reads as connected; the server's status says it is gone.
@@ -776,6 +798,24 @@ fn a_workspaces_gone_teammates_or_failed_machine_is_replaced_by_a_new_one() {
         );
         assert_eq!(pins.workspace_machine("ws-a", ACCOUNT), None, "{gone:?}");
     }
+    // With its machine gone, the workspace reuses another of the person's before a new one is made.
+    let mut pins = Ledger::default();
+    pins.bind("ws-a", ACCOUNT, "vm-a");
+    let other =
+        [offline(machine("vm-a", "cloud-chats-2"), "failed", None), machine("vm-free", "spare")];
+    assert_eq!(
+        pick::destination(
+            &send(&key()),
+            ACCOUNT,
+            Some("ws-a"),
+            &mut pins,
+            &other,
+            &[],
+            Some(ME),
+            true
+        ),
+        Destination::Machine("vm-free".into())
+    );
     // #28407's shown status: a workspace's machine that is pausing or resuming,
     // its link down meanwhile, stays the workspace's own.
     for status in ["pausing", "starting"] {
@@ -862,10 +902,10 @@ fn plan_and_pin_keep_each_workspaces_machine_across_a_relaunch() {
         json!({"key": key, "account": ACCOUNT, "workspace": workspace, "user": ME, "loaded": true, "machines": machines})
             .to_string()
     };
-    let shared = json!([
-        {"id": "vm-free", "title": "spare", "created_by": ME, "status": "running", "connected": true, "chats": 0},
+    let busy = json!([
+        {"id": "vm-busy", "title": "spare", "created_by": ME, "status": "running", "connected": true, "chats": 1},
     ]);
-    let answer = plan(&path, &request(&first, "ws-a", &shared));
+    let answer = plan(&path, &request(&first, "ws-a", &busy));
     assert_eq!(answer["ok"], json!(true));
     assert_eq!(answer["machine"], Value::Null, "{answer}");
     assert_eq!(pin(&path, &first, ACCOUNT, "vm-a", Some("ws-a"))["ok"], json!(true));
@@ -875,7 +915,10 @@ fn plan_and_pin_keep_each_workspaces_machine_across_a_relaunch() {
         {"id": "vm-a", "title": "cloud-chats", "created_by": ME, "status": "running", "connected": true, "chats": 1},
     ]);
     assert_eq!(plan(&path, &request(&key(), "ws-a", &listed))["machine"], json!("vm-a"));
-    assert_eq!(plan(&path, &request(&key(), "ws-b", &listed))["machine"], Value::Null);
+    // Another workspace reuses vm-a, the machine for chats, and keeps it from then on.
+    assert_eq!(plan(&path, &request(&key(), "ws-b", &listed))["machine"], json!("vm-a"));
+    let shared = Ledger::update(&path, |pins| pins.clone()).unwrap();
+    assert_eq!(shared.workspace_machine("ws-b", ACCOUNT).as_deref(), Some("vm-a"));
     // A retry of the first send stays on vm-a, but never takes ws-a back from the machine
     // that replaced it.
     assert_eq!(pin(&path, &key(), ACCOUNT, "vm-c", Some("ws-a"))["ok"], json!(true));

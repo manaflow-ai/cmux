@@ -9,10 +9,12 @@
 //! switch keeps the person signed in, so a send of the previous team never
 //! names this team's machine, and switching back finds it again.
 //!
-//! Apart from the sends, the machine of each recent Mac workspace that sent
-//! to Cloud, under its account too, at most [`WORKSPACE_LIMIT`]: a workspace
-//! keeps its machine however many sends ran since (Leo, 2026-10-30: "we'll
-//! want a vm for every single workspace").
+//! Apart from the sends, the machine each recent Mac workspace that sent to
+//! Cloud picked, under its account too: a workspace keeps its machine however
+//! many sends ran since, and many workspaces may pick one machine. The newest
+//! [`WORKSPACE_LIMIT`] workspaces are remembered; that bounds this file, not
+//! how many machines or workspaces a person has (an older workspace's next
+//! send reuses a machine again).
 //!
 //! Kept in `<state>/cloud-start-chat/destinations.json` (0600, its folder
 //! 0700), read and written under an exclusive lock on a sibling `.lock` file
@@ -81,7 +83,7 @@ pub(crate) struct AppEntry {
     pub(crate) place: Option<String>,
 }
 
-/// A Mac workspace's own machine, in the account it sent in.
+/// The machine a Mac workspace picked, in the account it sent in. Other workspaces may pick it too.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Binding {
     workspace: String,
@@ -111,7 +113,7 @@ impl Ledger {
     }
 
     /// Every machine a kept send of the account `account` ran on, or one of
-    /// its workspaces owns: what counts as that account's own machine when the
+    /// its workspaces picked: what counts as that account's own machine when the
     /// server names no creator. Another user's sends on this Mac, or another
     /// team's, never do.
     pub(crate) fn machines_of(&self, account: &str) -> BTreeSet<String> {
@@ -124,7 +126,7 @@ impl Ledger {
             .collect()
     }
 
-    /// The Mac workspace `workspace`'s own machine in `account`, once a send from it ran on one.
+    /// The machine the Mac workspace `workspace` picked in `account`, once a send from it ran on one.
     pub(crate) fn workspace_machine(&self, workspace: &str, account: &str) -> Option<String> {
         let account = account.to_lowercase();
         self.workspaces
@@ -133,8 +135,8 @@ impl Ledger {
             .map(|binding| binding.machine_id.clone())
     }
 
-    /// The machines that are some workspace's own in `account`.
-    pub(crate) fn workspace_machines(&self, account: &str) -> BTreeSet<String> {
+    /// The machines some workspace in `account` picked.
+    fn workspace_machines(&self, account: &str) -> BTreeSet<String> {
         let account = account.to_lowercase();
         self.workspaces
             .iter()
@@ -143,7 +145,7 @@ impl Ledger {
             .collect()
     }
 
-    /// `machine` is the workspace `workspace`'s own in `account` from now on.
+    /// `workspace` picks `machine` in `account` from now on.
     pub(crate) fn bind(&mut self, workspace: &str, account: &str, machine: &str) {
         self.unbind(workspace, account);
         self.workspaces.push(Binding {
