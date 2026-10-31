@@ -1,0 +1,452 @@
+{
+ "id": "restart-focus-after-settings",
+ "priority": "P0",
+ "title": "QA evidence b12-b14 key for key: the browser pane focused, Settings opened (Cmd+,) and closed (Cmd+W), lines typed into the page, Cmd-Q, reopen: no key reaches the sidebar",
+ "why": "QA chrome-parity-v2-1 bug 1 (high) was captured in evidence b12-b14: before the quit the QA opened Settings with Cmd+, and closed it with Cmd+W, then typed 'echo after-settings-close' Return and a second line into the browser page. After the reopen debug.focus said first_responder=SidebarListView. restart-focus-browser and restart-focus-browser-keys (the filed repro) do not open Settings; this one replays the evidence's exact sequence.",
+ "source": "independent QA evidence qa-chrome-parity-v2-1-evidence/b12, b13, b14 log.json",
+ "budget_seconds": 200,
+ "steps": [
+  {
+   "do": "key",
+   "key": "n",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "ws"
+  },
+  {
+   "do": "wait",
+   "seconds": 2
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "focused_terminal",
+   "as": "left"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo left-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "left"
+  },
+  {
+   "do": "expect",
+   "title": "the new workspace's terminal works; its pane and automatic name are kept",
+   "since": "left",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "left-${nonce}-42"
+    },
+    {
+     "app_text_line": "left-${nonce}-42"
+    },
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "terminal"
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved_pane",
+      "not_equals": null,
+      "bind": "left_pane"
+     }
+    },
+    {
+     "app_layout": {
+      "selected": true,
+      "bind_workspace": "ws_name"
+     }
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "split"
+  },
+  {
+   "do": "expect",
+   "title": "Cmd+D splits: a new pane has the keyboard",
+   "since": "split",
+   "timeout": 10,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved_pane",
+      "not_in": [
+       "${left_pane}"
+      ]
+     }
+    },
+    {
+     "app_layout": {
+      "panes": 2
+     }
+    }
+   ]
+  },
+  {
+   "do": "outwait_hold"
+  },
+  {
+   "do": "key",
+   "key": "l",
+   "modifiers": [
+    "cmd",
+    "shift"
+   ],
+   "mark": "browser"
+  },
+  {
+   "do": "expect",
+   "title": "Cmd+Shift+L opens a browser tab whose address bar takes the keys",
+   "since": "browser",
+   "timeout": 15,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "addressBar"
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "example.com",
+   "enter": true,
+   "mark": "loaded"
+  },
+  {
+   "do": "expect",
+   "title": "before the quit: the browser pane shows example.com and has the keyboard",
+   "since": "loaded",
+   "timeout": 40,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "browserPage"
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved_pane",
+      "not_in": [
+       "${left_pane}"
+      ],
+      "bind": "browser_pane"
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.appkit.classified",
+      "not_in": [
+       "sidebar",
+       "sidebarField"
+      ]
+     }
+    },
+    {
+     "frame_text": "Example Domain"
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": ",",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "settings"
+  },
+  {
+   "do": "wait",
+   "seconds": 3
+  },
+  {
+   "do": "key",
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "settings-closed"
+  },
+  {
+   "do": "expect",
+   "title": "Settings closed: the browser page has the keyboard again",
+   "since": "settings-closed",
+   "timeout": 10,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "in": [
+       "browserPage",
+       "addressBar"
+      ]
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved_pane",
+      "equals": "${browser_pane}"
+     }
+    },
+    {
+     "app_layout": {
+      "workspace": "${ws_name}",
+      "panes": 2
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "echo after-settings-close",
+   "enter": false
+  },
+  {
+   "do": "key",
+   "key": "return",
+   "modifiers": []
+  },
+  {
+   "do": "type",
+   "text": "zzz-typed-after-return",
+   "enter": true,
+   "mark": "typed-page"
+  },
+  {
+   "do": "expect",
+   "title": "typing into the page before the quit renames nothing",
+   "since": "typed-page",
+   "timeout": 10,
+   "settle": 1,
+   "all": [
+    {
+     "app_layout": {
+      "workspace": "${ws_name}"
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "not_in": [
+       "sidebar",
+       "sidebarField"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "do": "relaunch",
+   "how": "quit",
+   "mark": "reopened"
+  },
+  {
+   "do": "use",
+   "name": "left"
+  },
+  {
+   "do": "wait",
+   "seconds": 5
+  },
+  {
+   "do": "expect",
+   "title": "5 s after the reopen: the browser pane has the keyboard again, not the sidebar",
+   "since": "reopened",
+   "timeout": 45,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.crashes",
+      "path": "launch.recovery",
+      "equals": "clean"
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.appkit.classified",
+      "not_in": [
+       "sidebar",
+       "sidebarField"
+      ]
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.appkit.first_responder",
+      "not_in": [
+       "SidebarListView"
+      ]
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "in": [
+       "browserPage",
+       "addressBar"
+      ]
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved_pane",
+      "equals": "${browser_pane}"
+     }
+    },
+    {
+     "app_layout": {
+      "workspace": "${ws_name}",
+      "panes": 2
+     }
+    },
+    {
+     "daemon_line": "left-${nonce}-42"
+    },
+    {
+     "frame_text": "Example Domain"
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "echo hi-${nonce}",
+   "enter": true,
+   "mark": "first"
+  },
+  {
+   "do": "type",
+   "text": "zzz${nonce}",
+   "enter": true,
+   "mark": "second"
+  },
+  {
+   "do": "expect",
+   "title": "the two typed lines did not rename the workspace or open the sidebar's rename field",
+   "since": "second",
+   "timeout": 10,
+   "settle": 2,
+   "all": [
+    {
+     "app_layout": {
+      "workspace": "${ws_name}"
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "not_in": [
+       "sidebar",
+       "sidebarField"
+      ]
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.appkit.classified",
+      "not_in": [
+       "sidebar",
+       "sidebarField"
+      ]
+     }
+    },
+    {
+     "daemon_lacks": "zzz${nonce}"
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "left",
+   "modifiers": [
+    "cmd",
+    "option"
+   ],
+   "mark": "to-left"
+  },
+  {
+   "do": "expect",
+   "title": "Cmd+Opt+Left moves the keyboard to the restored terminal on the left",
+   "since": "to-left",
+   "timeout": 10,
+   "all": [
+    {
+     "app_pane": {
+      "focused": true
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "terminal"
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "echo ok-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "ok"
+  },
+  {
+   "do": "expect",
+   "title": "the restored terminal runs the typed command; the workspace keeps its name",
+   "since": "ok",
+   "within": 3,
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "ok-${nonce}-42"
+    },
+    {
+     "app_text_line": "ok-${nonce}-42"
+    },
+    {
+     "app_layout": {
+      "workspace": "${ws_name}"
+     }
+    },
+    {
+     "frame_text": "ok-${nonce}-42"
+    }
+   ]
+  }
+ ]
+}

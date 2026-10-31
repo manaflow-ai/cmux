@@ -1,4 +1,3 @@
-import { PullRequestDock, useHasPullRequestDock } from "../summary/PullRequestDock";
 // Turn rows for the pane's transcript: the "Worked for" disclosure, tool rows and the
 // footer under an answer. Markup and metrics from reference prototype (messages.tsx,
 // TurnMessage.tsx); each component takes the pane's row and draws one transcript entry.
@@ -44,7 +43,6 @@ import { turnErrorCard } from "./turnErrorCard.experiment";
 import { codeRouterOffer } from "./codeRouterOffer.experiment";
 import { CodeRouterAction, useCodeRouterChoice } from "./CodeRouterOffer";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
-import { ToolVerbColumn } from "./ToolVerb";
 
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
 function WorkedLabel({ row }: { row: AcpmuxRow }) {
@@ -298,7 +296,9 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
     <TranscriptDisclosureProvider sessionId={sessionId}>
       <McpNamesContext.Provider value={names}>
         <FindReveal.Provider value={reveal && isRevealRow(row, reveal) ? reveal : undefined}>
-          <ToolVerbColumn className="cv-tools">{nodes}</ToolVerbColumn>
+          {/* No verb column: each row reads icon, verb, then its subject one space after, as Claude Code
+              lists them (Leo, 2026-10-31: "why are these indented for no reason"). */}
+          <div className="cv-tools">{nodes}</div>
         </FindReveal.Provider>
       </McpNamesContext.Provider>
     </TranscriptDisclosureProvider>
@@ -312,7 +312,6 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
 /// count here first.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
-  const prDock = useHasPullRequestDock();
   const {
     fork,
     forkSeq,
@@ -409,7 +408,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
                 ? "cv-turn-actions cv-turn-actions--empty"
                 : "cv-turn-actions"
         }
-        data-pr-dock={prDock ? "" : undefined}
       >
         <MessageFooterRow className="cv-turn-footer-row">
           {label && (
@@ -481,7 +479,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           </span>
           <MessageTime at={row.at} className="cv-turn-time" />
         </MessageFooterRow>
-        <PullRequestDock />
       </div>
     </>
   );
