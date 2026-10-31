@@ -238,7 +238,8 @@ private final class WorkspaceTabHoverCardRow: NSView {
     func applyColors() {
         performWithTheme {
             title.textColor = Palette.textPrimary
-            cwd.textColor = Palette.textTertiary
+            // Secondary, as the rich card's facts: tertiary washed the paths out on dark glass (#24785).
+            cwd.textColor = Palette.textSecondary
             status.textColor = Palette.textSecondary
             icon.contentTintColor = Palette.textSecondary
         }
