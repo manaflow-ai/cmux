@@ -40,7 +40,7 @@ export function SwitchNotice({
               {t(action === "newCloudMachine" ? "switch.action.newCloudMachine" : "switch.action.chooseFolder")}
             </button>
           )}
-          <button type="button" data-secondary={action && onAction ? "" : undefined} onClick={onRetry}>
+          <button type="button" data-secondary={action && onAction ? "" : undefined} onClick={machineShare.retry ?? onRetry}>
             {t("switch.retry")}
           </button>
         </div>

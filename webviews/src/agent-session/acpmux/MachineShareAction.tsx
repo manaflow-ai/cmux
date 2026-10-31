@@ -17,12 +17,13 @@ type Phase =
 /// The card's one share button and its one status line, for a teammate's machine only
 /// (machineShare.ts). One button at a time keeps the card compact: Share with Me, and once that is
 /// refused (only the creator or an admin shares), Ask the Owner in its place. A share that went
-/// through retries the start (`onShared`). The state belongs to one refusal: a new one starts over.
+/// through retries the start (`onShared`); once the owner was asked, Retry looks for their share
+/// first (`retry`). The state belongs to one refusal: a new one starts over.
 export function useMachineShare(
   share: MachineShareProps | undefined,
   refusal: { code?: string; error?: string } | undefined,
   onShared: () => void,
-): { button?: ReactNode; line?: string } {
+): { button?: ReactNode; line?: string; retry?: () => void } {
   const t = useT();
   const key = `${refusal?.code ?? ""}\n${refusal?.error ?? ""}`;
   const [state, setState] = useState<{ key: string; phase: Phase }>({ key, phase: { kind: "idle" } });
@@ -43,6 +44,13 @@ export function useMachineShare(
     set(copied ? { kind: "copied" } : { kind: "forbidden" });
   };
   const asking = phase.kind === "forbidden" || phase.kind === "copied";
+  // Once the owner was asked, Retry first checks for their share (the app renews the machine's link
+  // when the person is on its grants), then starts again either way.
+  const recheck = async () => {
+    const outcome = await shareMachineWithMe(share.call);
+    if (outcome.kind === "shared") set({ kind: "idle" });
+    onShared();
+  };
   const button = asking ? (
     <button type="button" data-machine-share="ask" onClick={() => void ask()}>
       {t("switch.action.askOwner")}
@@ -60,5 +68,5 @@ export function useMachineShare(
         : phase.kind === "failed"
           ? t(phase.outcome.key, { reason: phase.outcome.reason ?? t("switch.unknownError") })
           : undefined;
-  return { button, ...(line && { line }) };
+  return { button, ...(line && { line }), ...(asking && { retry: () => void recheck() }) };
 }

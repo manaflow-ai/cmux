@@ -105,6 +105,28 @@ test("only the creator or an admin shares: the button becomes Ask the Owner, whi
   expect(ran).toEqual([]);
 });
 
+test("once the owner was asked, Retry looks for their share before it starts again", async () => {
+  const container = installDom();
+  const ran: string[] = [];
+  let calls = 0;
+  let shared = false;
+  await render(
+    container,
+    async () => {
+      calls += 1;
+      if (!shared) throw new NativeError({ code: "vm_chat_share_forbidden" });
+      return { shared: true };
+    },
+    ran,
+  );
+  await press(container, "Share with Me");
+  shared = true;
+  await press(container, "Retry");
+  expect(calls).toBe(2);
+  expect(ran).toEqual(["retry"]);
+  expect(buttons(container)).toEqual(["Share with Me", "New Cloud Machine", "Retry"]);
+});
+
 test("other refusals offer no share, and a new refusal starts over", async () => {
   const container = installDom();
   const ran: string[] = [];
