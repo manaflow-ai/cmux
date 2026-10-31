@@ -61,6 +61,10 @@ export type IncomingMessage = {
   text: string;
   /// The prompt as the agent got it.
   raw: string;
+  /// Hub-authored lane report metadata, retained for its collapsed presentation.
+  report?: boolean;
+  details?: unknown;
+  noticeThreads?: readonly { id: string; sender: string }[];
 };
 
 /// What the pane knows that tells an agent's addressed message (`sender -> receiver: …`) from the
@@ -266,7 +270,8 @@ export function incomingPrompt(
   const fromSession =
     provenance?.kind === "subsession_message" ||
     provenance?.kind === "session_message" ||
-    provenance?.kind === "task_result";
+    provenance?.kind === "task_result" ||
+    provenance?.kind === "lane_report";
   if (fromSession && typeof provenance.from === "string" && provenance.from) {
     // A Chief's turn: the Chief, whose turn session is its own and is no chat to open.
     const chief = chiefOf(provenance);
@@ -285,6 +290,9 @@ export function incomingPrompt(
       kind: "message",
       message: {
         name: signed?.name ?? name,
+        ...(provenance.kind === "lane_report"
+          ? { report: true, ...(provenance.details !== undefined ? { details: provenance.details } : {}) }
+          : {}),
         ...(sessionId && { sessionId }),
         ...(chief && { chief }),
         ...(relation && { relation }),
@@ -293,6 +301,20 @@ export function incomingPrompt(
         text: signed?.text ?? text.trim(),
         raw: text,
       },
+    };
+  }
+  if (provenance?.kind === "inbox_notice") {
+    const noticeThreads = (Array.isArray(provenance.threads) ? provenance.threads : []).flatMap((value: unknown) => {
+      const thread = value as { threadId?: unknown; from?: unknown } | null;
+      if (typeof thread?.threadId !== "string") return [];
+      const from = Array.isArray(thread.from)
+        ? thread.from.filter((name): name is string => typeof name === "string")
+        : [];
+      return [{ id: thread.threadId, sender: from.join(", ") }];
+    });
+    return {
+      kind: "message",
+      message: { name: "inbox", text: text.replace(/^\[inbox\]\s*/, ""), raw: text, noticeThreads },
     };
   }
   // Messages from other agents that waited for a busy chat and went in as one turn (acpmux

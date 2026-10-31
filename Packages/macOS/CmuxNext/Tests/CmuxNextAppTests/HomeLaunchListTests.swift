@@ -4,6 +4,7 @@ import CmuxHomeCore
 import CmuxNextDaemon
 @testable import CmuxNextHome
 @testable import CmuxNextHomeEngine
+import CmuxNextTestSupport
 import Foundation
 import Testing
 import UniformTypeIdentifiers
@@ -14,7 +15,7 @@ import UniformTypeIdentifiers
 /// The first frame must already be the list as it was at the last quit, and each live answer that
 /// says the same must not move, resize or redraw a row.
 @MainActor
-@Suite(.serialized) struct HomeLaunchListTests {
+@Suite(.serialized, .closesItsWindows) struct HomeLaunchListTests {
     static let me = Participant(id: ParticipantID("user_me"), kind: .human, displayName: "Me")
     static let account = "acct_lawrence"
 

@@ -3,6 +3,7 @@ import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -12,6 +13,7 @@ import Testing
 /// split started (the reply fails, or the creation is cancelled), the held keys stayed held
 /// until the hold's own limit ran out, four seconds of typing that went nowhere. The refusal
 /// ends the hold at once and the keys go on.
+@Suite(.closesItsWindows)
 @MainActor struct NewTabSplitRefusalTests {
     private struct Refused: Error {}
 
