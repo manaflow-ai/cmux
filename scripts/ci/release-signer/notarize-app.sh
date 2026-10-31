@@ -24,6 +24,9 @@ command -v "$R" >/dev/null || { echo "error: signer binary not found ($R)" >&2; 
 [[ "$ASC_API_KEY_ID" =~ ^[A-Za-z0-9]+$ ]] || { echo "error: ASC_API_KEY_ID is not a key id" >&2; exit 1; }
 # shellcheck source=signer-env.sh
 source "$(dirname "${BASH_SOURCE[0]}")/signer-env.sh"
+# notary_submit retries a submit Apple answers with a 5xx (notary-retry.sh).
+# shellcheck source=notary-retry.sh
+source "$(dirname "${BASH_SOURCE[0]}")/notary-retry.sh"
 
 secrets=""
 trap 'rm -rf ${secrets:+"$secrets"}' EXIT
@@ -38,11 +41,12 @@ unset ASC_API_KEY_P8_BASE64
 rm -f "$secrets/AuthKey_${ASC_API_KEY_ID}.p8"
 
 # --staple waits for Apple's answer and fails unless it is Accepted (printing
-# the notary log), then staples the ticket into the bundle.
+# the notary log), then staples the ticket into the bundle. A 5xx before a
+# submission exists is tried again (notary-retry.sh); <log-file> holds the last try.
 echo "==> notarizing and stapling ${APP##*/}" >&2
 rc=0
-run_signer "$R" notary-submit --config-file /dev/null --api-key-file "$secrets/api-key.json" \
-  --max-wait-seconds "${NOTARY_MAX_WAIT_SECONDS:-1200}" --staple "$APP" > "$LOG" 2>&1 || rc=$?
+notary_submit "$LOG" run_signer "$R" notary-submit --config-file /dev/null --api-key-file "$secrets/api-key.json" \
+  --max-wait-seconds "${NOTARY_MAX_WAIT_SECONDS:-1200}" --staple "$APP" || rc=$?
 cat "$LOG" >&2
 id="$(grep -oiE 'submission id:? *[0-9a-f-]{36}' "$LOG" | grep -oE '[0-9a-f-]{36}' | head -n 1 || true)"
 [[ -z "$id" ]] || echo "submission_id=$id"

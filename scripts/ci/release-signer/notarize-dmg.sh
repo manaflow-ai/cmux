@@ -31,6 +31,9 @@ export APPLE_CERTIFICATE_PASSWORD
 # (the signer's own configuration) out of its environment.
 # shellcheck source=signer-env.sh
 source "$(dirname "${BASH_SOURCE[0]}")/signer-env.sh"
+# notary_submit retries a submit Apple answers with a 5xx (notary-retry.sh).
+# shellcheck source=notary-retry.sh
+source "$(dirname "${BASH_SOURCE[0]}")/notary-retry.sh"
 
 secrets=""
 trap 'rm -rf ${secrets:+"$secrets"}' EXIT
@@ -89,8 +92,12 @@ done
 rm -f "$secrets/AuthKey_${ASC_API_KEY_ID}.p8"
 
 # --staple waits for Apple's answer, fails unless it is Accepted (printing the
-# notary log), then staples the ticket to the DMG.
+# notary log), then staples the ticket to the DMG. A 5xx before a submission
+# exists is tried again (notary-retry.sh).
 echo "==> notarizing and stapling ${DMG##*/}"
-run_signer "$R" notary-submit --config-file /dev/null --api-key-file "$secrets/api-key.json" \
-  --max-wait-seconds "${NOTARY_MAX_WAIT_SECONDS:-1800}" --staple "$DMG"
+rc=0
+notary_submit "$secrets/notary.log" run_signer "$R" notary-submit --config-file /dev/null --api-key-file "$secrets/api-key.json" \
+  --max-wait-seconds "${NOTARY_MAX_WAIT_SECONDS:-1800}" --staple "$DMG" || rc=$?
+cat "$secrets/notary.log"
+[[ "$rc" -eq 0 ]] || { echo "error: ${DMG##*/} was not notarized and stapled (exit $rc)" >&2; exit 1; }
 echo "==> ${DMG##*/} is signed, notarized and stapled"
