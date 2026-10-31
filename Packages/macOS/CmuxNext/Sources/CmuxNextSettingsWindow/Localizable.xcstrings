@@ -36478,6 +36478,137 @@
         }
       }
     },
+    "settingsPage.theme.overriddenSpaceApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُستبدل في هذه المساحة بـ%@، مع سمة التطبيق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "U ovom prostoru zamijenjeno temom %@, i tema aplikacije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilsidesat i dette område af %@, apptemaet med"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In diesem Bereich durch %@ ersetzt, auch das App-Theme"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overridden in this space by %@, App Theme included"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reemplazado en este espacio por %@, tema de la app incluido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remplacé dans cet espace par %@, thème de l’app compris"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sostituito in questo spazio da %@, tema dell’app incluso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このスペースでは%@に置き換え（アプリテーマも）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រូវបានជំនួសក្នុងលំហនេះដោយ %@ រួមទាំងស្បែកកម្មវិធី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 스페이스에서는 %@(으)로 대체됨 (앱 테마 포함)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overstyrt i dette området av %@, apptemaet også"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "W tej przestrzeni zastąpiony przez %@, z motywem aplikacji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Substituído neste espaço por %@, incluindo o tema do app"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этом пространстве заменено на %@, включая тему приложения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถูกแทนที่ในพื้นที่นี้ด้วย %@ รวมถึงธีมแอป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu alanda %@ ile geçersiz kılındı, uygulama teması dahil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У цьому просторі замінено на %@, разом із темою застосунку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bị thay bằng %@ trong không gian này, cả chủ đề ứng dụng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此空间中被 %@ 覆盖（包括应用主题）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此空間中被 %@ 覆寫（包括 App 主題）"
+          }
+        }
+      }
+    },
     "settingsPage.theme.overriddenWorkspace": {
       "extractionState": "manual",
       "localizations": {
@@ -36605,6 +36736,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "在此工作區中被 %@ 覆寫"
+          }
+        }
+      }
+    },
+    "settingsPage.theme.overriddenWorkspaceApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُستبدل في مساحة العمل هذه بـ%@، مع سمة التطبيق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "U ovom radnom prostoru zamijenjeno temom %@, i tema aplikacije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilsidesat i dette arbejdsområde af %@, apptemaet med"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In diesem Arbeitsbereich durch %@ ersetzt, auch das App-Theme"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overridden in this workspace by %@, App Theme included"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reemplazado en este espacio de trabajo por %@, con el tema de la app"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remplacé dans cet espace de travail par %@, thème de l’app compris"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sostituito in questo workspace da %@, tema dell’app incluso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースでは%@に置き換え（アプリテーマも）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រូវបានជំនួសក្នុងកន្លែងធ្វើការនេះដោយ %@ រួមទាំងស្បែកកម្មវិធី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 워크스페이스에서는 %@(으)로 대체됨 (앱 테마 포함)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overstyrt i dette arbeidsområdet av %@, apptemaet også"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "W tym obszarze roboczym zastąpiony przez %@, z motywem aplikacji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Substituído neste espaço de trabalho por %@, com o tema do app"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этом рабочем пространстве заменено на %@, с темой приложения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถูกแทนที่ในเวิร์กสเปซนี้ด้วย %@ รวมถึงธีมแอป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu çalışma alanında %@ ile geçersiz kılındı, uygulama teması dahil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У цьому робочому просторі замінено на %@, з темою застосунку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bị thay bằng %@ trong workspace này, cả chủ đề ứng dụng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此工作区中被 %@ 覆盖（包括应用主题）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此工作區中被 %@ 覆寫（包括 App 主題）"
           }
         }
       }
