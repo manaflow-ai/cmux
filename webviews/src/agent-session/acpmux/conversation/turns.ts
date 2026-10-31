@@ -576,10 +576,12 @@ function shapeTurn(
       staysOut(row) ||
       (!open && row.kind === "activity" && (row.items ?? []).some((item) => awaitsPermission(item.tool)));
     const work = [...before, ...after].filter((row) => !out(row));
-    edits.push(...[...before, ...after].filter((row) => !staysOut(row) && isEdit(row)));
-    // A turn of nothing but replies and steers did no work to fold: its dialogue stays drawn as
-    // it ran, the steer between the replies (agent-pane-steer-split.test.ts).
-    const dialogue = work.every((row) => row.kind === "user" || isAnswer(row));
+    // A row drawn beside the closed fold is not in the card too: the card takes its first row's id.
+    edits.push(...work.filter(isEdit));
+    // A turn of nothing but the agent's replies and the person's own steers did no work to fold:
+    // it stays drawn as it ran, the steer between the replies (agent-pane-steer-split.test.ts).
+    // Reports received from other agents fold like work.
+    const dialogue = work.every((row) => (row.kind === "user" && !row.incoming) || isAnswer(row));
     if (work.length && !dialogue) {
       folded = true;
       const from = segment.anchor.at;

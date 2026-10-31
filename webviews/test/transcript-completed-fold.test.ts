@@ -223,4 +223,22 @@ test("a pending edit remains available beside the completed fold", () => {
   const shown = turnView(rows, new Set());
   expect(shown.find((entry) => entry.id === pending.id)).toMatchObject({ items: pending.items });
   expect(shown.find((entry) => entry.id === pending.id)?.ended).not.toBe(true);
+  // Beside the closed fold it is not also the edited-files card, which would take its id.
+  expect(shown.filter((entry) => entry.id === pending.id)).toHaveLength(1);
+});
+
+test("a completed turn of only replies and the person's own steer has no work to fold", () => {
+  at = 0;
+  const rows = [
+    row("prompt", "user", { text: "Write two sentences about the sun" }),
+    answer("reply", "The Sun also rises. It warms a cold reach of space."),
+    row("steer", "user", { text: "Then say DONE", steer: "landed" }),
+    answer("done", "DONE"),
+    row("summary", "turnSummary", { status: "completed" }),
+  ];
+  expect(
+    turnView(rows, new Set())
+      .filter((entry) => entry.kind !== "date")
+      .map((entry) => entry.id),
+  ).toEqual(["prompt", "reply", "steer", "done", "summary"]);
 });
