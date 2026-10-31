@@ -371,7 +371,16 @@ button.cv-subagent > :last-child {
   outline: 2px solid var(--agent-accent);
   outline-offset: -2px;
 }
+.acpmux-agents-list__mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 9px;
+  height: 9px;
+}
 .acpmux-agents-list__dot {
+  display: block;
   flex: none;
   width: 9px;
   height: 9px;
