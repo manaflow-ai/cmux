@@ -20,6 +20,9 @@ public final class DebugCloseReadHold {
     private var waiting: [CheckedContinuation<Void, Never>] = []
     private var round = 0
 
+    /// How many close reads wait for the release now (a test waits for its read to be held before it releases).
+    public var held: Int { waiting.count }
+
     /// Waits for the release when a hold is armed; returns at once otherwise.
     func readStarts() async {
         guard armed else { return }

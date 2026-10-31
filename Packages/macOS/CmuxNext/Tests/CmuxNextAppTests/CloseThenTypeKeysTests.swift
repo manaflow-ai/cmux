@@ -200,6 +200,8 @@ struct CloseThenTypeKeysTests {
             #expect(try Self.cmdW(in: p), "the key router did not take Cmd-W")
             let nonce = String(UInt32.random(in: 100_000...999_999))
             try Self.type("echo wc\(nonce)x$((6*7))\r", in: p)
+            // The read starts in a later main-actor turn: wait until it waits for the release, so the line was typed inside it.
+            try await PinnedPageTests.until({ hold.held == 1 }, report: { "waiting for the close warning's read to be held: held \(hold.held), reading \(TabCloseGuard.reading)" })
             let resumed = hold.release()
             try #require(resumed == 1, "the close warning's read was not held (resumed \(resumed)): the line was not typed inside it")
             try await PinnedPageTests.until({ warning() != nil }, report: { "waiting for the close warning: dialogs \(dialogs.records.map { $0.spec.identifier ?? "-" })" })
