@@ -57,6 +57,7 @@ enum SettingsHandlers {
                                 services?.settings?.snapshot.previewFeatures == true ? nil : previewTitle
                             },
                             stateDirectories: { [weak services = context.services] in services?.environment.daemonStateDirectories ?? [nil] })
+        SetupGuidePage.bind(into: registry, services: context.services)
         OnboardingHandlers.bind(into: registry, context: context)
         // Keep preview surfaces out of menus and the palette while Labs is off. Compose this
         // with the browser import gate installed above so unrelated settings remain intact.
