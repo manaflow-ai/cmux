@@ -106,6 +106,7 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
       const away = pageAway();
       if (
         !away &&
+        !reduce.current &&
         state.frameMs < FAST_FRAME_MS &&
         state.lastCommit !== undefined &&
         now - state.lastCommit < FAST_FRAME_MS
@@ -156,7 +157,32 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
   }, [text, streaming]);
   useLayoutEffect(() => {
     const state = loop.current;
+    const query = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    const update = () => {
+      const reduced = query?.matches === true;
+      reduce.current = reduced;
+      const current = reveal.current!;
+      current.reduceMotion = reduced;
+      if (!reduced) return;
+      // Take in even a delta that has not reached its first frame. The preference event
+      // settles this row before the next paint, including any unfinished fade.
+      const { text: target, streaming: live, shown: before } = latest.current;
+      const now = performance.now();
+      current.advance(target, now, !live);
+      current.flush();
+      revealFrames.cancel(state.handle);
+      state.handle = 0;
+      if (before.length !== target.length || before.fresh.length) {
+        const next = { length: target.length, fresh: [], now };
+        latest.current.shown = next;
+        setShown(next);
+      }
+    };
+    const onChange = () => flushSync(update);
+    query?.addEventListener("change", onChange);
+    update();
     return () => {
+      query?.removeEventListener("change", onChange);
       revealFrames.cancel(state.handle);
       state.handle = 0;
     };
