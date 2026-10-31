@@ -3,6 +3,7 @@
 
   python3 scripts/fuzz/browser/test_fuzz_model.py
 """
+import io
 import json
 import os
 import subprocess
@@ -591,6 +592,36 @@ class DownloadsFolderTests(unittest.TestCase):
             self.assertIsNone(model.download_violation({"destination": "/Users/x/Downloads/fz-1-a.bin"}, "/Users/x/Downloads"))
             self.assertIn("outside", model.download_violation({"destination": "/Users/x/Downloads/../fz-1-a.bin"},
                                                              "/Users/x/Downloads"))
+
+
+class DownloadCleanupNoteTests(unittest.TestCase):
+    """Review of #29769: the 'left in place' note was added after run_ops copied the notes, so nobody saw it; and a
+    token such as fz5-12 also matched fz5-123456-... ."""
+
+    def test_a_blocked_delete_is_printed(self):
+        import time as time_module
+        from unittest import mock
+        import browser_fuzz
+        with tempfile.TemporaryDirectory() as downloads, tempfile.TemporaryDirectory() as root:
+            scratch = os.path.join(root, "scratch")
+            os.makedirs(os.path.join(scratch, "home"))
+            session = object.__new__(browser_fuzz.Session)
+            session.scratch, session.home, session.notes, session.download_paths = scratch, os.path.join(scratch, "home"), [], set()
+            session.record_download({"destination": os.path.join(downloads, "fzA-1-x.bin")}, "fzA-1")
+            out = io.StringIO()
+            with mock.patch.object(browser_fuzz, "DOWNLOAD_DELETE_S", 0.2), \
+                    mock.patch.object(os, "remove", lambda path: time_module.sleep(30)), mock.patch("sys.stdout", out):
+                session.cleanup()
+            self.assertIn("did not finish", out.getvalue())
+            self.assertIn("fzA-1-x.bin", out.getvalue())
+
+    def test_a_token_matches_only_its_own_downloads(self):
+        import browser_fuzz
+        session = object.__new__(browser_fuzz.Session)
+        session.download_paths = set()
+        session.record_download({"destination": "/Users/x/Downloads/fz5-123456-a.bin"}, "fz5-12")
+        session.record_download({"destination": "/Users/x/Downloads/fz5-12-a.bin"}, "fz5-12")
+        self.assertEqual(session.download_paths, {"/Users/x/Downloads/fz5-12-a.bin"})
 
 
 if __name__ == "__main__":
