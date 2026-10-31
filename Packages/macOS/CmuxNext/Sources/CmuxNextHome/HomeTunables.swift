@@ -73,17 +73,18 @@ public nonisolated struct HomeTunables {
     /// top and fade out there. Conversations opened after a change follow it.
     public static let chatHeader = Tunable<Bool>.toggle(
         "home.chatHeader", section, "Avatar and name over the chat",
-        help: "The chat shows the Chief's avatar and name pill on a glass band at its top, as Messages does. Off: no header, and the messages fade out at the top as they scroll away.",
+        help: "The chat shows the Chief's avatar and name pill at its top over the chat's own background, as Messages does. Off: no header, and the messages fade out at the top as they scroll away.",
         default: true, code: "HomeTunables.chatHeader")
 
     /// How the chat ends at its top under the avatar and the "Chief >" pill (MessagesLabHome
-    /// ``HomeTopFadeStyle``), switched live in every open Home chat. The glass band by default
-    /// (#23796's look) until Lawrence picks one (2026-10-23: "make variations of how we do fade at
-    /// top in chief"). Only with ``chatHeader`` on; no header keeps its own short fade.
+    /// ``HomeTopFadeStyle``), switched live in every open Home chat. The background tint by default:
+    /// the header is the chat's own background, no separate band (Lawrence 2026-10-30: "bg of chief
+    /// header is ugly"; one background across Home, 2026-10-30). Only with ``chatHeader`` on; no
+    /// header keeps its own short fade.
     public static let topFadeStyle = Tunable<HomeTopFadeChoice>.choice(
         "home.topFadeStyle", section, "Top of the chat",
-        help: "How the messages end at the top of the chat as they scroll under the avatar and name pill: a glass band, a soft fade, a progressive blur, a material band with a hairline, a hard edge with a shadow, a fade that starts below the pill, a background tint, or Messages' blurred bar. Changes every open chat at once.",
-        default: .glassBand, code: "HomeTunables.topFadeStyle")
+        help: "How the messages end at the top of the chat as they scroll under the avatar and name pill: the chat's own background (the default), a glass band, a soft fade, a progressive blur, a material band with a hairline, a hard edge with a shadow, a fade that starts below the pill, or Messages' blurred bar. Changes every open chat at once.",
+        default: .backgroundTint, code: "HomeTunables.topFadeStyle")
 
     /// The avatar-only list with only one conversation in it (`HomeSidebarSplitView`): off by default,
     /// so a lone Chief takes no column and the chat gets the width (visual QA 2026-10-21: one avatar in

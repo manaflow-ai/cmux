@@ -13,7 +13,8 @@ extension DaemonService {
     /// The report: `startup` (`connecting`, `connected`, `unavailable` with
     /// `startup_error`), `connection` (`connected`, `connecting`,
     /// `disconnected`, `failed` with `connection_reason`), the daemon's `pid`
-    /// while connected, `recovery`, and `windows`: each window's id and what it
+    /// while connected, `answering` (false while the connected daemon leaves its heartbeat
+    /// unanswered and its connection stays open), `recovery`, and `windows`: each window's id and what it
     /// shows, from `windows` (`content`, `connecting` or `none`).
     @MainActor
     public func debugControlMethod(windows: @escaping @MainActor @Sendable () -> [(id: String, shows: String)]) -> ControlMethod {
@@ -53,6 +54,7 @@ extension DaemonService {
                 report["connection_reason"] = .string(why)
             }
             if let pid = store.identity?.pid { report["pid"] = .number(Double(pid)) }
+            report["answering"] = .bool(!self.recovery.daemonNotAnswering)
             recovery["can_retry"] = .bool(self.recovery.canRetry)
             recovery["offers_restart"] = .bool(self.recovery.offersRestart)
             recovery["is_restarting"] = .bool(self.recovery.isRestarting)

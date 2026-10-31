@@ -1,8 +1,9 @@
 import CmuxNextDesign
 import Foundation
 
-/// `appearance.appTheme` in cmux.json: the theme cmux's own surfaces (pages today, the native
-/// chrome next) take their app tokens from (`CmuxTheme.AppTheme`), apart from the terminal theme.
+/// `appearance.appTheme` in cmux.json: the theme cmux's own surfaces (the native chrome: window,
+/// sidebar, tab strips, light/dark; and the pages) take their colors from (`CmuxTheme.AppTheme`),
+/// apart from the terminal theme, which the terminals keep.
 /// `followTerminal` (the default) uses each scope's terminal theme; otherwise one Ghostty theme
 /// name or a light/dark pair, like `appearance.theme`.
 public struct ChromeThemeSetting: Sendable {

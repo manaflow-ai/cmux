@@ -79,7 +79,6 @@ public struct ChiefConversationScreen: View {
             .id(ObjectIdentifier(session.store))
             .ignoresSafeArea()
             .toolbar(.hidden, for: .navigationBar)
-            .toolbar(.hidden, for: .tabBar)
             .navigationBarBackButtonHidden()
             .navigationDestination(isPresented: $showsInfo) {
                 // Message: back to the conversation with the keyboard up.
@@ -108,7 +107,13 @@ extension ConversationPresentationOptions {
             serviceTitle: "Chief",
             serviceSubtitle: String(localized: "mobile.chief.serviceSubtitle", defaultValue: "Runs your agents", bundle: .module),
             // The header's trailing button is Invite to cmux (the share sheet).
-            trailingSymbol: ChiefInvite.symbol
+            trailingSymbol: ChiefInvite.symbol,
+            header: ConversationHeaderPresentation(
+                scrollEdge: .system,
+                actionAccessibilityLabel: ChiefInvite.actionTitle,
+                avatarAccessibilityLabel: String(localized: "Chief"),
+                avatarAccessibilityHint: String(localized: "Opens Chief's settings")
+            )
         )
     }
 }
@@ -492,85 +497,32 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
 
     // MARK: Chief settings in place of contact details
 
-    /// The header's avatar and name open Messages' contact details in the
-    /// package (Call, FaceTime and Mail; Hide Alerts and Send Read Receipts
-    /// on a table that reloads under the switch). CmuxConversation has no
-    /// hook to replace or trim them (verify/imsg-upstream-requests.md), so
-    /// Chief retargets those two controls to ``ChiefSettingsView``: the Mac
-    /// Chief's settings with this phone's alert and receipt switches. The
-    /// trailing button (the package's call glyph) becomes Invite to cmux.
-    /// Found by the package's own accessibility markers; a later package that
-    /// renames them shows its details again.
+    /// Public package actions preserve the close behavior in reply/edit/select
+    /// modes and work for touch, VoiceOver and keyboard activation alike.
     private(set) var headerTakenOver = false
-    private var trailingWasAction = false
 
     private func takeOverHeader() {
-        // The header: the view that holds the name button, up to the
-        // package's header class. Only its controls are touched.
-        guard let name = conversation.view.subviewsOfType(UIButton.self).first(where: { $0.accessibilityIdentifier == "conversation.header.name" }) else {
-            return
-        }
-        var header: UIView = name
-        while let parent = header.superview, parent !== conversation.view,
-              !String(describing: type(of: header)).contains("HeaderView") {
-            header = parent
-        }
-        for button in header.subviewsOfType(UIButton.self) {
-            switch button.accessibilityIdentifier {
-            case "conversation.header.name":
-                retarget(button)
-            case "conversation.header.trailing":
-                // The package's own action (leaving reply, edit or select
-                // mode, which show an xmark) runs first; the invite opens
-                // only from the plain state.
-                button.addAction(UIAction { [weak self, weak button] _ in
-                    self?.trailingWasAction = !(button?.currentImage.map(Self.isXmark) ?? true)
-                }, for: .touchDown)
-                button.addAction(UIAction { [weak self] _ in
-                    guard let self else { return }
-                    // Read once: an activation with no touch-down (Full Keyboard
-                    // Access) never reuses an earlier tap's state.
-                    let wasPlain = self.trailingWasAction
-                    self.trailingWasAction = false
-                    // The package relabels the button on every mode change.
-                    self.labelTrailing()
-                    guard wasPlain else { return }
-                    self.presentInvite()
-                }, for: .touchUpInside)
-                trailingButton = button
-            default:
-                // The avatar's tap target: the one header button with a hint.
-                if button.accessibilityHint != nil, button.buttonType == .custom {
-                    retarget(button)
-                    button.accessibilityLabel = String(localized: "Chief")
-                    button.accessibilityHint = String(localized: "Opens Chief's settings")
-                }
-            }
-        }
+        conversation.onHeaderInfo = { [weak self] in self?.presentSettings() }
+        conversation.onHeaderAction = { [weak self] anchor in self?.presentInvite(anchor: anchor) }
         headerTakenOver = true
     }
 
-    private weak var trailingButton: UIButton?
-
-    private func retarget(_ button: UIButton) {
-        var actions: [UIAction] = []
-        button.enumerateEventHandlers { action, _, event, _ in
-            if event == .touchUpInside, let action { actions.append(action) }
-        }
-        for action in actions { button.removeAction(action, for: .touchUpInside) }
-        button.addAction(UIAction { [weak self] _ in self?.presentSettings() }, for: .touchUpInside)
+    /// Messages written before Chief connected are not in the transcript
+    /// yet; say so, with why, instead of showing nothing.
+    private func showOutboxIfWaiting() {
+        guard !session.outbox.isEmpty, !session.isConnected, presentedViewController == nil else { return }
+        let count = session.outbox.count
+        let reason = session.unavailableReason ?? String(localized: "Chief isn't connected yet.")
+        let alert = UIAlertController(
+            title: count == 1 ? String(localized: "Message Not Sent Yet") : String(localized: "\(count) Messages Not Sent Yet"),
+            message: String(localized: "\(reason) It will send when Chief connects."),
+            preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: String(localized: "Keep"), style: .cancel))
+        alert.addAction(UIAlertAction(title: String(localized: "Delete"), style: .destructive) { [weak self] _ in
+            self?.session.discardOutbox()
+        })
+        present(alert, animated: true)
     }
-
-    static func isXmark(_ image: UIImage) -> Bool {
-        String(describing: image).contains("xmark")
-    }
-
-    /// The trailing glyph speaks as "Call" in the package; here it is the invite.
-    private func labelTrailing() {
-        guard let trailingButton, let image = trailingButton.currentImage, !Self.isXmark(image) else { return }
-        trailingButton.accessibilityLabel = ChiefInvite.actionTitle
-    }
-
     /// Pushes Chief's info on the navigation stack (``ChiefConversationScreen``).
     var openInfo: (() -> Void)?
 
@@ -582,13 +534,14 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
 
     /// Invite to cmux: the share sheet over the conversation, anchored to the
     /// trailing button (a popover on iPad).
-    public func presentInvite() {
+    public func presentInvite(anchor: UIView? = nil) {
         guard presentedViewController == nil, conversation.presentedViewController == nil else { return }
         view.endEditing(true)
         let sheet = ChiefInvite.shareSheet()
         if let popover = sheet.popoverPresentationController {
-            if let trailingButton {
-                popover.sourceItem = trailingButton
+            if let anchor {
+                popover.sourceView = anchor
+                popover.sourceRect = anchor.bounds
             } else {
                 popover.sourceView = view
                 popover.sourceRect = CGRect(x: view.bounds.maxX - 44, y: view.safeAreaInsets.top, width: 1, height: 1)
@@ -626,7 +579,6 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         if view.window != nil, !isCovered { enableEdgePop() }
-        labelTrailing()
         layoutQuestionBar()
         anchorLiveBubble()
     }

@@ -288,9 +288,13 @@ CmuxMobileRoot
    └─ Global overlays: connection banner, toasts
 ```
 
-Pushed full-screen surfaces (Agent chat, Terminal, Browser, File preview, Diff viewer) hide the
-tab bar: `.toolbarVisibility(.hidden, for: .tabBar)`. Composer screens never show a tab bar under
-the composer (Messages and every AI app agree: a conversation owns the bottom edge).
+Pushed full-screen surfaces (a workspace and its tabs, Agent chat, Terminal, Browser, File preview,
+Diff viewer, a Home conversation) hide the tab bar. Composer screens never show a tab bar under
+the composer (Messages and every AI app agree: a conversation owns the bottom edge). One source of
+truth decides it: `ShellModel.showsTabBar(on:)` (anything pushed on Home, Workspaces or the Feed
+hides it; Settings pages keep it), applied per tab by `TabBarVisibility`. Pushed screens never set
+it themselves: SwiftUI drops a pushed screen's hide when one update selects a tab and pushes on it
+(a link, a notification tap, the launch restore).
 
 ### 3.2 TabView
 
@@ -468,6 +472,11 @@ text, this should be a principle in general."
   the list's text column. Section headers, footers, inline labels ("Loading…", "No Macs
   yet", a Mac's offline line), group and disclosure titles, and icon-less rows on the same
   page start there too. Every title in a list starts at one x.
+- **Grouped lists keep native headers.** In `.insetGrouped` lists (Settings and its
+  pages, Devices) section headers and footers stay at the system position, the cell's
+  content margin where the row icons start, as in iOS Settings. They take no
+  `.cmuxMobileTextColumn()`. User direction, 2026-10-30: "the settings group headers like
+  Connection and Appearance are way too indented in cmux next ios, fix."
 - **Gutter.** Marks hang in a leading gutter before the text column: status and unread dots,
   disclosure chevrons, icons, small avatars, spinners, selection marks (Apple Mail's unread
   dots, iOS Settings' row icons). A group or disclosure row puts its chevron in the gutter
@@ -482,8 +491,8 @@ text, this should be a principle in general."
   - a list with its own glyph size declares its column (`CmuxMobileListColumn(mark:gap:)`,
     e.g. Continue in… 32 + 12, Checkpoints 24 + 12); the Team drawer uses
     `SidebarTeamRow.textLeading` (side margin + 36 pt avatar + 12 pt).
-- **How to build it.** A row puts its mark in `CmuxMobileGutterRow`; a header, footer or
-  icon-less row in a list with marks takes `.cmuxMobileTextColumn(kind)`. A page whose rows
+- **How to build it.** A row puts its mark in `CmuxMobileGutterRow`; a plain list's header or
+  footer, and an icon-less row in a list with marks, takes `.cmuxMobileTextColumn(kind)`. A page whose rows
   have no marks keeps the system alignment (its text, headers and footers already share
   the cell margin) and adds no icons to only some rows.
 - **Exceptions.** A row's own icon or emoji that is part of its name (a workspace's icon)

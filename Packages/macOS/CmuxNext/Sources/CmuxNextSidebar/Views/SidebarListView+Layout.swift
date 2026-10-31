@@ -72,8 +72,14 @@ extension SidebarListViewComponents {
         }
         o.excludedWorkspaces.formUnion(leaving)
         (o.openDoneFolds, o.openShowMore) = (openDoneFolds, openShowMore)
-        // A drop resolves by the drawn rows' model indexes: while a drag runs, every row shows in its place.
-        if shownDrag != nil || external != nil { (o.foldsDone, o.rowLimit) = (false, 0) }
+        // A drag keeps the "Done (N)" rows folded, so its lift and its drop move no other row (ask-13d9bbd5e3): a drop
+        // resolves by the drawn rows' model indexes, which a fold leaves as they are, and a drop gap at an index the
+        // fold hides opens before the next drawn row (`SidebarLayout.gapEntry`). "Show N more" (off by default) still
+        // opens while a drag runs: its limit counts rows, so the drag's base rows (without the dragged ones) and the
+        // drop's result would show different rows.
+        if shownDrag != nil || external != nil { o.rowLimit = 0 }
+        // External tab drops still use the older reducer: keep its unfolded group-exit geometry and visible tab slots.
+        if external != nil { (o.foldsDone, o.foldsArchived) = (false, false) }
         if includeGap, case let .newWorkspace(section, group, index)? = external?.proposal {
             o.gap = DropPosition(section: section, group: group, index: index)
             o.gapHeight = metrics.rowHeight
@@ -89,6 +95,8 @@ extension SidebarListViewComponents {
         case let .workspaces(ids):
             o.excludedWorkspaces.formUnion(ids)
             o.showEmptyPinned = true
+            // A drag that carries a Done row draws unfolded: the fold would move it out of the slot or add a fold row.
+            if SidebarLayout.dragUnfolds(ids.compactMap { model.workspace($0) }, options: o) { (o.foldsDone, o.foldsArchived) = (false, false) }
         case let .group(group):
             o.excludedGroup = group
         case let .item(item):
@@ -407,8 +415,8 @@ extension SidebarListViewComponents {
         case let (.section(id), view as SectionHeaderRowView):
             guard let section = sections[id] else { return }
             view.configure(section, row: row)
-        case let (.emptySection(id), view as EmptySectionRowView): view.configure(pinned: id == .pinned || id == .custom(SidebarDocStore.pinnedSection))
-        case let (.emptyGroup(id), view as EmptyGroupRowView): view.configure(groupName: groups[id]?.name ?? model.group(id)?.name ?? "")
+        case let (.emptySection(id), view as EmptySectionRowView): view.configure(pinned: id == .pinned || id == .custom(SidebarDocStore.pinnedSection), shortcut: model.newWorkspaceShortcut)
+        case let (.emptyGroup(id), view as EmptyGroupRowView): view.configure(groupID: id, groupName: groups[id]?.name ?? model.group(id)?.name ?? "")
         case let (.folder(_, folder), view as FolderHeaderRowView): view.configure(folder: folder)
         case let (.status, view as StatusHeaderRowView): view.configure(row)
         case (.doneFold, let view as SidebarDoneFoldRowView), (.showMore, let view as SidebarDoneFoldRowView): view.configure(row)
