@@ -51,7 +51,7 @@ export function AgentRunCard({ agent }: { agent: Subagent }) {
       onOpen={openChat ?? (openRun ? () => openRun(agent.id) : undefined)}
       openLabel={openChat ? undefined : t("bgTask.showOutput")}
     >
-      {agent.result && !running(agent) && <Cut text={agent.result} />}
+      {agent.result && !running(agent) && <Cut text={agent.result} disclosureKey={`agent-result:${agent.id}`} />}
       {agent.command && <RunCommand command={agent.command} />}
     </AgentCard>
   );
