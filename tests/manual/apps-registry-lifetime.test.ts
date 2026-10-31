@@ -37,6 +37,42 @@ function hold(provider: MockAppsProvider, operation: string, fails = false) {
 }
 
 describe("App Store registry lifetime", () => {
+  test("stop during startup's loading publication prevents registry startup", async () => {
+    const { provider, store } = setup();
+    const pending = store.start();
+    let stopped: ReturnType<AppsStore["getSnapshot"]> | undefined;
+    const unsubscribe = store.subscribe(() => {
+      if (!stopped && store.getSnapshot().loading) {
+        store.stop();
+        stopped = store.getSnapshot();
+      }
+    });
+    try {
+      await pending;
+      expect(stopped).toBeDefined();
+      expect(store.getSnapshot()).toBe(stopped);
+      expect(provider.calls.filter((call) => call.op.startsWith("cmux.registry."))).toEqual([]);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  test("stop during reconnect's connecting publication prevents follow-up reads", async () => {
+    const { provider, store } = setup();
+    await store.start();
+    provider.page.setConnected(false);
+    const unsubscribe = store.subscribe(() => {
+      if (store.getSnapshot().connection === "connecting") store.stop();
+    });
+    provider.calls.length = 0;
+    try {
+      provider.page.setConnected(true);
+      expect(provider.calls).toEqual([]);
+    } finally {
+      unsubscribe();
+    }
+  });
+
   for (const op of [RegistryOps.me, RegistryOps.listings, RegistryOps.submissions, RegistryOps.reviewQueue]) {
     for (const fails of [false, true]) {
       test(`${op} ${fails ? "failure" : "success"} after stop publishes nothing`, async () => {
