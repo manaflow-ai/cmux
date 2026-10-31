@@ -228,6 +228,10 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
         if changed || forceRestart {
             logger.notice("grants \(snapshot.map { "ax=\($0.accessibility) sr=\($0.screenRecording)" } ?? "unknown", privacy: .public); restarting stale workers")
             host.screen.restart(force: false)
+            // A Computer Use worker reads Screen Recording once, at start: end it, and the app's
+            // helper start (its restart budget) opens a new channel, so the grant applies without
+            // a relaunch of anything the person sees.
+            host.computerUse.stopAll()
         }
         statusChanged()
     }
