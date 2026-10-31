@@ -152,7 +152,7 @@ extension AgentTabStore {
         tabs.cloudMachines.wire(services)
         tabs.remoteControl = services.iphone.remoteControl
         // The composer strip's machine dot: the sidebar header's same link state; using a machine
-        // that is down runs its header's Reconnect.
+        // that is down runs its header's Reconnect, as `.page`: never a takeover (HQ #4877 G5).
         tabs.machineLink.state = { [weak tabs, weak services] view in
             guard let tabs, let services, let key = tabs.views.first(where: { $0.value === view })?.key,
                   let machine = tabs.remoteMachineID(of: key) else { return nil }
@@ -162,7 +162,7 @@ extension AgentTabStore {
             services.map { SidebarBridge.paneUse(machine, in: $0.machines) } ?? .stuck
         }
         tabs.machineLink.reconnect = { [weak tabs] machine in
-            _ = tabs?.actionRegistry?.perform("machine.reconnect", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: machine), origin: .user))
+            _ = tabs?.actionRegistry?.perform("machine.reconnect", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: machine), origin: .page))
         }
         // The composer chips and shell commands chat pages held at the last quit (every relaunch's quit).
         tabs.relaunchWake = services.relaunchWake

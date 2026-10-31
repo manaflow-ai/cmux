@@ -21,6 +21,42 @@ import { DriverError, type GuestExecResult } from "../contract.ts"
  */
 export const execStatusFinal = (status: number): boolean => status !== 409 && status !== 429 && status < 500
 
+/** Bound the serialized provider answer before JSON parsing, including small-chunk overhead. */
+export const EXEC_RESPONSE_MAX_BYTES = 4 * 1024 * 1024
+export const EXEC_RESPONSE_MAX_CHUNKS = 4096
+
+const readExecAnswer = async (res: Response): Promise<unknown> => {
+  if (!res.body) throw new Error("missing exec body")
+  const reader = res.body.getReader()
+  const chunks: Array<Uint8Array> = []
+  let bytes = 0
+  let finished = false
+  try {
+    for (;;) {
+      const next = await reader.read()
+      if (next.done) {
+        finished = true
+        break
+      }
+      bytes += next.value.byteLength
+      if (bytes > EXEC_RESPONSE_MAX_BYTES || chunks.length >= EXEC_RESPONSE_MAX_CHUNKS)
+        throw new DriverError("cloud.exec.output_limit", "guest exec: output exceeded the response limit", true)
+      chunks.push(next.value)
+    }
+    const body = new Uint8Array(bytes)
+    let offset = 0
+    for (const chunk of chunks) {
+      body.set(chunk, offset)
+      offset += chunk.byteLength
+    }
+    return JSON.parse(new TextDecoder().decode(body)) as unknown
+  } finally {
+    // Over-limit or broken streams stop downloading immediately; the provider's guest timeout remains.
+    if (!finished) await reader.cancel().catch(() => undefined)
+    reader.releaseLock()
+  }
+}
+
 const b64 = (bytes: Uint8Array): string => {
   let s = ""
   for (let i = 0; i < bytes.byteLength; i++) s += String.fromCharCode(bytes[i]!)
@@ -55,8 +91,9 @@ export const freestyleExecStdin = async (
   }
   let r: { stdout?: unknown; stderr?: unknown; statusCode?: unknown }
   try {
-    r = (await res.json()) as typeof r
-  } catch {
+    r = (await readExecAnswer(res)) as typeof r
+  } catch (error) {
+    if (error instanceof DriverError) throw error
     throw new DriverError("cloud.provider.unavailable", "guest exec: unreadable answer", true)
   }
   // statusCode is null when the guest killed the command at its timeout.
