@@ -112,10 +112,11 @@ struct HomeAgentMessages {
             let members = byGroup[group] ?? []
             guard members.count > 1, let first = members.first else { return members }
             var peers: [String] = []
+            var seenPeers: Set<String> = []
             for member in members {
                 guard case let .message(from, to, outgoing, _)? = member.agentMessage?.kind else { continue }
                 let peer = outgoing ? to : from
-                if !peers.contains(peer) { peers.append(peer) }
+                if seenPeers.insert(peer).inserted { peers.append(peer) }
             }
             let open = expanded.contains(group)
             let preview = peers.prefix(HomeAgentMessageRow.peerPreviewLimit).joined(separator: " · ")
