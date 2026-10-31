@@ -46,7 +46,7 @@ final class DebugVariantWorkspacesView: NSView {
     private func rebuild() {
         for card in cards { card.card.removeFromSuperview() }
         cards = workspaces.map { workspace in
-            let card = NSView()
+            let card = FlippedCard()
             card.wantsLayer = true
             card.layer?.cornerRadius = 12
             card.layer?.cornerCurve = .continuous
@@ -154,5 +154,10 @@ final class DebugVariantWorkspacesView: NSView {
             y += cardHeight + gap
         }
     }
+}
+
+/// A card whose rows lay out top-down, like the view that holds it.
+private final class FlippedCard: NSView {
+    nonisolated override var isFlipped: Bool { true }
 }
 #endif

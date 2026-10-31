@@ -266,12 +266,16 @@ final class DebugUnifiedBackdrop: NSView {
         // Sidebar cards ("Did you know?"): no fill or glass rim of their own, a hairline only.
         func flattenCards(_ view: NSView) {
             for child in view.subviews {
-                if let card = child as? CardSurfaceView {
-                    card.layer?.backgroundColor = NSColor.clear.cgColor
-                    card.rimView?.isHidden = true
-                    card.edgeView?.isHidden = true
-                    card.layer?.borderWidth = 1 / max(window.backingScaleFactor, 1)
-                    card.layer?.borderColor = (dark ? NSColor.white : NSColor.black).withAlphaComponent(0.14).cgColor
+                // The surface repaints its own fill on every appearance pass: hide it and draw the
+                // hairline on the card that holds it instead.
+                if let card = child as? CardSurfaceView, let holder = card.superview {
+                    card.isHidden = true
+                    holder.wantsLayer = true
+                    holder.layer?.cornerRadius = card.cornerRadius
+                    holder.layer?.cornerCurve = .continuous
+                    holder.layer?.borderWidth = 1
+                    holder.layer?.borderColor = (dark ? NSColor.white : NSColor.black).withAlphaComponent(0.12).cgColor
+                    continue
                 }
                 flattenCards(child)
             }
