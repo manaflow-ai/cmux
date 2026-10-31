@@ -47,7 +47,7 @@ final class CreationInputCoordinator {
     /// script or agent run without `focus`), which leaves the keys where they are.
     func begin(in window: NSWindow?, generation: UInt64?, earlyTab: String? = nil, tab: String? = nil) -> CreationInputBuffer.Ticket? {
         guard let window, let generation, ActionRunScope.viewChangeAllowed() else { return nil }
-        return buffer(in: window).open(generation: generation, earlyTab: earlyTab, tab: tab)
+        return buffer(in: window).open(generation: generation, earlyTab: earlyTab, tab: tab, machine: router?.focus(for: window).0?.content?.daemon.machineID)
     }
 
     /// A creation's placement continues after its create reply (Home moves the new terminal beside
@@ -146,23 +146,55 @@ final class CreationInputCoordinator {
         return true
     }
 
-    /// Runs held `keys` of `window` again in order, each in its own terminal (never the focused one in its place; a gone
-    /// terminal's keys go with it). False when one started another creation (a new hold, or another in `buffer`).
+    /// Runs held `keys` of `window` again in order, each for its own terminal, never the focused one in its place. False
+    /// when one started another creation (a new hold, or another in `buffer`): the rest wait for it, in order.
     private func runAgain(_ keys: [CreationInputBuffer.HeldKey], from buffer: CreationInputBuffer, in window: NSWindow) -> Bool {
         let opened = buffer.openedCount
         for (index, key) in keys.enumerated() {
             replaying = true
             switch key {
             case .run(let event): runKey(event, window)
-            case .type(let event, let tab): router?.services?.cache.existingTerminal(tab)?.session.surfaceView.typeHeldKey(event)
+            case .type(let events, let lane): type(events, into: lane)
+            case .command(let event, let lane): runCommand(event, for: lane, in: window)
             }
             replaying = false
             if let next = buffers[window.windowNumber], next !== buffer || next.openedCount != opened {
-                next.prepend(keys.dropFirst(index + 1).map(\.event))
+                next.prepend(keys.dropFirst(index + 1).flatMap(\.events))
                 return false
             }
         }
         return true
+    }
+
+    /// Types `events` into `lane`'s terminal with its own key encoding: its view's (also hidden), else, its view gone, the
+    /// daemon's (that terminal's modes; another machine's terminal too). A closed terminal takes its keys with it.
+    private func type(_ events: [NSEvent], into lane: CreationInputBuffer.HeldLane) {
+        guard let services = router?.services else { return }
+        if let view = services.cache.existingTerminal(lane.tab)?.session.surfaceView { return events.forEach(view.typeHeldKey) }
+        guard let machine = lane.machine, let (tab, pane) = services.locateTab(lane.tab, onMachine: machine), tab.kind == .pty else {
+            return Self.logger.notice("\(events.count, privacy: .public) held key(s) went with their closed terminal")
+        }
+        let (inputs, skipped) = HeldKeyInput.inputs(for: events), surface = tab.surface
+        if skipped > 0 { Self.logger.error("\(skipped, privacy: .public) held key(s) have no daemon key name") }
+        services.daemon(for: pane).send("send-key") { connection in
+            for input in inputs {
+                switch input {
+                case .text(let text): try await connection.send(surface, text: text)
+                case .key(let key): try await connection.sendKeys(surface, [key])
+                }
+            }
+        }
+    }
+
+    /// A held Command chord typed for `lane`'s terminal while another has the focus: an app shortcut runs with that
+    /// terminal's tab as its target and its key context, as a key press there; any other chord is that terminal's key.
+    private func runCommand(_ event: NSEvent, for lane: CreationInputBuffer.HeldLane, in window: NSWindow) {
+        guard let router, let controller = router.focus(for: window).0 else { return }
+        var state = controller.focus.currentState()
+        if let pane = controller.content?.panes.values.first(where: { $0.currentTabKey == lane.tab }) { state.resolved = .terminal(pane: pane.paneKey, tab: lane.tab) }
+        let context = router.keyContext(for: state, facts: router.facts(in: window, controller: controller))
+        guard let binding = router.resolve(event, context: context) else { return type([event], into: lane) }
+        RegistryKeyBindings(router.registry).run(binding, keyContext: context.bits, target: ActionTargetRef(kind: .tab, id: lane.tab))
     }
 
     /// The pending creation whose early view (focused, shown, the first responder; never another view) has the keyboard.
