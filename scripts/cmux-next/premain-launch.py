@@ -665,10 +665,30 @@ def xctrace_launch(app, label):
 
 
 def duration_us(text):
-    match = re.match(r"([\d.]+)\s*(ns|µs|us|ms|s)\b", text.strip())
+    match = re.match(r"([\d.]+)\s*(ns|\u00b5s|\u03bcs|us|ms|s)\b", text.strip())
     if not match:
         return None
-    return float(match.group(1)) * {"ns": 1e-3, "µs": 1, "us": 1, "ms": 1e3, "s": 1e6}[match.group(2)]
+    unit = match.group(2).replace("\u03bc", "\u00b5")
+    return float(match.group(1)) * {"ns": 1e-3, "\u00b5s": 1, "us": 1, "ms": 1e3, "s": 1e6}[unit]
+
+
+def resolved_rows(xml):
+    """Each <row> as a list of (element tag, text): xctrace writes a value in full once (id="N" fmt="...") and later
+    as <tag ref="N"/>; refs are replaced by the value they point to, so columns keep their positions."""
+    import xml.etree.ElementTree as ET
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return []
+    by_id = {el.get("id"): el.get("fmt") or (el.text or "") for el in root.iter() if el.get("id") is not None}
+    rows = []
+    for row in root.iter("row"):
+        cells = []
+        for el in row:
+            value = by_id.get(el.get("ref"), "") if el.get("ref") is not None else (el.get("fmt") or el.text or "")
+            cells.append((el.tag, value))
+        rows.append(cells)
+    return rows
 
 
 def app_initializer_rows(xml, app):
@@ -677,15 +697,16 @@ def app_initializer_rows(xml, app):
     # The row names the image by its file name after the address ("Run static initializer  0x1ab83124b  dyld").
     ours_names = {os.path.basename(p) for p in macho_files(app)}
     rows = []
-    for row in re.findall(r"<row>(.*?)</row>", xml, re.S):
-        values = re.findall(r'fmt="([^"]*)"', row)
-        text = " | ".join(values)
+    for cells in resolved_rows(xml):
+        text = " | ".join(value for _, value in cells)
         if "static initializer" not in text.lower():
             continue
-        us = next((d for d in (duration_us(v) for v in values[1:3]) if d is not None), None)
+        us = next((duration_us(value) for tag, value in cells if tag == "duration"), None)
         match = re.search(r"Run static initializer\s+0x[0-9a-f]+\s+([^|]*?)\s*(?:\||$)", text)
         image = match.group(1).strip() if match else ""
-        rows.append({"us": us, "image": image, "ours": image in ours_names, "row": text[:300]})
+        path = next((value for _, value in cells if value.startswith("/") and value.endswith("/" + image)), None) if image else None
+        rows.append({"us": us, "image": image, "path": path, "ours": image in ours_names and (path is None or path.startswith(app)),
+                     "row": text[:300]})
     ours = [r for r in rows if r["ours"]]
     return {"ours": ours, "ours_total_us": round(sum(r["us"] or 0 for r in ours), 1),
             "longest": sorted(rows, key=lambda r: -(r["us"] or 0))[:15], "count": len(rows)}
