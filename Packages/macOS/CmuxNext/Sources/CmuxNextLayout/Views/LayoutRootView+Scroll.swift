@@ -78,6 +78,9 @@ extension LayoutRootView: ScrollGestureOwning {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
             let point = convert(event.locationInWindow, from: nil)
             guard bounds.contains(point), let active = model.activeScreenID, let view = screenViews[active] else { return event }
+            // A press AppKit gives to the window's frame (its resize edges and corners, inside the frame
+            // too) resizes the window and reaches no pane: it focuses none (cmux-ad P0 2026-10-31).
+            guard Self.pressReachesContent(event.locationInWindow, in: window) else { return event }
             // The strip scrollbar takes its own clicks.
             if let scrollbar = view.scrollbar, !scrollbar.isHidden,
                scrollbar.hitTest(view.convert(event.locationInWindow, from: nil)) != nil { return event }
@@ -90,6 +93,16 @@ extension LayoutRootView: ScrollGestureOwning {
         default:
             return event
         }
+    }
+
+    /// Whether a press at `locationInWindow` reaches `window`'s content view, by the hit test AppKit
+    /// dispatches the press with (from the window's frame view). The monitor sees a press before
+    /// AppKit dispatches it; where the frame view keeps the press for itself (a window resize at an
+    /// edge or corner), no view in the content gets it, so the press is not a click in a pane.
+    static func pressReachesContent(_ locationInWindow: NSPoint, in window: NSWindow?) -> Bool {
+        guard let content = window?.contentView, let frameView = content.superview else { return true }
+        guard let hit = frameView.hitTest(frameView.convert(locationInWindow, from: nil)) else { return false }
+        return hit === content || hit.isDescendant(of: content)
     }
 
     /// The monitor's scroll routing: `event` as `eventWindow`, the window AppKit sent it to, has it
