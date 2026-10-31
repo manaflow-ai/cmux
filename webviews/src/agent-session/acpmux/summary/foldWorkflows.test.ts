@@ -123,3 +123,29 @@ test("workflow summaries retain the latest agent message with a legacy result fa
   expect(agents[0]).toMatchObject({ model: "claude-opus", effort: "high", lastMessage: "Still reviewing." });
   expect(agents[1]!.lastMessage).toBe("Legacy result");
 });
+
+test("workflow summaries retain a failed agent's provider error", () => {
+  const [workflow] = createWorkflowAdapter()(
+    [
+      node("failed", {
+        workflowAgents: new Map([
+          [
+            0,
+            {
+              index: 0,
+              state: "failed",
+              error: "503: No provider capacity available",
+              action: "Reading source",
+            },
+          ],
+        ]),
+      }),
+    ],
+    "s",
+  );
+  expect(workflow!.agents[0]).toMatchObject({
+    state: "failed",
+    error: "503: No provider capacity available",
+    doing: "Reading source",
+  });
+});
