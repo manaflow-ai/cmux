@@ -77,4 +77,19 @@ struct HoverCardUsageReadTests {
         #expect(turns.detail(for: Self.chat("s1"))?.costUsd24h == 1_420.5)
         #expect(turns.detail(for: Self.chat("s1"))?.model == "m")
     }
+
+    @Test func aUsagePageNamesItsNextCursor() throws {
+        guard case .usage(let numbers, let next) = try #require(Self.usage([["sessionId": "s1", "usageStats": Self.stats],
+                                                                             ["sessionId": "s2", "status": "idle"]],
+                                                                            next: "c2")) else {
+            Issue.record("an id 3 reply is a usage page")
+            return
+        }
+        #expect(next == "c2")
+        #expect(Set(numbers.keys) == ["s1"], "a chat with no usage read is left out")
+        let following = String(decoding: AgentTurnStateFeed.usageRequest(cursor: "c2"), as: UTF8.self)
+        let request = try #require(try JSONSerialization.jsonObject(with: Data(following.utf8)) as? [String: Any])
+        #expect((request["params"] as? [String: Any])?["cursor"] as? String == "c2")
+        #expect((request["params"] as? [String: Any])?["usage"] as? Bool == true)
+    }
 }

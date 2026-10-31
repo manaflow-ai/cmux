@@ -96,6 +96,18 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
         return detail == AgentChatDetail() ? nil : detail
     }
 
+    /// Whether acpmux read any of the chat's usage (`usageStats`).
+    public var hasUsage: Bool { contextTokens != nil || contextWindow != nil || costUsd24h != nil }
+
+    /// This detail with `usage`'s usage numbers in place of its own; the rest stays.
+    public func withUsage(of usage: AgentChatDetail) -> AgentChatDetail {
+        var detail = self
+        detail.contextTokens = usage.contextTokens
+        detail.contextWindow = usage.contextWindow
+        detail.costUsd24h = usage.costUsd24h
+        return detail
+    }
+
     /// The detail of every session of a watch result that has one.
     public static func details(_ result: [String: Any]) -> [String: AgentChatDetail] {
         var details: [String: AgentChatDetail] = [:]
@@ -357,6 +369,17 @@ public final class AgentTurnStateStore {
         for id in ids {
             apply(session: id, state: states[id], lastMessage: lastMessages[id], muted: muted.contains(id),
                   title: titles[id], generatedTitle: generatedTitles[id], detail: details[id], source: source)
+        }
+    }
+
+    /// Lays a usage read's numbers (`_acpmux/sessions` with `usage: true`, by session id) over
+    /// `source`'s sessions, leaving every other fact as it is; writes only what changed. A session
+    /// the store does not hold from `source` is skipped: the watch has not listed it.
+    public func applyUsage(_ usage: [String: AgentChatDetail], source: String = AgentTurnStateStore.localSource) {
+        for (id, numbers) in usage {
+            guard let record = sessions[id], record.source == source else { continue }
+            let detail = (record.detail ?? AgentChatDetail()).withUsage(of: numbers)
+            if record.detail != detail { record.detail = detail }
         }
     }
 
