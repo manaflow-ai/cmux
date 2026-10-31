@@ -213,8 +213,7 @@ test("a failed tile shows its kind and one retry glyph button; a streaming one s
   expect(html.match(/class="acpmux-attachment-retry"/g)?.length).toBe(2);
   expect(html).not.toMatch(/class="acpmux-attachment-retry"[^>]*>Retry</);
   expect(html).toContain('title="The upload timed out."');
-  expect(html).toContain('role="progressbar"');
-  expect(html).toContain('aria-valuenow="42"');
+  expect(html).toMatch(/<progress[^>]*value="42"/);
 });
 
 type Intake = ReturnType<typeof useAttachmentIntake>;

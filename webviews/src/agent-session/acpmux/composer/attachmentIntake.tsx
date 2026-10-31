@@ -1021,28 +1021,21 @@ export function UploadProgress({ value, name, size = 16 }: { value: number; name
   const radius = 6;
   const circumference = 2 * Math.PI * radius;
   return (
-    <svg
-      className="acpmux-attachment-progress"
-      width={size}
-      height={size}
-      viewBox="0 0 16 16"
-      role="progressbar"
-      aria-label={name}
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-valuenow={percent}
-    >
-      <circle className="acpmux-attachment-progress-track" cx="8" cy="8" r={radius} />
-      <circle
-        className="acpmux-attachment-progress-arc"
-        cx="8"
-        cy="8"
-        r={radius}
-        strokeDasharray={circumference}
-        strokeDashoffset={circumference * (1 - value)}
-        transform="rotate(-90 8 8)"
-      />
-    </svg>
+    <>
+      <progress className="visually-hidden" aria-label={name} max={100} value={percent} />
+      <svg className="acpmux-attachment-progress" width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
+        <circle className="acpmux-attachment-progress-track" cx="8" cy="8" r={radius} />
+        <circle
+          className="acpmux-attachment-progress-arc"
+          cx="8"
+          cy="8"
+          r={radius}
+          strokeDasharray={circumference}
+          strokeDashoffset={circumference * (1 - value)}
+          transform="rotate(-90 8 8)"
+        />
+      </svg>
+    </>
   );
 }
 
