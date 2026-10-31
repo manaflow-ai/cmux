@@ -29,8 +29,10 @@ Writes OUT/summary.json and OUT/summary.txt. Exit 0 PASS, 1 FAIL, 75 NOT JUDGED,
 Never run it on a person's Mac: the hog fills the memory up to swap.
 """
 import argparse
+import calendar
 import json
 import re
+import shutil
 import os
 import subprocess
 import sys
@@ -239,6 +241,153 @@ def expect_table(rounds):
     return table
 
 
+# --go-spec (the tip watcher, 11:3xZ; lead STATUS 1354: a scheduler GO gives ONE round): the gate waits for a new GO of its
+# spec before each round, so one gate run of 10 rounds (and its .pass) is made of 10 GO rounds. A round takes its lease only
+# on the GO's mini and before the GO's "until": capture-host's acquire timeout + exclusive drain (the drain moves the
+# acquire's deadline on) <= until - now - GO_MARGIN. A GO with less than GO_MIN_LEFT s left is given back unused. A .done
+# is written only while that same GO is still the open one (a .done for an older GO would end the next GO).
+SCHED_ROUNDS = Path(os.environ.get("SMOKE_GATE_SCHED_ROUNDS", "/work/wt/chrome-parity-design/mini-queue/rounds"))
+GO_MARGIN, GO_MIN_LEFT = 20, 60
+
+
+def _utc(text):
+    try:
+        return calendar.timegm(time.strptime(str(text), "%Y-%m-%dT%H:%M:%SZ"))
+    except (ValueError, OverflowError):
+        return None
+
+
+def read_go(spec):
+    """{"host", "go", "until"} (epoch s) of the scheduler's open GO file of SPEC, or None."""
+    try:
+        d = json.loads((SCHED_ROUNDS / f"{spec}.go").read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(d, dict):
+        return None
+    go, until = _utc(d.get("go")), _utc(d.get("until"))
+    return {"host": d["host"], "go": go, "until": until} if d.get("host") and go and until else None
+
+
+def go_done(spec, go, cell, status=None):
+    """The .done that ends GO, only while GO is still the open one. STATUS "not run" (a GO given back, a round with no
+    lease) tells the scheduler the GO did not use up one of the spec's rounds."""
+    cur = read_go(spec)
+    if not (cur and cur["go"] == go["go"] and cur["host"] == go["host"]):
+        return False
+    tmp = SCHED_ROUNDS / f"{spec}.done.tmp"
+    tmp.write_text(json.dumps({"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "cell": cell,
+                               **({"status": status} if status else {})}) + "\n")
+    os.replace(tmp, SCHED_ROUNDS / f"{spec}.done")
+    return True
+
+
+def await_go(spec, hosts, used, deadline, poll=5.0):
+    """(GO, "") of the next usable GO of SPEC on one of HOSTS that this run has not used yet (USED: their "go" times),
+    or (None, why) after DEADLINE. A GO outside HOSTS or with too little window left is given back unused."""
+    while True:
+        go = read_go(spec)
+        if go and go["go"] not in used:
+            left = go["until"] - time.time()
+            if go["host"] in hosts and left >= GO_MIN_LEFT:
+                return go, ""
+            if left > 0:
+                print(f"GO for {go['host']} given back: " + (f"not in --hosts" if go["host"] not in hosts
+                      else f"{left:.0f} s of its window left (< {GO_MIN_LEFT} s)"), flush=True)
+                go_done(spec, go, "given back", "not run")
+            used.add(go["go"])
+        if time.time() > deadline:
+            return None, f"the scheduler gave no GO of {spec} within the wait"
+        time.sleep(poll)
+
+
+# Open P0 journeys (cmux-ad 12:35Z): a .pass also needs each open P0 journey to have passed, and never failed, on the
+# exact build job: a pass by omission (the gate does not test that P0) is no pass.
+OPEN_P0 = Path(os.environ.get("SMOKE_GATE_OPEN_P0", "/Users/lawrence/fun/wt/handoff/open-p0-journeys.txt"))
+P0_LEDGER = Path(os.environ.get("JOURNEYS_P0_LEDGER", "/Users/lawrence/fun/wt/handoff/open-p0-results"))
+# A FAIL row shown to be the kit's own fault (a false red) is waived by a line "<the row's out path> <reason>"; the
+# waiver is named in open-p0.txt and the .pass. Old kits are never ignored automatically: a real red can come from any.
+P0_WAIVERS = Path(os.environ.get("SMOKE_GATE_P0_WAIVERS", "/Users/lawrence/fun/wt/handoff/open-p0-waivers.txt"))
+
+
+def p0_waivers():
+    try:
+        return {f[0]: f[1] for f in (l.split(None, 1) for l in P0_WAIVERS.read_text().splitlines()
+                                     if l.strip() and not l.lstrip().startswith("#")) if len(f) == 2}
+    except OSError:
+        return {}
+
+
+def open_p0_blockers(job, waived=None):
+    """[(list line, why)] of the open P0 journeys that block a .pass for JOB: no PASS on JOB in the ledger, or any FAIL.
+    An unreadable list blocks too (the rule cannot be checked)."""
+    try:
+        listed = [l.split() for l in OPEN_P0.read_text().splitlines() if l.strip() and not l.lstrip().startswith("#")]
+    except OSError as error:
+        return [(str(OPEN_P0), f"the open-P0 list cannot be read ({error}): no .pass")]
+    rows = []
+    try:
+        for text in (P0_LEDGER / f"{job}.jsonl").read_text().splitlines():
+            try:
+                row = json.loads(text)
+            except ValueError:
+                continue
+            if isinstance(row, dict) and row.get("build_job") == job:
+                rows.append(row)
+    except OSError:
+        pass
+    blockers, waivers = [], p0_waivers()
+    for fields in listed:
+        ids = set(fields[0].split("|"))
+        mine = [r for r in rows if r.get("id") in ids]
+        fails = []
+        for r in mine:
+            if r.get("status") != "fail":
+                continue
+            if str(r.get("out")) in waivers:
+                if waived is not None:
+                    waived.append({"out": r.get("out"), "id": r.get("id"), "reason": waivers[str(r.get("out"))]})
+                continue
+            fails.append(r)
+        # Only a pass of a clean kit in the judged mode counts (a diagnostic round types after the hold and does not
+        # check the key window; a dirty tree is not the kit the commit names).
+        passes = [r for r in mine if r.get("status") == "pass" and r.get("kit_dirty") is False
+                  and (r.get("options") or {}).get("smoke_mode") != "diagnostic"]
+        line = " ".join(fields)
+        if fails:
+            blockers.append((line, f"FAILED on {job}: {len(fails)} fail(s), e.g. {fails[0].get('out')}: "
+                                   f"{str(fails[0].get('reason') or '')[:160]}"))
+        elif not passes:
+            blockers.append((line, f"has not passed on {job} ({len(mine)} result(s), none a pass of a clean kit in the "
+                                   "judged mode)"))
+    return blockers
+
+
+def build_state(job, deadline, poll=30.0):
+    """The fleet state of build JOB once it is done, failed or cancelled, or its last state at DEADLINE."""
+    while True:
+        try:
+            out = subprocess.run([os.environ.get("SMOKE_GATE_CMUX_CI") or shutil.which("cmux-ci")
+                                  or str(Path.home() / ".local/bin/cmux-ci"), "status", job],
+                                 capture_output=True, text=True, timeout=60).stdout
+            state = json.loads(out).get("state") if out.strip() else None
+        except FileNotFoundError:
+            return "unknown (no cmux-ci)"  # never poll for hours without the client
+        except (subprocess.TimeoutExpired, ValueError, OSError):
+            state = None
+        if state in ("done", "failed", "cancelled") or time.time() > deadline:
+            return state or "unknown"
+        time.sleep(poll)
+
+
+def window_env(until):
+    budget = max(0, int(until - time.time()) - GO_MARGIN)
+    acquire = max(1, budget // 2)
+    return {"CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS": str(acquire),
+            "CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS": str(max(0, budget - acquire)),
+            "CAPTURE_HOST_DRAIN_SECONDS": str(min(acquire, 180))}
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0], formatter_class=argparse.RawDescriptionHelpFormatter,
                                  epilog=__doc__.split("\n\n", 1)[1])
@@ -253,6 +402,11 @@ def main(argv=None):
     ap.add_argument("--diagnostic", action="store_true",
                     help="no type-at-once where the slot has no key window (type after the creation hold); every "
                          "other step is still checked and reported. Verdict DIAGNOSTIC: never a .pass file")
+    ap.add_argument("--go-spec", metavar="NAME",
+                    help="before each round wait for a new mini-scheduler GO of spec NAME (mini-queue/rounds/NAME.go), "
+                         "run the round on the GO's mini (one of --hosts), take its lease within the GO's window, and "
+                         "end the GO with NAME.done; all rounds stay one gate run")
+    ap.add_argument("--go-wait-hours", type=float, default=4.0, help="how long the run waits for all its GOs")
     ap.add_argument("--handoff", default=str(HANDOFF))
     ap.add_argument("--runner", default=str(HERE / "run.py"), help=argparse.SUPPRESS)  # tests: a stand-in for run.py
     opts = ap.parse_args(argv)
@@ -270,8 +424,27 @@ def main(argv=None):
     dirty = bool(git("status", "--porcelain", "--", *GATE_PATHS).stdout.strip())
 
     rounds = []
+    go_used, go_deadline = set(), time.time() + opts.go_wait_hours * 3600
+    if opts.go_spec:
+        state = build_state(opts.build, go_deadline)
+        if state != "done":
+            ap.error(f"--go-spec needs a finished build: job {opts.build} is {state} (run.py would wait for it inside "
+                     "the GO's window and take its lease after the GO ends)")
     for n in range(1, opts.rounds + 1):
         round_out = out / f"round-{n:02d}"
+        go = None
+        if opts.go_spec:
+            go, why = await_go(opts.go_spec, opts.hosts.split(), go_used, go_deadline)
+            if not go:
+                round_out.mkdir(parents=True, exist_ok=True)
+                rounds.append({"round": n, "steps": [], "status": "not run", "reason": why, "host": None, "seconds": 0,
+                               "failing_step": None, "frames": [], "hog_logs": [], "pressure": {}, "hosts_offered": "",
+                               "exclusive": None, "required_checks": {}, "required_missing": [], "known_gap": False,
+                               "key_gaps": [], "leases": [], "go": None})
+                print(f"round {n}: not run ({why})", flush=True)
+                continue
+            go_used.add(go["go"])
+            print(f"round {n}: GO on {go['host']} until {time.strftime('%H:%M:%SZ', time.gmtime(go['until']))}", flush=True)
         started = time.time() - 1
         # An exclusive lease waits for the mini's running fleet steps (the drain): give it the room the fleet
         # rules set (capture-host's default acquire timeout, 120 s, ends the drain first on a busy fleet).
@@ -283,7 +456,9 @@ def main(argv=None):
                # refuses an exclusive lease there unless it names that owner pool (HTTP 409, trial 4, 2026-10-31).
                # capture-host passes it as `cmux-ci reserve --owner-pool` (hq #5153; refresh an older install).
                "CAPTURE_HOST_POOL": os.environ.get("CAPTURE_HOST_POOL", OWNER_POOL)}
-        hosts = opts.whole_host or idle_first(opts.hosts)
+        hosts = (go["host"] if go else None) or opts.whole_host or idle_first(opts.hosts)
+        if go:
+            env.update(window_env(go["until"]))
         env["CAPTURE_HOST_HOSTS"] = env["CAPTURE_HOST_SLOT_HOSTS"] = hosts
         done = subprocess.run([sys.executable, opts.runner, "--build", opts.build, "--journey", JOURNEY,
                                "--exclusive", "--hog-swap-gb", str(opts.swap_gb), "--hosts", hosts,
@@ -318,8 +493,12 @@ def main(argv=None):
                   "frames": frames(round_out), "hog_logs": sorted(p.name for p in round_out.glob("hog-*.jsonl")), "pressure": hog, "hosts_offered": hosts, "exclusive": exclusive,
                   "required_checks": checks, "required_missing": missing,
                   "known_gap": "known gap" in str(row.get("reason") or ""),
-                  "key_gaps": gaps, "leases": leases}
+                  "key_gaps": gaps, "leases": leases,
+                  "go": {"host": go["host"], "go": go["go"], "until": go["until"]} if go else None}
         rounds.append(record)
+        if go:
+            took = bool(leases) or record["status"] in ("pass", "fail")
+            go_done(opts.go_spec, go, f"{opts.build[:12]} round {n}", None if took else "not run")
         print(f"round {n}: {record['status']}" + (f" ({record['reason'][:160]})" if record.get("reason") else "")
               + (f" step {record['failing_step']['do']}: {record['failing_step']['error'][:160]}" if record["failing_step"] else ""),
               flush=True)
@@ -334,7 +513,7 @@ def main(argv=None):
     summary = {"build": opts.build, "journey": JOURNEY, "rounds": opts.rounds, "passed": passed,
                "failed": len(failed), "not_run": len(not_run), "verdict": verdict, "swap_gb": opts.swap_gb,
                "gate_commit": gate_sha, "gate_dirty": dirty, "gate_run": gate_run, "diagnostic": opts.diagnostic,
-               "whole_host": opts.whole_host,
+               "whole_host": opts.whole_host, "go_spec": opts.go_spec,
                "expects": expect_table(rounds), "known_gap_rounds": [r["round"] for r in rounds if r["known_gap"]],
                "rounds_detail": rounds, "out": str(out)}
     (out / "summary.json").write_text(json.dumps(summary, indent=1))
@@ -370,8 +549,21 @@ def main(argv=None):
         if not gate_run:
             print(f"smoke-gate: a trial PASS (--rounds {opts.rounds}, --swap-gb {opts.swap_gb:g}): no .pass file", file=sys.stderr)
             return 75
+        waived = []
+        blockers = open_p0_blockers(opts.build, waived)
+        if blockers:
+            text = "\n".join([f"smoke-gate: {opts.rounds} of {opts.rounds} rounds passed, but an open P0 journey blocks the "
+                              f".pass ({OPEN_P0}; --build must be the full job id):"]
+                             + [f"  {line}: {why}" for line, why in blockers]
+                             + [f"  waived FAIL {w['id']} {w['out']}: {w['reason']}" for w in waived])
+            (out / "open-p0.txt").write_text(text + "\n")
+            print(text, file=sys.stderr)
+            return 75
         handoff = Path(opts.handoff)
         handoff.mkdir(parents=True, exist_ok=True)
+        summary["open_p0_waived"] = waived
+        summary["open_p0_checked"] = [l.split()[0] for l in OPEN_P0.read_text().splitlines()
+                                      if l.strip() and not l.lstrip().startswith("#")]
         (handoff / f"{opts.build}.pass").write_text(json.dumps(summary, indent=1) + "\n")
         print(f"wrote {handoff / (opts.build + '.pass')}")
         return 0

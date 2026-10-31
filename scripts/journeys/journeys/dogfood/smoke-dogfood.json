@@ -49,7 +49,7 @@
     {"do": "expect", "title": "Cmd-D twice fast: two new panes, and the line typed into each at once ran there and nowhere else", "since": "split1", "timeout": 30,
      "all": [
        {"smoke_panes": {"line": "d2-${nonce}-42", "count": 3}},
-       {"smoke_new_terminals": {"since": "before_splits", "lines": ["d1-${nonce}-42", "d2-${nonce}-42"], "focused": "d2-${nonce}-42", "placement": "new_panes"}},
+       {"smoke_new_terminals": {"since": "before_splits", "lines": ["d1-${nonce}-42", "d2-${nonce}-42"], "focused": "d2-${nonce}-42", "placement": "new_panes", "order": "left_to_right"}},
        {"smoke_app_lines": {"lines": ["d1-${nonce}-42", "d2-${nonce}-42"]}},
        {"smoke_key_window": {}},
        {"frame_screen": {"shows": ["d1-${nonce}-42", "d2-${nonce}-42"]}}
@@ -147,6 +147,7 @@
        {"smoke_daemon_lines": {"lines": ["w1-${nonce}-42", "w2-${nonce}-42", "w3-${nonce}-42", "d1-${nonce}-42", "d2-${nonce}-42", "t1-${nonce}-42", "t2-${nonce}-42"]}},
        {"frame_text": "documentation examples"}
      ]},
+    {"do": "smoke_make_key"},
     {"do": "key", "key": "n", "modifiers": ["cmd"], "mark": "ws4"},
     {"do": "expect", "title": "Cmd-N after the reopen makes a fourth workspace", "since": "ws4", "timeout": 20,
      "all": [
@@ -154,13 +155,13 @@
        {"smoke_frame": {}}
      ]},
     {"do": "key", "key": "`", "modifiers": ["control"], "mark": "ws4term"},
-    {"do": "smoke_type_now", "text": "echo f1-${nonce}-$((6*7))"},
+    {"do": "smoke_type_now", "text": "echo w4-${nonce}-$((6*7))"},
     {"do": "expect", "title": "the fourth workspace's Ctrl-` terminal runs its line", "since": "ws4term", "timeout": 30,
      "all": [
-       {"smoke_daemon_lines": {"lines": ["f1-${nonce}-42"]}},
-       {"frame_screen": {"shows": ["f1-${nonce}-42"]}}
+       {"smoke_daemon_lines": {"lines": ["w4-${nonce}-42"]}},
+       {"frame_screen": {"shows": ["w4-${nonce}-42"]}}
      ]},
-    {"do": "smoke_adopt_line", "line": "f1-${nonce}-42", "as": "first"},
+    {"do": "smoke_adopt_line", "line": "w4-${nonce}-42", "as": "first"},
     {"do": "smoke_widths", "name": "cols_first"},
     {"do": "key", "key": "d", "modifiers": ["control", "cmd"], "mark": "r3b-first"},
     {"do": "expect", "title": "R3b: New Column's key (Ctrl-Cmd-D) as the first new column of a new one-pane workspace (Cmd-N, Ctrl-`) keeps the old column's exact width", "since": "r3b-first", "timeout": 15, "settle": 1.5,
@@ -172,7 +173,7 @@
     {"do": "expect", "title": "close all: the journey's workspaces are gone from the app and the window", "since": "closed", "timeout": 20,
      "all": [
        {"smoke_workspaces": {"new": 0}},
-       {"smoke_frame": {"lacks": ["documentation examples", "w3-${nonce}-42", "d2-${nonce}-42", "t2-${nonce}-42"]}}
+       {"smoke_frame": {"lacks": ["documentation examples", "w3-${nonce}-42", "d2-${nonce}-42", "t2-${nonce}-42", "w4-${nonce}-42"]}}
      ]},
     {"do": "smoke_no_key_gaps"}
   ],

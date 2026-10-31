@@ -165,6 +165,33 @@ def batches(specs):
 
 # ---- the build ---------------------------------------------------------------------------
 
+# The open-P0 ledger (cmux-ad 12:35Z): every journey result of a build job is appended to P0_LEDGER/<JOB>.jsonl, so the
+# dogfood smoke gate can check that each open P0 journey (handoff/open-p0-journeys.txt) passed on that exact build.
+P0_LEDGER = Path(os.environ.get("JOURNEYS_P0_LEDGER", "/Users/lawrence/fun/wt/handoff/open-p0-results"))
+
+
+def record_p0_results(lines, out, options=None):
+    """Appends each result line (with the out folder, this kit's commit, whether its journeys tree was dirty, and the
+    --journey-option values) to the open-P0 ledger; never fails a run. The gate counts only clean, non-diagnostic
+    passes."""
+    try:
+        kit = subprocess.run(["git", "-C", str(HERE), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        dirty = subprocess.run(["git", "-C", str(HERE), "status", "--porcelain", "--", "."],
+                               capture_output=True, text=True)
+        kit_dirty = True if dirty.returncode != 0 else bool(dirty.stdout.strip())
+        P0_LEDGER.mkdir(parents=True, exist_ok=True)
+        for line in lines:
+            if not line.get("build_job"):
+                continue
+            row = {k: line.get(k) for k in ("id", "status", "reason", "build_job", "commit", "tag", "host", "run_at")}
+            row.update({"reason": str(row.get("reason") or "")[:300], "out": str(out), "kit": kit,
+                        "kit_dirty": kit_dirty, "options": dict(options or {})})
+            with open(P0_LEDGER / f"{line['build_job']}.jsonl", "a") as f:
+                f.write(json.dumps(row) + "\n")
+    except OSError as error:
+        log(f"open-P0 ledger not written: {error}")
+
+
 def cmux_ci():
     return shutil.which("cmux-ci") or str(Path.home() / ".local/bin/cmux-ci")
 
@@ -594,6 +621,7 @@ def main(argv=None):
     for line in lines:
         print(json.dumps({k: line[k] for k in ("id", "priority", "status", "reason", "clip")}))
     log(f"results: {out / 'results.jsonl'}")
+    record_p0_results(lines, out, options)
     statuses = {line["status"] for line in lines}
     return 1 if "fail" in statuses else 75 if "not run" in statuses else 0
 

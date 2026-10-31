@@ -385,6 +385,30 @@ typed after the creation hold, every other check runs and is counted per round; 
 must be a new folder. Writes `summary.json` and `summary.txt`. Test:
 `python3 scripts/journeys/test_smoke_gate.py`.
 
+### Open P0 journeys block the .pass
+
+A build with an open P0 that the smoke journey does not test would pass by omission (cmux-ad 12:35Z). So after
+10 of 10 rounds the gate also reads `handoff/open-p0-journeys.txt` (one open P0 per line: journey ids, `a|b` for
+any one of them, the kit branch@commit, the owner and the STATUS item that opened it) and the ledger
+`handoff/open-p0-results/<JOB>.jsonl`, to which every `run.py` run appends its results. The `.pass` is written only
+when each listed journey has a PASS and no FAIL on that exact build job; else the gate writes `open-p0.txt` in its
+out folder, naming each blocking line, and exits 75. Owners add a line when a P0 opens and remove it only when the
+fix is in the build and the journey passes. A kit whose `run.py` predates the ledger: append its `results.jsonl`
+lines to the ledger file. `--build` must be the full job id. Only a PASS of a clean journeys tree in the judged mode
+(not `smoke_mode=diagnostic`) counts. A FAIL shown to be the kit's own false red is waived by a line
+`<the row's out path> <reason>` in `handoff/open-p0-waivers.txt`; the waiver is named in `open-p0.txt` and the `.pass`.
+
+### Rounds by scheduler GO (`--go-spec`)
+
+When the mini scheduler gives one round per GO (lead, STATUS 1354), `--go-spec NAME` keeps all rounds in one
+gate run: before each round the gate waits for a new GO in `mini-queue/rounds/NAME.go`, runs the round on the
+GO's mini (it must be one of `--hosts`), sets capture-host's acquire timeout and exclusive drain so the lease
+starts before the GO's `until` (less 20 s), and writes `NAME.done` after the round, only while that same GO is
+still open. A GO with less than 60 s left, or on another mini, is given back unused; one GO is never two rounds.
+With `--whole-host`, each round leases the GO's whole mini. No GO within `--go-wait-hours` (4): that round is
+not run. The 10-of-10 rule and the `.pass` file are unchanged. A round that took its lease counts as one of the
+spec's rounds whatever its status, so give the spec no `rounds` limit, or one larger than `--rounds`.
+
 ### Building a smoke candidate (the only way)
 
 ```bash

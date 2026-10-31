@@ -10,6 +10,7 @@ or from a used --out folder. The type-at-once check (smoke_new_terminals) fails 
 terminal, a missing tab or the wrong pane. Also: the journey and its step group load (`run.py --check`).
 """
 import json
+import time
 import os
 import subprocess
 import sys
@@ -87,6 +88,9 @@ def gate(plan, tmp, extra=(), env_extra=None, rounds=None):
     with open(runner, "w") as f:
         f.write(FAKE)
     env = {k: v for k, v in os.environ.items() if not k.startswith("CAPTURE_HOST_")}
+    if not os.path.exists(os.path.join(tmp, "open-p0.txt")):
+        open(os.path.join(tmp, "open-p0.txt"), "w").write("# no open P0 journeys\n")
+    env.update({"SMOKE_GATE_OPEN_P0": os.path.join(tmp, "open-p0.txt"), "JOURNEYS_P0_LEDGER": os.path.join(tmp, "ledger")})
     env.update({"SMOKE_PLAN": json.dumps(plan), "SMOKE_GATE_CMUX_CI": "/bin/false",
                 "SMOKE_JOURNEY": str(HERE / "journeys" / "dogfood" / "smoke-dogfood.json"), **(env_extra or {})})
     done = subprocess.run([sys.executable, str(GATE), "--build", "job123", "--rounds", str(rounds or len(plan)), "--runner", runner,
@@ -267,6 +271,142 @@ class Verdicts(unittest.TestCase):
                                        "SMOKE_JOURNEY": str(HERE / "journeys" / "dogfood" / "smoke-dogfood.json")})
             self.assertEqual(done.returncode, 2)
             self.assertIn("not empty", done.stderr)
+
+
+class OpenP0(unittest.TestCase):
+    """A .pass needs every open P0 journey passed, and never failed, on the exact build (cmux-ad 12:35Z)."""
+
+    def test_an_open_p0_without_a_pass_on_the_build_blocks_the_pass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, "open-p0.txt"), "w").write(
+                "# comment\nr3-new-tab-panel kit@1 owner STATUS-1017\nj-a|j-b kit@2 owner STATUS-1\n")
+            code, summary = gate(["pass"] * 10, tmp)
+            self.assertEqual(summary["verdict"], "PASS")
+            self.assertEqual(code, 75)
+            self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
+            if not summary["gate_dirty"]:  # the open-P0 check runs after the committed-gate check
+                text = open(os.path.join(tmp, "out", "open-p0.txt")).read()
+                self.assertIn("r3-new-tab-panel", text)
+                self.assertIn("has not passed on job123", text)
+
+    def test_the_ledger_decides_pass_fail_and_other_builds(self):
+        mod = load_gate()
+        with tempfile.TemporaryDirectory() as tmp:
+            mod.OPEN_P0, mod.P0_LEDGER = Path(tmp) / "list.txt", Path(tmp) / "ledger"
+            mod.OPEN_P0.write_text("r3-new-tab-panel k o S1\nj-a|j-b k o S2\n")
+            mod.P0_LEDGER.mkdir()
+            ok = {"kit_dirty": False, "options": {}}
+            rows = [{"id": "r3-new-tab-panel", "status": "pass", "build_job": "J", **ok},
+                    {"id": "j-b", "status": "pass", "build_job": "J", "kit_dirty": True, "options": {}},
+                    {"id": "j-a", "status": "pass", "build_job": "J", "kit_dirty": False,
+                     "options": {"smoke_mode": "diagnostic"}},
+                    {"id": "r3-new-tab-panel", "status": "pass", "build_job": "OTHER"}]
+            (mod.P0_LEDGER / "J.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\nnot json\n")
+            mod.P0_WAIVERS = Path(tmp) / "waivers.txt"
+            # j-a|j-b: a dirty-kit pass and a diagnostic pass do not count
+            self.assertEqual([b[0].split()[0] for b in mod.open_p0_blockers("J")], ["j-a|j-b"])
+            with open(mod.P0_LEDGER / "J.jsonl", "a") as f:
+                f.write(json.dumps({"id": "j-b", "status": "pass", "build_job": "J", **ok}) + "\n")
+            self.assertEqual(mod.open_p0_blockers("J"), [])
+            with open(mod.P0_LEDGER / "J.jsonl", "a") as f:
+                f.write(json.dumps({"id": "r3-new-tab-panel", "status": "fail", "build_job": "J", "out": "/x"}) + "\n")
+            blockers = mod.open_p0_blockers("J")
+            self.assertEqual(len(blockers), 1)
+            self.assertIn("FAILED on J", blockers[0][1])
+            mod.P0_WAIVERS.write_text("/x the kit's text reader misread the line (STATUS 1412)\n")
+            waived = []
+            self.assertEqual(mod.open_p0_blockers("J", waived), [])
+            self.assertEqual(waived[0]["out"], "/x")
+            mod.P0_WAIVERS.write_text("")
+            self.assertEqual(len(mod.open_p0_blockers("NONE")), 2)  # no results on that build: both block
+            mod.OPEN_P0 = Path(tmp) / "missing.txt"
+            self.assertIn("cannot be read", mod.open_p0_blockers("J")[0][1])
+
+    def test_run_py_appends_each_result_to_the_ledger(self):
+        sys.path.insert(0, str(HERE))
+        import importlib
+        run = importlib.import_module("run")
+        with tempfile.TemporaryDirectory() as tmp:
+            old, run.P0_LEDGER = run.P0_LEDGER, Path(tmp) / "ledger"
+            try:
+                run.record_p0_results([{"id": "x", "status": "pass", "build_job": "J", "reason": ""},
+                                       {"id": "y", "status": "fail", "build_job": None}], Path(tmp) / "out")
+            finally:
+                ledger, run.P0_LEDGER = run.P0_LEDGER, old
+            rows = [json.loads(l) for l in (ledger / "J.jsonl").read_text().splitlines()]
+            self.assertEqual([(r["id"], r["status"], r["build_job"]) for r in rows], [("x", "pass", "J")])
+            self.assertIn("kit_dirty", rows[0])
+            in_git = subprocess.run(["git", "-C", str(HERE), "rev-parse", "HEAD"], capture_output=True).returncode == 0
+            if in_git:
+                self.assertTrue(rows[0]["kit"])
+            else:
+                self.assertTrue(rows[0]["kit_dirty"])  # no git: never counted as a clean kit
+
+
+class GoSpec(unittest.TestCase):
+    """--go-spec: one scheduler GO per round, all rounds one gate run (the tip watcher, lead STATUS 1354)."""
+
+    @staticmethod
+    def stamp(t):
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))
+
+    def test_a_round_runs_on_the_gos_mini_inside_its_window_and_ends_the_go(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rounds_dir = os.path.join(tmp, "rounds")
+            os.makedirs(rounds_dir)
+            now = time.time()
+            with open(os.path.join(rounds_dir, "spec-x.go"), "w") as f:
+                json.dump({"spec": "spec-x", "host": "cmux99", "go": self.stamp(now - 5), "until": self.stamp(now + 300)}, f)
+            ci = os.path.join(tmp, "fake-ci")
+            with open(ci, "w") as f:
+                f.write("#!/bin/sh\necho '{\"state\": \"done\"}'\n")
+            os.chmod(ci, 0o755)
+            code, summary = gate([{"status": "pass"}], tmp, extra=("--go-spec", "spec-x", "--hosts", "cmux98 cmux99"),
+                                 env_extra={"SMOKE_GATE_SCHED_ROUNDS": rounds_dir, "SMOKE_GATE_CMUX_CI": ci})
+            argv = json.load(open(os.path.join(tmp, "out", "round-01", "argv.json")))
+            self.assertEqual(argv[argv.index("--hosts") + 1], "cmux99")
+            env = json.load(open(os.path.join(tmp, "out", "round-01", "env.json")))
+            bound = int(env["CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS"]) + int(env["CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS"])
+            self.assertLessEqual(bound, 300 - 20)  # the lease starts before the GO's until
+            done = json.load(open(os.path.join(rounds_dir, "spec-x.done")))
+            self.assertNotIn("status", done)  # a round that took its lease uses up one of the spec's rounds
+            self.assertEqual(summary["rounds_detail"][0]["go"]["host"], "cmux99")
+
+    def test_a_short_or_foreign_go_is_given_back_and_a_used_go_is_never_reused(self):
+        gate_mod = load_gate()
+        with tempfile.TemporaryDirectory() as tmp:
+            gate_mod.SCHED_ROUNDS = Path(tmp)
+            now = time.time()
+            go_file = os.path.join(tmp, "s.go")
+            json.dump({"host": "cmux99", "go": self.stamp(now - 5), "until": self.stamp(now + 30)}, open(go_file, "w"))
+            go, why = gate_mod.await_go("s", ["cmux99"], set(), now + 0.5, poll=0.1)
+            self.assertIsNone(go)  # 30 s left < 60 s: given back, and not counted as a round taken
+            self.assertEqual(json.load(open(os.path.join(tmp, "s.done")))["status"], "not run")
+            self.assertEqual(gate_mod._utc("2026-10-31T11:00:00Z"), 1793444400)  # UTC whatever the local zone
+            os.remove(os.path.join(tmp, "s.done"))
+            json.dump({"host": "cmux42", "go": self.stamp(now - 3), "until": self.stamp(now + 400)}, open(go_file, "w"))
+            go, _ = gate_mod.await_go("s", ["cmux99"], set(), now + 0.5, poll=0.1)
+            self.assertIsNone(go)  # not one of --hosts
+            json.dump({"host": "cmux99", "go": self.stamp(now - 1), "until": self.stamp(now + 400)}, open(go_file, "w"))
+            used = set()
+            go, _ = gate_mod.await_go("s", ["cmux99"], used, now + 0.5, poll=0.1)
+            self.assertEqual(go["host"], "cmux99")
+            used.add(go["go"])
+            again, _ = gate_mod.await_go("s", ["cmux99"], used, time.time() + 0.3, poll=0.1)
+            self.assertIsNone(again)  # the same GO twice is never two rounds
+            if os.path.exists(os.path.join(tmp, "s.done")):
+                os.remove(os.path.join(tmp, "s.done"))
+            older = dict(go, go=go["go"] - 100)
+            self.assertFalse(gate_mod.go_done("s", older, "x"))  # a .done for an older GO never ends the open one
+            self.assertFalse(os.path.exists(os.path.join(tmp, "s.done")))
+
+
+def load_gate():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("smoke_gate_mod", str(GATE))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 class Hosts(unittest.TestCase):
@@ -501,6 +641,18 @@ class NewTerminals(unittest.TestCase):
         finally:
             self.ext._front_app = front
 
+    def test_diagnostic_mode_on_a_slot_where_the_key_was_lost_is_not_checked(self):
+        j = self.journey([("w", "p1", "a", "T0", True)], {}, "p1")
+        j.spec = {"options": {"smoke_mode": "diagnostic"}}
+        j.smoke_key_ok = True  # smoke_make_key got the key for a moment (cmux21, 2026-10-31 10:3xZ)
+        j.app.rpc = lambda method, params=None: {"windows": [{"id": 1, "kind": "main", "key": False}]}
+        ok, detail = self.ext.cond_smoke_key_window(j, {}, {})
+        self.assertTrue(ok, detail)
+        self.assertTrue(detail["was_key_at_make_key"])
+        j.app.rpc = lambda method, params=None: {"windows": [{"id": 1, "kind": "main", "key": False},
+                                                             {"id": 2, "kind": "panel", "key": True}]}
+        self.assertFalse(self.ext.cond_smoke_key_window(j, {}, {})[0])
+
     def test_strict_mode_on_a_slot_with_no_key_window_is_a_known_gap(self):
         j = self.journey([("w", "p1", "a", "T0", True)], {}, "p1")
         j.smoke_key_ok, j.smoke_key_reply, typed = False, {"key": None}, []
@@ -553,6 +705,28 @@ class NewTerminals(unittest.TestCase):
                 self.ext.step_smoke_ready(j, {"timeout": 5})
         finally:
             self.ext.time.sleep = sleep
+
+    def test_split_lines_must_be_in_the_panes_made_for_them_in_order(self):
+        before = [("w", "pA", "a", "T0", True)]
+        after = before + [("w", "pB", "b", "T1", False), ("w", "pC", "c", "T2", True)]
+        def run(screens, xs, focused="pC"):
+            j = self.journey(after, screens, focused)
+            j.app.panes = lambda: [{"pane": p, "focused": p == focused, "grid": {"frame_x": x}} for p, x in xs.items()]
+            snap = self.journey(before, {}, "pA")
+            self.ext.step_smoke_snapshot(snap, {"name": "s"})
+            j.smoke_snapshots = snap.smoke_snapshots
+            return self.ext.cond_smoke_new_terminals(j, {"since": "s", "lines": ["d1", "d2"], "focused": "d2",
+                                                         "placement": "new_panes", "order": "left_to_right"}, {})
+        xs = {"pA": 0.0, "pB": 450.0, "pC": 671.0}
+        ok, detail = run({"T1": "d1", "T2": "d2"}, xs)
+        self.assertTrue(ok, detail)
+        # Swapped: d1 in the right pane, d2 in the left one (focus on d2's pane): fails on the order.
+        ok, detail = run({"T1": "d2", "T2": "d1"}, xs, focused="pB")
+        self.assertFalse(ok)
+        self.assertTrue(any("left to right" in p for p in detail["problems"]), detail["problems"])
+        # TIP RED 1193: both lines in the first new pane (pB), focus kept on pB: fails.
+        ok, detail = run({"T1": "d1\nd2"}, xs, focused="pB")
+        self.assertFalse(ok)
 
     def test_each_workspace_line_in_its_own_new_workspace(self):
         before = [("w0", "p0", "a", "T0", True)]
@@ -1049,6 +1223,239 @@ class SettleThroughTheDriver(unittest.TestCase):
         import driver
         with self.assertRaises(driver.NotRun):
             self.run_step(0.3)
+
+
+
+class Burst(unittest.TestCase):
+    """smoke_burst: one debug.key sequence of real key events (TIP RED 1193's hold path, cmux-ad 11:05Z)."""
+
+    def setUp(self):
+        sys.path.insert(0, str(HERE))
+        import ext_smoke
+
+        class StepError(Exception):
+            pass
+
+        class NotRun(Exception):
+            pass
+
+        ext_smoke.install(type("D", (), {"StepError": StepError, "NotRun": NotRun, "now": staticmethod(lambda: 0.0)}))
+        self.ext, self.NotRun = ext_smoke, NotRun
+
+    def test_a_line_becomes_key_codes_with_shift_for_the_shifted_characters(self):
+        steps = self.ext._seq_text("echo $(", 0)
+        downs = [(st["key_code"], st["down"]) for st in steps]
+        self.assertEqual(downs[:2], [(14, True), (14, False)])  # e
+        self.assertIn((56, True), downs)  # shift for $ and (
+        self.assertEqual(downs[-4:], [(56, True), (25, True), (25, False), (56, False)])  # ( = shift 9
+        cmd_d = self.ext._seq_key(2, ("cmd",))
+        self.assertEqual([(st["key_code"], st["down"]) for st in cmd_d], [(55, True), (2, True), (2, False), (55, False)])
+
+    def test_the_burst_is_one_sequence_in_order_and_needs_the_key_window(self):
+        sent = []
+
+        class App:
+            def rpc(self_, method, params=None):
+                if method == "debug.key":
+                    sent.append(params)
+                    return {"scheduled": len(params["sequence"]), "duration_ms": 0}
+                if method == "debug.input":
+                    return {"holds": [{"path": "creation", "stage": {"count": len(sent) * 5}}]}
+                if method == "debug.window_list":
+                    return {"windows": [{"id": "W1", "kind": "main", "key": True}]}
+                return {}
+
+        class J:
+            app, vars, marks, key_window, smoke_key_ok = App(), {}, {}, "W1", True
+
+            def sub(self_, x):
+                return x
+        sleep = self.ext.time.sleep
+        self.ext.time.sleep = lambda s: None
+        try:
+            result = self.ext.step_smoke_burst(J(), {"burst": [{"key": "d", "modifiers": ["cmd"], "mark": "m"},
+                                                                {"text": "ab"}]})
+        finally:
+            self.ext.time.sleep = sleep
+        self.assertEqual(len(sent), 1)
+        codes = [(st["key_code"], st["down"]) for st in sent[0]["sequence"]]
+        self.assertEqual(codes[:4], [(55, True), (2, True), (2, False), (55, False)])
+        self.assertEqual(codes[-2:], [(36, True), (36, False)])  # Return after the line
+        self.assertEqual(result["held_keys"], {"creation": 5})
+        j = J()
+        j.smoke_key_ok = False
+        with self.assertRaises(self.NotRun):
+            self.ext.step_smoke_burst(j, {"burst": [{"text": "a"}]})
+
+
+    def _burst(self, replies, key=True, burst=None):
+        class App:
+            def rpc(self_, method, params=None):
+                if method == "debug.key":
+                    return replies
+                if method == "debug.window_list":
+                    return {"windows": [{"id": "W1", "kind": "main", "key": key}]}
+                return {}
+
+        class J:
+            app, vars, marks, key_window, smoke_key_ok = App(), {}, {}, "W1", True
+
+            def sub(self_, x):
+                return x
+        sleep = self.ext.time.sleep
+        self.ext.time.sleep = lambda s: None
+        try:
+            return self.ext.step_smoke_burst(J(), {"burst": burst or [{"text": "a"}]})
+        finally:
+            self.ext.time.sleep = sleep
+
+    def test_a_host_refusal_or_a_lost_key_window_is_not_run_and_a_bad_request_is_a_red(self):
+        for error in ("no event timestamp to start the sequence from", "no window", "did not become key"):
+            with self.assertRaises(self.NotRun):
+                self._burst({"error": error})
+        with self.assertRaises(self.ext.D.StepError):
+            self._burst({"error": "each step needs key_code and down"})
+        with self.assertRaises(self.NotRun):  # posted keys dropped with no key window
+            self._burst({"scheduled": 2, "duration_ms": 0}, key=False)
+        with self.assertRaises(self.ext.D.StepError):  # an unknown key name: a step error, never a traceback
+            self._burst({"scheduled": 2}, burst=[{"key": "f13"}])
+
+
+class HoldPath(unittest.TestCase):
+    """smoke_hold_path: a TIP RED 1193 pass counts only on the hold path (cmux-ad 11:05Z)."""
+
+    def setUp(self):
+        sys.path.insert(0, str(HERE))
+        import ext_smoke
+
+        class StepError(Exception):
+            pass
+
+        class NotRun(Exception):
+            pass
+
+        ext_smoke.install(type("D", (), {"StepError": StepError, "NotRun": NotRun, "now": staticmethod(lambda: 0.0)}))
+        self.ext, self.NotRun = ext_smoke, NotRun
+
+    def _j(self, *typed, burst="none"):
+        j = type("J", (), {"sub": lambda self_, x: x})()
+        j.smoke_typed_paths = [{"line": line, "paths": paths} for line, paths in typed]
+        if burst != "none":
+            j.smoke_burst_holds = burst
+        return j
+
+    def test_responder_only_is_not_proven_and_one_held_key_is(self):
+        with self.assertRaises(self.NotRun) as no:
+            self.ext.step_smoke_hold_path(self._j(("echo d1", ["responder"] * 8), ("echo d2", ["responder"] * 8)),
+                                          {"lines": ["echo d1", "echo d2"]})
+        self.assertIn("hold path not proven", str(no.exception))
+        done = self.ext.step_smoke_hold_path(self._j(("echo w1", ["app"] * 8), ("echo d1", ["app", "responder"]),
+                                                     ("echo d2", ["responder"])), {"lines": ["echo d1", "echo d2"]})
+        self.assertEqual((done["hold_path"], done["held_keys"]), (True, 1))  # w1's held keys do not count
+
+    def test_the_second_cmd_d_and_each_d2_line_must_be_held_when_asked(self):
+        j = self._j(("echo d1", ["app"] * 3), ("echo d2", ["app", "responder"]))
+        j.spec = {"steps": [{"do": "key", "mark": "split1"}, {"do": "key", "mark": "split2"}]}
+        j.steps = [{"index": 1, "result": {"reply": {"handled_by": "app"}}},
+                   {"index": 2, "result": {"reply": {"handled_by": "window"}}}]
+        want = {"lines": ["echo d2"], "every_line": True, "held_marks": ["split2"]}
+        with self.assertRaises(self.NotRun) as no:  # the second Cmd-D went to the window: not the hold path
+            self.ext.step_smoke_hold_path(j, want)
+        self.assertIn("'split2' was not held (handled_by 'window'", str(no.exception))
+        # "app" with a dispatcher trace: the router RAN the split at once (no creation pending): not a hold.
+        j.steps[1]["result"]["reply"] = {"handled_by": "app", "trace": ["dispatcher: run(split.right)"]}
+        with self.assertRaises(self.NotRun):
+            self.ext.step_smoke_hold_path(j, want)
+        j.steps[1]["result"]["reply"] = {"handled_by": "app", "trace": []}  # held: capture returned before dispatch
+        done = self.ext.step_smoke_hold_path(j, want)
+        self.assertEqual((done["hold_path"], done["marks"]["split2"]["held"]), (True, True))
+        j.smoke_typed_paths[1]["paths"] = ["responder"]  # d2 not held: not proven
+        with self.assertRaises(self.NotRun):
+            self.ext.step_smoke_hold_path(j, want)
+
+    def test_the_creation_hold_report_proves_the_hold_path_and_a_build_without_the_hook_is_not_run(self):
+        calls = []
+
+        class App:
+            def __init__(self_, replies):
+                self_.replies = replies
+
+            def rpc(self_, method, params=None):
+                calls.append((method, params))
+                reply = self_.replies[method]
+                if isinstance(reply, Exception):
+                    raise reply
+                return reply
+        j = self._j(("echo d2", ["responder"]))
+        j.app = App({"debug.creation.hold": {"armed": [1], "started": 0, "held": [], "released": []},
+                     "debug.creation.release": {"armed": [1], "started": 2, "held": [], "released": [1]}})
+        self.ext.step_smoke_creation(j, {"action": "hold", "n": 1})
+        self.ext.step_smoke_creation(j, {"action": "release", "n": 1})
+        self.assertEqual(calls, [("debug.creation.hold", {"n": 1}), ("debug.creation.release", {"n": 1})])
+        done = self.ext.step_smoke_hold_path(j, {"lines": ["echo d2"], "creation_held": 1})
+        self.assertTrue(done["creation_pending"])
+        j.smoke_creation["release"] = {"started": 1, "held": [], "released": [1]}  # the second Cmd-D never started
+        with self.assertRaises(self.NotRun):
+            self.ext.step_smoke_hold_path(j, {"creation_held": 1})
+        # A hook that reports `resumed`: creation 1 released but never waiting is not proven.
+        j.smoke_creation["release"] = {"started": 2, "held": [], "released": [1], "resumed": []}
+        with self.assertRaises(self.NotRun):
+            self.ext.step_smoke_hold_path(j, {"creation_held": 1})
+        j.smoke_creation["release"]["resumed"] = [1]
+        self.assertTrue(self.ext.step_smoke_hold_path(j, {"creation_held": 1})["creation_pending"])
+        j.app = App({"debug.creation.hold": self.ext.D.StepError("debug.creation.hold: method_not_found")})
+        with self.assertRaises(self.NotRun):
+            self.ext.step_smoke_creation(j, {"action": "hold", "n": 1})
+
+    def test_the_wait_ends_when_the_new_panes_terminal_view_is_first_responder(self):
+        seq = [{"windows": [{"id": "W", "is_key": True, "appkit": {"first_responder": "TerminalSurfaceView", "classified": "content:A"}}]},
+               {"windows": [{"id": "W", "is_key": True, "appkit": {"first_responder": "NSView", "classified": "content:B"}}]},
+               {"windows": [{"id": "W", "is_key": True, "appkit": {"first_responder": "TerminalSurfaceView", "classified": "content:B"}}]}]
+
+        class App:
+            def rpc(self_, method, params=None):
+                return seq.pop(0) if len(seq) > 1 else seq[0]
+        j = self._j()
+        j.app, j.smoke_snapshots = App(), {"before_splits": {"focused_pane": "A"}}
+        sleep, self.ext.time.sleep = self.ext.time.sleep, lambda s: None
+        clock = iter(range(1000))
+        now, self.ext.D.now = self.ext.D.now, staticmethod(lambda: next(clock) * 0.01)
+        try:
+            done = self.ext.step_smoke_wait_new_view(j, {"since": "before_splits", "timeout": 5})
+        finally:
+            self.ext.time.sleep, self.ext.D.now = sleep, now
+        self.assertEqual((done["reached"], done["pane"]), (True, "B"))
+
+    def test_the_stand_in_hold_needs_shown_and_a_dispatched_second_cmd_d(self):
+        calls = []
+
+        class App:
+            def rpc(self_, method, params=None):
+                calls.append((method, params))
+                return {"debug.creation.hold": {"armed": [1], "stand_in": [2], "started": 0},
+                        "debug.creation.release": {"started": 2, "released": [1], "resumed": [1], "shown": [2]}}[method]
+        j = self._j(("echo d2", ["responder"]))
+        j.app = App()
+        j.spec = {"steps": [{"do": "key", "mark": "split2"}]}
+        j.steps = [{"index": 1, "result": {"reply": {"handled_by": "app", "trace": ["dispatcher: run(splitRight)"]}}}]
+        self.ext.step_smoke_creation(j, {"action": "hold", "n": [1], "stand_in": [2]})
+        self.ext.step_smoke_creation(j, {"action": "release"})
+        self.assertEqual(calls, [("debug.creation.hold", {"n": [1], "stand_in": [2]}), ("debug.creation.release", {})])
+        want = {"creation_held": 1, "dispatched_marks": ["split2"]}
+        self.assertTrue(self.ext.step_smoke_hold_path(j, want)["hold_path"])
+        j.steps[0]["result"]["reply"]["trace"] = []  # the second Cmd-D was held, creation 2 never raced
+        with self.assertRaises(self.NotRun):
+            self.ext.step_smoke_hold_path(j, want)
+        j.steps[0]["result"]["reply"]["trace"] = ["dispatcher: run(splitRight)"]
+        j.smoke_creation["release"] = {"started": 2, "released": [1], "resumed": [1], "shown": []}  # stand-in not held
+        with self.assertRaises(self.NotRun):
+            self.ext.step_smoke_hold_path(j, want)
+
+    def test_a_burst_without_a_hold_counter_is_not_proven(self):
+        with self.assertRaises(self.NotRun) as no:
+            self.ext.step_smoke_hold_path(self._j(burst=None), {})
+        self.assertIn("no debug.input late_keys hold counter", str(no.exception))
+        self.assertTrue(self.ext.step_smoke_hold_path(self._j(burst={"creation": 3}), {})["hold_path"])
 
 
 class Loads(unittest.TestCase):

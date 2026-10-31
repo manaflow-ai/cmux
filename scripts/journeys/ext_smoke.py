@@ -39,14 +39,15 @@ Conditions (inside `expect.all`; evidence kind app):
                                       LACKS. The screenshot of a step whose state the app's reads prove
   smoke_panes        {line, count}    the workspace whose terminal shows LINE has COUNT panes
   smoke_key_window   {}               a main window of the app is its key window (debug.window_list; a read only)
-  smoke_new_terminals {since, lines, focused, placement}
+  smoke_new_terminals {since, lines, focused, placement, order?}
                                       the keys went to the new terminals, not to an old one: exactly len(LINES) new
                                       daemon terminals since the snapshot SINCE; each line is on exactly one terminal
                                       of the whole topology, that terminal is new, and no two lines share one; the
                                       line FOCUSED is on the focused terminal. PLACEMENT: `new_workspaces` (each in
                                       its own workspace not in the snapshot), `new_panes` (each in its own pane not in
                                       the snapshot) or `focused_pane` (all tabs of the pane focused at the snapshot,
-                                      which now has len(LINES) more tabs)
+                                      which now has len(LINES) more tabs); ORDER left_to_right: line i's pane is left
+                                      of line i+1's (each line in the pane made for it, in split order)
   smoke_app_lines    {lines}          every line is a line of some pane's viewport text in the app (any pane)
   smoke_daemon_lines {lines}          (evidence daemon) every line is a line of some terminal's daemon screen
 
@@ -149,8 +150,13 @@ def step_smoke_type_now(j, step):
     replies.append(j.key("return", [], j.key_window))
     if step.get("bind"):  # never `as`: the driver names the current terminal after any step with `as`
         j.vars[step["bind"]] = text
+    # Each key's path, in order (debug.key `handled_by`): "app" is the router's hold (a key held for a terminal still
+    # being made, replayed there), "responder" a key that went straight to the focused view.
+    paths = [str(r.get("handled_by")) if isinstance(r, dict) else "?" for r in replies]
+    j.smoke_typed_paths = getattr(j, "smoke_typed_paths", []) + [{"line": text, "paths": paths}]
     return {"typed": text, "keys": len(replies), "at": round(sent, 3), "at_once": waited is None, "waited_hold_s": waited,
-            "handled_by": sorted({str(r.get("handled_by")) for r in replies if isinstance(r, dict)})}
+            "handled_by": sorted(set(paths)), "first_handled_by": paths[0] if paths else None,
+            "held_keys": paths.count("app")}
 
 
 def _workspace_ids(j):
@@ -279,6 +285,20 @@ def cond_smoke_new_terminals(j, want, cache):
         if not (pane == focused_pane and selected):
             problems.append(f"{focus_line} is not on the focused terminal (focused pane {focused_pane}, line in "
                             f"pane {pane}, its selected tab: {selected})")
+    if want.get("order") == "left_to_right" and len(owners) == len(wanted) and len(set(owners)) == len(owners):
+        # Each line in the pane made for it, in the order the panes were made: a split puts its new pane right of the
+        # split one, so line i's pane is left of line i+1's (the view frames' x). Catches lines that swapped panes
+        # or landed in the earlier new pane (TIP RED 1193: d1 and d2 both in the first new pane, focus kept there).
+        xs = {}
+        for row in j.app.panes():
+            grid = row.get("grid") if isinstance(row.get("grid"), dict) else {}
+            if "frame_x" in grid:
+                xs[row.get("pane")] = float(grid["frame_x"])
+        line_x = [xs.get(terms[t][1]) for t in owners]
+        if any(x is None for x in line_x):
+            problems.append(f"no view frame for the panes of the lines (x {line_x})")
+        elif any(a >= b for a, b in zip(line_x, line_x[1:])):
+            problems.append(f"the lines are not each in the pane made for it, left to right: pane x {line_x}")
     placement = want.get("placement")
     places = [terms[t] for t in owners]
     if placement == "new_workspaces":
@@ -420,10 +440,13 @@ def cond_smoke_key_window(j, want, cache):
     are still judged) and records the gap; smoke-gate.py then makes a passed round "not run", never a pass. A non-main
     app window key, the app front with no key window, or a foreign app that appeared during the journey fails."""
     key_now, windows = _main_key(j)
-    if not key_now and _diagnostic(j) and not getattr(j, "smoke_key_ok", False) \
+    if not key_now and _diagnostic(j) \
             and not any(w["key"] is True for w in windows) and any(w["kind"] == "main" for w in windows):
-        # Diagnostic on a slot: no window was ever key; the step's other checks still count.
-        return True, {"windows": windows, "diagnostic": "no key window on this slot (not checked)"}
+        # Diagnostic on a slot: the app is never the active app there, so its window may be key for a moment
+        # (smoke_make_key) and lose it again; no app window key is the slot's limit, not checked. The step's other
+        # checks still count. A non-main app window that is key still fails.
+        return True, {"windows": windows, "diagnostic": "no key window on this slot (not checked)",
+                      "was_key_at_make_key": bool(getattr(j, "smoke_key_ok", False))}
     if not key_now:
         gap = _key_lost_to_another_app(j, windows)
         if gap:
@@ -1036,7 +1059,240 @@ def step_smoke_no_key_gaps(j, step):
     return {"key_gaps": 0}
 
 
-STEPS = {"smoke_no_key_gaps": step_smoke_no_key_gaps, "smoke_ready": step_smoke_ready, "smoke_make_key": step_smoke_make_key, "smoke_type_now": step_smoke_type_now,
+# ---- TIP RED 1193: keys posted in the same event-queue drain as the key that makes the terminal ------------------
+
+# US ANSI virtual key codes (Carbon kVK_*): the keys a line of the journeys uses.
+_KEYCODES = {**{c: k for c, k in zip("asdfhgzxcvbqweryt", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17])},
+             "1": 18, "2": 19, "3": 20, "4": 21, "6": 22, "5": 23, "=": 24, "9": 25, "7": 26, "-": 27, "8": 28, "0": 29,
+             "]": 30, "o": 31, "u": 32, "[": 33, "i": 34, "p": 35, "l": 37, "j": 38, "'": 39, "k": 40, ";": 41,
+             "\\": 42, ",": 43, "/": 44, "n": 45, "m": 46, ".": 47, " ": 49, "`": 50}
+_SHIFTED = {"$": "4", "(": "9", ")": "0", "*": "8", "!": "1", "@": "2", "#": "3", "%": "5", "^": "6", "&": "7",
+            "_": "-", "+": "=", "{": "[", "}": "]", "|": "\\", ":": ";", '"': "'", "<": ",", ">": ".", "?": "/", "~": "`"}
+_MODS = {"cmd": 55, "shift": 56, "option": 58, "control": 59}
+_RETURN = 36
+
+
+def _seq_key(code, mods=(), gap=0.0):
+    """Key-down and key-up of CODE with MODS held: the steps of a debug.key sequence."""
+    steps = [{"key_code": _MODS[m], "down": True, "after_ms": gap if i == 0 else 0} for i, m in enumerate(mods)]
+    steps += [{"key_code": code, "down": True, "after_ms": 0 if mods else gap}, {"key_code": code, "down": False}]
+    steps += [{"key_code": _MODS[m], "down": False} for m in reversed(mods)]
+    return steps
+
+
+def _seq_text(text, gap):
+    steps = []
+    for ch in text:
+        if ch in _SHIFTED:
+            steps += _seq_key(_KEYCODES[_SHIFTED[ch]], ("shift",), gap)
+        elif ch.lower() in _KEYCODES and ch.isupper():
+            steps += _seq_key(_KEYCODES[ch.lower()], ("shift",), gap)
+        elif ch in _KEYCODES:
+            steps += _seq_key(_KEYCODES[ch], (), gap)
+        else:
+            raise D.StepError(f"smoke_burst: no key code for {ch!r}")
+    return steps
+
+
+def _holds(j):
+    """{hold path: keys it held since launch} (debug.input late_keys `holds`), or None on a build without it."""
+    try:
+        reply = j.app.rpc("debug.input", {"action": "late_keys", "since_launch": True}) or {}
+    except D.StepError:
+        return None
+    holds = reply.get("holds") if isinstance(reply, dict) else None
+    if not isinstance(holds, list):
+        return None
+    out = {}
+    for h in holds:
+        stage = h.get("stage") if isinstance(h.get("stage"), dict) else {}
+        out[str(h.get("path"))] = int(stage.get("count") or 0)
+    return out
+
+
+# debug.key sequence errors that mean the journey's request was wrong (a red of the journey, never "not run").
+_BURST_JOURNEY_ERRORS = ("each step needs key_code and down", "key_window must be shell or page")
+
+
+def step_smoke_hold_path(j, step):
+    """TIP RED 1193 counts a round only when its keys took the hold path (cmux-ad 11:05Z): at least one key typed at
+    once after a Cmd-D was held by the app's router (debug.key handled_by "app"), or a burst's hold counter rose.
+    Else the round is not run ("hold path not proven"): a pass with every key handled by the focused view (responder)
+    proves nothing about the hold. Runs after the round's checks, so a failure on any path still counts as a failure;
+    the step records each line's paths either way."""
+    typed = [t for t in getattr(j, "smoke_typed_paths", []) if t["line"] in set(j.sub(step.get("lines", [])))] \
+        if step.get("lines") else getattr(j, "smoke_typed_paths", [])
+    lines = [{"line": t["line"], "held": t["paths"].count("app"), "first": t["paths"][0] if t["paths"] else None,
+              "paths": sorted(set(t["paths"]))} for t in typed]
+    burst = getattr(j, "smoke_burst_holds", "none")
+    held = sum(t["held"] for t in lines) + (sum(burst.values()) if isinstance(burst, dict) else 0)
+    # `held_marks`: key steps (by their mark, e.g. the second Cmd-D) whose own key must be held too.
+    marks = {}
+    specs = j.spec.get("steps", []) if isinstance(getattr(j, "spec", None), dict) else []
+    for record in getattr(j, "steps", []):
+        index = record.get("index", 0) - 1
+        mark = specs[index].get("mark") if 0 <= index < len(specs) else None
+        if mark in step.get("held_marks", []) + step.get("dispatched_marks", []):
+            reply = (record.get("result") or {}).get("reply") if isinstance(record.get("result"), dict) else None
+            if not isinstance(reply, dict):
+                marks[mark] = {"handled_by": None, "trace": None, "held": False}
+                continue
+            trace = [str(t) for t in reply.get("trace") or []]
+            # "app" is any router intercept: a chord the router RUNS at once (no creation pending) is "app" too, and
+            # its dispatch adds a "dispatcher: <decision>" trace line; a held key returns from capture before that.
+            ran = [t for t in trace if t.startswith("dispatcher:")]
+            marks[mark] = {"handled_by": str(reply.get("handled_by")), "trace": trace[:8],
+                           "held": reply.get("handled_by") == "app" and not ran,
+                           "dispatched": reply.get("handled_by") == "app" and bool(ran)}
+    result = {"hold_path": held > 0, "held_keys": held, "lines": lines, "burst_holds": burst, "marks": marks}
+    if step.get("creation_held"):
+        # The creation hold's own report proves the hold path: creation N stayed pending (its reply held by the hook)
+        # while the keys after it were typed, and the next creation started meanwhile. The key paths are data only.
+        pending, reply = _creation_proof(j, int(step["creation_held"]))
+        result.update({"creation_pending": pending, "creation_release": reply, "hold_path": pending})
+        # `dispatched_marks`: key steps whose key the router must have RUN at once (a "dispatcher:" trace), e.g. the
+        # second Cmd-D that starts creation 2 while creation 1 is held (the 1193 race).
+        late = [m for m in step.get("dispatched_marks", []) if not (marks.get(m) or {}).get("dispatched")]
+        if late:
+            result["hold_path"] = False
+            raise D.NotRun(f"hold path not proven: the key of step(s) {late} was not run at once "
+                           f"({json.dumps({m: marks.get(m) for m in late})[:300]})")
+        if not pending:
+            raise D.NotRun(f"hold path not proven: creation {step['creation_held']} was not held while the keys "
+                           f"were typed (release reply {json.dumps(reply)[:300]}) ({json.dumps(result)[:400]})")
+        return result
+    why = []
+    if held <= 0:
+        why.append("no key typed at once was handled_by app" if lines else "no typed line recorded")
+        if burst is None:
+            why.append("this build has no debug.input late_keys hold counter for the burst")
+    if step.get("every_line"):
+        why += [f"no key of {t['line']!r} was held" for t in lines if t["held"] <= 0]
+        why += [f"line {line!r} was not typed" for line in j.sub(step.get("lines", [])) if line not in {t["line"] for t in lines}]
+    why += [f"the key of step {m!r} was not held (handled_by {(marks.get(m) or {}).get('handled_by')!r}, "
+            f"trace {(marks.get(m) or {}).get('trace')!r})" for m in step.get("held_marks", [])
+            if not (marks.get(m) or {}).get("held")]
+    if why:
+        result["hold_path"] = False
+        raise D.NotRun(f"hold path not proven: {'; '.join(why)} ({json.dumps(result)[:500]})")
+    return result
+
+
+def step_smoke_creation(j, step):
+    """The P0 1193 owner's DEBUG hook (#29301): ACTION "hold" (`debug.creation.hold {n}`: the n-th creation that
+    starts keeps its daemon reply, so it stays pending) or "release" (`debug.creation.release {n}`, or every hold with
+    no n). Records each reply for smoke_hold_path. A build without the hook (feat, a dogfood line) cannot run the
+    journey: not run, never a red."""
+    method = "debug.creation." + step["action"]
+    params = {k: step[k] for k in ("n", "stand_in") if k in step}
+    try:
+        reply = j.app.rpc(method, params)
+    except D.StepError as error:
+        text = str(error)
+        if "method_not_found" in text or "unknown method" in text.lower() or "not found" in text.lower():
+            raise D.NotRun(f"this build has no {method} (the creation hold of #29301): {text[:200]}")
+        raise
+    j.smoke_creation = {**getattr(j, "smoke_creation", {}), step["action"]: reply, step["action"] + "_at": D.now()}
+    if step["action"] == "hold" and "stand_in" in step:
+        j.smoke_creation["want_shown"] = list(step["stand_in"])
+    return {"reply": reply}
+
+
+def step_smoke_wait_new_view(j, step):
+    """After a key that makes a terminal (Cmd-D) while its creation is held (smoke_creation hold): waits, at most
+    TIMEOUT s (default 5), until AppKit's first responder of the key window is a terminal view inside another pane than
+    the one focused at the smoke_snapshot SINCE (the pane that was split): the new pane's early view has the keyboard
+    (debug.focus `appkit.first_responder` == "TerminalSurfaceView" and `appkit.classified` == "content:<pane>"; the
+    focus model's `focused` moves in the key's own turn, before the view takes the keyboard). The P0 1193 owner: from
+    then on the keys typed for it, the second Cmd-D too, go straight through while creation 1 is still pending (the race
+    of TIP RED 1193). Reads only; polls every 75 ms. Not reached in time: recorded, the journey goes on (smoke_hold_path
+    then judges whether the race happened)."""
+    old = (getattr(j, "smoke_snapshots", {}).get(step.get("since", "before_splits")) or {}).get("focused_pane")
+    if not old:  # without the split pane, the old pane's own terminal would pass at once
+        return {"reached": False, "after_s": 0, "last": "no focused pane in the smoke_snapshot before the split"}
+    end, last, t0 = D.now() + float(step.get("timeout", 5)), None, D.now()
+    while D.now() < end:
+        report = j.app.rpc("debug.focus") or {}
+        for w in report.get("windows", []) if isinstance(report, dict) else []:
+            kit = w.get("appkit") or {}
+            where = str(kit.get("classified") or "")
+            last = {"window": w.get("id"), "is_key": w.get("is_key"), "first_responder": kit.get("first_responder"),
+                    "classified": where, "split_pane": old}
+            if not w.get("is_key") or kit.get("first_responder") != "TerminalSurfaceView" or not where.startswith("content:"):
+                continue
+            pane = where[len("content:"):]
+            if pane and pane != old:
+                return {"reached": True, "after_s": round(D.now() - t0, 3), "pane": pane, "split_pane": old}
+        time.sleep(0.075)
+    return {"reached": False, "after_s": round(D.now() - t0, 3), "last": last}
+
+
+def _creation_proof(j, n):
+    """(creation N was pending when it was released, and a later creation had started, the release reply)."""
+    seen = getattr(j, "smoke_creation", {})
+    reply = seen.get("release")
+    if not isinstance(reply, dict):
+        return False, reply
+    ints = lambda key: [int(x) for x in reply.get(key) or [] if isinstance(x, (int, float))]
+    # "started" >= N + 1: creation N and the next one (the second Cmd-D) both started after the hold was armed.
+    started = int(reply.get("started") or 0) >= n + 1
+    if "resumed" in reply:  # a hook that names the creations it really resumed: the direct proof
+        shown = seen.get("want_shown")
+        if shown is not None and sorted(ints("shown")) != sorted(shown):
+            return False, reply  # the stand-in hold (the hog state on purpose) did not hold what it was asked to
+        return started and n in ints("resumed"), reply
+    # Else: "released" names N even when N never waited, so the proof is that N started under the armed hold and was
+    # released before the hook's own 30 s limit (it would have gone on by itself). The non-optimistic split path
+    # has no hook; it is not used by a key-made split.
+    in_time = (seen.get("release_at", 0) - seen.get("hold_at", 0)) < 25
+    return started and n in ints("released") + ints("held") and in_time, reply
+
+
+def step_smoke_burst(j, step):
+    """Plays BURST (a list of {key, modifiers} and {text, enter?}) as ONE `debug.key {sequence}`: real key events posted
+    to the app's queue (its sendEvent, key router, hold and replay paths, as hardware keys), GAP_MS (default 0) apart.
+    The keys after a key that makes a terminal (Cmd-D, Ctrl-`) are in the queue before that terminal exists, so the
+    app must hold them for it and replay them there: the hold path, every time, without changing the app's timing.
+    Needs the journey's window key (smoke_make_key; a whole-host lease): the sequence goes to the key window. Records
+    the hold paths' counts before and after (debug.input late_keys holds, on builds that have it)."""
+    if not getattr(j, "smoke_key_ok", False):
+        raise D.NotRun(GAP + " (smoke_burst posts real key events to the key window)")
+    gap = float(step.get("gap_ms", 0))
+    steps = []
+    for item in step["burst"]:
+        if "text" in item:
+            steps += _seq_text(j.sub(item["text"]), gap)
+            if item.get("enter", True):
+                steps += _seq_key(_RETURN, (), gap)
+        else:
+            key = item["key"]
+            if key != "return" and key not in _KEYCODES:
+                raise D.StepError(f"smoke_burst: no key code for key {key!r}")
+            code = _RETURN if key == "return" else _KEYCODES[key]
+            steps += _seq_key(code, tuple(item.get("modifiers", [])), gap)
+        if item.get("mark"):
+            j.marks[item["mark"]] = D.now()
+    before = _holds(j)
+    reply = j.app.rpc("debug.key", {"sequence": steps, "key_window": "shell", "window": j.key_window or _journey_window(j)}) or {}
+    if not isinstance(reply, dict):
+        raise D.StepError(f"debug.key sequence: no reply object: {json.dumps(reply)[:300]}")
+    if reply.get("error"):
+        if reply["error"] in _BURST_JOURNEY_ERRORS:
+            raise D.StepError(f"debug.key sequence refused the journey's request: {reply['error']}")
+        # The host's limit, not the build's (no key window, an inactive app, no event clock): no keys were posted.
+        raise D.NotRun(GAP + f" (debug.key sequence refused: {str(reply['error'])[:200]})")
+    time.sleep(float(reply.get("duration_ms") or 0) / 1000 + 1.0)  # until the last event was posted and dispatched
+    key_now, windows = _main_key(j)
+    if not key_now:
+        # Posted keys go to the key window; with none, the app drops them (a host prompt took the key, not the build).
+        raise D.NotRun(GAP + f" (the journey's window lost key status during the burst; windows {json.dumps(windows)[:200]})")
+    after = _holds(j)
+    held = None if before is None or after is None else {k: after.get(k, 0) - before.get(k, 0) for k in after}
+    j.smoke_burst_holds = held
+    return {"steps": len(steps), "reply": reply, "held_keys": held}
+
+
+STEPS = {"smoke_burst": step_smoke_burst, "smoke_wait_new_view": step_smoke_wait_new_view, "smoke_creation": step_smoke_creation, "smoke_hold_path": step_smoke_hold_path, "smoke_no_key_gaps": step_smoke_no_key_gaps, "smoke_ready": step_smoke_ready, "smoke_make_key": step_smoke_make_key, "smoke_type_now": step_smoke_type_now,
          "smoke_remember_workspaces": step_smoke_remember_workspaces, "smoke_close_all": step_smoke_close_all,
          "smoke_snapshot": step_smoke_snapshot, "smoke_adopt_line": step_smoke_adopt_line,
          "smoke_long_line": step_smoke_long_line, "smoke_widths": step_smoke_widths}
