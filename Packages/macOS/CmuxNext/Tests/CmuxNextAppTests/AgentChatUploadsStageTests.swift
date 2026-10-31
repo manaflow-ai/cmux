@@ -1,6 +1,8 @@
 import AppKit
 import CmuxNextAgentPane
 @testable import CmuxNextApp
+import CmuxNextPages
+import CmuxNextSettings
 import Foundation
 import Testing
 
@@ -9,16 +11,29 @@ import Testing
 /// The page streams every file it uploads (`chat.upload.begin`, `.chunk`, `.finish`); the pane
 /// refused a chat with no session as `unsupported`, which the page reads as a host too old to
 /// stream, so a file over 24 MiB showed "This host cannot stream an attachment this large." with
-/// Retry, which failed the same way. A chat that gets its session while the file still streams (the person
-/// sent the prompt meanwhile) keeps the upload, and the file lands in that chat's folder.
+/// Retry, which failed the same way. The page host (where the agent page shows by default) did the same
+/// before the pane was asked: its `cmux.agent.*` list had `chat.upload` but no `chat.upload.begin`, so it
+/// answered `cmux.protocol.unknown_op`, which the page reads the same way. These go through that host, as
+/// the page's calls do. A chat that gets its session while the file still streams (the person sent the
+/// prompt meanwhile) keeps the upload, and the file lands in that chat's folder.
 @MainActor @Suite(.serialized)
 struct AgentChatUploadsStageTests {
     private actor NoHost: AgentPaneHostProviding {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
 
-    private static func ask(_ model: AgentPaneModel, _ method: String, _ params: [String: Any]) async -> [String: Any] {
-        await model.respond(to: AgentPaneRequest(body: ["method": method, "params": params]))
+    /// The page's call `op` (`cmux.agent.<op>`) through the page host, in the old reply shape.
+    private static func ask(_ model: AgentPaneModel, _ op: String, _ params: [String: Any]) async -> [String: Any] {
+        let host = AgentPageProvider { _ in model }
+        do {
+            let value = try await host.call(AgentPageOps.namespace + op, params: JSONValue(foundation: params) ?? .null,
+                                            context: PageCallContext(page: PageDescriptor.agent.id))
+            return ["ok": true, "value": value.foundationObject]
+        } catch let error as PageError {
+            return ["ok": false, "error": ["code": error.code]]
+        } catch {
+            return ["ok": false, "error": ["code": "\(error)"]]
+        }
     }
 
     private static func value(_ reply: [String: Any]) -> [String: Any] {
@@ -48,7 +63,7 @@ struct AgentChatUploadsStageTests {
         #expect(Self.value(one)["offset"] as? Int == first.count)
 
         // The person sends the prompt while the file streams: the chat starts and gets its session.
-        _ = await Self.ask(model, "chat.persistSession", ["sessionId": session])
+        _ = await Self.ask(model, "session.persist", ["sessionId": session])
         #expect(model.sessionId == session)
         let two = await Self.ask(model, "chat.upload.chunk", ["token": token, "offset": first.count, "data": second.base64EncodedString()])
         #expect(Self.value(two)["offset"] as? Int == first.count + second.count, "the upload stopped when the chat started: \(two)")
