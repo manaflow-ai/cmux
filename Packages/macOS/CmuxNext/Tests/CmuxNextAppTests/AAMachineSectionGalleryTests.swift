@@ -12,7 +12,7 @@ import Testing
 @MainActor @Suite(.serialized) struct AAMachineSectionGalleryTests {
     static func render(_ style: MachineSectionStyle, appearance: NSAppearance.Name) throws -> CGImage {
         _ = NSApplication.shared
-        let width: CGFloat = 280, height: CGFloat = 340
+        let width: CGFloat = 280, height: CGFloat = 400
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: width, height: height), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

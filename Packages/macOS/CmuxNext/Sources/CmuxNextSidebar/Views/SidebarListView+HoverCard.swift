@@ -139,4 +139,15 @@ extension SidebarViewComponents {
         list.scrollToVisible(list.frame(for: row))
         return window.convertToScreen(list.convert(list.frame(for: row), to: nil))
     }
+
+    /// The name of the shown group called `name` on screen, scrolled into view first (a capture tour double-clicks it
+    /// to rename the group in place); nil when no shown group has that name.
+    public func groupNameFrameOnScreen(named name: String) -> CGRect? {
+        guard let id = list.groups.values.first(where: { $0.name == name })?.id, groupRowFrameOnScreen(for: id) != nil,
+              let window = list.window else { return nil }
+        list.realizeVisibleRows()
+        guard let header = list.rowViews[.group(id)] as? GroupHeaderRowView else { return nil }
+        header.layoutSubtreeIfNeeded()
+        return window.convertToScreen(header.convert(header.name.frame, to: nil))
+    }
 }

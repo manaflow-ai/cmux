@@ -105,7 +105,26 @@ struct CrossMachineTabMoveTests {
 
         /// The other machine's tab matching `match` in the target workspace, once its store shows it.
         func machineTab(_ match: (TabModel) -> Bool) async throws -> TabModel {
-            try await poll("no matching tab on the other machine") {
+            let deadline = ContinuousClock.now + .seconds(20)
+            // A move's reply can precede the store applying its rename. Read after the
+            // daemon's barrier so the creation event alone cannot satisfy this lookup.
+            // The barrier and lookup share one deadline. Leaving the group cancels and
+            // joins the observation wait or deadline task, including on caller cancellation.
+            let daemon = self.machine.daemon
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                defer { group.cancelAll() }
+                group.addTask {
+                    try Task.checkCancellation()
+                    try await daemon.appliedThroughSyncBarrier()
+                    try Task.checkCancellation()
+                }
+                group.addTask {
+                    try await ContinuousClock().sleep(until: deadline)
+                    throw DaemonError.timedOut("the other machine's store did not reach the move's reply")
+                }
+                _ = try await group.next()
+            }
+            return try await poll("no matching tab on the other machine", until: deadline) {
                 self.machine.daemon.store.workspaces.first { $0.id == self.target.id }?.screens.flatMap(\.panes).flatMap(\.tabs).first(where: match)
             }
         }
@@ -118,9 +137,10 @@ struct CrossMachineTabMoveTests {
             return !present()
         }
 
-        private func poll<T>(_ message: String, _ value: () -> T?) async throws -> T {
-            let deadline = ContinuousClock.now + .seconds(20)
-            while value() == nil, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
+        private func poll<T>(_ message: String, until deadline: ContinuousClock.Instant = ContinuousClock.now + .seconds(20), _ value: () -> T?) async throws -> T {
+            try Task.checkCancellation()
+            while value() == nil, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
+            try Task.checkCancellation()
             return try #require(value(), Comment(rawValue: message))
         }
     }

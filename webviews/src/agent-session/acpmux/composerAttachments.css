@@ -187,6 +187,19 @@
   color: var(--agent-muted);
   text-align: center;
 }
+/* With its Retry (attachmentIntake.tsx BrokenImageChip): the glyph, the note and Retry fit the tile. */
+.acpmux-attachment-image-failed {
+  gap: 4px;
+}
+.acpmux-attachment-image-failed .acpmux-attachment-failed-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.acpmux-attachment-image-failed .acpmux-attachment-retry {
+  line-height: 16px;
+}
 .acpmux-attachment-failed-icon {
   flex: none;
   opacity: 0.8;
@@ -260,6 +273,29 @@
 }
 .acpmux-attachment-retry:focus-visible {
   outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
+}
+/* A staged image whose original could not be saved: its preview still sends; a Retry badge in its
+   corner uploads the original again, and its tooltip says why it failed (attachmentIntake.tsx). */
+.acpmux-attachment-original-retry {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  color: #fff; /* theme-fixed: on its own black scrim over media */
+  background: rgb(0 0 0 / 0.6);
+  font: inherit;
+  font-size: var(--text-detail);
+  line-height: 1.4;
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-attachment-original-retry:hover {
+  background: rgb(0 0 0 / 0.75);
+}
+.acpmux-attachment-original-retry:focus-visible {
+  outline: 1.5px solid #fff; /* theme-fixed: on its own black scrim over media */
   outline-offset: 1px;
 }
 .acpmux-attachment-file {
