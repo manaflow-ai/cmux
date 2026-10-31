@@ -808,6 +808,10 @@ Commits logged without a trailer (behavior fixes, no visual change; the card kee
 - e577483b10b: Show Resource Usage opens the card with its details expanded.
 - 1ce20b930ba: Show Resource Usage starts sampling when the card opens.
 
+## Hover card tab paths read in dark themes (2026-10-31)
+
+- The review of #24785's dark capture: "the dark inner-tab hover card's titles and paths are washed-out grey on the glass". Each tab row's path in the hover card's tab list now draws in the theme's secondary text, the token the card's facts use, instead of tertiary (#808080 in a dark theme). Tab names stay primary; light themes change only slightly. `WorkspaceTabHoverCardContrastTests` pins the tokens and the rendered ink in a dark theme.
+
 ## No tabs inside the sidebar; cmux Classic Mode removed (2026-10-30)
 
 - Lawrence 2026-10-30 (Chief messages 17538 and 17541), verbatim: "wtf is cmux classic mode get rid of it; i think new people get wieird sidebar that has like expandable stuff, get rid of it" and "like i dont want to see tabs expanded inside of sidebar". Before: a fresh profile listed every workspace's tabs under it with a disclosure chevron (`sidebar.showWorkspaceTabs` defaulted on since f32ee25f, Oct 27), while Lawrence's own sidebar hid them through Minimal Mode. Now no setting lists tabs in the sidebar: `sidebar.showWorkspaceTabs` and `tabs.terminalFirst` (cmux Classic Mode) are retired keys, their Settings rows, the Show Tabs Under Workspaces action and both App Store features are gone, and `SidebarModel.showWorkspaceTabs` is never set by settings (tests still set it to cover the tab-row code). This takes back f32ee25f's default ("show everything by default", Oct 27) and leaves the Oct 29 "Disclosed workspace tab hierarchy" entry above test-only. Test: `ClassicModeRemovedTests`.
