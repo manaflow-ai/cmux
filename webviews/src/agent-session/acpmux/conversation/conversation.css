@@ -3864,7 +3864,7 @@ a.cv-sha:focus-visible {
 .cv-diagram__tools {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--ds-space-1, 4px);
 }
 .cv-diagram__toggle {
   border: 0;
