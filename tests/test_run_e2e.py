@@ -1590,7 +1590,11 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
     def test_the_workflow_step_resolves_through_the_rule(self):
         self.assertEqual(self.run_pool_step()[0], LARGE)
         label, stderr = self.run_pool_step()
-        self.assertIn(stderr, ("", "could not read the runner queue"))
+        # The picker logs its decision (#26008) and nothing else: with no token it
+        # reads no queue, so any other stderr line is an error.
+        self.assertIn(f"pool pick: {label} (", stderr)
+        rest = "".join(line for line in stderr.splitlines(keepends=True) if not line.startswith("pool pick: "))
+        self.assertEqual(rest.strip(), "")
         self.assertEqual(self.run_pool_step(overflow="0")[0], SMALL)
         self.assertEqual(self.run_pool_step(order=OLD)[0], LARGE)
         self.assertEqual(self.run_pool_step(requested=OLD)[0], OLD)

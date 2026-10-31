@@ -142,6 +142,54 @@ class OwnedPoolSources(unittest.TestCase):
                      "with why a person re-runs it:"]
                     + [f"  {path}: {why}" for path, why in sorted(missing.items())]))
 
+    def test_every_nightly_sign_verify_and_dmg_job_on_blacksmith_macos_is_rescued(self) -> None:
+        # Run 40585960129 (2026-10-28): nightly-next's signer-verify sat on blacksmith-6vcpu-macos-26 for hours, and
+        # being outside the rescue's table it also held the run's stalled final-DMG verify. The jobs are read from
+        # each branch's nightly.yml, never listed here, so a new or renamed one fails until the rescue covers it.
+        source = self.rescue_tree.read(sources.RESCUE_SCRIPT) if self.rescue_tree is not None else None
+        if source is None:
+            self.skipTest(f"main's {sources.RESCUE_SCRIPT} is not readable here ({self.ref} missing)")
+        table = sources.sign_table(source)
+        for tree in self.trees:
+            text = tree.read(sources.NIGHTLY_WORKFLOW)
+            if text is None:
+                continue
+            with self.subTest(tree=str(tree)):
+                self.assertTrue(sources.sign_stall_candidates(text), f"{tree}: no sign or verify job found; "
+                                "the detector no longer matches nightly.yml")
+                missing = sources.uncovered_sign_jobs(text, table)
+                self.assertFalse(missing, "\n".join(
+                    [f"{tree}: these nightly.yml jobs can queue on a Blacksmith macOS label, but main's "
+                     f"{sources.RESCUE_SCRIPT} cannot move them off a stalled one; add each to "
+                     f"{sources.SIGN_TABLE_NAME} with the runs-on expression that gives its re-run another label:"]
+                    + [f"  {job}: {why}" for job, why in sorted(missing.items())]))
+
+    def test_the_sign_stall_detector(self) -> None:
+        table = {"signer-verify": ("needs.pick.outputs.alternate",)}
+        workflow = textwrap.dedent("""
+            jobs:
+              signer-verify:
+                runs-on: ${{ github.run_attempt > 1 && needs.pick.outputs.alternate || 'blacksmith-6vcpu-macos-26' }}
+              signer-dmg-image:
+                runs-on: ${{ vars.MACOS_RUNNER_26 || 'macos-26' }}
+              verify-final-dmg-nightly:
+                runs-on: ${{ needs.pick.outputs.runner || 'blacksmith-12vcpu-macos-26' }}
+              pick-nightly-sign-runner:
+                runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || 'blacksmith-4vcpu-ubuntu-2404' }}
+              build-nightly-app:
+                runs-on: blacksmith-6vcpu-macos-26
+              signer-build:
+                runs-on: blacksmith-8vcpu-ubuntu-2404
+        """)
+        self.assertEqual(sorted(sources.sign_stall_candidates(workflow)),
+                         ["signer-dmg-image", "signer-verify", "verify-final-dmg-nightly"])
+        self.assertEqual(sources.uncovered_sign_jobs(workflow, {**table, "verify-final-dmg-nightly": ("x",)}), {
+            "signer-dmg-image": f"not in {sources.SIGN_TABLE_NAME}",
+            "verify-final-dmg-nightly": "its runs-on takes none of its alternate-label expressions on a re-run"})
+        self.assertEqual(sources.sign_table(
+            'A = "x"\nB = ("y "\n     "z")\nNIGHTLY_SIGN_ALTERNATES: dict = {"j": ("J", (A, B)), "k": ("K", (A,))}\n'),
+            {"j": ("x", "y z"), "k": ("x",)})
+
     def test_every_watched_workflow_is_owned_on_some_branch(self) -> None:
         if self.watched is None or self.other is None:
             self.skipTest("both branches are needed to call an entry stale")
@@ -156,18 +204,31 @@ class OwnedPoolSources(unittest.TestCase):
             print(f"::warning title=owned pool sources::{sources.RESCUE_SCRIPT} on main lists "
                   f"feat-cmux-next-only workflows that take no owned pool any more; remove them in a pull "
                   f"request to main: {feat_only}", file=sys.stderr)
-        self.assertFalse(sorted(stale & on_main), f"{sources.RESCUE_SCRIPT} lists workflows that take no owned "
-                                                  f"pool on main or feat-cmux-next any more; remove them")
+        # An UNRESCUED entry makes the rescue do nothing, so a stale one changes no behaviour, and it is how a
+        # workflow that only feat-cmux-next is about to make owned gets named on main first: main's list must
+        # name it before that pull request's guard can pass, while neither branch owns it yet (release.yml's
+        # signing picker, cmux#27066). So only a stale WATCHED entry fails; a stale unrescued one warns.
+        waiting = sorted((stale & on_main) & set(self.unrescued))
+        if waiting:
+            print(f"::warning title=owned pool sources::{sources.RESCUE_SCRIPT} on main leaves to a person "
+                  f"workflows that take no owned pool yet: {waiting}; remove any that will not", file=sys.stderr)
+        self.assertFalse(sorted((stale & on_main) - set(self.unrescued)),
+                         f"{sources.RESCUE_SCRIPT} watches workflows that take no owned pool on main or "
+                         f"feat-cmux-next any more; remove them")
         self.assertFalse(self.watched & self.unrescued, "a workflow is both watched and left to a person")
 
     def test_the_markers_come_from_the_pool_code(self) -> None:
-        markers = sources.Markers(sources.Tree(ROOT))
-        self.assertEqual(markers.literal, "glaeda-")
-        for variable in ("CI_PR_POOL_OWNED", "CI_SIDE_LANE_RUNNER", "CI_LIGHT_LANE_RUNNER", "CI_SEED_TRUSTED_POOL",
-                         "CI_NIGHTLY_TRUSTED_RUNNER"):
-            self.assertIn(variable, markers.variables)
-        self.assertNotIn("LINUX_RUNNER", markers.variables)
-        self.assertNotIn("MACOS_RUNNER_26", markers.variables)
+        # Both branches' policies: feat-cmux-next's drifted_runner_variables() also names LINUX_RUNNER and the
+        # hosted-Mac fallbacks in a no-hosted-Mac guard, which once made ~130 workflows look owned on every PR.
+        for tree in self.trees:
+            with self.subTest(tree=str(tree)):
+                markers = sources.Markers(tree)
+                self.assertEqual(markers.literal, "glaeda-")
+                for variable in ("CI_PR_POOL_OWNED", "CI_SIDE_LANE_RUNNER", "CI_LIGHT_LANE_RUNNER",
+                                 "CI_SEED_TRUSTED_POOL", "CI_NIGHTLY_TRUSTED_RUNNER"):
+                    self.assertIn(variable, markers.variables)
+                for hosted in ("LINUX_RUNNER", "MACOS_RUNNER_15", "MACOS_RUNNER_26", "NIGHTLY_NEXT_TRAIN_RUNNER"):
+                    self.assertNotIn(hosted, markers.variables)
 
     def test_a_runs_on_is_owned_by_a_label_a_pool_variable_or_a_picker_output(self) -> None:
         markers = sources.Markers(sources.Tree(ROOT))

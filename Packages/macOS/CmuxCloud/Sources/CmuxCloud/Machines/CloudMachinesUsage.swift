@@ -103,7 +103,7 @@ public struct CloudMachinesUsage: Equatable, Sendable {
         }
         return String(
             localized: "machines.meter.help",
-            defaultValue: "Machines on your plan. Sleeping machines cost nothing."
+            defaultValue: "Running and paused machines count toward your plan’s machine limit."
         )
     }
 }

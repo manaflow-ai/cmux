@@ -384,6 +384,14 @@ def plan(repository: str) -> int:
         write_outputs({"tours": "[]", "run": "[]"})
         print("Fork pull requests get no media.", flush=True)
         return 0
+    if run_id and pull.get("draft"):
+        # A draft gets no tours from its CI runs: each tour is a macOS run and
+        # spends the GITHUB_TOKEN budget every workflow shares (2026-10-26). A
+        # dispatch (`gh workflow run pr-media.yml -f pr=<n>`) still tours a draft.
+        write_outputs({"tours": "[]", "run": "[]"})
+        print(f"#{pr} is a draft; its next CI run after it is marked ready makes media "
+              f"(or dispatch pr-media.yml with pr={pr}).", flush=True)
+        return 0
     head_sha = pull["head"]["sha"]
     if run_id and head_sha != run["head_sha"]:
         write_outputs({"tours": "[]", "run": "[]"})
