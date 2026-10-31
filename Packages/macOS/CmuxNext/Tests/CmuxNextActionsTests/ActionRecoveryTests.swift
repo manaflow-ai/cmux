@@ -59,4 +59,29 @@ struct ActionRecoveryTests {
         let disabled = try #require(other.makeMenuItem(for: Self.id))
         #expect(!other.menuTarget.validateMenuItem(disabled))
     }
+
+    /// A key equivalent the key router gave elsewhere still loses, recovery or not.
+    @Test func theMenuKeyEquivalentGateStillHolds() throws {
+        let (registry, _, _) = Self.signedOut()
+        let item = try #require(registry.makeMenuItem(for: Self.id))
+        item.keyEquivalent = "y"
+        registry.isDispatchingKeyDown = { true }
+        registry.menuKeyEquivalentGate = { _ in false }
+        #expect(!registry.menuTarget.validateMenuItem(item))
+        registry.menuKeyEquivalentGate = { _ in true }
+        #expect(registry.menuTarget.validateMenuItem(item))
+    }
+
+    /// A shortcut resolves to a recoverable action, so the key reaches the recovery.
+    @Test func aShortcutResolvesToARecoverableAction() {
+        let (registry, _, recovered) = Self.signedOut()
+        let bindings = RegistryKeyBindings(registry)
+        #expect(bindings.canPerform(Self.id, in: ActionContext(rawValue: .max)))
+        let (other, _, _) = Self.signedOut(reason: "no backend")
+        #expect(!RegistryKeyBindings(other).canPerform(Self.id, in: ActionContext(rawValue: .max)))
+        var invocation = ActionInvocation()
+        invocation.keyContext = ActionContext(rawValue: .max)
+        #expect(registry.perform(Self.id, invocation: invocation))
+        #expect(recovered() == [Self.id])
+    }
 }
