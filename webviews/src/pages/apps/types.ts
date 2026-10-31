@@ -200,7 +200,8 @@ export const AppsOps = {
   updatesList: "cmux.apps.updates.list",
   update: "cmux.apps.update",
   logs: "cmux.apps.logs",
-  watch: "cmux.apps.watch",
+  /** The daemon's `apps-changed` on the page relay (page-router.json `events`; DaemonPageRelay). */
+  watch: "cmux.apps.changed",
 } as const;
 
 /** Open is a host verb: the page runs the host action `app.open` (cx-hnmbt.13). */
