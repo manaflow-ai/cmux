@@ -203,10 +203,11 @@ final class DiffRenderer {
 
     /// Files up to this many lines and characters are prepared in place (no blank frame);
     /// longer ones (a minified line too) off main.
-    static let inlineLineLimit = 300
-    static let inlineCharacterLimit = 24_000
+    nonisolated static let inlineLineLimit = 300
+    nonisolated static let inlineCharacterLimit = 24_000
 
-    static func preparesInPlace(_ file: DiffFile) -> Bool {
+    /// A pure size check (no renderer state): callable from any context.
+    nonisolated static func preparesInPlace(_ file: DiffFile) -> Bool {
         guard file.lines.count <= inlineLineLimit else { return false }
         var characters = 0
         for line in file.lines {
