@@ -150,7 +150,7 @@ test("a label-only row becomes expandable on overflow and stays collapsible whil
   await act(async () => {
     labelWidth = 100;
     labelScrollWidth = 300;
-    for (const callback of [...resizeCallbacks]) callback();
+    for (const callback of resizeCallbacks) callback();
   });
   const line = container.querySelector<HTMLButtonElement>("button.cv-tool")!;
   expect(line).not.toBeNull();
@@ -158,7 +158,7 @@ test("a label-only row becomes expandable on overflow and stays collapsible whil
   expect(line.getAttribute("aria-expanded")).toBe("true");
   await act(async () => {
     labelScrollWidth = 100;
-    for (const callback of [...resizeCallbacks]) callback();
+    for (const callback of resizeCallbacks) callback();
   });
   expect(container.querySelector("button.cv-tool")).toBe(line);
   await act(async () => line.click());
