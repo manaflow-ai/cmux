@@ -12,6 +12,7 @@ import dataclasses
 import fcntl
 import importlib.util
 import io
+import json
 import os
 from pathlib import Path
 import re
@@ -875,6 +876,24 @@ class AppSizeTests(Fixture):
         for needle in needles:
             self.assertIn(needle, text)
         return found
+
+    def test_a_dated_reviewed_exception_turns_a_new_app_file_into_a_warning(self):
+        path = f"{APP}/Cloud/CloudNew.swift"
+        self.write(path, swift_body(40, "cloudNew"))
+        self.commit("a new App file")
+        self.assertRefused("new App file")
+        entry = {"date": "2026-10-31", "rule": "app-size", "path": path, "why": "moves to Rust", "author": "lane-a",
+                 "owner": "the Rust move", "receipt": "Review (codex): SHIP at " + "a" * 40, "expiry": "2999-12-31"}
+        self.write(guardrails.EXCEPTIONS, json.dumps({"exceptions": [entry]}))
+        self.commit("its exception")
+        self.assertEqual(self.hits(), [])
+        self.assertTrue(any("excepted by" in text for _, text in self.check()[1]))
+        # A self-reviewed, an expired or another file's entry allows nothing.
+        for broken in ({"receipt": "Review (lane-a): SHIP at " + "a" * 40}, {"expiry": "2026-10-30"},
+                       {"path": f"{APP}/Cloud/Other.swift"}, {"rule": "god-file"}):
+            self.write(guardrails.EXCEPTIONS, json.dumps({"exceptions": [{**entry, **broken}]}))
+            self.commit("a broken exception")
+            self.assertRefused("new App file")
 
     def growth(self, *args):
         """The push's app-size growth warnings (`path:line: text`): never refusals for now."""
