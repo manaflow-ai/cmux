@@ -292,11 +292,15 @@
 }
 /* A staged image whose original could not be saved: its preview still sends; a Retry badge in its
    corner uploads the original again, and its tooltip says why it failed (attachmentIntake.tsx). */
+/* In the thumbnail's corner, the size of its × in the other corner: the middle stays the image's
+   (a click there opens it). */
 .acpmux-attachment-original-retry {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  translate: -50% -50%;
+  bottom: 4px;
+  left: 4px;
+  width: 16px;
+  aspect-ratio: 1;
+  border-radius: 8px;
   color: #fff; /* theme-fixed: on its own black scrim over media */
   background: rgb(0 0 0 / 0.6);
 }
