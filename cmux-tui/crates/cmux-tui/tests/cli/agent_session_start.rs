@@ -469,6 +469,69 @@ fn agent_session_trust_on_a_cloud_vm_needs_the_callers_owner_word() {
     assert_eq!(read["ok"], true, "{read}");
 }
 
+/// Leo: "whenever i start a chat it should be able to send me to cloud
+/// automatically". On the caller's own Cloud VM (the owner word; on a team VM
+/// the creator's) a new chat with no folder of the person's own, which the
+/// app sends as the workspace's first terminal folder (`$HOME` on a new
+/// machine), starts in the machine's work folder, and that work folder reads
+/// trusted with no question. A person's "Don't trust" still wins, and a
+/// machine that is not a Cloud VM keeps the home folder rule.
+#[test]
+fn a_first_chat_on_the_callers_own_cloud_vm_starts_in_its_trusted_work_folder() {
+    let start_at_home = |daemon: &Daemon, surface: u64| {
+        let home = daemon.dir.join("home");
+        daemon.rpc(json!({"id": 40, "cmd": "agent-session-start", "surface": surface,
+                          "cwd": home.to_str().unwrap(), "vm_kind": "owner"}))
+    };
+    for kind in ["owner", "team"] {
+        let vm = Daemon::start_cloud(&format!("ownwork{kind}"), kind);
+        let work = vm.dir.join("home/work");
+        let surface = vm.own_agent_tab();
+        // The trust read the app's page asks before a send: no question for the work folder.
+        fs::create_dir_all(&work).unwrap();
+        let read = vm.rpc(json!({"id": 41, "cmd": "agent-session-trust", "surface": surface,
+                                 "cwd": work.to_str().unwrap(), "vm_kind": "owner"}));
+        assert_eq!(read["data"]["level"], "trusted", "{kind}: {read}");
+        assert_eq!(read["data"]["auto"], "cloud_work", "{kind}: {read}");
+        // Without the owner word nothing is read (the machine kind gate).
+        let read = vm.rpc(json!({"id": 42, "cmd": "agent-session-trust", "surface": surface,
+                                 "cwd": work.to_str().unwrap()}));
+        assert_eq!(read["ok"], false, "{kind}: {read}");
+        fs::remove_dir(&work).unwrap();
+        // The start at the home folder runs in the work folder (made for it), with no question.
+        let started = start_at_home(&vm, surface);
+        if kind == "owner" {
+            assert_eq!(started["ok"], true, "{kind}: {started}");
+        } else {
+            // Past the folder and its trust; a team VM then runs only an agent that asks
+            // before acting (#28613), which the test agent has no mode for.
+            assert_eq!(started["error_code"], "agent_session.not_asking", "{kind}: {started}");
+        }
+        assert!(work.is_dir(), "{kind}: the work folder was not made");
+        // Another folder of that machine still asks.
+        let surface = vm.own_agent_tab();
+        let reply = vm.start_chat_as(surface, "owner");
+        assert_eq!(reply["error_code"], "agent_session.untrusted_folder", "{kind}: {reply}");
+    }
+
+    // The person's "Don't trust" for the work folder wins over the rule.
+    let vm = Daemon::start_cloud("ownworknot", "owner");
+    let work = vm.dir.join("home/work");
+    fs::create_dir_all(&work).unwrap();
+    let surface = vm.own_agent_tab();
+    let set = vm.rpc(json!({"id": 43, "cmd": "agent-session-trust", "surface": surface,
+                            "cwd": work.to_str().unwrap(), "level": "untrusted", "vm_kind": "owner"}));
+    assert_eq!(set["ok"], true, "{set}");
+    let reply = start_at_home(&vm, surface);
+    assert_eq!(reply["error_code"], "agent_session.untrusted_folder", "{reply}");
+
+    // Not a Cloud VM: the home folder still needs Use Home Folder.
+    let plain = Daemon::start("ownworkplain", None);
+    let surface = plain.own_agent_tab();
+    let reply = start_at_home(&plain, surface);
+    assert_eq!(reply["error_code"], "agent_session.home_unconfirmed", "{reply}");
+}
+
 #[test]
 fn an_unknown_host_kind_value_keeps_the_detected_kind() {
     // An unknown value is no kind: the daemon keeps what it detects (here:

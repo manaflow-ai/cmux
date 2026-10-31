@@ -170,6 +170,7 @@ import { FolderContinuation, folderContinuationRequest } from "./folderContinuat
 import type { BrowseRequest } from "./AddProjectPanel";
 import { handBackQuotes, quoteIntoComposer, replayHeldForComposer, restoreComposerDraft } from "./composerRestore";
 import {
+  attachmentSource,
   linkAttachment,
   linkItems,
   type ComposerAttachment,
@@ -177,6 +178,7 @@ import {
   recordingAttachment,
   recordingLeftOutNotice,
   remoteRecordingAttachment,
+  withSource,
 } from "./attachments";
 import type { KeptAttachments } from "./composer/keptAttachments";
 import { ComposerPickers, PICKER_LABELS, type ComposerPermissionAccess } from "./ComposerPickers";
@@ -252,6 +254,7 @@ import {
   descendants,
   subagentChangesFolder,
   subagentProcesses,
+  subagentSummary,
   withChatEnds,
   type SubagentScope,
 } from "./inspector/subagentScope";
@@ -471,15 +474,6 @@ import {
 import { ThreadTitle } from "./header/ThreadTitle";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
-import { LegacyPullRequestDock } from "./summary/PullRequestDockLegacy";
-import {
-  PullRequestDock,
-  RowPullRequests,
-  useTranscriptPullRequests,
-  legacyPullRequestDockMode,
-} from "./summary/PullRequestDock";
-import { PullRequestHostVisibility, usePullRequestPlacement } from "./summary/pullRequestPlacement";
-import { pullRequestRows as prSourceRows } from "./summary/pullRequestRows";
 import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
 import { RecapCard, useRecapCard } from "./RecapCard";
 import { HarnessStatusCard } from "./HarnessStatusCard";
@@ -1288,7 +1282,7 @@ const MessageRow = memo(
     if (!replyActions) return reply;
     return (
       <>
-        <RowPullRequests.Provider value={undefined}>{reply}</RowPullRequests.Provider>
+        {reply}
         <ReplyActions row={row} />
       </>
     );
@@ -1897,8 +1891,6 @@ const RowFrame = React.memo(function RowFrame({
   tabStop,
   onFocus,
   onRowKeyDown,
-  pullRequests,
-  onPullRequestVisibility,
   referenceScope,
   children,
 }: {
@@ -1937,8 +1929,6 @@ const RowFrame = React.memo(function RowFrame({
   tabStop: boolean;
   onFocus: (id: string) => void;
   onRowKeyDown: (index: number, event: React.KeyboardEvent<HTMLElement>) => void;
-  pullRequests?: React.ContextType<typeof RowPullRequests>;
-  onPullRequestVisibility?: (visible: boolean) => void;
   /// What the child row draws from, compared instead of `children` (a new element every render).
   contentType: unknown;
   controls?: string;
@@ -1969,11 +1959,7 @@ const RowFrame = React.memo(function RowFrame({
   );
   const rowTabStop = rovingTabStopProps(tabStop, handleKeyDown);
   const content = (
-    <ReferenceScopeContext.Provider value={referenceScope ?? null}>
-      <PullRequestHostVisibility.Provider value={onPullRequestVisibility}>
-        <RowPullRequests.Provider value={pullRequests}>{children}</RowPullRequests.Provider>
-      </PullRequestHostVisibility.Provider>
-    </ReferenceScopeContext.Provider>
+    <ReferenceScopeContext.Provider value={referenceScope ?? null}>{children}</ReferenceScopeContext.Provider>
   );
   useLayoutEffect(() => {
     if (entering) onEntered(row.id);
@@ -2352,7 +2338,6 @@ export function VirtualTranscript({
   githubRepository,
   fallbackRepository,
   sourceRows,
-  pullRequestRows,
   find,
   reveal,
   working = false,
@@ -2426,8 +2411,6 @@ export function VirtualTranscript({
   /// The client's rows, which still hold the work a closed "Worked for" folds away: where a bare
   /// `#N`'s repository is looked for (conversation/bareReferences.ts). Else `rows`.
   sourceRows?: readonly AcpmuxRow[];
-  /// Original producer snapshot: filtered rows lose its O(1) PR revision marker.
-  pullRequestRows?: readonly AcpmuxRow[];
   /// Find in Chat (chatFind.ts): its bar, the query to highlight and the match to bring into view.
   find?: ChatFind;
   /// A row to bring into view (a count on the running line, WorkingFor.tsx); a new `key` asks again.
@@ -2452,7 +2435,6 @@ export function VirtualTranscript({
   endReserve?: number;
 }) {
   const t = useT();
-  const pullRequests = useTranscriptPullRequests(pullRequestRows ?? sourceRows ?? rows, githubRepository);
   // Debug measurement (acpmuxPerf): off until the first debug call.
   const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
   acpmuxPerf.span("vt.renders", 1);
@@ -3204,11 +3186,6 @@ export function VirtualTranscript({
     lastEstimate.current = { rows, layout, width: rowWidth, sessionId };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
   }, [rows, registry, sessionId, chatLook, scaledRowWidth]);
-  const {
-    rowId: prRow,
-    report: reportPullRequestHost,
-    fallback: pullRequestFallback,
-  } = usePullRequestPlacement(rows, estimated.layout, pullRequests.length > 0, sessionId);
   // A row that draws moves only the rows below it: place them again, measuring none.
   const measured = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
@@ -3452,9 +3429,6 @@ export function VirtualTranscript({
   // window changes. Keep this signature primitive so scroll and layout state updates that leave
   // the mounted rows alone do not walk every text node in the transcript again.
   const mountedRangeKey = mountedRanges.map(({ first, last }) => `${first}:${last}`).join(",");
-  const fallbackPullRequests = pullRequestFallback((index) =>
-    mountedRanges.some(({ first, last }) => index >= first && index < last),
-  );
   // The scrolled rows only: a held row far from the view would widen every drawn-height search
   // (`measured`) to the rows between them. The held rows are looked up by index instead.
   if (lastPlaced.current) {
@@ -4821,8 +4795,6 @@ export function VirtualTranscript({
                       tabStop={tabStopId === row.id}
                       onFocus={rowFocus}
                       onRowKeyDown={handleRowKeyDown}
-                      pullRequests={row.id === prRow ? pullRequests : undefined}
-                      onPullRequestVisibility={row.id === prRow ? reportPullRequestHost : undefined}
                       contentType={Component}
                       controls={controls}
                       onToggleActivity={toggleRow}
@@ -4848,20 +4820,13 @@ export function VirtualTranscript({
           </div>
         </TranscriptContext>
       </div>
-      {(afterLatest || fallbackPullRequests) && (
+      {afterLatest && (
         <div
           className="acpmux-transcript-after-latest"
           // The dock is absolute over the stage. Keep an after-latest tray in flow above its
           // measured room so the composer never covers the expansion or its live tail.
           style={dockHeight > 0 ? { marginBottom: dockHeight } : undefined}
         >
-          {fallbackPullRequests && (
-            <div className="acpmux-pr-fallback">
-              <RowPullRequests.Provider value={pullRequests}>
-                <PullRequestDock />
-              </RowPullRequests.Provider>
-            </div>
-          )}
           {afterLatest}
         </div>
       )}
@@ -5912,11 +5877,14 @@ function AcpmuxPane() {
       mimeType?: string;
       data?: string;
       tooLarge?: boolean;
+      source?: unknown;
     } | null>("composer.capture", { mode }).catch(() => null);
     if (shot?.tooLarge) return { name: shot.name ?? "Screenshot.png", reason: "tooLarge" } as const;
     if (!shot?.data) return undefined;
     const bytes = Uint8Array.from(atob(shot.data), (char) => char.charCodeAt(0));
-    return new File([bytes], shot.name ?? "Screenshot.png", { type: shot.mimeType ?? "image/png" });
+    // cmux took it: its chip wears cmux's icon (composer/attachmentSources.ts).
+    const file = new File([bytes], shot.name ?? "Screenshot.png", { type: shot.mimeType ?? "image/png" });
+    return withSource(file, attachmentSource(shot.source));
   }, []);
   const uploadFiles = useCallback(
     (files: File[], cancelled?: (index: number) => boolean) => uploadToMachine(files, callNative, cancelled),
@@ -11246,7 +11214,6 @@ function AcpmuxPane() {
                                                 <VirtualTranscript
                                                   rows={transcriptRows}
                                                   sourceRows={childRows ? undefined : sourceRows}
-                                                  pullRequestRows={prSourceRows(snapshot, childRows, subagentView)}
                                                   endReserve={previewBeside ? COMPUTER_USE_PREVIEW_RESERVE : 0}
                                                   working={snapshot.isWorking}
                                                   // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
@@ -11608,15 +11575,6 @@ function AcpmuxPane() {
   ) : (
     !reviewing && (
       <>
-        {legacyPullRequestDockMode() && (
-          <LegacyPullRequestDock
-            key={snapshot.sessionId}
-            rows={snapshot.rows}
-            repository={githubRepository ?? undefined}
-            sessionId={snapshot.sessionId}
-            onOpenChanges={inspector.reveal ? () => inspector.reveal!("changes") : undefined}
-          />
-        )}
         {recapCard.recap && (
           <RecapCard
             recap={recapCard.recap}
@@ -12279,6 +12237,19 @@ function AcpmuxPane() {
           <SummaryCard
             key={snapshot.sessionId}
             card={summaryCard}
+            environment={{
+              summary: inspectorSubagent
+                ? subagentSummary(inspectorSummary, inspectorSubagent.agent, inspectorSubagent.rows)
+                : inspectorSummary,
+              machineName,
+              peerKinds: snapshot.peerKinds,
+              repository: githubRepository,
+              onOpenFolder:
+                quick || !inspectorLocal
+                  ? undefined
+                  : (path) =>
+                      ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.files, cwd: path, mode: "open" })),
+            }}
             rows={cardRows}
             cwd={snapshot.summary?.cwd}
             changes={quick ? undefined : cardChanges}
