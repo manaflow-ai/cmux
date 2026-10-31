@@ -25,10 +25,15 @@ fn replay_difference(cols: u16, rows: u16, bytes: &[u8]) -> Option<String> {
     })
 }
 
+/// The 1130-byte shrink of E2 (from 20x5).
+fn include_e2() -> Vec<u8> {
+    b" 0a aa A0Aa0 0 a aaA  A  A0aAAAaaA00aA0aA0 aAa0AaaAa0 a0AAa    0A A0a aA0   AAAaaa00 a a aa0aaA0aaA a aAA 0aaA0a0A 0 A0AAa0aa0a0 0 A0a  AA aA 0aA A aaaaa0aaAa AAaa a0 0AaaAAA0 aA 0A0Aa A AaaaAAAA Aa a  aAAA0aaA0aAaa0   Aa 0 aa  aA0 aAa0Aa00 aa A 0a  a a0 aaAA00 0aaaa  AAAaA00  0aA A0a00Aa A00 a 0AaA 0Aa 0Aaaa  aAa  00A0  aAA0aAaAa0A00000AA 0 aAAa0  a  AaAaA aa 0a aaA0aaAA  AAaA a0    Aa 0 aAAAA 0 AA 00 00aa 0a aA0aaaAAa A0a  AAAA AA0A  a   000a0A0A  aa 0aA A0AAA0aaa Aa             J*l{fI]kWtr1[d#2F//$V[&Jv?|cei.%@|H&t=.=\x22'\x5c$=\x22I'`,<\x5cf~rL3Eb8K\x22..$oqE`D|hbJac$1{~~4&(?0</bmKwd3,`\x5c*{6(j!J`[V1/s&_GuD\x5cW\x5cd`{y>zf:_b+G&-~v<:A<?LDJN!'[}&bn\x226`g/IW$s=%`\x22hq_i&x!s?|<C$^B`R\x22ITW$%>?|C,Qzun{p/=D(58>&}ek&1$i{(?!o^*i$$%p:\x22suqT7%dR73J}8yaW%:_CQbbu--:vC\x22[Bt>ME$y/|N33{YTm\x5c%c&^hj{0`q/{rm]w$M<+=\x5c'\x5cZ%b~*:*gh*M4u.NyS{@*'lg2hS?\x22t\x5c+Z.C.I]=J~b\x5cE1viv-\x22='K4,&>?'*J'$o[gj:`b| =\x5c\x22F.%+&&JTYlg4SUy{e?q<o/J%E/R?{`=j6U1FFp/7B6'!'CH/o:>~xKZ}H-&1j<AJwS1*{^09w'~..ps6|Zx8U#h:+8=lqK-_?C@'Z%$..>*;8'Wy\x5c/8g:qE6/==~2S{h&%~.,\x22= c|$98:k+r{$hPsD`v\x22%t%4 qg:,iSD'\x227{G4Kg\x5c%N`1lT&yge<~$'`R@r~=*8Lz}\x220~mY>'\x5cf{*`OH?3,Qj=u*?`d>P'wIza'R%tcz  yij\xf0\x8bb\xb8\x8b\xf0\x9f\x98\x80\xb8\x92  d\xf0\x9f\x98\x8a\xb8\x87\xf0\x9f\x98\x9f\x98\x84\xe4\xb8\x8d".to_vec()
+}
+
 /// The 1130-byte shrink of E2, from 20x5.
 #[test]
 fn vt_replay_edge_e2_shrunk_stream() {
-    let difference = replay_difference(20, 5, b" 0a aa A0Aa0 0 a aaA  A  A0aAAAaaA00aA0aA0 aAa0AaaAa0 a0AAa    0A A0a aA0   AAAaaa00 a a aa0aaA0aaA a aAA 0aaA0a0A 0 A0AAa0aa0a0 0 A0a  AA aA 0aA A aaaaa0aaAa AAaa a0 0AaaAAA0 aA 0A0Aa A AaaaAAAA Aa a  aAAA0aaA0aAaa0   Aa 0 aa  aA0 aAa0Aa00 aa A 0a  a a0 aaAA00 0aaaa  AAAaA00  0aA A0a00Aa A00 a 0AaA 0Aa 0Aaaa  aAa  00A0  aAA0aAaAa0A00000AA 0 aAAa0  a  AaAaA aa 0a aaA0aaAA  AAaA a0    Aa 0 aAAAA 0 AA 00 00aa 0a aA0aaaAAa A0a  AAAA AA0A  a   000a0A0A  aa 0aA A0AAA0aaa Aa             J*l{fI]kWtr1[d#2F//$V[&Jv?|cei.%@|H&t=.=\x22'\x5c$=\x22I'`,<\x5cf~rL3Eb8K\x22..$oqE`D|hbJac$1{~~4&(?0</bmKwd3,`\x5c*{6(j!J`[V1/s&_GuD\x5cW\x5cd`{y>zf:_b+G&-~v<:A<?LDJN!'[}&bn\x226`g/IW$s=%`\x22hq_i&x!s?|<C$^B`R\x22ITW$%>?|C,Qzun{p/=D(58>&}ek&1$i{(?!o^*i$$%p:\x22suqT7%dR73J}8yaW%:_CQbbu--:vC\x22[Bt>ME$y/|N33{YTm\x5c%c&^hj{0`q/{rm]w$M<+=\x5c'\x5cZ%b~*:*gh*M4u.NyS{@*'lg2hS?\x22t\x5c+Z.C.I]=J~b\x5cE1viv-\x22='K4,&>?'*J'$o[gj:`b| =\x5c\x22F.%+&&JTYlg4SUy{e?q<o/J%E/R?{`=j6U1FFp/7B6'!'CH/o:>~xKZ}H-&1j<AJwS1*{^09w'~..ps6|Zx8U#h:+8=lqK-_?C@'Z%$..>*;8'Wy\x5c/8g:qE6/==~2S{h&%~.,\x22= c|$98:k+r{$hPsD`v\x22%t%4 qg:,iSD'\x227{G4Kg\x5c%N`1lT&yge<~$'`R@r~=*8Lz}\x220~mY>'\x5cf{*`OH?3,Qj=u*?`d>P'wIza'R%tcz  yij\xf0\x8bb\xb8\x8b\xf0\x9f\x98\x80\xb8\x92  d\xf0\x9f\x98\x8a\xb8\x87\xf0\x9f\x98\x9f\x98\x84\xe4\xb8\x8d");
+    let difference = replay_difference(20, 5, &include_e2());
     assert!(difference.is_none(), "E2 shrunk: {}", difference.unwrap_or_default());
 }
 
@@ -99,5 +104,47 @@ fn vt_replay_edge_the_shrunk_tail_at_a_row_end() {
         difference.is_none(),
         "the_shrunk_tail_at_a_row_end: {}",
         difference.unwrap_or_default()
+    );
+}
+
+/// Probe (prints, never fails): the shortest prefix of the E2 stream whose replay differs, and the replay's text
+/// after its palette and mode prefix, for the diagnosis.
+#[test]
+fn vt_replay_edge_probe_e2_prefix() {
+    let full = include_e2();
+    let mut first = None;
+    for len in 1..=full.len() {
+        let mut term = Terminal::new(20, 5, SCROLLBACK, Callbacks::default()).unwrap();
+        term.vt_write(&full[..len]);
+        if !term.vt_stream_is_ground() {
+            continue;
+        }
+        if replay_difference(20, 5, &full[..len]).is_some() {
+            first = Some(len);
+            break;
+        }
+    }
+    let Some(len) = first else {
+        println!("PROBE no differing prefix");
+        return;
+    };
+    let mut term = Terminal::new(20, 5, SCROLLBACK, Callbacks::default()).unwrap();
+    term.vt_write(&full[..len]);
+    let replay = term.vt_replay_bytes().unwrap();
+    let text = String::from_utf8_lossy(&replay);
+    let tail: String = text.rsplit("\u{1b}\\").next().unwrap_or("").chars().collect();
+    println!(
+        "PROBE first differing prefix {len} of {}; last bytes {:?}",
+        full.len(),
+        &full[len.saturating_sub(12)..len]
+    );
+    println!("PROBE replay text tail {:?}", tail);
+    println!(
+        "PROBE {}",
+        replay_difference(20, 5, &full[..len])
+            .unwrap_or_default()
+            .split("\n replay")
+            .next()
+            .unwrap_or("")
     );
 }
