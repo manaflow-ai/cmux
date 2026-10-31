@@ -187,21 +187,28 @@ public final class ChiefSidebar {
     /// - Returns: Whether the link showed or is opening something.
     public func openSubagentLink(session: String, chiefHost: String, registry: ActionRegistry,
                                  reveal: ((String) -> Bool)? = nil) -> Bool {
-        guard let host, host.chiefHost() == chiefHost, let shown = host.tab(session, chiefHost) else { return false }
-        return (reveal ?? host.reveal)(shown)
+        guard let host, host.chiefHost() == chiefHost else { return false }
+        if let shown = host.tab(session, chiefHost), (reveal ?? host.reveal)(shown) { return true }
+        // No tab shows it (its spawn made no workspace, as when this Mac was out of PTYs): open
+        // the workspace its spawn would have, a chat tab on its session (no PTY).
+        return openSubagent(session, registry: registry)
     }
 
     /// The tab that shows the subagent's chat (the workspace its spawn opened), else a new
     /// workspace on it in the Chief home's acpmux, shown once it is made.
-    private func openSubagent(_ session: String, registry: ActionRegistry) {
-        guard let host, let chiefHost = host.chiefHost() else { return }
-        if let shown = host.tab(session, chiefHost), host.reveal(shown) { return }
-        guard !opening.contains(session) else { return }
+    /// False only when there is no Chief host (a refused open has already said why).
+    @discardableResult
+    private func openSubagent(_ session: String, registry: ActionRegistry) -> Bool {
+        guard let host, let chiefHost = host.chiefHost() else { return false }
+        if let shown = host.tab(session, chiefHost), host.reveal(shown) { return true }
+        guard !opening.contains(session) else { return true }
         let work: ActionWork
         do {
             work = try host.openWorkspace(session, chiefHost)
         } catch {
-            return registry.refuse(String(describing: error))
+            // The refusal says why; the caller adds no second ("gone") one.
+            registry.refuse(String(describing: error))
+            return true
         }
         opening.insert(session)
         registry.track(work)
@@ -211,6 +218,7 @@ public final class ChiefSidebar {
             guard await work.value == nil, let tab = host.tab(session, chiefHost) else { return }
             _ = host.reveal(tab)
         }
+        return true
     }
 }
 
