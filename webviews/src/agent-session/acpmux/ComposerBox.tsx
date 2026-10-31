@@ -302,7 +302,7 @@ export function ComposerBox({
           >
             {leading}
             {/* The granted-permission status gets no slot of its own in this row (hq#1957 item 15
-                compact row): grants live in the permission mode's Access menu, one lock. */}
+                compact row): grants are revoked from the chat menu (header/grantsMenu.ts). */}
             {!quietRow && shownChips}
             {/* Codex's look: the context ring before the model, where Codex shows its own. */}
             {!quietRow && ring}
