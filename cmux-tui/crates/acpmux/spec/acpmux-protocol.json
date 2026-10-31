@@ -4145,6 +4145,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "retiredAgentSessionIds": {
+          "description": "The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):\na Codex chat's earlier roots, which its older records still name, so a client folding\nthem never reads one as a subagent. Absent when none, and from a peer on an older acpmux.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "retry": {
           "anyOf": [
             {
@@ -4679,6 +4686,13 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "retiredAgentSessionIds": {
+          "description": "The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):\na Codex chat's earlier roots, which its older records still name, so a client folding\nthem never reads one as a subagent. Absent when none, and from a peer on an older acpmux.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
         "retry": {
           "anyOf": [

@@ -184,9 +184,8 @@ extension SidebarListViewComponents {
         // F2 renames the active workspace inline.
         if event.keyCode == 120, flags.isEmpty, let active = model.activeWorkspaceID { return inlineRename.begin(.workspace(active)) }
         if event.keyCode == 53 { // Escape
-            if drag != nil { return cancelDrag() }
-            // A held press that has not dragged yet: its release clicks nothing (`endPointerGesture`).
-            if press != nil { return endPointerGesture() }
+            // A held drag or press (a row's or a block item's) ends as a cancel: its release clicks nothing.
+            if escapeSeen() { return }
             if !model.filterText.isEmpty {
                 model.filterText = ""
                 reload(animated: true)
