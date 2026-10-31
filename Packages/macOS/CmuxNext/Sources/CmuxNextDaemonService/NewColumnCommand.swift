@@ -55,15 +55,16 @@ public struct NewColumnCommand: Sendable {
         // The target at send time: a stand-in (a create pressed on a create in flight) has become the
         // daemon's pane by then (``DaemonStore/daemonHandle(showing:)``; creates of one workspace go
         // out in order, each once the store holds the one before).
-        let target: @MainActor @Sendable () -> PaneID = { daemon.store.daemonHandle(showing: pane) ?? pane }
-        // A late start is sent again under the same client keys inside `newColumn`, never taken
-        // back (#26689); the target is read once, so every send is the same creation.
-        let send = daemon.intendNow("new-pane-right", intent, transaction: transaction) { connection in
-            let target = await target()
-            return try await connection.newColumn(beside: target, left: left, width: width, options: sent)
+        let target: @MainActor @Sendable () throws -> PaneID = { try daemon.store.daemonTarget(pane) }
+        let send = daemon.intendNowReporting("new-pane-right", intent, transaction: transaction) { connection in
+            try await connection.newColumn(beside: try await target(), left: left, width: width, options: sent)
         }
         return {
-            guard let created = await send() else { throw PaneSplitFailure() }
+            let answer = await send()
+            // A pane still opening (``PaneNotReady``): the real refusal, already shown once where the command ended
+            // (or answered by a capturing caller), never the generic failure on top of it.
+            if case .failure(let notReady as PaneNotReady) = answer { throw notReady }
+            guard case .success(let created) = answer else { throw PaneSplitFailure() }
             daemon.store.creations.noteReply(transaction, surface: created.surface)
             guard !daemon.store.creations.wasCancelled(transaction) else { throw PaneSplitCancelled() }
             await daemon.store.applied(transaction, connection: daemon.connection)

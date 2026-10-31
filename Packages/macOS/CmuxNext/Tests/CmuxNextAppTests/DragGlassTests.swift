@@ -170,7 +170,7 @@ import Testing
                                       backing: .buffered, defer: false)
                 window.isReleasedWhenClosed = false
                 let room = ThemeScope(level: .room)
-                window.install(kind: .main, content: root, scope: room)
+                window.install(kind: .main, content: root, scope: room, activeLook: nil)
                 return (window, root, room)
             }
             let (main, mainRoot, _) = open()

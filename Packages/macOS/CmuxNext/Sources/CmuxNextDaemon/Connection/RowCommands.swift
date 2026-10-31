@@ -22,7 +22,11 @@ public struct RowCommands: Sendable {
             return try await connection.request(NewRowRequest(pane: pane, height: height, options: await connection.served(options)))
         }
         let options = await connection.placed(options)
-        return DaemonConnection.created(try await connection.request(NewRowRequest(pane: pane, height: height, options: options)), options: options)
+        // A row's stand-in (`row-client-keys-v1`) waits for its reply or the connection's end, never a client deadline
+        // (P0 2026-10-30, R5, #26689), so it is sent once, as `new-tab` is. (A cmux-tui with `row-client-replay-v1`
+        // replays a keyed `new-row` sent again; an older one refuses it `pane_id_exists`.)
+        return DaemonConnection.created(try await connection.requestAwaitingStart(NewRowRequest(pane: pane, height: height, options: options)),
+                                        options: options)
     }
 
     /// Every row height of `column` (`set-row-heights`).

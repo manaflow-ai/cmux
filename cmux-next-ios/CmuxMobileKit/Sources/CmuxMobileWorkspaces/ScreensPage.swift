@@ -40,6 +40,7 @@ struct ScreensPage: View {
                     .accessibilityIdentifier("screens.rename.field")
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") { Task { await source.renameScreen(screen, to: screenName) } }
+                    .keyboardShortcut(.defaultAction)
             }
             // Close Screen's question when a tab on it is busy (the workspace's own is under this page).
             .alert(source.pendingClose?.title ?? "", isPresented: Binding(
