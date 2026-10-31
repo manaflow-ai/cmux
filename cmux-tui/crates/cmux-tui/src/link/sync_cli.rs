@@ -14,11 +14,12 @@
 //! whose hash, permissions and revision still match is not written again,
 //! and a file the manifest lists but the folder no longer has is deleted
 //! while the machine still has it as this push left it. Files the machine
-//! made or changed itself are never deleted. This Mac keeps a copy of the
+//! made or changed itself are never deleted, and a file the machine changed
+//! since the last push is never written over (counted as `kept`). This Mac keeps a copy of the
 //! manifest ([`base`]); a pull trusts only that copy.
 //!
 //! Output: one JSON line on stdout, `{"ok":true,"written":N,"unchanged":N,
-//! "deleted":N,"skipped":N,"bytes":N}` (a pull adds `fast_forwarded` and
+//! "deleted":N,"kept":N,"skipped":N,"bytes":N}` (a pull adds `fast_forwarded` and
 //! `head`), exit 0; on failure `{"ok":false,"error":...,"error_code":...}`
 //! on stdout (a pull's conflict adds `"conflicts":[paths]` under
 //! `sync_conflict`), exit 1; bad usage exits 64. Unix only, like the link.
@@ -71,6 +72,8 @@ pub(super) struct Summary {
     pub(super) written: u64,
     pub(super) unchanged: u64,
     pub(super) deleted: u64,
+    /// Files the machine changed since the last push, left as the machine has them.
+    pub(super) kept: u64,
     pub(super) skipped: u64,
     pub(super) bytes: u64,
 }
@@ -81,6 +84,7 @@ impl Summary {
             "written": self.written,
             "unchanged": self.unchanged,
             "deleted": self.deleted,
+            "kept": self.kept,
             "skipped": self.skipped,
             "bytes": self.bytes,
         })
@@ -366,14 +370,24 @@ fn push_inner(
         let target = format!("{remote_root}/{relative}");
         let (parent, _) = remote::split(&target)?;
         let sha256 = hash(file)?;
-        if let Some(pushed) = previous.files.get(relative)
-            && pushed.sha256 == sha256
-            && pushed.permissions == file.permissions
-            && listings.revision(&mut remote, &target)?.as_deref() == Some(pushed.revision.as_str())
-        {
-            summary.unchanged += 1;
-            next.files.insert(relative.clone(), pushed.clone());
-            continue;
+        if let Some(pushed) = previous.files.get(relative) {
+            // The machine changed or removed it since the last push (an earlier chat there): it
+            // stays as the machine has it, and the record keeps the last push, so a pull still
+            // sees both sides' changes against it. A `cmux link access` share (`files_only`) is
+            // this Mac's folder as this Mac has it, so it is written again.
+            if !files_only
+                && listings.revision(&mut remote, &target)?.as_deref()
+                    != Some(pushed.revision.as_str())
+            {
+                summary.kept = summary.kept.saturating_add(1);
+                next.files.insert(relative.clone(), pushed.clone());
+                continue;
+            }
+            if pushed.sha256 == sha256 && pushed.permissions == file.permissions {
+                summary.unchanged += 1;
+                next.files.insert(relative.clone(), pushed.clone());
+                continue;
+            }
         }
         if made.insert(parent.to_string()) {
             remote.mkdir_all(parent)?;
