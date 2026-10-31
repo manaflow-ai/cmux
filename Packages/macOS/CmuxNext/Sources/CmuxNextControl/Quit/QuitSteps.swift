@@ -35,7 +35,7 @@ public struct QuitSteps {
                 prepareWindows: @escaping @MainActor () async -> Void,
                 endLocalSessions: @escaping @MainActor () async -> [EndSessionsFailure],
                 confirmFailures: @escaping @MainActor ([EndSessionsFailure]) async -> QuitFailureAnswer,
-                endLocalAgents: @escaping @MainActor () async -> [EndSessionsFailure] = { [] },
+                endLocalAgents: @escaping @MainActor () async -> [EndSessionsFailure],
                 stopBrowserEngines: @escaping @MainActor () async -> Void) {
         self.remember = remember
         self.prepareWindows = prepareWindows
