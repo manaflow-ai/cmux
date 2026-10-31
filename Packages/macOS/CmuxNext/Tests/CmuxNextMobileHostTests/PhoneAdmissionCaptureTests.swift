@@ -22,7 +22,7 @@ import Testing
     /// Writes before/after stills, 2x, in light and dark, to `artifacts/phone-access-capture/` at the
     /// repository root (found from this file), so a fleet step can return them by path. The window is on
     /// screen and the image comes from the window server, since the dialog's glass draws only there.
-    @Test(.enabled("this host puts windows on screen") { PhoneAdmissionCaptureTests.hostShowsWindows() },
+    @Test(.enabled("this host puts windows on screen") { await PhoneAdmissionCaptureTests.hostShowsWindows() },
           arguments: ["light", "dark"])
     func capturesAllowPrompt(appearance: String) async throws {
         let root = URL(fileURLWithPath: #filePath)
