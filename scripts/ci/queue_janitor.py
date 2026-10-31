@@ -496,9 +496,39 @@ def linux_only_workflow_paths(workflows_dir: Path) -> frozenset[str]:
     return frozenset(paths)
 
 
-def needs_jobs(run: Mapping[str, Any], linux_only_paths: frozenset[str], now: dt.datetime) -> bool:
-    """Whether a run's jobs are worth one API call this sweep."""
+def branch_linux_only_paths(specs: Iterable[str]) -> dict[str, frozenset[str]]:
+    """{branch: its linux-only workflow paths} from `BRANCH=DIR` specs, DIR holding that branch's workflow files.
+
+    The workflow checks feat-cmux-next's .github/workflows out beside main's, over git (no REST request). A spec
+    whose directory is missing or holds no workflow file names no branch, so that branch's runs are all listed,
+    as before. main is read from --workflows-dir and never from here."""
+    found: dict[str, frozenset[str]] = {}
+    for spec in specs:
+        branch, _, directory = spec.partition("=")
+        branch, directory = branch.strip(), directory.strip()
+        if not branch or not directory or branch == "main":
+            continue
+        path = Path(directory)
+        if not path.is_dir() or not any(path.glob("*.y*ml")):
+            print(f"queue-janitor: no workflow files for {branch} in {directory}; its runs are all listed",
+                  file=sys.stderr)
+            continue
+        found[branch] = linux_only_workflow_paths(path)
+    return found
+
+
+def needs_jobs(run: Mapping[str, Any], linux_only_paths: frozenset[str], now: dt.datetime, *,
+               branch_linux_only: Mapping[str, frozenset[str]] | None = None) -> bool:
+    """Whether a run's jobs are worth one API call this sweep.
+
+    A run follows its own branch's workflow copy (follows_another_copy()): main's `linux_only_paths` answer for
+    main's runs, and `branch_linux_only` (branch_linux_only_paths()) for a branch's, so a feat-cmux-next run of
+    a workflow that branch's copy runs only on Linux is not listed. On 2026-10-31 those were 573 of the 1,324
+    runs a sweep listed, each one REST request on the cmux-bot installation's budget."""
     if run.get("path") in linux_only_paths and not follows_another_copy(run):
+        return False
+    target = run_target_branch(run)
+    if target and target != "main" and run.get("path") in (branch_linux_only or {}).get(target, frozenset()):
         return False
     if run.get("event") in PROTECTED_EVENTS - {"merge_group"}:
         # Deployment/tag bookkeeping never holds pool capacity worth counting.
@@ -3290,7 +3320,7 @@ def rate_limited(error: urllib.error.HTTPError) -> bool:
 
 
 class RateLimited(RuntimeError):
-    """The token is out of budget: the sweep stops (GitHub.request())."""
+    """The token is out of budget: the sweep stops (GitHub.request()), and main() ends it as an infra skip."""
 
 
 def request_kind(method: str, path: str, repo: str) -> str:
@@ -3331,6 +3361,8 @@ class GitHub:
         self.app_token = bool(self.fallback_token)
         # Rate limit resource ("core", "graphql") -> the newest response's values.
         self.rate_limits: dict[str, dict[str, int]] = {}
+        # The first rate-limit refusal this sweep met, or "": main() then ends the sweep green with a warning.
+        self.rate_limited = ""
         self.headers = {
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
@@ -3378,8 +3410,11 @@ class GitHub:
         except urllib.error.HTTPError as error:
             self.note_rate_limit(error.headers)
             if error.code in (403, 429) and rate_limited(error):
-                raise RateLimited(f"{method} {path.split('?')[0]} failed ({error.code}: rate limit; "
-                                   "the sweep stops rather than spend the workflow token)") from error
+                limited = RateLimited(f"{method} {path.split('?')[0]} failed ({error.code}: rate limit; "
+                                      "the sweep stops rather than spend the workflow token)")
+                with self._count_lock:
+                    self.rate_limited = self.rate_limited or str(limited)
+                raise limited from error
             if error.code in (401, 403) and not app_only:
                 # The job listings run on several threads (read_run_jobs()): one switches the token, and a
                 # request another sent with the refused token before the switch is made again with the new
@@ -3655,8 +3690,9 @@ class _Transient(Exception):
 
 
 def read_run_jobs(github: GitHub, runs: Sequence[Mapping[str, Any]], linux_only: frozenset[str],
-                  now: dt.datetime, *, cap: int | None = None,
-                  workers: int | None = None) -> tuple[dict[int, list[dict[str, Any]]], set[int], set[int]]:
+                  now: dt.datetime, *, cap: int | None = None, workers: int | None = None,
+                  branch_linux_only: Mapping[str, frozenset[str]] | None = None,
+                  ) -> tuple[dict[int, list[dict[str, Any]]], set[int], set[int]]:
     """({run id: jobs} for the runs needs_jobs() lists, the ids whose listing failed, the ids left unlisted).
 
     One run's failed listing skips that run, not the sweep (a rate limit still ends it): the sweep
@@ -3665,7 +3701,7 @@ def read_run_jobs(github: GitHub, runs: Sequence[Mapping[str, Any]], linux_only:
     the snapshot says it is truncated. The listings run `workers` (JOB_LISTING_WORKERS) at a time."""
     cap = MAX_JOB_LISTINGS if cap is None else cap
     workers = JOB_LISTING_WORKERS if workers is None else workers
-    wanted = [run for run in runs if needs_jobs(run, linux_only, now)]
+    wanted = [run for run in runs if needs_jobs(run, linux_only, now, branch_linux_only=branch_linux_only)]
     # Newest first, so a capped sweep still sees the demand that is arriving now.
     wanted.sort(key=lambda run: (str(run.get("created_at") or ""), run["id"]), reverse=True)
     listed, unlisted = wanted[:max(0, cap)], {run["id"] for run in wanted[max(0, cap):]}
@@ -3735,6 +3771,30 @@ def render_listing(listing: Mapping[str, Any]) -> str:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """One sweep (sweep()). A sweep that met a rate limit ends green with a ::warning:: (an infra skip).
+
+    The App's budget is shared by every cmux-bot caller, and running out of it says nothing about the queue:
+    on 2026-10-31 it ran out at about 00:50Z and the sweeps until its reset failed red. The sweep still stops
+    at the refusal (it never moves onto the workflow token, GitHub.request()), and the first sweep after the
+    reset reads the whole queue again; what it did before the refusal is in its log."""
+    clients: list[GitHub] = []
+    try:
+        code = sweep(argv, clients)
+    except RateLimited as error:
+        code = 1
+        if clients:
+            clients[0].rate_limited = clients[0].rate_limited or str(error)
+    limited = clients[0].rate_limited if clients else ""
+    if not limited:
+        return code
+    print(f"::warning title=queue janitor out of API budget::{limited}. This sweep stopped early and is "
+          f"skipped; the next sweep after the budget resets reads the queue again. "
+          f"{render_rate_limits(clients[0].rate_limits)}")
+    return 0
+
+
+def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
+    """The sweep itself. Its GitHub client goes into `clients`, for main() to read once it ends."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", default=os.environ.get("GH_REPO") or os.environ.get("GITHUB_REPOSITORY"))
     parser.add_argument("--dry-run", action="store_true",
@@ -3746,6 +3806,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--max-orphan-cancels", type=int, default=None)
     parser.add_argument("--workflows-dir", type=Path,
                         default=Path(__file__).resolve().parents[2] / ".github" / "workflows")
+    parser.add_argument("--branch-workflows", action="append", metavar="BRANCH=DIR",
+                        default=(os.environ.get("BRANCH_WORKFLOWS") or "").split(),
+                        help="another branch's workflow files, so its linux-only runs are not listed "
+                             "(branch_linux_only_paths()); repeatable")
     parser.add_argument("--pool-load", type=Path, default=(
         Path(os.environ["POOL_LOAD_OUT"]) if os.environ.get("POOL_LOAD_OUT") else None),
         help="write this sweep's per-pool macOS demand here as JSON")
@@ -3783,6 +3847,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     orphan_age = dt.timedelta(minutes=orphan_minutes)
 
     github = GitHub(token, args.repo, fallback_token=os.environ.get("GH_FALLBACK_TOKEN") or "")
+    clients.append(github)
     # The workflow passes cmux-bot's token as CMUX_BOT_TOKEN too: GH_TOKEN is cmux-bot's only when they match
     # (its mint can fail, and GH_TOKEN then falls back to the glaeda-route App's). While it is, and not yet
     # refused (app_token), category e fails a lost job at an open PR's head over (open_head_lost()).
@@ -3792,9 +3857,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return bool(cmux_bot_token) and cmux_bot_token == token and github.app_token
     now = utc_now()
     linux_only = linux_only_workflow_paths(args.workflows_dir)
+    branch_linux_only = branch_linux_only_paths(args.branch_workflows)
     try:
         runs = github.in_flight_runs()
-        jobs_by_run, unread, unlisted = read_run_jobs(github, runs, linux_only, now)
+        jobs_by_run, unread, unlisted = read_run_jobs(github, runs, linux_only, now,
+                                                      branch_linux_only=branch_linux_only)
+        # The runs not listed because their branch's copy of the workflow runs only on Linux (needs_jobs()).
+        branch_skipped = sum(1 for run in runs if needs_jobs(run, linux_only, now)
+                             and not needs_jobs(run, linux_only, now, branch_linux_only=branch_linux_only))
         listing = listing_state(github, unlisted)
         # A run whose jobs could not be read: the snapshot below is still written from every other run,
         # and then the sweep decides nothing (no cancel, re-run or orphan), since a partial inventory
@@ -3849,6 +3919,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     except RuntimeError as error:
         print(f"queue-janitor: {error}", file=sys.stderr)
         print(render_rate_limits(github.rate_limits), file=sys.stderr)
+        if isinstance(error, RateLimited):
+            github.rate_limited = github.rate_limited or str(error)
         return 1
 
     # Categories e and f: is a push or dispatch run's branch live (its head still the run's)? One request a
@@ -3907,6 +3979,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         except RateLimited as error:
             print(f"queue-janitor: {error}", file=sys.stderr)
             print(render_rate_limits(github.rate_limits), file=sys.stderr)
+            github.rate_limited = github.rate_limited or str(error)
             return 1
         # How much of the queue this sweep saw: `truncated` makes every pool reader take the queue as unknown.
         snapshot.update({key: listing[key] for key in ("truncated", "listed", "total")})
@@ -4061,6 +4134,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             github, superseded, runs, delivery_jobs, prs_by_branch, dry_run=args.dry_run)
     except RuntimeError as error:  # a rate limit: what was cancelled before it is in the next sweep's inventory
         print(f"queue-janitor: superseded delivery runs: {error}", file=sys.stderr)
+        if isinstance(error, RateLimited):
+            github.rate_limited = github.rate_limited or str(error)
         superseded_decisions, superseded_failures = [], 1
     failures += superseded_failures
 
@@ -4071,7 +4146,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                                      results=orphan_results)
     summary += render_superseded_summary(superseded_decisions)
     summary += f"\n_{render_listing(listing)}._\n"
-    summary += f"\n_{len(runs)} in-flight runs, {len(jobs_by_run)} job listings, {len(branches)} PR branches, " \
+    summary += f"\n_{len(runs)} in-flight runs, {len(jobs_by_run)} job listings " \
+               f"({branch_skipped} more runs not listed: linux-only on their branch), {len(branches)} PR branches, " \
                f"{len(orphans)} orphans, {len(lost)} lost assignments, {len(unclaimed)} unclaimed legs, " \
                f"{head_reads} branch head reads, {len(evidence_jobs)} evidence job listings, " \
                f"{github.calls} API calls._\n"

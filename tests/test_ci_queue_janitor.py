@@ -2140,6 +2140,193 @@ class RateLimitTests(unittest.TestCase):
             self.assertIn("core 900 of 15000 left, 14100 used", summary.read_text())
 
 
+RealGitHub = janitor.GitHub  # the client itself, for tests that patch janitor.GitHub with a factory
+
+
+def rate_limited_http_error(request):
+    headers = email.message.Message()
+    headers["X-RateLimit-Remaining"] = "0"
+    headers["X-RateLimit-Limit"] = "12500"
+    headers["X-RateLimit-Resource"] = "core"
+    return urllib.error.HTTPError(request.full_url, 403, "rate limited", headers, io.BytesIO(b"{}"))
+
+
+class OutOfBudgetSweepTests(unittest.TestCase):
+    """2026-10-31: the cmux-bot installation ran out at about 00:50Z and every sweep until the reset failed red.
+    Running out of budget says nothing about the queue, so the sweep stops early and ends as an infra skip."""
+
+    def sweep(self, github, temp, env=None):
+        argv = ["--repo", "manaflow-ai/cmux", "--pool-load", str(Path(temp) / "load.json"),
+                "--summary", str(Path(temp) / "summary.md"), "--workflows-dir", str(Path(temp) / "none")]
+        printed = []
+        with mock.patch.object(janitor, "GitHub", lambda token, repo, fallback_token="": github), \
+                mock.patch.dict("os.environ", {"GH_TOKEN": "t", **(env or {})}), \
+                mock.patch.object(janitor.time, "sleep", lambda _: None), \
+                mock.patch.object(janitor, "utc_now", lambda: NOW), \
+                mock.patch("builtins.print", lambda *args, **kwargs: printed.append(" ".join(map(str, args)))):
+            code = janitor.main(argv)
+        return code, printed
+
+    def test_a_sweep_refused_for_its_rate_limit_ends_green_with_a_warning(self):
+        github = janitor.GitHub("app", "manaflow-ai/cmux", fallback_token="workflow")
+        sent = []
+
+        def urlopen(request, timeout=30):
+            sent.append(request.get_header("Authorization"))
+            raise rate_limited_http_error(request)
+
+        with tempfile.TemporaryDirectory() as temp, \
+                mock.patch.object(janitor.urllib.request, "urlopen", urlopen):
+            code, printed = self.sweep(github, temp)
+            self.assertFalse((Path(temp) / "load.json").exists())
+        self.assertEqual(code, 0)
+        warnings = [line for line in printed if line.startswith("::warning title=queue janitor out of API budget::")]
+        self.assertEqual(len(warnings), 1, printed)
+        self.assertIn("rate limit", warnings[0])
+        self.assertIn("core 0 of 12500 left", warnings[0])
+        # Still never moved onto the workflow token (GitHub.request()).
+        self.assertEqual(sent, ["Bearer app"])
+
+    def test_a_rate_limit_in_the_job_listings_ends_green_too(self):
+        run = make_run(status="queued", branch="limited")
+
+        class Limited(FakeGitHub):
+            def jobs(self, run_id):
+                raise janitor.RateLimited("GET /actions/runs/1/jobs failed (403: rate limit)")
+
+        with tempfile.TemporaryDirectory() as temp:
+            code, printed = self.sweep(Limited({run["id"]: dict(run)}, {}), temp)
+        self.assertEqual(code, 0)
+        self.assertTrue(any(line.startswith("::warning title=queue janitor out of API budget::") for line in printed))
+
+    def test_a_rate_limit_while_cancelling_ends_green_too(self):
+        stale = make_run(status="queued", branch="gone", prs=(7,))
+        jobs = {stale["id"]: mac_jobs(queued=1)}
+
+        class Limited(FakeGitHub):
+            # The cancel goes through the real client, which GitHub refuses for its rate limit.
+            def cancel(self, run_id):
+                self.log.append(("POST", f"/actions/runs/{run_id}/cancel"))
+                RealGitHub._request(self, "POST", f"/repos/manaflow-ai/cmux/actions/runs/{run_id}/cancel")
+
+        fake = Limited({stale["id"]: dict(stale)}, jobs)
+        fake.prs = {"gone": [make_pr(7, state="MERGED")]}
+        with tempfile.TemporaryDirectory() as temp, \
+                mock.patch.object(janitor.urllib.request, "urlopen",
+                                  lambda request, timeout=30: (_ for _ in ()).throw(rate_limited_http_error(request))):
+            code, printed = self.sweep(fake, temp)
+        self.assertIn(("POST", f"/actions/runs/{stale['id']}/cancel"), fake.log)
+        self.assertEqual(code, 0, printed)
+        self.assertTrue(any(line.startswith("::warning title=queue janitor out of API budget::") for line in printed))
+
+    def test_other_failures_still_fail_the_sweep(self):
+        class Broken(FakeGitHub):
+            def in_flight_runs(self):
+                raise RuntimeError("GET /actions/runs failed (404)")
+
+        with tempfile.TemporaryDirectory() as temp:
+            code, printed = self.sweep(Broken({}), temp)
+        self.assertEqual(code, 1)
+        self.assertFalse(any("out of API budget" in line for line in printed))
+
+
+class BranchWorkflowCopyTests(unittest.TestCase):
+    """A run follows its own branch's workflow copy. feat-cmux-next's linux-only runs were listed on every sweep
+    because only main's copy was read: 573 of the 1,324 runs listed on 2026-10-31, one cmux-bot request each."""
+
+    MAC_WORKFLOW = "jobs:\n  build:\n    runs-on: blacksmith-6vcpu-macos-15\n"
+    LINUX_WORKFLOW = "jobs:\n  lint:\n    runs-on: blacksmith-4vcpu-ubuntu-2404\n"
+
+    def workflows(self, root, branch, files):
+        directory = Path(root) / branch / ".github/workflows"
+        directory.mkdir(parents=True)
+        for name, text in files.items():
+            (directory / name).write_text(text)
+        return directory
+
+    def next_run(self, path, *, event="pull_request", prs=(5,)):
+        run = make_run(event=event, branch="topic", path=path, status="queued", prs=prs)
+        if event == "pull_request":
+            run["pull_requests"] = [{"number": n, "base": {"ref": "feat-cmux-next"}} for n in prs]
+        else:
+            run["head_branch"] = "feat-cmux-next"
+        return run
+
+    def test_a_branch_run_is_listed_by_its_own_branch_copy(self):
+        with tempfile.TemporaryDirectory() as temp:
+            main_dir = self.workflows(temp, "main", {"guards.yml": self.MAC_WORKFLOW, "next.yml": self.LINUX_WORKFLOW})
+            next_dir = self.workflows(temp, "next", {"guards.yml": self.LINUX_WORKFLOW, "next.yml": self.MAC_WORKFLOW})
+            main_only = janitor.linux_only_workflow_paths(main_dir)
+            branches = janitor.branch_linux_only_paths([f"feat-cmux-next={next_dir}"])
+        self.assertEqual(branches, {"feat-cmux-next": frozenset({".github/workflows/guards.yml"})})
+        guards = self.next_run(".github/workflows/guards.yml")
+        nxt = self.next_run(".github/workflows/next.yml")
+        push = self.next_run(".github/workflows/guards.yml", event="push", prs=())
+        # Linux-only on feat-cmux-next: not listed, whatever main's copy says.
+        self.assertFalse(janitor.needs_jobs(guards, main_only, NOW, branch_linux_only=branches))
+        self.assertFalse(janitor.needs_jobs(push, main_only, NOW, branch_linux_only=branches))
+        # Main's copy is inert but feat-cmux-next's schedules Macs (cmux-next.yml): still listed.
+        self.assertTrue(janitor.needs_jobs(nxt, main_only, NOW, branch_linux_only=branches))
+        # Without that branch's files every one of its runs is listed, as before.
+        self.assertTrue(janitor.needs_jobs(guards, main_only, NOW))
+        self.assertTrue(janitor.needs_jobs(guards, main_only, NOW, branch_linux_only={}))
+        # A branch with no copy read (a stacked base) is listed; main's runs still follow main's copy.
+        other = make_run(branch="topic", path=".github/workflows/guards.yml", status="queued")
+        other["pull_requests"] = [{"number": 6, "base": {"ref": "stacked-base"}}]
+        self.assertTrue(janitor.needs_jobs(other, main_only, NOW, branch_linux_only=branches))
+        on_main = make_run(branch="topic", path=".github/workflows/next.yml", status="queued")
+        on_main["pull_requests"] = [{"number": 8, "base": {"ref": "main"}}]
+        self.assertFalse(janitor.needs_jobs(on_main, main_only, NOW, branch_linux_only=branches))
+        on_main_mac = dict(on_main, path=".github/workflows/guards.yml")
+        self.assertTrue(janitor.needs_jobs(on_main_mac, main_only, NOW, branch_linux_only=branches))
+
+    def test_a_missing_or_empty_branch_copy_names_no_branch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            empty = Path(temp) / "empty"
+            empty.mkdir()
+            main_dir = self.workflows(temp, "main", {"a.yml": self.LINUX_WORKFLOW})
+            with mock.patch("builtins.print"):
+                found = janitor.branch_linux_only_paths([
+                    f"feat-cmux-next={Path(temp) / 'missing'}", f"other={empty}", f"main={main_dir}", "bad", "=x"])
+        self.assertEqual(found, {})
+
+    def test_the_sweep_lists_only_what_the_branch_copy_can_put_on_a_mac(self):
+        guards = self.next_run(".github/workflows/guards.yml")
+        nxt = self.next_run(".github/workflows/next.yml")
+        runs = {run["id"]: dict(run) for run in (guards, nxt)}
+        fake = FakeGitHub(runs, {nxt["id"]: mac_jobs(queued=1)})
+        with tempfile.TemporaryDirectory() as temp:
+            next_dir = self.workflows(temp, "next", {"guards.yml": self.LINUX_WORKFLOW, "next.yml": self.MAC_WORKFLOW})
+            summary = Path(temp) / "summary.md"
+            argv = ["--repo", "manaflow-ai/cmux", "--dry-run", "--summary", str(summary),
+                    "--workflows-dir", str(Path(temp) / "none")]
+            with mock.patch.object(janitor, "GitHub", lambda token, repo, fallback_token="": fake), \
+                    mock.patch.dict("os.environ", {"GH_TOKEN": "t", "BRANCH_WORKFLOWS": f"feat-cmux-next={next_dir}"}), \
+                    mock.patch.object(janitor, "utc_now", lambda: NOW), \
+                    mock.patch("builtins.print"):
+                self.assertEqual(janitor.main(argv), 0)
+            text = summary.read_text()
+        listed = {int(path.split("/")[-2]) for _, path in fake.log if path.split("?")[0].endswith("/jobs")}
+        self.assertEqual(listed, {nxt["id"]})
+        self.assertIn("1 job listings (1 more runs not listed: linux-only on their branch)", text)
+
+    def test_the_workflow_checks_out_feat_cmux_nexts_workflows_for_the_janitor(self):
+        workflow = yaml.safe_load(WORKFLOW.read_text())
+        steps = workflow["jobs"]["sweep"]["steps"]
+        checkout = next(step for step in steps if step.get("name") == "Check out feat-cmux-next's workflow files")
+        self.assertEqual(checkout["uses"].split("@")[0], "actions/checkout")
+        self.assertEqual(checkout["with"]["ref"], "feat-cmux-next")
+        self.assertEqual(checkout["with"]["sparse-checkout"], ".github/workflows")
+        self.assertIs(checkout["with"]["persist-credentials"], False)
+        # A failed fetch only means that branch's runs are all listed, as before.
+        self.assertIs(checkout["continue-on-error"], True)
+        self.assertNotIn("token", checkout["with"])
+        sweep = next(step for step in steps if step.get("name") == "Cancel wasted macOS runs")
+        self.assertLess(steps.index(checkout), steps.index(sweep))
+        self.assertEqual(sweep["env"]["BRANCH_WORKFLOWS"],
+                         f"feat-cmux-next={checkout['with']['path']}/.github/workflows")
+
+
 # ---------------------------------------------------------------------------
 # Category e: lost runner assignments (a queued job its pool skipped).
 # ---------------------------------------------------------------------------
