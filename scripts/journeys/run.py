@@ -20,14 +20,14 @@ never a pass.
 
 Each run writes a new folder (STATUS 1362: a round whose relaunch failed reported an older round's result.json from
 its reused folder). An --out folder that holds an earlier run's results makes every journey "not run" (the earlier
-results.jsonl is kept beside as results.jsonl.earlier-<run id>). The driver writes this run's id and start time into
+results.jsonl, run.json and <id>/ folders are kept beside, named with this run's id). The driver writes this run's id and start time into
 each result.json; run.py takes no result.json without them ("not run: stale or foreign result"), and a lease whose
 launch or set-up failed before the driver started is "not run" with that reason, whatever the folder holds.
 
 Run fleet rounds from a pinned, reviewed checkout, never from the worktree you edit in (coordinator 2026-10-31):
 `git worktree add --detach DIR REVIEWED_SHA`, start run.py from DIR, and move DIR to a new sha only after that sha's
-review. run.py packs the harness (driver.py, ext_*.py, the journey specs, smoke_hog.py) from disk at each lease, so
-it reads `git status` of the harness paths at the start and at each lease: a result from a checkout with uncommitted
+review. run.py loads the journey specs at its start and packs driver.py, ext_*.py, smoke_hog.py, build_names.py and
+the text reader's source from disk at each lease, so it reads `git status` of the harness paths at the start and at each lease: a result from a checkout with uncommitted
 harness files, or one whose commit moved during the run, is "not run" ("harness: unpinned ..."); its own status stays
 in result.json's "harness" record (commit, uncommitted files, detached, pinned) for debugging.
 Exit 0 when every selected journey passed, 1 when one failed, 75 when none failed but one did not run.
@@ -77,7 +77,7 @@ RESULT_TAR_MAX_BYTES = 768 << 20
 STEP_NAMES = {name[len("step_"):] for name in dir(driver.Journey) if name.startswith("step_")}
 # The files of a run in its OUT folder: a folder that holds one of them was used by an earlier run.
 EARLIER_RUN_FILES = ("run.json", "results.jsonl", "host.json", "summary.json", "acquire.log")
-# A result.json whose journey started this long before the run started is not this run's (the mini's clock may lag).
+# A journey that started this long before the run is logged (the mini's clock is late); the run id decides.
 CLOCK_SKEW_SECONDS = 300
 STAMP = "%Y-%m-%dT%H:%M:%SZ"
 # What kit_tar packs to the mini and what judges a round: a result counts only when these are committed and unchanged.
@@ -292,13 +292,13 @@ def stale_reason(result, ident):
     if result.get("run_id") != ident["run_id"] or result.get("run_started_at") != ident["run_started_at"]:
         return (f"stale or foreign result: run id {result.get('run_id')!r} started {result.get('run_started_at')!r}, "
                 f"this run is {ident['run_id']!r} started {ident['run_started_at']!r}")
-    try:
+    try:  # the random run id proves the run; a journey start before the run only means the mini's clock is late
         began = calendar.timegm(time.strptime(str(result.get("started_at")), STAMP))
+        if began < calendar.timegm(time.strptime(ident["run_started_at"], STAMP)) - CLOCK_SKEW_SECONDS:
+            log(f"{result.get('id')}: the journey started {result.get('started_at')}, before this run "
+                f"({ident['run_started_at']}): is the mini's clock late?")
     except ValueError:
-        return f"stale or foreign result: journey start {result.get('started_at')!r} is not a UTC time"
-    if began < calendar.timegm(time.strptime(ident["run_started_at"], STAMP)) - CLOCK_SKEW_SECONDS:
-        return (f"stale or foreign result: the journey started {result.get('started_at')}, "
-                f"before this run ({ident['run_started_at']})")
+        pass
     return None
 
 
@@ -324,8 +324,8 @@ def stamp_harness(results, out, start, lease):
         return results
     start = start or lease
     why = None
-    if not lease["commit"]:
-        why = "no harness commit: " + "; ".join(lease["dirty"])[:200]
+    if not lease["commit"] or not start["commit"]:
+        why = "no harness commit: " + "; ".join(start["dirty"] + lease["dirty"])[:200]
     elif start["dirty"] or lease["dirty"]:
         files = sorted(set(start["dirty"]) | set(lease["dirty"]))
         why = f"{len(files)} uncommitted harness files: " + ", ".join(f.strip() for f in files[:5])
@@ -342,10 +342,17 @@ def stamp_harness(results, out, start, lease):
             try:
                 on_disk = json.loads(path.read_text())
                 if on_disk.get("run_id") == result["run_id"]:
-                    on_disk["harness"] = result["harness"]
+                    # A reader of result.json alone sees the same verdict as results.jsonl.
+                    on_disk.update(harness=result["harness"], status=result["status"], reason=result.get("reason", ""))
                     path.write_text(json.dumps(on_disk, indent=1, default=str) + "\n")
             except (OSError, ValueError):
                 pass
+        if why:  # a step group's own report (fuzz.json) of an unpinned round is not evidence either, result.json or not
+            for report in (out / i).glob("fuzz.json"):
+                try:
+                    report.rename(report.with_name("fuzz.json.unpinned"))
+                except OSError as error:
+                    log(f"{i}: {report.name} of an unpinned round not renamed: {error}")
     return results
 
 
@@ -445,10 +452,13 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         info = dict(kv.split("=", 1) for kv in run([ch, "slot-info", lease]).stdout.decode().split() if "=" in kv)
         host, root = info["host"], info["root"]
         work = f"{root}/journeys"
-        harness = harness_state()  # what kit_tar packs now, from disk
+        # What kit_tar packs, from disk: the checkout's state before and after packing must agree.
+        before, kit, harness = harness_state(), kit_tar(specs), harness_state()
+        if before != harness:
+            harness = dict(harness, dirty=harness["dirty"] + ["(the harness changed while the kit was packed)"])
         # A slot root the mini reuses (a whole-host lease) may still hold an earlier run's out/: never fetch it.
         remote(host, f"rm -rf {q(work + '/out')} && mkdir -p {q(work + '/kit')} && tar x -C {q(work + '/kit')}",
-               input=kit_tar(specs), timeout=left(120))
+               input=kit, timeout=left(120))
         if hog_swap_gb > 0:
             # Memory pressure (the Austin's-day hog), from before the download and launch to the end of the
             # journeys: it holds incompressible memory until swap used is hog_swap_gb above the start, gives
@@ -515,7 +525,7 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         if hog_started:
             hog_log = remote(host, f"tail -c 2000000 {q(work + '/hog.jsonl')}", timeout=left(60), check=False).stdout
             (out / f"hog-{lease}.jsonl").write_bytes(hog_log or b"")
-    except (RuntimeError, subprocess.TimeoutExpired, KeyError, ValueError) as error:
+    except (RuntimeError, subprocess.TimeoutExpired, KeyError, ValueError, OSError, tarfile.TarError) as error:
         log(f"lease {lease}: {error}")
         reason = f"{host or lease}: {str(error)[-400:]}"
         if drove is None:
@@ -567,6 +577,14 @@ def set_aside_old_results(out, ids):
             old.rename(out / f"{i}.old-{time.strftime('%Y%m%dT%H%M%S', time.gmtime())}-{os.getpid()}")
 
 
+def set_aside_foreign(out, i, ident):
+    """Moves a refused <id>/ folder aside (<id>.foreign-<run id>); a failure is logged, never raised out of run_lease."""
+    try:
+        (out / i).rename(out / f"{i}.foreign-{ident['run_id']}")
+    except OSError as error:
+        log(f"{i}: the refused result folder was not moved aside: {error}")
+
+
 def collect(out, ids, host, missing_reason, ident):
     """{id: this run's result.json}, or not run: with missing_reason when there is none, "stale or foreign result"
     when its run id or start time is not `ident`'s (an earlier round's file, or one from a reused slot)."""
@@ -579,11 +597,14 @@ def collect(out, ids, host, missing_reason, ident):
         try:
             result = json.loads(path.read_text())
         except ValueError as error:
+            set_aside_foreign(out, i, ident)
             results[i] = {"status": "not run", "reason": f"result.json does not parse: {error}", "host": host}
             continue
         why = stale_reason(result, ident)
         if why:
             log(f"{i}: {why}")
+            # Moved aside, so no clip, check frame or reader of <id>/ takes another run's files as this run's.
+            set_aside_foreign(out, i, ident)
             results[i] = {"status": "not run", "reason": why, "host": host}
             continue
         result["host"] = host
@@ -738,9 +759,13 @@ def main(argv=None):
     out = Path(opts.out) if opts.out else out_root / f"{build['id'][:12]}-{this_run['run_id']}"
     earlier = earlier_run(out)
     out.mkdir(parents=True, exist_ok=True)
-    if earlier and (out / "results.jsonl").exists():
-        # Kept beside, never read again: a caller that reads results.jsonl sees this run's not-run lines.
-        (out / "results.jsonl").rename(out / f"results.jsonl.earlier-{this_run['run_id']}")
+    if earlier:
+        # Kept beside under this run's id, never read again: a caller that reads results.jsonl, run.json or <id>/ sees
+        # only this run's not-run lines.
+        for name in ("results.jsonl", "run.json"):
+            if (out / name).exists():
+                (out / name).rename(out / f"{name}.earlier-{this_run['run_id']}")
+        set_aside_old_results(out, [s["id"] for s in chosen])
     (out / "run.json").write_text(json.dumps(dict(this_run, build_job=build["id"], pid=os.getpid()), indent=1) + "\n")
     log(f"build {build['id']} ({build['state']}) of {str(build['commit'])[:12]} tag {build['tag']}; run {this_run['run_id']}; "
         f"results in {out}")
@@ -769,7 +794,8 @@ def main(argv=None):
                 "build_job": build["id"], "commit": build["commit"], "tag": build["tag"], "host": result.get("host"),
                 "path": spec["_path"], "nonce": result.get("nonce"), "seconds": result.get("seconds"),
                 "run_id": this_run["run_id"], "run_started_at": this_run["run_started_at"],
-                "harness": result.get("harness") or {k: this_run["harness"][k] for k in ("commit", "dirty", "detached")},
+                "harness": result.get("harness") or dict({k: this_run["harness"][k] for k in ("commit", "dirty", "detached")},
+                                                          pinned=None),
                 "run_at": result.get("started_at") or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
         lines.append(line)
     with open(out / "results.jsonl", "w") as f:
