@@ -288,6 +288,8 @@ final class PaneContentView: NSView, PaneContentChrome {
 
     func paneFrameInWindowDidChange() {
         stripView.updateWindowControlsAvoidance()
+        // Content with no strip of its own over it (Home's header) keeps clear of the traffic lights too.
+        if let window = window as? ShellWindow { window.windowControlsAvoiders.update(in: window) }
         // The pane moved under a possibly still pointer (column scroll, split resize).
         stripView.paneMovedInWindow()
     }
