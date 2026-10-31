@@ -78,6 +78,24 @@
   padding: 0 var(--acpmux-strip-pad, 4px);
   box-sizing: border-box;
 }
+/* A started chat's chooser can fail after its menu closes. Give the recovery line its own flex row
+   below the fixed-height controls instead of letting it overlay the composer box. */
+.acpmux-composer-strip:has(> .acpmux-composer-context > .acpmux-folder-choice),
+.acpmux-composer-context:has(> .acpmux-folder-choice) {
+  height: auto;
+  min-height: var(--acpmux-strip-height);
+}
+.acpmux-composer-context:has(> .acpmux-folder-choice) {
+  flex-wrap: wrap;
+}
+.acpmux-composer-context:has(> .acpmux-folder-choice) > .acpmux-location-picker:last-child {
+  order: 2;
+}
+.acpmux-composer-context > .acpmux-folder-choice {
+  order: 3;
+  flex: 0 0 100%;
+  min-width: 0;
+}
 /* Folder and computer share the same small inter-control gap, told apart by their icons; no "·"
    floats between them against the folder's chevron. */
 .acpmux-composer-context > .acpmux-location-leading { display: flex; align-items: center; gap: var(--acpmux-location-gap, 4px); min-width: 0; flex: 1 1 0; }
@@ -1013,6 +1031,12 @@
   border-radius: 14px 14px 0 0;
   background: var(--acpmux-top-tray);
   box-shadow: inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-strip-edge);
+}
+/* Folder-browse recovery adds a second row. In the tray, keep that row below the raised composer
+   instead of letting the fixed tray height clip it under the card. */
+:root[data-top-strip="tray"] .acpmux-composer-strip:has(> .acpmux-composer-context > .acpmux-folder-choice) {
+  height: auto;
+  min-height: calc(var(--acpmux-strip-height) + var(--acpmux-tray-tuck));
 }
 /* The strip keeps the card's blur (composerStates.css), and glass is never opaque: off Reduce
    Transparency the tray's step goes over the card's glass tint, as Codex's tray does
