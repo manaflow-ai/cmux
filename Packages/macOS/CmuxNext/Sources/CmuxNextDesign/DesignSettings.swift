@@ -68,7 +68,7 @@ public final class DesignSettings {
     /// depend on the agent setting; a change event lets chat row measurement follow CSS immediately.
     public func interfaceScaleScript(pageZoom: Double? = nil) -> String {
         let effectivePageZoom = max(pageZoom ?? Double(uiScale), 0.01)
-        return "document.documentElement.style.setProperty('--cmux-interface-scale', '\(interfaceScaleEnabled ? interfaceScale : 1)');"
+        return "document.documentElement.style.setProperty('--cmux-interface-scale', '\(Typography.userScale)');"
             + "document.documentElement.style.setProperty('--cmux-ui-scale', '\(effectivePageZoom)');"
             + "window.dispatchEvent(new Event('cmux-ui-scale-change'))"
     }

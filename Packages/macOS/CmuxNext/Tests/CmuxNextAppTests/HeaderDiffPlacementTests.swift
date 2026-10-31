@@ -26,7 +26,7 @@ struct HeaderDiffPlacementTests {
     @Test func theDiffColumnOpensRightAfterTheChat() throws {
         let store = Self.store()
         let chat = try #require(store.pane(containing: 1))
-        #expect(AgentBesidePlacement.newColumn(beside: chat, in: store) == ColumnID(rawValue: 10))
+        #expect(store.scrollingColumn(holding: chat) == ColumnID(rawValue: 10))
     }
 
     /// A chat docked to the edge is no scrolling column to follow: the daemon's default stands. (The
@@ -38,7 +38,7 @@ struct HeaderDiffPlacementTests {
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), columns: columns, panes: [chat])
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
         let pane = try #require(store.pane(containing: 1))
-        #expect(AgentBesidePlacement.newColumn(beside: pane, in: store) == nil)
+        #expect(store.scrollingColumn(holding: pane) == nil)
     }
 
     private final class DiffPage: InternalPageProvider {
