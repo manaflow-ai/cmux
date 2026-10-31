@@ -64,6 +64,8 @@ exports:
                        '_kCFAbsoluteTimeIntervalSince1970',
                        '_kCFAllocatorDefault',
                        '_kCFAllocatorNull',
+                       '_kCFBooleanFalse',
+                       '_kCFBooleanTrue',
                        '_kCFPreferencesAnyApplication',
                        '_kCFPreferencesAnyHost',
                        '_kCFPreferencesCurrentUser',

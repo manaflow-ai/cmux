@@ -12,8 +12,9 @@ name = "cmux-vm"
 path = "src/main.rs"
 
 [features]
-default = ["default-tls"]
+default = ["default-tls", "system-proxy"]
 default-tls = ["cmux-vm-client/default-tls"]
+system-proxy = ["cmux-vm-client/system-proxy"]
 
 [dependencies]
 clap.workspace = true

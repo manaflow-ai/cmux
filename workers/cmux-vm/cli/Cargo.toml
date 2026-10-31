@@ -24,9 +24,10 @@ syn = { version = "=3.0.6", features = ["full"] }
 bytes = "1"
 futures = "0.3"
 regress = "0.12"
-# No TLS backend by default: cmux-vm-client's default-tls feature picks reqwest's, and the
-# cmux CLI, which links this crate in process, uses its own rustls (ring) instead.
-reqwest = { version = "0.13", default-features = false, features = ["json", "query", "stream", "charset", "http2", "system-proxy"] }
+# No TLS backend and no system proxy by default: cmux-vm-client's default-tls and system-proxy
+# features turn them on, and the cmux CLI, which links this crate in process, uses its own
+# rustls (ring) and, like the rest of the cmux CLI, no SystemConfiguration.
+reqwest = { version = "0.13", default-features = false, features = ["json", "query", "stream", "charset", "http2"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
