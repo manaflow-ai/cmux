@@ -18,6 +18,11 @@ pub(super) fn plist(program: &Path, arguments: &[String]) -> io::Result<Vec<u8>>
     dictionary.insert("RunAtLoad".into(), plist::Value::Boolean(true));
     dictionary.insert("KeepAlive".into(), plist::Value::Boolean(true));
     dictionary.insert("ProcessType".into(), plist::Value::String("Background".into()));
+    // Tells `serve` which job launchd runs it for (`launchd_refresh.rs`).
+    let mut environment = plist::Dictionary::new();
+    environment
+        .insert(crate::launchd_refresh::AGENT_ENV.into(), plist::Value::String(LABEL.into()));
+    dictionary.insert("EnvironmentVariables".into(), plist::Value::Dictionary(environment));
     let mut bytes = Vec::new();
     plist::Value::Dictionary(dictionary).to_writer_xml(&mut bytes).map_err(io::Error::other)?;
     Ok(bytes)
@@ -83,6 +88,8 @@ mod tests {
         let value = plist::Value::from_reader_xml(bytes.as_slice()).unwrap();
         let dictionary = value.as_dictionary().unwrap();
         assert_eq!(dictionary["Label"].as_string(), Some(LABEL));
+        let environment = dictionary["EnvironmentVariables"].as_dictionary().unwrap();
+        assert_eq!(environment[crate::launchd_refresh::AGENT_ENV].as_string(), Some(LABEL));
         let command: Vec<&str> = dictionary["ProgramArguments"]
             .as_array()
             .unwrap()
