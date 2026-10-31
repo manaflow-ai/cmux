@@ -89,12 +89,10 @@ function ownRows(t: Translate, stats: SessionUsageStats, locale?: string): OwnRo
   return rows;
 }
 
-/// What a list row's end says for `sort`; unknown is the unknown mark.
+/// What a list row's end says for `sort`: the measure the list is sorted by, or the unknown mark.
+/// A 24h cost acpmux could not read is the unknown mark, never a token count under a cost heading.
 function sortValue(stats: SessionUsageStats, sort: UsageSort, locale?: string): string {
-  if (sort === "cost")
-    return stats.costUsd24h === undefined
-      ? known(stats.tokens24h, (tokens) => usageTokens(tokens, locale))
-      : usageCost(stats.costUsd24h, locale);
+  if (sort === "cost") return known(stats.costUsd24h, (cost) => usageCost(cost, locale));
   return known(stats.contextTokens, (tokens) => usageTokens(tokens, locale));
 }
 

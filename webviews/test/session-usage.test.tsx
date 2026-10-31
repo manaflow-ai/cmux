@@ -281,6 +281,48 @@ test("unknown numbers show an em dash, never 0 or $0.00, and an unread cap offer
   expect(host.querySelector('section[data-section="usage"] .acpmux-chat-inspector-section__meta')).toBeNull();
 });
 
+test("sorted by 24h cost, a session whose cost is unknown shows an em dash, never its token count; by context it shows its context", async () => {
+  const sessions = [
+    sessionEntry({
+      sessionId: "priced",
+      name: "priced",
+      usageStats: stats({ costUsd24h: 12.4, contextTokens: 80_000, tokens24h: 4_000_000 }),
+    }),
+    // acpmux read its tokens and context but not its cost (a harness with no price table).
+    sessionEntry({
+      sessionId: "unpriced",
+      name: "unpriced",
+      usageStats: stats({ costUsd24h: null, contextTokens: 210_000, tokens24h: 9_000_000 }),
+    }),
+  ];
+  await render(
+    <ChatInspector
+      summary={{ sessionId: "x" }}
+      allSessions={sessions}
+      sections={{ ...DEFAULT_SECTIONS, usage: true }}
+    />,
+  );
+  const usage = host.querySelector<HTMLElement>(".acpmux-chat-inspector-usage")!;
+  const listed = () =>
+    [...usage.querySelectorAll<HTMLElement>("ul[data-sort] > li")].map((row) => [
+      row.querySelector(".acpmux-chat-inspector-row__name")?.textContent,
+      row.querySelector(".acpmux-chat-inspector-row__end")?.textContent,
+    ]);
+  expect(usage.querySelector("ul[data-sort]")?.getAttribute("data-sort")).toBe("cost");
+  expect(listed()).toEqual([
+    ["priced", "$12.40"],
+    ["unpriced", "—"],
+  ]);
+  const context = [...usage.querySelectorAll<HTMLButtonElement>(".acpmux-chat-inspector-usage__sort-option")].find(
+    (option) => option.textContent === "Context",
+  );
+  await click(context);
+  expect(listed()).toEqual([
+    ["unpriced", "210K"],
+    ["priced", "80K"],
+  ]);
+});
+
 test("a chat with no usage of its own still shows Usage while another session reports some; none at all shows none", async () => {
   await render(<ChatInspector summary={{ sessionId: "fresh", cwd: "/repo" }} allSessions={SESSIONS} />);
   const usage = host.querySelector<HTMLElement>('section[data-section="usage"]');
