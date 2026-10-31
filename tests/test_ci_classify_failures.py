@@ -412,6 +412,12 @@ class RerunDecisionTests(unittest.TestCase):
         self.assertFalse(rerun)
         self.assertIn("timed-out run is not re-run", line)
 
+    def test_a_timed_out_run_without_failed_jobs_does_not_blame_gates(self) -> None:
+        # #15395: a timed-out run with no attributable job must not claim that gate jobs failed.
+        line = cf.verdict_line(self.report([], conclusion="timed_out"), False, "")
+        self.assertNotIn("Gates only", line)
+        self.assertIn("timed out", line)
+
     def test_a_run_someone_else_reran_is_left_alone(self) -> None:
         for latest in ({"run_attempt": 2, "status": "completed", "triggering_actor": {"login": cf.BOT}},
                        {"run_attempt": 1, "status": "in_progress"}):
