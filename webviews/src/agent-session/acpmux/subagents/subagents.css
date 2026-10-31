@@ -748,14 +748,11 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray :is(.acpmux-agent-line__button, .acpmux-running-tray__head, .acpmux-chat-inspector-stop):enabled {
   cursor: default;
 }
-/* A line's icons and its title keep the row's one icon gap (.acpmux-summary-row's 8px): the state
-   icon, the kind icon, then the title, never touching (cmux#28875). */
+/* A line's state icon and its title keep the row's one icon gap (.acpmux-summary-row's 8px), never
+   touching (cmux#28875); the narrow layout's title margin reads it. */
 .acpmux-running-tray,
 .acpmux-agent-line {
   --acpmux-line-icon-gap: 8px;
-}
-.acpmux-agent-line__kind-icon {
-  margin-right: var(--acpmux-line-icon-gap);
 }
 /* What the line is ("Command", "Subagent"), dim before its name. */
 .acpmux-agent-line__kind {
