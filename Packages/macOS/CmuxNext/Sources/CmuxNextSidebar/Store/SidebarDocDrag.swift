@@ -64,8 +64,17 @@ public struct SidebarDocDrag {
         var rows: [String: SidebarRow] = [:]
         // The group header open at each depth, so a subgroup's slot names the group it sits in.
         var headerAtDepth: [Int: GroupID] = [:]
-        for row in layout.rows {
+        // The workspace whose one row the last slot stands for (its group's), so its tab rows join that slot.
+        var standing: WorkspaceID?
+        for case var row in layout.rows {
             guard let section = section(row.section) else { continue }
+            if case let .tab(owner, _) = row.key, let last = slots.last, last.kind == .group, owner == standing {
+                slots[slots.count - 1].frame.size.height = max(last.frame.height, row.maxY - last.frame.minY)
+                continue
+            }
+            standing = nil
+            // A group's one row is its group's slot, as its header was: a drop goes before, into or after the group.
+            if let header = row.standingHeader, case let .workspace(id) = row.key { (standing, row) = (id, header) }
             let frame = CGRect(x: 0, y: row.y, width: width, height: row.height)
             switch row.key {
             case .workspace, .group, .item:

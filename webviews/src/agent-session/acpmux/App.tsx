@@ -173,7 +173,9 @@ import {
 import type { KeptAttachments } from "./composer/keptAttachments";
 import { ComposerPickers, PICKER_LABELS, type ComposerPermissionAccess } from "./ComposerPickers";
 import { openPicker } from "./pickerOpeners";
+import { startRefusalRoute } from "./startRefusal";
 import { EmptyState, type EmptyStateProjects, isNewChat, projectName } from "./EmptyState";
+import { paneKnowsNewChat } from "./locationRow";
 import { ChatUnavailableState } from "./ChatUnavailableState";
 import { useCloudChatRecovery } from "./useCloudChatRecovery";
 import { cloudChatRecoveryActive, cloudChatUnavailable, type CloudChatIdentity } from "./cloudChatRecovery";
@@ -222,6 +224,7 @@ import { SummaryCard } from "./summary/SummaryCard";
 import { transcriptBackgroundTasks } from "./summary/sessionSummary";
 import { openSourceFile } from "./inspector/SourcesSection";
 import { useChatInspector } from "./inspector/ChatInspector";
+import { setRemoteControl, toggleRemoteControl, useRemoteControl } from "./remoteControl";
 import {
   type BackgroundCommand,
   backgroundCommands,
@@ -670,6 +673,8 @@ declare global {
       /// toggle `agent.suggestedTasks` forcing them on): an agent's offers draw as the suggested tasks
       /// card (offer/offersShown.ts).
       applySuggestedTasks?(on: boolean): void;
+      /// Session Info's Remote Control switch, `{on}` or null (remoteControl.ts), on the legacy host.
+      applyRemoteControl?(value: unknown): void;
       applyHeaderState?(state: unknown): void;
       /// The pane's tab row the header's tools may sit in (header/tabRow.ts).
       applyTabRow?(row: unknown): void;
@@ -1120,7 +1125,7 @@ const MessageRow = memo(
     if (row.kind === "user" && row.received) return <ReceivedResult result={row.received} onOpen={openOfferChat} />;
     // Another agent's message as one line at the left (its sender's chip), its text as a card under
     // it cut to eight lines; a task notification as one quiet line (conversation/incomingMessage.ts).
-    // Its images show with it, and its action row (age, Copy, Retry, Pin) at the line's end on hover;
+    // Its images show with it, and its action row (age, Retry) at the line's end on hover;
     // a steer's read state does not: the message is the agent's to read.
     if (row.kind === "user" && row.incoming?.kind === "notice") return <IncomingNotice text={row.incoming.text} />;
     if (row.kind === "user" && row.incoming?.kind === "message")
@@ -1136,7 +1141,6 @@ const MessageRow = memo(
             actions={
               <ReceivedActions
                 row={row}
-                text={row.incoming.message.text}
                 more={
                   row.steer === "waiting" && <SteerWaitingActions promptId={row.steerPromptId} send={sendSteerNow} />
                 }
@@ -7351,6 +7355,16 @@ function AcpmuxPane() {
       workflows.length > 0 ? { list: workflows, onStop: stopSubagent, onOpenAgent: showWorkflowAgent } : undefined,
     [workflows, stopSubagent, showWorkflowAgent],
   );
+  // Session Info's Remote Control: the App's iPhone host switch (remoteControl.ts), for a chat on
+  // this Mac; no row in Quick Chat, for a peer's or Cloud chat, or while this Mac cannot serve phones.
+  const remoteControlState = useRemoteControl();
+  const inspectorRemoteControl = useMemo(
+    () =>
+      !quick && inspectorLocal && remoteControlState
+        ? { on: remoteControlState.on, set: (on: boolean) => void toggleRemoteControl(on, callNative) }
+        : undefined,
+    [quick, inspectorLocal, remoteControlState],
+  );
   // Compact from Session Info's Context and the composer ring's card sends the agent's own /compact
   // with the reach a context-full failure's Compact has: only where the agent lists it, never to a
   // View Only chat or a read-only pane, never the next chat during a switch's hold (#17537 had it on
@@ -7396,6 +7410,7 @@ function AcpmuxPane() {
     onSaveEnvironment: undefined,
     // A failed MCP server's Reconnect in Connectors, where acpmux offers it (a Claude Code chat's).
     onReconnectMcp: snapshot.reconnectsMcp ? reconnectMcp : undefined,
+    remoteControl: inspectorRemoteControl,
     onCompact: compactChat,
     // Quick Chat's panel has no room beside it for the side panel.
     onOpenDocument: quick ? undefined : openArtifact,
@@ -8382,6 +8397,9 @@ function AcpmuxPane() {
       },
       applySuggestedTasks(on) {
         if (setSuggestedTasks(on === true)) directClient.current?.suggestedTasksChanged();
+      },
+      applyRemoteControl(value) {
+        setRemoteControl(value);
       },
       applyHeaderState(state) {
         setHeaderState(state);
@@ -10559,13 +10577,15 @@ function AcpmuxPane() {
   };
   const loadNewTabProjects = useCallback(
     () =>
-      callNative<{ projects?: string[]; repos?: unknown }>("project.list").then((result) => {
+      callNative<{ projects?: string[]; repos?: unknown; machine?: boolean }>("project.list").then((result) => {
         // Each folder's repository (projectRepos.ts): the pickers fold worktrees under it.
         const repos = parseProjectRepos(result?.repos);
-        return (result?.projects ?? []).map((cwd): Project => {
+        const projects = (result?.projects ?? []).map((cwd): Project => {
           const repo = repos[cwd];
           return { cwd, label: projectName(cwd) ?? cwd, ...(repo ? { repo } : {}) };
         });
+        // `machine`: the host listed the chat's other machine's folders, not this Mac's.
+        return { projects, machine: result?.machine === true };
       }),
     [],
   );
@@ -10574,11 +10594,13 @@ function AcpmuxPane() {
   /// reads it, from its first render, while its own is pending or if it fails (Codex review of
   /// #24274).
   /// `projects` undefined: not answered yet.
-  const [loadedProjects, setDirectProjects] = useState<{ page: number; projects?: Project[] }>({
+  const [loadedProjects, setDirectProjects] = useState<{ page: number; projects?: Project[]; machine?: boolean }>({
     page: 0,
   });
   const projectsAnswered = loadedProjects.page === newTabGeneration && loadedProjects.projects !== undefined;
   const directProjects = projectsAnswered ? loadedProjects.projects! : NO_PROJECTS;
+  // A chat on another machine: the folders its host listed for that machine (its folder menu).
+  const machineFolders = projectsAnswered && loadedProjects.machine ? directProjects : undefined;
   const onNewTab = Boolean(newTab);
   useEffect(() => {
     // Start Agent's folder picker lists them too (cx-hkat), and so does the New Tab page: the
@@ -10586,8 +10608,8 @@ function AcpmuxPane() {
     if (!freshChat && !onNewTab) return;
     let active = true;
     void loadNewTabProjects()
-      .then((projects) => {
-        if (active) setDirectProjects({ page: newTabGeneration, projects });
+      .then(({ projects, machine }) => {
+        if (active) setDirectProjects({ page: newTabGeneration, projects, machine });
       })
       .catch(() => undefined);
     return () => {
@@ -11208,7 +11230,18 @@ function AcpmuxPane() {
             <SwitchNotice
               switching={snapshot.switching}
               onRetry={() => void callNative("chat.harness.retry")}
-              onAction={(action) => (action === "newCloudMachine" ? connectMachine("cloud") : chooseWorkspaceFolder())}
+              onAction={(action) => {
+                // A fresh chat on another machine has no summary yet: its connection's origin, or a
+                // folder list its host marked as that machine's, says where it runs.
+                const elsewhere =
+                  remoteChat || snapshot.origin === "remote" || snapshot.origin === "peer" || Boolean(machineFolders);
+                const route = startRefusalRoute(action, elsewhere);
+                if (route === "newCloudMachine") connectMachine("cloud");
+                // That machine's folder menu; a menu that is not mounted falls back to the panel's answer.
+                else if (route === "machineFolderMenu") {
+                  if (!openPicker("Location")) void chooseWorkspaceFolder();
+                } else void chooseWorkspaceFolder();
+              }}
             />
           </Notice>
         )}
@@ -11350,6 +11383,9 @@ function AcpmuxPane() {
             sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
             placeholder={isSideSession ? t("sideSession.placeholder") : undefined}
             switching={Boolean(switchView.intent)}
+            // An existing chat being restored or opened (no handshake yet, or its session not
+            // attached) draws no new chat's folder and environment strip.
+            chatKnown={paneKnowsNewChat({ handshaken, newSession }, composerSnapshot)}
             chips={ComposerChips}
             permissionAccess={permissionAccess}
             onOpenContext={inspector.reveal ? () => inspector.reveal?.("context") : undefined}
@@ -11558,6 +11594,7 @@ function AcpmuxPane() {
             // A started local chat lists the same folders to move to (dogfood 09); Start Agent's
             // panel lists them before its first prompt (cx-hkat).
             projectChoices={freshChat || (!quick && canMove) ? newTabProjects : undefined}
+            {...(machineFolders ? { machineFolders } : {})}
             {...(folderChoiceOffered ? { folderNote: t("agentHome.notice") } : {})}
             onBrowseProject={
               folderChoiceOffered
@@ -12151,15 +12188,6 @@ function AcpmuxPane() {
                           />
                         )}
                       </ChatHeaderInlineStatus>
-                    )}
-                    {preview && (
-                      <span
-                        className="acpmux-session-coverage"
-                        // tooltip-allow: the policy's enforcement detail, shown nowhere else
-                        title={`${handoffLabels.unverified} · ${snapshot.summary?.enforcement?.detail ?? handoffLabels.unverifiedDetail}`}
-                      >
-                        {snapshot.summary?.enforcement ? handoffLabels.nativePolicy : handoffLabels.unverified}
-                      </span>
                     )}
                     <ChatHeaderTools
                       nativeRowTools={{

@@ -535,6 +535,8 @@ export type AcpmuxPermission = {
   kind?: string;
   /// The tool call it asks about: a subagent's own call when a subagent asks (summary/SubagentStatusList.tsx).
   toolCallId?: string;
+  /// Proposed changes from this ask only; these have not been applied to the workspace.
+  diffs?: AcpmuxFileDiff[];
   pending: boolean;
   options: {
     id: string;
