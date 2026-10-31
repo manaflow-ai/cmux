@@ -99,10 +99,16 @@ struct WorkspaceTabHoverCardTests {
         list.reload(animated: false)
         let id = WorkspaceHoverCardController.targetID(target)
 
+        list.hoverCard.resources.setSource(MockResourceSource(tabs: []))
+
+        // The coordinator's order: activation while the card is pending, then the body.
         list.hoverCard.requestDetails(for: target)
+        list.hoverCard.hoverCardActivated(id)
         let pinned = try #require(list.hoverCard.hoverCardBody(for: id)?.view as? WorkspaceHoverCardView)
         #expect(pinned.isDetailsExpanded, "Show Resource Usage opened a collapsed card")
+        #expect(list.hoverCard.resources.isOpen, "Show Resource Usage opened its details without sampling")
         list.hoverCard.hoverCardDeactivated(id)
+        #expect(!list.hoverCard.resources.isOpen)
 
         let hovered = try #require(list.hoverCard.hoverCardBody(for: id)?.view as? WorkspaceHoverCardView)
         #expect(!hovered.isDetailsExpanded, "a plain hover after the action kept the details open")

@@ -141,7 +141,10 @@ final class WorkspaceHoverCardController: HoverCardSource {
         guard let list, let ws = workspaceID(id), let workspace = list.hoverCardRow(ws) else { return nil }
         let body = body ?? WorkspaceHoverCardView()
         if bodyID != id { body.resetDetails() }
-        if detailsRequested == id { body.expandDetails() }
+        // Activation ran while the card was pending, before this body existed, so details
+        // opened here (Show Resource Usage) start their sampling below, once bodyID is set.
+        let openedByRequest = detailsRequested == id && !body.isDetailsExpanded
+        if openedByRequest { body.expandDetails() }
         self.body = body
         let machine = list.sections.values.lazy.compactMap(\.machine).first { $0.id == workspace.machineID }
         let options = DesignSettings.shared.workspaceHoverCard
@@ -164,6 +167,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
         }
         body.setResources(resources.report)
         bodyID = id
+        if openedByRequest { startSampling(id) }
         body.setCustom(customContent(for: ws, id: id, card: content.cardFacts))
         updateTicker()
         return HoverCardBody(view: body, placement: .besideRow, themeAnchor: list, interactive: true) { [weak body] in body?.applyColors() }
@@ -200,7 +204,13 @@ final class WorkspaceHoverCardController: HoverCardSource {
     }
 
     func hoverCardActivated(_ id: HoverTargetID) {
-        guard bodyID == id, let ws = workspaceID(id), body?.isDetailsExpanded == true else { return }
+        guard bodyID == id, body?.isDetailsExpanded == true else { return }
+        startSampling(id)
+    }
+
+    /// Samples `id`'s workspace while its details are open.
+    private func startSampling(_ id: HoverTargetID) {
+        guard let ws = workspaceID(id) else { return }
         resources.open(.workspace(ws.rawValue)) { [weak self] report in
             guard let self, self.bodyID == id else { return }
             self.body?.setResources(report)
@@ -224,12 +234,8 @@ final class WorkspaceHoverCardController: HoverCardSource {
     }
 
     private func detailsChanged(_ id: HoverTargetID) {
-        if body?.isDetailsExpanded == true, let ws = workspaceID(id) {
-            resources.open(.workspace(ws.rawValue)) { [weak self] report in
-                guard let self, self.bodyID == id else { return }
-                self.body?.setResources(report)
-                self.coordinator.contentChanged(id)
-            }
+        if body?.isDetailsExpanded == true {
+            startSampling(id)
         } else {
             resources.close()
         }
