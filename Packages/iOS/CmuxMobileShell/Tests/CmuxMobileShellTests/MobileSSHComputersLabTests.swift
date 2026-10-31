@@ -421,6 +421,69 @@ struct MobileSSHComputersLabTests {
     }
 }
 
+/// Closing an SSH workspace removes its row only when the host closed it;
+/// a failed close keeps the row and reports the error on the host (#16099).
+/// Runs without the sshd lab, against a stand-in provider.
+@MainActor
+@Suite struct MobileSSHCloseWorkspaceTests {
+    struct CloseRefused: Error, CustomStringConvertible {
+        var description: String { "close refused by test provider" }
+    }
+
+    /// Lists one workspace and refuses to close it.
+    @MainActor
+    final class RefusingProvider: MobileSSHWorkspaceProvider {
+        func listWorkspaces() async throws -> [MobileSSHWorkspace] {
+            [MobileSSHWorkspace(id: "work", name: "work", terminals: [MobileSSHTerminal(id: "work/%1", name: "0:zsh")])]
+        }
+        func createWorkspace() async throws -> MobileSSHWorkspace { throw CancellationError() }
+        func closeWorkspace(id: String) async throws { throw CloseRefused() }
+        func attach(
+            terminalID: String,
+            columns: Int,
+            rows: Int,
+            events: @escaping @MainActor (MobileSSHAttachEvent) -> Void
+        ) async throws -> any MobileSSHAttachedTerminal {
+            throw CancellationError()
+        }
+    }
+
+    func makeRuntime(_ provider: any MobileSSHWorkspaceProvider) async throws -> (MobileSSHComputers, RecordingSSHSink, UUID, String) {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-ssh-close-\(UUID().uuidString)")
+        let computers = MobileSSHComputers(directory: dir)
+        let sink = RecordingSSHSink()
+        computers.sink = sink
+        let host = SSHHostRecord(name: "box", endpoint: SSHEndpoint(host: "127.0.0.1", port: 1, username: "nobody"))
+        try await computers.saveHost(host)
+        computers.installProviderForTesting(provider, hostID: host.id)
+        await computers.refreshWorkspaces(hostID: host.id)
+        let scoped = MobileSSHIdentifier(host: host.id, local: MobileSSHLocalID.tmux("work").rawValue).rawValue
+        #expect(sink.states.last?.workspaces.contains { $0.id.rawValue == scoped } == true)
+        return (computers, sink, host.id, scoped)
+    }
+
+    @Test func failedCloseKeepsTheRowAndReportsTheError() async throws {
+        let (computers, sink, hostID, scoped) = try await makeRuntime(RefusingProvider())
+
+        await computers.closeWorkspace(scopedID: scoped)
+
+        #expect(computers.statusByHost[hostID] == .failed(CloseRefused().description))
+        #expect(sink.states.last?.workspaces.contains { $0.id.rawValue == scoped } == true)
+    }
+
+    @Test func successfulCloseRemovesTheRow() async throws {
+        let provider = StaticProvider(workspaces: [
+            MobileSSHWorkspace(id: "work", name: "work", terminals: [MobileSSHTerminal(id: "work/%1", name: "0:zsh")]),
+        ])
+        let (computers, sink, hostID, scoped) = try await makeRuntime(provider)
+
+        await computers.closeWorkspace(scopedID: scoped)
+
+        #expect(computers.statusByHost[hostID] == .connected)
+        #expect(sink.states.last?.workspaces.contains { $0.id.rawValue == scoped } == false)
+    }
+}
+
 @MainActor
 final class RecordingSSHSink: MobileSSHComputersSink {
     var states: [MacWorkspaceState] = []
