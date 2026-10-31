@@ -155,5 +155,61 @@ await requireBrowserLane("thread-rail-fast-scroll-edges.test.ts", async () => {
         await page.close();
       }
     });
+
+    // The frame a compositor scroll shows before the list's scroll event reaches the page: the list at
+    // its new offset, its drawn rows still the old offset's. A window capture listener holds the
+    // scroll event back from the page (React listens at its root), so that frame stays on screen to
+    // read and photograph. CMUX_RAIL_STILLS=1 prints its 2x crop, light and dark, as base64 PNGs.
+    test(`${name}: the list moved past its drawn rows still shows its ticks`, async () => {
+      const browser = browsers.get(name);
+      if (!browser) return;
+      current = browser;
+      for (const scheme of ["dark", "light"] as const) {
+        const opened = await pane!.open({ width: 1280, height: 900 }, undefined, { deviceScaleFactor: 2 });
+        try {
+          await opened.emulateMedia({ colorScheme: scheme });
+          const list = opened.locator(".acpmux-minimap__list[data-rail-scrolls]");
+          await list.waitFor({ timeout: 20_000 });
+          await opened.evaluate(() =>
+            Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined))),
+          );
+          const shown = await list.evaluate(async (node) => {
+            const hold = (event: Event) => event.stopImmediatePropagation();
+            window.addEventListener("scroll", hold, { capture: true });
+            // Half a view and a bit past the drawn rows, as one fast wheel step moves it.
+            node.scrollTop = Math.max(0, node.scrollTop - node.clientHeight * 1.5);
+            await window.cmuxPaintFrame();
+            await window.cmuxPaintFrame();
+            const top = node.scrollTop;
+            const first = Math.ceil(top / 10 - 0.5);
+            const last = Math.floor((top + node.clientHeight) / 10 + 0.5);
+            const drawn = new Set([...node.querySelectorAll<HTMLElement>("[data-tick]")].map((tick) => Number(tick.dataset.tick)));
+            let undrawn = 0;
+            for (let row = first; row < last; row++) if (!drawn.has(row)) undrawn += 1;
+            const gaps = [...node.querySelectorAll(".acpmux-minimap__gap")];
+            return {
+              undrawn,
+              rows: last - first,
+              painted: gaps.length > 0 && gaps.every((gap) => getComputedStyle(gap).backgroundImage.includes("gradient")),
+            };
+          });
+          if (process.env.CMUX_RAIL_STILLS) {
+            const box = (await list.boundingBox())!;
+            const still = await opened.screenshot({
+              clip: { x: Math.max(0, box.x - 8), y: box.y, width: box.width + 120, height: box.height },
+              scale: "device",
+            });
+            console.log(`RAIL_STILL ${name} ${scheme} ${still.toString("base64")}`);
+          }
+          // The frame does show rows past the drawn ones (the case this covers)...
+          expect(shown.undrawn).toBeGreaterThan(shown.rows / 4);
+          // ...and they paint their resting ticks, not a blank strip.
+          expect(shown.painted).toBe(true);
+        } finally {
+          await opened.close();
+        }
+        if (!process.env.CMUX_RAIL_STILLS) break;
+      }
+    });
   }
 });

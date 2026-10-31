@@ -199,8 +199,10 @@ export async function papercutPane(
   const open = async (
     viewport = { width: 900, height: 700 },
     prepare?: (page: Page) => Promise<void>,
+    /// A 2x page for stills (the PR screenshots' scale); 1x by default.
+    display: { deviceScaleFactor?: number } = {},
   ): Promise<Page> => {
-    const page = await browser().newPage({ viewport });
+    const page = await browser().newPage({ viewport, ...display });
     await installPaintedFrames(page);
     await prepare?.(page);
     const { port } = vite.httpServer!.address() as { port: number };
