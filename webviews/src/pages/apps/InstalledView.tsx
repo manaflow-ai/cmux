@@ -10,7 +10,16 @@ import { UpdatesView } from "./UpdatesView";
 export function InstalledView({ snap, store, strings }: { snap: AppsSnapshot; store: AppsStore; strings: Strings }) {
   const { t, format } = strings;
   if (snap.installed.length === 0)
-    return <div className="apps-empty">{snap.loading ? "" : t("store.empty.noneInstalled")}</div>;
+    return (
+      <div className={snap.loading ? "apps-empty" : "apps-empty apps-state"}>
+        {!snap.loading && (
+          <>
+            <strong>{t("store.empty.noneInstalled")}</strong>
+            <span>{t("store.empty.noneInstalledHint")}</span>
+          </>
+        )}
+      </div>
+    );
   return (
     <div className="apps-scroll">
       <div className="apps-installed">
