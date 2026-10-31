@@ -145,7 +145,6 @@ extension UpdaterService {
             return
         }
         recordBeforeInstall()
-        willInstallStaged?()
         installStaged()
         #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("install_handed_to_sparkle")
@@ -212,6 +211,7 @@ extension UpdaterService {
             automaticInstallInFlight = false
             automaticInstallFrontmost = nil
             log.append("automatic install ended without a relaunch (not shown)")
+            installAbandoned?()
         case .note where wasInstalling || (wasReady && clickedInstall):
             // The install failed: no relaunch comes. The windows come back and the failure's
             // sheet opens with Retry and Download Manually, so the click never ends in silence.
