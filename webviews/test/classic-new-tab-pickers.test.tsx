@@ -5,6 +5,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import { effortLevel } from "./support/effortDropdown";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, { had: boolean; value: unknown }>();
@@ -230,7 +231,7 @@ test("a classic New Tab starts its deferred chat before changing model", async (
 test("a classic New Tab holds its effort and Fast mode picks on a deferred chat", async () => {
   const { chatCalls } = await mount();
   await open();
-  const high = popup().querySelector<HTMLElement>('.acpmux-quick-effort-segment[aria-label="Opus 5.5 · High"]');
+  const high = await effortLevel(popup().ownerDocument, "Opus 5.5 · High");
   expect(high).not.toBeNull();
   await act(async () => high!.click());
   await open();

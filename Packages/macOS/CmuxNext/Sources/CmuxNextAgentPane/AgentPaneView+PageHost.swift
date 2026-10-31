@@ -5,6 +5,12 @@ import CmuxNextPages
 /// `cmux-page://cmux.agent/` in a ``PageWebView``, its calls answered by ``AgentPageProvider`` and
 /// the host's pushes sent as ``AgentPageEvent``s. The `agent.pageHost` tunable turns it on.
 extension AgentPaneView {
+    /// Runs once the chat has painted (``AgentPaneModel/whenPainted(_:)``), the gate the page is
+    /// revealed on; the document's own first frame comes earlier and draws an empty chat.
+    package func whenPagePainted(_ body: @escaping () -> Void) {
+        model.whenPainted(body)
+    }
+
     /// Wires `page` to this view: navigation, crashes, and the state a new page subscriber gets.
     func attachPage(_ page: PageWebView) {
         page.autoresizingMask = [.width, .height]

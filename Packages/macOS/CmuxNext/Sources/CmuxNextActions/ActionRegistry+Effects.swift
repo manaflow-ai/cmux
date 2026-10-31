@@ -60,8 +60,8 @@ extension ActionRegistry {
             let title = title(for: id) ?? id.rawValue
             track(result: Task { [weak self] in
                 let answer = await result()
-                if case .failure(let failure) = answer, !reported {
-                    self?.remoteFailureObserver?(id, failedText(title, failure.message))
+                if case .failure(let failure) = answer, !reported, !failure.shown {
+                    self?.remoteFailureObserver?(id, failedText(title, failure))
                 }
                 return answer
             })
@@ -73,6 +73,21 @@ extension ActionRegistry {
         }
     }
 
+    /// A legacy handler's remote work whose local change (an optimistic create's stand-in) the store already rolls
+    /// back when it fails: tracked for a capturing caller, which reports the failure itself; otherwise the failure
+    /// shows where refusals show and is logged (``remoteFailureObserver``), as an ``ActionEffect/applied(_:)`` one does.
+    /// A refusal is never silent (P0 2026-10-30: a refused second Cmd-D's pane just vanished).
+    public func trackRollingBack(_ id: ActionID, _ work: ActionWork) {
+        let reported = isCapturingWork
+        let title = title(for: id) ?? id.rawValue
+        // task-owner: reports `work`'s failure once it ends; `work` itself is the caller's.
+        track(Task { [weak self] in
+            guard let failure = await work.value else { return nil }
+            if !reported, !failure.shown { self?.remoteFailureObserver?(id, failedText(title, failure)) }
+            return failure
+        })
+    }
+
     /// Starts `send` after the handler's turn, tracked for a capturing caller; on failure rolls back
     /// and, unless a capturing caller reports it itself, shows it.
     private func start(_ id: ActionID, _ invocation: ActionInvocation, _ send: @escaping @MainActor () async -> ActionWorkFailure?,
@@ -82,7 +97,7 @@ extension ActionRegistry {
         let task: ActionWork = Task { [weak self] in
             guard let failure = await send() else { return nil }
             rollback?(failure)
-            if !reported { self?.remoteFailureObserver?(id, failedText(title, failure.message)) }
+            if !reported, !failure.shown { self?.remoteFailureObserver?(id, failedText(title, failure)) }
             return failure
         }
         track(task)
@@ -90,6 +105,12 @@ extension ActionRegistry {
 }
 
 /// The notice for a failed remote half (Localizable.xcstrings).
+private func failedText(_ title: String, _ failure: ActionWorkFailure) -> String {
+    // A typed refusal (the pane is still opening) is already the person's sentence; a daemon error gets its frame.
+    if failure.refusal != nil { return failure.message }
+    return failedText(title, failure.message)
+}
+
 private func failedText(_ title: String, _ reason: String) -> String {
     String(format: String(localized: "action.effect.failed", defaultValue: "%1$@ did not apply: %2$@", bundle: .module), title, reason)
 }

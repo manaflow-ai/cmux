@@ -11,6 +11,7 @@ import { Icon as CmuxIcon } from "./icons/Icon";
 import type { ComposerPlusExtension } from "./composerPlusRegistry";
 import { useT, type Translate } from "./i18n";
 import { scrollActiveMenuRow } from "./scrollActiveMenuRow";
+import { useScrollEdges } from "./summary/scrollEdges";
 
 export type PaletteChoice = {
   id: string;
@@ -112,6 +113,8 @@ export function PaletteMenu({
   const menu = useRef<HTMLDivElement | null>(null);
   const search = useRef<HTMLInputElement>(null);
   const menuId = useId();
+  // The list scrolls under the search field; its edges fade where rows pass under them.
+  const edges = useScrollEdges();
   const host = usePopupHost();
   const [shown, setShown] = useState<HTMLDivElement | null>(null);
   const attach = useCallback(
@@ -299,47 +302,58 @@ export function PaletteMenu({
             </div>
           )}
           {/* A native select cannot hold descriptions, sections or search. */}
-          {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-          <div id={menuId} role="listbox" tabIndex={-1} aria-label={label} onKeyDown={keyDown}>
-            {filtered.map((section) => (
-              <div
-                key={section.title}
-                className="acpmux-menu-section"
-                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                role="group"
-                aria-label={section.title}
-              >
-                <div className="acpmux-menu-header">{section.title}</div>
-                {section.choices.map((choice) => {
-                  index += 1;
-                  const at = index;
-                  return (
-                    <div
-                      key={`${section.title}-${choice.id}`}
-                      id={`${menuId}-${at}`}
-                      data-value={choice.id}
-                      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                      role="option"
-                      tabIndex={-1}
-                      aria-selected={at === selected}
-                      className={`acpmux-menu-item${at === selected ? " acpmux-menu-active" : ""}`}
-                      onMouseMove={() => at !== selected && setActive(at)}
-                      onMouseDown={(event) => {
-                        if (event.button !== 0) return;
-                        event.preventDefault();
-                        void pick(at);
-                      }}
-                    >
-                      {choice.icon}
-                      <span className="acpmux-menu-text">
-                        <span className="acpmux-menu-label">{choice.name}</span>
-                        {choice.description && <span className="acpmux-menu-description">{choice.description}</span>}
-                      </span>
-                      {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
-                    </div>
-                  );
-                })}
-              </div>
+          <div
+            ref={edges}
+            id={menuId}
+            className="acpmux-palette-list"
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+            role="listbox"
+            tabIndex={-1}
+            aria-label={label}
+            onKeyDown={keyDown}
+          >
+            {filtered.map((section, s) => (
+              <React.Fragment key={section.title}>
+                {/* The shared menu separator (ui/popupSurface.css) splits the groups; the groups name themselves. */}
+                {s > 0 && <div className="ui-separator" aria-hidden="true" />}
+                <div
+                  className="acpmux-menu-section"
+                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                  role="group"
+                  aria-label={section.title}
+                >
+                  <div className="acpmux-menu-header">{section.title}</div>
+                  {section.choices.map((choice) => {
+                    index += 1;
+                    const at = index;
+                    return (
+                      <div
+                        key={`${section.title}-${choice.id}`}
+                        id={`${menuId}-${at}`}
+                        data-value={choice.id}
+                        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                        role="option"
+                        tabIndex={-1}
+                        aria-selected={at === selected}
+                        className={`acpmux-menu-item${at === selected ? " acpmux-menu-active" : ""}`}
+                        onMouseMove={() => at !== selected && setActive(at)}
+                        onMouseDown={(event) => {
+                          if (event.button !== 0) return;
+                          event.preventDefault();
+                          void pick(at);
+                        }}
+                      >
+                        {choice.icon}
+                        <span className="acpmux-menu-text">
+                          <span className="acpmux-menu-label">{choice.name}</span>
+                          {choice.description && <span className="acpmux-menu-description">{choice.description}</span>}
+                        </span>
+                        {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </React.Fragment>
             ))}
             {!rows.length && <div className="acpmux-palette-empty">{t("composer.noMatchingCommands")}</div>}
           </div>
