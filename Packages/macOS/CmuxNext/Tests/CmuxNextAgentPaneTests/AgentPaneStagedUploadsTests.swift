@@ -89,19 +89,25 @@ import Testing
     /// back) takes the delivery back, once and only for its own target; a failed transfer has none.
     @Test func aCancelAfterDeliveryTakesItBack() async throws {
         let store = AgentPaneStagedUploads<String>(owner: "test.staged-uploads.undo")
-        var undone: [String] = []
+        let undone = UndoLog()
         for (name, delivers) in [("sent.bin", true), ("failed.bin", false)] {
             let begun = try #require(store.begin(name: name, size: 1, batchToken: nil, manifest: nil, target: "t", work: Self.work, make: Self.stageFile))
             #expect(store.chunk(begun.token, offset: 0, data: Data([1]), owns: { _ in true }, work: Self.work) == 1)
             let answer = await store.finish(begun.token, owns: { _ in true }, work: Self.work, transfer: { _ in delivers },
-                                            undo: { delivered in delivered ? { undone.append(name) } : nil })
+                                            undo: { delivered in delivered ? { @MainActor in undone.add(name) } : nil })
             #expect(answer == delivers)
-            let before = undone
+            let before = undone.names
             await store.cancel(begun.token, owns: { $0 == "other" }, work: Self.work)
-            #expect(undone == before, "another target's cancel took back \(name)")
+            #expect(undone.names == before, "another target's cancel took back \(name)")
             await store.cancel(begun.token, owns: { $0 == "t" }, work: Self.work)
             await store.cancel(begun.token, owns: { $0 == "t" }, work: Self.work)
         }
-        #expect(undone == ["sent.bin"])
+        #expect(undone.names == ["sent.bin"])
     }
+}
+
+/// The names a test's undo ran for, on the main actor as the store runs undo.
+@MainActor private final class UndoLog {
+    private(set) var names: [String] = []
+    func add(_ name: String) { names.append(name) }
 }

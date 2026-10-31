@@ -1,6 +1,6 @@
 import CmuxNextCompat
-public import CmuxNextWakeups
-public import Foundation
+package import CmuxNextWakeups
+package import Foundation
 
 /// The staged uploads (`chat.upload.begin/chunk/finish/cancel`, ``AgentPaneUploadStageRequest``) of
 /// one kind of remote chat, a Cloud machine's or an ssh peer's. Each stage is an owner-only file of
