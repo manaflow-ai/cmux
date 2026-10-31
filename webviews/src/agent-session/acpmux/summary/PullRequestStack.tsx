@@ -2,7 +2,7 @@
 // 2026-10-30: "you guys fucking removed the # prs thing entirely instead of just simply fucking
 // doing it", then "BUT IF IT'S ONLY N PRS DON'T FUCKIGN TAKE THE ENTIRE ROW AND FUCKING BLANK IT
 // OUT"). It is the collapsed count the dock had before cmux#26082 moved the pills into each
-// message's action row (#26441 aligned it last); those pills stay.
+// message's action row; cmux#29614 removed those pills, so this count is the chat's one PR shortcut.
 //
 // Folded, the count is one content-sized control on a row that is already there: the composer's
 // quiet row, beside the permission mode (Composer.tsx draws it through PullRequestCountSlot), so it
@@ -14,7 +14,7 @@
 // from its own menu (a right-click, or Shift-F10 on a focused row: "Dismiss pull request #N"), or
 // with Delete or Backspace on a focused row. The gallery compares other places for the count
 // (bottomStackStyles.gallery.ts, `data-pr-control`).
-import { createContext, useContext, useId, useState, type KeyboardEvent, type ReactNode } from "react";
+import { createContext, useContext, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { useHeaderState } from "../header/headerState";
@@ -24,7 +24,9 @@ import { LinkHoverCard } from "../chips/LinkHoverCard";
 import { useSiteInfo } from "../chips/linkStore";
 import { useHoverCard } from "../chips/useHoverCard";
 import { rowIconSize } from "../icons/iconSize";
-import type { SummaryPullRequest } from "./transcriptPullRequests";
+import type { AcpmuxRow } from "../model";
+import { headerStatus, visibleChanges } from "../inspector/ChangesSection";
+import { transcriptPullRequestKey, transcriptPullRequests, type SummaryPullRequest } from "./transcriptPullRequests";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -52,8 +54,8 @@ const StackContext = createContext<Stack | undefined>(undefined);
 
 const storageKey = (sessionId: string) => `acpmux.prDock.dismissed.${sessionId}`;
 
-/// The pull request URLs dismissed in this chat, the same list the dock kept before cmux#26082
-/// (PullRequestDockLegacy.tsx), so a shortcut dismissed then stays dismissed.
+/// The pull request URLs dismissed in this chat, the same list the dock kept before cmux#26082, so a
+/// shortcut dismissed then stays dismissed.
 function readDismissed(sessionId: string | undefined): string[] {
   if (!sessionId) return [];
   try {
@@ -71,6 +73,21 @@ function writeDismissed(sessionId: string | undefined, urls: readonly string[]):
   } catch {
     // Without storage the chip stays hidden until the page reloads.
   }
+}
+
+/// The chat's pull requests, newest first: the same session-owned Changes Session Info counts.
+/// Read-only reply mentions are Sources, so the cache fingerprints command findings only, by the
+/// producer's O(1) revision, and skips per-token prose work. (It was the transcript dock's, which
+/// cmux#29614 removed.)
+export function useTranscriptPullRequests(rows: readonly AcpmuxRow[], repository?: string) {
+  const { pullRequest: live } = useHeaderState();
+  const parsed = useRef<{ key: string | symbol; repository?: string; prs: SummaryPullRequest[] }>(undefined);
+  const key = transcriptPullRequestKey(rows, false);
+  if (parsed.current?.key !== key || parsed.current?.repository !== repository) {
+    parsed.current = { key, repository, prs: transcriptPullRequests(rows, { folder: repository, replies: false }) };
+  }
+  const all = parsed.current.prs;
+  return useMemo(() => visibleChanges(all, headerStatus(live)).reverse(), [all, live]);
 }
 
 /// The chat's pull requests for the count and the list under it. Whether the list is open, and what

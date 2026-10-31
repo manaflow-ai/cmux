@@ -186,10 +186,5 @@ export default agentPaneEntry({
       false,
       { documentAttributes: { "bottom-stack": "cards" } },
     ),
-    "legacy-bars": variant(
-      "Before cmux#26082 (comparison): the pull request bars stacked over the composer, each its own width.",
-      false,
-      { documentAttributes: { "pr-dock": "full" } },
-    ),
   },
 });

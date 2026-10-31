@@ -64,7 +64,6 @@ await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
     "above",
     "above-no-tray",
     "cards",
-    "legacy-bars",
   ];
   const webviews = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");
@@ -339,8 +338,8 @@ await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
         undefined,
         { timeout: 2_000 },
       );
-      // The per-message pills (cmux#26082) stay where they are.
-      expect(await page.locator(".acpmux-scroll .acpmux-pr-dock").count()).toBeGreaterThan(0);
+      // No pull request joins a message's line (cmux#29614 removed those chips).
+      expect(await page.locator(".acpmux-scroll .acpmux-pr-dock").count()).toBe(0);
     } finally {
       await page.close();
     }

@@ -1,6 +1,5 @@
 /* The chat's bottom stack (hq#1957, Leo 2026-10-14), .acpmux-dock: everything under the transcript,
-   in this order: a question waiting for an answer (.acpmux-asks-stack), notices, the pull request
-   dock (summary/PullRequestDock.tsx), the tray while subagents or background commands run
+   in this order: a question waiting for an answer (.acpmux-asks-stack), notices, the tray while subagents or background commands run
    (subagents/SubagentTray.tsx; the agents pill, subagents/AgentsPill.tsx, with it off),
    then the composer form, which holds the queued prompts (ComposerQueue.tsx), the location strip and
    the card. Every part takes its own height in the stack's own flow, so none draws over another or
@@ -363,7 +362,6 @@
 /* A permission card's numbered options can outgrow a short pane: it scrolls inside the height it
    keeps, so the composer card stays in view. */
 .acpmux-dock > .acpmux-composer > .acpmux-composer-queue,
-.acpmux-dock > .acpmux-pr-dock,
 .acpmux-dock > .acpmux-pr-stack,
 .acpmux-dock > .acpmux-running-tray,
 .acpmux-dock > .acpmux-asks-stack {

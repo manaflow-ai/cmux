@@ -457,10 +457,15 @@ impl Hub {
     /// failed and its host may still run (`FloorState::full_access_end_pending`, review 51 of
     /// #23322), because its reattached host's replay is not all in the log yet (`host_replaying`),
     /// because the host records cannot be read while this daemon hears no agent of it
-    /// (`host_unknown`), or because this daemon no longer hears its host (`host_unheard`, review
+    /// (`host_unknown`), because its left host cannot speak to this build (`unjudged_host`,
+    /// #26337), or because this daemon no longer hears its host (`host_unheard`, review
     /// 64).
     async fn counts_as_full_access(&self, session: &Session) -> bool {
         if session.floor.full_access_end_pending.load(Ordering::SeqCst) {
+            return true;
+        }
+        let unjudged = session.floor.unjudged_host.load(Ordering::SeqCst);
+        if unjudged && !Self::host_record_gone(&session.id) {
             return true;
         }
         if Self::host_replaying(session).await {
@@ -840,6 +845,7 @@ impl Hub {
             }
         }
         session.floor.full_access_end_pending.store(false, Ordering::SeqCst);
+        session.floor.unjudged_host.store(false, Ordering::SeqCst);
         // What its agent reported and nothing applied goes with it; a report it still sends is
         // not counted (its tap's epoch is gone, review 4 of #26052).
         {
