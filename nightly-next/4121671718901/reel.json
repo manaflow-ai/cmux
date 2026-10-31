@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "build": "4121671718901",
+  "notes": "notes/4121671718901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 29191,
+      "title": "agent chat: a followed reply eases each new line into place instead of jumping a line per frame",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29244,
+      "title": "Agent chat: batched acpmux sends (shell function, loop, chain, MCP messages) draw one sent-message row per recipient",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29486,
+      "title": "base red: CmuxNextAppTests compile again (a missing import, a deleted row key)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28529,
+      "title": "test(next agent pane): pendingTrust waits on a frame daemon B receives, not on _acpmux/status (#28492)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28523,
+      "title": "chore(perf-lab): add the perf lab's two fleet entry scripts with perf/chrome-parity's exact bytes (they do nothing on feat alone)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28049,
+      "title": "cmux NEXT spaces: Move Space to This Window and Merge All Windows (carries #27327)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29389,
+      "title": "base red: webview shard 2 after the stall log, the automation queue read and the shared find chunk",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27825,
+      "title": "cmux NEXT: terminals stay quiet while a handoff adopts their shell",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27919,
+      "title": "cmux NEXT: a link from another app never reshapes Chief's Home",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28760,
+      "title": "fix(next): append Quote in Reply after composer draft (carry #26655)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29310,
+      "title": "ci: a display step fails without a screen, and --display reaches NSScreen suites",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27961,
+      "title": "fix(sidebar): include disclosure rows in keyboard navigation",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27719,
+      "title": "cmux-tui: agents in terminals hold at most 48 of the daemon's 64 connections",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26621,
+      "title": "cmux NEXT: palette search field and rows grow with large text (Fixes #26606)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28824,
+      "title": "Agent chat: fold completed dialogue above the final answer (carry #26629)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29437,
+      "title": "ci(cmux-next): base tier kick cancels superseded base tier runs no Mac has started",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
