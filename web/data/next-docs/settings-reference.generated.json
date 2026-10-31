@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 528,
+  "count": 532,
   "sections": [
     {
       "id": "general",
@@ -1090,7 +1090,6 @@
             "minimal",
             "cards",
             "default",
-            "composer",
             "threads",
             "console",
             "classic",
@@ -1238,14 +1237,6 @@
           "group": "Tabs"
         },
         {
-          "key": "tabs.terminalFirst",
-          "title": "cmux Classic Mode",
-          "help": "New tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic, instead of the New Tab page. To open the New Tab page while this is on, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P). Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Tabs"
-        },
-        {
           "key": "tasks.layout",
           "title": "Tasks Layout",
           "help": "Inbox lists what needs you first, with the task beside it. Changes apply at once.",
@@ -1372,6 +1363,14 @@
             "badge",
             "silent"
           ]
+        },
+        {
+          "key": "updates.showFeatureTips",
+          "title": "Show Feature Tips",
+          "help": "Now and then, a small tip points at a feature an update added. Close it or use the feature and it never comes back.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Updates"
         },
         {
           "key": "updates.showWhatsNew",
@@ -1602,6 +1601,18 @@
           ]
         },
         {
+          "key": "agentPane.display.rail.side",
+          "title": "Prompt Rail Side",
+          "help": "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it.",
+          "kind": "choice",
+          "default": "left",
+          "group": "Agent Chat",
+          "values": [
+            "left",
+            "right"
+          ]
+        },
+        {
           "key": "agentPane.display.vscodeMinimap",
           "title": "VS Code Minimap",
           "help": "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll.",
@@ -1657,7 +1668,7 @@
         {
           "key": "appearance.appTheme",
           "title": "App Theme",
-          "help": "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast.",
+          "help": "Colors for the window, sidebar, tabs and cmux's pages. Terminals keep the Terminal Theme. Every color meets WCAG AA contrast.",
           "kind": "theme",
           "default": "followTerminal",
           "group": "App Theme"
@@ -2618,7 +2629,7 @@
         {
           "key": "appearance.theme",
           "title": "Theme",
-          "help": "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it.",
+          "help": "Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it.",
           "kind": "theme",
           "default": null,
           "group": "App Theme"
@@ -3483,14 +3494,6 @@
           "group": "Sidebar"
         },
         {
-          "key": "sidebar.showWorkspaceTabs",
-          "title": "Show Workspace Tabs",
-          "help": "Lists tabs beneath each workspace in the sidebar.",
-          "kind": "toggle",
-          "default": true,
-          "group": "Sidebar"
-        },
-        {
           "key": "sidebar.side",
           "title": "Sidebar Side",
           "help": "The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar.",
@@ -3556,6 +3559,19 @@
           "values": [
             "standard",
             "rail"
+          ]
+        },
+        {
+          "key": "sidebar.textSize",
+          "title": "Sidebar Text Size",
+          "help": "Makes the sidebar's names, headers, icons and rows larger together. Larger matches the ChatGPT app's sidebar.",
+          "kind": "choice",
+          "default": "default",
+          "group": "Sidebar",
+          "values": [
+            "default",
+            "large",
+            "larger"
           ]
         },
         {
@@ -4539,6 +4555,14 @@
           "group": "Opening Links"
         },
         {
+          "key": "browser.import.cookieBanner",
+          "title": "Offer to Import Cookies",
+          "help": "Browser tabs offer to import cookies from your other browsers, so you stay signed in. Nothing imports until you click Import. Don't Show Again on the banner turns this off.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Import"
+        },
+        {
           "key": "browser.import.enabled",
           "title": "Import from Other Browsers",
           "help": "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays.",
@@ -4677,6 +4701,14 @@
           "group": "Address Bar"
         },
         {
+          "key": "browser.omnibar.fontSize",
+          "title": "Address Bar Text Size",
+          "help": "The size of the address and the suggestions. Match Density follows the density.",
+          "kind": "choice_or_number",
+          "default": "density",
+          "group": "Address Bar"
+        },
+        {
           "key": "browser.omnibar.glass",
           "title": "Address Bar Glass",
           "help": "The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color.",
@@ -4715,6 +4747,14 @@
             "max": 1,
             "unit": "fraction"
           }
+        },
+        {
+          "key": "browser.omnibar.height",
+          "title": "Address Bar Height",
+          "help": "Match Density follows the density. The bar always grows to fit its text.",
+          "kind": "choice_or_number",
+          "default": "density",
+          "group": "Address Bar"
         },
         {
           "key": "browser.omnibar.inlineAutocomplete",

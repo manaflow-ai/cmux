@@ -165,7 +165,7 @@ public final class AgentChatSurface {
         following = true
         if let scroller {
             scroller.scrollTranscript(toTop: false, animated: animated)
-        } else if animated {
+        } else if animated, !UIAccessibility.isReduceMotionEnabled {
             withAnimation(.smooth(duration: 0.35)) { position.scrollTo(edge: .bottom) }
         } else {
             position.scrollTo(edge: .bottom)

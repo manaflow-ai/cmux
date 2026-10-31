@@ -20,6 +20,14 @@ struct CmuxAppLinksTests {
         #expect(link("cmux://workspace/\(ws)")?.url(scheme: scheme)?.absoluteString == "\(scheme)://workspace/\(ws)")
     }
 
+    @Test func chiefsBackgroundLinkRunsChangeBackground() {
+        // Chief's first-launch welcome offers it; it is the palette's and the CLI's Change Background….
+        #expect(CmuxAppLinks.settingsAction(for: URL(string: "cmux://settings/background")!, linkScheme: scheme) == "appearance.changeBackground")
+        #expect(CmuxAppLinks.settingsAction(for: URL(string: "\(scheme)://settings/background")!, linkScheme: scheme) == "appearance.changeBackground")
+        #expect(CmuxAppLinks.settingsAction(for: URL(string: "cmux://settings/other")!, linkScheme: scheme) == nil)
+        #expect(CmuxAppLinks.settingsAction(for: URL(string: "https://settings/background")!, linkScheme: scheme) == nil)
+    }
+
     @Test func paneTabAndSessionLinksOpenToo() {
         #expect(link("cmux://pane/pane_0123456789abcdef0123456789abcdef")?.target == .pane("pane_0123456789abcdef0123456789abcdef"))
         #expect(link("cmux://tab/tab_0123456789abcdef0123456789abcdef")?.target == .tab("tab_0123456789abcdef0123456789abcdef"))

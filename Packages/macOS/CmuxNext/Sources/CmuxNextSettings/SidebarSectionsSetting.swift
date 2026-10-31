@@ -10,12 +10,13 @@ public nonisolated enum SidebarSectionsSetting {
     /// R87: the key nightly-next builds wrote before the rename, read for
     /// one release when `sidebar.pinnedBandsScroll` is absent. Remove after it.
     static let legacyScrollPath = ["sidebar", "stickyBandsScroll"]
-    public static let showWorkspaceTabsPath = ["sidebar", "showWorkspaceTabs"]
     public static let minimalModePath = ["sidebar", "minimalMode"]
     /// Minimal mode (cx-w1r5): rows draw only icon, name and marks; section
     /// headers become thin lines.
     public static let minimalPath = ["sidebar", "minimal"]
     public static let densityPath = ["sidebar", "density"]
+    /// `sidebar.textSize` (``SidebarTextSize``): the list's text, leading glyphs and rows together.
+    public static let textSizePath = ["sidebar", "textSize"]
     /// `sidebar.style`: standard or the thin rail (plans/cmux-next/minimal-sidebar.md).
     public static let stylePath = ["sidebar", "style"]
     public static let showProjectsPath = ["sidebar", "showProjects"]
@@ -125,6 +126,24 @@ public nonisolated enum SidebarSectionsSetting {
                           keywords: ["sidebar", "density", "expanded", "compact", "comfortable", "rows", "preview", "two lines", "taller", "t3", "codex"])
     }
 
+    /// Lawrence msg 17752: "we also need option for sidebar text to be very significantly bigger. this is
+    /// how big chatgpt is by default, let's match them". Larger is that size.
+    static func textSizeDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(textSizePath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.textSize", "Sidebar Text Size"),
+                          help: SettingsText.keyed("settings.sidebar.textSize.help",
+                                                   "Makes the sidebar's names, headers, icons and rows larger together. Larger matches the ChatGPT app's sidebar."),
+                          kind: .choice(SidebarTextSize.allCases.map { size in
+                              switch size {
+                              case .standard: SettingChoice(size.rawValue, SettingsText.keyed("settings.choice.default", "Default"))
+                              case .large: SettingChoice(size.rawValue, SettingsText.keyed("settings.choice.sidebarTextLarge", "Large"))
+                              case .larger: SettingChoice(size.rawValue, SettingsText.keyed("settings.choice.sidebarTextLarger", "Larger"))
+                              }
+                          }),
+                          default: .string(SidebarSectionsPreferences.defaults.textSize.rawValue),
+                          keywords: ["sidebar", "text", "size", "font", "bigger", "larger", "large", "zoom", "readable", "accessibility", "chatgpt", "rows"])
+    }
+
     static func styleDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(stylePath, section: .appearance, group: group,
                           title: SettingsText.keyed("settings.sidebar.style", "Sidebar Style"),
@@ -152,14 +171,6 @@ public nonisolated enum SidebarSectionsSetting {
                           ]),
                           default: .string(SidebarSectionsPreferences.defaults.minimalMode.rawValue),
                           keywords: ["sidebar", "minimal", "hide", "hover", "settings", "account"])
-    }
-
-    static func showWorkspaceTabsDescriptor(group: SettingText) -> SettingDescriptor {
-        SettingDescriptor(showWorkspaceTabsPath, section: .appearance, group: group,
-                          title: SettingsText.keyed("settings.sidebar.showWorkspaceTabs", "Show Workspace Tabs"),
-                          help: SettingsText.keyed("settings.sidebar.showWorkspaceTabs.help", "Lists tabs beneath each workspace in the sidebar."),
-                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showWorkspaceTabs),
-                          keywords: ["sidebar", "workspace", "tabs"])
     }
 
     /// Projects, which its header's menu hides (Leo 2026-10-06). All chats has
@@ -269,13 +280,6 @@ public nonisolated enum SidebarSectionsSetting {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.minimalMode", message: "expected one of " + choices))
             }
         }
-        if let value = root.value(at: showWorkspaceTabsPath) {
-            if let flag = value.boolValue {
-                result.showWorkspaceTabs = flag
-            } else {
-                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.showWorkspaceTabs", message: "expected true or false"))
-            }
-        }
         result.sessionTree = flag(root, sessionTreePath, fallback: result.sessionTree, &diagnostics)
         if let value = root.value(at: tipsPath) {
             if let flag = value.boolValue {
@@ -315,6 +319,14 @@ public nonisolated enum SidebarSectionsSetting {
             } else {
                 let choices = SidebarDensity.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.density", message: "expected one of " + choices))
+            }
+        }
+        if let value = root.value(at: textSizePath) {
+            if let text = value.stringValue, let size = SidebarTextSize(rawValue: text) {
+                result.textSize = size
+            } else {
+                let choices = SidebarTextSize.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.textSize", message: "expected one of " + choices))
             }
         }
         if let value = root.value(at: stylePath) {
