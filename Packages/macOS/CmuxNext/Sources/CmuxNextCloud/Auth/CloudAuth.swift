@@ -106,7 +106,11 @@ public final class CloudAuth {
             anchor: anchor,
             config: config,
             launch: AuthLaunchOptions(clearAuthRequested: false, mockDataEnabled: false, environment: launchEnvironment,
-                                      includesDevAuth: devAuth, replaceStoredSessionWithAutoLogin: replaceSession)
+                                      includesDevAuth: devAuth, replaceStoredSessionWithAutoLogin: replaceSession),
+            // NEXT uses the same protected Keychain/file fallback as classic.
+            // Preserve a cached session when the Keychain is temporarily unreadable
+            // (for example, before first unlock) instead of treating nil as sign-out.
+            isTokenStorageAvailable: { await tokenStore.isTokenStorageAvailable() }
         )
         activeTeam = ActiveTeam(source: coordinator)
         callbackRouter = AuthCallbackRouter(extraAllowedScheme: configuration.callbackScheme)
