@@ -16,12 +16,15 @@ which runs the app's scripts as a gesture). For each engine:
      Cancel opens nothing; Open (this time) opens it; asked again, Open with
      "Always allow" opens it, and the next click opens it with no prompt;
   3. a link to a scheme no app opens does nothing and asks nothing;
-  4. a script that sets location to mailto: without a click opens nothing.
+  4. a script that sets location to mailto: without a click opens nothing;
+  5. (Chromium) a page that redirects to another app (a sign-in returning to its app,
+     as cmux.com's after-sign-in redirects to cmux://) asks first, even for mailto:,
+     with no "Always allow"; Open opens it.
 
 GUI host only (a capture mini). The app is quit and the tag's daemons stopped at the
 end. Exits 1 when a check fails.
 """
-import argparse, functools, glob, http.server, json, os, plistlib, socket, subprocess, sys, tempfile, threading, time
+import argparse, functools, glob, http.server, json, os, plistlib, socket, subprocess, sys, tempfile, threading, time, urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
@@ -202,16 +205,46 @@ def run_engine(engine):
     check(got == [] and not asked(), f"{engine}: a scheme no app opens does nothing and asks nothing ({got}, {prompts()})")
     check(page("!!document.getElementById('mail')") is True, f"{engine}: the page is still there (no error page over it)")
 
+    # 5. A server redirect to another app asks first (Chromium; WebKit gives no redirect signal).
+    if engine == "chromium":
+        before = len(opens())
+        check(run(engine, f"location.href = {json.dumps(redirect_url(url, MAIL))}; true", gesture=False),
+              f"{engine}: the redirecting navigation starts")
+        shown = quiet_wait(asked, 10)
+        check(bool(shown) and shown[0].get("origin") == "",
+              f"{engine}: a redirect to mailto: asks first, with no Always allow ({prompts()})")
+        check(settled_opens(before, 1) == [], f"{engine}: nothing opens while the redirect asks")
+        if shown:
+            prompts("allowOnce")
+            check(settled_opens(before) == [MAIL], f"{engine}: Open opens the redirect's URL")
+        check(page("!!document.getElementById('mail')") is True, f"{engine}: the page is still there after the redirect")
+
     rpc("action.run", {"action": "closeTab", "origin": "script"})
     TAB = None
+
+
+def redirect_url(page_url, target):
+    """A URL on the page's server that redirects (302) to `target`."""
+    return page_url.replace("/index.html", "/redirect?to=") + urllib.parse.quote(target, safe="")
 
 
 def serve():
     root = tempfile.mkdtemp(prefix="external-schemes-page-")
     with open(os.path.join(root, "index.html"), "w") as f:
         f.write(PAGE)
-    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=root)
-    handler.log_message = lambda *args: None
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        def do_GET(self):
+            parsed = urllib.parse.urlsplit(self.path)
+            if parsed.path != "/redirect":
+                return super().do_GET()
+            self.send_response(302)
+            self.send_header("Location", urllib.parse.parse_qs(parsed.query)["to"][0])
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    handler = functools.partial(Handler, directory=root)
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return f"http://127.0.0.1:{server.server_address[1]}/index.html"

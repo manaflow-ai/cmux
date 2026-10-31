@@ -1,7 +1,7 @@
 // A page's links to other apps (cx-d0d.22): a main-frame navigation to a
 // scheme neither Chromium nor cmux loads (mailto:, tel:, an app's own
 // scheme) is cancelled before it starts and reported as EXTERNAL_URL, with
-// whether the user's gesture started it; the host opens it in its app or
+// whether the user's gesture started it and whether a server redirect led there; the host opens it in its app or
 // asks first (BrowserExternalApps). Left to Chromium, the navigation would
 // fail with ERR_UNKNOWN_URL_SCHEME and commit its error page over the page.
 // web+ and ext+ schemes stay Chromium's (registered protocol handlers).
