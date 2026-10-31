@@ -315,6 +315,8 @@ final class DiffCodeLayout: UICollectionViewLayout {
 // MARK: Cells
 
 /// A diff cell whose gutter or band label stays put while the code pans sideways.
+/// Class-bound (SE-0156): only `UICollectionViewCell` subclasses conform, so a `DiffCell`
+/// is a cell wherever it is used.
 @MainActor
 protocol DiffCell: UICollectionViewCell {
     func pin(_ x: CGFloat)
