@@ -17,6 +17,7 @@ extension WorkspaceRowView {
         // An expanded row's hover pin (cx-13w3): nil while the App offers none.
         isPinned = { [weak list] in list?.model.workspacePin?.isPinned(id) }
         onPin = { [weak list] in list?.model.workspacePin?.toggle(id) }
+        groupPinStyle = { [weak list] row in list?.groupPinStyle(row) ?? (.off, nil) }
     }
 
     /// Reads the agent mark, presence dot, row badge and stack size settings;

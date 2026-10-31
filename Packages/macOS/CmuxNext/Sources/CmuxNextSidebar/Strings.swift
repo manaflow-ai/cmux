@@ -133,6 +133,8 @@ enum Strings {
     static var closeTab: String { String(localized: "sidebar.a11y.closeTab", defaultValue: "Close tab", bundle: .module) }
     static var pinWorkspace: String { String(localized: "sidebar.a11y.pinWorkspace", defaultValue: "Pin workspace", bundle: .module) }
     static var unpinWorkspace: String { String(localized: "sidebar.a11y.unpinWorkspace", defaultValue: "Unpin workspace", bundle: .module) }
+    /// A workspace pinned inside its group (`sidebar.groupPinMark`): its pin's tooltip and the row's label.
+    static var pinnedInGroup: String { String(localized: "sidebar.a11y.pinnedInGroup", defaultValue: "Pinned in group", bundle: .module) }
     /// The workspace row's more button (cx-a9h6): its menu.
     static var workspaceMenu: String { String(localized: "sidebar.a11y.workspaceMenu", defaultValue: "Workspace options", bundle: .module) }
     static func groupCount(_ value: Int) -> String { String(localized: "sidebar.a11y.groupCount", defaultValue: "\(value) workspaces", bundle: .module) }

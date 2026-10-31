@@ -30,8 +30,10 @@ extension WorkspaceRowView {
     }
 
     func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent, title: String? = nil) -> String {
-        Self.accessibilityText(ws, content: content, tabCount: count, presence: presenceDots.isHidden ? [] : presenceDots.presence,
-                               title: title)
+        let text = Self.accessibilityText(ws, content: content, tabCount: count, presence: presenceDots.isHidden ? [] : presenceDots.presence,
+                                          title: title)
+        // Pinned inside its group: said whatever `sidebar.groupPinMark` draws.
+        return isPinnedInGroup ? text + ", " + Strings.pinnedInGroup : text
     }
 
     /// The row's label: what it draws, in reading order. `tabCount` and `presence` are what the

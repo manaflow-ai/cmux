@@ -222,6 +222,7 @@ import QuartzCore
         model.showsTimestamps = host.model.showsTimestamps
         model.showsColors = host.model.showsColors
         model.showsLocalMachine = host.model.showsLocalMachine
+        model.groupPinMark = host.model.groupPinMark
         model.groupHeaderDetails = host.model.groupHeaderDetails
         model.activeWorkspaceID = host.model.activeWorkspaceID
         model.newWorkspaceShortcut = host.model.newWorkspaceShortcut // an empty space's hint names the effective shortcut

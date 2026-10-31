@@ -72,13 +72,14 @@ extension WorkspaceRowView {
             mutedMark.setTint(Palette.textTertiary)
             usageWarningMark.setTint(Palette.attention)
             if let machine { machineMark.setTint(machine.color) }
+            tintGroupPin()
             prBadge.setColor(Palette.textSecondary)
             tintSessionTree()
             let waits = if case .waiting = activityState { true } else { false }
             agentMark.setTint(waits ? Palette.attention : Palette.textSecondary)
             // Fills only, no borders: drop target, selection, multi-selection or on screen, hover.
             let fill = isDropTarget || isSelected ? Palette.selectionFill : isSecondarySelected || isOnScreen ? Palette.secondarySelectionFill
-                : isHovered && !isPlaceholderRow && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil
+                : isHovered && !isPlaceholderRow && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : groupPinShelfFill
             paintFill(fill)
             (rowBadge.ringColor, rowBadge.chipColor) = (Self.badgeBackdrop(fill), Palette.sidebarStep.cgColor)
             // The sidebar's own tonal step, once more: a bar a step apart.
@@ -202,6 +203,7 @@ extension WorkspaceRowView {
             mutedMark.frame = NSRect(x: trailing - ind, y: cy - ind / 2, width: ind, height: ind)
             trailing -= ind + Metrics.space2
         }
+        trailing = layoutTrailingGroupPin(trailing: trailing, cy: cy)
         if !usageWarningMark.isHidden {
             // The warning badge never gives way to the hover controls: while they show it sits just
             // left of them, so a person who hovers the row can still point at it and read its tooltip.
@@ -229,6 +231,7 @@ extension WorkspaceRowView {
             machineMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
             textX = SidebarStyle.titleXAfterLeadingMark(textX)
         }
+        textX = layoutLeadingGroupPin(textX: textX, cy: cy)
         let textW = max(0, trailing - textX)
         let titleArrival = titleArrivalPending || titleArrivalActive
         title.isHidden = renaming || (isShowingPlaceholder && !titleArrival)
@@ -253,7 +256,7 @@ extension WorkspaceRowView {
         updateCalmTitleTip()
         subtitle.wantsLayer = true
         subtitle.setTrailingFade(occlusion: coverStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
-        for mark in [activity, rowBadge, agentMark, mutedMark, usageWarningMark, machineMark, audioButton, presenceDots, timeLabel] as [NSView] {
+        for mark in [activity, rowBadge, agentMark, mutedMark, groupPin, usageWarningMark, machineMark, audioButton, presenceDots, timeLabel] as [NSView] {
             // The column's mark gives way while the hover controls show; so does a status spinner left of it.
             let status = mark === activity || (mark === agentMark && markReplacesStatus)
             let covered = mark === usageWarningMark ? false : mark === columnMark?.view ? markGivesWay
