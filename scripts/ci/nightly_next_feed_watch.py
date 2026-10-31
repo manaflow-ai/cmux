@@ -76,6 +76,11 @@ LEGACY_JOBS = ("legacy-identity-target", "sign-nightly-identity-legacy", "verify
 # Nightly freshness (rulebook): no feed more than 30 minutes behind; a legacy job's re-run takes ~15.
 LEGACY_MAX_LAG_MINUTES = 15.0
 LEGACY_MAX_ATTEMPTS = 3
+# A legacy job that ended any of these did not publish, so the watch re-runs it. Cancelled counts:
+# the Blacksmith macOS signing jobs sat queued with no runner and were cancelled on 2026-10-30
+# (run 41000008430, two attempts), and cmux NIGHTLY's feed stayed 9 hours behind while the watch
+# re-ran nothing.
+LEGACY_UNPUBLISHED = ("failure", "timed_out", "cancelled")
 LABEL = "nightly-next-feed-stale"
 PUSH_WORKFLOW = "cmux-next-guards.yml"  # every feat-cmux-next push, no path filter
 RELEASE_COMPILE_JOB = "cmux-next Release compile (Xcode 26)"
@@ -668,7 +673,7 @@ def legacy_rerun(gh: GitHub, build: int) -> str:
         return f"run {url} is not a nightly-next nightly.yml run"
     if run.get("status") in ACTIVE:
         return f"its run {url} is still running"
-    failed = {job["name"]: job for job in gh.jobs(run) if job.get("name") in LEGACY_JOBS and job.get("conclusion") in ("failure", "timed_out")}
+    failed = {job["name"]: job for job in gh.jobs(run) if job.get("name") in LEGACY_JOBS and job.get("conclusion") in LEGACY_UNPUBLISHED}
     if not failed:
         return f"run {url} has no failed legacy job to re-run"
     if int(run.get("run_attempt") or 1) >= LEGACY_MAX_ATTEMPTS:

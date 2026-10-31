@@ -36,7 +36,12 @@ name: CI queue janitor
 #
 # Each sweep also publishes the per-pool macOS queue it saw as the
 # `macos-pool-load` artifact, which pull request CI reads to overflow off a
-# backed-up pool.
+# backed-up pool. It carries the gates' own state per glaeda label as `gates`
+# (listening, busy, held off by reason, queued, as_of), from the
+# CI_FLEET_GATES variable the fleet dashboard keeps fresh: GitHub lists a
+# runner the gate holds off as offline, like a dead one. A reading over 5 min
+# old is stale; readers treat stale or missing as full for jobs queued over
+# 3 min (scripts/ci/queue_janitor.py fleet_gates() documents the fields).
 #
 # It also alerts on starved fleet labels: a glaeda-* label with a job queued
 # over 10 minutes and no job on it running or started in that time
@@ -51,11 +56,21 @@ name: CI queue janitor
 # skips when the newest snapshot is under 600 s old, one cron interval, so it
 # only stands in for a late cron. A cron sweep skips when a snapshot is under
 # 300 s old, the case where a requested CI run has just stood in for it. A
-# full sweep costs 130 to 170 API requests from the GITHUB_TOKEN budget every
-# workflow in the repository shares. With a 240 s skip for requested runs and
+# full sweep costs about one API request per in-flight run (its job listing)
+# plus one per 100 runs listed: about 1,170 for the 1,160 runs in flight at
+# 15:30Z on 2026-10-30, at most MAX_JOB_LISTINGS (2,000) job
+# listings a sweep (scripts/ci/queue_janitor.py). In 2026-10 that was 130 to 170 requests from
+# the GITHUB_TOKEN budget every workflow in the repository shares. With a 240 s skip for requested runs and
 # none for the cron, CI being requested hundreds of times an hour drove about
 # 12 sweeps an hour, and the budget ran out on 2026-10-06. Now there are about
 # 6. The concurrency group keeps one sweep running and one waiting.
+#
+# A run follows its own branch's copy of its workflow, so feat-cmux-next's
+# workflow files are checked out too (over git, which spends no API budget),
+# and a feat-cmux-next run of a workflow that copy runs only on Linux is not
+# listed: 573 of the 1,324 runs a sweep listed on 2026-10-31. A sweep that runs
+# out of API budget stops, as before, but ends green with a warning (an infra
+# skip); the first sweep after the reset reads the whole queue again.
 #
 # Since the budget ran out again on 2026-10-21, the sweep reads and cancels with the
 # manaflow-glaeda-route App's token, which has its own budget (minted first, so the
@@ -86,9 +101,13 @@ env:
   SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml
 
 # One sweep at a time; a second sweep waits rather than racing the first
-# one's cancellations, and never cancels it.
+# one's cancellations, and never cancels it. GitHub keeps one run waiting per
+# group and cancels it for each newer arrival, so a run whose job's `if` starts
+# no sweep (a CI run of a pull request into feat-cmux-next) gets a group of its
+# own: in the shared group those runs cancelled the waiting sweep, often within
+# seconds, and on 2026-10-30 left the pool snapshot 50 minutes old.
 concurrency:
-  group: ci-queue-janitor
+  group: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].base.ref == 'feat-cmux-next') && format('ci-queue-janitor-noop-{0}', github.run_id) || 'ci-queue-janitor' }}
   cancel-in-progress: false
 
 jobs:
@@ -100,7 +119,9 @@ jobs:
     name: Sweep wasted macOS demand
     if: ${{ !(github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].base.ref == 'feat-cmux-next') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
+    # A sweep that lists the whole queue took up to 13 minutes on 2026-10-30; a timed-out
+    # job skips the upload below, so this leaves room for the longest one seen.
+    timeout-minutes: 15
     steps:
       # Before the freshness gate, so its one read is on the App's budget too. Minting
       # spends the App's own requests, never GITHUB_TOKEN's.
@@ -168,13 +189,33 @@ jobs:
         with:
           persist-credentials: false
 
+      # Only read as text: which of feat-cmux-next's workflows can schedule a macOS job, since a
+      # feat-cmux-next run follows that branch's copy (queue_janitor.needs_jobs()). A git fetch spends
+      # no API budget. If it fails, that branch's runs are all listed, as before.
+      - name: Check out feat-cmux-next's workflow files
+        if: steps.fresh.outputs.skip != 'true'
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          path: branch-workflows/feat-cmux-next
+          sparse-checkout: .github/workflows
+          filter: blob:none
+          persist-credentials: false
+
       - name: Cancel wasted macOS runs
         if: steps.fresh.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token || github.token }}
           # Takes over when the App's token is refused (queue_janitor.GitHub).
           GH_FALLBACK_TOKEN: ${{ github.token }}
+          # The same cmux-bot token again, so the janitor knows GH_TOKEN is cmux-bot's: only then does
+          # category e cancel a lost job at an open PR's head and re-run it as cmux-bot (open_head_lost()).
+          CMUX_BOT_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
           GH_REPO: ${{ github.repository }}
+          # BRANCH=DIR: another branch's workflow files, read for its linux-only runs (needs_jobs()).
+          BRANCH_WORKFLOWS: feat-cmux-next=branch-workflows/feat-cmux-next/.github/workflows
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || vars.CI_JANITOR_DRY_RUN == 'true' && 'true' || 'false' }}
           QUEUE_THRESHOLD: ${{ vars.CI_JANITOR_QUEUE_THRESHOLD }}
           CI_PULL_REQUEST_SUITE: ${{ vars.CI_PULL_REQUEST_SUITE || 'compile-only' }}
@@ -193,6 +234,10 @@ jobs:
           # 1: fold admission's owned-warm-keys artifacts into the snapshot's
           # `warm` (scripts/ci/owned_warm_state.py) for warm affinity.
           OWNED_WARM: ${{ vars.CI_OWNED_WARM }}
+          # The gates' own state per glaeda label, written by the fleet
+          # dashboard (cmuxterm-hq build-fleet/ci-dash); JSON data only, read
+          # through env and never expanded into a script. Into the snapshot as `gates`.
+          FLEET_GATES: ${{ vars.CI_FLEET_GATES }}
         run: python3 scripts/ci/queue_janitor.py
 
       # Early warning for the GITHUB_TOKEN budget every workflow shares: when it ran out on

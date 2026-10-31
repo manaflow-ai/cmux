@@ -427,6 +427,17 @@ class LegacyFeedTests(unittest.TestCase):
             _, posts = self.rerun(jobs=jobs)
             self.assertEqual(posts, [f"/actions/jobs/{posted}/rerun"], jobs)
 
+    def test_reruns_a_cancelled_signing_job(self):
+        # Run 41000008430: the signing job sat queued with no Blacksmith macOS runner and was
+        # cancelled, with every later legacy job cancelled behind it.
+        jobs = [{"id": 10, "name": "legacy-identity-target", "conclusion": "success"},
+                {"id": 13, "name": "sign-nightly-identity-legacy", "conclusion": "cancelled"},
+                {"id": 11, "name": "verify-nightly-identity-legacy", "conclusion": "cancelled"},
+                {"id": 12, "name": "publish-nightly-identity-legacy", "conclusion": "cancelled"}]
+        message, posts = self.rerun(jobs=jobs)
+        self.assertEqual(posts, ["/actions/jobs/13/rerun"])
+        self.assertIn("sign-nightly-identity-legacy", message)
+
     def test_no_rerun_when_running_exhausted_not_failed_or_foreign(self):
         for run, jobs in (({"status": "in_progress"}, None), ({"run_attempt": 3}, None),
                           (None, [{"id": 12, "name": "publish-nightly-identity-legacy", "conclusion": "skipped"}]),
