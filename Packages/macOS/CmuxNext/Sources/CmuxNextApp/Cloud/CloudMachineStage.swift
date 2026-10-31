@@ -75,6 +75,9 @@ nonisolated struct CloudMachineStageInput: Hashable, Sendable {
     var resuming = false
     /// Why the attach's resume failed, nil otherwise.
     var resumeFailure: String?
+    /// The ended link went down or was revoked (`CloudAppLinks.isDrop`), not
+    /// refused by the provider.
+    var linkDropped = false
 
     /// The stage. A link that is still starting is `booting` even after the
     /// daemon's ten-second first-connect deadline: a new VM's link takes
@@ -108,5 +111,14 @@ nonisolated struct CloudMachineStageInput: Hashable, Sendable {
         case .idle, .starting:
             return .booting
         }
+    }
+
+    /// The failure is a link that went down or was revoked: its header reads
+    /// "Disconnected". "Failed to start" stays for a create, a connect or a
+    /// resume the provider failed, and a machine whose record says failed.
+    var isDisconnect: Bool {
+        guard linkDropped, linkEnded != nil, stage.failure != nil, machineStatus != .failed else { return false }
+        if case .failed = creation { return false }
+        return true
     }
 }

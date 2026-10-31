@@ -14,7 +14,7 @@ enum InputObservationBuilder {
         let context = services.registry.context
         return InputObservation(
             windows: controllers.map { window(of: $0, ghostty: ghostty) },
-            keyWindow: keyWindow(controllers),
+            keyWindow: keyWindow(services.keyWindowSource(), controllers),
             paletteOpen: context.contains(.paletteOpen),
             activeWindow: services.windows.active?.state.id,
             context: FocusState.Context(terminal: context.contains(.terminalFocused), browser: context.contains(.browserFocused),
@@ -48,8 +48,8 @@ enum InputObservationBuilder {
         )
     }
 
-    static func keyWindow(_ controllers: [WindowController]) -> InputObservation.KeyWindow {
-        guard let key = NSApp.keyWindow else { return .none }
+    static func keyWindow(_ key: NSWindow?, _ controllers: [WindowController]) -> InputObservation.KeyWindow {
+        guard let key else { return .none }
         if let controller = controllers.first(where: { $0.window === key }) { return .window(controller.state.id) }
         let kind = String(describing: type(of: key))
         if let parent = key.sheetParent, let controller = controllers.first(where: { $0.window === parent }) {

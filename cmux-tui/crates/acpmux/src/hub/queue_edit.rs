@@ -299,6 +299,8 @@ impl Hub {
                 class: None,
                 supersede: None,
                 full_access_device: same_device(q.run.full_access_device.as_deref(), device),
+                message_id: None,
+                message_sender: None,
             });
             q.preview = short_text(&text, 200);
             (q.turn_id.clone(), q.run.clone(), text)
@@ -392,6 +394,8 @@ impl Hub {
                     class: q.run.class,
                     supersede: q.run.supersede.clone(),
                     full_access_device: device,
+                    message_id: q.run.message_id.clone(),
+                    message_sender: q.run.message_sender.clone(),
                 };
                 (q.run, q.steer) = (Arc::new(run), true);
             }

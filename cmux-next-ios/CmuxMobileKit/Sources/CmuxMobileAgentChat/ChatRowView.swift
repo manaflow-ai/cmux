@@ -17,6 +17,8 @@ final class ChatRowContext {
     var openFile = OpenFileAction { _, _ in }
     var attachmentLoader = AttachmentLoader { _ in nil }
     var openURL = OpenURLAction { _ in .systemAction }
+    /// A tapped disclosure holds its line while it opens or closes (the dock sets it).
+    var foldHold = TranscriptFoldHold(begin: {}, end: {})
 
     init(store: AgentChatStore, surface: AgentChatSurface) {
         self.store = store
@@ -29,6 +31,17 @@ final class ChatRowContext {
             for case .message(let id, let markdown) in turn.items where id == messageID { return markdown }
         }
         return ""
+    }
+
+    /// A user bubble's Edit and Resend: the message goes into the composer to edit and is
+    /// sent from there. A draft already in the composer is never replaced without asking.
+    func editAndResend(turnID: String) {
+        guard let turn = store.turns.last(where: { $0.id == turnID }) else { return }
+        if surface.editAndResend(turn, store: store) { return }
+        ChatReplaceDraft.present { [self] copyFirst in
+            if copyFirst { UIPasteboard.general.string = surface.text }
+            surface.loadForEditing(turn.prompt, permissionPending: store.pendingPermission != nil)
+        }
     }
 
     /// The turn's changes when a diff opens (cached, else computed for the tap).
@@ -53,6 +66,7 @@ struct ChatRowView: View {
             .environment(\.attachmentLoader, context.attachmentLoader)
             .environment(\.openURL, context.openURL)
             .environment(\.chatDisclosures, context.surface.disclosures)
+            .environment(\.transcriptFoldHold, context.foldHold)
     }
 
     @ViewBuilder
@@ -67,7 +81,8 @@ struct ChatRowView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 20)
         case .prompt(let text, let attachments, let at, let isLast):
-            UserBubble(prompt: text, attachments: attachments, promptAt: at, isLast: isLast) { store.send(prompt: $0) }
+            let turnID = row.turnID
+            UserBubble(prompt: text, attachments: attachments, promptAt: at, isLast: isLast) { context.editAndResend(turnID: turnID) }
                 .frame(maxWidth: .infinity, alignment: .trailing)
         case .block(let messageID, let block):
             MarkdownBlockRow(block: block) { context.messageText(messageID) }
@@ -122,7 +137,7 @@ struct ChatRowView: View {
             }
         case .actions(let turn, let isLast):
             AnswerActionRow(turn: turn, isLast: isLast, insetsTargets: false, retryWith: RetryModelChoice(store: store, turn: turn)) {
-                store.send(prompt: turn.prompt)
+                store.retry(turn)
             }
         }
     }
@@ -140,6 +155,29 @@ struct MarkdownBlockRow: View {
                 Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = message() }
                 Button("Share", systemImage: "square.and.arrow.up") { ChatShare.present(message()) }
             }
+    }
+}
+
+/// Edit and Resend while the composer holds a draft: replace it only on a choice here, and
+/// offer to copy it first.
+@MainActor
+enum ChatReplaceDraft {
+    static func present(_ replace: @escaping (_ copyFirst: Bool) -> Void) {
+        let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
+        var top = window?.rootViewController
+        while let presented = top?.presentedViewController { top = presented }
+        guard let top else { return }
+        let sheet = UIAlertController(title: "Replace your draft?",
+                                      message: "Edit and Resend puts this message in the composer.", preferredStyle: .actionSheet)
+        sheet.addAction(UIAlertAction(title: "Copy Draft and Replace", style: .default) { _ in replace(true) })
+        sheet.addAction(UIAlertAction(title: "Replace Draft", style: .destructive) { _ in replace(false) })
+        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        if let popover = sheet.popoverPresentationController {
+            popover.sourceView = top.view
+            popover.sourceRect = CGRect(x: top.view.bounds.midX, y: top.view.bounds.midY, width: 0, height: 0)
+            popover.permittedArrowDirections = []
+        }
+        top.present(sheet, animated: true)
     }
 }
 

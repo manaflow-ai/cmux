@@ -29,6 +29,12 @@ enum Strings {
     static var noFolder: String { String(localized: "sidebar.folder.none", defaultValue: "No Folder", bundle: .module) }
     static var pinnedEmpty: String { String(localized: "sidebar.section.pinned.empty", defaultValue: "Drop here to pin", bundle: .module) }
     static var sectionEmpty: String { String(localized: "sidebar.section.empty", defaultValue: "No workspaces", bundle: .module) }
+    static func sectionEmptyHint(shortcut: String?) -> String {
+        guard let shortcut else {
+            return String(localized: "sidebar.section.empty.hint.unbound", defaultValue: "New workspace: +", bundle: .module)
+        }
+        return String(format: String(localized: "sidebar.section.empty.hint", defaultValue: "New workspace: + or %@", bundle: .module), shortcut)
+    }
     /// An open empty group's row (`EmptyGroupRowView`).
     static var groupEmpty: String { String(localized: "sidebar.group.empty", defaultValue: "No workspaces · drag one here", bundle: .module) }
     static var statusConnected: String { String(localized: "sidebar.machine.connected", defaultValue: "Connected", bundle: .module) }
@@ -58,6 +64,8 @@ enum Strings {
     static var statusAuthFailed: String { String(localized: "sidebar.machine.authFailed", defaultValue: "Sign-in failed", bundle: .module) }
     static var statusUnreachable: String { String(localized: "sidebar.machine.unreachable", defaultValue: "Unreachable", bundle: .module) }
     static var statusFailed: String { String(localized: "sidebar.machine.failed", defaultValue: "Failed to start", bundle: .module) }
+    /// A Cloud machine that ran and lost its link (not one that failed to start).
+    static var statusDisconnected: String { String(localized: "sidebar.machine.disconnected", defaultValue: "Disconnected", bundle: .module) }
     static var statusPaused: String { String(localized: "sidebar.machine.paused", defaultValue: "Paused", bundle: .module) }
     /// A Cloud machine the idle auto-pause parked (not a failure).
     static var statusPausedIdle: String { String(localized: "sidebar.machine.pausedIdle", defaultValue: "Paused (idle)", bundle: .module) }
@@ -72,6 +80,7 @@ enum Strings {
         case .installRequired: statusInstallRequired
         case .updateRequired: statusUpdateRequired
         case .failed: statusFailed
+        case .disconnected: statusDisconnected
         case .paused: statusPaused
         case .pausedIdle: statusPausedIdle
         case .connecting: statusConnecting

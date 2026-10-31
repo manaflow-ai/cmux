@@ -19,7 +19,7 @@ import Testing
         #expect(machine.handle(.dialSucceeded(generation: 1, path: .turnTLS)) == [])
         #expect(machine.phase == .connected(.wireGuard, .turnTLS, rttMillis: nil))
         _ = machine.handle(.linkUpdated(generation: 1, path: .turnTLS, rttMillis: 27))
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WireGuard relay (TURN over TLS) · 27 ms")
+        #expect(machine.phase.statusLine(macName: "Studio") == "Connected")
     }
 
     @Test func offlineMacIsNotDialed() {
@@ -40,7 +40,7 @@ import Testing
         #expect(machine.phase == .connecting(.webRTC, attempt: 2))
         #expect(machine.handle(.dialFailed(generation: 2, reason: "ICE timed out")) == [.scheduleRetry(generation: 3, after: .seconds(1))])
         #expect(machine.phase == .waiting(.webRTC, attempt: 2, reason: "ICE timed out", retryIn: .seconds(1)))
-        #expect(machine.phase.statusLine(macName: "Studio") == "WebRTC failed: ICE timed out · retrying in 1 s")
+        #expect(machine.phase.statusLine(macName: "Studio") == "Reconnecting…")
         #expect(machine.handle(.retryDue(generation: 3)) == [.dial(generation: 4, macID: "m1", transport: .webRTC)])
         #expect(machine.handle(.dialFailed(generation: 4, reason: "x")) == [.scheduleRetry(generation: 5, after: .seconds(2))])
         // A stale timer is ignored.
@@ -69,7 +69,7 @@ import Testing
         #expect(machine.handle(.relayOnly(true)) == [.close, .dial(generation: 2, macID: "m1", transport: .webRTC)])
         #expect(machine.relayOnly)
         #expect(machine.handle(.dialSucceeded(generation: 2, path: .turn)) == [])
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WebRTC relay (TURN)")
+        #expect(machine.phase.statusLine(macName: "Studio") == "Connected")
     }
 
     /// Settings → Developer "Block UDP": a change redials, like relay only.
@@ -81,7 +81,7 @@ import Testing
         #expect(machine.handle(.blockUDP(true)) == [.close, .dial(generation: 2, macID: "m1", transport: .wireGuard)])
         #expect(machine.blockUDP)
         #expect(machine.handle(.dialSucceeded(generation: 2, path: .turnTLS)) == [])
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WireGuard relay (TURN over TLS)")
+        #expect(machine.phase.statusLine(macName: "Studio") == "Connected")
         // WebRTC ignores it: a change there does not redial.
         var webRTC = LinkMachine(transport: .webRTC)
         _ = webRTC.handle(.target(mac))
@@ -626,7 +626,7 @@ private struct LinkOf: MacLinkDialer {
             let object = try! JSONSerialization.jsonObject(with: Data(request)) as! [String: Any]
             let id = object["id"] as! String
             let cmd = (object["cmd"] as? String ?? "")
-            seen.append(cmd, object["name"] as? String)
+            seen.append(cmd, (object["name"] ?? object["url"]) as? String)
             let line: String
             switch cmd {
             case "new-workspace" where refuse:
@@ -692,6 +692,26 @@ private struct LinkOf: MacLinkDialer {
         #expect(log.contains("new-browser-tab"))
         let real = try #require(store.workspace(id: placeholder.id))
         #expect(store.openingTab(for: real)?.id == "s11")
+    }
+
+    /// A web link tapped in a terminal opens a cmux browser tab at that page beside it, in
+    /// the same workspace (the Mac's Cmd-click): `new-browser-tab {url, pane}`. Only web links.
+    @Test func aTappedLinkOpensABrowserTabBesideTheTerminal() async throws {
+        let log = CommandLog()
+        let (store, creator, _) = try await connected(false, log)
+        _ = try #require(creator.create())
+        await creator.settle()
+        let workspace = try #require(store.workspace(id: "wk2"))
+        let terminal = try #require(workspace.tabs.first { $0.id == "s10" })
+        let url = try #require(URL(string: "https://cmux.com/docs"))
+        let opened = try await creator.backend.openLink(url, besides: terminal, in: workspace)
+        #expect(log.names["new-browser-tab"] == "https://cmux.com/docs")
+        #expect(opened.id == "s11")
+        #expect(opened.kind == .browser)
+        let file = try #require(URL(string: "file:///etc/passwd"))
+        await #expect(throws: WorkspaceCreationError.self) {
+            _ = try await creator.backend.openLink(file, besides: terminal, in: workspace)
+        }
     }
 
     @Test func refusalRemovesThePlaceholder() async throws {

@@ -13,13 +13,14 @@ enum ChatNativeRowActions {
         let disclosures = surface.disclosures
         switch row.kind {
         case .prompt(let text, _, let at, let isLast):
+            let turnID = row.turnID
             actions.menu = { _ in
                 var items: [UIMenuElement] = [
                     UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { _ in UIPasteboard.general.string = text },
                     UIAction(title: "Select Text", image: UIImage(systemName: "selection.pin.in.out")) { _ in ChatSelectText.present(text) },
                 ]
                 if isLast {
-                    items.append(UIAction(title: "Edit and Resend", image: UIImage(systemName: "pencil")) { _ in store.send(prompt: text) })
+                    items.append(UIAction(title: "Edit and Resend", image: UIImage(systemName: "pencil")) { _ in context.editAndResend(turnID: turnID) })
                 }
                 items.append(UIAction(title: "Share", image: UIImage(systemName: "square.and.arrow.up")) { _ in ChatShare.present(text) })
                 return UIMenu(children: [UIMenu(title: AgentTurn.menuTimestamp(at), options: .displayInline, children: items)])
@@ -79,7 +80,7 @@ enum ChatNativeRowActions {
             actions.moreMenu = {
                 var items: [UIMenuElement] = [
                     UIAction(title: "Copy as Markdown", image: UIImage(systemName: "text.document")) { _ in UIPasteboard.general.string = turn.answerMarkdown },
-                    UIAction(title: "Retry", image: UIImage(systemName: "arrow.clockwise")) { _ in store.send(prompt: turn.prompt) },
+                    UIAction(title: "Retry", image: UIImage(systemName: "arrow.clockwise")) { _ in store.retry(turn) },
                 ]
                 // Retry with another model (`RetryModelChoice`), read when the menu opens.
                 if !store.retryModels.isEmpty {
@@ -96,7 +97,7 @@ enum ChatNativeRowActions {
                 switch hit {
                 case .copyAnswer: UIPasteboard.general.string = turn.answerMarkdown
                 case .shareAnswer: ChatShare.present(turn.answerMarkdown)
-                case .retry: store.send(prompt: turn.prompt)
+                case .retry: store.retry(turn)
                 default: break
                 }
             }

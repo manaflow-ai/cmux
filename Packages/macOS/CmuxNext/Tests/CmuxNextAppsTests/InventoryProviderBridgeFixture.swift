@@ -23,7 +23,7 @@ final class InventoryProviderBridgeFixture {
     private let handshakes = AsyncStream.makeStream(of: DaemonEventEnvelope.self)
 
     init(mode: String = "normal") {
-        let carrier = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", Self.script, mode])
+        let carrier = DaemonBridge.fakePython(["-c", Self.script, mode])
         connection = DaemonConnection(endpoint: .init(socketPath: "/tmp/cmux-provider-bridge-\(UUID().uuidString).sock", bridge: carrier),
                                       configuration: .init(requiredCapabilities: [], terminalEnvironment: nil))
         bridge = AgentInventoryProviderBridge { [weak self] in self?.routes ?? [] }

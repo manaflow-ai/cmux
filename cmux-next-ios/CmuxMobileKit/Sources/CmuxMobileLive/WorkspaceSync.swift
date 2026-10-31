@@ -15,7 +15,11 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "daemon")
 public final class WorkspaceSync {
     public private(set) var tree: DaemonTree?
     public private(set) var identity: String?
-    public private(set) var lastError: String?
+    public private(set) var lastError: String? {
+        didSet { if lastError != oldValue { onErrorChanged?() } }
+    }
+    /// Updates explicit diagnostics when a later refresh fails or recovers.
+    @ObservationIgnored var onErrorChanged: (@MainActor () -> Void)?
 
     @ObservationIgnored public var onTree: (@MainActor (DaemonTree) -> Void)?
     /// Metadata-only changes; consumers can update just these workspace rows.
@@ -82,7 +86,11 @@ public final class WorkspaceSync {
         connectionSerial += 1
         activity = [:]
         titles = [:]
-        guard let channel else { return }
+        guard let channel else {
+            lastError = nil
+            identity = nil
+            return
+        }
         await bind(Self.prepare(channel, deviceID: deviceID, deviceName: deviceName), macID: macID, cached: cached)
     }
 

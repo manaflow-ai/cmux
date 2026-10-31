@@ -46,9 +46,11 @@ public final class AppStore {
     public var teamDataState: LoadState = .loaded
     /// Whether the device has network (drives the offline banner).
     public var isOffline = false
-    /// Live link status per Mac id ("Connected · WireGuard relay · 27 ms"),
+    /// Plain live link status per Mac id ("Connected", "Reconnecting…"),
     /// shown in the Workspaces Mac section header. Empty in mock mode.
     public var macLinkStatus: [String: String] = [:]
+    /// Raw connection and service details, shown only in Settings diagnostics.
+    public var macLinkDiagnostics: [String: String] = [:]
     /// Live mode: where each Mac's workspaces came from (cached, live, ...).
     /// Empty states read this, never `workspaces` alone (`macDataPhase`).
     public var macData: [String: MacDataMachine] = [:]

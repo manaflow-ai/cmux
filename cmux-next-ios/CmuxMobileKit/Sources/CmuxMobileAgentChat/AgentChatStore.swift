@@ -474,15 +474,42 @@ public final class AgentChatStore {
 
     public func setModel(_ id: String) { source.send(.setModel(id)) }
 
+    /// Retry on a finished turn: its prompt goes again with what it attached. An image only
+    /// the Mac's record holds is read back first; one that can't be read goes without its
+    /// bytes, so the send fails and the draft comes back instead of a prompt without it.
+    public func retry(_ turn: AgentTurn) {
+        withAttachments(of: turn) { $0.send(prompt: turn.prompt, attachments: $1) }
+    }
+
     /// Retry with another model (the Mac's turn menu): the chat moves to `model`, then `turn`'s
-    /// prompt goes again; the model the chat runs retries as Retry does. When the Mac refuses
-    /// the model, the prompt is not sent and the chat shows the Mac's reason.
+    /// prompt goes again with its attachments; the model the chat runs retries as Retry does.
+    /// When the Mac refuses the model, the prompt is not sent and the chat shows the Mac's reason.
     public func retry(_ turn: AgentTurn, model: String) {
         let text = turn.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        guard model != currentModelID else { return send(prompt: text) }
-        clientError = nil
-        source.send(.retryWithModel(model: model, text: text, promptID: UUID().uuidString.lowercased()))
+        guard !text.isEmpty || !turn.attachments.isEmpty else { return }
+        withAttachments(of: turn) { store, attachments in
+            guard model != store.currentModelID else { return store.send(prompt: text, attachments: attachments) }
+            store.clientError = nil
+            let promptID = UUID().uuidString.lowercased()
+            store.keepSent(attachments, promptID: promptID)
+            store.source.send(.retryWithModel(model: model, text: text, attachments: attachments, promptID: promptID))
+        }
+    }
+
+    /// Runs `then` with `turn`'s attachments holding their bytes: at once when the phone has
+    /// them all, else after reading recorded images from the source.
+    private func withAttachments(of turn: AgentTurn, then: @escaping @MainActor (AgentChatStore, [AgentAttachment]) -> Void) {
+        let attachments = turn.attachments
+        guard attachments.contains(where: { $0.data == nil && $0.fileURL == nil }) else { return then(self, attachments) }
+        Task { [weak self] in
+            var loaded = attachments
+            for index in loaded.indices where loaded[index].data == nil && loaded[index].fileURL == nil {
+                guard let source = self?.source else { return }
+                loaded[index].data = await source.attachmentData(loaded[index])
+            }
+            guard let self else { return }
+            then(self, loaded)
+        }
     }
 
     /// The models Retry with another model offers (the Mac shows it only with two or more).
@@ -490,6 +517,15 @@ public final class AgentChatStore {
     public func setMode(_ id: String) { source.send(.setMode(id)) }
     public func setConfig(_ id: String, value: String) { source.send(.setConfigOption(id: id, value: value)) }
     public func removeQueued(_ id: String) { source.send(.removeQueued(promptId: id)) }
+
+    /// The user bubble's Edit and Resend: returns the text the composer gets to edit. It
+    /// sends nothing; the message goes when the person sends it from the composer. Only an
+    /// empty composer (whitespace counts as empty) takes it: a draft there is never replaced,
+    /// so this returns nil (the bubble then asks before replacing it).
+    public func editAndResend(_ turn: AgentTurn, draft: String) -> String? {
+        guard draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return turn.prompt
+    }
 
     /// The queued row's X: takes the prompt back into the composer, returning the text the
     /// composer gets. Only an empty composer (whitespace counts as empty) takes it: a draft

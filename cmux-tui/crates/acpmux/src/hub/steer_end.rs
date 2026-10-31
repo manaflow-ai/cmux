@@ -36,6 +36,7 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
     bound: bool,
     fence: Option<&crate::agent::Fence>,
     confirm_written: bool,
+    held: Option<&(dyn Fn() -> bool + Send + Sync)>,
     on_sent: F,
 ) -> Result<Value, RpcError> {
     let mut ended = session.steer_end.subscribe();
@@ -80,6 +81,11 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
             return settled(answer);
         }
         if bound && session.turn().is_none_or(|t| t.turn_id != turn_id) {
+            return Err(RpcError::invalid_params(crate::claude_stdio::STEER_NO_TURN));
+        }
+        // A steer that may not go in now (an inbox notice behind a waiting prompt or past the
+        // turn's cap, `inbox.rs`), checked while it holds the handoff no prompt is written past.
+        if held.is_some_and(|held| held()) {
             return Err(RpcError::invalid_params(crate::claude_stdio::STEER_NO_TURN));
         }
         delivery_started.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -187,13 +193,17 @@ impl Hub {
                 .provenance
                 .as_ref()
                 .filter(|p| super::subsession_guard::is_family(Some(p)))
-                .and_then(|p| p["from"].as_str())
+                .and_then(|p| p.get("from")?.as_str())
                 .map(str::to_owned);
             let sent = super::carried_turn::SteerSent {
                 client: client.to_owned(),
                 text: text.clone(),
                 control,
-                continues: super::carried_turn::Continues { from, trust_gate },
+                continues: super::carried_turn::Continues {
+                    from,
+                    trust_gate,
+                    reports: super::lane_reports::reports_only(opts.provenance.as_ref()),
+                },
             };
             now.sent.insert(prompt_id.clone(), sent);
             now.step.remove(&prompt_id) || opts.steer_now
@@ -204,13 +214,15 @@ impl Hub {
         // Another session's plain message goes in with the other agents' messages waiting for
         // this step, as one message (claude_stdio `steer_batch.rs`). One read now goes alone at
         // once, and so do a family message (its gate holds until it is written), a slash command
-        // (only a line's first words run one) and one with uploaded files.
+        // (only a line's first words run one), one with uploaded files and an inbox digest (one
+        // steer, `inbox_digest.rs`).
         let sender = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
         if let Some(from) = sender
             && !step_now
             && !super::subsession_guard::is_family_prompt(opts.provenance.as_ref())
             && super::forum::slash_command(&blocks).is_none()
             && !crate::prompt_uploads::any(&blocks)
+            && !super::digest::inbox_digest::is_digest(opts.provenance.as_ref())
         {
             params["_meta"]["batch"] = json!({"from": from});
         }
@@ -221,16 +233,36 @@ impl Hub {
         let _unsent = crate::agent::CutOnDrop(fence.as_ref());
         // The turn cap's notice goes into the turn it names or nowhere (`turn_cap.rs`).
         let bound = super::turn_cap::is_notice(opts.provenance.as_ref());
+        // An inbox notice (`inbox.rs`): only while no prompt waits and the turn is under its cap,
+        // and in once the agent's writer took it.
+        let inbox_notice = super::inbox::is_notice(opts.provenance.as_ref());
+        // Another agent's steer, checked again as it is written: a chat that became a review box
+        // since (a `review.` tag) takes it as a turn of its own after the review (`inbox.rs`).
+        let agent_steer = !opts.send_now
+            && super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref())
+                .is_some();
+        let held = || {
+            if inbox_notice {
+                super::inbox::notice_held(session)
+            } else {
+                super::inbox::review_box(session)
+            }
+        };
         let answer = agent_prompt_hook(
             session,
             &child,
             params,
             turn_id,
             true,
-            bound,
+            bound || inbox_notice,
             fence.as_ref(),
-            false,
-            || {},
+            inbox_notice,
+            (inbox_notice || agent_steer).then_some(&held as &(dyn Fn() -> bool + Send + Sync)),
+            || {
+                if inbox_notice {
+                    self.inbox_prompt_written(session, &prompt_id);
+                }
+            },
         )
         .await;
         // Read in a turn its agent ran on after the one it was steered into ended: it went into
@@ -254,6 +286,15 @@ impl Hub {
         if let Some(count) = count {
             count.done(steer_entered_turn(&answer));
         }
+        // An inbox digest's steer that went into the turn and failed with it: the messages it
+        // took go back held, as messages that joined a failed turn do (`inbox_digest.rs`).
+        if answer.is_err() && steer_entered_turn(&answer) {
+            let made =
+                session.inbox_digests.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
+            if let Some(made) = made {
+                self.requeue_joined(session, &made, true);
+            }
+        }
         let mut r = match answer {
             Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
                 let Some(blocks) = fallback else {
@@ -268,11 +309,13 @@ impl Hub {
                 // it stops no other.
                 let opts = PromptOptions {
                     prompt_id: Some(prompt_id),
+                    message_id: opts.message_id,
                     control,
                     trust_gate,
                     interrupt: opts.interrupt,
                     interrupt_turn: opts.interrupt.then(|| turn_id.to_owned()),
                     provenance: opts.provenance,
+                    message_sender: opts.message_sender,
                     agent: opts.agent,
                     class: opts.class,
                     // Queued under its key, so a later correction still replaces it.
