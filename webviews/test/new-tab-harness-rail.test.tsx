@@ -75,7 +75,6 @@ afterAll(() => {
   }
 });
 
-
 const noop = () => {};
 type Snap = import("../src/agent-session/acpmux/model").AcpmuxSnapshot;
 
@@ -85,7 +84,11 @@ const started = (rows: Snap["rows"]): Snap =>
     summary: { sessionId: "s-1", harness: "claude", model: "claude-opus-5-5", turnCount: 0 } as Snap["summary"],
     rows,
   });
-const startRow = { kind: "sessionStart", id: "start-1", sessionStart: { harness: "claude" } } as unknown as Snap["rows"][number];
+const startRow = {
+  kind: "sessionStart",
+  id: "start-1",
+  sessionStart: { harness: "claude" },
+} as unknown as Snap["rows"][number];
 const userRow = { kind: "user", id: "u-1", text: "hi" } as unknown as Snap["rows"][number];
 
 /// The rail tabs the model menu shows after the chip is clicked (none: no rail).
@@ -95,7 +98,10 @@ async function railTabs(page: "newTab" | "chat", snapshot: Snap, typed?: string)
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   const { newTabScreenActions } = await import("../src/agent-session/acpmux/newtab/screenActions");
   const { NewTabComposerChips, ChatComposerChips } = await import("../src/agent-session/acpmux/App");
-  (window as unknown as { cmuxAcpmuxActions: unknown }).cmuxAcpmuxActions = new Proxy({}, { get: () => async () => undefined });
+  (window as unknown as { cmuxAcpmuxActions: unknown }).cmuxAcpmuxActions = new Proxy(
+    {},
+    { get: () => async () => undefined },
+  );
   const actions = newTabScreenActions({
     callNative: async () => undefined,
     leave: noop,
@@ -134,7 +140,9 @@ async function railTabs(page: "newTab" | "chat", snapshot: Snap, typed?: string)
     expect(trigger).not.toBeNull();
     await act(async () => trigger!.click());
     expect(window.document.querySelector(".acpmux-quick-menu")).not.toBeNull();
-    return [...window.document.querySelectorAll(".acpmux-quick-rail-tab")].map((tab) => tab.getAttribute("aria-label") ?? "");
+    return [...window.document.querySelectorAll(".acpmux-quick-rail-tab")].map(
+      (tab) => tab.getAttribute("aria-label") ?? "",
+    );
   } finally {
     await act(async () => root.unmount());
     window.document.body.querySelectorAll(".ui-popup").forEach((node) => node.remove());
