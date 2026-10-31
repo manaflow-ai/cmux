@@ -448,7 +448,8 @@
         "CmuxNextVSCodeServer",
         "CmuxNextWakeups",
         "CmuxNextWakeupsTestSupport",
-        "CmuxNextWorkspaceNaming"
+        "CmuxNextWorkspaceNaming",
+        "CmuxNextWorkspaceRepair"
       ],
       "packages": [
         "CmuxAgentQuestion",
@@ -1869,6 +1870,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextTerminalTests",
       "targets": [
+        "CmuxNextCompat",
         "CmuxNextTerminal",
         "CmuxNextTestSupport"
       ],
