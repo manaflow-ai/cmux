@@ -1,3 +1,4 @@
+import CmuxNextFiles
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge

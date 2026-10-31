@@ -1,3 +1,4 @@
+import CmuxNextFiles
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
