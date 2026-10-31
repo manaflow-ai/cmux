@@ -102,22 +102,22 @@ extension WindowManager {
     /// at its last shown workspace, or keeps its selection when already on it (none elsewhere: a plain switch).
     func bringSpace(_ profile: ProfileID, into state: WindowState) throws {
         let value = registry.value
-        if value.isIncognito(state.id) || incognitoSpaces[state.id] != nil || incognitoSpaces.values.contains(profile) {
-            throw ActionFailure.invalidTarget(RefusalStrings.incognitoMismatch)
-        }
+        guard value.window(state.id) != nil else { throw ActionFailure.invalidTarget(RefusalStrings.windowNotReady) }
+        let incognito = value.isIncognito(state.id) || incognitoSpaces[state.id] != nil || incognitoSpaces.values.contains(profile)
+        if incognito { throw ActionFailure.invalidTarget(RefusalStrings.incognitoMismatch) }
         let machines = services.machines
         let sources = value.windows.filter { $0.id != state.id && !value.isIncognito($0.id) && incognitoSpaces[$0.id] == nil }
         // Only workspaces whose space is known move (one no session reports yet shows in every space); window Homes stay.
         let moving = sources.flatMap { WindowProfiles.visible($0.workspaceIDs, profile: profile, machines: machines) }
             .filter { WindowProfiles.qualified($0, machines: machines) != nil && !isWindowHome($0) }
         try refuseClosingCreating(sources.filter { !$0.workspaceIDs.isEmpty && Set(moving).isSuperset(of: $0.workspaceIDs) }.map(\.id))
-        try refuseLocalTabs([state.id] + sources.filter { !Set($0.workspaceIDs).isDisjoint(with: moving) }.map(\.id))
         // A CLI or MCP run without focus permission leaves this window's view alone (as `RoomHandlers.startNewSpace`).
         let mayShow = ActionRunScope.viewChangeAllowed()
         guard !moving.isEmpty else {
             if mayShow { switchProfile(profile, in: state) }
             return
         }
+        try refuseLocalTabs([state.id] + sources.filter { !Set($0.workspaceIDs).isDisjoint(with: moving) }.map(\.id))
         // A window already on the space keeps its selection; else the space's last shown workspace.
         var preferred: [String: [String]] = [:]
         if state.profileID != profile, mayShow {
@@ -133,15 +133,14 @@ extension WindowManager {
     /// close; this window keeps its view and takes their last shown workspace per space it never showed.
     func mergeWindows(into state: WindowState) throws {
         let value = registry.value
-        guard !value.isIncognito(state.id), incognitoSpaces[state.id] == nil else {
-            throw ActionFailure.invalidTarget(RefusalStrings.incognitoMismatch)
-        }
+        guard value.window(state.id) != nil else { throw ActionFailure.invalidTarget(RefusalStrings.windowNotReady) }
+        if value.isIncognito(state.id) || incognitoSpaces[state.id] != nil { throw ActionFailure.invalidTarget(RefusalStrings.incognitoMismatch) }
         let sources = value.openWindows.filter { $0.id != state.id && !value.isIncognito($0.id) && incognitoSpaces[$0.id] == nil }
         // A window's own Home stays in its window, which closes (as Close Other Windows), never as a surplus Home here.
         let moving = sources.flatMap(\.workspaceIDs).filter { !isWindowHome($0) }
         guard !sources.isEmpty else { return }
         try refuseClosingCreating(sources.map(\.id))
-        try refuseLocalTabs([state.id] + sources.map(\.id))
+        try refuseLocalTabs((moving.isEmpty ? [] : [state.id]) + sources.map(\.id))
         let order = Dictionary(value.recency.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         for source in sources.sorted(by: { order[$0.id, default: .max] < order[$1.id, default: .max] }) {
             guard let other = states[source.id] else { continue }

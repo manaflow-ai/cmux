@@ -45,6 +45,8 @@ public nonisolated enum RefusalStrings {
         text("handlers.refusal.gatherLocalTabs", "A window this would change keeps browser tabs that can't move with its workspaces. Close those tabs first.")
     }
     public static var chromiumUnavailable: String { text("handlers.refusal.chromiumUnavailable", "Chromium is not available in this build.") }
+    /// A window action before the window has registered (the launch window, still restoring).
+    public static var windowNotReady: String { text("handlers.refusal.windowNotReady", "This window isn't ready yet. Try again in a moment.") }
     public static var homeNotReady: String { text("handlers.refusal.homeNotReady", "Home is not ready yet.") }
     /// Close New Message (`home.closeNewMessage`) while no New Message draft is open.
     public static var noNewMessage: String { text("handlers.refusal.noNewMessage", "There is no new message to close.") }
