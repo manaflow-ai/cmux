@@ -360,12 +360,11 @@ mod tests {
         std::fs::write(&socket, "").unwrap();
         let held = Owned::now(&[home.as_path()]).unwrap();
         let bound = Owned::now(&[socket.as_path()]).unwrap();
-        std::fs::rename(&dir.path().join("second"), &dir.path().join("replacement")).unwrap();
+        std::fs::rename(dir.path().join("second"), dir.path().join("replacement")).unwrap();
         std::fs::remove_file(&link).unwrap();
         std::os::unix::fs::symlink(dir.path().join("replacement"), &link).unwrap();
         assert!(held.lost().is_none(), "socket ancestor changed the home identity");
         assert!(bound.lost().is_some(), "socket ancestor replacement was not detected");
-        assert!(!held.lost().is_some(), "socket-only loss must not classify as home loss");
     }
 
     #[test]
