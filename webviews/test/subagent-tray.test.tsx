@@ -330,10 +330,9 @@ describe("the tray", () => {
       expect(lines.length).toBe(1);
       const text = (selector: string) => lines[0]!.querySelector(selector)?.textContent;
       expect(text(".acpmux-summary-agent__name")).toBe("Explore the daemon");
-      // No subtitle (its kind, what it does now) and no Running word: the spinner says it.
+      // No type subtitle; the status word occupies the shared tray status track.
       expect(lines[0]!.querySelector(".acpmux-summary-agent__kind")).toBeNull();
-      expect(lines[0]!.querySelector(".acpmux-summary-agent__state")).toBeNull();
-      expect(text(".acpmux-agent-line__sr")).toBe("Running");
+      expect(text(".acpmux-summary-agent__state")).toBe("Running");
       const tooltip = lines[0]!.querySelector<HTMLElement>(".acpmux-agent-line__button")!.title;
       expect(tooltip).toContain("general-purpose");
       expect(tooltip).toContain("Bash");
@@ -875,10 +874,9 @@ describe("a tray line says what it is and what a click does", () => {
         live!.querySelector(".acpmux-lineage__icon [data-spinner], .acpmux-lineage__icon .cv-spinner"),
       ).not.toBeNull();
       // No tokens or tool uses on the line (Leo, 2026-10-31: "we can remove the symbols and the
-      // tokens"); the done line says no Done.
+      // tokens"); each line keeps its status word.
       expect(live!.querySelector(".acpmux-agent-line__stats, .acpmux-agent-line__progress")).toBeNull();
-      expect(finished!.querySelector(".acpmux-summary-agent__state")).toBeNull();
-      expect(finished!.querySelector(".acpmux-agent-line__sr")?.textContent).toBe("Done");
+      expect(finished!.querySelector(".acpmux-summary-agent__state")?.textContent).toBe("Done");
       // The button's accessible name carries the quiet state, since an aria-label overrides its text.
       expect(finished!.querySelector(".acpmux-agent-line__button")!.getAttribute("aria-label")).toContain("Done");
       expect(live!.querySelector(".acpmux-agent-line__button")!.getAttribute("aria-label")).toContain("Running");
@@ -994,7 +992,7 @@ describe("the tray tells the truth", () => {
       await act(async () => more.click());
       const ended = [...root.querySelectorAll<HTMLElement>("li[data-finished] .acpmux-agent-line")];
       expect(names(ended)).toEqual(["Fuzzer", "Linter", "Fix the dock", "Retry the upload"]);
-      // Failed says so; Done is the quiet line's, read only by screen readers.
+      // Ended rows keep their status words in the same track.
       expect(
         ended.map((line) => line.querySelector(".acpmux-summary-agent__state, .acpmux-agent-line__sr")?.textContent),
       ).toEqual(["Failed", "Done", "Done", "Failed"]);

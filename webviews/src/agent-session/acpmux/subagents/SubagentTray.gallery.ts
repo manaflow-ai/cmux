@@ -296,6 +296,27 @@ export default agentPaneEntry({
   // The panel's looks (trayPanel.experiment.ts), on the two- and 118-agent panels.
   experiment: { definition: trayPanelLook, script: panelScript },
   variants: {
+    geometry: {
+      note: "Geometry fixture: running, completed and cancelled rows share the trailing tracks above a running empty composer.",
+      play: async (ctx) => {
+        await openTray(ctx);
+      },
+      snapshot: chat(
+        [
+          user("Keep the three task states visible", 4),
+          group(
+            [
+              agent("Running check", 2.1, "running", { action: "Run the check" }),
+              agent("Done check", 3.8, "completed", { ran: 1.2 }),
+              agent("Cancelled check", 3.8, "cancelled", { ran: 1.4 }),
+            ],
+            2.1,
+          ),
+          assistant("The checks are visible above the composer.", 1),
+        ],
+        { isWorking: true },
+      ),
+    },
     "panel-two": {
       note: "Leo's panel with two chats running and three ended (2026-10-25: \"this section, the whatever background tasks ... it's kind of wack\"): the header pinned on top, running first, then the latest that ended; no line carries a subtitle, so none shows a raw shell line.",
       play: async (ctx) => {
