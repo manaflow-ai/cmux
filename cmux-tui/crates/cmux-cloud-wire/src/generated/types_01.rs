@@ -424,7 +424,7 @@ pub struct CloudPlanLimits {
 pub struct CloudPlanUsage {
     pub active: i64,
     pub saved: i64,
-    pub vm_hours_used: WireNumber,
+    pub vm_hours_used: Option<WireNumber>,
     pub period_end: i64,
 }
 

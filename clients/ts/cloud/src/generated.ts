@@ -227,7 +227,7 @@ export type CloudPlan = {
   readonly usage: {
     readonly active: number
     readonly saved: number
-    readonly vm_hours_used: number | "Infinity" | "-Infinity" | "NaN"
+    readonly vm_hours_used: number | "Infinity" | "-Infinity" | "NaN" | null
     readonly period_end: number
   }
 }

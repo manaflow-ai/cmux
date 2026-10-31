@@ -1377,21 +1377,24 @@
               "vm_hours_used": {
                 "required": true,
                 "type": {
-                  "kind": "union",
-                  "variants": [
-                    {
-                      "kind": "primitive",
-                      "name": "float64"
-                    },
-                    {
-                      "kind": "enum",
-                      "values": [
-                        "Infinity",
-                        "-Infinity",
-                        "NaN"
-                      ]
-                    }
-                  ]
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "union",
+                    "variants": [
+                      {
+                        "kind": "primitive",
+                        "name": "float64"
+                      },
+                      {
+                        "kind": "enum",
+                        "values": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  }
                 }
               },
               "period_end": {
@@ -23905,15 +23908,22 @@
                   "vm_hours_used": {
                     "anyOf": [
                       {
-                        "type": "number"
+                        "anyOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "Infinity",
+                              "-Infinity",
+                              "NaN"
+                            ]
+                          }
+                        ]
                       },
                       {
-                        "type": "string",
-                        "enum": [
-                          "Infinity",
-                          "-Infinity",
-                          "NaN"
-                        ]
+                        "type": "null"
                       }
                     ]
                   },

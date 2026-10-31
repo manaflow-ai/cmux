@@ -74,7 +74,8 @@ export const CloudPlan = Schema.Struct({
     locked_memory_options_mb: Schema.Array(Schema.Int),
     vm_hours_included: Schema.NullOr(Schema.Number)
   }),
-  usage: Schema.Struct({ active: Schema.Int, saved: Schema.Int, vm_hours_used: Schema.Number, period_end: Millis })
+  /** vm_hours_used: null while the VM-hours meter is not wired (unknown, never a made-up 0). */
+  usage: Schema.Struct({ active: Schema.Int, saved: Schema.Int, vm_hours_used: Schema.NullOr(Schema.Number), period_end: Millis })
 }).annotate({ identifier: "CloudPlan" })
 
 /**
