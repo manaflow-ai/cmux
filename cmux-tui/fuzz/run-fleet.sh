@@ -254,6 +254,18 @@ case "$mode" in
       rc=${PIPESTATUS[0]}
       echo "loom $m: exit $rc after $((SECONDS - start))s"
       case $rc in 0) ;; 124|137) timed_out+=("$m") ;; *) failed+=("$m") ;; esac
+      if [[ "$m" == registry_receipt && $rc -eq 0 ]]; then
+        # The variant before #28147 must deadlock (the model reaches B3).
+        echo "=== loom registry_receipt red variant (must deadlock)"
+        out="$(RUSTFLAGS="--cfg loom" timeout "$limit" cargo test --release -p cmux-tui-loom --test registry_receipt \
+          -- --ignored --exact before_28147_the_settle_deadlocks --nocapture 2>&1)"
+        if grep -q "deadlock; threads" <<<"$out"; then
+          echo "red variant: loom reports the deadlock, as it must"
+        else
+          echo "red variant: NO deadlock found"; echo "$out" | tail -20
+          failed+=("registry_receipt-red-variant")
+        fi
+      fi
     done
     if [[ ${#failed[@]} -gt 0 ]]; then verdict "FAIL models=${failed[*]} timed_out=${timed_out[*]:-none}"; exit 1; fi
     if [[ ${#timed_out[@]} -gt 0 ]]; then verdict "NOVERDICT models over the limit: ${timed_out[*]}"; exit 3; fi

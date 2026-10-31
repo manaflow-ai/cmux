@@ -28,7 +28,7 @@
 //! - every commit's receipt is settled exactly once (by its waiter, or by a
 //!   pinning holder when late), and the state revision only goes up;
 //! - the `before_28147` variant deadlocks (the model reaches B3: it is red on
-//!   the code before the fix).
+//!   the code before the fix; run alone, see its test).
 //!
 //! Run: `RUSTFLAGS='--cfg loom' cargo test --release -p cmux-tui-loom --test registry_receipt`.
 #![cfg(loom)]
@@ -250,9 +250,12 @@ fn a_late_receipt_is_settled_once_without_deadlock() {
     explore(|| run(false));
 }
 
-/// Red before #28147: settling a late receipt locked state again.
+/// Red before #28147: settling a late receipt locked state again. Loom's
+/// deadlock panic aborts the process in its cleanup, which `should_panic`
+/// cannot catch, so this runs alone: `run-fleet.sh loom registry_receipt`
+/// runs it with `--ignored` and requires loom's `deadlock;` report.
 #[test]
-#[should_panic]
+#[ignore = "the red variant: run-fleet.sh loom requires loom to report its deadlock"]
 fn before_28147_the_settle_deadlocks() {
     explore(|| run(true));
 }
