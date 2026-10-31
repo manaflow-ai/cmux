@@ -811,7 +811,7 @@ fn xml_escape(s: &str) -> String {
 }
 
 fn launchctl(args: &[&str]) -> bool {
-    std::process::Command::new("/bin/launchctl")
+    cmux_process::Command::new("/bin/launchctl")
         .args(args)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
