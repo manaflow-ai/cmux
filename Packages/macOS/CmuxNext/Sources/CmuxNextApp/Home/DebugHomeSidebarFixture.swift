@@ -17,6 +17,8 @@ import Foundation
 /// after the rows (no `count` keeps them); the answer carries the header's frames.
 /// `new_message` (a team size) opens New Message and fills its list with fixture Chiefs and teammates;
 /// `intro` ("welcome" | "askFocus") shows that intro on the shown Chief (neither touches other rows).
+/// `hover_draft: true` moves the synthesized pointer (`DebugHover`) onto the New Message row, so
+/// its x shows (captures of the row's hover).
 @MainActor
 enum DebugHomeSidebarFixture {
     static let names = ["Austin", "Lucas Wang", "Aziz Ali", "Mia Chen", "Noah Park", "Iris Lee",
@@ -32,6 +34,9 @@ enum DebugHomeSidebarFixture {
             if !page.isComposingNewMessage { page.presentNewMessage() }
             page.newMessage?.field.debugFillFixture(team: Array(names.prefix(min(names.count, max(0, size)))))
             return .object(["rows": .number(Double(page.newMessage?.field.suggestions.rows.count ?? -1))])
+        }
+        if params["hover_draft"]?.boolValue == true, let window = page.window, let point = page.list.draftRowCenterInWindow {
+            return .object(["owners": .number(Double(DebugHover.move(to: point, in: window)))])
         }
         if params["intro"] != nil { return .object(["intro": .bool(page.host != nil)]) }
         if let team = params["team"]?.intValue {

@@ -531,19 +531,14 @@ final class TopHomePageView: NSView {
     /// there only when the page had it.
     func closeNewMessage() {
         guard let page = newMessage else { return }
-        let wasShowing = !page.isHidden
-        let hadKeyboard = wasShowing && (window?.firstResponder as? NSView).map { $0.isDescendant(of: page) } == true
+        let (wasShowing, hadKeyboard) = (!page.isHidden, (window?.firstResponder as? NSView)?.isDescendant(of: page) == true)
         endNewMessage()
-        guard wasShowing else { return }
-        if let shown { list.select(shown) }
-        if hadKeyboard { focusPrimaryInput() }
+        if wasShowing, let shown { list.select(shown) }
+        if wasShowing, hadKeyboard { focusPrimaryInput() }
     }
 
     /// Runs `home.closeNewMessage` through the registry (one path for every entrypoint).
-    private func performCloseNewMessage() {
-        guard let services else { return closeNewMessage() }
-        _ = services.registry.perform("home.closeNewMessage", invocation: ActionInvocation(origin: .user))
-    }
+    private func performCloseNewMessage() { _ = services?.registry.perform("home.closeNewMessage", invocation: ActionInvocation(origin: .user)) }
 
     /// Drops the New Message draft, its page and its row.
     private func endNewMessage() {

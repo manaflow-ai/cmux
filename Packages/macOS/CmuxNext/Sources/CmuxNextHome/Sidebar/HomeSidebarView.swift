@@ -219,6 +219,13 @@ public final class HomeSidebarView: NSView {
         list.itemFramesInWindow.map { (ConversationID($0.id), $0.pinned, $0.frame) }
     }
 
+    /// The New Message row's centre in window base coordinates, or nil without the row (a
+    /// synthesized hover over it shows its x: `debug.home.sidebar_fixture hover_draft`).
+    public var draftRowCenterInWindow: NSPoint? {
+        guard let window, let frame = itemFramesInWindow.first(where: { $0.id == Self.draftRowID })?.frame else { return nil }
+        return NSPoint(x: frame.midX, y: (window.contentView?.bounds.height ?? window.frame.height) - frame.midY)
+    }
+
     /// Selects `id` without reporting it (the page already shows it).
     public func select(_ id: ConversationID?) { list.select(id?.rawValue) }
 

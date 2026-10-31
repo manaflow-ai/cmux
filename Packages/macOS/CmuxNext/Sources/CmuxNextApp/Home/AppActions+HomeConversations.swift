@@ -32,8 +32,7 @@ extension AppActions {
             newMessagePage(services) == nil ? RefusalStrings.noNewMessage : nil
         }, effect: { _ in
             guard let page = newMessagePage(services) else { return .refused(RefusalStrings.noNewMessage) }
-            page.closeNewMessage()
-            return .done
+            page.closeNewMessage(); return .done
         })
         registry.bind("home.invite", invoke: { invocation in
             guard let text = invocation["email"]?.stringValue, !text.isEmpty else {
@@ -177,8 +176,7 @@ extension AppActions {
     /// The active window's Home page (the classic top page, else the docked Home's Messages page)
     /// that holds a New Message draft, or nil.
     static func newMessagePage(_ services: AppServices) -> TopHomePageView? {
-        let classic = services.windows.active?.topPages.views[.home] as? TopHomePageView
-        return [classic, HomeDockTab.view(services)?.messages].lazy.compactMap { $0 }.first { $0.hasNewMessageDraft }
+        [services.windows.active?.topPages.views[.home] as? TopHomePageView, HomeDockTab.view(services)?.messages].lazy.compactMap { $0 }.first { $0.hasNewMessageDraft }
     }
 
     static func homePage(_ services: AppServices) -> TopHomePageView? {
