@@ -1,13 +1,14 @@
 import AppKit
 import CmuxNextCompat
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// A capture backdrop (`debug.capture_backdrop`) is the app's own patterned window behind a
 /// window, and a snapshot of the window composites it behind the window, so a translucent
 /// window or its glass shows the pattern (ask: lifted-row glass translucency could not be shown
 /// against the capture mini's uniform dark desktop, which a snapshot never includes).
-@Suite struct CaptureBackdropPatternTests {
+@Suite(.closesItsWindows) struct CaptureBackdropPatternTests {
     @Test func patternsAreNamedAsTheDebugMethodTakesThem() {
         #expect(CaptureBackdropPattern(name: "checker") == .checker)
         #expect(CaptureBackdropPattern(name: "stripes") == .stripes)
@@ -34,7 +35,7 @@ import Testing
     }
 }
 
-@MainActor @Suite(.serialized) struct CaptureBackdropSnapshotTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct CaptureBackdropSnapshotTests {
     /// Whether AppKit can put a window on screen here (a worker at the login window cannot).
     static func hostShowsWindows() -> Bool {
         _ = NSApplication.shared
