@@ -221,22 +221,15 @@
   display: flex;
   align-items: center;
 }
-.acpmux-pr-stack__chip > .acpmux-pr-stack__link {
+.acpmux-pr-stack__menu {
+  display: flex;
   flex: 1;
   min-width: 0;
-  padding-right: calc(var(--ds-space-6, 32px) + var(--ds-space-2, 8px));
 }
-/* A row's × is drawn only while that row is hovered or holds focus, at once, with no fade (the
-   rulebook: a hover-revealed control opens on the pointer and stays lit while its row keeps focus).
-   At rest it is transparent, not hidden, so Tab still reaches it; its own hover lights only itself. */
-.acpmux-pr-stack__dismiss {
-  position: absolute;
-  right: var(--ds-space-2, 8px);
-  opacity: 0;
-  transition: none;
-}
-.acpmux-pr-stack__chip:is(:hover, :focus-within) > .acpmux-pr-stack__dismiss {
-  opacity: 1;
+/* The row is the link alone: no control repeats on every row. Its own menu dismisses it. */
+.acpmux-pr-stack__menu > .acpmux-pr-stack__link {
+  flex: 1;
+  min-width: 0;
 }
 .acpmux-pr-stack__mark {
   flex: none;

@@ -117,7 +117,7 @@ async function prsOpen(ctx: PlayContext) {
   const count = ctx.document.querySelector(".acpmux-pr-count");
   if (count && count.getAttribute("aria-expanded") !== "true") await ctx.click({ selector: ".acpmux-pr-count" });
   await settled(ctx);
-  // One row hovered: its × shows, the other row's stays out of sight.
+  // One row hovered: its highlight, and no control of its own (its menu dismisses it).
   await ctx.hover({ selector: ".acpmux-pr-stack__chip:first-child .acpmux-pr-stack__link" });
 }
 
@@ -158,7 +158,7 @@ export default agentPaneEntry({
     ),
     expanded: variant("Selected, the turn running: the tray open, a line each.", true),
     "prs-open": variant(
-      "Selected, the count opened: a chip per pull request at the card's full width, right over the composer; the hovered row shows its ×.",
+      "Selected, the count opened: a chip per pull request at the card's full width, right over the composer; the hovered row lights, with no control of its own (a right-click dismisses it).",
       false,
       { play: prsOpen },
     ),

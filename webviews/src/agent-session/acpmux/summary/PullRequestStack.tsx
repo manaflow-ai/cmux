@@ -9,15 +9,17 @@
 // adds no row, with or without the running tray. Its highlight covers only itself, and it opens on
 // the click, with no fade-in (Leo, 2026-10-24: "You click, you get a response, period"). Opened,
 // the chips stand in the bottom stack right over the composer (PullRequestList), one per pull
-// request at the card's full width, each with the reply links' hover card and the dock's ×
-// dismissal: a row's × shows only while that row is hovered or holds focus, and Delete or Backspace
-// on a focused row dismisses it too. The gallery compares other places for the count
+// request at the card's full width, each with the reply links' hover card. A row carries no control
+// of its own: no control repeats on every row (the rulebook's visual verdict). A chip is dismissed
+// from its own menu (a right-click, or Shift-F10 on a focused row: "Dismiss pull request #N"), or
+// with Delete or Backspace on a focused row. The gallery compares other places for the count
 // (bottomStackStyles.gallery.ts, `data-pr-control`).
 import { createContext, useContext, useId, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { useHeaderState } from "../header/headerState";
-import { Close, GitHubMark } from "../conversation/icons";
+import { GitHubMark } from "../conversation/icons";
+import { ContextMenu } from "../../../ui/ContextMenu";
 import { LinkHoverCard } from "../chips/LinkHoverCard";
 import { useSiteInfo } from "../chips/linkStore";
 import { useHoverCard } from "../chips/useHoverCard";
@@ -73,7 +75,7 @@ function writeDismissed(sessionId: string | undefined, urls: readonly string[]):
 
 /// The chat's pull requests for the count and the list under it. Whether the list is open, and what
 /// was dismissed, belong to one chat. The count names every pull request
-/// Session Info's Changes names, a dismissed one too; a chip's × hides only that shortcut.
+/// Session Info's Changes names, a dismissed one too; dismissing a chip hides only that shortcut.
 export function PullRequestStackProvider({
   prs,
   sessionId,
@@ -181,34 +183,43 @@ export function PullRequestList() {
           const title = (followed ? live.title : undefined) || pr.title || "";
           return (
             <li key={pr.url} className="acpmux-pr-stack__chip">
-              <PullRequestChip
-                pr={pr}
-                state={state}
-                title={title}
-                // Delete or Backspace on a focused row dismisses it, as its × does.
-                onKeyDown={(event) => {
-                  if (event.key !== "Delete" && event.key !== "Backspace") return;
-                  event.preventDefault();
-                  stack.dismiss(pr.url, index);
-                }}
+              <ContextMenu
+                className="acpmux-pr-stack__menu"
+                items={[
+                  {
+                    id: "dismiss",
+                    ariaLabel: t("prDock.dismiss", { number: pr.number }),
+                    label: (
+                      <>
+                        {t("prDock.dismiss", { number: pr.number })}
+                        <span className="ui-menu-shortcut">⌫</span>
+                      </>
+                    ),
+                    onSelect: () => stack.dismiss(pr.url, index),
+                  },
+                ]}
               >
-                <span className="acpmux-pr-stack__mark" aria-hidden="true">
-                  <Icon name="git.pullrequest" size={14} />
-                </span>
-                <span className="acpmux-pr-stack__label">
-                  <span className="acpmux-pr-stack__number">#{pr.number}</span>
-                  <span className="acpmux-pr-stack__repo">{pr.repo.split("/").pop()}</span>
-                  {title && <span className="acpmux-pr-stack__title">{title}</span>}
-                </span>
-              </PullRequestChip>
-              <button
-                type="button"
-                className="cv-iconbtn cv-iconbtn--compact acpmux-pr-stack__dismiss"
-                aria-label={t("prDock.dismiss", { number: pr.number })}
-                onClick={() => stack.dismiss(pr.url, index)}
-              >
-                <Close size={12} />
-              </button>
+                <PullRequestChip
+                  pr={pr}
+                  state={state}
+                  title={title}
+                  // Delete or Backspace on a focused row dismisses it, as its menu's Dismiss does.
+                  onKeyDown={(event) => {
+                    if (event.key !== "Delete" && event.key !== "Backspace") return;
+                    event.preventDefault();
+                    stack.dismiss(pr.url, index);
+                  }}
+                >
+                  <span className="acpmux-pr-stack__mark" aria-hidden="true">
+                    <Icon name="git.pullrequest" size={14} />
+                  </span>
+                  <span className="acpmux-pr-stack__label">
+                    <span className="acpmux-pr-stack__number">#{pr.number}</span>
+                    <span className="acpmux-pr-stack__repo">{pr.repo.split("/").pop()}</span>
+                    {title && <span className="acpmux-pr-stack__title">{title}</span>}
+                  </span>
+                </PullRequestChip>
+              </ContextMenu>
             </li>
           );
         })}

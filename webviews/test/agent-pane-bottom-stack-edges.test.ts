@@ -10,8 +10,8 @@
 // - the folded "N PRs" count adds no row: the stack is as tall with it as with no pull requests,
 //   with or without the tray, and the count is a content-sized control whose highlight is its own;
 // - the stacked rows' trailing chevrons (the tray's header and each of its lines) share one x;
-// - the count opens on the click, with no fade-in, to chips at the card's full width; a chip's ×
-//   shows only on its row's hover or focus, Tab reaches it, and Delete on a focused row dismisses.
+// - the count opens on the click, with no fade-in, to chips at the card's full width; no control
+//   repeats on every row: a chip's own menu dismisses it, as Delete on a focused row does.
 //
 // Real gallery frames (agent-pane.bottom-stack-styles) at a wide, a normal and a narrow pane.
 // With FAST_CHECKS_OUT (cmux-ci) or CMUX_BOTTOM_STACK_CAPTURE set, the measurements are written as
@@ -293,35 +293,32 @@ await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
       const links = page.locator(".acpmux-pr-stack__list a");
       expect(await links.count()).toBe(2);
       expect(await links.first().getAttribute("href")).toBe("https://github.com/acme/atlas-web/pull/129");
-      // At rest no × is drawn; over a row exactly that row's ×, at once; Tab still reaches it.
-      const shownDismiss = () =>
+      // No control repeats on every row: a row is its link alone, at rest, hovered or focused.
+      const rowControls = () =>
         page.evaluate(
           () =>
-            [...document.querySelectorAll(".acpmux-pr-stack__dismiss")].filter((button) => {
-              const style = getComputedStyle(button);
-              return style.visibility !== "hidden" && style.display !== "none" && parseFloat(style.opacity) > 0;
-            }).length,
+            document.querySelectorAll(
+              ".acpmux-pr-stack__chip :is(button, [role='button']), .acpmux-pr-stack__chip a ~ a",
+            ).length,
         );
       await page.mouse.move(5, 5);
-      expect(await shownDismiss()).toBe(0);
+      expect(await rowControls()).toBe(0);
       await links.first().hover();
-      expect(await shownDismiss()).toBe(1);
-      expect(
-        await page.evaluate(() => {
-          const button = document.querySelector(".acpmux-pr-stack__dismiss")!;
-          return button.getAnimations().length + parseFloat(getComputedStyle(button).transitionDuration);
-        }),
-      ).toBe(0);
-      await page.mouse.move(5, 5);
+      expect(await rowControls()).toBe(0);
       await links.first().focus();
+      expect(await rowControls()).toBe(0);
+      // Tab from the first row goes to the second row, not to a control of the first.
       await page.keyboard.press("Tab");
-      expect(await page.evaluate(() => document.activeElement?.matches(".acpmux-pr-stack__dismiss") ?? false)).toBe(
-        true,
+      expect(await page.evaluate(() => document.activeElement?.getAttribute("href") ?? null)).toBe(
+        "https://github.com/acme/atlas-web/pull/128",
       );
-      expect(await shownDismiss()).toBe(1);
-      // A row's × dismisses it, and focus moves to the row now in its place; the count still names both.
-      await links.first().hover();
-      await page.locator(".acpmux-pr-stack__dismiss").first().click();
+      // A row's own menu dismisses it, and focus moves to the row now in its place; the count still
+      // names both.
+      await links.first().click({ button: "right" });
+      const item = page.getByRole("menuitem", { name: "Dismiss pull request #129" });
+      await item.waitFor({ timeout: 2_000 });
+      expect(await page.getByRole("menuitem").count()).toBe(1);
+      await item.click();
       expect(await links.count()).toBe(1);
       expect((await count.textContent())?.trim()).toBe("2 PRs");
       await page.waitForFunction(() => document.activeElement?.matches(".acpmux-pr-stack__link") ?? false);
@@ -353,7 +350,7 @@ await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
         ["Apple System Colors Light", "light"],
       ] as const) {
         const page = await open(variant, 760, theme, 2);
-        // The opened chips with the pointer on the first row: its × shows, the other's does not.
+        // The opened chips with the pointer on the first row: that row lights, with no control of its own.
         if (variant === "prs-open") await page.locator(".acpmux-pr-stack__link").first().hover();
         await page.screenshot({ path: path.join(out, "stills", `${variant}-${name}.png`) });
         await page.close();
