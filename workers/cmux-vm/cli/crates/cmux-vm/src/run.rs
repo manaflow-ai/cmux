@@ -1751,6 +1751,27 @@ mod tests {
     }
 
     #[test]
+    fn syncing_a_credential_directory_itself_sends_none_of_it() {
+        // `--sync --dir ~/.codex` or `--dir ~/.config/gh`: the files are
+        // credentials by where the synced directory is, not their own path.
+        let base =
+            std::env::temp_dir().join(format!("cmux-vm-run-cred-root-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        for (dir, file) in [
+            (".codex", "auth.json"),
+            (".config/gh", "hosts.yml"),
+            (".aws", "config"),
+        ] {
+            std::fs::create_dir_all(base.join(dir)).unwrap();
+            std::fs::write(base.join(dir).join(file), "secret").unwrap();
+            let list = sync_list(&base.join(dir)).unwrap();
+            assert!(list.files.is_empty(), "{dir}: {:?}", list.files);
+            assert_eq!(list.credentials, vec![PathBuf::from(file)], "{dir}");
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
     fn agent_credentials_never_sync() {
         // The coding agents' auth stores (acpmux hub/pool/auth.rs), in a
         // project-local agent home or a synced home directory.
