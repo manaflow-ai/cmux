@@ -59,7 +59,7 @@ struct DaemonConnectionStartupCloseTests {
         if count == 0 and command == "subscribe":
             time.sleep(0.05)
             sys.exit(0)
-    """
+    """#
 
 }
 

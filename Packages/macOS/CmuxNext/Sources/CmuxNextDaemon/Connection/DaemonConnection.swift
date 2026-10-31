@@ -234,12 +234,7 @@ public actor DaemonConnection {
     // MARK: - Connect / reconnect
 
     private func connectOnce() async throws -> DaemonIdentity {
-        guard {
-            switch phase {
-            case .idle, .waiting: return true
-            case .connecting, .ready, .closed: return false
-            }
-        }() else {
+        guard acceptsNewAttempt else {
             throw DaemonError.connectionClosed(reason: "connection is not accepting a new attempt")
         }
         phase = .connecting
@@ -299,6 +294,13 @@ public actor DaemonConnection {
     }
 
     private var isClosedPhase: Bool { if case .closed = phase { true } else { false } }
+    /// Only an idle or waiting connection may start a new endpoint/handshake attempt.
+    private var acceptsNewAttempt: Bool {
+        switch phase {
+        case .idle, .waiting: true
+        case .connecting, .ready, .closed: false
+        }
+    }
 
     private func transportClosed(serial: UInt64, reason: TransportCloseReason) {
         guard serial == self.serial else { return }
