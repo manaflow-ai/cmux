@@ -312,6 +312,7 @@ struct WorkspaceContentView: View {
                         workspace.focusRemoteTmuxContainerPaneIfNeeded(paneId)
                     }
                 } else {
+                    let focusRestoreTransactionId = workspace.focusRestoreTransactionId
                     WorkspacePanelContentHostView(
                         workspace: workspace,
                         panel: panel,
@@ -337,18 +338,23 @@ struct WorkspaceContentView: View {
                             workspace.focusPanel(
                                 panel.id,
                                 trigger: .terminalFirstResponder,
-                                focusTransactionId: workspace.activeFocusTransactionId
+                                focusTransactionId: workspace.activeFocusTransactionId,
+                                expectedFocusRestoreTransactionId: focusRestoreTransactionId
                             )
                         },
                         onRequestPanelFocus: {
                             guard isWorkspaceInputActive else { return }
                             guard workspace.panels[panel.id] != nil else { return }
+                            guard workspace.focusRestoreTransactionId == focusRestoreTransactionId else { return }
                             AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
                                 workspaceId: workspace.id,
                                 panelId: panel.id,
                                 in: NSApp.keyWindow ?? NSApp.mainWindow
                             )
-                            workspace.focusPanel(panel.id)
+                            workspace.focusPanel(
+                                panel.id,
+                                expectedFocusRestoreTransactionId: focusRestoreTransactionId
+                            )
                         },
                         onResumeAgentHibernation: {
                             guard isWorkspaceInputActive else { return }
