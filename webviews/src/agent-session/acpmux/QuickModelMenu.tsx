@@ -564,6 +564,20 @@ export function QuickModelMenu({
       return;
     }
     const { key } = event;
+    // Down lands on the first model row at once, before the menu's own keys see it: left to the
+    // menu, a Down right after typing could stay in the field and the next went to the row's
+    // effort item, so a keyboard pick from a search never reached a model.
+    if (key === "ArrowDown" && !event.shiftKey) {
+      const first = event.currentTarget
+        .closest(".acpmux-quick-menu")
+        ?.querySelector<HTMLElement>('.acpmux-quick-list [role="menuitemradio"]:not([data-disabled])');
+      if (first) {
+        event.preventDefault();
+        event.stopPropagation();
+        first.focus();
+        return;
+      }
+    }
     if (!query && (/^[1-9]$/.test(key) || key === "ArrowLeft" || key === "ArrowRight")) return;
     if (key.length === 1 || ["Backspace", "Delete", "Home", "End", "ArrowLeft", "ArrowRight"].includes(key))
       event.stopPropagation();
@@ -586,20 +600,6 @@ export function QuickModelMenu({
       }}
     />
   );
-  /// Down from the search field lands on the first model row, at once and before the menu's own
-  /// keys see it: left to the menu, a Down right after typing could stay in the field and the next
-  /// one went to the row's effort item, so a keyboard pick from a search never reached a model.
-  const keyDownCapture = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== "ArrowDown" || event.target !== field.current || event.nativeEvent.isComposing) return;
-    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
-    const first = event.currentTarget.querySelector<HTMLElement>(
-      '.acpmux-quick-list [role="menuitemradio"]:not([data-disabled])',
-    );
-    if (!first) return;
-    event.preventDefault();
-    event.stopPropagation();
-    first.focus();
-  };
   const keyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     // ⌘1 to ⌘9 pick a row as 1 to 9 do, also while a search shows (where a bare digit is text).
     const commandDigit = event.metaKey && !event.ctrlKey && !event.altKey && /^[1-9]$/.test(event.key);
@@ -1080,7 +1080,6 @@ export function QuickModelMenu({
         // Keep this combined surface inside the window in both directions.
         escapes={!families}
         // ui-allow: 1 to 9 pick a row in place and typing filters the list, as in Claude Code's model menu.
-        onKeyDownCapture={keyDownCapture}
         onKeyDown={keyDown}
       >
         {widthProbe}
