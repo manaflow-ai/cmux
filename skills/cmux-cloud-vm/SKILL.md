@@ -1,6 +1,6 @@
 ---
 name: cmux-cloud-vm
-description: "Operate cmux Cloud machines through the app's cloud actions, and drive a machine's own cmux-tui session from inside it. Use for cmux vm/cloud tasks; backend implementation belongs to cmux-backend."
+description: "Operate cmux Cloud machines through the app's cloud actions (or the cmux VM API with no app: provision, exec, pause, delete), and drive a machine's own cmux-tui session from inside it. Use for cmux vm/cloud tasks; backend implementation belongs to cmux-backend."
 ---
 
 # cmux Cloud machines
@@ -8,13 +8,13 @@ description: "Operate cmux Cloud machines through the app's cloud actions, and d
 Use this skill when a task involves a cmux Cloud machine. Machine terminals persist
 when panes close or the Mac disconnects.
 
-The Mac-side `cmux vm …` command family (route, run, exec, agent, dev, push, pull,
-tree, open, ssh, snapshot, fork, domains and the rest) was removed with the Swift
-CLI. The Rust `cmux` has no `vm` scope. What remains:
+The Swift CLI's `cmux vm …` family (route, run, agent, dev, push, pull, tree, open
+and the rest) was removed. What works now:
 
 | Where | What works |
 | --- | --- |
 | Mac, app running | `cmux cloud <verb>` app actions: create, open, fork, snapshot, restore, resize, rename and kill machines, sign in, diagnostics |
+| No app (CI, a headless agent) | `cmux vm` (`new`, `ls`, `exec`, `pause`, `resume`, `rm` and more) against the cmux VM API with an API key: [provision, run, pause, delete](references/headless.md) |
 | Inside a machine | the machine's `cmux`, a guest adapter over its cmux-tui daemon: the resource grammar (`cmux workspace list`, `cmux terminal current screen read`) plus guest verbs (`cmux self`, `cmux coderouter`, `cmux env`, `cmux layout`, `cmux notify`, `cmux open-url`) |
 
 ## Start with discovery
@@ -91,7 +91,8 @@ browser authentication. The machine's `cmux --help` is authoritative.
 
 ## Old `vm` verbs
 
-The Swift `cmux vm …` family is gone. Its replacements are app actions:
+The Swift `cmux vm …` family is gone; today's `cmux vm` is the API client in
+[headless.md](references/headless.md). The old verbs' replacements are app actions:
 `cmux cloud exec --command …` (returns the exit code and output), `cmux cloud ssh`
 (opens a terminal), `cmux cloud file-write`, `cmux cloud file-read|files-list|prepare-scp`
 (these return their result to the CLI),
@@ -105,6 +106,7 @@ maps every old verb.
 
 ## Read only the relevant detail
 
+- [Without the app](references/headless.md): `cmux vm` with an API key, from provision to delete.
 - [Workflow recipes](references/agent-workflows.md): the supported paths for common tasks.
 - [Command reference](references/commands.md): every cloud action and its arguments.
 - [Guest operations](references/guest.md): inside-machine grammar, CodeRouter, notifications.
