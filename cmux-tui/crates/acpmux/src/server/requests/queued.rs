@@ -10,7 +10,6 @@
 //! them forwarded (`peer_forward.rs`).
 
 use super::*;
-use cmux_json::JsonSet as _;
 
 /// Whether `m` is one of them.
 pub(super) fn handles(m: &str) -> bool {

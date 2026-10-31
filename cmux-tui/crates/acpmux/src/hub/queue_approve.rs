@@ -23,7 +23,6 @@
 //! (`restore_queue`).
 
 use super::*;
-use cmux_json::JsonSet as _;
 use std::sync::atomic::Ordering;
 
 /// What the `session/prompt` of a declined prompt answers.
