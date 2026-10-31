@@ -62,7 +62,7 @@ import Testing
     ) -> Int? {
         while let kind = connection.pendingCommandKindsForTesting.first {
             switch kind {
-            case .other:
+            case .other, .tracked:
                 reply(connection, lines: [])
             case let .paneRects(windowID, _):
                 if let expectedWindowID, expectedWindowID != windowID {

@@ -164,6 +164,7 @@ final class RemoteTmuxViewConnection {
     private let initialRows: Int
     /// Window ids cmux has itself linked into the view (ownership for safe unlink).
     private var ownedWindowIds: Set<String> = []
+    var unconfirmedMarkWindowIds: Set<String> = [] // linked here, mark not yet acknowledged; see WindowMarks
     private var placeholderWindowId: String?
     /// Whether the over-the-stream view bringup has completed: the ownership options are
     /// stamped (each write acknowledged) and ``placeholderWindowId``/``ownedWindowIds``
@@ -253,29 +254,7 @@ final class RemoteTmuxViewConnection {
         observerToken = conn.addObserver(
             onTopologyChanged: { [weak self] in self?.scheduleReconcile() },
             onExit: { [weak self] in self?.handleEnded() },
-            onConnectionStateChanged: { [weak self] state in
-                guard let self, !self.isStopped else { return }
-                if state == .connected {
-                    self.onAuthenticated?()
-                    self.scheduleReconcile()
-                } else {
-                    // The stream dropped. A bootstrap `new-session` that was buffered
-                    // but lost before the write flushed (the close-before-flush race)
-                    // never reached tmux, so re-arm the one-shot to retry on reconnect.
-                    // The sticky `didEverSurfaceWorkspace` still prevents recreating a
-                    // session the user closed (it only flips true once a real workspace
-                    // surfaced), so this can't resurrect closed work.
-                    self.didBootstrapEmptyHost = false
-                    // Re-run the view bringup on the next connect. The view we stamped may
-                    // not be the view we come back to: it can be killed during the outage
-                    // and recreated by the re-attach, and an unstamped view classifies as
-                    // not ours.
-                    self.didBootstrapView = false
-                    // A fresh connect gets a fresh budget; the old stream's refusals say nothing
-                    // about whether this one will take the writes.
-                    self.bringupRetries = 0
-                }
-            },
+            onConnectionStateChanged: { [weak self] state in self?.streamStateChanged(state) },
             onAuthRequired: { [weak self] sshArgv in
                 guard let self, !self.isStopped else { return false }
                 // The stream is parked for interactive credentials. Publish the verdict now, not
@@ -290,6 +269,28 @@ final class RemoteTmuxViewConnection {
         try conn.start()
         conn.setClientSize(columns: initialCols, rows: initialRows)
         connection = conn
+    }
+
+    /// The view stream connected or dropped.
+    func streamStateChanged(_ state: RemoteTmuxConnectionState) {
+        guard !isStopped else { return }
+        if state == .connected {
+            onAuthenticated?()
+            scheduleReconcile()
+            return
+        }
+        // The stream dropped. A bootstrap `new-session` that was buffered but lost before the
+        // write flushed (the close-before-flush race) never reached tmux, so re-arm the one-shot
+        // to retry on reconnect. The sticky `didEverSurfaceWorkspace` still prevents recreating
+        // a session the user closed (it only flips true once a real workspace surfaced), so this
+        // can't resurrect closed work.
+        didBootstrapEmptyHost = false
+        // Re-run the view bringup on the next connect. The view we stamped may not be the view
+        // we come back to: it can be killed during the outage and recreated by the re-attach,
+        // and an unstamped view classifies as not ours.
+        didBootstrapView = false
+        // A fresh connect gets a fresh budget: the old stream's refusals say nothing about this one.
+        bringupRetries = 0
     }
 
     func stop() {
@@ -536,16 +537,15 @@ final class RemoteTmuxViewConnection {
                 self.bootstrapWritesAcknowledged += 1
             }) else { return false }
         }
-        guard let lines = await reconcileListQuery(
-            conn,
-            "list-windows -t \(quoted(view.sessionName)) -F '#{window_id} #{window_linked}'"
-        ) else { return false }
+        rewriteUnconfirmedMarks(conn)
+        guard let lines = await reconcileListQuery(conn, "list-windows -t \(quoted(view.sessionName)) -F "
+            + quoted(Self.markedBringupListFormat(viewSessionName: view.sessionName))) else { return false }
         // No separate wait for the writes: tmux answers commands in the order it received
         // them, so their blocks have already resolved by the time this reply arrives. A
         // stream that reset in between fails every pending tracked send, which lands here
         // as a missing acknowledgement.
         guard bootstrapWritesAcknowledged == writes.count else { return false }
-        let read = Self.readBringupRows(lines)
+        let read = readBringupRowsKeepingUnconfirmedMarks(conn, lines)
         placeholderWindowId = read.placeholder
         ownedWindowIds = read.adopted
         return true
@@ -633,7 +633,7 @@ final class RemoteTmuxViewConnection {
         return false
     }
 
-    private func reconcileListQuery(_ conn: RemoteTmuxControlConnection, _ command: String) async -> [String]? {
+    func reconcileListQuery(_ conn: RemoteTmuxControlConnection, _ command: String) async -> [String]? {
         let outcome = await conn.queryOutcomeWithTimeout(command, timeout: 15, reconnectOnTimeout: false)
         if let lines = outcome.lines { return lines }
         guard Self.shouldRetryReconcileQuery(after: outcome) else { return nil }
@@ -702,11 +702,11 @@ final class RemoteTmuxViewConnection {
                   conn.connectionState == .connected else { return }
             didBootstrapView = true
             bringupRetries = 0
+            await detachLeftoverViewClients(conn)
         }
 
-        // Bounded: an alive-but-slow server gets one longer retry before we decide
-        // the control stream is wedged and reconnect. Other query users opt out of
-        // reconnect-on-timeout so quit/new-workspace paths do not flap the stream.
+        // Bounded: an alive-but-slow server gets one longer retry before we call the stream wedged
+        // and reconnect. Other query users opt out so quit/new-workspace paths do not flap it.
         guard
             let sessOut = await reconcileListQuery(
                 conn,
@@ -792,7 +792,7 @@ final class RemoteTmuxViewConnection {
         for action in plan.reconcileActions {
             switch action {
             case let .link(windowId):
-                if conn.send("link-window -s \(windowId) -t \(quoted(view.sessionName))") {
+                if linkIntoView(conn, windowId: windowId) {
                     ownedWindowIds.insert(windowId)
                 }
             case let .unlinkFromView(windowId):
