@@ -36,9 +36,12 @@ enum SidebarDensityTokens {
     static var textSize: SidebarTextSize { DesignSettings.shared.sidebarSections.textSize }
     /// The extra height of a comfortable row or header, plus the text size's.
     private static var extra: CGFloat { (isComfortable ? Metrics.space2 : 0) + textSize.rowStep }
-    /// The gap between consecutive rows: `sidebar.rowSpacing` (#28663), else the density's `space1`.
-    static var rowSpacing: CGFloat {
-        DesignSettings.shared.sidebarSections.rowSpacing.map { CGFloat($0) } ?? Metrics.space1
+    /// The gap between consecutive rows: `sidebar.rowSpacing` (#28663, points at the interface
+    /// scale, like `space1`), else the density's `space1`.
+    static var rowSpacing: CGFloat { explicitRowSpacing ?? Metrics.space1 }
+    /// `sidebar.rowSpacing` when set, at the interface scale; nil follows the density.
+    static var explicitRowSpacing: CGFloat? {
+        DesignSettings.shared.sidebarSections.rowSpacing.map { Metrics.scale(CGFloat($0)) }
     }
 
     /// A one-line workspace row, tab row, group header or band row.

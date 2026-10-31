@@ -30,7 +30,7 @@ extension SidebarRegionMetrics {
             // starts at the inset; the row glyph at twice the inset).
             glyphColumn: SidebarStyle.horizontalInset + SidebarStyle.iconBox / 2)
         // An explicit `sidebar.rowSpacing` spaces the pinned rows too (#28663); unset keeps them flush.
-        metrics.rowGap = DesignSettings.shared.sidebarSections.rowSpacing.map { CGFloat($0) } ?? 0
+        metrics.rowGap = SidebarDensityTokens.explicitRowSpacing ?? 0
         return metrics
     }
 }

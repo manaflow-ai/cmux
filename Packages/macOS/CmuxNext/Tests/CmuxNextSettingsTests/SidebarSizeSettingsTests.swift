@@ -4,8 +4,8 @@ import Testing
 
 /// #28663: Settings has a Sidebar section whose Size and Spacing card sets the sidebar's text size,
 /// density and row spacing; cmux.json, `cmux settings set` and Cmd+Shift+P reach the same keys.
-/// Unset, the sidebar keeps its text size and compact rows, and Interface Scale starts two steps
-/// above 100%.
+/// Unset, the sidebar keeps its text size and compact rows, and Interface Scale shows 100% while
+/// drawing at the old 120%.
 struct SidebarSizeSettingsTests {
     static func parse(_ sidebar: [String: JSONValue]) -> CmuxConfigSnapshot {
         CmuxConfigSnapshot.parse(.object(["sidebar": .object(sidebar)]), validDensities: [], validMetrics: [])
@@ -58,11 +58,17 @@ struct SidebarSizeSettingsTests {
         #expect(descriptor.isShownOnSettingsPage)
     }
 
-    @Test func interfaceScaleDefaultsTwoStepsAbove100Percent() throws {
+    /// Interface Scale shows 100% by default but draws at the old 120% (#28663: "the default should be
+    /// 100% (today's 120%) ... it should show up as 100%"); a set value draws at the same base.
+    @MainActor @Test func interfaceScaleShows100PercentAndDrawsAtTheOld120() throws {
         let scale = UIScaleSetting()
-        #expect(abs(scale.fallback - (1 + 2 * scale.step)) < 0.0001)
-        #expect(CmuxConfigSnapshot.parse(.object([:]), validDensities: [], validMetrics: []).uiScale == scale.fallback)
+        #expect(scale.fallback == 1)
+        #expect(CmuxConfigSnapshot.parse(.object([:]), validDensities: [], validMetrics: []).uiScale == 1)
         let descriptor = try #require(SettingsSchema.descriptor(for: scale.configPath))
-        #expect(descriptor.defaultValue == .number(scale.fallback))
+        #expect(descriptor.defaultValue == .number(1))
+        #expect(DesignSettings.uiScaleBase == 1.2)
+        #expect(abs(DesignSettings.drawnUIScale(1) - 1.2) < 0.0001)
+        #expect(abs(DesignSettings.drawnUIScale(1.1) - 1.32) < 0.0001)
+        #expect(abs(DesignSettings.drawnUIScale(9) - 1.5 * 1.2) < 0.0001, "the shown value clamps first")
     }
 }

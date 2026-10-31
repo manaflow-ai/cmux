@@ -205,7 +205,7 @@ await requireBrowserLane("settings-scroll.test.ts", async () => {
 
       test("an open select pop-up never makes the document scroll and stays at its anchor", async () => {
         await open(page, "appearance");
-        const control = '[data-row-key="sidebar.sectionLook"] .ui-select-button';
+        const control = '[data-row-key="appearance.statusIndicator.style"] .ui-select-button';
         // The select near the bottom edge, as in the report.
         await page.evaluate((selector) => {
           const content = document.querySelector(".content")!;

@@ -8,7 +8,7 @@
   user's current settings". `SidebarDensityTokens.rowSpacing` is `sidebar.rowSpacing`, else the fixed `space1`;
   an explicit value also spaces the pinned band's rows (`SidebarRegionMetrics.rowGap`, 0 when unset, as
   before). Text size reuses `sidebar.textSize` (Default keeps today's size), density stays compact by default.
-  Interface Scale (`app.uiScale`) starts at 1.1. Regression: `SidebarSizeSettingsTests`.
+  Interface Scale (`app.uiScale`) 100% draws at the old 1.2 (`DesignSettings.uiScaleBase`). Regression: `SidebarSizeSettingsTests`.
 - 2026-10-30: `sidebar.textSize` (Settings > Appearance > Sidebar Text Size; palette, `cmux settings set
   sidebar.textSize larger`, MCP `settings_set`). Lawrence msg 17752 (a ChatGPT sidebar screenshot): "we also need
   option for sidebar text to be very significantly bigger. this is how big chatgpt is by default, let's match them".

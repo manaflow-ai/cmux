@@ -5,8 +5,8 @@ import Foundation
 public struct UIScaleSetting: Sendable {
     /// The cmux.json key path.
     public let configPath: [String]
-    /// The default scale, expressed as a multiplier (1 is 100%): 110%, two Increase Interface Scale
-    /// steps above 100% (#28663: 100% read too small). `DesignSettings.uiScale` starts at the same value.
+    /// The default scale, expressed as a multiplier (1 is 100%). The value is what Settings shows;
+    /// the app draws it times `DesignSettings.uiScaleBase` (#28663: 100% draws at the old 120%).
     public let fallback: Double
     /// Supported display scale, from 85% through 150%.
     public let range: ClosedRange<Double>
@@ -15,7 +15,7 @@ public struct UIScaleSetting: Sendable {
 
     public init() {
         configPath = ["app", "uiScale"]
-        fallback = 1.1
+        fallback = 1
         range = 0.85...1.5
         step = 0.05
     }

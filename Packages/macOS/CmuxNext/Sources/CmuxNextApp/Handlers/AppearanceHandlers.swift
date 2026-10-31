@@ -145,14 +145,14 @@ enum AppearanceHandlers {
     private static func stepUIScale(by delta: Double, _ context: AppActionContext) throws {
         try requireUnmanaged(uiScalePath, context)
         let design = context.design
-        let next = DesignSettings.clampedUIScale(design.uiScale + CGFloat(delta))
-        design.uiScale = next
+        let next = DesignSettings.clampedUIScale(((design.uiScaleSetting + CGFloat(delta)) * 100).rounded() / 100)
+        design.uiScale = DesignSettings.drawnUIScale(next)
         context.writeSetting("set interface scale", uiScalePath, .number(Double(next)), reloadOnFailure: true)
     }
 
     private static func resetUIScale(_ context: AppActionContext) throws {
         try requireUnmanaged(uiScalePath, context)
-        context.design.uiScale = CGFloat(UIScaleSetting().fallback)
+        context.design.uiScale = DesignSettings.drawnUIScale(CGFloat(UIScaleSetting().fallback))
         context.writeSetting("reset interface scale", uiScalePath, nil, reloadOnFailure: true)
     }
 

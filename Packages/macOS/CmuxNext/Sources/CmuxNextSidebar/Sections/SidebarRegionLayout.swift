@@ -103,7 +103,19 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
 
     public static let empty = SidebarRegionLayout(rows: [], cards: [], separators: [], sectionFrames: [], height: 0, cappedHeight: 0)
 
-    public func row(at point: CGPoint) -> SidebarRegionRow? { rows.first { $0.frame.contains(point) } }
+    /// The gap between a section's item rows (`SidebarRegionMetrics.rowGap`).
+    public var rowGap: CGFloat = 0
+
+    /// The row under `point`. Within a gap between two item rows (`rowGap`), each takes the half
+    /// beside it, as the workspace list does, so hover and drops never fall through a gap.
+    public func row(at point: CGPoint) -> SidebarRegionRow? {
+        if let row = rows.first(where: { $0.frame.contains(point) }) { return row }
+        guard rowGap > 0 else { return nil }
+        return rows.first { row in
+            guard case .item = row.kind else { return false }
+            return row.frame.insetBy(dx: 0, dy: -rowGap / 2).contains(point)
+        }
+    }
 
     public static func make(sections: [LayoutSection], width: CGFloat, look: SectionsLookVariant,
                             collapsed: Set<LayoutSectionID>, metrics m: SidebarRegionMetrics,
@@ -119,6 +131,7 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
         }
         guard !shown.isEmpty else { return .empty }
         var result = SidebarRegionLayout.empty
+        result.rowGap = m.rowGap
         var y = m.topPadding ?? m.padding
         var capped = y
         if m.leadingSeparator, look.separatesSections {
