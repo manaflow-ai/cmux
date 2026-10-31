@@ -149,8 +149,8 @@ nonisolated struct RustRow: Codable {
                 continue
             default:
                 if case .custom = row.section { continue } // the older resolver knows Pinned and machines only
-                if soleRowsAsHeaders, row.standsForGroup, let group = row.group {
-                    resolvable.append(RustRow(header: group, standingIn: row))
+                if soleRowsAsHeaders, let header = row.standingHeader {
+                    resolvable.append(RustRow(header))
                     sole = row
                     continue
                 }
@@ -208,14 +208,6 @@ nonisolated struct RustRow: Codable {
         case isLastInGroup = "is_last_in_group"
         case isCollapsed = "is_collapsed"
         case childCount = "child_count"
-    }
-
-    /// `group`'s open header in the place of its one row `row`.
-    init(header group: GroupID, standingIn row: SidebarRow) {
-        var header = row
-        (header.key, header.siblingIndex, header.parentIndex) = (.group(group), row.parentIndex ?? row.siblingIndex, nil)
-        (header.workspace, header.isLastInGroup, header.isCollapsed, header.childCount) = (nil, false, false, 1)
-        self.init(header)
     }
 
     init(_ row: SidebarRow) {

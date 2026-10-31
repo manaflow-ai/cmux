@@ -62,6 +62,9 @@ import AppKit
                 return true
             }
             guard let active = model.activeWorkspaceID, let group = group(containing: active) else { return false }
+            // A group drawn as its one row (`SidebarLayout+SoleMember`) has no header to go to, as a loose row has none;
+            // its group's actions are on the row's menu, its editor opens at the row.
+            guard list.displayed.row(for: .workspace(active))?.standsForGroup != true else { return false }
             focus(.group(group))
             return true
         case .rightArrow?:

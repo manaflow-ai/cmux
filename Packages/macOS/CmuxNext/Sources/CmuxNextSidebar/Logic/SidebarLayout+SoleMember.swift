@@ -30,9 +30,10 @@ nonisolated extension SidebarLayout {
         return drawn[0].depth
     }
 
-    /// Appends `ws`'s row (and its inline tabs) at `y` as `group`'s one row and returns the y after it.
-    static func appendSoleMember(_ ws: SidebarWorkspace, of group: SidebarGroup, treeDepth: Int, section: SectionID, parent: Int,
-                                 machine: String?, options o: SidebarLayoutOptions, metrics m: SidebarLayoutMetrics,
+    /// Appends `ws`'s row (and its inline tabs, unless the group is `collapsed`: a collapsed group's kept member lists
+    /// none) at `y` as `group`'s one row and returns the y after it.
+    static func appendSoleMember(_ ws: SidebarWorkspace, of group: SidebarGroup, collapsed: Bool, treeDepth: Int, section: SectionID,
+                                 parent: Int, machine: String?, options o: SidebarLayoutOptions, metrics m: SidebarLayoutMetrics,
                                  to rows: inout [SidebarRow], y: CGFloat) -> CGFloat {
         var y = y
         var content = o.rowContent(ws, machine: machine)
@@ -48,7 +49,7 @@ nonisolated extension SidebarLayout {
         row.standsForGroup = true
         rows.append(row)
         y += h + m.rowSpacing
-        guard o.listsTabs(ws) else { return y }
+        guard !collapsed, o.listsTabs(ws) else { return y }
         for tab in ws.tabs {
             var tabRow = SidebarRow(
                 key: .tab(ws.id, tab.id), y: y, height: m.tabRowHeight, section: section,
@@ -61,5 +62,18 @@ nonisolated extension SidebarLayout {
             y += m.tabRowHeight + m.rowSpacing
         }
         return y
+    }
+}
+
+nonisolated extension SidebarRow {
+    /// The header a group's one row (`standsForGroup`) stands for: the group's open header in the row's place, for code
+    /// that plans by headers (the drop resolvers, a group drag's blocks). Nil for any other row.
+    var standingHeader: SidebarRow? {
+        guard standsForGroup, let group else { return nil }
+        var header = self
+        (header.key, header.siblingIndex, header.parentIndex, header.depth) = (.group(group), parentIndex ?? siblingIndex, nil, depth - 1)
+        (header.workspace, header.isLastInGroup, header.isCollapsed, header.childCount) = (nil, false, false, 1)
+        (header.tabDisclosure, header.content, header.standsForGroup) = (nil, nil, false)
+        return header
     }
 }

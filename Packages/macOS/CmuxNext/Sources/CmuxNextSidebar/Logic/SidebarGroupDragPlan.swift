@@ -149,7 +149,9 @@ nonisolated struct SidebarGroupDragPlan: Sendable, Equatable {
     static func blocks(of rows: [SidebarRow]) -> [Block] {
         var blocks: [Block] = []
         var open: (group: GroupID?, workspace: WorkspaceID?)?
-        for row in rows where row.height > 0 {
+        for case var row in rows where row.height > 0 {
+            // A group's one row starts its group's block, as its header did (`SidebarLayout+SoleMember`).
+            if let header = row.standingHeader { row = header }
             let inOpenGroup = open?.group != nil && (row.group == open?.group || row.depth > 0)
             let joins: Bool = switch row.key {
             case .workspace, .item, .group, .doneFold, .showMore: inOpenGroup
