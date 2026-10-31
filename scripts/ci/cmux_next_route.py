@@ -247,6 +247,21 @@ CHECKED_WEB_BUNDLES = (
 # (tests/test_ci_warm_sources.py), and their tests. actionlint and the CI unit tests (ci.yml's
 # guards) and the routing replay (the checks job) cover them on Linux, and `gh-merge-green
 # --revert` undoes one in a command.
+# Top-level paths no Mac compile reads: the Cloud VM image (images/), Go and Bun services, the
+# agent and review-bot configs. Nothing in cmux.xcodeproj, a Package.swift or a scripts/ build script
+# names them (test_no_app_input_is_named_by_a_build_input keeps that true), so a change to one runs no
+# Release or scheme compile: #29013 (images/cmux-vm/inputs.lock.json) waited 80 minutes on a fleet
+# Release compile its diff could not change. A test target that reads one still runs (consumed()).
+NO_APP_INPUT = (
+    "images/*", "services/*", "vault/*", "coderouter/*", "agent-chat/*", "markdown-obsidian-parity/*",
+    "tests_v2/*", ".agents/*", ".claude/*", ".codex/*", ".greptile/*", ".coderabbit.yaml",
+)
+
+
+def no_app_input(path: str) -> bool:
+    return any(fnmatch.fnmatch(path, pattern) for pattern in NO_APP_INPUT)
+
+
 CI_ONLY = (
     ".github/workflows/*", ".github/warm-sources.json", "scripts/ci/*", "scripts/gh-merge-green",
     "tests/test_cmux_next_route.py", "tests/test_cmux_next_route_replay.py",
@@ -263,10 +278,18 @@ ISOLATED_PRIORITY_SUITES = frozenset((
     "CmuxNextControlTests", "BranchStateResourcesTests", "CLISurfaceParityTests",
 ))
 
+# The priority shard only reorders: the broad pass skips its suites and would run them anyway. Past
+# this many suites its regex stalls swift-testing's filter (cmux#27236's 378 suites, a 9.7 KB
+# `.*(A|B|...)\.`, sat 1500 s in Configuration.TestFilter.apply before any test ran, and the broad
+# pass's matching `--skip` stalled the same way), so a diff that wide gets no priority shard.
+MAX_PRIORITY_SUITES = 40
+
 
 def web_fast(path: str) -> bool:
     """Web sources, their checked bundles, docs: ci-web and the checks job cover them all."""
     if any(fnmatch.fnmatch(path, pattern) for pattern in WEBVIEW + CHECKED_WEB_BUNDLES):
+        return True
+    if no_app_input(path):
         return True
     return any(fnmatch.fnmatch(path, pattern) for pattern in WEB_ONLY) and not path.startswith(PACKAGE)
 
@@ -943,6 +966,10 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
     graph = load_graph(root)
     tests = {name for name, target in graph["targets"].items() if target["kind"] == "test"}
     result.priority_suites = priority_suites(root, graph, changed)
+    if len(result.priority_suites) > MAX_PRIORITY_SUITES:
+        result.reasons.append(f"{len(result.priority_suites)} changed Swift suites: no priority shard"
+                              f" (over {MAX_PRIORITY_SUITES}, its filter stalls swift-testing)")
+        result.priority_suites = set()
     read = lambda path: any(matches(path, r) for name in tests for r in graph["targets"][name].get("reads", []))  # noqa: E731
     # The fast tiers: a web nit or a CI change lands in minutes. ci-web's bundle --check stands in for
     # the app compile; actionlint, the CI tests and the routing replay check CI changes. A file a Mac
@@ -956,8 +983,8 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
         (web_fast(path) or ci_only(path) or linux_only_test(path, linux_tests))
         and (path in unread or not consumed(path, tree_inputs_early, read)) for path in changed
     ):
-        kinds = sorted({"CI" if ci_only(path) else "Linux-lane test" if linux_only_test(path, linux_tests) else "web"
-                        for path in changed})
+        kinds = sorted({"CI" if ci_only(path) else "Linux-lane test" if linux_only_test(path, linux_tests)
+                        else "non-app" if no_app_input(path) else "web" for path in changed})
         result.reasons.append(f"only {' and '.join(kinds)} files changed: Linux checks cover them (no Mac tier)")
         return result
     packages = package_inputs(root, graph)
@@ -981,6 +1008,8 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
             result.webview = True
         elif any(fnmatch.fnmatch(path, pattern) for pattern in WEB_ONLY) and not path.startswith(PACKAGE):
             pass
+        elif no_app_input(path):
+            result.reasons.append(f"{path} is in no Mac build input {NO_SWIFT_COMPILE_REASON}")
         elif path.startswith(CMUX_TUI):
             # Rust: the daemon tier (tree inputs, below) builds and tests it. Only the
             # CCmuxAppFFI sources reach the Swift compiles, and only the app scheme's build

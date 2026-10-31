@@ -468,8 +468,8 @@ enum AgentHandlers {
         // an in-app caller that passes another place is refused, not ignored.
         let place = invocation["where"]?.stringValue ?? AgentPaneFileTarget.tab.rawValue
         guard let target = AgentPaneFileTarget(rawValue: place) else { throw ActionFailure(message: MiscHandlerStrings.invalidPlace(place)) }
-        // A tab is the file pages (diff-host S6, S7): any regular file shows there as text (never
-        // run), so the tab check for WebKit page types no longer applies.
+        // A tab is the file pages (diff-host S6, S7) or, for HTML and SVG, a browser tab that
+        // renders the page (u18051); Open as Text and Edit Source show its source.
         if target == .tab {
             guard path.hasPrefix("/") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
             guard let url = AgentPaneFileOpen.resolve(path) else { throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path)) }
@@ -478,7 +478,9 @@ enum AgentHandlers {
             if let session = invocation.callerAgentSession, let chat = context.services.agentTabs.tab(showing: session) {
                 context.services.chatQuoteOpeners.noteOpened(url, byAgentTab: chat)
             }
-            if let reason = context.services.viewers.openFile(url, in: pane, userChose: invocation.origin == .user) { throw ActionFailure(message: reason) }
+            // `asText` (`cmux open --as-text`, MCP, u18462): HTML, SVG or Markdown opens as its source, as Open as Text does.
+            let asText = invocation["asText"]?.boolValue ?? (invocation["asText"]?.stringValue == "true")
+            if let reason = context.services.viewers.openFile(url, in: pane, userChose: invocation.origin == .user, asText: asText) { throw ActionFailure(message: reason) }
             return
         }
         let opening: AgentPaneFileOpening
