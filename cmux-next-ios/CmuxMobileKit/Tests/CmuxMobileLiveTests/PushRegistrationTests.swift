@@ -102,8 +102,64 @@ struct PushRegistrationTests {
         #expect(server.writes == [original])
     }
 
+    /// Registration is stored by the Worker across launches; a fresh process
+    /// has no APNs token or successful PUT in its local `sent` cache.
+    @Test func signOutDeletesPreviousLaunchRegistrationWithoutCurrentToken() async {
+        let server = RegistrationServer()
+        server.preferences = original
+        let registration = makeRegistration(server)
+
+        await registration.unregister()
+
+        #expect(server.deletions == 1)
+        #expect(server.preferences == nil)
+        #expect(server.writes.isEmpty)
+    }
+
+    /// A lost PUT response means local `sent` stays nil even though the Worker
+    /// accepted the token. Sign-out must still remove it.
+    @Test func signOutDeletesRegistrationAfterLostPutResponse() async {
+        let server = RegistrationServer()
+        let registration = makeRegistration(server)
+        server.holdNext = true
+        registration.setPreferences(original)
+        registration.didRegister(deviceToken: Data([1, 2]))
+        await server.waitUntilHeld()
+        let put = registration.task
+        server.release(failing: true)
+        await put?.value
+        #expect(server.preferences == original)
+
+        await registration.unregister()
+
+        #expect(server.deletions == 1)
+        #expect(server.preferences == nil)
+        #expect(server.events == ["put", "delete"])
+    }
+
+    /// Sign-out drains the last PUT before DELETE; a delayed registration must
+    /// never repopulate a signed-out phone's server row.
+    @Test func signOutDeletesAfterAnOutstandingPut() async {
+        let server = RegistrationServer()
+        let registration = makeRegistration(server)
+        server.holdNext = true
+        registration.setPreferences(original)
+        registration.didRegister(deviceToken: Data([1, 2]))
+        await server.waitUntilHeld()
+
+        let signOut = Task { await registration.unregister() }
+        server.release()
+        await signOut.value
+
+        #expect(server.deletions == 1)
+        #expect(server.preferences == nil)
+        #expect(server.events == ["put", "delete"])
+    }
+
     private func makeRegistration(_ server: RegistrationServer) -> PushRegistration {
-        let registration = PushRegistration(topic: "test.cmux.push", register: { try await server.put($0.preferences) })
+        let registration = PushRegistration(topic: "test.cmux.push",
+                                            register: { try await server.put($0.preferences) },
+                                            delete: { _, _ in server.delete() })
         let api = LiveAPI(baseURL: URL(fileURLWithPath: "/unused"), accessToken: { _ in "unused" })
         registration.attach(api: api, deviceID: "phone")
         return registration
@@ -114,6 +170,8 @@ struct PushRegistrationTests {
 private final class RegistrationServer {
     var writes: [PushRegistration.Preferences] = []
     var preferences: PushRegistration.Preferences?
+    private(set) var deletions = 0
+    private(set) var events: [String] = []
     var holdNext = false
     private var held: CheckedContinuation<Bool, Never>?
     private var started: CheckedContinuation<Void, Never>?
@@ -130,7 +188,14 @@ private final class RegistrationServer {
             }
         }
         self.preferences = preferences
+        events.append("put")
         if failing { throw URLError(.networkConnectionLost) }
+    }
+
+    func delete() {
+        deletions += 1
+        preferences = nil
+        events.append("delete")
     }
 
     func waitUntilHeld() async {
