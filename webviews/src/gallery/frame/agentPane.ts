@@ -40,6 +40,7 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
     cmuxAcpmuxMockNative: state.native,
     cmuxAcpmuxMockSessionAuth: state.mockSessionAuth,
     cmuxAcpmuxMockCapabilities: state.mockCapabilities,
+    cmuxAcpmuxMockTrustPending: state.mockTrustPending,
   });
   const snapshot = structuredClone(state.snapshot);
   const answer = (value: unknown) => ({ ok: true, value });
