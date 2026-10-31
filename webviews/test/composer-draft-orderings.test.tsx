@@ -273,6 +273,27 @@ const rows: Row[] = [
     text: "",
   },
   {
+    name: "saved bug, typed debugging before the first read: both kept (no substring dedupe)",
+    saved: "bug",
+    steps: ["hold reads", "connect", "load", "edit:debugging", "answer reads"],
+    text: "bug\n\ndebugging",
+    held: "bug\n\ndebugging",
+  },
+  {
+    name: "the saved draft typed again exactly before the first read: kept once",
+    saved: "same",
+    steps: ["hold reads", "connect", "load", "edit:same", "answer reads"],
+    text: "same",
+    held: "same",
+  },
+  {
+    name: "after the first read, an edit that contains the old draft is the draft as typed",
+    saved: "bug",
+    steps: ["connect", "load", "unmount", "hold reads", "load", "edit:debugging", "answer reads"],
+    text: "debugging",
+    held: "debugging",
+  },
+  {
     name: "edited, then the read answers with nothing saved",
     steps: ["hold reads", "connect", "load", "edit:buy bread", "answer reads"],
     text: "buy bread",

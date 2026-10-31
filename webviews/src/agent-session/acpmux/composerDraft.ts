@@ -23,20 +23,27 @@ export function seededText(current: string, draft: string | undefined): string {
 
 /**
  * The prompt once a saved draft (acpmux's, the tab's kept unsent text, the page's remount cache)
- * meets text the composer already holds, typed before the chat finished loading. Nothing is lost
- * and nothing is doubled: an empty side gives way to the other, text that already holds the saved
- * draft stays as it is, and two different texts are both kept, the saved draft first and the typed
- * text after it. That is the order `ComposerHandle.restore` uses (what comes back goes first): the
- * caret stays at the end of what the person is typing, so their next key lands where they expect.
+ * meets text the composer already holds, typed before this page ever read the chat's draft (the
+ * only time two texts are merged; after that read the one rule of `hydratedDraft` applies). Nothing
+ * is lost and nothing is doubled: an empty side gives way to the other, and two different texts are
+ * both kept, the saved draft first and the typed text after it. Dedupe is exact only: the same text,
+ * or a text that is already this merge's result (`saved` + blank line + more, or the reverse). Never
+ * by substring: a saved "bug" and a typed "debugging" are two drafts, and both stay. The order is
+ * `ComposerHandle.restore`'s (what comes back goes first): the caret stays at the end of what the
+ * person is typing, so their next key lands where they expect.
  */
 export function mergedDraft(typed: string, saved: string | undefined): string {
   if (!saved?.trim()) return typed;
   if (!typed.trim()) return saved;
-  if (typed.includes(saved)) return typed;
-  // Already merged once (a second load, the host's own merge): the same text again.
-  if (saved.endsWith(`\n\n${typed}`)) return saved;
-  return `${saved}\n\n${typed}`;
+  if (typed === saved) return typed;
+  // Already this merge's result (a second load, a remount cache, the host's own merge).
+  if (typed.startsWith(`${saved}${DRAFT_SEPARATOR}`)) return typed;
+  if (saved.endsWith(`${DRAFT_SEPARATOR}${typed}`)) return saved;
+  return `${saved}${DRAFT_SEPARATOR}${typed}`;
 }
+
+/** What goes between a saved draft and text typed after it (`mergedDraft`). */
+const DRAFT_SEPARATOR = "\n\n";
 
 /**
  * What the composer does when acpmux's draft read answers (`readDurableDraftState`). One rule:

@@ -115,7 +115,11 @@ struct UnsentDraftTests {
     /// The merge keeps both texts once, and leaves a text that already holds the other as it is.
     @Test func theMergeKeepsBothOnce() {
         #expect(AgentUnsentDrafts.merged(typed: "b", kept: "a") == "a\n\nb")
-        #expect(AgentUnsentDrafts.merged(typed: "a and more", kept: "a") == "a and more")
+        #expect(AgentUnsentDrafts.merged(typed: "a", kept: "a") == "a")
+        #expect(AgentUnsentDrafts.merged(typed: "a\n\nb", kept: "a") == "a\n\nb")
+        // Never by substring: both drafts stay.
+        #expect(AgentUnsentDrafts.merged(typed: "debugging", kept: "bug") == "bug\n\ndebugging")
+        #expect(AgentUnsentDrafts.merged(typed: "a and more", kept: "a") == "a\n\na and more")
         #expect(AgentUnsentDrafts.merged(typed: "b", kept: "a\n\nb") == "a\n\nb")
     }
 }

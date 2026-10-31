@@ -172,7 +172,11 @@ test("the merge keeps both texts once, the saved draft first", () => {
   expect(mergedDraft("typed", "saved")).toBe("saved\n\ntyped");
   expect(mergedDraft("", "saved")).toBe("saved");
   expect(mergedDraft("typed", undefined)).toBe("typed");
-  expect(mergedDraft("saved, then more", "saved")).toBe("saved, then more");
+  expect(mergedDraft("saved", "saved")).toBe("saved");
+  expect(mergedDraft("saved\n\ntyped", "saved")).toBe("saved\n\ntyped");
+  // Exact dedupe only, never by substring: both drafts stay.
+  expect(mergedDraft("debugging", "bug")).toBe("bug\n\ndebugging");
+  expect(mergedDraft("saved, then more", "saved")).toBe("saved\n\nsaved, then more");
   expect(mergedDraft("typed", "saved\n\ntyped")).toBe("saved\n\ntyped");
   // The read's rule itself is covered in composer-draft-orderings.test.tsx (hydratedDraft).
   const none = { read: false, sent: false, pendingWrite: false };

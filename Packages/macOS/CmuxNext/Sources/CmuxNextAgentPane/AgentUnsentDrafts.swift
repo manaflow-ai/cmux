@@ -106,9 +106,12 @@ public final class AgentUnsentDrafts {
     }
 
     /// The kept text first, then the typed text after it (as the page merges them,
-    /// composerDraft.ts `mergedDraft`); a text that already holds the other is kept as it is.
+    /// composerDraft.ts `mergedDraft`), only for text the page sent before it was handed the kept
+    /// draft. Dedupe is exact only: the same text, or one that is already this merge's result. Never
+    /// by substring: a kept "bug" and a typed "debugging" are both kept.
     public static func merged(typed: String, kept: String) -> String {
-        if typed.contains(kept) { return typed }
+        if typed == kept { return typed }
+        if typed.hasPrefix(kept + "\n\n") { return typed }
         if kept.hasSuffix("\n\n" + typed) { return kept }
         return kept + "\n\n" + typed
     }

@@ -806,6 +806,8 @@ export function Composer({
     // they typed, so neither is lost (mergedDraft); before, it was dropped, and the typed text
     // then replaced the tab's kept draft on disk.
     const typed = field.current?.value() ?? textRef.current;
+    // Merged only before the page read this chat's draft; after it, the prompt is the draft.
+    if (sessionId && draftWasRead(sessionId)) return;
     const next = mergedDraft(typed, draft);
     if (next === typed) return;
     notTyped();
@@ -842,8 +844,11 @@ export function Composer({
     // draft before the editor has initialized.
     // A chat's own saved draft wins: carried text only fills a session that has none, which a
     // switch's new session always is, so moving to another chat mid-switch keeps that chat's draft.
+    // Merged only before the page ever read this chat's draft; after it, what was typed wins.
     const initial = typedBefore.trim()
-      ? mergedDraft(typedBefore, restored || draft)
+      ? draftWasRead(sessionId)
+        ? typedBefore
+        : mergedDraft(typedBefore, restored || draft)
       : restored || carried || draft || "";
     // Not yet acpmux's: the durable read merges it with acpmux's draft and writes the result.
     if (typedBefore.trim()) {
