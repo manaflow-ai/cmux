@@ -13,6 +13,8 @@ final class TabCell {
     let accessibility = TabAccessibilityElement()
     /// The strip's handler behind the element's Mute tab / Unmute tab action.
     var accessibilityToggleAudio: (@MainActor () -> Void)? { didSet { updateAccessibility() } }
+    /// The strip's handler behind the element's Exit Zoom action, while the tab shows the zoom indicator.
+    var accessibilityToggleZoom: (@MainActor () -> Void)? { didSet { updateAccessibility() } }
     private(set) var item: TabItem
     /// Instant (L4): the content switches in one frame, so the highlight does too.
     var isSelected = false {
@@ -31,6 +33,19 @@ final class TabCell {
     /// The pointer is on the speaker button, or presses it (TabCell+AudioBadge).
     var isAudioHovered = false { didSet { if oldValue != isAudioHovered { updateColors(animated: true, showing: isAudioHovered) } } }
     var isAudioPressed = false { didSet { if oldValue != isAudioPressed { updateColors(animated: false) } } }
+    /// The selected tab of a zoomed pane: it shows the zoom indicator (TabCell+ZoomBadge).
+    var showsZoom = false {
+        didSet {
+            guard oldValue != showsZoom else { return }
+            updateZoomBadge()
+            updateColors(animated: false)
+            layoutLayers()
+            updateAccessibility()
+        }
+    }
+    /// The pointer is on the zoom indicator, or presses it (TabCell+ZoomBadge).
+    var isZoomHovered = false { didSet { if oldValue != isZoomHovered { updateColors(animated: true, showing: isZoomHovered) } } }
+    var isZoomPressed = false { didSet { if oldValue != isZoomPressed { updateColors(animated: false) } } }
     var isLifted = false { didSet { if oldValue != isLifted { updateLift() } } }
     /// The strip's window is main (in front); off, the selected tab's fill is dimmer (never
     /// gone: a pane's active tab always looks active), so only it repaints.
@@ -135,6 +150,8 @@ final class TabCell {
     var presenceLayer: CALayer? // the acting agent's dot (TabCell+PresenceDot)
     var audioLayer: CALayer? // speaker of a tab playing sound (TabCell+AudioBadge)
     var audioBackgroundLayer: CALayer? // the speaker button's hover and press fill
+    var zoomLayer: CALayer? // a zoomed pane's indicator on its selected tab (TabCell+ZoomBadge)
+    var zoomBackgroundLayer: CALayer? // the zoom indicator's hover and press fill
     var hibernationRingLayer: CAShapeLayer? // dotted ring of a hibernated tab (TabCell+HibernationRing)
 
     var hasCloseLayers: Bool { closeBackgroundLayer != nil || closeGlyphLayer != nil }
@@ -290,7 +307,7 @@ final class TabCell {
         let token = animated ? ChromeHover.fade(showing: showing ?? (isLifted || fillsSelection || isMultiSelected || isHovered)) : nil
         // An instant change also ends a fill still easing in.
         if (token.map(Motion.tabs.duration) ?? 0) == 0 {
-            for layer in [backgroundLayer, closeBackgroundLayer, audioBackgroundLayer].compactMap({ $0 }) { layer.removeAnimation(forKey: "backgroundColor") }
+            for layer in [backgroundLayer, closeBackgroundLayer, audioBackgroundLayer, zoomBackgroundLayer].compactMap({ $0 }) { layer.removeAnimation(forKey: "backgroundColor") }
         }
         Motion.tabs.transaction(token) { applyColors() }
     }
@@ -315,6 +332,7 @@ final class TabCell {
             applyProfileDotColors()
             applyPresenceDotColor()
             applyAudioIcon()
+            applyZoomIcon()
             let indicatorColors = StatusIndicatorLayer.Colors.current(loading: StatusIndicatorAppearance.shared.config.settings.color)
             spinnerLayer?.colors = indicatorColors
             statusGlyphLayer?.colors = indicatorColors
@@ -492,7 +510,7 @@ final class TabCell {
             }
         } else {
             titleLayer.opacity = 0
-            for badge in [machineLayer, profileLayer, presenceLayer, audioLayer, audioBackgroundLayer] { badge?.opacity = 0 }
+            for badge in [machineLayer, profileLayer, presenceLayer, audioLayer, audioBackgroundLayer, zoomLayer, zoomBackgroundLayer] { badge?.opacity = 0 }
             if onPath {
                 pathTitle = nil
             } else {
