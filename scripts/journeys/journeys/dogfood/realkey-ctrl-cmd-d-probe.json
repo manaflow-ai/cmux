@@ -1,0 +1,101 @@
+{
+  "id": "realkey-ctrl-cmd-d-probe",
+  "priority": "P1",
+  "title": "Proof: what a REAL Ctrl-Cmd-D does in cmux on a Mac with default settings (and a real Cmd-D as the control)",
+  "why": "STATUS 1649, cmux-ad 14:50Z: in the real-key smoke round a real Ctrl-Cmd-D made no New Column, while debug.key Ctrl-Cmd-D passed 10/10; very likely macOS's system hotkey 70 'Look up in Dictionary' (Ctrl-Cmd-D, on by default) takes the key before cmux. This journey records, for a real Cmd-D (control) and then a real Ctrl-Cmd-D: whether cmux's key router saw the key at all, which action ran (the app's action log), which other apps' windows are on screen (a Look Up panel), and a full-display screenshot right after the key. Needs a whole-host lease on a CuaDriver-granted mini.",
+  "source": "the smoke gate's real-key step 42-43 (journeys/dogfood/smoke-dogfood.json)",
+  "budget_seconds": 120,
+  "options": {
+    "key_path": "real"
+  },
+  "steps": [
+    {
+      "do": "smoke_ready",
+      "timeout": 60
+    },
+    {
+      "do": "smoke_make_key"
+    },
+    {
+      "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "ws"
+    },
+    {
+      "do": "wait",
+      "seconds": 2
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "term"
+    },
+    {
+      "do": "smoke_type_now",
+      "text": "echo p1-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "set-up: the Ctrl-` terminal ran a line typed with real keys, the window is key, the frame shows it",
+      "since": "term",
+      "timeout": 30,
+      "all": [
+        {
+          "smoke_daemon_lines": {
+            "lines": [
+              "p1-${nonce}-42"
+            ]
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "p1-${nonce}-42"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "real_key_probe",
+      "name": "probe-cmd-d",
+      "key": "d",
+      "modifiers": [
+        "cmd"
+      ],
+      "expect": "splitRight",
+      "title": "control: a real Cmd-D (Split Right)"
+    },
+    {
+      "do": "real_key_probe",
+      "name": "probe-ctrl-cmd-d",
+      "key": "d",
+      "modifiers": [
+        "ctrl",
+        "cmd"
+      ],
+      "expect": "newColumn",
+      "title": "a real Ctrl-Cmd-D (New Column's default key)"
+    },
+    {
+      "do": "real_key_probe",
+      "name": "probe-escape",
+      "key": "escape",
+      "title": "Escape (closes a Look Up panel, if one opened); screenshot after"
+    }
+  ],
+  "finally": [
+    {
+      "do": "smoke_close_all"
+    }
+  ]
+}

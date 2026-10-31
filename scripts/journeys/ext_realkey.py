@@ -303,6 +303,40 @@ def press_char(j, ch):
     return press(j, ch)
 
 
+def step_real_key_probe(j, step):
+    """Proof of what one REAL key did (cmux-ad 14:50Z, the Ctrl-Cmd-D finding): sends KEY with MODIFIERS as a real
+    HID key (press), then after WAIT s (default 1.5) records: whether the app's key router saw a key at all
+    (debug.key {last}: its interception count before and after, and the last action), the app's action log since the
+    key (debug.action_budget recent, sequence above the one before), whether the new action EXPECT ran, the
+    on-screen windows of every app (CuaDriver list_windows: e.g. a Look Up / dictionary panel of another process),
+    and a full-display screenshot (CuaDriver get_desktop_state) saved as NAME.png in the journey's folder. Records
+    only; never fails on what the key did (`expect` is reported, the journey's own expects judge)."""
+    name = step.get("name", "probe")
+    require_front(j)
+    last_before = j.app.rpc("debug.key", {"last": True}) or {}
+    seq_before = _last_sequence(j)
+    t = D.now()
+    press(j, step["key"], step.get("modifiers", []))
+    time.sleep(float(step.get("wait", 1.5)))
+    last_after = j.app.rpc("debug.key", {"last": True}) or {}
+    actions = [{"id": r.get("id"), "entrypoint": r.get("entrypoint"), "outcome": r.get("outcome"),
+                "sequence": r.get("sequence")} for r in _recent_actions(j) if int(r.get("sequence") or 0) > seq_before]
+    bad, data, raw = _session(j).call("list_windows", {})
+    windows = [{"app": w.get("app_name"), "pid": w.get("pid"), "title": w.get("title"), "layer": w.get("layer"),
+                "bounds": w.get("bounds")} for w in data.get("windows") or [] if w.get("is_on_screen", True)]
+    shot = j.out / f"{name}.png"
+    bad2, data2, raw2 = _session(j).call("get_desktop_state", {"screenshot_out_file": str(shot)})
+    others = sorted({w["app"] for w in windows if w.get("pid") != j.app.pid and w.get("app")})
+    return {"keys": list(step.get("modifiers", [])) + [step["key"]], "key_path": "real_hid",
+            "router_saw_key": int(last_after.get("count") or 0) > int(last_before.get("count") or 0),
+            "router_before": last_before, "router_after": last_after, "actions_since_key": actions,
+            "expected_action": step.get("expect"),
+            "expected_ran": any(a["id"] == step.get("expect") for a in actions) if step.get("expect") else None,
+            "front_pid_after": front_pid(), "app_pid": j.app.pid, "other_apps_on_screen": others,
+            "windows": windows[:40], "screenshot": shot.name if shot.exists() else f"none ({json.dumps(raw2)[:200]})",
+            "probe_s": round(D.now() - t, 2)}
+
+
 def step_app_log(j, step):
     """The app process's unified log of the last `seconds` (default 15), lines that match `grep` (a regex) if
     given; kept in the result (at most 120 lines). Diagnostic only."""
@@ -317,5 +351,5 @@ def step_app_log(j, step):
     return {"lines": [l[:300] for l in lines[-120:]], "count": len(lines)}
 
 
-STEPS = {"app_log": step_app_log, "real_key": step_real_key, "key_outcome": step_key_outcome, "daemon_pause": step_daemon_pause}
+STEPS = {"real_key_probe": step_real_key_probe, "app_log": step_app_log, "real_key": step_real_key, "key_outcome": step_key_outcome, "daemon_pause": step_daemon_pause}
 CONDITIONS = {}
