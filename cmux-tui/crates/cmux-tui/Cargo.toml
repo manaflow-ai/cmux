@@ -101,6 +101,9 @@ ring.workspace = true
 acpmux = { path = "../acpmux" }
 
 [target.'cfg(unix)'.dependencies]
+# `cmux automation` (cli/automation.rs, unix only): the store and the launchd runner use
+# unix files and processes, so the crate does not build for Windows.
+cmux-automations.workspace = true
 cmux-holder.workspace = true
 # `cmux host …`, the machine supervisor and process roles (server.md 5.1).
 cmux-host.workspace = true

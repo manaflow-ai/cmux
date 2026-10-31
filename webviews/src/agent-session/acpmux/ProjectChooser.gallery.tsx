@@ -13,6 +13,9 @@ type Props = {
   onPick(cwd: string): void;
   onBrowse?(): void;
   onNoProject?(): void;
+  noProject?: boolean;
+  side?: "top" | "bottom";
+  inline?: boolean;
 };
 
 const icon = createElement(
@@ -34,6 +37,49 @@ const projects: Project[] = [
   { cwd: "/Users/you/src/atlas-web", label: "atlas-web" },
   { cwd: "/Users/you/src/cmux", label: "cmux" },
   { cwd: "/Users/you/src/relay", label: "relay" },
+];
+
+// A folder the host names by its path (a home folder has no project name), then a named project.
+const pathTitled: Project[] = [
+  { cwd: "/Users/sample", label: "/Users/sample" },
+  { cwd: "/Users/sample/projects/atlas-web", label: "atlas-web" },
+];
+
+// The new chat's hero picker (EmptyState: inline, opening below the question) in no project, over
+// projects whose folders have app icons (Leo, "why is this all misaligned in the agent chat project
+// selectin"): the glyphs of Do not work in a project and New project, and each app icon, sit in one
+// icon column, with every title on one text inset.
+const appIcon = (fill: string, mark: string) =>
+  "data:image/svg+xml;base64," +
+  btoa(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".28"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs><rect width="64" height="64" rx="14" fill="${fill}"/><rect width="64" height="64" rx="14" fill="url(#g)"/>${mark}</svg>`,
+  );
+const appProjects: Project[] = [
+  { cwd: "/Users/sample/src/atlas-web", label: "atlas-web" },
+  { cwd: "/Users/sample/src/relay", label: "relay" },
+  { cwd: "/Users/sample/Projects", label: "Projects" },
+];
+const appIcons = {
+  "/Users/sample/src/atlas-web": appIcon(
+    "#2563eb",
+    '<circle cx="32" cy="32" r="17" fill="none" stroke="#fff" stroke-width="5"/><path d="M15 32h34M32 15c-8 10-8 24 0 34M32 15c8 10 8 24 0 34" fill="none" stroke="#fff" stroke-width="4"/>',
+  ),
+  "/Users/sample/src/relay": appIcon(
+    "#f97316",
+    '<path d="M16 40l16-18 16 18" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>',
+  ),
+  "/Users/sample/Projects": appIcon("#111827", '<rect x="17" y="17" width="30" height="30" rx="7" fill="#22c55e"/>'),
+};
+const hero = { icon, side: "bottom", inline: true, onPick: () => undefined, onBrowse: () => undefined } as const;
+
+// Two lanes' worktrees of cmux (`wt/lanes/<lane>/cmux`, folders the host read no repository for)
+// beside cmux's own checkout: one cmux row, and a search that names a lane finds its worktree.
+const cmuxRepo = { root: "/Users/sample/Projects/cmux", name: "cmux", branch: "main", github: "sample/cmux" };
+const laneProjects: Project[] = [
+  { cwd: "/Users/sample/wt/lanes/lane-adopt/cmux", label: "cmux" },
+  { cwd: "/Users/sample/wt/lanes/next-reds/cmux", label: "cmux" },
+  { cwd: "/Users/sample/Projects/cmux", label: "cmux", repo: cmuxRepo },
+  { cwd: "/Users/sample/Projects", label: "Projects" },
 ];
 
 const longProjects: Project[] = [
@@ -130,6 +176,41 @@ export default componentEntry<Props>({
         },
       },
       play: open,
+    },
+    "open-path-titled": {
+      note: 'A folder titled by its own path (Leo, ":( alignemnt"): Do not work in a project, New project and the folder share one icon column and one text inset, the folder shows its path once, and a hairline splits the actions from the folders.',
+      props: {
+        projects: pathTitled,
+        current: pathTitled[0]!.cwd,
+        currentLabel: pathTitled[0]!.label,
+        icon,
+        onPick: () => undefined,
+        onBrowse: () => undefined,
+        onNoProject: () => undefined,
+      },
+      play: open,
+    },
+    "open-app-icons": {
+      note: 'The new chat\'s hero picker in no project (Leo, "why is this all misaligned in the agent chat project selectin"): Do not work in a project (checked), New project and three projects with app icons share one 16px icon column and one text inset.',
+      props: { ...hero, projects: appProjects, noProject: true, onNoProject: () => undefined },
+      chipHost: { projectIcons: appIcons },
+      play: open,
+    },
+    "lane-worktrees": {
+      note: "Two lanes' worktrees of cmux (wt/lanes/<lane>/cmux) and cmux's own checkout list as one cmux row; no lane is a project of its own.",
+      props: { ...hero, projects: laneProjects, noProject: true, onNoProject: () => undefined },
+      play: open,
+    },
+    "lane-worktrees-search": {
+      note: "A search that names a lane (next-reds) finds its worktree, with its path under the name.",
+      props: { ...hero, projects: laneProjects, noProject: true, onNoProject: () => undefined },
+      play: async (ctx) => {
+        await open(ctx);
+        await ctx.type("next-reds");
+        await ctx.waitFor(() =>
+          ctx.document.querySelector('[role="option"] [data-path="/Users/sample/wt/lanes/next-reds/cmux"]'),
+        );
+      },
     },
     "press-drag-release": {
       note: "Pressing the pill opens the chooser; dragging onto a project and releasing picks it and closes.",

@@ -433,9 +433,9 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// root paints the one sheet (`WindowBackdrop`).
     func themeDidChange() {
         needsLayout = true
-        let tokens = themeTokens
-        let paints = WindowBackdrop.current(tokens).panesPaintBackground
+        // In scope: its workspace's picture decides, not the app's (#28867: a black pane behind the chat).
         performWithTheme {
+            let paints = WindowBackdrop.current(themeTokens).panesPaintBackground
             contentHost.layer?.backgroundColor = paints ? Palette.surfaceBackground.cgColor : nil
         }
         // The strip: clear, or the user's tab bar background (R55).
