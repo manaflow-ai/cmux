@@ -31,41 +31,63 @@ struct SecondCreationKeysTests {
         let second: (pane: PaneController, tab: String, surface: SurfaceID)
     }
 
-    /// The app on a fresh daemon with two confirmed terminal panes; `body` runs with them.
+    /// The app on a fresh daemon with two confirmed terminal panes side by side, the first left of the second (made by two
+    /// splits: the test app's first pane is an agent chat, not a terminal); `body` runs with them.
     private static func withTwoTerminals(_ body: (Panes) async throws -> Void) async throws {
         try await PinnedPageTests.withApp { services, connection in
             let content = try #require(services.windows.active?.workspaceContent)
-            let original = try #require(content.focusedPane, "the window has no focused pane")
-            var terminal = ActionInvocation(origin: .user)
-            terminal.opensTerminal = true
-            #expect(services.registry.perform("splitRight", invocation: terminal))
-            @MainActor func shown(_ pane: PaneController) -> (pane: PaneController, tab: String, surface: SurfaceID)? {
-                guard pane.pane.handle.rawValue < ProvisionalPane.firstHandle, let tab = pane.currentTabKey,
-                      case .terminal? = pane.currentContent,
-                      let model = pane.pane.tabs.first(where: { $0.id == tab && $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) })
-                else { return nil }
-                return (pane, tab, model.surface)
-            }
-            @MainActor func added() -> PaneController? { content.panes.values.first { $0 !== original && shown($0) != nil } }
-            try await PinnedPageTests.until({ shown(original) != nil && added() != nil }, report: {
-                "panes \(content.panes.values.map { "\($0.pane.handle.rawValue): \($0.pane.tabs.map { "\($0.kind) \($0.surface.rawValue)" })" })"
-            })
             let window = try #require(content.layoutView.window)
-            let coordinator = services.keyRouter.creationInputCoordinator
-            try await PinnedPageTests.until({ !coordinator.isHolding(in: window) }, report: { "the split's creation hold never ended" })
-            let addedPane = try #require(added())
-            let first = try #require(shown(original)), second = try #require(shown(addedPane))
+            let first = try await splitToTerminal("first", services: services, content: content, window: window)
+            let second = try await splitToTerminal("second", services: services, content: content, window: window)
             try await body(Panes(services: services, connection: connection, content: content, window: window, first: first, second: second))
         }
     }
 
+    /// What a failed wait saw: each pane's tabs and shown tab, the focused pane, whether keys are held.
+    private static func describe(_ content: WorkspaceContentController, _ window: NSWindow, _ services: AppServices) -> String {
+        "panes \(content.panes.values.map { "\($0.pane.handle.rawValue): \($0.pane.tabs.map { "\($0.kind) \($0.surface.rawValue)" }) shows \($0.currentTabKey ?? "-")" }), "
+            + "focused \(content.focusedPane?.paneKey ?? "-"), holding \(services.keyRouter.creationInputCoordinator.isHolding(in: window))"
+    }
+
+    /// `pane`'s confirmed terminal: its shown tab is a daemon PTY tab, its view a terminal.
+    private static func shownTerminal(_ pane: PaneController) -> (pane: PaneController, tab: String, surface: SurfaceID)? {
+        guard pane.pane.handle.rawValue < ProvisionalPane.firstHandle, let tab = pane.currentTabKey, case .terminal? = pane.currentContent,
+              let model = pane.pane.tabs.first(where: { $0.id == tab && $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) })
+        else { return nil }
+        return (pane, tab, model.surface)
+    }
+
+    /// One split of the focused pane, to a terminal: the new confirmed terminal pane, focused with the keyboard, its hold
+    /// ended.
+    private static func splitToTerminal(_ name: String, services: AppServices, content: WorkspaceContentController,
+                                        window: NSWindow) async throws -> (pane: PaneController, tab: String, surface: SurfaceID) {
+        var terminal = ActionInvocation(origin: .user)
+        terminal.opensTerminal = true
+        let before = Set(content.panes.keys)
+        let coordinator = services.keyRouter.creationInputCoordinator
+        #expect(services.registry.perform("splitRight", invocation: terminal), "the \(name) split was refused: \(describe(content, window, services))")
+        @MainActor func made() -> (pane: PaneController, tab: String, surface: SurfaceID)? {
+            content.panes.filter { !before.contains($0.key) }.values.lazy.compactMap(shownTerminal).first
+        }
+        try await PinnedPageTests.until({ made() != nil && !coordinator.isHolding(in: window) }, report: {
+            "waited for the \(name) split's confirmed terminal pane and the end of its hold; saw \(describe(content, window, services))"
+        })
+        let pane = try #require(made())
+        try await focus(pane.pane, tab: pane.tab, content: content, window: window)
+        return pane
+    }
+
     /// Focus and the keyboard on `pane`'s terminal (the window's first responder is in its view).
     private static func focus(_ pane: PaneController, tab: String, in p: Panes) async throws {
-        PaneHandlers.focus(pane.layoutPaneID, in: p.content)
+        try await focus(pane, tab: tab, content: p.content, window: p.window)
+    }
+
+    private static func focus(_ pane: PaneController, tab: String, content: WorkspaceContentController, window: NSWindow) async throws {
+        PaneHandlers.focus(pane.layoutPaneID, in: content)
         try await PinnedPageTests.until({
-            p.content.focus.state.resolved == .terminal(pane: pane.paneKey, tab: tab)
-                && (p.window.firstResponder as? NSView)?.isDescendant(of: pane.view) == true
-        }, report: { "focus \(p.content.focus.state.resolved), first responder \(String(describing: p.window.firstResponder))" })
+            content.focus.state.resolved == .terminal(pane: pane.paneKey, tab: tab)
+                && (window.firstResponder as? NSView)?.isDescendant(of: pane.view) == true
+        }, report: { "waited for the focus and the keyboard on terminal \(tab) of pane \(pane.paneKey); saw focus \(content.focus.state.resolved), first responder \(String(describing: window.firstResponder))" })
     }
 
     /// Types `text` through the app's key path (the key router, then the window, as `CmuxApplication.sendEvent` does);
@@ -314,7 +336,8 @@ struct SecondCreationKeysTests {
         try await PinnedPageTests.withApp { services, connection in
             let content = try #require(services.windows.active?.workspaceContent)
             let window = try #require(content.layoutView.window)
-            let original = try #require(content.focusedPane)
+            // From a terminal (the test app's first pane is an agent chat, where Cmd-W may mean something else).
+            let original = try await Self.splitToTerminal("starting", services: services, content: content, window: window).pane
             var terminal = ActionInvocation(origin: .user)
             terminal.opensTerminal = true
             let before = Set(content.panes.keys)
@@ -322,7 +345,8 @@ struct SecondCreationKeysTests {
             // One main-actor turn up to the second Cmd-D: the first split's reply cannot have come.
             #expect(services.registry.perform("splitRight", invocation: terminal))
             let first = try #require(content.panes.first { !before.contains($0.key) }?.value, "the split shows no pane in its turn")
-            let firstTab = try #require(first.currentTabKey)
+            // Its stand-in's tab (the pane shows it only in a later frame: `currentTabKey` is nil in this turn).
+            let firstTab = try #require(first.pane.tabs.first?.id, "the split's stand-in has no tab: \(first.pane.tabs)")
             for character in "echo w9x\(nonce)" {
                 let text = String(character)
                 let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
@@ -343,7 +367,7 @@ struct SecondCreationKeysTests {
                     .filter { $0.pane.tabs.contains { $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) } }
             }
             try await PinnedPageTests.until({ confirmed().count == 1 && !content.panes.values.contains { $0.currentTabKey == firstTab } },
-                                            report: { "new panes \(confirmed().count) (want 1), the closed split still shown: \(content.panes.values.contains { $0.currentTabKey == firstTab })" })
+                                            report: { "waited for 1 new terminal pane and the closed split gone; saw \(Self.describe(content, window, services))" })
             #expect(content.panes.values.contains { $0 === original }, "Cmd-W closed the pane it was not typed for")
             for pane in [original] + confirmed() {
                 guard let surface = pane.pane.tabs.first(where: { $0.kind == .pty })?.surface else { continue }
