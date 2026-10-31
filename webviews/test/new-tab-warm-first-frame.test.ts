@@ -296,8 +296,9 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
         expect(painted).toHaveLength(1);
         expect(painted[0]).toContain("Fix the atlas build");
         expect(painted[0]).toContain("Older device chat");
-        // The environment picker puts New Worktree beside the folder (not behind Labs since #29059).
-        expect(painted[0]).toStartWith("atlas New Worktree cosmic-gray ::");
+        // The environment picker puts New Worktree beside the folder (not behind Labs since #29059),
+        // and names this Mac "This Mac" (#28999).
+        expect(painted[0]).toStartWith("atlas New Worktree This Mac ::");
       },
     );
   }
@@ -330,8 +331,8 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
       expect(warmed).toBeDefined();
       expect(painted).toHaveLength(1);
       expect(painted[0]).toContain("Fix the atlas build");
-      // The adopting tab's project, not the spare's "Choose folder".
-      expect(painted[0]).toStartWith("atlas New Worktree cosmic-gray ::");
+      // The adopting tab's project, not the spare's "Choose folder"; this Mac reads "This Mac" (#28999).
+      expect(painted[0]).toStartWith("atlas New Worktree This Mac ::");
     },
   );
 
