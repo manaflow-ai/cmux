@@ -95,6 +95,7 @@ mod pool;
 pub(crate) mod prompt_images;
 mod prompt_ledger;
 mod prompt_line;
+mod protected_hold;
 mod queue;
 mod queue_edit;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender};
@@ -1118,6 +1119,7 @@ impl Hub {
             log_load: StdMutex::new(true),
             log_loaded: AtomicBool::new(true),
             auto_resume_restored: AtomicBool::new(false),
+            protected_hold: AtomicBool::new(false),
             auto_resume: Default::default(),
             turn_lock: Mutex::new(()),
             input_handoff: std::sync::Arc::new(Mutex::new(())),
