@@ -5,9 +5,11 @@ extension DeepLink {
     public static let chiefScheme = "cmux"
 
     /// The link `url` opens in this app, in the `cmux` scheme or `linkScheme` (this build's): a
-    /// workspace, pane, tab, chat session or outside agent session; a Chief subagent's chat only for this app's own
-    /// Chief home (`chiefHost`, `chief:<home id>`) and on this machine. Nil for anything else (an
-    /// unknown scheme or host, a malformed id, a legacy UUID link, another Chief's subagent).
+    /// workspace, pane, tab, chat session or outside agent session; a Chief subagent's chat on this
+    /// machine when this app has a Chief (`chiefHost`), for any Chief home: a named Chief's links
+    /// name its own home id, not the app's (#28877), and opening checks the home
+    /// (`ChiefSidebar.openSubagentLink`). Nil for anything else (an unknown scheme or host, a
+    /// malformed id, a legacy UUID link, another machine's subagent).
     /// - Parameters:
     ///   - url: The clicked link.
     ///   - linkScheme: This build's own scheme (`cmux-dev-<tag>` for a tagged build).
@@ -19,8 +21,8 @@ extension DeepLink {
         switch link.target {
         case .workspace, .pane, .tab, .session, .agent, .group:
             return link
-        case .chiefSession(let home, _):
-            return link.machine == nil && chiefHost == "chief:" + home ? link : nil
+        case .chiefSession: // any Chief home of this Mac: a named Chief writes its own (#28877)
+            return link.machine == nil && chiefHost != nil ? link : nil
         case .legacyWorkspace, .legacyPane, .legacySurface:
             return nil
         }
