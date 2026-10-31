@@ -5,9 +5,11 @@
 //! Object. Synchronous, no threads, no clock, no randomness: time and seeds
 //! come in each call's context, and JSON crosses the boundary.
 
+mod cron;
 pub mod ledger;
 pub mod prompt;
 mod record;
+pub mod replies;
 pub mod tools;
 
 pub use record::{Record, render_record};
@@ -39,7 +41,8 @@ const ENGINES: &[(&str, bool)] = &[
 ///   Channels block, and the Chief's record (`{display_name, role,
 ///   personality, instructions, is_default}`), each optional.
 /// - `engine`: one of ``ENGINES``; a `cli` engine needs `tools.chief`.
-/// - `tools_json`: `{mode?: "mcp" | "cli", chief?, profile_tool?, chiefs_tool?}`;
+/// - `tools_json`: `{mode?: "mcp" | "cli" | "cloud", chief?, offered?, profile_tool?, chiefs_tool?}`;
+///   `cloud` (the pi-durable Cloud Chief) names exactly the `offered` tools;
 ///   the mode defaults to the engine's.
 pub fn render_system(profile_json: &str, engine: &str, tools_json: &str) -> Result<String, String> {
     let profile: Value = serde_json::from_str(profile_json).map_err(|e| format!("profile: {e}"))?;
@@ -64,6 +67,30 @@ pub fn render_system(profile_json: &str, engine: &str, tools_json: &str) -> Resu
                 .ok_or("tools: a cli engine needs `chief`, the launcher's absolute path")?
                 .to_owned(),
         ),
+        "cloud" => {
+            let offered: Vec<String> = tools
+                .get("offered")
+                .and_then(Value::as_array)
+                .ok_or("tools: a cloud mode needs `offered`, the tool names the Chief has")?
+                .iter()
+                .map(|t| {
+                    t.as_str()
+                        .map(str::to_owned)
+                        .ok_or("tools: `offered` holds names")
+                })
+                .collect::<Result<_, _>>()?;
+            let known = tools::tool_list(false, &|_| true);
+            let known: Vec<&str> = known
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|t| t["name"].as_str())
+                .collect();
+            if let Some(bad) = offered.iter().find(|t| !known.contains(&t.as_str())) {
+                return Err(format!("tools: `offered` names no tool {bad:?}"));
+            }
+            Tools::Cloud(offered)
+        }
         other => return Err(format!("tools: no mode {other:?}")),
     };
     let text = |k: &str| {

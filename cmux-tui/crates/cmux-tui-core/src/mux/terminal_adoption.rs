@@ -176,7 +176,7 @@ impl Mux {
                 && !template_claimed
                 && options.adopt_template_terminal
                 && detached_terminals::names_a_workspace(&record.workspace_key)
-                && self.state.lock().unwrap().workspaces.is_empty()
+                && self.template_claimable(&record.workspace_key)
                 && terminal_host_record_liveness(&record_path, &record)
                     == TerminalHostLiveness::Live
             {
@@ -471,6 +471,23 @@ impl Mux {
             "terminal.adopt-template",
             serde_json::json!({}),
         )?;
+        // The host's own record (its recovery mirror, which a rehost copies) names this machine's
+        // workspace now, not the key every clone of the snapshot shares.
+        let surface = {
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            state
+                .surfaces
+                .values()
+                .find(|surface| {
+                    surface
+                        .terminal_host_identity()
+                        .is_some_and(|identity| identity.terminal_id == terminal_id)
+                })
+                .cloned()
+        };
+        if let Some(surface) = surface {
+            let _ = surface.persist_host_workspace(&terminal.workspace_key);
+        }
         let bound_file = self.surface_options.lock().unwrap().template_bound_file.clone();
         if let Some(path) = bound_file.filter(|_| is_template_terminal(&terminal)) {
             self.publish_template_binding(terminal_id, &path)?;
@@ -480,8 +497,8 @@ impl Mux {
 
     /// Claim a Cloud snapshot's warm terminal host as the first terminal of
     /// this fresh registry (SurfaceOptions::adopt_template_terminal). The
-    /// host's workspace is recreated under its recorded key and named from
-    /// the options; the durable row is marked as a template terminal so
+    /// host's workspace is created under this machine's own key
+    /// (`template_workspace_key`) and named from the options; the durable row is marked as a template terminal so
     /// finish_terminal_adoption gives it a new placement with fresh public
     /// ids. The ordinary adoption handshake follows.
     #[cfg(any(unix, windows))]
@@ -490,14 +507,25 @@ impl Mux {
         options: &SurfaceOptions,
         record: &crate::terminal_host_runtime::TerminalHostRecord,
     ) -> anyhow::Result<RegistryTerminal> {
-        self.create_empty_workspace(
-            options.template_workspace_name.clone(),
-            Some(record.workspace_key.clone()),
-            None,
-        )?;
+        // This machine's own key, never the builder's (`template_workspace_key`). A claim cut short
+        // after the workspace's commit finds its workspace again on the next start.
+        let workspace_key = self.template_workspace_key(&record.workspace_key);
+        if self
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .workspace_by_key(&workspace_key)
+            .is_none()
+        {
+            self.create_empty_workspace(
+                options.template_workspace_name.clone(),
+                Some(workspace_key.clone()),
+                None,
+            )?;
+        }
         let claimed = RegistryTerminal {
             terminal_id: record.terminal_id.clone(),
-            workspace_key: record.workspace_key.clone(),
+            workspace_key,
             incarnation: None,
             lifecycle: TerminalLifecycle::Launching,
             launch_spec: template_terminal_launch_spec(),
@@ -513,6 +541,39 @@ impl Mux {
         )?;
         self.emit_terminal_registry_changed(&registry, revision);
         Ok(claimed)
+    }
+
+    /// The template workspace's key on this machine. Every clone of a snapshot holds the warm host
+    /// with the builder's workspace key, and machines that share a key are one workspace to an app
+    /// that shows several (one clone's row drew under every machine's section). So the key comes
+    /// from this session and the builder's key: each clone has its own, and a restart of this one
+    /// derives the same, so a claim cut short between its two commits finishes on the next start.
+    pub(super) fn template_workspace_key(&self, builder_key: &str) -> String {
+        use sha2::{Digest, Sha256};
+        let digest = Sha256::new()
+            .chain_update(self.session_public_id().as_str())
+            .chain_update([0])
+            .chain_update(builder_key)
+            .finalize();
+        // A UUIDv8 (RFC 9562, custom), the lowercase form every workspace key takes.
+        let mut bytes = [0u8; 16];
+        bytes.copy_from_slice(&digest[..16]);
+        bytes[6] = (bytes[6] & 0x0f) | 0x80;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+        format!("{}-{}-{}-{}-{}", &hex[0..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..32])
+    }
+
+    /// Whether the warm host may be claimed: this registry has no workspace yet, or only the one an
+    /// earlier claim on this machine created before it was cut short (no terminal row yet).
+    fn template_claimable(&self, builder_key: &str) -> bool {
+        let key = self.template_workspace_key(builder_key);
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        match state.workspaces.as_slice() {
+            [] => true,
+            [only] => only.key == key,
+            _ => false,
+        }
     }
 
     /// Tell the warm template shell its new identity. The shell was spawned

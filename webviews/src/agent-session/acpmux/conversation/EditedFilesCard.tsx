@@ -167,6 +167,7 @@ function Card({
         {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
         <div
           className={single ? "acpmux-edited-title acpmux-edited-title--toggle" : "acpmux-edited-title"}
+          data-interactive={single ? "" : undefined}
           onClick={single ? toggleDiff : undefined}
         >
           <div>{title}</div>

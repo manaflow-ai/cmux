@@ -8,6 +8,7 @@
 // whether it is open, so each direction keeps that across the virtualized transcript its own way.
 import { useId, type ReactNode } from "react";
 import { ChevronRight } from "./icons";
+import { clipMessagePreview } from "./clipMessagePreview";
 import "./AgentMessageRow.css";
 
 /// The message's first line of text as it reads, its spaces collapsed and its Markdown marks (a
@@ -15,12 +16,9 @@ import "./AgentMessageRow.css";
 /// preview. The same reading as incomingMessage.ts gives a received message (#23727).
 export function messagePreview(text: string): string {
   const line = text.split("\n").find((part) => part.trim()) ?? "";
-  return line
-    .replace(/^\s*(?:#{1,6}\s+|>\s*|[-*+]\s+(?:\[[ xX]\]\s+)?)/, "")
-    .replace(/(\*\*|__|`)/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 240);
+  return clipMessagePreview(
+    line.replace(/^\s*(?:#{1,6}\s+|>\s*|[-*+]\s+(?:\[[ xX]\]\s+)?)/, "").replace(/(\*\*|__|`)/g, ""),
+  );
 }
 
 export function AgentMessageRow({
@@ -92,7 +90,7 @@ export function AgentMessageRow({
         {/* The words toggle too, for the pointer; the toggle button is the control, and its label
             reads the line. */}
         {before.trim() && (
-          <span className="cv-agentmsg__words" aria-hidden onClick={onToggle}>
+          <span className="cv-agentmsg__words" data-interactive="" aria-hidden onClick={onToggle}>
             {before.trim()}
           </span>
         )}
@@ -107,12 +105,18 @@ export function AgentMessageRow({
             {name}
           </button>
         ) : (
-          <span className="cv-agentmsg__name is-plain" aria-hidden title={nameTitle} onClick={onToggle}>
+          <span
+            className="cv-agentmsg__name is-plain"
+            data-interactive=""
+            aria-hidden
+            title={nameTitle}
+            onClick={onToggle}
+          >
             {name}
           </span>
         )}
         {after.trim() && (
-          <span className="cv-agentmsg__words" aria-hidden onClick={onToggle}>
+          <span className="cv-agentmsg__words" data-interactive="" aria-hidden onClick={onToggle}>
             {after.trim()}
           </span>
         )}

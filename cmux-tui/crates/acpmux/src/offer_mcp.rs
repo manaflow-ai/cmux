@@ -12,6 +12,7 @@ use crate::client::Client;
 use crate::rpc::method;
 use crate::secret_mcp::error_result;
 use anyhow::Result;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 pub const SERVER_NAME: &str = "cmux-sessions";
@@ -89,7 +90,7 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
     }
     match params["name"].as_str().unwrap_or_default() {
         "offer_session" => {
-            request["sessionId"] = Value::String(session.to_owned());
+            request.set("sessionId", Value::String(session.to_owned()));
             match daemon.request(method::MUX_OFFER_SESSION, request).await {
                 Ok(result) => {
                     let text = "Offered. The user sees a chip in this chat and can start it as a new chat; carry on with your task.";

@@ -15,6 +15,16 @@ final class CEFHostView: NSView {
             postGeometryChange()
         }
     }
+    /// Rounded native UI over the page (the prompt and find bars), in this
+    /// view's coordinates. They leave the clip path (`cmuxClipPath`) with their
+    /// corners, so the page shows around a rounded bar's corners instead of a
+    /// square hole of pane ground, and the mouse inside them goes to the bar.
+    var roundedOcclusions: [CEFClipShape.RoundedRect] = [] {
+        didSet {
+            guard roundedOcclusions != oldValue else { return }
+            postGeometryChange()
+        }
+    }
     private var windowObserver: (any NSObjectProtocol)?
     /// The shown page's own background (`CEFTab.pageBackdropColor`). While
     /// the window live-resizes, this view fills with it instead of the pane
@@ -50,6 +60,32 @@ final class CEFHostView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    // MARK: Presses on the page area
+
+    /// A press reaches this view only where the page window takes no mouse: the whole page before a
+    /// tab's first real page (the New Tab page, a blank page), which is cut out of the page window
+    /// (`CEFTab.applyOcclusion`). Chromium focuses the web contents on such a press, and the omnibox
+    /// blurs (`OmniboxViewViews::OnBlur`), so the press makes this view first responder: an edit in
+    /// the omnibar ends there (its typed text stays), and the focus model reads the responder as the
+    /// pane's page (`FocusResponderClassifier`) and gives the page the keyboard, as a press inside
+    /// the page window does (Lawrence 2026-10-30: "i click outside and omnibar is still focused").
+    override var acceptsFirstResponder: Bool { true }
+    /// Not a stop of the keyboard loop: only a press focuses the page this way.
+    override var canBecomeKeyView: Bool { false }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) { focusPageOnPress() }
+    override func rightMouseDown(with event: NSEvent) {
+        focusPageOnPress()
+        super.rightMouseDown(with: event)
+    }
+    override func otherMouseDown(with event: NSEvent) { focusPageOnPress() }
+
+    private func focusPageOnPress() {
+        guard let window, window.firstResponder !== self else { return }
+        window.makeFirstResponder(self)
+    }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
@@ -103,8 +139,9 @@ final class CEFHostView: NSView {
     @objc func cmuxOcclusionRects() -> NSArray {
         Self.trackerStats.occlusionReads += 1
         // The fork reads these first on every update of a shown page.
-        readGeometry = CEFHostGeometry(of: self)
-        return allOcclusionRects.map { NSValue(rect: $0) } as NSArray
+        let geometry = CEFHostGeometry(of: self)
+        readGeometry = geometry
+        return occlusionMemoValue(for: geometry).bridged
     }
 
     /// Read by the fork (`-cmuxClipPath`) on every geometry update: the
@@ -139,6 +176,21 @@ final class CEFHostView: NSView {
         let bezier: NSBezierPath?
     }
 
+    /// The fork asks for the same occlusion array several times while a page
+    /// settles. Keep both the normalized rectangles and their Objective-C
+    /// bridge for the geometry they were worked out from: the host's bounds,
+    /// its ancestors' clips and cutouts, its own holes and the window's
+    /// overlays over it (`CEFHostGeometry`, read anyway on every fork read).
+    /// A frame or ancestor change AppKit reports to the fork directly, with
+    /// no `postGeometryChange`, still gives a different key and a fresh build.
+    private struct OcclusionMemo {
+        let geometry: CEFHostGeometry
+        let rects: [CGRect]
+        let bridged: NSArray
+    }
+
+    private var occlusionMemo: OcclusionMemo?
+
     private func clipShape() -> ClipMemo {
         let started = CEFTrackerStats.now()
         defer { Self.trackerStats.clipSeconds += CEFTrackerStats.now() - started }
@@ -158,15 +210,33 @@ final class CEFHostView: NSView {
     /// The chrome's rects plus the window's interactive overlays over this
     /// view, in this view's coordinates.
     var allOcclusionRects: [CGRect] {
-        if CEFClipShape.showsNothing(pageClip), !bounds.isEmpty { return [bounds] }
-        var rects = occlusionRects
-        if let provider = window as? any BrowserWindowOcclusionProviding {
-            for rect in provider.browserOcclusionRectsInWindow {
-                let local = convert(rect, from: nil).intersection(bounds)
-                if !local.isNull, !local.isEmpty { rects.append(local) }
-            }
+        occlusionMemoValue(for: CEFHostGeometry(of: self)).rects
+    }
+
+    private func occlusionMemoValue(for geometry: CEFHostGeometry) -> OcclusionMemo {
+        if let memo = occlusionMemo, memo.geometry == geometry {
+            Self.trackerStats.occlusionHits += 1
+            return memo
         }
-        return Self.outermost(rects)
+        let started = CEFTrackerStats.now()
+        defer { Self.trackerStats.occlusionSeconds += CEFTrackerStats.now() - started }
+        Self.trackerStats.occlusionBuilds += 1
+        let rects: [CGRect]
+        if CEFClipShape.showsNothing(pageClip), !bounds.isEmpty {
+            rects = [bounds]
+        } else {
+            var normalized = occlusionRects
+            if let provider = window as? any BrowserWindowOcclusionProviding {
+                for rect in provider.browserOcclusionRectsInWindow {
+                    let local = convert(rect, from: nil).intersection(bounds)
+                    if !local.isNull, !local.isEmpty { normalized.append(local) }
+                }
+            }
+            rects = Self.outermost(normalized)
+        }
+        let memo = OcclusionMemo(geometry: geometry, rects: rects, bridged: rects.map { NSValue(rect: $0) } as NSArray)
+        occlusionMemo = memo
+        return memo
     }
 
     /// `rects` without those inside another (one of equal rects stays): a
@@ -185,6 +255,7 @@ final class CEFHostView: NSView {
         if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }
         windowObserver = nil
         readGeometry = nil
+        invalidateOcclusionMemo()
         // A resize-wait tunable edit made while out of a window applies (CEFResizeSyncDeadline).
         layerHosting.windowDidChange()
         guard let window else { return }
@@ -220,8 +291,13 @@ final class CEFHostView: NSView {
     /// Tells the tracker about moves AppKit does not report (layer
     /// transforms, manual frame animation in an ancestor).
     func postGeometryChange() { // perf-hot: 0.2ms cef-geometry (each post makes the fork re-place one page window)
+        invalidateOcclusionMemo()
         Self.trackerStats.geometryPosts += 1
         NotificationCenter.default.post(name: CEFHostView.geometryDidChange, object: self)
+    }
+
+    private func invalidateOcclusionMemo() {
+        occlusionMemo = nil
     }
 
     /// What the fork's tracker read from host views so far (`debug.cef` `tracker`).

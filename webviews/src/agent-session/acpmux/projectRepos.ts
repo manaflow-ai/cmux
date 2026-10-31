@@ -9,6 +9,8 @@
 // `~/.cmux/worktrees/<repo>/<lane>`, `<repo>/.worktrees/<lane>`, `<repo>/.claude/worktrees/<lane>`,
 // Conductor's `workspaces/<repo>/<lane>` and Codex's `.codex/worktrees/<id>/<repo>`.
 
+import { githubRepository } from "./githubRepository";
+
 /// A folder's repository, as the host read it.
 export type ProjectRepo = {
   /// The main checkout's folder; every worktree of one repository has the same.
@@ -30,12 +32,13 @@ export function parseProjectRepos(value: unknown): Record<string, ProjectRepo> {
     if (!entry || typeof entry !== "object") continue;
     const { root, top, name, branch, github } = entry as Record<string, unknown>;
     if (typeof root !== "string" || !root.startsWith("/") || typeof name !== "string" || !name) continue;
+    const repository = githubRepository(github);
     repos[cwd] = {
       root,
       ...(typeof top === "string" && top.startsWith("/") ? { top } : {}),
       name,
       ...(typeof branch === "string" && branch ? { branch } : {}),
-      ...(typeof github === "string" && /^[\w.-]+\/[\w.-]+$/.test(github) ? { github } : {}),
+      ...(repository ? { github: repository } : {}),
     };
   }
   return repos;

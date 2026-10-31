@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 
 /// The sidebar's bottom band: the footer's accessory slots, the profile
@@ -75,8 +76,9 @@ final class SidebarFooterBand {
     func placeSpaces(top: CGFloat, height: CGFloat) {
         guard let host else { return }
         let bar = host.profileBar, footer = host.footer, bounds = host.bounds
-        // The Search button sits at the row's right end: the strip ends before it.
+        // The Search button sits at the row's right end and the update button left of it: the strip ends before them.
         let searchMinX = placeSearch()
+        let trailing = placeUpdateAvailable(before: searchMinX, after: bandFirstRow?.itemsMaxX ?? 0) ?? searchMinX
         if host.spacesPosition == .top {
             if bar.superview !== host { host.addSubview(bar) }
             bar.leadingInset = nil
@@ -87,14 +89,14 @@ final class SidebarFooterBand {
             // The bar runs from right after the control to the Search button (the
             // strip never covers either; the slots carry the gap) and centers on
             // the sidebar's middle.
-            let lead = row.itemsMaxX, end = searchMinX ?? bounds.width
+            let lead = row.itemsMaxX, end = trailing ?? bounds.width
             bar.leadingInset = 0
             bar.frame = NSRect(x: lead, y: row.frame.minY, width: max(0, end - lead), height: row.frame.height)
             bar.centerX = bounds.midX - lead
         } else {
             if bar.superview !== footer { footer.addSubview(bar) }
-            // The strip ends before the Search button at the row's right end.
-            let end = searchMinX.map { footer.convert(NSPoint(x: $0, y: 0), from: host).x } ?? footer.bounds.width
+            // The strip ends before the Search and update buttons at the row's right end.
+            let end = trailing.map { footer.convert(NSPoint(x: $0, y: 0), from: host).x } ?? footer.bounds.width
             bar.leadingInset = nil
             bar.frame = NSRect(x: 0, y: 0, width: max(0, end), height: footer.bounds.height)
             bar.centerX = footer.convert(NSPoint(x: bounds.midX, y: 0), from: host).x
@@ -158,6 +160,39 @@ final class SidebarFooterBand {
         return button.frame.minX
     }
 
+    // MARK: Update Available button
+
+    /// Places the quiet Update Available button (`showUpdateAvailable`) on the footer line's trailing end,
+    /// left of the Search button (`searchMinX`; at Search's own inset when Search is hidden), on its line
+    /// (Leo 2026-10-28: "the update button, don't put at the top. Put on the bottom. The bottom has room").
+    /// Returns its minX in the sidebar's coordinates, nil while it does not show. It never covers the line's
+    /// leading controls (`after`, the avatar's maxX): with no room it steps out of the line (zero frame; the
+    /// palette's Install Available Update still installs it), as it stepped out of the titlebar row before.
+    @discardableResult
+    func placeUpdateAvailable(before searchMinX: CGFloat?, after leadingMaxX: CGFloat) -> CGFloat? {
+        guard let host else { return nil }
+        let button = host.updateAvailableButton
+        guard !button.isHidden else { return nil }
+        let side = Self.searchButtonSide
+        let midY: CGFloat, end: CGFloat
+        if let row = bandFirstRow {
+            midY = row.frame.midY
+            end = searchMinX.map { $0 - Metrics.space1 } ?? host.bounds.maxX - row.frame.minX
+        } else {
+            let footer = host.footer.frame
+            midY = footer.height > 0 ? footer.midY : host.bounds.maxY - SidebarStyle.bottomInset - side / 2
+            end = searchMinX.map { $0 - Metrics.space1 } ?? host.bounds.maxX - Metrics.space4
+        }
+        let x = end - side
+        guard x >= leadingMaxX + Metrics.space1 else {
+            button.frame = .zero
+            return nil
+        }
+        let scale = host.window?.backingScaleFactor ?? 2
+        button.frame = NSRect(x: (x * scale).rounded() / scale, y: ((midY - side / 2) * scale).rounded() / scale, width: side, height: side)
+        return button.frame.minX
+    }
+
     // MARK: Profile menu
 
     // SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2: the sidebar's bottom-left is
@@ -185,21 +220,27 @@ final class SidebarFooterBand {
 
     /// Opens the profile menu over `anchor`. Returns false when the App gave
     /// no menu. Without an anchor (a hidden sidebar) the menu opens at the pointer.
+    /// It is drawn on the menu grid in the sidebar's theme, as the sidebar's other menus are: the
+    /// avatar on the icon column and every row's text on one column (Leo 2026-10-21: "left
+    /// alignment on the profile settings dropdown/pop i think is similar").
     @discardableResult
     func showProfileMenu(from anchor: NSView?) -> Bool {
-        guard let menu = host?.profileMenuProvider?() else { return false }
-        profileMenuPresenter(menu, anchor)
+        guard let host, let menu = host.profileMenuProvider?() else { return false }
+        profileMenuPresenter(menu.themeRows(in: host.themeScope.fullStrength), anchor)
         return true
     }
 
     /// Pops `menu` up so it opens upward from the control's top edge (the
     /// control sits at the window's bottom), its leading edge on the
-    /// control's. The open happens on the next main-actor turn, so a
+    /// control's. The open happens on a later pass of the main run loop, so a
     /// caller (a socket action, a palette run) returns before the menu's
-    /// modal tracking starts.
+    /// modal tracking starts. A run-loop callout, not a main-actor Task: a
+    /// menu that tracks inside a main-queue job holds the main queue until it
+    /// closes, so the click that closes it waited on everything queued
+    /// meanwhile (Leo, 2026-10-29: "clicking out of a fucking context menu is
+    /// sometimes slow").
     static func popUpProfileMenu(_ menu: NSMenu, from anchor: NSView?) {
-        // task-owner: none needed; one-shot hop to the next main-actor turn, holds no state
-        Task { @MainActor in
+        MainRunLoopBlock.perform {
             guard let anchor, anchor.window != nil else {
                 menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
                 return

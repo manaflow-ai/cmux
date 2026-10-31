@@ -222,6 +222,11 @@ pub(crate) mod agent_transcript;
 mod agent_transcript_tests;
 #[cfg(test)]
 mod background_output_tests;
+// A turn ends when Claude Code ends it; a steer it reads after is the next turn's (`carry.rs`).
+mod carry;
+pub use carry::HOLD_MAX as CARRY_HOLD_MAX;
+#[cfg(test)]
+mod carry_tests;
 #[cfg(test)]
 mod context_usage_tests;
 mod early_calls;
@@ -232,10 +237,20 @@ mod edit_diff_tests;
 mod elicitation;
 #[cfg(test)]
 mod elicitation_tests;
+mod hook_callback;
+#[cfg(test)]
+mod hook_callback_tests;
 mod inbound;
+// What the log keeps of Claude's raw assistant and user lines (`logged_bodies.rs`).
+mod logged_bodies;
+pub use logged_bodies::leave_out_bodies;
 mod outbound;
 #[cfg(test)]
 mod steer_now_tests;
+// Other sessions' messages steered into one step go in as one line (`steer_batch.rs`).
+mod steer_batch;
+#[cfg(test)]
+mod steer_batch_tests;
 mod steer_withdraw;
 #[cfg(test)]
 mod steer_withdraw_tests;
@@ -284,6 +299,11 @@ pub const MCP_RECONNECT: &str = "_acpmux/claude/mcp_reconnect";
 /// names (`context_breakdown`; the lists the largest first, categories in Claude Code's order): a chat with hundreds of MCP
 /// tools would otherwise log every one at each turn's end.
 const BREAKDOWN_ROWS: usize = 50;
+
+/// The internal ACP request for Claude Code's native, transcript-free `/btw`
+/// control request. The translator turns this into a `side_question`
+/// `control_request` on Claude's running stream-json process.
+pub const SIDE_QUESTION: &str = "_acpmux/claude/side_question";
 
 /// The refusal of a steered prompt when no turn is running (the turn ended
 /// between the hub's check and the adapter).
@@ -424,6 +444,15 @@ pub struct Translator {
     /// Each steer's line uuid by the hub's promptId (`_meta.promptId`), so a
     /// withdraw names the line to drop (`steer_withdraw.rs`).
     steer_lines: Mutex<HashMap<String, String>>,
+    /// The waiting lines of other sessions' messages, and those being written again with more
+    /// (`steer_batch.rs`). Taken before `steers`.
+    batches: Mutex<steer_batch::Batches>,
+    /// Turns Claude Code runs on steers it read after its turn ended (`carry.rs`). Taken before
+    /// `pending`, and after `batches`, `steers` and `steer_lines`.
+    carry: Mutex<carry::Carry>,
+    /// Carried turns whose prompt has not come yet, and the newest carry's number (`carry.rs`
+    /// `holding`).
+    carry_owed: tokio::sync::watch::Sender<(usize, u64)>,
     /// Text streamed so far in the current turn, to build the prompt result.
     pub cancelled: AtomicBool,
     pub slash_commands: Mutex<Vec<Value>>,
@@ -457,9 +486,27 @@ pub struct Translator {
     /// The tokens the chat's context last held (its last `message_delta`; a
     /// compaction resets it).
     context_used: AtomicU64,
+    /// The cached context count came from an untagged compaction boundary rather
+    /// than a model message. The controller can fence its later result resend.
+    context_from_compaction: AtomicBool,
     /// A compaction just ended: the synthetic user line Claude writes next
     /// is its summary (`compaction_summary`).
     awaiting_summary: AtomicBool,
+    /// Claude Code is compacting the active turn. Compaction can ignore the
+    /// interrupt control request, so the hub ends that turn without waiting
+    /// for the normal cancel grace period.
+    compacting: AtomicBool,
+    /// The cancelled compaction still owes its result. Its boundary/summary
+    /// can follow the next prompt's echo, so that output cannot identify the
+    /// result as belonging to the new prompt (`abandoned` holds the old IDs).
+    cancelled_compaction: AtomicBool,
+    /// A cancelled compaction produced its terminal output (boundary or failure status)
+    /// after a later prompt began; its following result belongs to the abandoned compaction.
+    cancelled_compaction_boundary: AtomicBool,
+    /// Untagged compaction boundaries/summaries cannot be attributed after a cancelled
+    /// compaction overlaps later work. Fence them until this translator is replaced;
+    /// clearing on a new status or result would guess which compaction produced them.
+    compaction_metadata_fenced: AtomicBool,
     /// The model id the chat's main loop last ran (its `message_start`): the
     /// `modelUsage` key for its window, which a picker alias is not.
     loop_model: Mutex<String>,
@@ -517,6 +564,9 @@ enum Pending {
     Control(Setting, String),
     /// A `stop_task` (`STOP_TASK`), answered when claude takes it.
     StopTask,
+    /// Claude Code's native `side_question`, answered once its callback
+    /// returns `{response, synthetic}` (or another response payload).
+    SideQuestion,
     /// A `background_tasks` (`BACKGROUND_TASKS`), with the shells it marked
     /// `asked` and when the hub stops waiting for it (its `timeoutMs`):
     /// `end_background_asks` unmarks them when nothing moved, at that
@@ -555,6 +605,9 @@ impl Translator {
             abandoned: Mutex::new(Vec::new()),
             steers: Mutex::new(std::collections::VecDeque::new()),
             steer_lines: Mutex::new(HashMap::new()),
+            batches: Mutex::new(Default::default()),
+            carry: Mutex::new(carry::Carry::new()),
+            carry_owed: tokio::sync::watch::channel((0, 0)).0,
             cancelled: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),
             skills: Mutex::new(Vec::new()),
@@ -568,7 +621,12 @@ impl Translator {
             background_shells: Mutex::new(HashMap::new()),
             context_window: AtomicU64::new(0),
             context_used: AtomicU64::new(0),
+            context_from_compaction: AtomicBool::new(false),
             awaiting_summary: AtomicBool::new(false),
+            compacting: AtomicBool::new(false),
+            cancelled_compaction: AtomicBool::new(false),
+            cancelled_compaction_boundary: AtomicBool::new(false),
+            compaction_metadata_fenced: AtomicBool::new(false),
             loop_model: Mutex::new(String::new()),
             message_ids: Mutex::new(HashMap::new()),
             streamed_subagents: Mutex::new(HashSet::new()),
@@ -578,46 +636,67 @@ impl Translator {
         })
     }
 
+    /// Whether Claude Code has reported that it is currently compacting.
+    pub fn is_compacting(&self) -> bool {
+        self.compacting.load(Ordering::SeqCst)
+    }
+
+    /// Called when Stop is accepted, before waiting for the cancellation writer.
+    /// Untagged compaction metadata remains fenced for this translator instance.
+    pub fn fence_compaction_metadata(&self) {
+        self.compaction_metadata_fenced.store(true, Ordering::SeqCst);
+        self.awaiting_summary.store(false, Ordering::SeqCst);
+    }
+
     /// Take the lines `inbound` queued for claude's stdin.
     /// Error answers for every ACP request still waiting on Claude, which
     /// are dropped: used when Claude's answer cannot be carried (a line over
     /// the agent host's frame limit), so no turn waits forever.
     pub async fn fail_pending(&self, message: &str) -> Vec<Message> {
-        // Drain pending replies before taking the steers lock. A withdrawal reply removes its
-        // pending entry before it inspects the steers, so holding steers while awaiting pending
-        // would invert the lock order used by the withdrawal path.
-        let mut ids: Vec<String> = self.pending.lock().await.drain().map(|(id, _)| id).collect();
+        // Under `batches` and `steers`, the order every steer path takes them, and only then
+        // `pending`: a withdraw registers its pending entry while it holds `steers`
+        // (`steer_withdraw.rs`), so it is either drained here or finds no steer left to take
+        // back. A withdrawal reply holds neither lock while it removes its entry.
+        let mut batches = self.batches.lock().await;
         // Hold steers while clearing its prompt-id index: an outbound steer either keeps both
         // records or waits until the stale index has been cleared.
         let mut steers = self.steers.lock().await;
+        let mut held = Self::end_batches(&mut batches, message);
+        let mut ids: Vec<String> = self.pending.lock().await.drain().map(|(id, _)| id).collect();
         ids.extend(steers.drain(..).map(|(_, id)| id));
         self.steer_lines.lock().await.clear();
         drop(steers);
-        ids.into_iter()
-            .map(|id| {
-                let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
-                Message::err(id, RpcError::internal(message))
-            })
-            .collect()
+        drop(batches);
+        // A carried turn whose prompt has not come yet lost its answer too (`carry.rs`).
+        self.carry.lock().await.fail_owed(message);
+        held.extend(ids.into_iter().map(|id| {
+            let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
+            Message::err(id, RpcError::internal(message))
+        }));
+        held
     }
 
     /// Error answers for the steered prompts Claude Code never echoed: the
     /// turn ended without reading them (no echo support).
     async fn fail_steers(&self) -> Vec<Message> {
+        let mut batches = self.batches.lock().await;
         let mut steers = self.steers.lock().await;
+        // Held for a line being written again, never written: they go in the next turn.
+        let held = Self::end_batches(&mut batches, STEER_NO_TURN);
         let failed: Vec<_> = steers.drain(..).collect();
         self.steer_lines.lock().await.clear();
+        // None of them is read after a carry now.
+        self.carry.lock().await.steers.clear();
         drop(steers);
-        failed
-            .into_iter()
-            .map(|(_, id)| {
-                let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
-                Message::err(
-                    id,
-                    RpcError::internal("steer: the turn ended before Claude Code read the message"),
-                )
-            })
-            .collect()
+        drop(batches);
+        let failed = failed.into_iter().map(|(_, id)| {
+            let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
+            Message::err(
+                id,
+                RpcError::internal("steer: the turn ended before Claude Code read the message"),
+            )
+        });
+        held.into_iter().chain(failed).collect()
     }
 
     /// Ends the `background_tasks` requests `ended` picks by ACP id and
@@ -657,6 +736,12 @@ impl Translator {
                 shell.asked = false;
             }
         }
+    }
+
+    /// Whether Claude Code runs a subagent or a background shell: work an agent host whose
+    /// daemon is gone keeps its harness for (`agent_host::OrphanExit`).
+    pub async fn runs_background_work(&self) -> bool {
+        self.interrupt_ends_work().await
     }
 
     pub async fn take_stdin_replies(&self) -> Vec<Value> {
@@ -914,7 +999,7 @@ pub(super) fn context_breakdown(usage: &Value) -> Option<Value> {
             let mut kept =
                 json!({"name": c.get("name"), "tokens": tokens(c), "kind": c.get("kind")});
             if let Some(id) = c.get("id").filter(|id| id.is_string()) {
-                kept["id"] = id.clone();
+                kept.set("id", id.clone());
             }
             kept
         })
@@ -928,7 +1013,7 @@ pub(super) fn context_breakdown(usage: &Value) -> Option<Value> {
     });
     // Claude Code names its skills only when they take context.
     if let Some(skills) = usage.pointer("/skills/skillFrontmatter").filter(|s| s.is_array()) {
-        breakdown["skills"] = json!(rows(Some(skills), &["name"]));
+        breakdown.set("skills", json!(rows(Some(skills), &["name"])));
     }
     Some(breakdown)
 }

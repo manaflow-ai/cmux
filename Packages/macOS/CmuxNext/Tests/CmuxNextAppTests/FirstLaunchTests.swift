@@ -34,7 +34,7 @@ nonisolated enum SameTreeDaemonBinary {
 
 /// A fresh session, end to end: the real daemon, the app's launch window,
 /// restore, and the empty-workspace guard.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.serialized, .ownsSidebarDocStore, .timeLimit(.minutes(2)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct FirstLaunchTests {
     /// Returns once `store` has a tab or `limit` passes, whichever is first.
     /// A poll, not a task group over `Observations`: the Swift 6.2 region
@@ -60,7 +60,9 @@ struct FirstLaunchTests {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-first-\(UUID().uuidString.prefix(8))")
         let session = "cn-first-\(UUID().uuidString.prefix(8).lowercased())"
         let launcher = DaemonLauncher(
-            configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
+            // The owner ends with this test process, also when it crashes before the shutdown below.
+            configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state"),
+                                 exitWithProcess: ProcessInfo.processInfo.processIdentifier),
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))

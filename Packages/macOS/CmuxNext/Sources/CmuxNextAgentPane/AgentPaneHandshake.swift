@@ -23,9 +23,9 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
 
     /// The coded fields: everything but ``connection``, which never reaches the page.
     private enum CodingKeys: String, CodingKey {
-        case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptTicket, harness, adopt, surface,
+        case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptTicket, harness, model, peer, adopt, surface,
              linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, githubRepository, harnesses, wake,
-             workspaceContext, sandboxState, cloudMachineID, cloudCredentialRecoveryAvailable
+             workspaceContext, sandboxState, cloudMachineID, cloudAccount, cloudCredentialRecoveryAvailable
     }
 
     public var protocolVersion: Int
@@ -64,6 +64,10 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// The harness a new chat starts on before `prompt` is sent. Pages that
     /// predate it ignore it (the chat starts on the default harness).
     public var harness: String?
+    /// The model a new chat starts on before its first prompt.
+    public var model: String?
+    /// A validated acpmux peer selected by the New Agent Chat action.
+    public var peer: String?
     /// An outside chat the page resumes on connect. Pages that predate it
     /// ignore it and open an empty chat, so the version stays the same.
     public var adopt: AgentPaneAdopt?
@@ -106,6 +110,8 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     public var pastTurns: [AgentPanePastTurn]?
     /// Provider VM ID resolved by the native tab host, never a daemon registry UUID.
     public var cloudMachineID: String?
+    /// Account and team that own this Cloud chat; absence never proves deletion.
+    public var cloudAccount: [String?]?
     /// True only when this Cloud backend supports credential delivery.
     public var cloudCredentialRecoveryAvailable: Bool?
     /// This Mac's name (System Settings > General > Sharing), for the composer's location row.

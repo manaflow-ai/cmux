@@ -1,6 +1,7 @@
 //! Workspace rename: revision-checked, provider-managed and selector paths.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 impl Mux {
     pub fn rename_workspace_at_revision_as(
@@ -165,7 +166,7 @@ impl Mux {
             "name": name,
         });
         if let Some(name_fingerprint) = name_authority.fingerprint() {
-            fingerprint["name_authority"] = name_fingerprint;
+            fingerprint.set("name_authority", name_fingerprint);
         }
         let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap();

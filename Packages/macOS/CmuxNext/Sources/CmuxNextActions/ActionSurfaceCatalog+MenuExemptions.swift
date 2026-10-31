@@ -24,6 +24,8 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.browserToggleOmnibar",
         ],
         .noObject: [
+            "window.toggleDockLeft", "window.toggleDockRight", "window.toggleDockTop", "window.toggleDockBottom",
+            "window.toggleDockOrientation",
             "palette.openFilesPane", "palette.openFindPane",
             "sidebar.profileMenu", "browser.downloads.showFolder",
             "home.show",
@@ -46,7 +48,7 @@ nonisolated extension ActionSurfaceCatalog {
             "newCloudMachine", "cloudDiagnostics", "openTeamPicker", "palette.auth.signIn", "palette.auth.signOut",
             "palette.mobileConnect", "accounts.show", "accounts.refresh", "accounts.reauthenticate",
             "accounts.connect", "accounts.remove", "reloadConfiguration", "palette.openCmuxSettingsFile",
-            "palette.openGhosttySettings", "ghostty.showDiagnostics", "palette.makeDefaultBrowser", "palette.makeDefaultTerminal",
+            "palette.openGhosttySettings", "settings.customizeMenus", "ghostty.showDiagnostics", "palette.makeDefaultBrowser", "palette.makeDefaultTerminal",
             "palette.toggleSetting", "palette.shortcutKeymap", "palette.searchShortcuts", "palette.installCLI",
             "palette.uninstallCLI", "palette.restartSocketListener", "palette.restartServer", "palette.checkForUpdates", "updates.whatsNew", "announcements.show", "announcements.hide",
             "palette.applyUpdateIfAvailable", "palette.switchAppChannel", "updates.rollback", "palette.pro.upgrade",
@@ -136,10 +138,17 @@ nonisolated extension ActionSurfaceCatalog {
         ],
         .minimalMenu: [
             "space.setDefaults", "space.clearDefaults", "browserProfile.clearSpaceDefault",
+            // Open in New Window took its row (spaces-overhaul-DESIGN.md rule 4); New Window in Space… (a new
+            // window with a new workspace of the space) stays in the palette and the CLI.
+            "space.newWindow",
         ],
         // Leo 2026-10-23: the workspace row menu drops this long tail; the palette keeps it.
-        .pointerMenuTrim: ["workspace.setTint", "workspace.copyPath", "copyWorkspaceSSHError", "revealWorkspaceInFinder", "palette.copyWorkspaceID",
-            "palette.copyWorkspaceIDAndRef", "palette.copyWorkspaceLink", "workspace.showResources", "palette.openWorkspacePullRequests",
+        .pointerMenuTrim: [
+            // Docked workspaces are a default-off prototype (`window.dockedWorkspaces`): palette, CLI and MCP only,
+            // so the workspace row's Move menu does not grow six rows nobody can use yet.
+            "workspace.dockLeft", "workspace.dockRight", "workspace.dockTop", "workspace.dockBottom", "workspace.undock",
+            "workspace.toggleDockFloating","workspace.setTint", "workspace.copyPath", "copyWorkspaceSSHError", "revealWorkspaceInFinder",
+            "palette.copyWorkspaceIDAndRef", "workspace.showResources", "palette.openWorkspacePullRequests",
             "workspace.setRemoteLocalhost"],
         .paletteInternal: [
             "commandPaletteNext", "commandPalettePrevious",

@@ -153,7 +153,11 @@ public nonisolated struct HomeChiefFiles: Sendable {
     /// Makes `source` the Chief's picture in its files (a cloud Chief's, which has no registry
     /// on this Mac): ``pictureData(from:)`` beside profile.json.
     public func writePicture(from source: URL) throws {
-        let picture = try pictureData(from: source)
+        try writePicture(try pictureData(from: source))
+    }
+
+    /// Makes `picture` the Chief's picture in its files, beside profile.json.
+    public func writePicture(_ picture: ChiefAvatarPicture) throws {
         let folder = profileFile.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let name = picture.mediaType == "image/gif" ? "avatar.gif" : "avatar.png"

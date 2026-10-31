@@ -102,6 +102,7 @@ public struct SettingsSchemaExport {
             "kept_on_reset_all": SettingsSchema.keptOnResetAll.contains(descriptor.path),
             "consumers": descriptor.consumers.sorted().map(\.rawValue),
             "page_hidden": descriptor.page != .shown,
+            "surfaces": descriptor.surfacePlan.exportObject,
         ]
         let samples = SettingsSchemaSamples.samples(for: descriptor)
         row["accepts"] = samples.accept.filter(descriptor.accepts).map(foundation)
