@@ -3,6 +3,18 @@ import Foundation
 import Testing
 
 @Suite(.timeLimit(.minutes(1))) struct BrowserLoginGuardConcurrencyTests {
+    @Test func opaqueCodeAndFillsExcludeEachOtherAcrossAProfileAndRestart() async throws {
+        let file = BrowserPageFillLoginTests.temporaryFile()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let guards = BrowserLoginGuards(file: file)
+        #expect(await guards.beginScript(profile: "opaque", origins: ["null"]))
+        #expect(await guards.beginFill(tab: "tab", profile: "opaque", origins: ["https://a.test"]).admission == .scripted)
+        let restored = BrowserLoginGuards(file: file)
+        #expect(await restored.beginFill(tab: "tab", profile: "opaque", origins: ["https://b.test"]).admission == .scripted)
+        #expect(await restored.beginFill(tab: "tab", profile: "filled", origins: ["https://a.test"]).admission == .admitted)
+        #expect(await !restored.beginScript(profile: "filled", origins: ["null"]))
+    }
+
     @Test func aFailedFillCannotUnprotectAnotherTabsSuccessfulFill() async throws {
         let (entered, signalEntered) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let (release, signalRelease) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))

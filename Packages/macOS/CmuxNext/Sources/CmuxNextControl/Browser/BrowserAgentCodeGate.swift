@@ -16,6 +16,16 @@ public final class BrowserAgentCodeGate: Sendable {
         self.engine = engine
     }
 
+    /// The driver's resolved-frame probe supplies these origins, instead of the top page's URL.
+    public func admitFrame(origins: [String], profile: String?) async -> String? {
+        await guards.beginScript(profile: profile, origins: origins) ? nil : Self.refusal
+    }
+
+    /// Retain the actual selected frame's final origins after execution or an uncertain outcome.
+    public func ranFrame(origins: [String], profile: String?) async {
+        await guards.markScripted(profile: profile, origins: origins)
+    }
+
     /// Before agent code on tab `id` (showing `url` in `profile`): nil admits it and marks the
     /// site; else why it is refused.
     public func admit(tabID id: String, url: String?, profile: String?) async -> String? {

@@ -8,6 +8,8 @@ public struct BrowserFrameCodePolicy {
     let ran: (String, [String]) async -> Void
 
     /// `admit` atomically checks and marks the selected frame's origins; nil admits the call.
+    /// An origin set containing `null` must exclude fills across the entire profile: opaque and
+    /// inherited frames can switch documents without changing their location-origin pin.
     /// `ran` also marks its final origins. Neither callback receives agent source or credentials.
     public init(admit: @escaping (String, [String]) async -> String?,
                 ran: @escaping (String, [String]) async -> Void) {

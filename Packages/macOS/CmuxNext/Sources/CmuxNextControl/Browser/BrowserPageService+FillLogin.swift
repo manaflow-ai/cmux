@@ -55,15 +55,27 @@ extension BrowserPageService {
                 let fill = await guards.beginFill(tab: tab.id, profile: tab.browserProfileID, origins: origins)
                 guard fill.admission == .admitted else { return Self.loginAnswer(tab, site: login.site, reason: fill.admission.rawValue) }
                 let script = BrowserPageScripts.fillLogin(host: host, origin: probed, username: login.username, password: login.password)
-                let value = try await Self.runLoginScript(engine, script, tab)
+                let value: JSONValue
+                do {
+                    value = try await Self.runLoginScript(engine, script, tab)
+                } catch {
+                    // A throwing page may already have taken the credentials.
+                    await guards.completeFill(fill)
+                    throw error
+                }
                 let fields = value["value"] ?? .null
                 let username = fields["username"]?.boolValue == true
                 let password = fields["password"]?.boolValue == true
                 guard username || password else {
-                    // Only the marks this fill added: an earlier fill's stay.
-                    await guards.forgetFill(fill.added)
+                    if fields["username"]?.boolValue == false, fields["password"]?.boolValue == false {
+                        await guards.forgetFill(fill)
+                    } else {
+                        // An unrecognized answer is not proof that nothing was written.
+                        await guards.completeFill(fill)
+                    }
                     return Self.loginAnswer(tab, site: login.site, reason: fields["reason"]?.stringValue ?? "no_login_field")
                 }
+                await guards.completeFill(fill)
                 var input = BrowserPageAgentInput.from(kind: .type, answer: value, replace: true)
                 input.text = nil
                 input.secret = true

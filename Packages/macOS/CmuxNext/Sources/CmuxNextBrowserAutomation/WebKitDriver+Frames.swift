@@ -36,31 +36,58 @@ extension WebKitDriver {
         let args = try params.array("args").map(\.foundationValue)
         let handles = try params.strings("handles")
         let frame = try await frameInfo(params, tab: tab, session: session)
-        if world == "agent" {
-            return try await runInAgent("return await (\(source))(...__handlesThenArgs(__handles, __args));",
-                                        handles: handles, args: args, frame: frame, tab: tab)
-        }
+        // The host world is reserved for native host scripts, never agent source.
         if world == "host" {
             guard handles.isEmpty else { throw DriverError(.invalid, "frame.evaluate: the host world takes no element handles") }
             return try await run("return await (\(source))(...__args);", ["__args": args], frame, AgentWorld.hostWorld, tab)
         }
-        guard !handles.isEmpty else {
-            return try await run("return await (\(source))(...__args);", ["__args": args], frame, .page, tab)
+        let origin: String?
+        if let policy = frameCodePolicy {
+            let page = try await frameCodeOrigins(frame, tab: tab)
+            if let refusal = await policy.admit(tab.id.rawValue, page.all) { throw DriverError(.invalid, refusal) }
+            origin = page.origin
+        } else {
+            origin = nil
         }
-        return try await evaluateInPage(source: source, handles: handles, args: args, frame: frame, tab: tab)
+        let result: DriverJSON
+        do {
+            result = try await evaluateFrameSource(source, world: world, handles: handles, args: args, frame: frame, tab: tab, origin: origin)
+        } catch {
+            if let policy = frameCodePolicy, let page = try? await frameCodeOrigins(frame, tab: tab) {
+                await policy.ran(tab.id.rawValue, page.all)
+            }
+            throw error
+        }
+        if let policy = frameCodePolicy, let page = try? await frameCodeOrigins(frame, tab: tab) {
+            await policy.ran(tab.id.rawValue, page.all)
+        }
+        return result
+    }
+
+    private func evaluateFrameSource(_ source: String, world: String, handles: [String], args: [Any], frame: WKFrameInfo?, tab: WebKitTab,
+                                     origin: String?) async throws(DriverError) -> DriverJSON {
+        if world == "agent" {
+            return try await runInAgent("return await (this.eval('(' + __source + '\\n)'))(...__handlesThenArgs(__handles, __args));",
+                                        handles: handles, args: args, frame: frame, tab: tab, origin: origin, source: source)
+        }
+        guard !handles.isEmpty else {
+            return try await run("return await (this.eval('(' + __source + '\\n)'))(...__args);",
+                                 ["__args": args, "__source": source], frame, .page, tab, origin: origin)
+        }
+        return try await evaluateInPage(source: source, handles: handles, args: args, frame: frame, tab: tab, origin: origin)
     }
 
     /// Agent handles live in the agent world; a page-world function gets the
     /// same elements through the DOM: the page world listens for a one-off
     /// event type, the agent world dispatches it on each element.
-    private func evaluateInPage(source: String, handles: [String], args: [Any], frame: WKFrameInfo?, tab: WebKitTab) async throws(DriverError) -> DriverJSON {
+    private func evaluateInPage(source: String, handles: [String], args: [Any], frame: WKFrameInfo?, tab: WebKitTab, origin: String?) async throws(DriverError) -> DriverJSON {
         let token = "cmux-handoff-" + UUID().uuidString.lowercased()
         _ = try await run("""
         const list = []; const on = (e) => list.push(e.composedPath()[0]);
         addEventListener(token, on, { capture: true });
         (globalThis.__cmuxHandoff ||= new Map()).set(token, { list, on });
         return true;
-        """, ["token": token], frame, .page, tab)
+        """, ["token": token], frame, .page, tab, origin: origin)
         let dispatched = try await run("""
         for (const id of ids) {
           const el = globalThis.__cmuxPageAgent && globalThis.__cmuxPageAgent.resolveHandle(id);
@@ -73,7 +100,7 @@ extension WebKitDriver {
           el.dispatchEvent(new Event(token, { bubbles: true, composed: true }));
         }
         return true;
-        """, ["token": token, "ids": handles], frame, AgentWorld.world, tab)
+        """, ["token": token, "ids": handles], frame, AgentWorld.world, tab, origin: origin)
         if dispatched == .string("closed-shadow") {
             throw DriverError(.unsupported, "frame.evaluate: an element inside a closed shadow root cannot be passed to page code")
         }
@@ -81,9 +108,9 @@ extension WebKitDriver {
         const entry = globalThis.__cmuxHandoff.get(token);
         globalThis.__cmuxHandoff.delete(token);
         removeEventListener(token, entry.on, { capture: true });
-        if (!stale && entry.list.length === count) return await (\(source))(...entry.list, ...__args);
+        if (!stale && entry.list.length === count) return await (this.eval('(' + __source + '\\n)'))(...entry.list, ...__args);
         return { __cmuxStale: true };
-        """, ["token": token, "__args": args, "stale": dispatched != .bool(true), "count": handles.count], frame, .page, tab)
+        """, ["token": token, "__args": args, "__source": source, "stale": dispatched != .bool(true), "count": handles.count], frame, .page, tab, origin: origin)
         if case .object(let object) = result, object["__cmuxStale"] == .bool(true) {
             throw DriverError(.stale, "Element is not attached to the DOM")
         }
@@ -92,12 +119,14 @@ extension WebKitDriver {
 
     /// `body` in the agent world of `frame`, with `__handlesThenArgs`,
     /// `__handles` and `__args`; installs the page agent on a miss.
-    func runInAgent(_ body: String, handles: [String], args: [Any] = [], frame: WKFrameInfo?, tab: WebKitTab) async throws(DriverError) -> DriverJSON {
+    func runInAgent(_ body: String, handles: [String], args: [Any] = [], frame: WKFrameInfo?, tab: WebKitTab,
+                    origin: String? = nil, source: String? = nil) async throws(DriverError) -> DriverJSON {
         let call = Self.withHandles("if (!\(Self.agentKey)) return \"\(Self.needsAgent)\"; \(body)")
-        let first = try await run(call, ["__handles": handles, "__args": args], frame, AgentWorld.world, tab)
+        let arguments: [String: Any] = ["__handles": handles, "__args": args, "__source": source ?? ""]
+        let first = try await run(call, arguments, frame, AgentWorld.world, tab, origin: origin)
         guard first == .string(Self.needsAgent) else { return first }
-        try await installAgent(frame: frame, tab: tab)
-        return try await run(call, ["__handles": handles, "__args": args], frame, AgentWorld.world, tab)
+        try await installAgent(frame: frame, tab: tab, origin: origin)
+        return try await run(call, arguments, frame, AgentWorld.world, tab, origin: origin)
     }
 
     private static func withHandles(_ body: String) -> String {
@@ -111,9 +140,9 @@ extension WebKitDriver {
         """
     }
 
-    private func installAgent(frame: WKFrameInfo?, tab: WebKitTab) async throws(DriverError) {
+    private func installAgent(frame: WKFrameInfo?, tab: WebKitTab, origin: String? = nil) async throws(DriverError) {
         guard let agentBundle else { throw DriverError(.unsupported, "frame.evaluate: the host sent no page agent") }
-        let ok = try await run(AgentWorld.ensureAgentSource(bundle: agentBundle), [:], frame, AgentWorld.world, tab)
+        let ok = try await run(AgentWorld.ensureAgentSource(bundle: agentBundle), [:], frame, AgentWorld.world, tab, origin: origin)
         guard ok == .bool(true) else { throw DriverError(.unsupported, "frame.evaluate: the page agent did not install") }
     }
 
@@ -125,7 +154,9 @@ extension WebKitDriver {
         return record.info
     }
 
-    func run(_ body: String, _ arguments: [String: Any], _ frame: WKFrameInfo?, _ world: WKContentWorld, _ tab: WebKitTab) async throws(DriverError) -> DriverJSON {
+    func run(_ body: String, _ arguments: [String: Any], _ frame: WKFrameInfo?, _ world: WKContentWorld, _ tab: WebKitTab,
+             origin: String? = nil) async throws(DriverError) -> DriverJSON {
+        let body = try Self.pinFrameCode(body, origin: origin)
         do {
             let value = try await tab.webView.callAsyncJavaScript(body, arguments: arguments, in: frame, contentWorld: world)
             return DriverJSON(foundation: value)

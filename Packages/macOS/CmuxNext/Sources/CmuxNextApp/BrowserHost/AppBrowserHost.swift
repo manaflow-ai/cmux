@@ -57,14 +57,22 @@ final class AppBrowserHost {
         let relay = AppDevToolsRelay(services: services, marking: tabs)
         relay.drivable = { [weak tabs] id in tabs?.isDrivable(id) ?? false }
         relay.renderWindows = tabs.renderWindows
-        let driver = WebKitDriver(provider: tabs)
+        let codeGate = BrowserAgentCodeGate(guards: services.loginGuards, engine: AppBrowserPageEngine(services: services))
+        let driver = WebKitDriver(provider: tabs, frameCodePolicy: BrowserFrameCodePolicy(
+            admit: { [weak services] id, origins in
+                guard let services else { return "browser unavailable" }
+                return await codeGate.admitFrame(origins: origins, profile: Self.page(id, in: services).profile)
+            },
+            ran: { [weak services] id, origins in
+                guard let services else { return }
+                await codeGate.ranFrame(origins: origins, profile: Self.page(id, in: services).profile)
+            }))
         driver.cookieBackups = Self.cookieBackups(bundleID: services.environment.launch.bundleID)
         let credentials = AppProviderCredentials(daemon: services.daemon)
         self.credentials = credentials
         self.tabs = tabs
         self.relay = relay
         self.driver = driver
-        let codeGate = BrowserAgentCodeGate(guards: services.loginGuards, engine: AppBrowserPageEngine(services: services))
         let scriptGate = PageScriptGate(
             page: { [weak services] id in services.map { Self.page(id, in: $0) } ?? (nil, nil) },
             admit: { id, page in await codeGate.admit(tabID: id, url: page.url, profile: page.profile) },

@@ -58,42 +58,54 @@ pub(crate) fn browser_step(step: &Value) -> Option<BrowserStep> {
         .filter(|d| !d.is_empty())
         .map(str::to_owned);
     let done = step.get("status").and_then(Value::as_str) == Some("done");
-    let (surface, target, verb_line, url, screenshot) = if let Some(at) = command.find("cmux browser")
-    {
-        let words: Vec<&str> = command[at..].split_whitespace().collect();
-        // `cmux browser right <verb> …` or `cmux browser page <verb> …`.
-        let verb = words.get(3).copied().unwrap_or_default();
-        let url = words
-            .iter()
-            .find(|w| w.starts_with("https://") || w.starts_with("http://"))
-            .map(|w| w.trim_matches(['"', '\'']).to_owned())
-            .filter(|u| cmux_conversation::valid_link_url(u));
-        let screenshot = (verb == "screenshot" && done)
-            .then(|| out_path(&words))
-            .flatten();
-        let target = (words.get(2) == Some(&"right")).then(|| "browser:right".to_owned());
-        (
-            CardSurface::Browser,
-            target,
-            browser_verb_line(verb, url.as_deref()),
-            url,
-            screenshot,
-        )
-    } else if command.contains("cua-driver") || command.contains("cua.sh") {
-        (
-            CardSurface::Computer,
-            machine_target(&command),
-            "Using the computer".to_owned(),
-            None,
-            None,
-        )
-    } else if lower_name.contains("computer") {
-        (CardSurface::Computer, None, "Using the computer".to_owned(), None, None)
-    } else if lower_name.contains("browser") {
-        (CardSurface::Browser, None, "Using the browser".to_owned(), None, None)
-    } else {
-        return None;
-    };
+    let (surface, target, verb_line, url, screenshot) =
+        if let Some(at) = command.find("cmux browser") {
+            let words: Vec<&str> = command[at..].split_whitespace().collect();
+            // `cmux browser right <verb> …` or `cmux browser page <verb> …`.
+            let verb = words.get(3).copied().unwrap_or_default();
+            let url = words
+                .iter()
+                .find(|w| w.starts_with("https://") || w.starts_with("http://"))
+                .map(|w| w.trim_matches(['"', '\'']).to_owned())
+                .filter(|u| cmux_conversation::valid_link_url(u));
+            let screenshot = (verb == "screenshot" && done)
+                .then(|| out_path(&words))
+                .flatten();
+            let target = (words.get(2) == Some(&"right")).then(|| "browser:right".to_owned());
+            (
+                CardSurface::Browser,
+                target,
+                browser_verb_line(verb, url.as_deref()),
+                url,
+                screenshot,
+            )
+        } else if command.contains("cua-driver") || command.contains("cua.sh") {
+            (
+                CardSurface::Computer,
+                machine_target(&command),
+                "Using the computer".to_owned(),
+                None,
+                None,
+            )
+        } else if lower_name.contains("computer") {
+            (
+                CardSurface::Computer,
+                None,
+                "Using the computer".to_owned(),
+                None,
+                None,
+            )
+        } else if lower_name.contains("browser") {
+            (
+                CardSurface::Browser,
+                None,
+                "Using the browser".to_owned(),
+                None,
+                None,
+            )
+        } else {
+            return None;
+        };
     let step: String = described
         .unwrap_or(verb_line)
         .chars()
@@ -193,7 +205,6 @@ fn queue_card(state: &mut crate::state::HostState) {
     }
 }
 
-
 /// A restart found the pending turn cut off: its card stops being live.
 pub(super) fn end_on_recover(state: &mut crate::state::HostState) {
     if let Some(card) = state.browser_card.as_mut()
@@ -285,12 +296,21 @@ impl Brain {
             if self.browser_cards_refused
                 || self.state.browser_card.as_ref().is_some_and(|c| c.refused)
                 || (browsing.is_none()
-                    && self.state.browser_card.as_ref().is_none_or(|c| c.turn != turn))
+                    && self
+                        .state
+                        .browser_card
+                        .as_ref()
+                        .is_none_or(|c| c.turn != turn))
             {
                 continue;
             }
             if let Some(browsing) = &browsing {
-                if self.state.browser_card.as_ref().is_none_or(|c| c.turn != turn) {
+                if self
+                    .state
+                    .browser_card
+                    .as_ref()
+                    .is_none_or(|c| c.turn != turn)
+                {
                     // A card an earlier turn left live (a restart, a cut turn) ends first.
                     self.end_browser_card();
                     self.retire_browser_card();
@@ -312,6 +332,7 @@ impl Brain {
                         },
                         thread: thread.clone(),
                     });
+                    changed = true;
                 }
                 if let Some(path) = &browsing.screenshot
                     && let Some(attachment) = self.upload_screenshot(conversation, path)
@@ -389,7 +410,12 @@ impl Brain {
 
     /// The owner took a message under `key`: the card message's id.
     pub(super) fn browser_card_sent(&mut self, key: &str, message_id: &str) {
-        if let Some(at) = self.state.browser_cards_ending.iter().position(|c| c.key == key) {
+        if let Some(at) = self
+            .state
+            .browser_cards_ending
+            .iter()
+            .position(|c| c.key == key)
+        {
             let mut old = self.state.browser_cards_ending.remove(at);
             old.message_id = Some(message_id.to_owned());
             // Called from inside the outbox loop: queued, sent by that loop.
@@ -498,7 +524,10 @@ mod tests {
         assert_eq!(step.surface, CardSurface::Browser);
         assert_eq!(step.target.as_deref(), Some("browser:right"));
         assert_eq!(step.step, "Returning to LinkedIn Messaging");
-        assert_eq!(step.url.as_deref(), Some("https://www.linkedin.com/messaging/"));
+        assert_eq!(
+            step.url.as_deref(),
+            Some("https://www.linkedin.com/messaging/")
+        );
     }
 
     #[test]
@@ -516,10 +545,21 @@ mod tests {
 
     #[test]
     fn a_done_screenshot_names_its_file() {
-        let running = bash("cmux browser right screenshot --out /tmp/s.png", None, "running");
+        let running = bash(
+            "cmux browser right screenshot --out /tmp/s.png",
+            None,
+            "running",
+        );
         assert_eq!(browser_step(&running).unwrap().screenshot, None);
-        let done = bash("cmux browser right screenshot --out=/tmp/s.png", None, "done");
-        assert_eq!(browser_step(&done).unwrap().screenshot.as_deref(), Some("/tmp/s.png"));
+        let done = bash(
+            "cmux browser right screenshot --out=/tmp/s.png",
+            None,
+            "done",
+        );
+        assert_eq!(
+            browser_step(&done).unwrap().screenshot.as_deref(),
+            Some("/tmp/s.png")
+        );
     }
 
     #[test]
@@ -538,7 +578,10 @@ mod tests {
     #[test]
     fn mcp_tools_by_name_and_other_calls_are_not_browsing() {
         let computer = json!({"tool": {"name": "mcp__computer-use__screenshot"}});
-        assert_eq!(browser_step(&computer).unwrap().surface, CardSurface::Computer);
+        assert_eq!(
+            browser_step(&computer).unwrap().surface,
+            CardSurface::Computer
+        );
         assert!(browser_step(&bash("git status", None, "done")).is_none());
         assert!(browser_step(&json!({"kind": "talk", "text": "hi"})).is_none());
     }

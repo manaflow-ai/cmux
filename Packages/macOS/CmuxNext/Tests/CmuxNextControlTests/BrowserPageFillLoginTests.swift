@@ -460,10 +460,10 @@ import Testing
         let second = await guards.beginFill(tab: "tab_b", profile: nil, origins: ["https://x.test"])
         #expect(second.admission == .admitted)
         #expect(second.added.isEmpty)
-        await guards.forgetFill(second.added)
+        await guards.forgetFill(second)
         #expect(await !guards.beginScript(profile: nil, origins: ["https://x.test"]), "the first fill's mark stays")
         // The first fill's own failure removes its mark.
-        await guards.forgetFill(first.added)
+        await guards.forgetFill(first)
         #expect(await guards.beginScript(profile: nil, origins: ["https://x.test"]))
     }
 

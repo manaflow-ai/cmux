@@ -41,10 +41,12 @@ public actor BrowserLoginGuards {
         case unsaved = "guard_unsaved"
     }
 
-    /// A fill's admission and the filled marks it newly added (all ``forgetFill(_:)`` may remove).
+    /// A fill's admission and its reservation. Finish each admitted attempt with
+    /// ``completeFill(_:)`` or, only when it wrote nothing, ``forgetFill(_:)``.
     public struct Fill: Sendable {
         public let admission: FillAdmission
         public let added: Set<String>
+        fileprivate let id: UUID?
     }
 
     private struct Saved: Codable {
@@ -68,6 +70,10 @@ public actor BrowserLoginGuards {
     private let file: URL?
     private var scripted: Set<String> = []
     private var filled: Set<String> = []
+    /// Completed fills and marks restored from disk never roll back. Pending attempts protect
+    /// their whole origin set, including origins another concurrent attempt first reserved.
+    private var committedFills: Set<String> = []
+    private var pendingFills: [UUID: Set<String>] = [:]
     /// Tabs that ever had a raw DevTools relay, and tabs a page opened (this run).
     private var rawTabs: Set<String> = []
     private var openedTabs: Set<String> = []
@@ -84,11 +90,16 @@ public actor BrowserLoginGuards {
     }
 
     /// Agent code is about to run on a page of `origins` (nil: the origin could not be read;
-    /// empty: an opaque page, no site). False when one of them holds a filled login, or when the
-    /// origin is unknown and this profile holds any; else each is marked scripted.
+    /// empty or containing `null`: an opaque/inherited page). Unpinnable origins reserve the
+    /// entire profile against future fills and are refused while it already holds any fill.
+    /// Otherwise false when one of the origins holds a fill; else each is marked scripted.
     public func beginScript(profile: String?, origins: [String]?) -> Bool {
         load()
-        guard let origins else { return !holdsFill(profile) }
+        let origins = origins ?? []
+        if origins.isEmpty || origins.contains("null") {
+            guard !holdsFill(profile) else { return false }
+            insertScripted([Self.key(profile: profile, origin: "null")])
+        }
         let keys = origins.map { Self.key(profile: profile, origin: $0) }
         if keys.contains(where: filled.contains) { return false }
         insertScripted(keys)
@@ -138,30 +149,51 @@ public actor BrowserLoginGuards {
     /// saved; else each origin is marked filled and the answer names the marks it newly added.
     public func beginFill(tab: String, profile: String?, origins: [String]) -> Fill {
         load()
-        func refused(_ admission: FillAdmission) -> Fill { Fill(admission: admission, added: []) }
+        func refused(_ admission: FillAdmission) -> Fill { Fill(admission: admission, added: [], id: nil) }
         if unreadable { return refused(.unreadable) }
         if openedTabs.contains(tab) { return refused(.openedByPage) }
         let keys = origins.map { Self.key(profile: profile, origin: $0) }
         let prefix = Self.key(profile: profile, origin: "")
         let (rawScripted, attached) = mirrorState.withLock { ($0.rawScripted, $0.attached.values.contains(prefix)) }
-        if rawTabs.contains(tab) || keys.contains(where: { scripted.contains($0) || rawScripted.contains($0) }) {
+        if rawTabs.contains(tab) || scripted.contains(Self.key(profile: profile, origin: "null"))
+            || keys.contains(where: { scripted.contains($0) || rawScripted.contains($0) }) {
             return refused(.scripted)
         }
         if attached { return refused(.rawAttached) }
         if keys.contains(where: unsaved.contains) { return refused(.unsaved) }
         let added = Set(keys).subtracting(filled)
+        let id = UUID()
+        pendingFills[id] = Set(keys)
         insertFilled(added)
-        return Fill(admission: keys.contains(where: unsaved.contains) ? .unsaved : .admitted, added: added)
+        if keys.contains(where: unsaved.contains) {
+            // No script may run after a failed persistence attempt. Keep the conservative marks,
+            // but do not retain a pending reservation for a caller that was never admitted.
+            pendingFills.removeValue(forKey: id)
+            committedFills.formUnion(keys)
+            return refused(.unsaved)
+        }
+        return Fill(admission: .admitted, added: added, id: id)
     }
 
-    /// The fill set nothing: removes only the marks it added (``Fill/added``), never one an
-    /// earlier fill made.
-    public func forgetFill(_ added: Set<String>) {
+    /// A fill succeeded, or its outcome is unknown: protection is permanent even after every
+    /// overlapping attempt finishes. Unknown outcomes may have written credentials.
+    public func completeFill(_ fill: Fill) {
         load()
-        guard !filled.isDisjoint(with: added) else { return }
-        filled.subtract(added)
+        guard let id = fill.id, let keys = pendingFills.removeValue(forKey: id) else { return }
+        committedFills.formUnion(keys)
+    }
+
+    /// The fill explicitly wrote nothing. Release only this attempt; any overlapping pending
+    /// attempt, completed fill, or persisted mark keeps its origins protected.
+    public func forgetFill(_ fill: Fill) {
+        load()
+        guard let id = fill.id, let keys = pendingFills.removeValue(forKey: id) else { return }
+        let retained = pendingFills.values.reduce(into: committedFills) { $0.formUnion($1) }
+        let removed = keys.subtracting(retained)
+        guard !removed.isEmpty else { return }
+        filled.subtract(removed)
         mirror()
-        save(changed: added)
+        save(changed: removed)
     }
 
     /// One raw DevTools message in `profile`, checked without the actor so the relay keeps
@@ -228,6 +260,7 @@ public actor BrowserLoginGuards {
         }
         scripted = Set(saved.scripted)
         filled = Set(saved.filled)
+        committedFills = filled
     }
 
     /// Writes the marks; a failure keeps `changed` refused for fills until a save succeeds.

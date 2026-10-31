@@ -75,6 +75,32 @@ import WebKit
         #expect(ended.contains(server.childOrigin))
     }
 
+    @Test func anAdmittedStrictCSPPageStillRunsAFunction() async throws {
+        let server = try await Server.start()
+        defer { server.stop() }
+        let page = Page(policy: BrowserFrameCodePolicy(admit: { _, _ in nil }, ran: { _, _ in }))
+        try await page.load(server.url("/strict"))
+        #expect(try await page.evaluate("() => 42", world: "page") == .number(42))
+    }
+
+    @Test func aBlankTabStillRunsCodeAndReservesOpaqueOrigins() async throws {
+        var admitted: [String] = []
+        let page = Page(policy: BrowserFrameCodePolicy(admit: { _, origins in admitted = origins; return nil }, ran: { _, _ in }))
+        try await page.load(try #require(URL(string: "about:blank")))
+        #expect(try await page.evaluate("() => 42", world: "page") == .number(42))
+        #expect(admitted.contains("null"))
+    }
+
+    @Test func pageWorldElementHandlesUseTheAdmittedFrame() async throws {
+        let server = try await Server.start()
+        defer { server.stop() }
+        let page = Page(policy: BrowserFrameCodePolicy(admit: { _, _ in nil }, ran: { _, _ in }))
+        try await page.load(server.url("/plain"))
+        // The driver lazily installs its agent on agent-world evaluation, as the host does.
+        _ = try await page.evaluate("() => true", world: "agent")
+        #expect(try await page.evaluate("(el) => el.id", world: "page", handles: ["handle"]) == .string("handle"))
+    }
+
     private final class NoFileInput: WebFileInputAnswering {
         func answerFileInput(allowsMultipleSelection: Bool, allowsDirectories: Bool, window: NSWindow?,
                              completion: @escaping @MainActor ([URL]?) -> Void) { completion(nil) }
@@ -85,9 +111,13 @@ import WebKit
         private let policy: BrowserFrameCodePolicy
         private var loaded: CheckedContinuation<Void, any Error>?
         let tab: WebKitTab
-        lazy var driver = WebKitDriver(provider: self, agentBundle: "globalThis[Symbol.for('cmux.browserRepl.agent')] = true;", frameCodePolicy: policy)
+        lazy var driver = WebKitDriver(provider: self, agentBundle: """
+        globalThis[Symbol.for('cmux.browserRepl.agent')] = true;
+        globalThis.__cmuxPageAgent = { resolveHandle: id => document.getElementById(id) };
+        """, frameCodePolicy: policy)
 
         init(policy: BrowserFrameCodePolicy) {
+            _ = NSApplication.shared
             let engine = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory())
             self.engine = engine
             self.policy = policy
@@ -119,10 +149,10 @@ import WebKit
             return id
         }
 
-        @discardableResult func evaluate(_ source: String, world: String, frame: String = "main") async throws -> DriverJSON {
+        @discardableResult func evaluate(_ source: String, world: String, frame: String = "main", handles: [String] = []) async throws -> DriverJSON {
             try await driver.call(method: "frame.evaluate", params: .object(["targetId": .string(tab.id.rawValue), "source": .string(source),
                                                                             "world": .string(world), "frameId": .string(frame),
-                                                                            "args": .array([]), "handles": .array([])]))
+                                                                            "args": .array([]), "handles": .array(handles.map(DriverJSON.string))]))
         }
 
         func marker(frame: String = "main") async throws -> DriverJSON {
@@ -169,9 +199,10 @@ import WebKit
                 connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) { data, _, _, _ in
                     let request = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
                     let path = request.split(separator: " ").dropFirst().first ?? "/"
-                    let body = path == "/" ? "<iframe src='\(server.childOrigin)/child'></iframe>" : "<p>frame</p>"
+                    let body = path == "/" ? "<iframe src='\(server.childOrigin)/child'></iframe>" : "<p id='handle'>frame</p>"
                     let html = "<!doctype html><html><body>\(body)</body></html>"
-                    let head = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(html.utf8.count)\r\nConnection: close\r\n\r\n"
+                    let csp = path == "/strict" ? "Content-Security-Policy: script-src 'none'\r\n" : ""
+                    let head = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\(csp)Content-Length: \(html.utf8.count)\r\nConnection: close\r\n\r\n"
                     connection.send(content: Data((head + html).utf8), completion: .contentProcessed { _ in connection.cancel() })
                 }
             }
