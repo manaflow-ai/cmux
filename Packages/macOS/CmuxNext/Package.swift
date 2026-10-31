@@ -402,7 +402,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextAgentPaneTests",
-            dependencies: ["CmuxNextAgentPane", "CmuxNextCloud", "CmuxNextDaemon", "CmuxNextActions", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextDictation", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextRemoteFetch", "CmuxNextSettings", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
+            dependencies: ["CmuxNextAgentPane", "CmuxNextCloud", "CmuxNextDaemon", "CmuxNextActions", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextDictation", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextRemoteFetch", "CmuxNextSettings", "CmuxNextTestSupport", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         // Dictation (the composer's mic): the on-device speech engines and
@@ -1459,7 +1459,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // whole App build. libghostty needs libc++, as in CmuxNextAppTests.
         .testTarget(
             name: "CmuxNextTerminalTests",
-            dependencies: ["CmuxNextTerminal", "CmuxNextTestSupport"],
+            dependencies: ["CmuxNextTerminal", "CmuxNextTestSupport", "CmuxNextCompat"],
             swiftSettings: uiSwiftSettings,
             linkerSettings: [.linkedLibrary("c++")]
         ),
@@ -1735,6 +1735,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextWakeups",
                 "CmuxNextWakeupsTestSupport",
                 "CmuxNextWorkspaceNaming",
+                "CmuxNextWorkspaceRepair",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 // GhosttyGlassMinimumContrastTests builds a Ghostty config.
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
@@ -1793,6 +1794,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [
                 "CmuxNextMobile",
                 "CmuxNextDaemon",
+                "CmuxNextTestSupport",
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
                 .product(name: "CmuxMobileRPC", package: "CmuxMobileRPC"),
                 .product(name: "CmuxMobileSSH", package: "CmuxMobileSSH"),
