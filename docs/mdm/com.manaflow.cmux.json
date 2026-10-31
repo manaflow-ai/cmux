@@ -3957,6 +3957,17 @@
       "title" : "Sidebar Style",
       "type" : "string"
     },
+    "sidebar.textSize" : {
+      "default" : "default",
+      "description" : "Makes the sidebar's names, headers, icons and rows larger together. Larger matches the ChatGPT app's sidebar.",
+      "enum" : [
+        "default",
+        "large",
+        "larger"
+      ],
+      "title" : "Sidebar Text Size",
+      "type" : "string"
+    },
     "sidebar.topBandMaxShare" : {
       "default" : 0.3333333333333333,
       "description" : "The share of the sidebar the top sections fill before they scroll.",
