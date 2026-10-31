@@ -128,7 +128,8 @@ fn activate(_base: &Path, _install: &Path) -> Result<()> {
 /// a failed attempt changes nothing. Install directories nothing points at are removed after.
 #[cfg(unix)]
 fn activate(base: &Path, install: &Path) -> Result<()> {
-    let name = install.file_name().ok_or_else(|| anyhow::anyhow!("install directory has no name"))?;
+    let name =
+        install.file_name().ok_or_else(|| anyhow::anyhow!("install directory has no name"))?;
     if !install.join("codex").is_file() || !install.join("ready.json").is_file() {
         bail!("{} is not a finished Codex install", install.display())
     }
@@ -224,7 +225,10 @@ mod tests {
     #[test]
     fn activation_swaps_the_current_link_and_prunes_the_old_install() {
         let base = tempfile::tempdir().unwrap();
-        let (old, new) = (base.path().join(format!("{VERSION}-1-1")), base.path().join(format!("{VERSION}-2-2")));
+        let (old, new) = (
+            base.path().join(format!("{VERSION}-1-1")),
+            base.path().join(format!("{VERSION}-2-2")),
+        );
         install(&old, "old");
         activate(base.path(), &old).unwrap();
         assert_eq!(current(base.path()), "old");
@@ -262,7 +266,10 @@ mod tests {
     #[test]
     fn prune_never_removes_what_current_names_even_when_another_installer_swapped() {
         let base = tempfile::tempdir().unwrap();
-        let (a, b) = (base.path().join(format!("{VERSION}-1-1")), base.path().join(format!("{VERSION}-2-2")));
+        let (a, b) = (
+            base.path().join(format!("{VERSION}-1-1")),
+            base.path().join(format!("{VERSION}-2-2")),
+        );
         install(&a, "a");
         install(&b, "b");
         // Installer A activated, then B swapped before A pruned: A's prune must keep B's runtime.
@@ -281,8 +288,10 @@ mod tests {
     #[test]
     fn prune_leaves_a_recent_install_another_installer_has_not_linked_yet() {
         let base = tempfile::tempdir().unwrap();
-        let (live, pending) =
-            (base.path().join(format!("{VERSION}-1-1")), base.path().join(format!("{VERSION}-2-2")));
+        let (live, pending) = (
+            base.path().join(format!("{VERSION}-1-1")),
+            base.path().join(format!("{VERSION}-2-2")),
+        );
         install(&live, "live");
         install(&pending, "pending");
         activate(base.path(), &live).unwrap();

@@ -70,11 +70,11 @@ pub mod launch_policy;
 #[cfg(target_os = "linux")]
 pub(crate) mod linux_sandbox;
 pub mod live_models;
-pub mod managed_codex;
 pub mod local_stream;
 pub mod login_env;
 pub mod machine_wake;
 pub mod mailbox;
+pub mod managed_codex;
 pub mod mesh;
 pub mod mesh_control;
 pub mod mesh_http;
