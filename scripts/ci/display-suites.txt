@@ -8,6 +8,7 @@ Packages/macOS/CmuxNext CmuxNextAppTests.HostPressureBannerToastTests
 Packages/macOS/CmuxNext CmuxNextAppTests.IconPickerMotionTests
 Packages/macOS/CmuxNext CmuxNextAppTests.LaunchFirstFrameRevealTests
 Packages/macOS/CmuxNext CmuxNextAppTests.MaskedScreenshotTests
+Packages/macOS/CmuxNext CmuxNextAppTests.NewColumnKeepsWidthJourneyTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarBackgroundChangeCalmTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarCalmMotionTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SidebarCloseWhileScrolledTests
