@@ -1,3 +1,4 @@
+import CmuxNextFiles
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import Foundation
@@ -100,8 +101,8 @@ final class RemoteFilePageFiles: FilePageFiles {
     /// the main actor.
     @concurrent nonisolated static func snapshot(_ url: URL, reply: FileSystemReadRequest.Response, inWorkspace: Bool) async -> FileSnapshot? {
         guard let bytes = reply.bytes else { return nil }
-        let (text, exact) = FileDocument.decode(bytes)
-        let reason: FileReadOnlyReason? = if FileDocument.isBinary(bytes) {
+        let (text, exact) = FileDocument().decode(bytes)
+        let reason: FileReadOnlyReason? = if FileDocument().isBinary(bytes) {
             .binary
         } else if !exact {
             .encoding
@@ -110,7 +111,7 @@ final class RemoteFilePageFiles: FilePageFiles {
         } else {
             nil
         }
-        return FileSnapshot(url: url, text: text, hash: FileDocument.hash(bytes), size: bytes.count, readOnlyReason: reason)
+        return FileSnapshot(url: url, text: text, hash: FileDocument().hash(bytes), size: bytes.count, readOnlyReason: reason)
     }
 
     func save(_ text: String, to url: URL, baseHash: String?, inWorkspace: Bool) async throws(FileSaveFailure) -> FileSaveResult {
@@ -192,7 +193,7 @@ final class RemoteFilePageFiles: FilePageFiles {
     }
 
     @concurrent private nonisolated static func hash(_ text: String) async -> String {
-        FileDocument.hash(Data(text.utf8))
+        FileDocument().hash(Data(text.utf8))
     }
 
     func watch(_ url: URL, inWorkspace: @escaping () -> Bool, clock: any Clock<Duration>,

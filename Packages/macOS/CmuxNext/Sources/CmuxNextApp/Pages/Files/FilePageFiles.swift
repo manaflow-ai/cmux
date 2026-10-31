@@ -1,3 +1,4 @@
+import CmuxNextFiles
 import Foundation
 
 /// Watches a file page's file and reports its new content (nil: deleted) through the callback
@@ -54,11 +55,11 @@ final class LocalFilePageFiles: FilePageFiles {
     }
 
     @concurrent private static func read(_ url: URL, inWorkspace: Bool) async throws(FileOpenFailure) -> FileSnapshot {
-        try FileDocument.read(url, inWorkspace: inWorkspace)
+        try FileDocument().read(url, inWorkspace: inWorkspace)
     }
 
     @concurrent private static func write(_ text: String, to url: URL, baseHash: String?,
                                           inWorkspace: Bool) async throws(FileSaveFailure) -> FileSaveResult {
-        try FileDocument.save(text, to: url, baseHash: baseHash, inWorkspace: inWorkspace)
+        try FileDocument().save(text, to: url, baseHash: baseHash, inWorkspace: inWorkspace)
     }
 }

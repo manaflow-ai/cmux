@@ -1,3 +1,4 @@
+import CmuxNextFiles
 @testable import CmuxNextApp
 // Only the daemon types the fake answers with: CmuxNextDaemon's JSONValue would shadow the pages' one.
 import enum CmuxNextDaemon.DaemonError
@@ -173,7 +174,7 @@ struct CloudFileViewerTests {
         let watch = try #require(files.watch(URL(fileURLWithPath: path), inWorkspace: { true }, clock: ContinuousClock(),
                                              onChange: { changes.append($0) },
                                              onUnavailable: { notices.append($0) }) as? RemoteFileChangeWatch)
-        watch.knownHash = FileDocument.hash(Data("one\n".utf8))
+        watch.knownHash = FileDocument().hash(Data("one\n".utf8))
         // Unchanged: nothing is reported.
         await watch.check()
         #expect(changes.isEmpty)
@@ -265,7 +266,7 @@ struct CloudFileViewerTests {
         var changes: [FileSnapshot?] = []
         let watch = try #require(files.watch(URL(fileURLWithPath: link), inWorkspace: { true }, clock: ContinuousClock(),
                                              onChange: { changes.append($0) }, onUnavailable: { _ in }) as? RemoteFileChangeWatch)
-        watch.knownHash = FileDocument.hash(Data("one\n".utf8))
+        watch.knownHash = FileDocument().hash(Data("one\n".utf8))
         await watch.check()
         #expect(changes.isEmpty)
         // An agent edits the target; the link's revision stays the same.

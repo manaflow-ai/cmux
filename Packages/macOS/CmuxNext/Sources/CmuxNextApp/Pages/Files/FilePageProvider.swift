@@ -1,3 +1,4 @@
+import CmuxNextFiles
 import AppKit
 import CmuxNextDesign
 import CmuxNextAgentPane
