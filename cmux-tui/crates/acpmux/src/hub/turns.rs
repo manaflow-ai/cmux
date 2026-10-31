@@ -1157,7 +1157,7 @@ impl Hub {
         {
             let tail: Vec<String> = session.stderr_tail.lock().unwrap().iter().cloned().collect();
             // The last stderr line that says why: not a stack frame, a wrapper tag or a wrapper exit line.
-            if let Some(last) = tail.iter().rev().map(|l| l.trim()).find(|l| explains_exit(l)) {
+            if let Some(last) = tail.iter().rev().find(|line| explains_exit(line)).cloned() {
                 let agent = session.meta().harness;
                 e.message = format!("{} ({agent}): {last}", e.message);
             }
@@ -1561,8 +1561,7 @@ impl Hub {
                 if e.message == "agent process closed" {
                     let tail: Vec<String> =
                         session.stderr_tail.lock().unwrap().iter().cloned().collect();
-                    if let Some(last) =
-                        tail.iter().rev().map(|l| l.trim()).find(|l| explains_exit(l))
+                    if let Some(last) = tail.iter().rev().find(|line| explains_exit(line)).cloned()
                     {
                         e.message =
                             format!("agent process closed ({}): {last}", session.meta().harness);
