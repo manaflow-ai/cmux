@@ -520,5 +520,78 @@ class EndSlotTests(unittest.TestCase):
         self.assertTrue(verdicts[0].startswith("BROWSER-FUZZ-VERDICT FAIL 1 finding(s) before HANG in end:kill"), verdicts)
 
 
+class DownloadsFolderTests(unittest.TestCase):
+    """Replay c980cdb0c1c9b0a8583f8628 (cmux24): the run hung 184 s in cleanup() -> glob.glob -> os.scandir of the
+    account's real ~/Downloads (the app saves there: FileManager ignores the step's HOME), most likely a Files and
+    Folders prompt nobody can answer in the fleet session. The same hang ended jobs 78618b4ec57b and 580e82955ed0.
+    The harness must never list that folder; it deletes only the exact paths the app reported for its downloads."""
+
+    def session(self, scratch, downloads):
+        import browser_fuzz
+        session = object.__new__(browser_fuzz.Session)
+        session.scratch = scratch
+        session.home = os.path.join(scratch, "home")
+        session.notes = []
+        session.download_paths = set()
+        session.record_download({"destination": os.path.join(downloads, "fzA-1-x.bin")}, "fzA-1")
+        session.record_download({"destination": os.path.join(downloads, "user-file.txt")}, "fzA-1")  # not ours
+        return session
+
+    def test_cleanup_never_lists_a_shared_folder_and_removes_only_recorded_downloads(self):
+        import glob as glob_module
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as downloads, tempfile.TemporaryDirectory() as root:
+            scratch = os.path.join(root, "scratch")
+            os.makedirs(os.path.join(scratch, "home"))
+            for name in ("fzA-1-x.bin", "fzA-2-y.bin", "user-file.txt"):
+                open(os.path.join(downloads, name), "w").close()
+            session = self.session(scratch, downloads)
+            real_scandir = os.scandir
+
+            def scandir(path="."):
+                # shutil.rmtree of the scratch walks it through directory file descriptors.
+                if isinstance(path, int):
+                    return real_scandir(path)
+                if not os.path.abspath(os.fspath(path)).startswith(scratch):
+                    raise AssertionError(f"listed a folder outside the run's scratch: {path}")
+                return real_scandir(path)
+
+            def refuse(*args, **kwargs):
+                raise AssertionError(f"listed a folder: {args}")
+
+            with mock.patch.object(os, "scandir", scandir), mock.patch.object(os, "listdir", refuse), \
+                    mock.patch.object(glob_module, "glob", refuse), mock.patch.object(glob_module, "iglob", refuse):
+                session.cleanup()
+            self.assertEqual(sorted(os.listdir(downloads)), ["fzA-2-y.bin", "user-file.txt"])
+            self.assertFalse(os.path.exists(scratch))
+
+    def test_a_delete_that_blocks_does_not_hold_the_run(self):
+        import time as time_module
+        from unittest import mock
+        import browser_fuzz
+        with tempfile.TemporaryDirectory() as downloads, tempfile.TemporaryDirectory() as root:
+            scratch = os.path.join(root, "scratch")
+            os.makedirs(os.path.join(scratch, "home"))
+            open(os.path.join(downloads, "fzA-1-x.bin"), "w").close()
+            session = self.session(scratch, downloads)
+            with mock.patch.object(browser_fuzz, "DOWNLOAD_DELETE_S", 0.2), \
+                    mock.patch.object(os, "remove", lambda path: time_module.sleep(30)):
+                started = time_module.monotonic()
+                session.cleanup()
+                self.assertLess(time_module.monotonic() - started, 5)
+            self.assertTrue(any("did not finish" in note for note in session.notes), session.notes)
+
+    def test_the_download_oracle_reads_no_file_system(self):
+        from unittest import mock
+
+        def refuse(*args, **kwargs):
+            raise AssertionError(f"touched the file system: {args}")
+
+        with mock.patch.object(os.path, "realpath", refuse):
+            self.assertIsNone(model.download_violation({"destination": "/Users/x/Downloads/fz-1-a.bin"}, "/Users/x/Downloads"))
+            self.assertIn("outside", model.download_violation({"destination": "/Users/x/Downloads/../fz-1-a.bin"},
+                                                             "/Users/x/Downloads"))
+
+
 if __name__ == "__main__":
     unittest.main()
