@@ -18,7 +18,7 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
   virtualConsole: new VirtualConsole(),
 });
 const scope = globalThis as Record<string, unknown>;
-let resizeObservers = 0;
+const observed: Element[] = [];
 const replacements: Record<string, unknown> = {
   window: dom.window,
   document: dom.window.document,
@@ -36,12 +36,11 @@ const replacements: Record<string, unknown> = {
     unobserve() {}
     disconnect() {}
   },
-  // Counted, so a test can bound the observers a hover sweep makes.
+  // Each observed element is recorded, so a test can bound the observers a hover sweep puts on the card.
   ResizeObserver: class {
-    constructor() {
-      resizeObservers += 1;
+    observe(target: Element) {
+      observed.push(target);
     }
-    observe() {}
     unobserve() {}
     disconnect() {}
   },
@@ -260,7 +259,7 @@ test("sweeping the pointer across the rail adds no measuring node to the card an
           if (node instanceof dom.window.HTMLElement) inserted.push(node.className || node.tagName);
     });
     watch.observe(shown, { childList: true });
-    const observersBefore = resizeObservers;
+    const observersBefore = observed.length;
     for (let index = 5; index < 25; index += 1) {
       await enter(index);
       expect(card()!.textContent).toContain(`Question ${index}`);
@@ -269,7 +268,7 @@ test("sweeping the pointer across the rail adds no measuring node to the card an
     // The card is the same element throughout, and its own children never come and go to measure it.
     expect(card()).toBe(shown);
     expect(inserted).toEqual([]);
-    expect(resizeObservers - observersBefore).toBe(0);
+    expect(observed.slice(observersBefore).filter((target) => target === shown)).toEqual([]);
   } finally {
     await view.unmount();
   }

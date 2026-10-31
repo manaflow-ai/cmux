@@ -1,0 +1,196 @@
+diff --git a/webviews/src/agent-session/acpmux/bottomStack.css b/webviews/src/agent-session/acpmux/bottomStack.css
+index 0be800fe9bcc..764b4ede067e 100644
+--- a/webviews/src/agent-session/acpmux/bottomStack.css
++++ b/webviews/src/agent-session/acpmux/bottomStack.css
+@@ -176,11 +176,12 @@
+   min-height: calc(2 * var(--ui-row-height, var(--ds-control-row, 28px)));
+ }
+ @media (min-height: 360px) {
+-  /* Not while the fold plays (conversation/fold.ts clips it with an inline overflow then): the fold's
+-   own height carries the tray, so open and close never jump by the reservation. */
++  /* Not while the fold plays (conversation/fold.ts clips it then and marks it data-fold-clip): the
++   fold's own height carries the tray, so open and close never jump by the reservation. Never a
++   [style] selector inside :has(): Chromium then restyles the whole page on any inline style write. */
+   .acpmux-dock
+     > .acpmux-running-tray:has(
+-      > .acpmux-running-tray__fold:not([style*="overflow"]) > .acpmux-running-tray__finished
++      > .acpmux-running-tray__fold:not([data-fold-clip]) > .acpmux-running-tray__finished
+     ) {
+     /* View all needs one row in addition to the header's one or two lines. */
+     min-height: calc((var(--acpmux-tray-header-lines, 1) + 1) * var(--ui-row-height, var(--ds-control-row, 28px)) + var(--ds-space-1) / 2 + 2 * var(--cmux-hairline));
+diff --git a/webviews/src/agent-session/acpmux/conversation/fold.ts b/webviews/src/agent-session/acpmux/conversation/fold.ts
+index cde2d8554b85..690b65957796 100644
+--- a/webviews/src/agent-session/acpmux/conversation/fold.ts
++++ b/webviews/src/agent-session/acpmux/conversation/fold.ts
+@@ -79,6 +79,17 @@ const always = () => true;
+ /// The resize each box is playing (`playResize`), so a resize that ends late lets go of only its own.
+ const resizing = new WeakMap<HTMLElement, Animation>();
+ 
++/// Clips `node` while its fold or resize plays (or while it is pinned shut), and marks it
++/// `data-fold-clip` so a style rule can tell. A rule that read the clip from the inline style
++/// instead (`[style*="overflow"]` inside `:has()`, bottomStack.css) made Chromium restyle the whole
++/// page on every inline style write anywhere in it: each tick a pointer crossed on the session rail
++/// cost about 16 ms of style work (test/latency/rail-sweep.ts).
++export function clipFold(node: HTMLElement, on: boolean): void {
++  node.style.overflow = on ? "hidden" : "";
++  if (on) node.dataset.foldClip = "";
++  else delete node.dataset.foldClip;
++}
++
+ /// Slides a box that stays drawn from the height it was drawn at before a change (`from`, read before
+ /// it) to the height it lays out at now: a cut card opening whole, or cut again. The fold's duration
+ /// and easing, clipped while it plays; at once when the fold may not move. A resize that turns back
+@@ -90,7 +101,7 @@ export function playResize(node: HTMLElement, from: number): void {
+   if (ms <= 0 || Math.abs(to - from) < 0.5) return;
+   // The rows below are placed before paint while it plays, as a fold's are (`heightFoldInFlight`).
+   markHeightFold(node, ms);
+-  node.style.overflow = "hidden";
++  clipFold(node, true);
+   // `max-height` too: a cut box's own max-height would otherwise hold it short while it opens.
+   const animation = node.animate(
+     [
+@@ -103,7 +114,7 @@ export function playResize(node: HTMLElement, from: number): void {
+   const release = () => {
+     if (resizing.get(node) !== animation) return;
+     resizing.delete(node);
+-    node.style.overflow = "";
++    clipFold(node, false);
+   };
+   animation.onfinish = release;
+   animation.oncancel = release;
+@@ -115,7 +126,7 @@ export function cancelResize(node: HTMLElement): void {
+   if (!animation) return;
+   // Let go of the clip now: the cancel event comes after this frame's paint.
+   resizing.delete(node);
+-  node.style.overflow = "";
++  clipFold(node, false);
+   animation.cancel();
+ }
+ 
+@@ -124,7 +135,7 @@ export function cancelResize(node: HTMLElement): void {
+ function pin(node: HTMLElement, value: 0 | undefined): void {
+   node.style.height = value === undefined ? "" : "0px";
+   node.style.opacity = value === undefined ? "" : "0";
+-  node.style.overflow = value === undefined ? "" : "hidden";
++  clipFold(node, value !== undefined);
+ }
+ 
+ export type Fold = {
+@@ -173,7 +184,7 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn
+       if (running.current && foldMs(node) <= 0) {
+         // Cancel removes Web Animation effects immediately, while its cancel event may be queued.
+         // Settle the layout synchronously first so a closing body cannot flash back to natural height.
+-        if (opening) node.style.overflow = "";
++        if (opening) clipFold(node, false);
+         else {
+           pin(node, 0);
+           setClosing(false);
+@@ -220,7 +231,7 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn
+     const fromOpacity = open && !fadeIn ? 1 : turning ? Number(styleOf(node)?.opacity ?? 0) || 0 : open ? 0 : 1;
+     cancelRunning();
+     const toHeight = open ? node.scrollHeight : 0;
+-    node.style.overflow = "hidden";
++    clipFold(node, true);
+     const animation = node.animate(
+       [
+         { height: `${fromHeight}px`, opacity: fromOpacity },
+@@ -261,7 +272,7 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn
+           running.current = undefined;
+           stopWatching();
+           unwatchMotion();
+-          node.style.overflow = "";
++          clipFold(node, false);
+         };
+         rest.onfinish = settledRest;
+         rest.oncancel = settledRest;
+@@ -275,7 +286,7 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn
+       unwatchMotion();
+       running.current = undefined;
+       if (open) {
+-        node.style.overflow = "";
++        clipFold(node, false);
+         return;
+       }
+       // The animation lets go of the box as it ends, and React removes the body only on its next
+diff --git a/webviews/src/agent-session/acpmux/threadMinimap/PreviewCard.tsx b/webviews/src/agent-session/acpmux/threadMinimap/PreviewCard.tsx
+index 772a906449fb..3ff1bc67cce7 100644
+--- a/webviews/src/agent-session/acpmux/threadMinimap/PreviewCard.tsx
++++ b/webviews/src/agent-session/acpmux/threadMinimap/PreviewCard.tsx
+@@ -184,16 +184,18 @@ export const PreviewCard = React.forwardRef<
+       } else {
+         const lineHeight = Number.parseFloat(style.lineHeight) || 20;
+         const promptLines = Math.max(1, Math.min(3, Math.ceil(promptNode.getBoundingClientRect().height / lineHeight)));
+-        const naturalReply = replyNode.cloneNode(true) as HTMLElement;
+-        naturalReply.style.cssText =
+-          "position:absolute; visibility:hidden; display:block; height:auto; max-height:none; -webkit-line-clamp:unset;";
+-        naturalReply.style.width = `${replyNode.getBoundingClientRect().width}px`;
+-        node.append(naturalReply);
+-        const naturalReplyLines = Math.max(
+-          1,
+-          Math.min(4, Math.ceil(naturalReply.getBoundingClientRect().height / lineHeight)),
+-        );
+-        naturalReply.remove();
++        // The reply's natural height, read from the reply itself with its clamp lifted for the read
++        // (an inline style, put back before anything paints). A measuring copy appended to the card
++        // and removed again was two DOM insertions under the page's `:has()` rules on every row the
++        // pointer crossed, and each restyled the whole page (about 1,100 elements) twice per move.
++        const clamp = replyNode.getAttribute("style");
++        replyNode.style.setProperty("display", "block");
++        replyNode.style.setProperty("height", "auto");
++        replyNode.style.setProperty("max-height", "none");
++        replyNode.style.setProperty("-webkit-line-clamp", "unset");
++        const naturalReplyLines = Math.max(1, Math.min(4, Math.ceil(replyNode.getBoundingClientRect().height / lineHeight)));
++        if (clamp === null) replyNode.removeAttribute("style");
++        else replyNode.setAttribute("style", clamp);
+         // Match the old two-line prompt + four-line reply text budget for this same content. A
+         // longer prompt spends only the reply lines it needs, so the card never grows because of it.
+         const oldTextLines = Math.min(2, promptLines) + naturalReplyLines;
+@@ -206,18 +208,38 @@ export const PreviewCard = React.forwardRef<
+     },
+     [place],
+   );
++  /// The card's kind as of the last render, for the observer below, which outlives a content change.
++  const promptCard = useRef(prompt !== undefined);
++  promptCard.current = prompt !== undefined;
++  /// The card's size as of its last fit: a resize notification of that size (the observer's first,
++  /// or the one the fit's own budget change causes) fits nothing again.
++  const fitted = useRef({ width: -1, height: -1 });
++  const refit = useCallback(
++    (node: HTMLElement) => {
++      fit(node, promptCard.current);
++      // Laid out by the fit's own reads: these read no new layout.
++      fitted.current = { width: node.offsetWidth, height: node.offsetHeight };
++    },
++    [fit],
++  );
++  // A new prompt, reply or failure (the pointer reaching another row), or a change of kind: fit once.
++  useLayoutEffect(() => {
++    if (self.current) refit(self.current);
++  }, [metadata?.failure, metadata?.failed, prompt, reply, refit]);
++  // Content that grows or shrinks without a render (a font or an image loading, a wrap) fits again.
++  // One observer for the card's life, not one per row the pointer crosses (each new one notifies on
++  // observe, which fitted the card a second time per move). It stops with the card: disconnected in
++  // the cleanup when the card goes.
+   useLayoutEffect(() => {
+     const node = self.current;
+-    if (!node) return;
+-    const promptCard = prompt !== undefined;
+-    const update = () => fit(node, promptCard);
+-    update();
+-    // Stops with the card's content (a new prompt, reply or failure, or a change of kind) or the
+-    // card going: disconnected in the cleanup either way.
+-    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(update);
+-    observer?.observe(node);
+-    return () => observer?.disconnect();
+-  }, [metadata?.failure, metadata?.failed, prompt, reply, fit]);
++    if (!node || typeof ResizeObserver === "undefined") return;
++    const observer = new ResizeObserver(() => {
++      if (node.offsetWidth === fitted.current.width && node.offsetHeight === fitted.current.height) return;
++      refit(node);
++    });
++    observer.observe(node);
++    return () => observer.disconnect();
++  }, [refit]);
+   const own = useCallback(
+     (node: HTMLDivElement | null) => {
+       self.current = node;

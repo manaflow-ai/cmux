@@ -1,0 +1,205 @@
+cmux-ci test: another client (the one that dispatched it, or a --resume) is on this run; waiting until it exits
+cmux-ci test: resuming fleet job 5399eeac7c53ef35ccdca308
+5399eeac7c53ef35ccdca308 state=done worker=cmux-linux-pool-1031-051457-01b4028f total_seconds=438.98 queue_and_setup_seconds=66.43 execution_seconds=372.55 free_gib=143.15->142.77
+  phase=admission seconds=0.00 state=done cache_hit=unknown hits=unknown misses=unknown
+  phase=input_restore seconds=0.00 state=done cache_hit=unknown hits=unknown misses=unknown
+  phase=build seconds=317.41 state=done cache_hit=unknown hits=unknown misses=unknown
+job 5399eeac7c53ef35ccdca308: nofile=65536
+bun install v1.4.4 (38afee6c8)
+
+$ bun scripts/pages/gen-strings.mjs --best-effort
+
++ @babel/core@7.29.7
++ @rolldown/plugin-babel@0.2.4
++ @tailwindcss/vite@4.3.0
++ @types/bun@1.4.2
++ @types/jsdom@28.0.3
++ @types/react@19.2.15
++ @types/react-dom@19.2.3
++ axe-core@4.13.0
++ babel-plugin-react-compiler@1.0.0
++ esbuild@0.27.7
++ happy-dom@20.14.5
++ jsdom@29.1.1
++ oxc-transform-react@0.145.0
++ pixelmatch@7.2.0
++ playwright@1.62.1
++ pngjs@7.0.0
++ react-doctor@0.2.14
++ tailwindcss@4.3.0
++ typescript@5.9.3
++ vite-plus@1.3.0
++ @base-ui/react@1.8.0
++ @chenglou/pretext@0.0.9
++ @milkdown/kit@7.22.2
++ @pierre/diffs@1.2.7
++ @pierre/trees@1.0.0-beta.4
++ @shikijs/monaco@3.23.0
++ @tanstack/react-query@5.104.0
++ @tanstack/react-router@1.170.11
++ @tanstack/react-virtual@3.14.13
++ @vitejs/plugin-react@6.1.1
++ katex@0.16.25
++ marked@17.0.5
++ monaco-editor@0.57.0
++ prosemirror-commands@1.7.1
++ prosemirror-model@1.25.11
++ prosemirror-state@1.4.4
++ prosemirror-view@1.42.4
++ react@19.2.3
++ react-dom@19.2.3
++ shiki@3.23.0
++ sucrase@3.35.1
++ vega-interpreter@1.2.1
++ vite@1.3.0
+
+564 packages installed [313.00ms]
+bun install v1.4.4 (38afee6c8)
+
++ @types/bun@1.4.2
++ @types/node@24.19.1
++ typescript@5.9.3
++ freestyle@0.2.21
++ pixelmatch@7.2.0
++ playwright@1.62.1
++ pngjs@7.0.0
+
+31 packages installed [514.00ms]
+bun install v1.4.4 (38afee6c8)
+
+399 packages installed [1.63s]
+Installing dependencies...
+Switching to root user to install dependencies...
+Hit:1 http://us-west1.gce.archive.ubuntu.com/ubuntu noble InRelease
+Get:2 http://us-west1.gce.archive.ubuntu.com/ubuntu noble-updates InRelease [126 kB]
+Hit:3 http://us-west1.gce.archive.ubuntu.com/ubuntu noble-backports InRelease
+Get:4 http://us-west1.gce.archive.ubuntu.com/ubuntu noble-updates/main amd64 Packages [1408 kB]
+Hit:5 https://apt.llvm.org/noble llvm-toolchain-noble-21 InRelease
+Get:6 http://us-west1.gce.archive.ubuntu.com/ubuntu noble-updates/universe amd64 Packages [1708 kB]
+Get:7 https://pkgs.tailscale.com/stable/ubuntu noble InRelease
+Hit:8 http://security.ubuntu.com/ubuntu noble-security InRelease
+Fetched 3248 kB in 0s (10.2 MB/s)
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+libasound2t64 is already the newest version (1.2.11-1ubuntu0.3).
+libatk-bridge2.0-0t64 is already the newest version (2.52.0-1build1).
+libatk1.0-0t64 is already the newest version (2.52.0-1build1).
+libatspi2.0-0t64 is already the newest version (2.52.0-1build1).
+libcairo2 is already the newest version (1.18.0-3build1).
+libcups2t64 is already the newest version (2.4.7-1.2ubuntu7.14).
+libdbus-1-3 is already the newest version (1.14.10-4ubuntu4.1).
+libdrm2 is already the newest version (2.4.125-1ubuntu0.1~24.04.2).
+libgbm1 is already the newest version (25.2.8-0ubuntu0.24.04.4).
+libglib2.0-0t64 is already the newest version (2.80.0-6ubuntu3.10).
+libglib2.0-0t64 set to manually installed.
+libnspr4 is already the newest version (2:4.35-1.1build1).
+libnss3 is already the newest version (2:3.98-1ubuntu0.3).
+libpango-1.0-0 is already the newest version (1.52.1+ds-1build1).
+libx11-6 is already the newest version (2:1.8.7-1ubuntu0.1).
+libxcb1 is already the newest version (1.15-1ubuntu2).
+libxcomposite1 is already the newest version (1:0.4.5-1build3).
+libxdamage1 is already the newest version (1:1.1.6-1build1).
+libxext6 is already the newest version (2:1.3.4-1build2).
+libxfixes3 is already the newest version (1:6.0.0-2build1).
+libxkbcommon0 is already the newest version (1.6.0-1build1).
+libxrandr2 is already the newest version (2:1.5.2-2build1).
+xvfb is already the newest version (2:21.1.12-1ubuntu1.9).
+fonts-noto-color-emoji is already the newest version (2.047-0ubuntu0.24.04.1).
+fonts-unifont is already the newest version (1:15.1.01-1build1).
+libfontconfig1 is already the newest version (2.15.0-1.1ubuntu2).
+libfreetype6 is already the newest version (2.13.2+dfsg-1ubuntu0.2).
+xfonts-cyrillic is already the newest version (1:1.0.5+nmu1).
+xfonts-scalable is already the newest version (1:1.0.3-1.3).
+fonts-liberation is already the newest version (1:2.1.5-3).
+fonts-ipafont-gothic is already the newest version (00303-21ubuntu1).
+fonts-wqy-zenhei is already the newest version (0.9.45-8).
+fonts-tlwg-loma-otf is already the newest version (1:0.7.3-1).
+fonts-freefont-ttf is already the newest version (20211204+svn4273-2).
+gstreamer1.0-libav is already the newest version (1.24.1-1build1).
+gstreamer1.0-plugins-bad is already the newest version (1.24.2-1ubuntu4).
+gstreamer1.0-plugins-base is already the newest version (1.24.2-1ubuntu0.5).
+gstreamer1.0-plugins-good is already the newest version (1.24.2-1ubuntu1.8).
+libicu74 is already the newest version (74.2-1ubuntu3.1).
+libatomic1 is already the newest version (14.2.0-4ubuntu2~24.04.1).
+libcairo-gobject2 is already the newest version (1.18.0-3build1).
+libenchant-2-2 is already the newest version (2.3.3-2build2).
+libepoxy0 is already the newest version (1.5.10-1build1).
+libevent-2.1-7t64 is already the newest version (2.1.12-stable-9ubuntu2.2).
+libflite1 is already the newest version (2.2-6build3).
+libgdk-pixbuf-2.0-0 is already the newest version (2.42.10+dfsg-3ubuntu3.3).
+libgles2 is already the newest version (1.7.0-1build1).
+libgstreamer-gl1.0-0 is already the newest version (1.24.2-1ubuntu0.5).
+libgstreamer-plugins-bad1.0-0 is already the newest version (1.24.2-1ubuntu4).
+libgstreamer-plugins-base1.0-0 is already the newest version (1.24.2-1ubuntu0.5).
+libgstreamer1.0-0 is already the newest version (1.24.2-1ubuntu0.1).
+libgtk-4-1 is already the newest version (4.14.5+ds-0ubuntu0.10).
+libharfbuzz-icu0 is already the newest version (8.3.0-2build2).
+libharfbuzz0b is already the newest version (8.3.0-2build2).
+libhyphen0 is already the newest version (2.8.8-7build3).
+libjpeg-turbo8 is already the newest version (2.1.5-2ubuntu2).
+liblcms2-2 is already the newest version (2.14-2ubuntu0.1).
+libmanette-0.2-0 is already the newest version (0.2.7-1build2).
+libopus0 is already the newest version (1.4-1build1).
+libpangocairo-1.0-0 is already the newest version (1.52.1+ds-1build1).
+libpng16-16t64 is already the newest version (1.6.43-5ubuntu0.7).
+libsecret-1-0 is already the newest version (0.21.4-1build3).
+libvpx9 is already the newest version (1.14.0-1ubuntu2.3).
+libwayland-client0 is already the newest version (1.22.0-2.1build1).
+libwayland-egl1 is already the newest version (1.22.0-2.1build1).
+libwayland-server0 is already the newest version (1.22.0-2.1build1).
+libwebp7 is already the newest version (1.3.2-0.4build3).
+libwebpdemux2 is already the newest version (1.3.2-0.4build3).
+libwoff1 is already the newest version (1.0.2-2build1).
+libxml2 is already the newest version (2.9.14+dfsg-1.3ubuntu3.10).
+libxslt1.1 is already the newest version (1.1.39-0exp1ubuntu0.24.04.3).
+libx264-164 is already the newest version (2:0.164.3108+git31e19f9-1).
+libavif16 is already the newest version (1.0.4-1ubuntu3).
+0 upgraded, 0 newly installed, 0 to remove and 32 not upgraded.
+Downloading Chrome for Testing 151.0.7922.34 (playwright chromium v1234) from https://cdn.playwright.dev/builds/cft/151.0.7922.34/linux64/chrome-linux64.zip
+|                                                                                |   0% of 184.3 MiB
+|■■■■■■■■                                                                        |  10% of 184.3 MiB
+|■■■■■■■■■■■■■■■■                                                                |  20% of 184.3 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■                                                        |  30% of 184.3 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                                |  40% of 184.3 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                        |  50% of 184.3 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                |  60% of 184.3 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                        |  70% of 184.3 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                |  80% of 184.3 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■        |  90% of 184.3 MiB
+|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■| 100% of 184.3 MiB
+Chrome for Testing 151.0.7922.34 (playwright chromium v1234) downloaded to /home/cmux/.cache/fast-checks/browsers/chromium-1234
+fast checks on the build fleet: cmux-linux-pool-1031-051457-01b4028f source=09832ccc10d072312ef20d660a940e6306fe9864
+== RED (fix reverted)
+fatal: bad revision 'HEAD~1'
+error: No valid patches in input (allow with "--allow-empty")
+== GREEN jsdom
+(pass) a failed send beside its echo, one promptId: two ticks, each with its own key [0.21ms]
+(fail) sweeping the pointer across the rail adds no measuring node to the card and makes no observer per row [127.10ms]
+(pass) a rail that fits its prompts passes the wheel through to the transcript [22.07ms]
+(fail) an Interface Scale change places the rail again [8.99ms]
+2 tests failed:
+(fail) sweeping the pointer across the rail adds no measuring node to the card and makes no observer per row [127.10ms]
+(fail) an Interface Scale change places the rail again [8.99ms]
+ 156 pass
+ 2 fail
+Ran 167 tests across 31 files. [37.13s]
+== GREEN browser
+(pass) a missed interaction fails its deadline and releases observation [10148.14ms]
+(pass) a narrow failure card wraps metadata without clipping any prompt, error or reply line [599.97ms]
+ 68 pass
+ 0 fail
+Ran 68 tests across 10 files. [228.77s]
+== lint
+fatal: bad revision 'HEAD~3'
+src/pages/settings/mockMenus.ts (0ms)
+src/pages/settings/mockProvider.ts (2ms)
+
+Format issues found in above 10 files. Run without `--check` to fix.
+Finished in 609ms on 3476 files using 32 threads.
+fatal: bad revision 'HEAD~3'
+Found 0 warnings and 0 errors.
+Finished in 6.7s on 3385 files with 163 rules using 32 threads.
+job 5399eeac7c53ef35ccdca308 done
+cmux-ci test: cleanup receipt: /Users/leoli/Projects/.wt-mirrors/manaflow-ai/cmux.git/cmux-fast-checks/18fa7c9da65b4e6b970eab6b06c33d97.cleanup.json; retry only after its worker exits: --cleanup /Users/leoli/Projects/.wt-mirrors/manaflow-ai/cmux.git/cmux-fast-checks/18fa7c9da65b4e6b970eab6b06c33d97.json

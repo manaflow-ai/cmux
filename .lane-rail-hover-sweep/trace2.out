@@ -1,0 +1,248 @@
+cmux-ci test: receipt=/Users/leoli/Projects/.wt-mirrors/manaflow-ai/cmux.git/cmux-fast-checks/0be249fc93fc445cb4ab555b84321580.json
+remote: 
+remote: Create a pull request for 'fast-checks/0be249fc93fc445cb4ab555b84321580' on GitHub by visiting:        
+remote:      https://github.com/manaflow-ai/cmux/pull/new/fast-checks/0be249fc93fc445cb4ab555b84321580        
+remote: 
+To github.com:manaflow-ai/cmux.git
+ * [new branch]                59e77d991c78075019be8edda013d80c57b3bda3 -> fast-checks/0be249fc93fc445cb4ab555b84321580
+glaeda-gh: waiting on run:manaflow-ai/cmux/41171336941 until green, giving up after 180s (at 22:10:49)
+cmux-ci test: run 41171336941 did not start within 180s; cancelling it and running on the build fleet (Linux pool, then an owned Mac)
+glaeda-gh: waiting on run:manaflow-ai/cmux/41171336941 until green, giving up after 3300s (at 23:05:51)
+cmux-ci test: run 41171336941 is cancelled; running it on the build fleet
+cmux-ci test: fleet job 0eef0a590bfa2785d6ff821d on linux-pool; log: cmux-ci log 0eef0a590bfa2785d6ff821d
+0eef0a590bfa2785d6ff821d state=queued worker=unassigned total_seconds=1.24 queue_and_setup_seconds=unknown execution_seconds=unknown free_gib=unknown->unknown
+0eef0a590bfa2785d6ff821d state=running worker=cmux-linux-pool-1031-040806-c12c05b1 total_seconds=30.78 queue_and_setup_seconds=unknown execution_seconds=unknown free_gib=unknown->unknown
+0eef0a590bfa2785d6ff821d state=failed worker=cmux-linux-pool-1031-040806-c12c05b1 total_seconds=293.19 queue_and_setup_seconds=4.16 execution_seconds=289.03 free_gib=141.73->141.73
+error=exit status 1
+  phase=admission seconds=0.00 state=done cache_hit=unknown hits=unknown misses=unknown
+  phase=input_restore seconds=0.00 state=done cache_hit=unknown hits=unknown misses=unknown
+  phase=build seconds=283.07 state=failed cache_hit=unknown hits=unknown misses=unknown error="exit status 1"
+job 0eef0a590bfa2785d6ff821d: nofile=65536
+bun install v1.4.4 (38afee6c8)
+
+$ bun scripts/pages/gen-strings.mjs --best-effort
+
++ @babel/core@7.29.7
++ @rolldown/plugin-babel@0.2.4
++ @tailwindcss/vite@4.3.0
++ @types/bun@1.4.2
++ @types/jsdom@28.0.3
++ @types/react@19.2.15
++ @types/react-dom@19.2.3
++ axe-core@4.13.0
++ babel-plugin-react-compiler@1.0.0
++ esbuild@0.27.7
++ happy-dom@20.14.5
++ jsdom@29.1.1
++ oxc-transform-react@0.145.0
++ pixelmatch@7.2.0
++ playwright@1.62.1
++ pngjs@7.0.0
++ react-doctor@0.2.14
++ tailwindcss@4.3.0
++ typescript@5.9.3
++ vite-plus@1.3.0
++ @base-ui/react@1.8.0
++ @chenglou/pretext@0.0.9
++ @milkdown/kit@7.22.2
++ @pierre/diffs@1.2.7
++ @pierre/trees@1.0.0-beta.4
++ @shikijs/monaco@3.23.0
++ @tanstack/react-query@5.104.0
++ @tanstack/react-router@1.170.11
++ @tanstack/react-virtual@3.14.13
++ @vitejs/plugin-react@6.1.1
++ katex@0.16.25
++ marked@17.0.5
++ monaco-editor@0.57.0
++ prosemirror-commands@1.7.1
++ prosemirror-model@1.25.11
++ prosemirror-state@1.4.4
++ prosemirror-view@1.42.4
++ react@19.2.3
++ react-dom@19.2.3
++ shiki@3.23.0
++ sucrase@3.35.1
++ vega-interpreter@1.2.1
++ vite@1.3.0
+
+564 packages installed [733.00ms]
+bun install v1.4.4 (38afee6c8)
+
++ @types/bun@1.4.2
++ @types/node@24.19.1
++ typescript@5.9.3
++ freestyle@0.2.21
++ pixelmatch@7.2.0
++ playwright@1.62.1
++ pngjs@7.0.0
+
+31 packages installed [3.00ms]
+bun install v1.4.4 (38afee6c8)
+
+399 packages installed [1352.00ms]
+Installing dependencies...
+Switching to root user to install dependencies...
+Hit:1 http://us-west1.gce.archive.ubuntu.com/ubuntu noble InRelease
+Hit:2 http://us-west1.gce.archive.ubuntu.com/ubuntu noble-updates InRelease
+Hit:3 http://us-west1.gce.archive.ubuntu.com/ubuntu noble-backports InRelease
+Hit:4 https://apt.llvm.org/noble llvm-toolchain-noble-21 InRelease
+Get:5 https://pkgs.tailscale.com/stable/ubuntu noble InRelease
+Hit:6 http://security.ubuntu.com/ubuntu noble-security InRelease
+Fetched 6649 B in 0s (37.1 kB/s)
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+libasound2t64 is already the newest version (1.2.11-1ubuntu0.3).
+libatk-bridge2.0-0t64 is already the newest version (2.52.0-1build1).
+libatk1.0-0t64 is already the newest version (2.52.0-1build1).
+libatspi2.0-0t64 is already the newest version (2.52.0-1build1).
+libcairo2 is already the newest version (1.18.0-3build1).
+libcups2t64 is already the newest version (2.4.7-1.2ubuntu7.14).
+libdbus-1-3 is already the newest version (1.14.10-4ubuntu4.1).
+libdrm2 is already the newest version (2.4.125-1ubuntu0.1~24.04.2).
+libgbm1 is already the newest version (25.2.8-0ubuntu0.24.04.4).
+libglib2.0-0t64 is already the newest version (2.80.0-6ubuntu3.10).
+libnspr4 is already the newest version (2:4.35-1.1build1).
+libnss3 is already the newest version (2:3.98-1ubuntu0.3).
+libpango-1.0-0 is already the newest version (1.52.1+ds-1build1).
+libx11-6 is already the newest version (2:1.8.7-1ubuntu0.1).
+libxcb1 is already the newest version (1.15-1ubuntu2).
+libxcomposite1 is already the newest version (1:0.4.5-1build3).
+libxdamage1 is already the newest version (1:1.1.6-1build1).
+libxext6 is already the newest version (2:1.3.4-1build2).
+libxfixes3 is already the newest version (1:6.0.0-2build1).
+libxkbcommon0 is already the newest version (1.6.0-1build1).
+libxrandr2 is already the newest version (2:1.5.2-2build1).
+xvfb is already the newest version (2:21.1.12-1ubuntu1.9).
+fonts-noto-color-emoji is already the newest version (2.047-0ubuntu0.24.04.1).
+fonts-unifont is already the newest version (1:15.1.01-1build1).
+libfontconfig1 is already the newest version (2.15.0-1.1ubuntu2).
+libfreetype6 is already the newest version (2.13.2+dfsg-1ubuntu0.2).
+xfonts-cyrillic is already the newest version (1:1.0.5+nmu1).
+xfonts-scalable is already the newest version (1:1.0.3-1.3).
+fonts-liberation is already the newest version (1:2.1.5-3).
+fonts-ipafont-gothic is already the newest version (00303-21ubuntu1).
+fonts-wqy-zenhei is already the newest version (0.9.45-8).
+fonts-tlwg-loma-otf is already the newest version (1:0.7.3-1).
+fonts-freefont-ttf is already the newest version (20211204+svn4273-2).
+gstreamer1.0-libav is already the newest version (1.24.1-1build1).
+gstreamer1.0-plugins-bad is already the newest version (1.24.2-1ubuntu4).
+gstreamer1.0-plugins-base is already the newest version (1.24.2-1ubuntu0.5).
+gstreamer1.0-plugins-good is already the newest version (1.24.2-1ubuntu1.8).
+libicu74 is already the newest version (74.2-1ubuntu3.1).
+libatomic1 is already the newest version (14.2.0-4ubuntu2~24.04.1).
+libcairo-gobject2 is already the newest version (1.18.0-3build1).
+libenchant-2-2 is already the newest version (2.3.3-2build2).
+libepoxy0 is already the newest version (1.5.10-1build1).
+libevent-2.1-7t64 is already the newest version (2.1.12-stable-9ubuntu2.2).
+libflite1 is already the newest version (2.2-6build3).
+libgdk-pixbuf-2.0-0 is already the newest version (2.42.10+dfsg-3ubuntu3.3).
+libgles2 is already the newest version (1.7.0-1build1).
+libgstreamer-gl1.0-0 is already the newest version (1.24.2-1ubuntu0.5).
+libgstreamer-plugins-bad1.0-0 is already the newest version (1.24.2-1ubuntu4).
+libgstreamer-plugins-base1.0-0 is already the newest version (1.24.2-1ubuntu0.5).
+libgstreamer1.0-0 is already the newest version (1.24.2-1ubuntu0.1).
+libgtk-4-1 is already the newest version (4.14.5+ds-0ubuntu0.10).
+libharfbuzz-icu0 is already the newest version (8.3.0-2build2).
+libharfbuzz0b is already the newest version (8.3.0-2build2).
+libhyphen0 is already the newest version (2.8.8-7build3).
+libjpeg-turbo8 is already the newest version (2.1.5-2ubuntu2).
+liblcms2-2 is already the newest version (2.14-2ubuntu0.1).
+libmanette-0.2-0 is already the newest version (0.2.7-1build2).
+libopus0 is already the newest version (1.4-1build1).
+libpangocairo-1.0-0 is already the newest version (1.52.1+ds-1build1).
+libpng16-16t64 is already the newest version (1.6.43-5ubuntu0.7).
+libsecret-1-0 is already the newest version (0.21.4-1build3).
+libvpx9 is already the newest version (1.14.0-1ubuntu2.3).
+libwayland-client0 is already the newest version (1.22.0-2.1build1).
+libwayland-egl1 is already the newest version (1.22.0-2.1build1).
+libwayland-server0 is already the newest version (1.22.0-2.1build1).
+libwebp7 is already the newest version (1.3.2-0.4build3).
+libwebpdemux2 is already the newest version (1.3.2-0.4build3).
+libwoff1 is already the newest version (1.0.2-2build1).
+libxml2 is already the newest version (2.9.14+dfsg-1.3ubuntu3.10).
+libxslt1.1 is already the newest version (1.1.39-0exp1ubuntu0.24.04.3).
+libx264-164 is already the newest version (2:0.164.3108+git31e19f9-1).
+libavif16 is already the newest version (1.0.4-1ubuntu3).
+0 upgraded, 0 newly installed, 0 to remove and 32 not upgraded.
+fast checks on the build fleet: cmux-linux-pool-1031-040806-c12c05b1 source=59e77d991c78075019be8edda013d80c57b3bda3
+== format diff
+== trace 100
+ticks 54 dom elements 816
+top events RunTask n=1092 2344.9ms
+FunctionCall n=5250 2092.7ms
+MessagePort::Accept n=80 1565.9ms
+Document::UpdateStyleAndLayout n=5924 1457.3ms
+Blink.ForcedStyleAndLayout.UpdateTime n=5923 1453.0ms
+LocalFrameView::UpdateStyleAndLayout n=3006 1449.3ms
+Blink.Style.UpdateTime n=363 964.2ms
+UpdateLayoutTree n=363 963.5ms
+Document::updateStyle n=363 913.6ms
+Document::recalcStyle n=362 869.2ms
+Blink.Layout.UpdateTime n=200 714.6ms
+LocalFrameView::layout n=200 713.8ms
+Layout n=200 713.6ms
+LocalFrameView::performLayout n=200 697.3ms
+WebFrameWidgetImpl::UpdateLifecycle n=117 540.4ms
+LocalFrameView::NotifyResizeObservers n=158 498.9ms
+WebFrameWidgetImpl::BeginMainFrame n=118 45.9ms
+Document::rebuildLayoutTree n=81 42.2ms
+EventHandler::handleMouseMoveEvent n=120 37.6ms
+LocalFrameView::RunPaintLifecyclePhase n=117 33.9ms
+EventDispatch n=1175 33.5ms
+Blink.Animate.UpdateTime n=118 30.6ms
+PageAnimator::serviceScriptedAnimations n=118 30.4ms
+AsyncTask Run n=1051 28.9ms
+Document::updateStyleInvalidationIfNeeded n=40 28.0ms
+UpdateLayoutTree elementCount 1110,1110,1118,82,1113,1121,82,7,7,82,1109,82,0,1109,82,8,8,82,1109,82,1,1109,82,9,9,9,82,1113,1121,82,2,1121,82,9,9,9,82,1107,1109,82,2,1109,82,9,9,9,82,1107,1109,82,1107,1109,82,9,9,9,82,1113,1121,82
+invalidations 856x StyleRecalcInvalidationTracking | Animation |  |  | SPAN class='acpmux-minimap__bar'
+628x ScheduleStyleInvalidationTracking |  |  |  | DIV class='acpmux-main'
+378x LayoutInvalidationTracking | Added to layout |  |  | P class='acpmux-minimap__item'
+369x LayoutInvalidationTracking | Removed from layout |  |  | P class='acpmux-minimap__item'
+320x StyleRecalcInvalidationTracking | Affected by :has() |  |  | DIV class='acpmux-scroll'
+319x StyleRecalcInvalidationTracking | Inline CSS style declaration was mutated |  |  | SPAN class='acpmux-minimap__bar'
+249x StyleInvalidatorInvalidationTracking | Invalidation set invalidates subtree | .acpmux-turnSummary:not([data-turn-revealed]):not(:hover):not(:focus-within) .cv-turn-actions:not(.cv-turn-actions--failed):not(.cv-turn-actions--resumable):has(> .acpmux-pr-dock) > :not(.acpmux-pr-dock) ; .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) > .acpmux-composer-field-menu > * ; .acpmux-assistant:not(:hover):not(:focus-within) .cv-reply-actions:has(> .acpmux-pr-dock) > :not(.acpmux-pr-dock) ; :where(button, a[href], [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"], summary, label[for], label:has(input[type="checkbox"], input[type="radio"])) * ; label:not([for]):has(:is(input, select, textarea):disabled):not(:has(:is(input:not([type="hidden"]), select, textarea):enabled)) :not(:is(a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"]), :is(a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"]) *) | {"allDescendantsMightBeI
+249x StyleRecalcInvalidationTracking | Related style rule |  |  | DIV class='acpmux-main'
+210x LayoutInvalidationTracking | Added to layout |  |  | #text
+203x LayoutInvalidationTracking | Removed from layout |  |  | #text
+153x StyleRecalcInvalidationTracking | Related style rule |  |  | BUTTON class='acpmux-minimap__tick'
+126x StyleRecalcInvalidationTracking | Related style rule |  |  | SPAN class='acpmux-minimap__bar'
+118x Document::updateStyleInvalidationIfNeeded |  |  |  | 
+81x LayoutInvalidationTracking | Added to layout |  |  | DIV class='acpmux-minimap__reply'
+81x LayoutInvalidationTracking | Added to layout |  |  | P
+80x StyleRecalcInvalidationTracking | Node was inserted into tree |  |  | DIV class='acpmux-minimap__reply'
+80x LayoutInvalidationTracking | Removed from layout |  |  | P
+80x LayoutInvalidationTracking | Removed from layout |  |  | DIV class='acpmux-minimap__reply'
+80x LayoutInvalidationTracking | Text changed |  |  | #text
+79x ScheduleStyleInvalidationTracking |  |  |  | BUTTON class='acpmux-minimap__tick'
+79x StyleInvalidatorInvalidationTracking | Invalidation set invalidates self |  | {"classes":["acpmux-needs-you-answer-label","acpmux-minimap__bar","acpmux-minimap__dot"],"id":"0x16d401d26240"} | BUTTON class='acpmux-minimap__tick'
+74x StyleInvalidatorInvalidationTracking | Invalidation set matched class | .acpmux-minimap__rail:not(.acpmux-scrollmap):not([data-hovering]):not([data-scrubbing]):not([data-reduce]):not([data-snap]) .acpmux-minimap__tick:not([data-tone="active"]) | {"classes":["acpmux-scrollmap__view","acpmux-minimap__tick","acpmux-scrollmap__mark","acpmux-minimap__bar","acpmux-minimap__dot"],"id":"0x16d401d6c840"} | BUTTON class='acpmux-minimap__tick'
+74x StyleInvalidatorInvalidationTracking | Invalidation set matched class | .acpmux-minimap__rail:not([data-hovering]) .acpmux-minimap__bar ; .acpmux-minimap__rail[data-hovering] .acpmux-scrollmap__mark[data-bookmarked]:not([data-tone="current"]):not([data-tone="active"]) .acpmux-minimap__bar ; .acpmux-minimap__rail[data-hovering] .acpmux-scrollmap__mark[data-tone="current"] .acpmux-minimap__bar ; .acpmux-minimap__rail:not(.acpmux-scrollmap):not([data-hovering]):not([data-scrubbing]):not([data-reduce]):not([data-snap]) .acpmux-minimap__tick:not([data-tone="active"]) .acpmux-minimap__bar ; .acpmux-minimap__rail[data-hovering] .acpmux-scrollmap__mark[data-kind="agent"][data-tone="current"] .acpmux-minimap__bar | {"classes":["acpmux-scrollmap__view","acpmux-minimap__tick","acpmux-scrollmap__mark","acpmux-minimap__bar","acpmux-minimap__dot"],"id":"0x16d401d6c840"} | SPAN class='acpmux-minimap__bar'
+53x StyleInvalidatorInvalidationTracking | Element has pending invalidation list |  | {"classes":["acpmux-needs-you-answer-label","acpmux-minimap__bar","acpmux-minimap__dot"],"id":"0x16d401d26240"} | BUTTON class='acpmux-minimap__tick'
+52x StyleInvalidatorInvalidationTracking | Invalidation set matched class | .acpmux-scrollmap__mark[data-kind="agent"][data-tone="current"] .acpmux-minimap__bar ; .acpmux-minimap__rail[data-hovering] .acpmux-scrollmap__mark[data-tone="current"] .acpmux-minimap__bar ; .acpmux-minimap__tick[data-bookmarked][data-tone="active"] .acpmux-minimap__bar ; .acpmux-scrollmap__mark[data-tone="current"] .acpmux-minimap__bar ; .acpmux-scrollmap__mark[data-bookmarked]:not([data-tone="current"]):not([data-tone="active"]) .acpmux-minimap__bar ; .acpmux-minimap__tick[data-tone="active"] .acpmux-minimap__bar ; .acpmux-minimap__tick[data-bookmarked]:not([data-tone="current"]) .acpmux-minimap__bar ; .acpmux-minimap__tick[data-tone="current"] .acpmux-minimap__bar ; .acpmux-minimap__rail[data-hovering] .acpmux-scrollmap__mark[data-bookmarked]:not([data-tone="current"]):not([data-tone="active"]) .acpmux-minimap__bar ; .acpmux-scrollmap__mark[data-tone="active"] .acpmux-minimap__bar ; .acpmux-minimap__rail:not(.acpmux-scrollmap):not([data-hovering]):not([data-scrubbing]):not([data-reduce]):not([data-snap]) .acpmux-minimap__tick:not([data-tone="active"]) .acpmux-minimap__bar ; .acpmux-minimap__rail[data-hovering] .acpmux-scrollmap__mark[data-kind="agent"][data-tone="current"] .acpmux-minimap__bar | {"classes":["acpmux-needs-you-answer-label","acpmux-minimap__bar","acpmux-minimap__dot"],"id":"0x16d401d26240"} | SPAN class='acpmux-minimap__bar'
+49x StyleRecalcInvalidationTracking | Inline CSS style declaration was mutated |  |  | DIV id='_r_h_' class='acpmux-minimap__card'
+39x StyleRecalcInvalidationTracking | Node was inserted into tree |  |  | P class='acpmux-minimap__item'
+26x StyleInvalidatorInvalidationTracking | Invalidation set invalidates subtree | .acpmux-composer-foot .acpmux-chips > :not(.acpmux-access) ~ :not(.acpmux-access) ; .acpmux-md > * + * | {"allDescendantsMightBeInvalid":true,"id":"0x16d401ca9270"} | DIV class='acpmux-minimap__reply'
+26x StyleRecalcInvalidationTracking | Related style rule |  |  | DIV class='acpmux-minimap__reply'
+20x StyleRecalcInvalidationTracking | Inline CSS style declaration was mutated |  |  | DIV class='acpmux-minimap__reply'
+forced recalcs 40x UpdateLayoutTree n=82 @main.mjs:47 < @main.mjs:47 < n@main.mjs:47 < @main.mjs:47
+40x Layout n=8 @main.mjs:47 < @main.mjs:47 < n@main.mjs:47 < @main.mjs:47
+40x UpdateLayoutTree n=82 @main.mjs:47 < @main.mjs:47 < n@main.mjs:47
+40x Layout n=8 @main.mjs:47 < @main.mjs:47 < n@main.mjs:47
+39x UpdateLayoutTree n=82 @main.mjs:47 < @main.mjs:47 < au@vendor.mjs:8 < ru@vendor.mjs:8
+37x Layout n=14 @main.mjs:47 < @main.mjs:47 < au@vendor.mjs:8 < ru@vendor.mjs:8
+26x UpdateLayoutTree n=1109 @main.mjs:47 < n@main.mjs:47 < @main.mjs:47 < au@vendor.mjs:8
+26x Layout n=11 @main.mjs:47 < n@main.mjs:47 < @main.mjs:47 < au@vendor.mjs:8
+26x UpdateLayoutTree n=1109 @main.mjs:47 < n@main.mjs:47
+26x Layout n=11 @main.mjs:47 < n@main.mjs:47
+24x UpdateLayoutTree n=1107 @main.mjs:47 < n@main.mjs:47 < @main.mjs:47 < au@vendor.mjs:8
+14x Layout n=23 @main.mjs:47 < n@main.mjs:47 < @main.mjs:47 < au@vendor.mjs:8
+14x UpdateLayoutTree n=1121 @main.mjs:47 < n@main.mjs:47
+14x Layout n=23 @main.mjs:47 < n@main.mjs:47
+13x UpdateLayoutTree n=1113 @main.mjs:47 < n@main.mjs:47 < @main.mjs:47 < au@vendor.mjs:8
+== profile 100
+command failed: exit status 1
+job 0eef0a590bfa2785d6ff821d failed: exit status 1
+cmux-ci test: FAILURE source=59e77d991c78075019be8edda013d80c57b3bda3 fleet=linux-pool job=0eef0a590bfa2785d6ff821d

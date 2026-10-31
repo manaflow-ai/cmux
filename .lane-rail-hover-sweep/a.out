@@ -1,0 +1,13 @@
+cmux-ci test: receipt=/Users/leoli/Projects/.wt-mirrors/manaflow-ai/cmux.git/cmux-fast-checks/3d9c6a5c5b8b4506a9da406910e0fded.json
+remote: 
+remote: Create a pull request for 'fast-checks/3d9c6a5c5b8b4506a9da406910e0fded' on GitHub by visiting:        
+remote:      https://github.com/manaflow-ai/cmux/pull/new/fast-checks/3d9c6a5c5b8b4506a9da406910e0fded        
+remote: 
+To github.com:manaflow-ai/cmux.git
+ * [new branch]                abb574a0c327384a23772e7feecea076abb4ed4f -> fast-checks/3d9c6a5c5b8b4506a9da406910e0fded
+glaeda-gh: waiting on run:manaflow-ai/cmux/41176330482 until green, giving up after 180s (at 23:25:23)
+cmux-ci test: run https://github.com/manaflow-ai/cmux/actions/runs/41176330482; source=3401e3a4a95d23cb3700538b1482c189467e7300; receipt=/Users/leoli/Projects/.wt-mirrors/manaflow-ai/cmux.git/cmux-fast-checks/3d9c6a5c5b8b4506a9da406910e0fded.json
+glaeda-gh: waiting on run:manaflow-ai/cmux/41176330482 until green, giving up after 3900s (at 00:30:24)
+cmux-ci test: SUCCESS source=abb574a0c327384a23772e7feecea076abb4ed4f elapsed=437.044s
+Full log: /Users/leoli/Projects/.wt-mirrors/manaflow-ai/cmux.git/cmux-fast-checks/3d9c6a5c5b8b4506a9da406910e0fded.log
+FAST_CHECKS_CLIENT_TIMING={"run_id": 41176330482, "snapshot_sha": "abb574a0c327384a23772e7feecea076abb4ed4f", "phases": {"snapshot": {"started": 1793427729.719984, "seconds": 2.708}, "push": {"started": 1793427734.645151, "seconds": 6.76}, "dispatch": {"started": 1793427741.4343302, "seconds": 1.748}, "start_wait": {"started": 1793427743.183508, "seconds": 180.7}, "wait": {"started": 1793427924.700338, "seconds": 238.92}, "log_fetch": {"started": 1793428163.622877, "seconds": 2.554}}, "first_output_seconds": 437.044, "cleanup_receipt": "/Users/leoli/Projects/.wt-mirrors/manaflow-ai/cmux.git/cmux-fast-checks/3d9c6a5c5b8b4506a9da406910e0fded.cleanup.json"}
