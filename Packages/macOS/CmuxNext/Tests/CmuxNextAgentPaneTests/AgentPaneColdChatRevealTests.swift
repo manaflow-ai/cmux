@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -7,7 +8,7 @@ import Testing
 /// Leo 2026-10-14, as the Claude app switches chats: a chat the pane has not drawn yet holds its
 /// page background for a beat with no busy mark popping up, then its page fades in (quick but
 /// seen); a New Tab page and a chat already drawn show at once.
-@Suite(.serialized)
+@Suite(.serialized, .closesItsWindows)
 @MainActor
 struct AgentPaneColdChatRevealTests {
     private actor NoHost: AgentPaneHostProviding {

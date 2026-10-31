@@ -174,6 +174,18 @@ test("Down to the web search, then Return, searches", async () => {
   expect(calls).toEqual([["search", "helo"]]);
 });
 
+test("typing again after a Down pick hands Return back to the Ask row", async () => {
+  const calls: unknown[][] = [];
+  await render(calls);
+  const field = await type("helo");
+  await press(field, "ArrowDown");
+  expect(returnTarget()).toEqual(["Search the web for helo"]);
+  await type("helo there");
+  expect(returnTarget()).toEqual(["Ask Claude Code"]);
+  await press(field, "Enter");
+  expect(calls).toEqual([["ask", "claude", "helo there", undefined, "claude-opus-5-5"]]);
+});
+
 test("a keyboard pick stands while the pointer rests on another row", async () => {
   const calls: unknown[][] = [];
   await render(calls, "chat");
