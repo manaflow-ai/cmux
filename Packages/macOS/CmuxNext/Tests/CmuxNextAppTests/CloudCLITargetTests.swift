@@ -256,6 +256,34 @@ struct CloudCLITargetTests {
         #expect(report.details.contains("9c1d2e3f4a5b"), "the ghostty commit is in the copied text")
     }
 
+    /// A Cloud machine whose daemon does not serve `fs-v1` (no model plane identity on a fresh
+    /// VM) cannot take Move to Cloud's or a Cloud chat's first sync: its row says so, and its
+    /// compatibility is not `current`, before any sync fails on `fs.unavailable`.
+    @Test func aCloudMachineWithoutFileOpsIsReportedBeforeTheSync() {
+        let f = Self.fixture()
+        f.session.daemon.store.connectionState = .connected(Self.fullIdentity())
+        let without = AppControl.cloudMachineRow(f.session, f.services.machines)
+        #expect(without["file_ops"] == .bool(false))
+        #expect(without["compatibility"] != .string("current"))
+        #expect(without["missing_features"]?.arrayValue?.contains(.string("fs-v1")) == true)
+
+        var served = Self.fullIdentity()
+        served = DaemonIdentity(
+            app: served.app, version: served.version, buildCommit: served.buildCommit, ghosttyCommit: served.ghosttyCommit,
+            protocolVersion: served.protocolVersion, capabilities: ["cap-alpha", "cap-beta", "fs-v1"], session: served.session,
+            pid: served.pid, registryID: served.registryID, machineResourceID: served.machineResourceID,
+            sessionResourceID: served.sessionResourceID, machinePlatform: served.machinePlatform,
+            machineCapabilities: served.machineCapabilities, machineName: served.machineName, generation: served.generation,
+            workspaceRevision: served.workspaceRevision, lifecycleReady: served.lifecycleReady)
+        f.session.daemon.store.connectionState = .connected(served)
+        let with = AppControl.cloudMachineRow(f.session, f.services.machines)
+        #expect(with["file_ops"] == .bool(true))
+        #expect(with["missing_features"]?.arrayValue?.contains(.string("fs-v1")) != true)
+
+        f.session.daemon.store.connectionState = .connecting
+        #expect(AppControl.cloudMachineRow(f.session, f.services.machines)["file_ops"] == .null, "unknown before the daemon answers")
+    }
+
     /// A field added to `identify` must reach the details too: every stored property of
     /// `DaemonIdentity` (but the lookup set it derives) has a wire key in the fixture above.
     @Test func everyStoredFieldOfTheHandshakeIsInTheDetails() {

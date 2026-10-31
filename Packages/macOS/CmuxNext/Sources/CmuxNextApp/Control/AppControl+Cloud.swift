@@ -68,6 +68,9 @@ extension AppControl {
     /// One Cloud machine's row of `cloud.machines` (and of the Cloud
     /// diagnostics' details): its record, stage, daemon link state and the
     /// capability negotiation of its daemon.
+    /// The daemon capability that serves file ops over a Cloud machine's home (cmux-tui `FS_CAPABILITY`).
+    static let cloudFileOpsCapability = "fs-v1"
+
     static func cloudMachineRow(_ session: CloudMachineSession, _ machines: MachineRegistry) -> [String: JSONValue] {
         let store = session.daemon.store
         let state: String = switch store.connectionState {
@@ -76,7 +79,17 @@ extension AppControl {
         case .disconnected: "disconnected"
         case .failed(let reason): "failed: \(reason)"
         }
-        let compat = machines.compatibility(of: session.daemon)
+        var compat = machines.compatibility(of: session.daemon)
+        // File ops (`fs-v1`) are what Move to Cloud and a Cloud chat's first send copy the folder
+        // with. A Cloud machine's daemon serves them only when it knows its model plane identity,
+        // so their absence is not an optional extra there: say so here, before a sync fails on it.
+        // Nil before the daemon answers.
+        let fileOps = session.daemon.identity.map { _ in session.daemon.supports(Self.cloudFileOpsCapability) }
+        if fileOps == false, var known = compat, known.level != .incompatible {
+            if !known.missingOptional.contains(Self.cloudFileOpsCapability) { known.missingOptional.append(Self.cloudFileOpsCapability) }
+            known.level = .limited
+            compat = known
+        }
         return [
             "id": .string(session.machineID),
             // The id its daemon has in the machine catalog (`machine list --catalog`),
@@ -101,6 +114,7 @@ extension AppControl {
             "compatibility": compat.map { .string($0.level.rawValue) } ?? .null,
             "missing_required": .array((compat?.missingRequired ?? []).map(JSONValue.string)),
             "missing_features": .array((compat?.missingOptional ?? []).map(JSONValue.string)),
+            "file_ops": fileOps.map(JSONValue.bool) ?? .null,
             "workspaces": .array(store.workspaces.map { .object(["id": .string($0.id), "name": .string($0.displayName)]) }),
         ]
     }
