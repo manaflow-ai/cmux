@@ -76,7 +76,6 @@ test("a page menu opens the app's native menu and runs the chosen row", async ()
   expect(closed).toBe(1);
 });
 
-
 test.each([null, { ok: true, value: null }])(
   "an older host's empty native-menu reply falls back to an actionable page menu (%#)",
   async (reply) => {
