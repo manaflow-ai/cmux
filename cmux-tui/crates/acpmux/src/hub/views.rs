@@ -45,12 +45,15 @@ const COORDINATOR_PARENT_TAG: &str = "mux.parent";
 /// fields cover current and older daemons; the raw tags preserve the classification when a
 /// parent is gone or a coordinator child predates lineage recording.
 fn sidebar_requires_open(summary: &Value) -> bool {
-    let nonempty = |value: &Value| value.as_str().is_some_and(|value| !value.is_empty());
-    nonempty(&summary["parent"])
-        || nonempty(&summary["spawnedBy"])
-        || nonempty(&summary["tags"][SPAWNED_BY_TAG])
-        || nonempty(&summary["tags"][COORDINATOR_PARENT_TAG])
-        || nonempty(&summary["tags"][super::lane_reports::TAG])
+    let nonempty = |value: Option<&Value>| {
+        value.and_then(Value::as_str).is_some_and(|value| !value.is_empty())
+    };
+    let tags = summary.get("tags");
+    nonempty(summary.get("parent"))
+        || nonempty(summary.get("spawnedBy"))
+        || nonempty(tags.and_then(|tags| tags.get(SPAWNED_BY_TAG)))
+        || nonempty(tags.and_then(|tags| tags.get(COORDINATOR_PARENT_TAG)))
+        || nonempty(tags.and_then(|tags| tags.get(super::lane_reports::TAG)))
 }
 
 /// The session's status dot, decided here once so every client draws the

@@ -519,8 +519,9 @@ impl Hub {
         summary.set("peer", Value::String(peer.to_owned()));
         // A peer from before `indicator`, `lane` or the lane's masked `step` and `title`
         // sends none: decide them here.
-        let old_lane = summary["lane"]
-            .as_object()
+        let old_lane = summary
+            .get("lane")
+            .and_then(Value::as_object)
             .is_some_and(|lane| !lane.contains_key("title") || !lane.contains_key("requiresOpen"));
         if summary.get("indicator").is_none() || summary.get("lane").is_none() || old_lane {
             super::views::decide(&mut summary);
