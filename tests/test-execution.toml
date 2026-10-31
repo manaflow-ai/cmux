@@ -415,6 +415,13 @@ lane = "linux-guard"
 path = "tests/test_issue_13343_claude_integration_toggle.py"
 lane = "macos-cli-no-socket"
 
+# Drives zsh, bash, fish and nushell; the fish requirement selects the
+# post-fish lane, which also has the pinned nushell.
+[[test]]
+path = "tests/test_shell_integration_unsets_empty_claude_account_env.py"
+lane = "macos-cli-no-socket-post-fish"
+requirements = ["fish"]
+
 [[test]]
 path = "tests/test_issue_8953_zsh_prompt_wrap_guard.py"
 lane = "macos-cli-no-socket"

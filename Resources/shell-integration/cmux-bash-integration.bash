@@ -1,5 +1,17 @@
 # cmux shell integration for bash
 
+# Switching a pane to the default Claude account can only blank an inherited
+# account variable, not unset it. Claude Code reads a blank CLAUDE_CONFIG_DIR as
+# a relative path and a blank CLAUDE_SECURESTORAGE_CONFIG_DIR as the default
+# account's credentials, so unset blank ones before anything else runs. Keep this
+# first, ahead of every early return, and keep non-empty values untouched.
+if [[ -n "${CLAUDE_CONFIG_DIR+set}" && -z "$CLAUDE_CONFIG_DIR" ]]; then
+    builtin unset CLAUDE_CONFIG_DIR
+fi
+if [[ -n "${CLAUDE_SECURESTORAGE_CONFIG_DIR+set}" && -z "$CLAUDE_SECURESTORAGE_CONFIG_DIR" ]]; then
+    builtin unset CLAUDE_SECURESTORAGE_CONFIG_DIR
+fi
+
 # Cache which send tool is available to avoid repeated PATH lookups.
 _CMUX_SEND_TOOL=""
 _cmux_detect_send_tool() {

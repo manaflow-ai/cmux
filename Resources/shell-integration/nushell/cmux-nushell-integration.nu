@@ -12,6 +12,14 @@
 # cannot mutate the environment; cmux registers string hooks that call the
 # `def --env` entry points below, so mutations persist across prompts.
 
+# Switching a pane to the default Claude account can only blank an inherited
+# account variable, not unset it. Claude Code reads a blank CLAUDE_CONFIG_DIR as
+# a relative path and a blank CLAUDE_SECURESTORAGE_CONFIG_DIR as the default
+# account's credentials, so hide blank ones before anything else runs. Keep this
+# first, ahead of the integration toggle, and keep non-empty values untouched.
+if ($env.CLAUDE_CONFIG_DIR? == "") { hide-env CLAUDE_CONFIG_DIR }
+if ($env.CLAUDE_SECURESTORAGE_CONFIG_DIR? == "") { hide-env CLAUDE_SECURESTORAGE_CONFIG_DIR }
+
 # Whether the cmux integration is active (CMUX_SHELL_INTEGRATION=0 disables it).
 def _cmux_integration_enabled [] {
     ($env.CMUX_SHELL_INTEGRATION? | default "1") != "0"

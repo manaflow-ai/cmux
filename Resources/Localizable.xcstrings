@@ -118674,360 +118674,6 @@
         }
       }
     },
-    "cli.surface.newDisplay.usage": {
-        "extractionState": "manual",
-        "localizations": {
-          "en": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "cmux surface new-display --machine <cloud-id> [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [--json]"
-            }
-          },
-          "de": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "cmux surface new-display --machine <cloud-id> [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [--json]"
-            }
-          },
-          "fr": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "cmux surface new-display --machine <cloud-id> [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [--json]"
-            }
-          },
-          "ar": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "cmux surface new-display --machine <cloud-id> [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [--json]"
-            }
-          },
-          "es": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "cmux surface new-display --machine <cloud-id> [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [--json]"
-            }
-          },
-          "zh-Hant": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "cmux surface new-display --machine <cloud-id> [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [--json]"
-            }
-          },
-          "zh-Hans": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "cmux surface new-display --machine <cloud-id> [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [--json]"
-            }
-          },
-          "ko": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "cmux surface new-display --machine <cloud-id> [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [--json]"
-            }
-          },
-          "ja": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "cmux surface new-display --machine <cloud-id> [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [--json]"
-            }
-          }
-        }
-      },
-    "cli.surface.newDisplay.help": {
-        "extractionState": "manual",
-        "localizations": {
-          "en": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "creates a new VNC display on a cloud machine and opens it unless --no-open."
-            }
-          },
-          "de": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "erstellt eine neue VNC-Anzeige auf einer Cloud-Maschine und öffnet sie, sofern nicht --no-open."
-            }
-          },
-          "fr": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "crée un nouvel écran VNC sur une machine cloud et l’ouvre sauf si --no-open est utilisé."
-            }
-          },
-          "ar": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "ينشئ شاشة VNC جديدة على جهاز سحابي ويفتحها ما لم يتم تمرير --no-open."
-            }
-          },
-          "es": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "crea una nueva pantalla VNC en una máquina en la nube y la abre salvo que se use --no-open."
-            }
-          },
-          "zh-Hant": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "在雲端機器上建立新的 VNC 顯示器，除非指定 --no-open，否則會開啟。"
-            }
-          },
-          "zh-Hans": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "在云端机器上创建新的 VNC 屏幕，除非传入 --no-open，否则会打开。"
-            }
-          },
-          "ko": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "클라우드 머신에 새 VNC 디스플레이를 만들고 --no-open을 지정하지 않으면 엽니다."
-            }
-          },
-          "ja": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "クラウドマシンに新しい VNC ディスプレイを作成し、--no-open を指定しない限り開きます。"
-            }
-          }
-        }
-      },
-    "cli.surface.newDisplay.error.unknownOption": {
-        "extractionState": "manual",
-        "localizations": {
-          "en": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface new-display: unknown option"
-            }
-          },
-          "de": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface new-display: unbekannte Option"
-            }
-          },
-          "fr": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface new-display : option inconnue"
-            }
-          },
-          "ar": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface new-display: خيار غير معروف"
-            }
-          },
-          "es": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface new-display: opción desconocida"
-            }
-          },
-          "zh-Hant": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface new-display：未知選項"
-            }
-          },
-          "zh-Hans": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface new-display：未知选项"
-            }
-          },
-          "ko": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface new-display: 알 수 없는 옵션"
-            }
-          },
-          "ja": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface new-display: 不明なオプション"
-            }
-          }
-        }
-      },
-    "cli.surface.newDisplay.error.unexpectedArgument": {
-        "extractionState": "manual",
-        "localizations": {
-          "en": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface new-display: unexpected argument"
-            }
-          },
-          "de": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface new-display: unerwartetes Argument"
-            }
-          },
-          "fr": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface new-display : argument inattendu"
-            }
-          },
-          "ar": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface new-display: وسيطة غير متوقعة"
-            }
-          },
-          "es": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface new-display: argumento inesperado"
-            }
-          },
-          "zh-Hant": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface new-display：未預期的引數"
-            }
-          },
-          "zh-Hans": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface new-display：意外参数"
-            }
-          },
-          "ko": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface new-display: 예기치 않은 인수"
-            }
-          },
-          "ja": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface new-display: 予期しない引数"
-            }
-          }
-        }
-      },
-    "cli.surface.newDisplay.error.machineRequired": {
-        "extractionState": "manual",
-        "localizations": {
-          "en": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface new-display: --machine <cloud-id> is required"
-            }
-          },
-          "de": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface new-display: --machine <cloud-id> ist erforderlich"
-            }
-          },
-          "fr": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface new-display : --machine <cloud-id> est requis"
-            }
-          },
-          "ar": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface new-display: ‎--machine <cloud-id> مطلوب"
-            }
-          },
-          "es": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface new-display: se requiere --machine <cloud-id>"
-            }
-          },
-          "zh-Hant": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface new-display：需要 --machine <cloud-id>"
-            }
-          },
-          "zh-Hans": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface new-display：需要 --machine <cloud-id>"
-            }
-          },
-          "ko": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface new-display: --machine <cloud-id>이(가) 필요합니다"
-            }
-          },
-          "ja": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface new-display: --machine <cloud-id> が必要です"
-            }
-          }
-        }
-      },
-    "cli.surface.newDisplay.result.projectionFailed": {
-        "extractionState": "manual",
-        "localizations": {
-          "en": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "(created; open it with `cmux surface open <resource>`)"
-            }
-          },
-          "de": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "(erstellt; mit `cmux surface open <resource>` öffnen)"
-            }
-          },
-          "fr": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "(créé ; ouvrez-le avec `cmux surface open <resource>`)"
-            }
-          },
-          "ar": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "(تم الإنشاء؛ افتحه باستخدام `cmux surface open <resource>`)"
-            }
-          },
-          "es": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "(creado; ábralo con `cmux surface open <resource>`)"
-            }
-          },
-          "zh-Hant": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "（已建立；請使用 `cmux surface open <resource>` 開啟）"
-            }
-          },
-          "zh-Hans": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "（已创建；请使用 `cmux surface open <resource>` 打开）"
-            }
-          },
-          "ko": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "(생성됨; `cmux surface open <resource>`으로 여십시오)"
-            }
-          },
-          "ja": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "（作成済み。`cmux surface open <resource>` で開いてください）"
-            }
-          }
-        }
-      },
     "cli.surface.open.unknownResource": {
       "extractionState": "manual",
       "localizations": {
@@ -392499,6 +392145,65 @@
         }
       }
     },
+    "sidebar.claudeAccount.row": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حساب Claude: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-Konto: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude account: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuenta de Claude: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compte Claude : %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude アカウント: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 계정: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 账号：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 帳號：%@"
+          }
+        }
+      }
+    },
     "sidebar.closeWorkspace.tooltip": {
       "extractionState": "manual",
       "localizations": {
@@ -433599,478 +433304,6 @@
         }
       }
     },
-    "socket.surface.newDisplay.machineRequired": {
-        "extractionState": "manual",
-        "localizations": {
-          "en": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface.new_display requires `machine` (a cloud machine id)."
-            }
-          },
-          "de": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface.new_display benötigt `machine` (eine Cloud-Maschinen-ID)."
-            }
-          },
-          "fr": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface.new_display nécessite `machine` (un identifiant de machine cloud)."
-            }
-          },
-          "ar": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "يتطلب surface.new_display قيمة `machine` (معرّف جهاز سحابي)."
-            }
-          },
-          "es": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface.new_display requiere `machine` (un identificador de máquina en la nube)."
-            }
-          },
-          "zh-Hant": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface.new_display 需要 `machine`（雲端機器 ID）。"
-            }
-          },
-          "zh-Hans": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface.new_display 需要 `machine`（云端机器 ID）。"
-            }
-          },
-          "ko": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface.new_display에는 `machine`(클라우드 머신 ID)이 필요합니다."
-            }
-          },
-          "ja": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface.new_display には `machine`（クラウドマシン ID）が必要です。"
-            }
-          }
-        }
-      },
-    "socket.surface.newDisplay.cloudOnly": {
-        "extractionState": "manual",
-        "localizations": {
-          "en": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface.new_display requires a cloud machine id; local display creation is not supported."
-            }
-          },
-          "de": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface.new_display benötigt eine Cloud-Maschinen-ID; das Erstellen lokaler Anzeigen wird nicht unterstützt."
-            }
-          },
-          "fr": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface.new_display nécessite un identifiant de machine cloud ; la création d’un écran local n’est pas prise en charge."
-            }
-          },
-          "ar": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "يتطلب surface.new_display معرّف جهاز سحابي؛ إنشاء شاشات محلية غير مدعوم."
-            }
-          },
-          "es": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface.new_display requiere un identificador de máquina en la nube; no se admite crear pantallas locales."
-            }
-          },
-          "zh-Hant": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface.new_display 需要雲端機器 ID；不支援建立本機顯示器。"
-            }
-          },
-          "zh-Hans": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface.new_display 需要云端机器 ID；不支持创建本地屏幕。"
-            }
-          },
-          "ko": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface.new_display에는 클라우드 머신 ID가 필요하며 로컬 디스플레이 생성은 지원되지 않습니다."
-            }
-          },
-          "ja": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface.new_display にはクラウドマシン ID が必要です。ローカルディスプレイの作成はサポートされていません。"
-            }
-          }
-        }
-      },
-    "socket.surface.newDisplay.workspaceRequired": {
-        "extractionState": "manual",
-        "localizations": {
-          "en": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface.new_display: no target workspace to open into (pass `workspace_id`, select one, or send `open: false`)."
-            }
-          },
-          "de": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface.new_display: Kein Zielarbeitsbereich zum Öffnen (übergib `workspace_id`, wähle einen aus oder sende `open: false`)."
-            }
-          },
-          "fr": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface.new_display : aucun espace de travail cible à ouvrir (indiquez `workspace_id`, sélectionnez-en un ou envoyez `open: false`)."
-            }
-          },
-          "ar": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface.new_display: لا توجد مساحة عمل مستهدفة للفتح فيها (مرّر `workspace_id` أو حدّد واحدة أو أرسل `open: false`)."
-            }
-          },
-          "es": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface.new_display: no hay un espacio de trabajo de destino donde abrirlo (pase `workspace_id`, seleccione uno o envíe `open: false`)."
-            }
-          },
-          "zh-Hant": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface.new_display：沒有可開啟的目標工作區（請傳入 `workspace_id`、選取工作區，或傳送 `open: false`）。"
-            }
-          },
-          "zh-Hans": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface.new_display：没有可打开的目标工作区（请传入 `workspace_id`、选择一个，或发送 `open: false`）。"
-            }
-          },
-          "ko": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface.new_display: 열 대상 작업 공간이 없습니다(`workspace_id`를 전달하거나 하나를 선택하거나 `open: false`를 보내십시오)."
-            }
-          },
-          "ja": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "surface.new_display: 開く対象のワークスペースがありません（`workspace_id` を渡すか選択するか、`open: false` を送信してください）。"
-            }
-          }
-        }
-      },
-    "socket.surface.newDisplay.projectionFailed": {
-        "extractionState": "manual",
-        "localizations": {
-          "en": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "The display was created, but it could not be opened in the selected workspace. Retry with `cmux surface open <resource>`."
-            }
-          },
-          "de": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "Die Anzeige wurde erstellt, konnte aber im ausgewählten Arbeitsbereich nicht geöffnet werden. Versuche es erneut mit `cmux surface open <resource>`."
-            }
-          },
-          "fr": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "L’écran a été créé, mais n’a pas pu être ouvert dans l’espace de travail sélectionné. Réessayez avec `cmux surface open <resource>`."
-            }
-          },
-          "ar": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "تم إنشاء الشاشة، ولكن تعذر فتحها في مساحة العمل المحددة. أعد المحاولة باستخدام `cmux surface open <resource>`."
-            }
-          },
-          "es": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "La pantalla se creó, pero no se pudo abrir en el espacio de trabajo seleccionado. Vuelva a intentarlo con `cmux surface open <resource>`."
-            }
-          },
-          "zh-Hant": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "顯示器已建立，但無法在選取的工作區中開啟。請使用 `cmux surface open <resource>` 重試。"
-            }
-          },
-          "zh-Hans": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "屏幕已创建，但无法在选定的工作区中打开。请使用 `cmux surface open <resource>` 重试。"
-            }
-          },
-          "ko": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "디스플레이가 생성되었지만 선택한 작업 공간에서 열 수 없습니다. `cmux surface open <resource>`으로 다시 시도하십시오."
-            }
-          },
-          "ja": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "ディスプレイは作成されましたが、選択したワークスペースで開けませんでした。`cmux surface open <resource>` で再試行してください。"
-            }
-          }
-        }
-      },
-    "socket.surface.newDisplay.busy": {
-        "extractionState": "manual",
-        "localizations": {
-          "en": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "A display is already being created on this machine, or the machine changed. Wait for it to finish and retry."
-            }
-          },
-          "de": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "Auf dieser Maschine wird bereits eine Anzeige erstellt, oder die Maschine hat sich geändert. Warte, bis der Vorgang abgeschlossen ist, und versuche es erneut."
-            }
-          },
-          "fr": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "Un écran est déjà en cours de création sur cette machine, ou la machine a changé. Attendez la fin de l’opération et réessayez."
-            }
-          },
-          "ar": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "يجري بالفعل إنشاء شاشة على هذا الجهاز، أو أن الجهاز تغيّر. انتظر حتى تنتهي العملية ثم أعد المحاولة."
-            }
-          },
-          "es": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "Ya se está creando una pantalla en esta máquina, o la máquina cambió. Espere a que termine y vuelva a intentarlo."
-            }
-          },
-          "zh-Hant": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "此機器上已有顯示器正在建立，或機器已變更。請等待完成後再重試。"
-            }
-          },
-          "zh-Hans": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "此机器上已有屏幕正在创建，或机器已更改。请等待完成后重试。"
-            }
-          },
-          "ko": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "이 머신에서 이미 디스플레이를 생성하는 중이거나 머신이 변경되었습니다. 완료될 때까지 기다린 후 다시 시도하십시오."
-            }
-          },
-          "ja": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "このマシンではすでにディスプレイを作成中か、マシンが変更されました。完了するまで待ってから再試行してください。"
-            }
-          }
-        }
-      },
-    "socket.surface.newDisplay.timedOut": {
-        "extractionState": "manual",
-        "localizations": {
-          "en": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "Creating the cloud display timed out. Check the catalog before retrying."
-            }
-          },
-          "de": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "Das Erstellen der Cloud-Anzeige ist wegen einer Zeitüberschreitung fehlgeschlagen. Prüfe den Katalog, bevor du es erneut versuchst."
-            }
-          },
-          "fr": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "La création de l’écran cloud a expiré. Vérifiez le catalogue avant de réessayer."
-            }
-          },
-          "ar": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "انتهت مهلة إنشاء الشاشة السحابية. تحقّق من الكتالوج قبل إعادة المحاولة."
-            }
-          },
-          "es": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "Se agotó el tiempo para crear la pantalla en la nube. Compruebe el catálogo antes de volver a intentarlo."
-            }
-          },
-          "zh-Hant": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "建立雲端顯示器逾時。請先檢查目錄再重試。"
-            }
-          },
-          "zh-Hans": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "创建云端屏幕超时。请在重试前检查目录。"
-            }
-          },
-          "ko": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "클라우드 디스플레이 생성 시간이 초과되었습니다. 다시 시도하기 전에 카탈로그를 확인하십시오."
-            }
-          },
-          "ja": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "クラウドディスプレイの作成がタイムアウトしました。再試行する前にカタログを確認してください。"
-            }
-          }
-        }
-      },
-    "socket.surface.newDisplay.failed": {
-        "extractionState": "manual",
-        "localizations": {
-          "en": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "Could not create the cloud display. Check the machine status and retry."
-            }
-          },
-          "de": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "Die Cloud-Anzeige konnte nicht erstellt werden. Prüfe den Maschinenstatus und versuche es erneut."
-            }
-          },
-          "fr": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "Impossible de créer l’écran cloud. Vérifiez l’état de la machine et réessayez."
-            }
-          },
-          "ar": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "تعذر إنشاء الشاشة السحابية. تحقّق من حالة الجهاز وأعد المحاولة."
-            }
-          },
-          "es": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "No se pudo crear la pantalla en la nube. Compruebe el estado de la máquina y vuelva a intentarlo."
-            }
-          },
-          "zh-Hant": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "無法建立雲端顯示器。請檢查機器狀態並重試。"
-            }
-          },
-          "zh-Hans": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "无法创建云端屏幕。请检查机器状态并重试。"
-            }
-          },
-          "ko": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "클라우드 디스플레이를 생성할 수 없습니다. 머신 상태를 확인하고 다시 시도하십시오."
-            }
-          },
-          "ja": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "クラウドディスプレイを作成できませんでした。マシンの状態を確認して再試行してください。"
-            }
-          }
-        }
-      },
-    "socket.surface.newDisplay.requestFailed": {
-        "extractionState": "manual",
-        "localizations": {
-          "en": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "The cloud display request ended before returning a result."
-            }
-          },
-          "de": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "Die Cloud-Anfrage für die Anzeige wurde beendet, bevor ein Ergebnis zurückgegeben wurde."
-            }
-          },
-          "fr": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "La demande d’écran cloud s’est terminée avant de renvoyer un résultat."
-            }
-          },
-          "ar": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "انتهى طلب الشاشة السحابية قبل إرجاع نتيجة."
-            }
-          },
-          "es": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "La solicitud de la pantalla en la nube terminó antes de devolver un resultado."
-            }
-          },
-          "zh-Hant": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "雲端顯示器要求在傳回結果前結束。"
-            }
-          },
-          "zh-Hans": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "云端屏幕请求在返回结果前结束。"
-            }
-          },
-          "ko": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "클라우드 디스플레이 요청이 결과를 반환하기 전에 종료되었습니다."
-            }
-          },
-          "ja": {
-            "stringUnit": {
-              "state": "translated",
-              "value": "クラウドディスプレイのリクエストが結果を返す前に終了しました。"
-            }
-          }
-        }
-      },
     "socket.vm.renameFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -671403,6 +670636,2956 @@
         }
       }
     },
+    "dialog.claudeAccountSwitch.alreadySwitching.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This terminal is already switching Claude accounts."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذه الطرفية قيد تبديل حساب Claude بالفعل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Terminal wechselt bereits das Claude-Konto."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta terminal ya está cambiando de cuenta de Claude."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce terminal est déjà en train de changer de compte Claude."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このターミナルはすでに Claude アカウントを切り替え中です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 터미널은 이미 Claude 계정을 전환하는 중입니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此终端正在切换 Claude 账号。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此終端機正在切換 Claude 帳號。"
+          }
+        }
+      }
+    },
+    "dialog.claudeAccountSwitch.failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't Switch Claude Account"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تبديل حساب Claude"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-Konto konnte nicht gewechselt werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cambiar la cuenta de Claude"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de changer de compte Claude"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude アカウントを切り替えられませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 계정을 전환할 수 없음"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法切换 Claude 账号"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法切換 Claude 帳號"
+          }
+        }
+      }
+    },
+    "dialog.claudeAccountSwitch.missingWorkingDirectory.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn't find the working directory of this Claude conversation."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux العثور على مجلد العمل لمحادثة Claude هذه."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte das Arbeitsverzeichnis dieser Claude-Unterhaltung nicht ermitteln."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no encontró el directorio de trabajo de esta conversación de Claude."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n'a pas trouvé le répertoire de travail de cette conversation Claude."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はこの Claude の会話の作業ディレクトリを見つけられませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 이 Claude 대화의 작업 디렉터리를 찾지 못했습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 找不到此 Claude 对话的工作目录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 找不到此 Claude 對話的工作目錄。"
+          }
+        }
+      }
+    },
+    "dialog.claudeAccountSwitch.noClaudeSession.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn't find a Claude conversation to continue in this terminal."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux العثور على محادثة Claude لمتابعتها في هذه الطرفية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hat in diesem Terminal keine Claude-Unterhaltung gefunden, die fortgesetzt werden kann."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no encontró ninguna conversación de Claude para continuar en esta terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n'a trouvé aucune conversation Claude à poursuivre dans ce terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はこのターミナルで続行できる Claude の会話を見つけられませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 이 터미널에서 이어갈 Claude 대화를 찾지 못했습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 在此终端中找不到可继续的 Claude 对话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 在此終端機中找不到可繼續的 Claude 對話。"
+          }
+        }
+      }
+    },
+    "dialog.claudeAccountSwitch.notClaude.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This terminal isn't running Claude Code."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تشغّل هذه الطرفية Claude Code."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In diesem Terminal läuft kein Claude Code."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta terminal no está ejecutando Claude Code."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce terminal n'exécute pas Claude Code."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このターミナルでは Claude Code が実行されていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 터미널에서 Claude Code가 실행되고 있지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此终端未运行 Claude Code。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此終端機未執行 Claude Code。"
+          }
+        }
+      }
+    },
+    "dialog.claudeAccountSwitch.remoteUnsupported.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude accounts can't be switched in a terminal that runs on another machine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن تبديل حسابات Claude في طرفية تعمل على جهاز آخر."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In einem Terminal, das auf einem anderen Rechner läuft, können Claude-Konten nicht gewechselt werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pueden cambiar las cuentas de Claude en una terminal que se ejecuta en otra máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de changer de compte Claude dans un terminal qui s'exécute sur une autre machine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のマシンで実行されているターミナルでは Claude アカウントを切り替えられません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 컴퓨터에서 실행되는 터미널에서는 Claude 계정을 전환할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法在运行于其他机器上的终端中切换 Claude 账号。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法在其他電腦上執行的終端機中切換 Claude 帳號。"
+          }
+        }
+      }
+    },
+    "dialog.claudeAccountSwitch.respawnFailed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn't restart the terminal, so it was left unchanged."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux إعادة تشغيل الطرفية، لذا تُركت دون تغيير."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte das Terminal nicht neu starten, daher wurde es nicht verändert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo reiniciar la terminal, así que no se modificó."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n'a pas pu redémarrer le terminal ; il n'a donc pas été modifié."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はターミナルを再起動できなかったため、ターミナルは変更されていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 터미널을 다시 시작하지 못해 터미널을 변경하지 않았습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法重启终端，因此终端保持不变。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法重新啟動終端機，因此終端機維持不變。"
+          }
+        }
+      }
+    },
+    "dialog.claudeAccountSwitch.resumeManually.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn't resume the conversation automatically. To continue it in this terminal, choose Type Resume Command, or run:\n\n%@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux استئناف المحادثة تلقائيًا. لمتابعتها في هذه الطرفية، اختر «كتابة أمر الاستئناف» أو شغّل:\n\n%@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte die Unterhaltung nicht automatisch fortsetzen. Um sie in diesem Terminal fortzusetzen, wählen Sie „Fortsetzungsbefehl eingeben“ oder führen Sie Folgendes aus:\n\n%@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo reanudar la conversación automáticamente. Para continuarla en esta terminal, elige «Escribir comando de reanudación» o ejecuta:\n\n%@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n'a pas pu reprendre la conversation automatiquement. Pour la poursuivre dans ce terminal, choisissez « Saisir la commande de reprise » ou exécutez :\n\n%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は会話を自動で再開できませんでした。このターミナルで続けるには、「再開コマンドを入力」を選択するか、次を実行してください:\n\n%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 대화를 자동으로 재개하지 못했습니다. 이 터미널에서 계속하려면 '재개 명령 입력'을 선택하거나 다음을 실행하세요:\n\n%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法自动继续对话。如需在此终端中继续，请选择“输入继续命令”，或运行：\n\n%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法自動繼續對話。若要在此終端機中繼續，請選擇「輸入繼續指令」，或執行：\n\n%@"
+          }
+        }
+      }
+    },
+    "dialog.claudeAccountSwitch.resumeManually.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switched to %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم التبديل إلى %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu %@ gewechselt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se cambió a %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compte %@ activé"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に切り替えました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@(으)로 전환됨"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已切换到 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已切換到 %@"
+          }
+        }
+      }
+    },
+    "dialog.claudeAccountSwitch.sameAccount.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This terminal already uses the %@ account."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تستخدم هذه الطرفية الحساب %@ بالفعل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Terminal verwendet bereits das Konto %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta terminal ya usa la cuenta %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce terminal utilise déjà le compte %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このターミナルはすでに %@ アカウントを使用しています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 터미널은 이미 %@ 계정을 사용하고 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此终端已在使用 %@ 账号。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此終端機已在使用 %@ 帳號。"
+          }
+        }
+      }
+    },
+    "dialog.claudeAccountSwitch.transcriptUnavailable.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn't copy the conversation to the %@ account, so the terminal was left unchanged."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux نسخ المحادثة إلى الحساب %@، لذا تُركت الطرفية دون تغيير."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte die Unterhaltung nicht in das Konto %@ kopieren, daher wurde das Terminal nicht verändert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo copiar la conversación a la cuenta %@, así que la terminal no se modificó."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n'a pas pu copier la conversation vers le compte %@ ; le terminal n'a donc pas été modifié."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は会話を %@ アカウントにコピーできなかったため、ターミナルは変更されていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 대화를 %@ 계정으로 복사하지 못해 터미널을 변경하지 않았습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法将对话复制到 %@ 账号，因此终端保持不变。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法將對話複製到 %@ 帳號，因此終端機維持不變。"
+          }
+        }
+      }
+    },
+    "dialog.claudeAccountSwitch.unknownAccount.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Claude account named %@ is registered."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد حساب Claude مسجّل باسم %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es ist kein Claude-Konto namens %@ registriert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay ninguna cuenta de Claude registrada con el nombre %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun compte Claude nommé %@ n'est enregistré."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ という名前の Claude アカウントは登録されていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이름이 %@인 Claude 계정이 등록되어 있지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有名为 %@ 的已注册 Claude 账号。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有名為 %@ 的已註冊 Claude 帳號。"
+          }
+        }
+      }
+    },
+    "dialog.claudeAccountSwitch.confirm.switch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبديل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wechseln"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切り替え"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전환"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換"
+          }
+        }
+      }
+    },
+    "dialog.claudeAccountSwitch.confirm.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop the current response and switch to %@?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد إيقاف الاستجابة الحالية والتبديل إلى %@؟"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktuelle Antwort abbrechen und zu %@ wechseln?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Detener la respuesta actual y cambiar a %@?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrêter la réponse en cours et passer à %@ ?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在の応答を停止して %@ に切り替えますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 응답을 중지하고 %@(으)로 전환하시겠습니까?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要停止当前回复并切换到 %@ 吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要停止目前的回應並切換到 %@ 嗎？"
+          }
+        }
+      }
+    },
+    "command.switchClaudeAccount.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Claude Account: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبديل حساب Claude: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-Konto wechseln: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiar cuenta de Claude: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changer de compte Claude : %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude アカウントを切り替え: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 계정 전환: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换 Claude 账号：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換 Claude 帳號：%@"
+          }
+        }
+      }
+    },
+    "terminalContextMenu.switchClaudeAccount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Claude Account"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبديل حساب Claude"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-Konto wechseln"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiar cuenta de Claude"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changer de compte Claude"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude アカウントを切り替え"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 계정 전환"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换 Claude 账号"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換 Claude 帳號"
+          }
+        }
+      }
+    },
+    "dialog.claudeAccountSwitch.resumeManuallyPaneClosed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The terminal was closed before cmux could resume the conversation. To continue it, run this command in a terminal:\n\n%@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أُغلقت الطرفية قبل أن يتمكن cmux من استئناف المحادثة. لمتابعتها، شغّل هذا الأمر في طرفية:\n\n%@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Terminal wurde geschlossen, bevor cmux die Unterhaltung fortsetzen konnte. Um sie fortzusetzen, führen Sie diesen Befehl in einem Terminal aus:\n\n%@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La terminal se cerró antes de que cmux pudiera reanudar la conversación. Para continuarla, ejecuta este comando en una terminal:\n\n%@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le terminal a été fermé avant que cmux puisse reprendre la conversation. Pour la poursuivre, exécutez cette commande dans un terminal :\n\n%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が会話を再開する前にターミナルが閉じられました。続けるには、ターミナルで次のコマンドを実行してください:\n\n%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 대화를 재개하기 전에 터미널이 닫혔습니다. 계속하려면 터미널에서 다음 명령을 실행하세요:\n\n%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端在 cmux 继续对话前已关闭。如需继续，请在终端中运行此命令：\n\n%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機在 cmux 繼續對話前就已關閉。若要繼續，請在終端機中執行此指令：\n\n%@"
+          }
+        }
+      }
+    },
+    "dialog.claudeAccountSwitch.typeResumeCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type Resume Command"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كتابة أمر الاستئناف"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortsetzungsbefehl eingeben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escribir comando de reanudación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisir la commande de reprise"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再開コマンドを入力"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재개 명령 입력"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入继续命令"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輸入繼續指令"
+          }
+        }
+      }
+    },
+    "cli.claudeAccount.error.noTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No terminal to switch: run this inside a cmux terminal, or pass --surface."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد طرفية للتبديل: شغّل هذا الأمر داخل طرفية cmux، أو مرّر --surface."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Terminal zum Wechseln: Führen Sie den Befehl in einem cmux-Terminal aus oder geben Sie --surface an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay ninguna terminal que cambiar: ejecuta esto dentro de una terminal de cmux o pasa --surface."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun terminal à changer : exécutez cette commande dans un terminal cmux ou passez --surface."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切り替えるターミナルがありません。cmux のターミナル内で実行するか、--surface を指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전환할 터미널이 없습니다. cmux 터미널 안에서 실행하거나 --surface를 지정하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有可切换的终端：请在 cmux 终端中运行，或传入 --surface。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有可切換的終端機：請在 cmux 終端機中執行，或傳入 --surface。"
+          }
+        }
+      }
+    },
+    "cli.claudeAccount.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: print the registered Claude Code accounts (agents.claudeAccounts in cmux.json, plus the default ~/.claude account). Works without a running cmux.\n\nswitch <name>: move a Claude terminal to that account and continue the same conversation there. The terminal restarts under the account and cmux types the resume command. It switches the calling terminal unless --surface names another. --force also switches while Claude is responding, which stops the response.\n\n<surface> is a UUID, a ref like surface:3, or an index with --workspace."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: يعرض حسابات Claude Code المسجّلة (agents.claudeAccounts في cmux.json، إضافةً إلى الحساب الافتراضي ~/.claude). يعمل دون تشغيل cmux.\n\nswitch <name>: ينقل طرفية Claude إلى ذلك الحساب ويتابع المحادثة نفسها هناك. تُعاد تشغيل الطرفية تحت ذلك الحساب ويكتب cmux أمر الاستئناف. يبدّل الطرفية التي استدعته ما لم يحدد --surface طرفية أخرى. يبدّل --force أيضًا أثناء رد Claude، مما يوقف الرد.\n\n<surface> هو UUID، أو مرجع مثل surface:3، أو فهرس مع --workspace."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: zeigt die registrierten Claude-Code-Konten an (agents.claudeAccounts in cmux.json sowie das Standardkonto ~/.claude). Funktioniert ohne laufendes cmux.\n\nswitch <name>: verschiebt ein Claude-Terminal zu diesem Konto und setzt dort dieselbe Unterhaltung fort. Das Terminal startet unter dem Konto neu, und cmux gibt den Fortsetzungsbefehl ein. Gewechselt wird das aufrufende Terminal, sofern --surface kein anderes angibt. Mit --force wird auch gewechselt, während Claude antwortet; die Antwort wird dabei gestoppt.\n\n<surface> ist eine UUID, eine Referenz wie surface:3 oder ein Index mit --workspace."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: muestra las cuentas de Claude Code registradas (agents.claudeAccounts en cmux.json, más la cuenta predeterminada ~/.claude). Funciona sin cmux en ejecución.\n\nswitch <name>: mueve una terminal de Claude a esa cuenta y continúa allí la misma conversación. La terminal se reinicia con esa cuenta y cmux escribe el comando de reanudación. Cambia la terminal que lo ejecuta, salvo que --surface indique otra. --force también cambia mientras Claude está respondiendo, lo que detiene la respuesta.\n\n<surface> es un UUID, una referencia como surface:3 o un índice con --workspace."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list : affiche les comptes Claude Code enregistrés (agents.claudeAccounts dans cmux.json, plus le compte par défaut ~/.claude). Fonctionne sans que cmux soit lancé.\n\nswitch <name> : déplace un terminal Claude vers ce compte et y poursuit la même conversation. Le terminal redémarre sous ce compte et cmux saisit la commande de reprise. La commande change le terminal appelant, sauf si --surface en désigne un autre. --force change aussi de compte pendant que Claude répond, ce qui arrête la réponse.\n\n<surface> est un UUID, une référence comme surface:3 ou un index avec --workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: 登録済みの Claude Code アカウント（cmux.json の agents.claudeAccounts と、既定の ~/.claude アカウント）を表示します。cmux が起動していなくても動作します。\n\nswitch <name>: Claude のターミナルをそのアカウントに移し、同じ会話をそこで続けます。ターミナルはそのアカウントで再起動し、cmux が再開コマンドを入力します。--surface で別のターミナルを指定しない限り、呼び出し元のターミナルを切り替えます。--force を指定すると Claude の応答中でも切り替え、その応答は停止します。\n\n<surface> は UUID、surface:3 のような参照、または --workspace と組み合わせたインデックスです。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list: 등록된 Claude Code 계정(cmux.json의 agents.claudeAccounts와 기본 ~/.claude 계정)을 표시합니다. cmux가 실행 중이 아니어도 동작합니다.\n\nswitch <name>: Claude 터미널을 해당 계정으로 옮기고 같은 대화를 그곳에서 이어 갑니다. 터미널이 해당 계정으로 다시 시작되고 cmux가 재개 명령을 입력합니다. --surface로 다른 터미널을 지정하지 않으면 호출한 터미널을 전환합니다. --force를 지정하면 Claude가 응답 중일 때도 전환하며, 응답은 중지됩니다.\n\n<surface>는 UUID, surface:3 같은 참조, 또는 --workspace와 함께 쓰는 인덱스입니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list：列出已注册的 Claude Code 账号（cmux.json 中的 agents.claudeAccounts，以及默认的 ~/.claude 账号）。无需运行 cmux 即可使用。\n\nswitch <name>：将 Claude 终端移到该账号，并在那里继续同一段对话。终端会以该账号重新启动，cmux 会输入继续命令。除非 --surface 指定其他终端，否则切换调用此命令的终端。--force 也会在 Claude 响应时切换，并停止该响应。\n\n<surface> 可以是 UUID、类似 surface:3 的引用，或配合 --workspace 的索引。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list：列出已註冊的 Claude Code 帳號（cmux.json 中的 agents.claudeAccounts，以及預設的 ~/.claude 帳號）。不需執行 cmux 也能使用。\n\nswitch <name>：將 Claude 終端機移到該帳號，並在那裡繼續同一段對話。終端機會以該帳號重新啟動，cmux 會輸入繼續指令。除非 --surface 指定其他終端機，否則切換呼叫此指令的終端機。--force 也會在 Claude 回應時切換，並停止該回應。\n\n<surface> 可以是 UUID、像 surface:3 這樣的參照，或搭配 --workspace 的索引。"
+          }
+        }
+      }
+    },
+    "cli.claudeAccount.list.defaultMarker": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(default)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(افتراضي)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(Standard)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(predeterminada)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(par défaut)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（既定）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(기본)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（默认）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（預設）"
+          }
+        }
+      }
+    },
+    "cli.claudeAccount.resumeManually": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn't resume the conversation automatically. To continue it, run this command in that terminal:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux استئناف المحادثة تلقائيًا. لمتابعتها، شغّل هذا الأمر في تلك الطرفية:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte die Unterhaltung nicht automatisch fortsetzen. Um sie fortzusetzen, führen Sie diesen Befehl in diesem Terminal aus:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo reanudar la conversación automáticamente. Para continuarla, ejecuta este comando en esa terminal:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n'a pas pu reprendre la conversation automatiquement. Pour la poursuivre, exécutez cette commande dans ce terminal :"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は会話を自動で再開できませんでした。続けるには、そのターミナルで次のコマンドを実行してください:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 대화를 자동으로 재개하지 못했습니다. 계속하려면 해당 터미널에서 다음 명령을 실행하세요:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法自动继续对话。如需继续，请在该终端中运行此命令："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法自動繼續對話。若要繼續，請在該終端機中執行此指令："
+          }
+        }
+      }
+    },
+    "cli.claudeAccount.resumeManuallyPaneClosed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The terminal was closed before cmux could resume the conversation. To continue it, run this command in a terminal:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أُغلقت الطرفية قبل أن يتمكن cmux من استئناف المحادثة. لمتابعتها، شغّل هذا الأمر في طرفية:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Terminal wurde geschlossen, bevor cmux die Unterhaltung fortsetzen konnte. Um sie fortzusetzen, führen Sie diesen Befehl in einem Terminal aus:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La terminal se cerró antes de que cmux pudiera reanudar la conversación. Para continuarla, ejecuta este comando en una terminal:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le terminal a été fermé avant que cmux puisse reprendre la conversation. Pour la poursuivre, exécutez cette commande dans un terminal :"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が会話を再開する前にターミナルが閉じられました。続けるには、ターミナルで次のコマンドを実行してください:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 대화를 재개하기 전에 터미널이 닫혔습니다. 계속하려면 터미널에서 다음 명령을 실행하세요:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端在 cmux 继续对话前已关闭。如需继续，请在终端中运行此命令："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機在 cmux 繼續對話前就已關閉。若要繼續，請在終端機中執行此指令："
+          }
+        }
+      }
+    },
+    "cli.claudeAccount.switched": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK switched %1$@ from %2$@ to %3$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK تم تبديل %1$@ من %2$@ إلى %3$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ von %2$@ zu %3$@ gewechselt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ cambiado de %2$@ a %3$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ basculé de %2$@ vers %3$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@ を %2$@ から %3$@ に切り替えました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK %1$@을(를) %2$@에서 %3$@(으)로 전환함"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK 已将 %1$@ 从 %2$@ 切换到 %3$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK 已將 %1$@ 從 %2$@ 切換到 %3$@"
+          }
+        }
+      }
+    },
+    "cli.claudeAccount.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux claude-account [list] [--json]\n       cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux claude-account [list] [--json]\n           cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux claude-account [list] [--json]\n            cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux claude-account [list] [--json]\n     cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation: cmux claude-account [list] [--json]\n             cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方: cmux claude-account [list] [--json]\n       cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux claude-account [list] [--json]\n     cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法: cmux claude-account [list] [--json]\n    cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法: cmux claude-account [list] [--json]\n    cmux claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]"
+          }
+        }
+      }
+    },
+    "socket.claudeAccountSwitch.agentRunning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude is responding in this terminal. Retry with force to stop the response and switch."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يرد Claude حاليًا في هذه الطرفية. أعد المحاولة مع force لإيقاف الرد والتبديل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude antwortet gerade in diesem Terminal. Wiederholen Sie den Vorgang mit force, um die Antwort zu stoppen und zu wechseln."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude está respondiendo en esta terminal. Vuelve a intentarlo con force para detener la respuesta y cambiar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude est en train de répondre dans ce terminal. Réessayez avec force pour arrêter la réponse et changer de compte."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude はこのターミナルで応答中です。応答を停止して切り替えるには、force を指定して再試行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude가 이 터미널에서 응답 중입니다. 응답을 중지하고 전환하려면 force를 지정해 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 正在此终端中响应。请加上 force 重试，以停止响应并切换。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 正在此終端機中回應。請加上 force 重試，以停止回應並切換。"
+          }
+        }
+      }
+    },
+    "socket.claudeAccountSwitch.accountRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid account"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "account مفقود أو غير صالح"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "account fehlt oder ist ungültig"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falta account o no es válido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "account manquant ou invalide"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "account がないか無効です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "account가 없거나 올바르지 않습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缺少 account 或其无效"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缺少 account 或其無效"
+          }
+        }
+      }
+    },
+    "socket.claudeAccountSwitch.forceNotBoolean": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "force must be true or false"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون قيمة force إما true أو false"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "force muss true oder false sein"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "force debe ser true o false"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "force doit valoir true ou false"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "force は true または false である必要があります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "force는 true 또는 false여야 합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "force 必须是 true 或 false"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "force 必須是 true 或 false"
+          }
+        }
+      }
+    },
+    "notification.claudeAccountSwitch.resumeManually.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn't resume the conversation automatically. To continue it, run this command in the terminal:\n\n%@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux استئناف المحادثة تلقائيًا. لمتابعتها، شغّل هذا الأمر في الطرفية:\n\n%@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte die Unterhaltung nicht automatisch fortsetzen. Um sie fortzusetzen, führen Sie diesen Befehl im Terminal aus:\n\n%@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo reanudar la conversación automáticamente. Para continuarla, ejecuta este comando en la terminal:\n\n%@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n'a pas pu reprendre la conversation automatiquement. Pour la poursuivre, exécutez cette commande dans le terminal :\n\n%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は会話を自動で再開できませんでした。続けるには、ターミナルで次のコマンドを実行してください:\n\n%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 대화를 자동으로 재개하지 못했습니다. 계속하려면 터미널에서 다음 명령을 실행하세요:\n\n%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法自动继续对话。如需继续，请在终端中运行此命令：\n\n%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法自動繼續對話。若要繼續，請在終端機中執行此指令：\n\n%@"
+          }
+        }
+      }
+    },
+    "notification.claudeAccountSwitch.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude account switched"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تبديل حساب Claude"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-Konto gewechselt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuenta de Claude cambiada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compte Claude changé"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude アカウントを切り替えました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 계정 전환됨"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已切换 Claude 账号"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已切換 Claude 帳號"
+          }
+        }
+      }
+    },
+    "socket.claudeAccountSwitch.surfaceRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing surface_id"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface_id مفقود"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface_id fehlt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falta surface_id"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface_id manquant"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface_id がありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface_id가 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缺少 surface_id"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缺少 surface_id"
+          }
+        }
+      }
+    },
+    "dialog.claudeAccountSwitch.noConversationYet.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn't find any messages in this conversation to continue on another account. If you haven't sent one yet, send a message, then switch."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يعثر cmux على أي رسائل في هذه المحادثة لمتابعتها على حساب آخر. إذا لم ترسل رسالة بعد، فأرسل رسالة ثم بدّل الحساب."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte in dieser Unterhaltung keine Nachrichten finden, die in einem anderen Konto fortgesetzt werden könnten. Falls Sie noch keine gesendet haben, senden Sie eine Nachricht und wechseln Sie dann."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no encontró ningún mensaje en esta conversación para continuar en otra cuenta. Si todavía no has enviado ninguno, envía un mensaje y luego cambia de cuenta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n'a trouvé aucun message dans cette conversation à poursuivre sur un autre compte. Si vous n'en avez pas encore envoyé, envoyez un message, puis changez de compte."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はこの会話で別のアカウントに引き継げるメッセージを見つけられませんでした。まだメッセージを送信していない場合は、メッセージを送信してから切り替えてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 이 대화에서 다른 계정으로 이어갈 메시지를 찾지 못했습니다. 아직 메시지를 보내지 않았다면 메시지를 보낸 뒤 전환하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 在此对话中找不到任何可在其他账号继续的消息。如果你还没有发送消息，请先发送一条消息再切换。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 在此對話中找不到任何可在其他帳號繼續的訊息。如果你還沒傳送訊息，請先傳送一則訊息再切換。"
+          }
+        }
+      }
+    },
+    "dialog.claudeAccountSwitch.transcriptDiverged.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This conversation was continued separately on both accounts, and the newer copy is on %@. cmux can't merge the two copies, so the terminal was left unchanged."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استُكملت هذه المحادثة بشكل منفصل على كلا الحسابين، والنسخة الأحدث موجودة على %@. لا يستطيع cmux دمج النسختين، لذا تُركت الطرفية دون تغيير."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Unterhaltung wurde in beiden Konten getrennt fortgesetzt, die neuere Kopie liegt in %@. cmux kann die beiden Kopien nicht zusammenführen, daher wurde das Terminal nicht verändert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta conversación se continuó por separado en ambas cuentas y la copia más reciente está en %@. cmux no puede combinar las dos copias, así que la terminal no se modificó."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette conversation a été poursuivie séparément sur les deux comptes, et la copie la plus récente se trouve sur %@. cmux ne peut pas fusionner les deux copies ; le terminal n'a donc pas été modifié."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この会話は両方のアカウントで別々に続けられており、新しいほうのコピーは %@ にあります。cmux は 2 つのコピーを統合できないため、ターミナルは変更されていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 대화는 두 계정에서 따로 이어졌고, 더 최근 사본은 %@에 있습니다. cmux는 두 사본을 합칠 수 없어 터미널을 변경하지 않았습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此对话已在两个账号中各自继续，较新的副本在 %@。cmux 无法合并两份副本，因此终端保持不变。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此對話已在兩個帳號中各自繼續，較新的副本在 %@。cmux 無法合併兩份副本，因此終端機維持不變。"
+          }
+        }
+      }
+    },
+    "cli.claudeAccount.previousClaudeStillRunning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The previous Claude is still running, so cmux didn't resume the conversation: it would run in two places. Once that Claude has quit, run this command in that terminal:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يزال Claude السابق قيد التشغيل، لذا لم يستأنف cmux المحادثة: كانت ستعمل في مكانين. بعد إغلاق Claude ذلك، شغّل هذا الأمر في تلك الطرفية:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das vorherige Claude läuft noch, daher hat cmux die Unterhaltung nicht fortgesetzt: Sie würde sonst an zwei Stellen laufen. Sobald dieses Claude beendet ist, führen Sie diesen Befehl in diesem Terminal aus:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El Claude anterior sigue en ejecución, así que cmux no reanudó la conversación: se ejecutaría en dos sitios. Cuando ese Claude se haya cerrado, ejecuta este comando en esa terminal:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'ancien Claude est toujours en cours d'exécution ; cmux n'a donc pas repris la conversation, qui s'exécuterait sinon à deux endroits. Une fois ce Claude fermé, exécutez cette commande dans ce terminal :"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前の Claude がまだ実行中のため、cmux は会話を再開しませんでした。再開すると同じ会話が 2 か所で実行されます。その Claude が終了したら、そのターミナルで次のコマンドを実行してください:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이전 Claude가 아직 실행 중이라 cmux가 대화를 이어가지 않았습니다. 이어가면 같은 대화가 두 곳에서 실행됩니다. 그 Claude가 종료되면 해당 터미널에서 다음 명령을 실행하세요:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "之前的 Claude 仍在运行，因此 cmux 没有继续对话：否则对话会同时在两处运行。待该 Claude 退出后，请在那个终端中运行此命令："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先前的 Claude 仍在執行，因此 cmux 沒有繼續對話：否則對話會同時在兩處執行。待該 Claude 結束後，請在那個終端機中執行此命令："
+          }
+        }
+      }
+    },
+    "dialog.claudeAccountSwitch.agentNotOwnedByPane.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude in this terminal runs inside tmux or screen, or detached from the terminal, so restarting the terminal wouldn't stop it and the conversation would run in two places. The terminal was left unchanged."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل Claude في هذه الطرفية داخل tmux أو screen، أو منفصلًا عن الطرفية، لذا لن توقفه إعادة تشغيل الطرفية وستعمل المحادثة في مكانين. تُركت الطرفية دون تغيير."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude läuft in diesem Terminal innerhalb von tmux oder screen oder vom Terminal getrennt. Ein Neustart des Terminals würde es daher nicht beenden, und die Unterhaltung würde an zwei Stellen laufen. Das Terminal wurde nicht verändert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En esta terminal, Claude se ejecuta dentro de tmux o screen, o separado de la terminal, así que reiniciar la terminal no lo detendría y la conversación se ejecutaría en dos sitios. La terminal no se modificó."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dans ce terminal, Claude s'exécute dans tmux ou screen, ou détaché du terminal ; redémarrer le terminal ne l'arrêterait donc pas et la conversation s'exécuterait à deux endroits. Le terminal n'a pas été modifié."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このターミナルの Claude は tmux や screen の中、またはターミナルから切り離された状態で実行されているため、ターミナルを再起動しても停止せず、同じ会話が 2 か所で実行されます。ターミナルは変更されていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 터미널의 Claude는 tmux나 screen 안에서, 또는 터미널과 분리되어 실행 중이라 터미널을 다시 시작해도 멈추지 않고 같은 대화가 두 곳에서 실행됩니다. 터미널을 변경하지 않았습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此终端中的 Claude 在 tmux 或 screen 内运行，或已与终端分离，因此重启终端无法将它停止，对话会同时在两处运行。终端保持不变。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此終端機中的 Claude 在 tmux 或 screen 內執行，或已與終端機分離，因此重新啟動終端機無法將它停止，對話會同時在兩處執行。終端機維持不變。"
+          }
+        }
+      }
+    },
+    "dialog.claudeAccountSwitch.previousClaudeStillRunning.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The previous Claude (process %1$@) is still running, so cmux didn't resume the conversation here: it would run in two places. Once that Claude has quit, run this command in this terminal:\n\n%2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يزال Claude السابق (العملية %1$@) قيد التشغيل، لذا لم يستأنف cmux المحادثة هنا: كانت ستعمل في مكانين. بعد إغلاق Claude ذلك، شغّل هذا الأمر في هذه الطرفية:\n\n%2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das vorherige Claude (Prozess %1$@) läuft noch, daher hat cmux die Unterhaltung hier nicht fortgesetzt: Sie würde sonst an zwei Stellen laufen. Sobald dieses Claude beendet ist, führen Sie diesen Befehl in diesem Terminal aus:\n\n%2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El Claude anterior (proceso %1$@) sigue en ejecución, así que cmux no reanudó la conversación aquí: se ejecutaría en dos sitios. Cuando ese Claude se haya cerrado, ejecuta este comando en esta terminal:\n\n%2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'ancien Claude (processus %1$@) est toujours en cours d'exécution ; cmux n'a donc pas repris la conversation ici, car elle s'exécuterait à deux endroits. Une fois ce Claude fermé, exécutez cette commande dans ce terminal :\n\n%2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前の Claude (プロセス %1$@) がまだ実行中のため、cmux はここで会話を再開しませんでした。再開すると同じ会話が 2 か所で実行されます。その Claude が終了したら、このターミナルで次のコマンドを実行してください:\n\n%2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이전 Claude(프로세스 %1$@)가 아직 실행 중이라 cmux가 여기서 대화를 이어가지 않았습니다. 이어가면 같은 대화가 두 곳에서 실행됩니다. 그 Claude가 종료되면 이 터미널에서 다음 명령을 실행하세요:\n\n%2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "之前的 Claude（进程 %1$@）仍在运行，因此 cmux 没有在这里继续对话：否则对话会同时在两处运行。待该 Claude 退出后，请在此终端中运行此命令：\n\n%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先前的 Claude（處理程序 %1$@）仍在執行，因此 cmux 沒有在這裡繼續對話：否則對話會同時在兩處執行。待該 Claude 結束後，請在此終端機中執行此命令：\n\n%2$@"
+          }
+        }
+      }
+    },
+    "cli.surface.newDisplay.usage": {
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux surface new-display --machine <cloud-id> [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [--json]"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux surface new-display --machine <cloud-id> [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [--json]"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux surface new-display --machine <cloud-id> [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [--json]"
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux surface new-display --machine <cloud-id> [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [--json]"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux surface new-display --machine <cloud-id> [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [--json]"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux surface new-display --machine <cloud-id> [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [--json]"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux surface new-display --machine <cloud-id> [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [--json]"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux surface new-display --machine <cloud-id> [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [--json]"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "cmux surface new-display --machine <cloud-id> [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [--json]"
+            }
+          }
+        }
+      },
+    "cli.surface.newDisplay.help": {
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "creates a new VNC display on a cloud machine and opens it unless --no-open."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "erstellt eine neue VNC-Anzeige auf einer Cloud-Maschine und öffnet sie, sofern nicht --no-open."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "crée un nouvel écran VNC sur une machine cloud et l’ouvre sauf si --no-open est utilisé."
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ينشئ شاشة VNC جديدة على جهاز سحابي ويفتحها ما لم يتم تمرير --no-open."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "crea una nueva pantalla VNC en una máquina en la nube y la abre salvo que se use --no-open."
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "在雲端機器上建立新的 VNC 顯示器，除非指定 --no-open，否則會開啟。"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "在云端机器上创建新的 VNC 屏幕，除非传入 --no-open，否则会打开。"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "클라우드 머신에 새 VNC 디스플레이를 만들고 --no-open을 지정하지 않으면 엽니다."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "クラウドマシンに新しい VNC ディスプレイを作成し、--no-open を指定しない限り開きます。"
+            }
+          }
+        }
+      },
+    "cli.surface.newDisplay.error.unknownOption": {
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface new-display: unknown option"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface new-display: unbekannte Option"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface new-display : option inconnue"
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface new-display: خيار غير معروف"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface new-display: opción desconocida"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface new-display：未知選項"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface new-display：未知选项"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface new-display: 알 수 없는 옵션"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface new-display: 不明なオプション"
+            }
+          }
+        }
+      },
+    "cli.surface.newDisplay.error.unexpectedArgument": {
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface new-display: unexpected argument"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface new-display: unerwartetes Argument"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface new-display : argument inattendu"
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface new-display: وسيطة غير متوقعة"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface new-display: argumento inesperado"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface new-display：未預期的引數"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface new-display：意外参数"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface new-display: 예기치 않은 인수"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface new-display: 予期しない引数"
+            }
+          }
+        }
+      },
+    "cli.surface.newDisplay.error.machineRequired": {
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface new-display: --machine <cloud-id> is required"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface new-display: --machine <cloud-id> ist erforderlich"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface new-display : --machine <cloud-id> est requis"
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface new-display: ‎--machine <cloud-id> مطلوب"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface new-display: se requiere --machine <cloud-id>"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface new-display：需要 --machine <cloud-id>"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface new-display：需要 --machine <cloud-id>"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface new-display: --machine <cloud-id>이(가) 필요합니다"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface new-display: --machine <cloud-id> が必要です"
+            }
+          }
+        }
+      },
+    "cli.surface.newDisplay.result.projectionFailed": {
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "(created; open it with `cmux surface open <resource>`)"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "(erstellt; mit `cmux surface open <resource>` öffnen)"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "(créé ; ouvrez-le avec `cmux surface open <resource>`)"
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "(تم الإنشاء؛ افتحه باستخدام `cmux surface open <resource>`)"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "(creado; ábralo con `cmux surface open <resource>`)"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "（已建立；請使用 `cmux surface open <resource>` 開啟）"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "（已创建；请使用 `cmux surface open <resource>` 打开）"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "(생성됨; `cmux surface open <resource>`으로 여십시오)"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "（作成済み。`cmux surface open <resource>` で開いてください）"
+            }
+          }
+        }
+      },
+    "socket.surface.newDisplay.machineRequired": {
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface.new_display requires `machine` (a cloud machine id)."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface.new_display benötigt `machine` (eine Cloud-Maschinen-ID)."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface.new_display nécessite `machine` (un identifiant de machine cloud)."
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "يتطلب surface.new_display قيمة `machine` (معرّف جهاز سحابي)."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface.new_display requiere `machine` (un identificador de máquina en la nube)."
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface.new_display 需要 `machine`（雲端機器 ID）。"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface.new_display 需要 `machine`（云端机器 ID）。"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface.new_display에는 `machine`(클라우드 머신 ID)이 필요합니다."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface.new_display には `machine`（クラウドマシン ID）が必要です。"
+            }
+          }
+        }
+      },
+    "socket.surface.newDisplay.cloudOnly": {
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface.new_display requires a cloud machine id; local display creation is not supported."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface.new_display benötigt eine Cloud-Maschinen-ID; das Erstellen lokaler Anzeigen wird nicht unterstützt."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface.new_display nécessite un identifiant de machine cloud ; la création d’un écran local n’est pas prise en charge."
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "يتطلب surface.new_display معرّف جهاز سحابي؛ إنشاء شاشات محلية غير مدعوم."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface.new_display requiere un identificador de máquina en la nube; no se admite crear pantallas locales."
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface.new_display 需要雲端機器 ID；不支援建立本機顯示器。"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface.new_display 需要云端机器 ID；不支持创建本地屏幕。"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface.new_display에는 클라우드 머신 ID가 필요하며 로컬 디스플레이 생성은 지원되지 않습니다."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface.new_display にはクラウドマシン ID が必要です。ローカルディスプレイの作成はサポートされていません。"
+            }
+          }
+        }
+      },
+    "socket.surface.newDisplay.workspaceRequired": {
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface.new_display: no target workspace to open into (pass `workspace_id`, select one, or send `open: false`)."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface.new_display: Kein Zielarbeitsbereich zum Öffnen (übergib `workspace_id`, wähle einen aus oder sende `open: false`)."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface.new_display : aucun espace de travail cible à ouvrir (indiquez `workspace_id`, sélectionnez-en un ou envoyez `open: false`)."
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface.new_display: لا توجد مساحة عمل مستهدفة للفتح فيها (مرّر `workspace_id` أو حدّد واحدة أو أرسل `open: false`)."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface.new_display: no hay un espacio de trabajo de destino donde abrirlo (pase `workspace_id`, seleccione uno o envíe `open: false`)."
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface.new_display：沒有可開啟的目標工作區（請傳入 `workspace_id`、選取工作區，或傳送 `open: false`）。"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface.new_display：没有可打开的目标工作区（请传入 `workspace_id`、选择一个，或发送 `open: false`）。"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface.new_display: 열 대상 작업 공간이 없습니다(`workspace_id`를 전달하거나 하나를 선택하거나 `open: false`를 보내십시오)."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "surface.new_display: 開く対象のワークスペースがありません（`workspace_id` を渡すか選択するか、`open: false` を送信してください）。"
+            }
+          }
+        }
+      },
+    "socket.surface.newDisplay.projectionFailed": {
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "The display was created, but it could not be opened in the selected workspace. Retry with `cmux surface open <resource>`."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Die Anzeige wurde erstellt, konnte aber im ausgewählten Arbeitsbereich nicht geöffnet werden. Versuche es erneut mit `cmux surface open <resource>`."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "L’écran a été créé, mais n’a pas pu être ouvert dans l’espace de travail sélectionné. Réessayez avec `cmux surface open <resource>`."
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "تم إنشاء الشاشة، ولكن تعذر فتحها في مساحة العمل المحددة. أعد المحاولة باستخدام `cmux surface open <resource>`."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "La pantalla se creó, pero no se pudo abrir en el espacio de trabajo seleccionado. Vuelva a intentarlo con `cmux surface open <resource>`."
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "顯示器已建立，但無法在選取的工作區中開啟。請使用 `cmux surface open <resource>` 重試。"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "屏幕已创建，但无法在选定的工作区中打开。请使用 `cmux surface open <resource>` 重试。"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "디스플레이가 생성되었지만 선택한 작업 공간에서 열 수 없습니다. `cmux surface open <resource>`으로 다시 시도하십시오."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "ディスプレイは作成されましたが、選択したワークスペースで開けませんでした。`cmux surface open <resource>` で再試行してください。"
+            }
+          }
+        }
+      },
+    "socket.surface.newDisplay.busy": {
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "A display is already being created on this machine, or the machine changed. Wait for it to finish and retry."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Auf dieser Maschine wird bereits eine Anzeige erstellt, oder die Maschine hat sich geändert. Warte, bis der Vorgang abgeschlossen ist, und versuche es erneut."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Un écran est déjà en cours de création sur cette machine, ou la machine a changé. Attendez la fin de l’opération et réessayez."
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "يجري بالفعل إنشاء شاشة على هذا الجهاز، أو أن الجهاز تغيّر. انتظر حتى تنتهي العملية ثم أعد المحاولة."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Ya se está creando una pantalla en esta máquina, o la máquina cambió. Espere a que termine y vuelva a intentarlo."
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "此機器上已有顯示器正在建立，或機器已變更。請等待完成後再重試。"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "此机器上已有屏幕正在创建，或机器已更改。请等待完成后重试。"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "이 머신에서 이미 디스플레이를 생성하는 중이거나 머신이 변경되었습니다. 완료될 때까지 기다린 후 다시 시도하십시오."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "このマシンではすでにディスプレイを作成中か、マシンが変更されました。完了するまで待ってから再試行してください。"
+            }
+          }
+        }
+      },
+    "socket.surface.newDisplay.timedOut": {
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Creating the cloud display timed out. Check the catalog before retrying."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Das Erstellen der Cloud-Anzeige ist wegen einer Zeitüberschreitung fehlgeschlagen. Prüfe den Katalog, bevor du es erneut versuchst."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "La création de l’écran cloud a expiré. Vérifiez le catalogue avant de réessayer."
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "انتهت مهلة إنشاء الشاشة السحابية. تحقّق من الكتالوج قبل إعادة المحاولة."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Se agotó el tiempo para crear la pantalla en la nube. Compruebe el catálogo antes de volver a intentarlo."
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "建立雲端顯示器逾時。請先檢查目錄再重試。"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "创建云端屏幕超时。请在重试前检查目录。"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "클라우드 디스플레이 생성 시간이 초과되었습니다. 다시 시도하기 전에 카탈로그를 확인하십시오."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "クラウドディスプレイの作成がタイムアウトしました。再試行する前にカタログを確認してください。"
+            }
+          }
+        }
+      },
+    "socket.surface.newDisplay.failed": {
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Could not create the cloud display. Check the machine status and retry."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Die Cloud-Anzeige konnte nicht erstellt werden. Prüfe den Maschinenstatus und versuche es erneut."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Impossible de créer l’écran cloud. Vérifiez l’état de la machine et réessayez."
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "تعذر إنشاء الشاشة السحابية. تحقّق من حالة الجهاز وأعد المحاولة."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "No se pudo crear la pantalla en la nube. Compruebe el estado de la máquina y vuelva a intentarlo."
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "無法建立雲端顯示器。請檢查機器狀態並重試。"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "无法创建云端屏幕。请检查机器状态并重试。"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "클라우드 디스플레이를 생성할 수 없습니다. 머신 상태를 확인하고 다시 시도하십시오."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "クラウドディスプレイを作成できませんでした。マシンの状態を確認して再試行してください。"
+            }
+          }
+        }
+      },
+    "socket.surface.newDisplay.requestFailed": {
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "The cloud display request ended before returning a result."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Die Cloud-Anfrage für die Anzeige wurde beendet, bevor ein Ergebnis zurückgegeben wurde."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "La demande d’écran cloud s’est terminée avant de renvoyer un résultat."
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "انتهى طلب الشاشة السحابية قبل إرجاع نتيجة."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "La solicitud de la pantalla en la nube terminó antes de devolver un resultado."
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "雲端顯示器要求在傳回結果前結束。"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "云端屏幕请求在返回结果前结束。"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "클라우드 디스플레이 요청이 결과를 반환하기 전에 종료되었습니다."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "クラウドディスプレイのリクエストが結果を返す前に終了しました。"
+            }
+          }
+        }
+      },
     "settings.app.equalizeSplitsOnDividerDoubleClick": {
       "extractionState": "manual",
       "localizations": {

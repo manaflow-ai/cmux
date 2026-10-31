@@ -208,6 +208,8 @@ extension CMUXCLI {
         \(String(localized: "cli.help.agents.messages", defaultValue: "agent messages [on|off|status] [<target>] [--workspace]"))
         agent-hibernation <on|off>
         agent-hibernation <hibernate|wake> <surface>
+        claude-account [list] [--json]
+        claude-account switch <name> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--force] [--json]
         chief open
         chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>|--worktree <repo> [--branch <name>]] [--agent-arg <arg>] [--focus|--no-focus] [--wait-working [--timeout <s>]] [--json] (-- <task>|--prompt-file <path|->)
         chief send [--conversation <id>] [--from <name>] [--no-reply] <text|->

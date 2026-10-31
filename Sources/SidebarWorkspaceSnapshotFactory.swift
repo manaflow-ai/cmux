@@ -144,6 +144,7 @@ struct SidebarWorkspaceSnapshotFactory {
                 : [],
             compacts: settings.compactsAgentStatus
         )
+        let metadataRows = rowsIncludingClaudeAccount(statusEntries.rows, appendsAccount: detailVisibility.showsMetadata && !settings.compactsAgentStatus, orderedPanelIds: orderedPanelIds)
         let activeCodingAgentCount = SidebarAgentActivitySummary.visibleActiveCodingAgentCount(
             showsAgentActivity: showsAgentActivity,
             statesByPanelId: workspace.agentLifecycleStatesByPanelId
@@ -188,10 +189,10 @@ struct SidebarWorkspaceSnapshotFactory {
             metadataEntries: detailVisibility.showsMetadata
                 ? (detailVisibility.showsAgentUsage
                     ? SidebarAgentUsageFormatter().decorate(
-                        statusEntries.rows,
+                        metadataRows,
                         usageByStatusKey: workspace.sidebarMetadata.agentUsageByStatusKey
                     )
-                    : statusEntries.rows)
+                    : metadataRows)
                 : [],
             metadataBlocks: detailVisibility.showsMetadata
                 ? workspace.sidebarMetadataBlocksInDisplayOrder()

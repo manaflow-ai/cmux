@@ -424,6 +424,28 @@ enum CmuxEmbeddedConfigSchema {
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "claudeAccounts": {
+          "type": "array",
+          "default": [],
+          "description": "Claude Code accounts (config directories) a running Claude pane can be switched between. The name is what menus and the CLI show. The default ~/.claude account is always available; declare it only to give it a different name.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "configDir"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._-]{1,64}$",
+                "description": "Account name shown in menus and accepted by the CLI. \"default\" is reserved for ~/.claude."
+              },
+              "configDir": {
+                "type": "string",
+                "pattern": "^(/|~/)",
+                "description": "Absolute path, or a path starting with ~/, of the account's CLAUDE_CONFIG_DIR, for example ~/.claude-work."
+              }
+            }
+          }
+        },
         "launchers": {
           "type": "array",
           "default": [],
