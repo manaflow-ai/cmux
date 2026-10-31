@@ -27,6 +27,8 @@ enum CloudHandlers {
         bindCreation(into: registry, context: context, reason: { cloud.unavailableReason })
         bindAccount(into: registry, context: context, reason: reason)
         bindMove(into: registry, context: context)
+        bindSignInRecovery(into: registry, cloud: cloud)
+        CloudMachineStage.gatePowerActions(into: registry, context: context)
         // Any catalog row added later without a handler stays covered.
         registry.bindUnavailable(registry.unboundActionIDs(in: [.cloud]), ActionFailure(message: MiscHandlerStrings.cloud))
     }
@@ -375,7 +377,9 @@ enum CloudHandlers {
     /// returns at once, as before.
     static func attached(_ session: CloudMachineSession, _ invocation: ActionInvocation,
                          within limit: Duration = .seconds(300)) async throws {
+        try requireAttachableState(session)
         await session.refreshIfMaybePaused()
+        try requireAttachableState(session)
         session.attach(origin: connectOrigin(for: invocation))
         guard session.resuming else { return }
         let daemon = session.daemon
@@ -395,7 +399,13 @@ enum CloudHandlers {
     /// machine with no connection may be paused behind a stale record, so
     /// ``attached(_:_:within:)`` reads it again and decides.
     static func attachable(_ session: CloudMachineSession) -> Bool {
-        session.daemon.connection != nil || session.appLink == nil
+        !session.machine.shownStatus.isChanging && (session.daemon.connection != nil || session.appLink == nil)
+    }
+
+    static func requireAttachableState(_ session: CloudMachineSession) throws {
+        if let reason = CloudStrings.machineChanging(session.machine.shownStatus) {
+            throw ActionFailure(message: reason)
+        }
     }
 
     static func commandArgument(_ invocation: ActionInvocation) throws -> String {
