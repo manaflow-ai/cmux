@@ -125,17 +125,19 @@ struct CloudFileRoutingTests {
         let rendered = services.viewers.markdownPages.open(file, in: fixture.pane, focus: true, on: daemon)
         let sourceInvocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: rendered), origin: .cli)
         #expect(services.registry.action(for: "browser.editSource")?.targetHidden?(sourceInvocation) == false)
-        #expect(services.registry.reportingRefusal {
+        let sourceRefusal = services.registry.reportingRefusal {
             #expect(services.registry.perform("browser.editSource", invocation: sourceInvocation))
-        } == nil)
+        }
+        #expect(sourceRefusal == nil)
         let keys = services.pages.tabIDs(in: fixture.pane.paneKey)
         let source = try #require(keys.first { services.viewers.editorPages.file($0) == file })
         #expect(FilePageHandlers.file(ofTab: source, services) == nil, "source opened on this Mac")
         let pageInvocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: source), origin: .cli)
         #expect(services.registry.action(for: "file.openAsPage")?.targetHidden?(pageInvocation) == false)
-        #expect(services.registry.reportingRefusal {
+        let pageRefusal = services.registry.reportingRefusal {
             #expect(services.registry.perform("file.openAsPage", invocation: pageInvocation))
-        } == nil)
+        }
+        #expect(pageRefusal == nil)
         #expect(services.viewers.markdownPages.debugTabs.filter { $0.file == file }.map(\.key) == [rendered],
                 "the round trip must reuse the Cloud Markdown tab, not create a local copy")
         #expect(FilePageHandlers.file(ofTab: rendered, services) == nil)
@@ -151,9 +153,10 @@ struct CloudFileRoutingTests {
         let source = services.viewers.editorPages.open(file, in: fixture.pane, focus: false, on: fixture.pane.daemon)
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: source), origin: .cli)
         #expect(services.registry.action(for: "file.openAsPage")?.targetHidden?(invocation) == true)
-        #expect(services.registry.reportingRefusal {
+        let refusal = services.registry.reportingRefusal {
             #expect(services.registry.perform("file.openAsPage", invocation: invocation))
-        } != nil)
+        }
+        #expect(refusal != nil)
         #expect(FilePageHandlers.file(ofTab: source, services) == nil)
     }
 
