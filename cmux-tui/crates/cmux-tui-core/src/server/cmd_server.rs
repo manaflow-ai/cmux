@@ -44,7 +44,7 @@ pub(super) fn identify(
     let mut identity = json!({
         "app": "cmux-tui",
         // The npm/PyPI release (the crate version in the app and local builds).
-        "version": crate::release::DISTRIBUTION_VERSION,
+        "version": crate::release::distribution_version(),
         "build_commit": stamped_build_commit(),
         "build_id": build_id,
         "cli_path": cli_path,
