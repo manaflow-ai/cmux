@@ -35,10 +35,12 @@ step runs inside .github/actions/pr-media-publish, the one publishing step: it
 brings the pr-media environment's private-terms list and an OCR tool, so a CI
 writer never falls back to the built-in patterns with its images unread.
 
-Conversion needs ffmpeg. The branch is read and written with git alone (no
-GitHub REST call; see MediaBranch), so this needs push access to the repository
-over git: the host's ssh key or credential helper, or GH_TOKEN in CI. `gh` is
-used only for `--comment`. `--dry-run` resolves the whole plan and prints it
+Conversion needs ffmpeg. The branch is read and written with git first (see
+MediaBranch): the host's ssh key or credential helper, or GH_TOKEN in CI. When
+git cannot reach or authenticate to the remote (a host where only `gh` is
+logged in, a network failure), the same reads and the one-commit write go
+through `gh api graphql` instead (ApiBranch), never a `contents/` read.
+`--comment` uses `gh` too. `--dry-run` resolves the whole plan and prints it
 without running either; it still runs the privacy check on the files as given
 (no gif yet).
 """
@@ -46,9 +48,11 @@ without running either; it still runs the privacy check on the files as given
 from __future__ import annotations
 
 import argparse
+import base64
 import contextlib
 import fcntl
 import importlib.util
+import json
 import os
 import random
 import re
@@ -106,6 +110,11 @@ class MediaError(Exception):
 
 class PrivacyError(MediaError):
     """The privacy check refused the files or could not run; a retry gets the same answer."""
+
+
+class GitTransportError(MediaError):
+    """git could not reach or authenticate to the remote (or timed out). GitHub's GraphQL API may still answer
+    the same question, so the module-level reads and writes fall back to ApiBranch on this error alone."""
 
 
 # The one privacy check shared by every pr-media writer; it lives in scripts/ci.
@@ -374,7 +383,7 @@ def check_size(path: Path, kind: str) -> list[str]:
     return []
 
 
-# Every read and write of the media branch goes through git, never the REST API: on agent hosts the
+# Every read and write of the media branch goes through git first, never the REST API: on agent hosts the
 # glaeda-gh shim refuses a `contents/` read of a repository checked out there, and gh-quota refuses REST
 # reads with no GraphQL equivalent (`branches/`, `pulls/N`) and every REST write once the shared quota
 # runs low, which stopped every `cmux-ci capture --pr` upload (2026-10-30). Git spends none of that quota.
@@ -390,10 +399,14 @@ PUSH_ATTEMPTS = 6
 CACHE_ENV = "PR_MEDIA_CACHE_DIR"
 REMOTE_ENV = "PR_MEDIA_REMOTE_URL"
 GIT_TIMEOUT = 300
-# What a lost race or a GitHub hiccup looks like from `git push`; anything else (a protected branch, no push
-# access) is final.
-PUSH_RETRYABLE = re.compile(r"non-fast-forward|fetch first|cannot lock ref|failed to update ref|incorrect old value"
-                            r"|HTTP 50[0234]|RPC failed|remote end hung up|early EOF|Connection reset|timed out")
+# What a lost race looks like from `git push`: built again on the new tip and retried, and final (not a reason
+# to try the API) once the attempts run out.
+PUSH_RACE = re.compile(r"non-fast-forward|fetch first|cannot lock ref|failed to update ref|incorrect old value")
+# A GitHub hiccup: retried, then handed to the API like any other transport failure.
+PUSH_TRANSIENT = re.compile(r"HTTP 50[0234]|RPC failed|remote end hung up|early EOF|Connection reset|timed out")
+# The remote answered and refused the push (a protected branch, a hook): the API would be refused the same way,
+# so this is final and never retried.
+PUSH_REFUSED = re.compile(r"\[remote rejected\]|hook declined")
 DEFAULT_IDENTITY = ("cmux pr-media", "pr-media@users.noreply.github.com")
 
 
@@ -537,7 +550,7 @@ class MediaBranch:
             done = subprocess.run(command, input=input, capture_output=True, text=True, env=self.env(),
                                   timeout=timeout)
         except subprocess.TimeoutExpired as error:
-            raise MediaError(f"git {args[0]} took longer than {timeout:.0f} s") from error
+            raise GitTransportError(f"git {args[0]} took longer than {timeout:.0f} s") from error
         if check and done.returncode != 0:
             raise MediaError(redact(f"git {args[0]} failed: {(done.stderr or done.stdout).strip()}"))
         return done
@@ -563,7 +576,8 @@ class MediaBranch:
         if done.returncode == 2:  # --exit-code: the remote answered and has no such ref
             return None
         if done.returncode != 0:
-            raise MediaError(redact(f"git ls-remote {self.url} failed: {(done.stderr or done.stdout).strip()}"))
+            raise GitTransportError(redact(f"git ls-remote {self.url} failed: "
+                                           f"{(done.stderr or done.stdout).strip()}"))
         for line in done.stdout.splitlines():
             sha, _, name = line.partition("\t")
             if name == ref:
@@ -605,7 +619,7 @@ class MediaBranch:
             if "couldn't find remote ref" in said:
                 raise MediaError(f"no {self.branch} branch on {self.repo}. It holds PR media only; "
                                  "create it before uploading.")
-            raise MediaError(f"git fetch of {self.branch} failed: {said}")
+            raise GitTransportError(f"git fetch of {self.branch} failed: {said}")
         self.tip = self.git("rev-parse", "--verify", f"{self.tracking}^{{commit}}").stdout.strip()
         return self.tip
 
@@ -695,13 +709,149 @@ class MediaBranch:
                     self.tip = commit.stdout.strip()
                     return self.tip
                 said = redact((done.stderr or done.stdout).strip())
-                if attempt == PUSH_ATTEMPTS or not PUSH_RETRYABLE.search(said):
-                    raise MediaError(f"upload of {', '.join(files)} failed: {said}")
-                time.sleep(0.5 * attempt + random.random())
+                failed = f"upload of {', '.join(files)} failed: {said}"
+                if PUSH_REFUSED.search(said) and not PUSH_RACE.search(said):
+                    raise MediaError(failed)
+                if PUSH_RACE.search(said):
+                    if attempt == PUSH_ATTEMPTS:
+                        raise MediaError(failed)
+                elif not PUSH_TRANSIENT.search(said) or attempt == PUSH_ATTEMPTS:
+                    raise GitTransportError(failed)
+                retry_pause(0.5 * attempt + random.random())
+        raise AssertionError("unreachable")
+
+
+def retry_pause(seconds: float) -> None:
+    """The wait before a retried push or API write; its own function so a test can count retries without
+    patching time.sleep for the whole interpreter (subprocess waits on a child with it)."""
+    time.sleep(seconds)
+
+
+# Where the API fallback runs `gh`; tests point it at a stand-in.
+API_RUNNER = None
+API_TIMEOUT = 300
+API_RACE = re.compile(r"(?i)expected branch to point to|not a fast.forward|reference update failed"
+                      r"|HTTP 50[0234]|was submitted too quickly")
+API_REF_QUERY = """query($owner: String!, $name: String!, $ref: String!) {
+  repository(owner: $owner, name: $name) { ref(qualifiedName: $ref) { target { oid } } }
+}"""
+API_OBJECT_QUERY = """query($owner: String!, $name: String!, $expression: String!) {
+  repository(owner: $owner, name: $name) { object(expression: $expression) { __typename oid } }
+}"""
+API_PULL_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) { pullRequest(number: $number) { number } }
+}"""
+API_COMMIT_MUTATION = """mutation($input: CreateCommitOnBranchInput!) {
+  createCommitOnBranch(input: $input) { commit { oid } }
+}"""
+
+
+class ApiBranch:
+    """The media BRANCH of REPO through GitHub's GraphQL API, for when git can't reach or authenticate to the
+    remote (a host where only `gh` is logged in, a network that drops git). Reads ask for a ref's commit and
+    for a path's object id at a fixed commit: no file content, so none is the `contents/` source read the
+    host's gh guard refuses, and none spends the REST quota. A write is one createCommitOnBranch with
+    expectedHeadOid, so a batch is still one commit and a lost race is retried on the new tip, never forced.
+    The ref read turns the broker's 60 s answer cache off (GLAEDA_GH_CACHE_TTL=0): a stale tip would only
+    lose every race. Object reads name a commit sha, so a cached answer is still the right one."""
+
+    def __init__(self, repo: str, branch: str, runner=None):
+        self.repo, self.branch = repo, safe_branch(branch)
+        self.owner, _, self.name = repo.partition("/")
+        self.runner = runner
+
+    def graphql(self, query: str, variables: dict, allow_missing: bool = False) -> dict:
+        body = json.dumps({"query": query, "variables": variables})
+        runner = self.runner or API_RUNNER or subprocess.run
+        try:
+            done = runner(["gh", "api", "graphql", "--input", "-"], input=body, capture_output=True, text=True,
+                          env={**os.environ, "GLAEDA_GH_CACHE_TTL": "0"}, timeout=API_TIMEOUT)
+        except subprocess.TimeoutExpired as error:
+            raise MediaError(f"gh api graphql took longer than {API_TIMEOUT} s") from error
+        except FileNotFoundError as error:
+            raise MediaError("gh is not installed") from error
+        try:
+            answer = json.loads(done.stdout or "{}")
+        except json.JSONDecodeError:
+            answer = {}
+        errors = answer.get("errors") or []
+        if allow_missing:
+            errors = [error for error in errors if error.get("type") != "NOT_FOUND"]
+        if errors or answer.get("data") is None:
+            said = "; ".join(str(error.get("message", error)) for error in errors) \
+                or (done.stderr or done.stdout or f"exit {done.returncode}").strip()
+            raise MediaError(f"gh api graphql failed: {said}")
+        return answer["data"]
+
+    def ref_tip(self, ref: str) -> str | None:
+        data = self.graphql(API_REF_QUERY, {"owner": self.owner, "name": self.name, "ref": ref})
+        found = (data.get("repository") or {}).get("ref")
+        return found["target"]["oid"] if found else None
+
+    def tip(self) -> str:
+        tip = self.ref_tip(f"refs/heads/{self.branch}")
+        if tip is None:
+            raise MediaError(f"no {self.branch} branch on {self.repo}. It holds PR media only; "
+                             "create it before uploading.")
+        return tip
+
+    def has_pull_request(self, number: int) -> bool:
+        data = self.graphql(API_PULL_QUERY, {"owner": self.owner, "name": self.name, "number": number},
+                            allow_missing=True)
+        return bool((data.get("repository") or {}).get("pullRequest"))
+
+    def entry(self, commit: str, path: str) -> tuple[str, str] | None:
+        """(type, oid) of PATH at COMMIT, or None when nothing is there."""
+        data = self.graphql(API_OBJECT_QUERY, {"owner": self.owner, "name": self.name,
+                                               "expression": f"{commit}:{path}"}, allow_missing=True)
+        found = (data.get("repository") or {}).get("object")
+        return (found["__typename"], found["oid"]) if found else None
+
+    def blob_sha(self, path: str, commit: str | None = None) -> str | None:
+        safe_remote_path(path)
+        found = self.entry(commit or self.tip(), path)
+        return found[1] if found and found[0] == "Blob" else None
+
+    def put(self, files: dict[str, Path], message: str, expect: dict[str, str | None] | None = None) -> str:
+        """FILES as one commit on the branch, as MediaBranch.put: EXPECT is checked on every tip it builds on."""
+        for path in files:
+            safe_remote_path(path)
+        additions = [{"path": path, "contents": base64.b64encode(local.read_bytes()).decode("ascii")}
+                     for path, local in files.items()]
+        headline, _, rest = message.partition("\n")
+        for attempt in range(1, PUSH_ATTEMPTS + 1):
+            tip = self.tip()
+            for path in files:
+                found = self.entry(tip, path)
+                if found and found[0] != "Blob":
+                    raise MediaError(f"{path} is a folder on {self.branch}, not a file")
+                seen = found[1] if found else None
+                if expect is not None and path in expect and seen != expect[path]:
+                    raise MediaError(f"{path} changed on {self.branch} while this run was uploading "
+                                     "(another upload got there first); nothing was written. Check what is "
+                                     "there now, then rename the file or pass --force to replace it.")
+            commit_message = {"headline": headline}
+            if rest.strip():
+                commit_message["body"] = rest.strip()
+            try:
+                data = self.graphql(API_COMMIT_MUTATION, {"input": {
+                    "branch": {"repositoryNameWithOwner": self.repo, "branchName": self.branch},
+                    "expectedHeadOid": tip, "message": commit_message,
+                    "fileChanges": {"additions": additions}}})
+            except MediaError as error:
+                if attempt == PUSH_ATTEMPTS or not API_RACE.search(str(error)):
+                    raise MediaError(f"upload of {', '.join(files)} through the GitHub API failed: {error}") \
+                        from None
+                retry_pause(0.5 * attempt + random.random())
+                continue
+            return data["createCommitOnBranch"]["commit"]["oid"]
         raise AssertionError("unreachable")
 
 
 _BRANCHES: dict[tuple[str, str], MediaBranch] = {}
+# Repository and branch -> why git failed, for the rest of the process: once git can't reach the remote, every
+# later call goes to the API at once rather than waiting out another timeout.
+_GIT_FAILED: dict[tuple[str, str], GitTransportError] = {}
 
 
 def media_branch(repo: str, branch: str) -> MediaBranch:
@@ -712,8 +862,25 @@ def media_branch(repo: str, branch: str) -> MediaBranch:
     return _BRANCHES[key]
 
 
+def with_fallback(repo: str, branch: str, store: MediaBranch | None, by_git, by_api):
+    """BY_GIT(store), or BY_API(ApiBranch) when git can't reach or authenticate to the remote. Every other
+    error (a missing branch, a refused push, a race lost too often, a path that is a folder) is final."""
+    key = (repo, branch)
+    if key not in _GIT_FAILED:
+        try:
+            return by_git(store or media_branch(repo, branch))
+        except GitTransportError as error:
+            _GIT_FAILED[key] = error
+    failed = _GIT_FAILED[key]
+    try:
+        return by_api(ApiBranch(repo, branch))
+    except MediaError as error:
+        raise MediaError(f"{failed}; the GitHub API fallback failed too: {error}") from None
+
+
 def existing_sha(repo: str, branch: str, path: str, store: MediaBranch | None = None) -> str | None:
-    return (store or media_branch(repo, branch)).blob_sha(path)
+    safe_remote_path(path)
+    return with_fallback(repo, branch, store, lambda git: git.blob_sha(path), lambda api: api.blob_sha(path))
 
 
 def put_files(repo: str, branch: str, files: dict[str, Path], message: str, checked: bool = False,
@@ -726,7 +893,8 @@ def put_files(repo: str, branch: str, files: dict[str, Path], message: str, chec
     bounded number of times. EXPECT makes it a compare-and-swap (MediaBranch.put)."""
     if not checked:
         check_privacy(list(files.items()), repo)
-    return (store or media_branch(repo, branch)).put(files, message, expect=expect)
+    return with_fallback(repo, branch, store, lambda git: git.put(files, message, expect=expect),
+                         lambda api: api.put(files, message, expect=expect))
 
 
 def put_file(repo: str, branch: str, path: str, local: Path, message: str,
@@ -740,7 +908,8 @@ def put_file(repo: str, branch: str, path: str, local: Path, message: str,
 
 
 def require_branch(repo: str, branch: str, store: MediaBranch | None = None) -> None:
-    if (store or media_branch(repo, branch)).ls_remote(f"refs/heads/{safe_branch(branch)}") is None:
+    ref = f"refs/heads/{safe_branch(branch)}"
+    if with_fallback(repo, branch, store, lambda git: git.ls_remote(ref), lambda api: api.ref_tip(ref)) is None:
         raise MediaError(
             f"no {branch} branch on {repo}. It holds PR media only; create it before uploading."
         )
@@ -748,7 +917,9 @@ def require_branch(repo: str, branch: str, store: MediaBranch | None = None) -> 
 
 def require_pull_request(pr: int, repo: str, branch: str = BRANCH, store: MediaBranch | None = None) -> None:
     """A folder named after a pull request that does not exist is litter."""
-    if (store or media_branch(repo, branch)).ls_remote(f"refs/pull/{pr}/head") is None:
+    found = with_fallback(repo, branch, store, lambda git: git.ls_remote(f"refs/pull/{pr}/head") is not None,
+                          lambda api: api.has_pull_request(pr))
+    if not found:
         raise MediaError(f"no pull request {pr} on {repo}; check --pr and --repo")
 
 

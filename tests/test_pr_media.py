@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import base64
 import contextlib
 import importlib.util
 import io
@@ -67,7 +68,14 @@ class Origin:
                 del os.environ[name]
         MODULE._BRANCHES.clear()
         case.addCleanup(MODULE._BRANCHES.clear)
+        MODULE._GIT_FAILED.clear()
+        case.addCleanup(MODULE._GIT_FAILED.clear)
         self.bare = self.root / "origin.git"
+        # GitHub's GraphQL API over the same repository, for the fallback when git can't reach it.
+        self.api = FakeApi(self.bare, branch)
+        api = mock.patch.object(MODULE, "API_RUNNER", self.api)
+        api.start()
+        case.addCleanup(api.stop)
         subprocess.run(["git", "init", "-q", "--bare", str(self.bare)], check=True)
         git(self.bare, "config", "uploadpack.allowFilter", "true")
         git(self.bare, "config", "uploadpack.allowAnySHA1InWant", "true")
@@ -114,9 +122,77 @@ class Origin:
         hook.chmod(0o755)
 
 
+class FakeApi:
+    """Stands in for `gh api graphql` over the Origin's bare repository: the ref and object reads and
+    createCommitOnBranch that ApiBranch makes when git can't reach the remote. Anything else, a REST call
+    included, fails the test. `fails` makes every call fail as a host with no gh login would."""
+
+    def __init__(self, bare, branch):
+        self.bare, self.branch = Path(bare), branch
+        self.calls = []
+        self.fails = False
+
+    def __call__(self, argv, input=None, **kwargs):
+        if argv != ["gh", "api", "graphql", "--input", "-"]:
+            raise AssertionError(f"only `gh api graphql --input -` may run, ran {argv}")
+        assert kwargs["env"]["GLAEDA_GH_CACHE_TTL"] == "0"
+        request = json.loads(input)
+        self.calls.append(request)
+        if self.fails:
+            return SimpleNamespace(returncode=1, stdout="", stderr="gh: To get started with GitHub CLI, run: gh auth login")
+        query, variables = request["query"], request["variables"]
+        if "createCommitOnBranch" in query:
+            data, errors = self.commit(variables["input"])
+        elif "pullRequest(" in query:
+            found = self.rev(f"refs/pull/{variables['number']}/head")
+            data = {"repository": {"pullRequest": {"number": variables["number"]} if found else None}}
+            errors = [] if found else [{"type": "NOT_FOUND", "message": "Could not resolve to a PullRequest"}]
+        elif "ref(qualifiedName" in query:
+            tip = self.rev(variables["ref"])
+            data, errors = {"repository": {"ref": {"target": {"oid": tip}} if tip else None}}, []
+        elif "object(expression" in query:
+            oid = self.rev(variables["expression"])
+            kind = self.git("cat-file", "-t", oid).stdout.strip() if oid else ""
+            data = {"repository": {"object": {"__typename": kind.capitalize(), "oid": oid} if oid else None}}
+            errors = []
+        else:
+            raise AssertionError(f"unexpected query {query}")
+        answer = {"data": data, **({"errors": errors} if errors else {})}
+        return SimpleNamespace(returncode=1 if errors else 0, stdout=json.dumps(answer), stderr="")
+
+    def git(self, *args, input=None, env=None):
+        return subprocess.run(["git", "-C", str(self.bare), *args], capture_output=True, input=input,
+                              text=not isinstance(input, bytes), env={**os.environ, **(env or {})})
+
+    def rev(self, name):
+        done = self.git("rev-parse", "--verify", "--quiet", name)
+        return done.stdout.strip() if done.returncode == 0 else None
+
+    def commit(self, given):
+        ref = f"refs/heads/{given['branch']['branchName']}"
+        tip = self.rev(ref)
+        if tip != given["expectedHeadOid"]:
+            return None, [{"message": f'Expected branch to point to "{given["expectedHeadOid"]}" but it did not. '
+                                      "Pull and try again."}]
+        with tempfile.TemporaryDirectory() as scratch:
+            index = {"GIT_INDEX_FILE": str(Path(scratch) / "index")}
+            assert self.git("read-tree", tip, env=index).returncode == 0
+            for added in given["fileChanges"]["additions"]:
+                blob = subprocess.run(["git", "-C", str(self.bare), "hash-object", "-w", "--stdin"],
+                                      input=base64.b64decode(added["contents"]), capture_output=True,
+                                      check=True).stdout.decode().strip()
+                assert self.git("update-index", "--add", "--cacheinfo", f"100644,{blob},{added['path']}",
+                                env=index).returncode == 0
+            tree = self.git("write-tree", env=index).stdout.strip()
+        commit = self.git("-c", "user.name=api", "-c", "user.email=api@example.com", "commit-tree", tree,
+                          "-p", tip, "-m", given["message"]["headline"]).stdout.strip()
+        assert self.git("update-ref", ref, commit, tip).returncode == 0
+        return {"createCommitOnBranch": {"commit": {"oid": commit}}}, []
+
+
 class FakeGh:
-    """Stands in for `gh`, which only `--comment` still runs (every branch read and write is git). Any other
-    gh call fails the test: no REST call is left in an upload."""
+    """Stands in for `gh` as main()'s runner, which only `--comment` uses (the branch is read and written with
+    git, or through FakeApi when git can't reach it). Any other gh call fails the test."""
 
     def __init__(self, comment_fails=False):
         self.comment_fails = comment_fails
@@ -414,14 +490,53 @@ class ReadTests(unittest.TestCase):
             MODULE.require_branch("o/r", "pr-media")
         self.assertIn("create it", str(raised.exception))
 
-    def test_an_unreachable_remote_surfaces_what_git_said_and_never_says_create_it(self):
+    def test_an_unreachable_remote_with_no_api_either_says_both_and_never_says_create_it(self):
         origin = Origin(self)
         os.environ["PR_MEDIA_REMOTE_URL"] = f"file://{origin.root / 'gone.git'}"
+        origin.api.fails = True
         with self.assertRaises(MODULE.MediaError) as raised:
             MODULE.require_branch("o/r", "pr-media")
         self.assertIn("ls-remote", str(raised.exception))
+        self.assertIn("gh auth login", str(raised.exception))
         # The one thing it must never say: that the shared branch is missing.
         self.assertNotIn("create it", str(raised.exception))
+
+    def test_when_git_cannot_reach_the_remote_the_reads_go_through_graphql(self):
+        origin = Origin(self, existing=["12/shot.png"])
+        os.environ["PR_MEDIA_REMOTE_URL"] = f"file://{origin.root / 'gone.git'}"
+        MODULE.require_branch("o/r", "pr-media")
+        MODULE.require_pull_request(7, "o/r")
+        with self.assertRaises(MODULE.MediaError) as raised:
+            MODULE.require_pull_request(999999, "o/r")
+        self.assertIn("999999", str(raised.exception))
+        self.assertEqual(MODULE.existing_sha("o/r", "pr-media", "12/shot.png"), origin.blob("12/shot.png"))
+        self.assertIsNone(MODULE.existing_sha("o/r", "pr-media", "12"))
+        self.assertIsNone(MODULE.existing_sha("o/r", "pr-media", "12/other.png"))
+        # Every read is GraphQL; none asks for a file's content.
+        self.assertTrue(origin.api.calls)
+        self.assertFalse([call for call in origin.api.calls if "text" in call["query"] or "contents" in call["query"]])
+
+    def test_git_is_tried_once_per_run_then_the_api_answers_at_once(self):
+        origin = Origin(self)
+        os.environ["PR_MEDIA_REMOTE_URL"] = f"file://{origin.root / 'gone.git'}"
+        tried = []
+        real = MODULE.MediaBranch.ls_remote
+
+        def ls_remote(store, ref):
+            tried.append(ref)
+            return real(store, ref)
+
+        with mock.patch.object(MODULE.MediaBranch, "ls_remote", ls_remote):
+            MODULE.require_branch("o/r", "pr-media")
+            MODULE.require_pull_request(7, "o/r")
+        self.assertEqual(tried, ["refs/heads/pr-media"])
+
+    def test_the_api_is_never_asked_while_git_works(self):
+        origin = Origin(self, existing=["12/shot.png"])
+        MODULE.require_branch("o/r", "pr-media")
+        MODULE.require_pull_request(7, "o/r")
+        MODULE.existing_sha("o/r", "pr-media", "12/shot.png")
+        self.assertEqual(origin.api.calls, [])
 
     def test_an_existing_branch_and_pull_request_are_accepted(self):
         Origin(self)
@@ -587,20 +702,25 @@ class UploadTests(unittest.TestCase):
     def test_a_refused_push_fails_with_what_the_remote_said_and_is_not_retried(self):
         origin = Origin(self)
         origin.hook("echo 'protected branch: no pushes here' >&2\nexit 1\n")
-        with tempfile.TemporaryDirectory() as scratch, mock.patch.object(MODULE.time, "sleep") as slept, \
+        with tempfile.TemporaryDirectory() as scratch, mock.patch.object(MODULE, "retry_pause") as slept, \
                 self.assertRaises(MODULE.MediaError) as raised:
             MODULE.put_file("o/r", "pr-media", "1/shot.png", written(scratch, "shot.png", PNG), "m", checked=True)
         self.assertIn("protected branch", str(raised.exception))
         slept.assert_not_called()
+        # The remote answered and refused: the API would be refused the same way, so it is not asked.
+        self.assertEqual(origin.api.calls, [])
+        self.assertNotIn("1/shot.png", origin.files())
 
     def test_a_branch_that_stays_busy_still_fails_after_a_bounded_number_of_pushes(self):
         origin = Origin(self)
         count = origin.root / "pushes"
         origin.hook(f"echo x >> '{count}'\necho 'non-fast-forward' >&2\nexit 1\n")
-        with tempfile.TemporaryDirectory() as scratch, mock.patch.object(MODULE.time, "sleep"), \
+        with tempfile.TemporaryDirectory() as scratch, mock.patch.object(MODULE, "retry_pause"), \
                 self.assertRaises(MODULE.MediaError):
             MODULE.put_file("o/r", "pr-media", "1/shot.png", written(scratch, "shot.png", PNG), "m", checked=True)
         self.assertEqual(len(count.read_text().split()), MODULE.PUSH_ATTEMPTS)
+        # A race lost every time is not a transport failure: the API does not get a go at it.
+        self.assertEqual(origin.api.calls, [])
 
     def test_a_folder_is_never_overwritten_by_a_file(self):
         origin = Origin(self, existing=["1/shot.png"])
@@ -728,6 +848,92 @@ class UploadTests(unittest.TestCase):
             subprocess.run(["git", "init", "-q", str(clone)], check=True)
             git(clone, "remote", "add", "origin", "git@github.com:o/r.git")
             self.assertEqual(MODULE.remote_url("o/r"), "git@github.com:o/r.git")
+
+
+class ApiFallbackUploadTests(unittest.TestCase):
+    """When git can't reach or authenticate to the remote, the batch still lands as one commit through
+    GraphQL's createCommitOnBranch, with the same no-replace rule."""
+
+    def unreachable(self, **options):
+        origin = Origin(self, **options)
+        os.environ["PR_MEDIA_REMOTE_URL"] = f"file://{origin.root / 'gone.git'}"
+        return origin
+
+    def test_a_batch_lands_as_one_commit_through_the_api(self):
+        origin = self.unreachable()
+        before = origin.commits()
+        with tempfile.TemporaryDirectory() as scratch:
+            first, second = written(scratch, "a.png", PNG), written(scratch, "b.gif", GIF)
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                code = MODULE.main(["--pr", "7", str(first), str(second)], runner=FakeGh())
+        self.assertEqual(code, 0, out.getvalue())
+        self.assertEqual(origin.commits(), before + 1)
+        self.assertEqual((origin.files()["7/a.png"], origin.files()["7/b.gif"]), (PNG, GIF))
+        self.assertIn("![", out.getvalue())
+
+    def test_an_existing_file_needs_force_through_the_api_too(self):
+        origin = self.unreachable(existing=["7/shot.png"])
+        with tempfile.TemporaryDirectory() as scratch:
+            shot = written(scratch, "shot.png", PNG)
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
+                code = MODULE.main(["--pr", "7", str(shot)], runner=FakeGh())
+            self.assertEqual(code, 1)
+            self.assertIn("--force", err.getvalue())
+            self.assertEqual(origin.files()["7/shot.png"], b"old 7/shot.png")
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(MODULE.main(["--pr", "7", "--force", str(shot)], runner=FakeGh()), 0)
+        self.assertEqual(origin.files()["7/shot.png"], PNG)
+
+    def test_a_path_taken_after_the_check_is_never_replaced_through_the_api(self):
+        origin = self.unreachable()
+        with tempfile.TemporaryDirectory() as scratch:
+            shot = written(scratch, "shot.png", PNG)
+            real = MODULE.ApiBranch.put
+
+            def put(store, files, message, expect=None):
+                origin.write({"7/shot.png": b"theirs"})
+                return real(store, files, message, expect=expect)
+
+            with mock.patch.object(MODULE.ApiBranch, "put", put), \
+                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
+                code = MODULE.main(["--pr", "7", str(shot)], runner=FakeGh())
+        self.assertEqual(code, 1)
+        self.assertIn("another upload got there first", err.getvalue())
+        self.assertEqual(origin.files()["7/shot.png"], b"theirs")
+
+    def test_a_lost_race_is_built_again_on_the_new_tip(self):
+        origin = self.unreachable()
+        api = MODULE.ApiBranch("o/r", "pr-media")
+        real_tip = api.tip
+        raced = []
+
+        def tip():
+            seen = real_tip()
+            if not raced:
+                raced.append(seen)
+                origin.write({"9/other.png": b"theirs"})
+            return seen
+
+        api.tip = tip
+        with tempfile.TemporaryDirectory() as scratch, mock.patch.object(MODULE, "retry_pause") as slept:
+            api.put({"9/shot.png": written(scratch, "shot.png", PNG)}, "m", expect={"9/shot.png": None})
+        self.assertEqual(slept.call_count, 1)
+        self.assertEqual(origin.files()["9/other.png"], b"theirs")
+        self.assertEqual(origin.files()["9/shot.png"], PNG)
+
+    def test_a_folder_is_never_overwritten_through_the_api(self):
+        origin = self.unreachable(existing=["1/shot.png"])
+        with tempfile.TemporaryDirectory() as scratch, self.assertRaises(MODULE.MediaError) as raised:
+            MODULE.put_file("o/r", "pr-media", "1", written(scratch, "shot.png", PNG), "m", checked=True)
+        self.assertIn("folder", str(raised.exception))
+        self.assertIn("1/shot.png", origin.files())
+
+    def test_library_callers_still_get_the_privacy_check_on_the_api_path(self):
+        self.unreachable()
+        with tempfile.TemporaryDirectory() as scratch, \
+                mock.patch.object(MODULE, "check_privacy", side_effect=MODULE.PrivacyError("refused")), \
+                self.assertRaises(MODULE.PrivacyError):
+            MODULE.put_file("o/r", "pr-media", "1/shot.png", written(scratch, "shot.png", PNG), "m")
 
 
 class MainTests(unittest.TestCase):
