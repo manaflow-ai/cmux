@@ -211,7 +211,8 @@ impl Http for PosterHttp {
 pub fn query_identify(socket: &Path, timeout: Duration) -> io::Result<Value> {
     let deadline = Instant::now() + timeout;
     let mut stream = UnixStream::connect(socket)?;
-    stream.set_write_timeout(Some(timeout))?;
+    let left = deadline.saturating_duration_since(Instant::now());
+    stream.set_write_timeout(Some(left.max(Duration::from_millis(1))))?;
     stream.write_all(b"{\"id\":1,\"cmd\":\"identify\"}\n")?;
     let mut line = Vec::new();
     let mut chunk = [0u8; 4096];
@@ -232,6 +233,9 @@ pub fn query_identify(socket: &Path, timeout: Duration) -> io::Result<Value> {
         }
     }
     let end = line.iter().position(|b| *b == b'\n').unwrap_or(line.len());
+    if end > MAX_LINE {
+        return Err(io::Error::other("daemon identify line over 64 KB"));
+    }
     let reply: Value =
         serde_json::from_slice(line.get(..end).unwrap_or_default()).map_err(io::Error::other)?;
     if *reply.field("ok") == true && reply.field("data").is_object() {
@@ -618,14 +622,10 @@ impl Worker {
         let mut lines = Vec::new();
         for &i in readable {
             let Some(client) = self.clients.get_mut(i) else { continue };
-            match read_lines(&mut client.stream, &mut client.buf) {
-                Ok((read, open)) => {
-                    lines.extend(read.into_iter().map(|line| (i, line)));
-                    if !open {
-                        closed.push(i);
-                    }
-                }
-                Err(_) => closed.push(i),
+            let (read, open) = read_lines(&mut client.stream, &mut client.buf);
+            lines.extend(read.into_iter().map(|line| (i, line)));
+            if !open {
+                closed.push(i);
             }
         }
         // A GitHub token ask or a hand-off report takes its connection to
@@ -802,7 +802,7 @@ impl Worker {
     fn read_activity(&mut self) {
         let Some(stream) = self.activity.stream.as_mut() else { return };
         // A line over `MAX_LINE` drops the stream like an EOF, so the buffer never grows past it.
-        let (lines, open) = read_lines(stream, &mut self.activity.buf).unwrap_or_default();
+        let (lines, open) = read_lines(stream, &mut self.activity.buf);
         for line in lines {
             let Ok(msg) = serde_json::from_str::<Value>(&line) else {
                 log("activity: unreadable daemon line ignored");
@@ -943,11 +943,12 @@ fn read_available(stream: &mut UnixStream, buf: &mut Vec<u8>) -> io::Result<bool
 }
 
 /// The complete lines available now, and whether the stream is still usable:
-/// `false` at end of stream or when the unfinished line is over `MAX_LINE`.
-fn read_lines(stream: &mut UnixStream, buf: &mut Vec<u8>) -> io::Result<(Vec<String>, bool)> {
-    let open = read_available(stream, buf)?;
+/// `false` at end of stream, on a read error, or when the unfinished line is
+/// over `MAX_LINE`. So `buf` never holds more than `MAX_LINE` plus one read.
+fn read_lines(stream: &mut UnixStream, buf: &mut Vec<u8>) -> (Vec<String>, bool) {
+    let open = read_available(stream, buf).unwrap_or(false);
     let lines = take_lines(buf);
-    Ok((lines, open && buf.len() <= MAX_LINE))
+    (lines, open && buf.len() <= MAX_LINE)
 }
 
 /// The first `n` bytes of a read buffer; a reader that claims more than

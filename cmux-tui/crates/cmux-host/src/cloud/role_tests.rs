@@ -138,14 +138,25 @@ fn identify_from_a_daemon_that_drips_bytes_ends_at_its_deadline() {
 #[test]
 fn identify_stops_reading_a_line_over_max_line() {
     let (_dir, socket) =
-        fake_daemon(vec![vec![b'x'; 1024 * 1024]], Duration::ZERO, Duration::from_secs(5));
+        fake_daemon(vec![vec![b'x'; 1024 * 1024]], Duration::ZERO, Duration::from_secs(6));
     let started = Instant::now();
+    assert!(super::query_identify(&socket, Duration::from_secs(5)).is_err());
+    // Without the cap the read waits out the whole 5 s timeout.
+    let elapsed = started.elapsed();
+    assert!(elapsed < Duration::from_millis(2500), "read past MAX_LINE: {elapsed:?}");
+}
+
+/// A complete, valid reply just over `MAX_LINE` is refused too, even when its
+/// newline arrives in the read that crosses the cap.
+#[test]
+fn identify_refuses_a_whole_reply_over_max_line() {
+    let head = b"{\"ok\":true,\"data\":{\"pad\":\"";
+    let tail = b"\"}}\n";
+    let mut reply = head.to_vec();
+    reply.resize(super::MAX_LINE + 100 - tail.len(), b'x');
+    reply.extend_from_slice(tail);
+    let (_dir, socket) = fake_daemon(vec![reply], Duration::ZERO, Duration::from_secs(1));
     assert!(super::query_identify(&socket, Duration::from_secs(3)).is_err());
-    assert!(
-        started.elapsed() < Duration::from_secs(1),
-        "read past MAX_LINE: {:?}",
-        started.elapsed()
-    );
 }
 
 /// HQ#5351 item 3: the activity stream kept an unfinished line past `MAX_LINE`
@@ -156,7 +167,7 @@ fn a_line_over_max_line_ends_the_stream() {
     theirs.set_nonblocking(true).unwrap();
     let mut buf = Vec::new();
     ours.write_all(b"{\"ok\":true}\nxx").unwrap();
-    let (lines, open) = super::read_lines(&mut theirs, &mut buf).unwrap();
+    let (lines, open) = super::read_lines(&mut theirs, &mut buf);
     assert_eq!(lines, vec!["{\"ok\":true}".to_owned()]);
     assert!(open);
     let writer = std::thread::spawn(move || {
@@ -165,7 +176,7 @@ fn a_line_over_max_line_ends_the_stream() {
     });
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
-        let (lines, open) = super::read_lines(&mut theirs, &mut buf).unwrap();
+        let (lines, open) = super::read_lines(&mut theirs, &mut buf);
         assert!(lines.is_empty());
         if !open {
             break;
