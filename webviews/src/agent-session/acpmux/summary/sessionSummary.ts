@@ -282,6 +282,16 @@ function backgroundTasks(rows: readonly AcpmuxRow[], all: readonly Tool[]): Summ
 /// The chat's background shells, the ended ones too (the Background tasks panel lists them).
 export const transcriptBackgroundTasks = (rows: readonly AcpmuxRow[]) => backgroundTasks(rows, tools(rows));
 
+/// The background shells and the count of scheduled wakeups in `rows`, from one pass: what Session
+/// Info's Background tasks lists from a transcript (the palette's Show Background Tasks, App.tsx).
+export function transcriptBackground(rows: readonly AcpmuxRow[]): {
+  tasks: SummaryBackgroundTask[];
+  scheduled: number;
+} {
+  const all = tools(rows);
+  return { tasks: backgroundTasks(rows, all), scheduled: scheduled(all).length };
+}
+
 /// The chat's background shells still running (the running turn's line counts them, WorkingFor.tsx).
 export const runningBackgroundTasks = (rows: readonly AcpmuxRow[]) =>
   transcriptBackgroundTasks(rows).filter((task) => task.state === "running");
