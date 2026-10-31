@@ -125,7 +125,7 @@ TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
 # keeps the org membership private is CONTRIBUTOR to the workflow's token (#26153).
 WRITER_ROLES = ("admin", "maintain", "write")
 # GraphQL identifies the cmux GitHub App with this exact Bot login and node id.
-CMUX_BOT_LOGIN = "cmux-bot"
+CMUX_BOT_LOGIN = "cmux-bot[bot]"
 CMUX_BOT_NODE_ID = "BOT_kgDOFMYsLQ"
 # Default values that read as "off": a new setting with one of them changes nothing for anyone.
 OFF_WORDS = ("off", "never", "none", "disabled", "")

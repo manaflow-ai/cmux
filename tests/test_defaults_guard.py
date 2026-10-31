@@ -486,30 +486,30 @@ enum BrowserResize { static let `default` = true }
     def test_the_cmux_bot_ship_receipt_at_the_head_passes(self):
         head = self.changed_head()
         receipt = self.receipt(f"Review (codex gpt-6-astra high, next-review): SHIP at {head}",
-                               kind="Bot", login="cmux-bot", node_id="BOT_kgDOFMYsLQ")
+                               kind="Bot", login="cmux-bot[bot]", node_id="BOT_kgDOFMYsLQ")
         result = self.check(head, comments=[receipt])
         self.assertEqual(result.returncode, 0, result.stdout)
 
     def test_the_cmux_bot_receipt_at_an_old_head_fails(self):
         head = self.changed_head()
         receipt = self.receipt(f"Review (codex gpt-6-astra high, next-review): SHIP at {self.base}",
-                               kind="Bot", login="cmux-bot", node_id="BOT_kgDOFMYsLQ")
+                               kind="Bot", login="cmux-bot[bot]", node_id="BOT_kgDOFMYsLQ")
         result = self.check(head, comments=[receipt])
         self.assertEqual(result.returncode, 1, result.stdout)
 
     def test_a_bot_with_the_right_login_but_wrong_node_id_fails(self):
         head = self.changed_head()
         receipt = self.receipt(f"Review (codex gpt-6-astra high, next-review): SHIP at {head}",
-                               kind="Bot", login="cmux-bot", node_id="BOT_wrong")
+                               kind="Bot", login="cmux-bot[bot]", node_id="BOT_wrong")
         self.assertEqual(self.check(head, comments=[receipt]).returncode, 1)
 
     def test_a_later_cmux_bot_block_beats_an_earlier_ship(self):
         head = self.changed_head()
         ship = self.receipt(f"Review (codex gpt-6-astra high, next-review): SHIP at {head}",
-                            at="2026-10-21T10:00:00Z", kind="Bot", login="cmux-bot",
+                            at="2026-10-21T10:00:00Z", kind="Bot", login="cmux-bot[bot]",
                             node_id="BOT_kgDOFMYsLQ")
         block = self.receipt(f"Review (codex gpt-6-astra high, next-review): BLOCK at {head}",
-                             at="2026-10-21T11:00:00Z", kind="Bot", login="cmux-bot",
+                             at="2026-10-21T11:00:00Z", kind="Bot", login="cmux-bot[bot]",
                              node_id="BOT_kgDOFMYsLQ")
         result = self.check(head, comments=[ship, block])
         self.assertEqual(result.returncode, 1, result.stdout)
@@ -517,8 +517,8 @@ enum BrowserResize { static let `default` = true }
 
     def test_a_user_with_the_bot_login_or_node_id_does_not_pass(self):
         head = self.changed_head()
-        for login, node_id in (("cmux-bot", "BOT_kgDOFMYsLQ"), ("trusted-user", "BOT_kgDOFMYsLQ"),
-                               ("cmux-bot", "BOT_wrong")):
+        for login, node_id in (("cmux-bot[bot]", "BOT_kgDOFMYsLQ"), ("trusted-user", "BOT_kgDOFMYsLQ"),
+                               ("cmux-bot[bot]", "BOT_wrong")):
             receipt = self.receipt(f"Review (codex gpt-6-astra high, next-review): SHIP at {head}",
                                    kind="User", login=login, node_id=node_id,
                                    association="CONTRIBUTOR")
