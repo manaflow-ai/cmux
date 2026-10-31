@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "build": "4122926028501",
+  "notes": "notes/4122926028501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 29502,
+      "title": "acpmux: a running turn's step and a new chat's title read another agent's words, not its envelope (carry of #28677)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29539,
+      "title": "Takes back #29325: the tab-group rows go back to the top of the tab menu (Lawrence's guard, check-group-menus.py)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28786,
+      "title": "fix(cloud): signed-out Cloud actions sign in, then run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28781,
+      "title": "Cloud page: each machine shows its cost ($/h · Running · About $X so far), as the sidebar does",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29487,
+      "title": "ci(ios): listperf, the list frame-rate rig as a fleet simulator step",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
