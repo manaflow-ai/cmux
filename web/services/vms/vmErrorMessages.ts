@@ -352,7 +352,7 @@ export async function vmPlanBudgetCopy(
  */
 export async function vmActiveLimitCountedCopy(
   locale: Locale,
-  machines: readonly { readonly name: string; readonly status: "provisioning" | "running" }[],
+  machines: readonly { readonly name: string; readonly status: "provisioning" | "running" | "paused" }[],
 ): Promise<string> {
   if (machines.length === 0) return "";
   const t = createTranslator({

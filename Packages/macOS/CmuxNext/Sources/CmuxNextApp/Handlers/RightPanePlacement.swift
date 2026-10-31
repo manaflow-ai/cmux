@@ -4,7 +4,8 @@ public import CoreGraphics
 /// agent chat.  The policy is deliberately a value type: callers gather their own pane snapshot,
 /// ask once, and then perform the returned daemon operation.  This keeps geometric right-neighbour
 /// lookup, tab order and session-vs-document splits from drifting between open paths.
-public nonisolated enum RightPanePlacement {
+public nonisolated struct RightPanePlacement {
+    public nonisolated init() {}
     /// The smallest useful chat width after making the first right-hand area.
     public static let minimumChatWidth: CGFloat = 480
     /// The smallest useful width for the right-hand area itself.

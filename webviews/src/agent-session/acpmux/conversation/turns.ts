@@ -23,6 +23,7 @@ import { awaitsPermission, groupId, isDraftCall, isRunning, messageGroupKey, too
 import { acpmuxSendCall } from "./acpmuxSends";
 import { subsessionCall } from "./subsessionCalls";
 import { isWaitingMessage } from "./pendingMessages";
+import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
@@ -310,12 +311,14 @@ export function turnViewFrom(
     // Other sessions' messages the agent read stay each its own line where it read them
     // (IncomingMessageCard.tsx). One it has not read yet (a steer that waits for its step) leaves
     // the running turn for the one group of waiting messages at the end (pendingMessages.ts).
-    if (last) {
-      for (const row of shaped) {
-        if (isWaitingMessage(row)) pending.push(row);
-        else out.push(row);
-      }
-    } else for (const row of shaped) out.push(row);
+    // Reuse batches while tokens change: only a newly arrived notice computes a new descriptor.
+    // The boundary is this turn; unrelated rows and report/inbox kind changes end a batch.
+    const drawn: AcpmuxRow[] = [];
+    for (const row of shaped) {
+      if (last && isWaitingMessage(row)) pending.push(row);
+      else appendLaneNotice(drawn, row);
+    }
+    for (const row of drawn) out.push(row);
     ends.push({ count: out.length, row: out.at(-1) });
   }
   return {
