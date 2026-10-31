@@ -4055,7 +4055,7 @@ jobs:
 
       # Leo, 2026-10-28: the release signing jobs may run on owned Macs ("we can just read the code"). A mini
       # that runs no job now is offered, pinned by its runner label, else an idle nightly slot on the least busy
-      # mini, which glaeda drains for the job (no new job starts there while it waits, 600 s at most, then the
+      # mini, which glaeda drains for the job (no new job starts there while it waits, 3600 s at most, then the
       # Blacksmith twin signs); glaeda gives a signing job the whole mini (the exclusive class) and the job's
       # first step checks that claim (scripts/ci/signing-runner-claim.sh).
       # Off unless vars.CI_SIGN_OWNED is 1; any failure leaves it empty and the signing jobs take Blacksmith.
