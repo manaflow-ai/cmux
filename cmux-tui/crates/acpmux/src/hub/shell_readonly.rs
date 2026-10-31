@@ -1142,6 +1142,31 @@ mod tests {
         }
     }
 
+    /// The library search path cargo sets for its tests, on each OS (`LD_LIBRARY_PATH` on Linux,
+    /// `DYLD_FALLBACK_LIBRARY_PATH` on macOS), only finds libraries already on disk: a git read
+    /// under either still runs without asking. On macOS every git read under approve-reads asked
+    /// (full-suite macOS job ac2ca38ed60bef1405523e24,
+    /// `permission_groups::approve_reads_runs_read_only_shell_commands_without_asking`). Every
+    /// other loader variable still asks.
+    #[cfg(unix)]
+    #[test]
+    fn a_library_search_path_lets_a_git_read_run_on_each_os() {
+        let dir = repo(&[]);
+        let reads =
+            |command: &str, env: &Env| request_is_read_only(&execute(json!(command)), &dir, env);
+        for key in ["LD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH"] {
+            let mut env = system_env();
+            env.insert(key.to_owned(), "/tmp/x".to_owned());
+            assert!(reads("git status", &env), "{key}");
+        }
+        for key in ["DYLD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES", "DYLD_FRAMEWORK_PATH"] {
+            let mut env = system_env();
+            env.insert(key.to_owned(), "/tmp/x".to_owned());
+            assert!(!reads("git status", &env), "{key}");
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// Codex review of #24155 at 7e312f83: the command runs with the harness's PATH and env, so
     /// a bare `ls` found first in another directory, or an env that points git at a program,
     /// asks.
