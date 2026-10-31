@@ -8,8 +8,8 @@
  "steps": [
   {
    "do": "new_terminal",
-   "name": "jr-r3-split",
-   "via": "key"
+   "via": "key",
+   "name": "jr-r3-split"
   },
   {
    "do": "neutral_prompt"

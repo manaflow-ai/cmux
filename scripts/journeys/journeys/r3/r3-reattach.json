@@ -8,8 +8,8 @@
  "steps": [
   {
    "do": "new_terminal",
-   "name": "jr-r3-reattach",
-   "via": "key"
+   "via": "key",
+   "name": "jr-r3-reattach"
   },
   {
    "do": "neutral_prompt"
@@ -121,7 +121,7 @@
   },
   {
    "do": "expect",
-   "title": "after the reattach: the replayed screen is the live one (last 20 lines), and one size everywhere",
+   "title": "after the reattach: the replayed screen is the live one (the last 800 characters), and one size everywhere",
    "since": "reopen",
    "timeout": 30,
    "settle": 2,
@@ -132,9 +132,8 @@
      }
     },
     {
-     "at_bottom": {
-      "pane": "again",
-      "lines": 20
+     "r3_replay_matches": {
+      "pane": "again"
      }
     },
     {

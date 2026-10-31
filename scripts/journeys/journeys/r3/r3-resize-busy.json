@@ -8,8 +8,8 @@
  "steps": [
   {
    "do": "new_terminal",
-   "name": "jr-r3-busy",
-   "via": "key"
+   "via": "key",
+   "name": "jr-r3-busy"
   },
   {
    "do": "neutral_prompt"

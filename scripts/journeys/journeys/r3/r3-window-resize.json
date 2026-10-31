@@ -8,8 +8,8 @@
  "steps": [
   {
    "do": "new_terminal",
-   "name": "jr-r3-window",
-   "via": "key"
+   "via": "key",
+   "name": "jr-r3-window"
   },
   {
    "do": "neutral_prompt"
