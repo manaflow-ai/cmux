@@ -109,6 +109,18 @@ describe("composer click-away focus", () => {
     }
   });
 
+  test("a row of a composer menu drawn out of the box (the + menu) keeps its editor focus", () => {
+    const { editor } = fixture();
+    const document = editor.ownerDocument;
+    const layer = document.createElement("div");
+    layer.className = "acpmux-picker-layer acpmux-composer-plus";
+    const row = document.createElement("div");
+    row.className = "acpmux-menu-item";
+    layer.append(row);
+    document.body.append(layer);
+    expect(shouldBlurComposerOnPress(row, editor)).toBe(false);
+  });
+
   test("a control outside the composer also releases focus", () => {
     const { button, editor } = fixture();
     expect(shouldBlurComposerOnPress(button, editor)).toBe(true);
