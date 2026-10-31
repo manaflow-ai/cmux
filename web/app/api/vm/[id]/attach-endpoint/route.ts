@@ -11,6 +11,7 @@ import { setSpanAttributes } from "../../../../../services/telemetry";
 import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { openAttachEndpoint, openVmCmuxRemote } from "../../../../../services/vms/workflows";
 import { vmModelPlaneRevoker } from "../../../../../services/vms/modelPlaneGateway";
+import { vmTeamDirectory } from "../../../../../services/vms/teamDirectory";
 import {
   capabilityList,
   gcpCredentialFromRequest,
@@ -87,6 +88,8 @@ export async function POST(
           // An opted-in machine's agent-update exec runs after the response.
           deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),
           modelPlane: vmModelPlaneRevoker(),
+          // Confirm the creator is still a member of the machine's team.
+          teamDirectory: vmTeamDirectory(),
         }), { request, deadline: { operation: "attach", continuationKey: `attach:${id}` } });
         if (!run.ok) return run.response;
         return jsonResponse(run.value);
@@ -109,6 +112,8 @@ export async function POST(
         sessionTitle,
         options: { requireDaemon, sessionId, attachmentId },
         modelPlane: vmModelPlaneRevoker(),
+        // Confirm the creator is still a member of the machine's team.
+        teamDirectory: vmTeamDirectory(),
       }), { request, deadline: { operation: "attach", continuationKey: `attach:${id}` } });
       if (!run.ok) return run.response;
       const endpoint = run.value;
@@ -135,6 +140,7 @@ async function openSshAttach(
     transport: "ssh",
     providerCredential: gcpCredentialFromRequest(request),
     modelPlane: vmModelPlaneRevoker(),
+    teamDirectory: vmTeamDirectory(),
   }), {
     request,
     deadline: { operation: "attach", continuationKey: `attach:${id}` },

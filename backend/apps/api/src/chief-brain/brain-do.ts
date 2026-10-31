@@ -30,6 +30,8 @@ import { ccNotes } from "../chief-brain-cc/turn.ts"
 import { toolFiles, toolsCall } from "../chief-brain-cc/tools.ts"
 import { wakeFire } from "../chief-brain-cc/wake.ts"
 import { chiefJobWake, type ChiefJob, type JobDelivery } from "../chief-brain-cc/jobs.ts"
+import { jobsSendDue, jobsStore, type StoreOp } from "../chief-brain-cc/jobs-store.ts"
+import { upstashSender } from "../chief-brain-cc/jobs-upstash.ts"
 import { githubCall, githubDump, type GithubHost, githubPoll, type GithubStatus, githubTurn } from "../chief-brain-cc/github.ts"
 import { ccSandbox, ccSandboxPurge, ccSandboxRetire } from "../chief-brain-cc/sandbox.ts"
 import type { MemoryExport } from "../chief-durable/durable-do.ts"
@@ -550,6 +552,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
     return chiefJobWake(this, j)
   }
 
+  /** The Chief jobs of a team on the Upstash engine (chief-brain-cc/jobs-store.ts), on its `<team>/chief-jobs` object only. */
+  async cjStore(team: string, o: StoreOp): Promise<unknown> {
+    return jobsStore(this, team, o, upstashSender(this.env))
+  }
+
   /** MuxDO forwards a committed wake here. Pulls the conversation's new messages as the chief and starts a turn. */
   async wake(w: { agent: string; owner: string; conversation: string; seq: number; reason: string; at?: number }): Promise<{ queued: number } | { skipped: string; retry?: true }> {
     return turnLoop.wake(this, w)
@@ -825,6 +832,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
       const next = await githubPoll(this.githubHost())
       return next === null ? undefined : { rescheduleAt: next }
     }
+    if (job.fn === "cj-send") return void (await jobsSendDue(this, upstashSender(this.env), String(job.id).slice("cj-send:".length)))
     if (job.fn === "spawn-pump") return void (await this.pumpSlots())
     if (job.fn === "spawn-post") return void (await this.deliverReports())
     if (job.fn === "spawn-gc") return this.childGc()

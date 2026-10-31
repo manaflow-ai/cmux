@@ -72,9 +72,11 @@ import Testing
             Issue.record("the toggled group's header has no view")
             return
         }
-        // A plain click on the header's name (a109: any plain click on the bar folds it).
+        // A plain click on the header's bar past its name (a109: any plain click on the bar folds it; one on the name
+        // waits out the double-click interval, which renames in place).
         let name = header.nameHitFrame
-        let at = list.convert(header.convert(NSPoint(x: name.midX, y: name.midY), to: list), to: nil)
+        let x = (name.maxX + (header.debugDisclosure?.frame.minX ?? header.bounds.maxX)) / 2
+        let at = list.convert(header.convert(NSPoint(x: x, y: name.midY), to: list), to: nil)
         for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
             guard let event = NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: 0,
                                                  windowNumber: h.window.windowNumber, context: nil, eventNumber: 0,

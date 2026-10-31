@@ -60,6 +60,18 @@ struct FileOpenAsTextTests {
         #expect(FileOpenKind.sourceFile(ofPage: nil) == nil)
     }
 
+    /// Open as Page (`file.openAsPage`, u18462): a code editor tab showing HTML, SVG or Markdown
+    /// names the file it renders; a file cmux shows only as text has none.
+    @Test func openAsPageFindsTheRenderableFileAnEditorShows() {
+        for name in ["index.html", "page.htm", "logo.SVG", "README.md"] {
+            #expect(FileOpenKind.renderedFile(ofSource: Self.url(name)) == Self.url(name), "\(name)")
+        }
+        #expect(FileOpenKind.renderedFile(ofSource: Self.url("main.swift")) == nil)
+        #expect(FileOpenKind.renderedFile(ofSource: Self.url("shot.png")) == nil)
+        #expect(FileOpenKind.renderedFile(ofSource: URL(string: "https://example.com/index.html")) == nil)
+        #expect(FileOpenKind.renderedFile(ofSource: nil) == nil)
+    }
+
     @Test(arguments: ["sidebar-clean-cmux.png", "wide.jpg", "poster.webp", "document.pdf"])
     func localImageAndPDFPreviewsUseTheScopedWebKitReader(name: String) {
         #expect(FilePageOpener.tabEngine(for: Self.url(name)) == BrowserEngineTag.webkit.rawValue)
