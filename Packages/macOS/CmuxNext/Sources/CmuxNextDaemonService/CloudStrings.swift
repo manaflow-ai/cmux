@@ -21,6 +21,8 @@ public enum CloudStrings {
     }
     /// Why: no window was open to show a new Cloud machine's progress (Cmd-N with every window closed).
     public static var newWorkspaceNoWindow: String { String(localized: "cloud.newWorkspace.noWindow", defaultValue: "New workspaces start in Cloud from an open window, where the new machine's progress shows.", table: "Cloud", bundle: .module) }
+    /// Under a signed-out Cloud action in the command palette and context menus: running it signs in first, then the action runs.
+    nonisolated public static var signInToContinue: String { String(localized: "cloud.signIn.toContinue", defaultValue: "Sign in to use Cloud machines: choose it to sign in, then it runs.", table: "Cloud", bundle: .module) }
     public static var noMachine: String { String(localized: "cloud.failed.noMachine", defaultValue: "No Cloud machine is selected. Right-click a machine or pass --target machine:<id>; `cmux cloud list-machines` lists ids.", table: "Cloud", bundle: .module) }
     /// Why a Cloud machine needs an update, for its sidebar header and the
     /// Cloud diagnostics: the build it runs and what an update turns on.
