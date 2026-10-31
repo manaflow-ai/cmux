@@ -151,3 +151,49 @@ test("several assistant messages and tool calls render exactly one footer at the
     }
   }
 });
+
+test("a personal steer keeps reply A and final reply B expanded while other chatter collapses", async () => {
+  for (const steered of [false, true]) {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const expanded = new Set<string>();
+    const rows = turnView(
+      [
+        source[0]!,
+        source[1]!,
+        ...(steered
+          ? [
+              {
+                id: "steer",
+                version: 1,
+                at: 1_500,
+                kind: "user",
+                text: "Also check retries.",
+                steer: "landed" as const,
+              },
+            ]
+          : []),
+        source[2]!,
+        { id: "interim", version: 1, at: 2_500, kind: "assistant", text: "Checking retries next." },
+        { ...source[2]!, id: "t2", at: 2_600 },
+        source[3]!,
+        source[4]!,
+      ],
+      expanded,
+      { now: 10_000 },
+    );
+    try {
+      await act(async () =>
+        root.render(<VirtualTranscript rows={rows} onToggleActivity={() => {}} expanded={expanded} />),
+      );
+      const document = dom.window.document;
+      expect(Boolean(document.querySelector('[data-row-id="a1"]'))).toBe(steered);
+      expect(Boolean(document.querySelector('[data-row-id="steer"]'))).toBe(steered);
+      expect(document.querySelector('[data-row-id="a2"]')).not.toBeNull();
+      for (const id of ["t1", "interim", "t2"]) expect(document.querySelector(`[data-row-id="${id}"]`)).toBeNull();
+      expect(document.querySelectorAll(".cv-turn-actions").length).toBe(1);
+      expect(document.querySelectorAll(".cv-reply-actions").length).toBe(0);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  }
+});
