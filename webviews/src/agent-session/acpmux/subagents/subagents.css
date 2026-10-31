@@ -626,11 +626,12 @@ button.cv-subagent > :last-child {
     top: 7px;
     left: calc(8px + var(--acpmux-tray-indent, 0px));
   }
+  /* The title starts past the 14px icon and the row's icon gap, as on one line. */
   .acpmux-running-tray__head > .acpmux-summary-text,
   .acpmux-running-tray .acpmux-agent-line__button > .acpmux-summary-text {
     grid-column: 1 / -1;
     grid-row: 1;
-    margin-left: calc(22px + var(--acpmux-tray-indent, 0px));
+    margin-left: calc(8px + 14px + var(--acpmux-line-icon-gap) + var(--acpmux-tray-indent, 0px));
   }
   .acpmux-running-tray__time,
   .acpmux-running-tray .acpmux-agent-line__time {
@@ -669,6 +670,15 @@ button.cv-subagent > :last-child {
 }
 .acpmux-running-tray :is(.acpmux-agent-line__button, .acpmux-running-tray__head, .acpmux-chat-inspector-stop):enabled {
   cursor: default;
+}
+/* A line's icons and its title keep the row's one icon gap (.acpmux-summary-row's 8px): the state
+   icon, the kind icon, then the title, never touching (cmux#28875). */
+.acpmux-running-tray,
+.acpmux-agent-line {
+  --acpmux-line-icon-gap: 8px;
+}
+.acpmux-agent-line__kind-icon {
+  margin-right: var(--acpmux-line-icon-gap);
 }
 /* What the line is ("Command", "Subagent"), dim before its name. */
 .acpmux-agent-line__kind {
