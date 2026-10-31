@@ -4669,10 +4669,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let remotePowerObservers = RemoteSessionPowerObserver().install(
             in: workspaceCenter,
-            onWillSleep: { [weak self] in self?.prepareRemoteSessionsForSystemSleep() },
+            onWillSleep: { [weak self] in
+#if DEBUG
+                if ProcessInfo.processInfo.environment["CMUX_TRACE_PTY_INPUT"] == "1" {
+                    self?.logTerminalPowerRuntimeState(source: "workspace.willSleep")
+                }
+#endif
+                self?.prepareRemoteSessionsForSystemSleep()
+            },
             onDidWake: { [weak self] in
+#if DEBUG
+                if ProcessInfo.processInfo.environment["CMUX_TRACE_PTY_INPUT"] == "1" {
+                    self?.logTerminalPowerRuntimeState(source: "workspace.didWake.beforeRearm")
+                }
+#endif
                 self?.restartSocketListenerIfEnabled(source: "workspace.didWake")
                 self?.rearmRemoteSessionsAfterSystemWake()
+#if DEBUG
+                if ProcessInfo.processInfo.environment["CMUX_TRACE_PTY_INPUT"] == "1" {
+                    self?.logTerminalPowerRuntimeState(source: "workspace.didWake.afterRearm")
+                }
+#endif
             }
         )
         lifecycleSnapshotObservers.append(contentsOf: remotePowerObservers)

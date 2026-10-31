@@ -309,6 +309,7 @@
 		6313C7A00000000000000001 /* AppDelegate+PaneMemoryGuardrail.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6313C7A00000000000000002 /* AppDelegate+PaneMemoryGuardrail.swift */; };
 		71BC19E3211D86ED3333A772 /* AppDelegate+PaneNumberShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = B327EB76EA7CE66FFA2623B6 /* AppDelegate+PaneNumberShortcut.swift */; };
 		EAC9592A7318ADC630BF1FF9 /* AppDelegate+ProductAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02CFC6590048910718C3FAB7 /* AppDelegate+ProductAnalytics.swift */; };
+		C1AAD259CDF6C1150986AD17 /* AppDelegate+PTYInputDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91F06B7BDF826934B614AB7B /* AppDelegate+PTYInputDiagnostics.swift */; };
 		2907A0012907A0012907A001 /* AppDelegate+RecoverableMainWindowRoutes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2907A0022907A0022907A002 /* AppDelegate+RecoverableMainWindowRoutes.swift */; };
 		797800010000000000000001 /* AppDelegate+RemoteSessionPower.swift in Sources */ = {isa = PBXBuildFile; fileRef = 797800010000000000000002 /* AppDelegate+RemoteSessionPower.swift */; };
 		C0DE74140000000000000001 /* AppDelegate+SavedLayoutMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE74140000000000000002 /* AppDelegate+SavedLayoutMenu.swift */; };
@@ -5182,6 +5183,7 @@
 		6313C7A00000000000000002 /* AppDelegate+PaneMemoryGuardrail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+PaneMemoryGuardrail.swift"; sourceTree = "<group>"; };
 		B327EB76EA7CE66FFA2623B6 /* AppDelegate+PaneNumberShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+PaneNumberShortcut.swift"; sourceTree = "<group>"; };
 		02CFC6590048910718C3FAB7 /* AppDelegate+ProductAnalytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+ProductAnalytics.swift"; sourceTree = "<group>"; };
+		91F06B7BDF826934B614AB7B /* AppDelegate+PTYInputDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Debug/AppDelegate+PTYInputDiagnostics.swift"; sourceTree = "<group>"; };
 		2907A0022907A0022907A002 /* AppDelegate+RecoverableMainWindowRoutes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+RecoverableMainWindowRoutes.swift"; sourceTree = "<group>"; };
 		797800010000000000000002 /* AppDelegate+RemoteSessionPower.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+RemoteSessionPower.swift"; sourceTree = "<group>"; };
 		C0DE74140000000000000002 /* AppDelegate+SavedLayoutMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+SavedLayoutMenu.swift"; sourceTree = "<group>"; };
@@ -12572,6 +12574,7 @@
 				6EFEF79A3659BA68F264C1CF /* GhosttyNSView+SSHClipboardTrust.swift */,
 				11E0CF443B31591C215D6955 /* TextViewUndoRegistrationLifetime.swift */,
 				4252144220782379B2B347BE /* SettingsHostingView.swift */,
+				91F06B7BDF826934B614AB7B /* AppDelegate+PTYInputDiagnostics.swift */,
 				207C9B99F28EDA93DF17EDB6 /* AccountMacAdmissionPolicy.swift */,
 				AE7EB40497FBD54553C6598A /* AccountMacDirectory.swift */,
 				B1278AF05232D11E39C32D4A /* AccountMacDirectoryClient.swift */,
@@ -15388,6 +15391,7 @@
 				6313C7A00000000000000001 /* AppDelegate+PaneMemoryGuardrail.swift in Sources */,
 				71BC19E3211D86ED3333A772 /* AppDelegate+PaneNumberShortcut.swift in Sources */,
 				EAC9592A7318ADC630BF1FF9 /* AppDelegate+ProductAnalytics.swift in Sources */,
+				C1AAD259CDF6C1150986AD17 /* AppDelegate+PTYInputDiagnostics.swift in Sources */,
 				2907A0012907A0012907A001 /* AppDelegate+RecoverableMainWindowRoutes.swift in Sources */,
 				797800010000000000000001 /* AppDelegate+RemoteSessionPower.swift in Sources */,
 				C0DE74140000000000000001 /* AppDelegate+SavedLayoutMenu.swift in Sources */,
