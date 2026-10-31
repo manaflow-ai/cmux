@@ -429,6 +429,24 @@ fn a_reply_fits_one_message_whatever_holds_its_bytes() {
     assert_eq!((session["sessionId"].clone(), session["cwd"].clone()), (json!("s"), json!("/w")));
     assert_eq!(session["_meta"]["acpmux"]["omitted"]["fields"], json!(["models", "title"]));
 
+    // Not even the agent's own session id: the receipt that carries it goes last, after every
+    // other field, and the chat's sessionId stays.
+    let mut receipt = json!({
+        "session": {"sessionId": "s", "status": "idle", "title": "t", "sessionReceipt": {"agentSessionId": "x".repeat(15 << 20)}},
+        "events": [],
+        "turnOpener": null,
+    });
+    fit_reply(&mut receipt);
+    let bytes = serde_json::to_string(&receipt).unwrap().len();
+    assert!(bytes <= MAX_REPLY_BYTES, "{bytes}");
+    let session = &receipt["session"];
+    assert_eq!(session["sessionReceipt"], json!({}));
+    assert_eq!(
+        (session["sessionId"].clone(), session["status"].clone(), session["title"].clone()),
+        (json!("s"), json!("idle"), json!("t"))
+    );
+    assert_eq!(session["_meta"]["acpmux"]["omitted"]["fields"], json!(["sessionReceipt"]));
+
     // A reply that fits is left exactly as it is.
     let small =
         json!({"session": {"sessionId": "s"}, "events": [event(1, "a")], "turnOpener": null});

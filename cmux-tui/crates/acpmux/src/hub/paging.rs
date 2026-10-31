@@ -252,18 +252,11 @@ const DETAIL_FIELDS: &[(&str, fn() -> Value)] = &[
     ("pending", || Value::Array(Vec::new())),
 ];
 
-/// The `session` fields a reply always keeps: what names the chat and where it runs. Every
-/// other field may go, so no value an agent sets (a title, a tag) can keep a chat from opening.
-const KEPT_FIELDS: &[&str] = &[
-    "sessionId",
-    "id",
-    "qualifiedSessionId",
-    "sessionReceipt",
-    "status",
-    "harness",
-    "cwd",
-    "peer",
-];
+/// The `session` fields that name the chat and where it runs, besides its `sessionId`: they go
+/// last, only when nothing else is left to give up, so no value an agent sets (a title, a tag,
+/// its own session id in `sessionReceipt`) can keep a chat from opening.
+const IDENTITY_FIELDS: &[&str] =
+    &["id", "qualifiedSessionId", "sessionReceipt", "status", "harness", "cwd", "peer"];
 
 /// `value`'s empty value of its own type: what a field given up becomes after the detail's.
 fn empty_like(value: &Value) -> Value {
@@ -285,9 +278,11 @@ fn empty_like(value: &Value) -> Value {
 /// fits; every record keeps its seq, kind and time. The records are `events` (an array of
 /// `_acpmux/event` values) and `turnOpener` (one). If it still does not fit, the `session`
 /// detail's own fields ([`DETAIL_FIELDS`]) go, largest first, and then any other field but
-/// [`KEPT_FIELDS`], each to its empty value and named in `session._meta.acpmux.omitted`; the
-/// pane then reads as for an older acpmux that sent none. What is left is the chat's identity
-/// and the records' envelopes, a few hundred bytes each.
+/// the chat's identity ([`IDENTITY_FIELDS`]), each to its empty value and named in
+/// `session._meta.acpmux.omitted`; the pane then reads as for an older acpmux that sent none.
+/// Last, since an agent's own ids (`sessionReceipt.agentSessionId`) reach them too, the
+/// identity fields go the same way. Only `sessionId`, acpmux's own id, always stays, so what
+/// is left is at most that id and the records' envelopes, a few hundred bytes each.
 pub fn fit_reply(reply: &mut Value) {
     let size = |value: &Value| serde_json::to_string(value).map_or(usize::MAX, |text| text.len());
     let mut bytes = size(reply);
@@ -323,7 +318,8 @@ pub fn fit_reply(reply: &mut Value) {
     }
     let Some(session) = reply.get_mut("session").and_then(Value::as_object_mut) else { return };
     let mut left_out = Vec::new();
-    // The detail's fields first, then the rest but the kept ones; each pass largest first.
+    // The detail's fields first, then the rest but the chat's identity, then that identity but
+    // its sessionId; each pass largest first.
     let detail: Vec<(String, Value)> = DETAIL_FIELDS
         .iter()
         .filter_map(|&(name, empty)| session.get(name).map(|_| (name.to_owned(), empty())))
@@ -331,12 +327,17 @@ pub fn fit_reply(reply: &mut Value) {
     let rest: Vec<(String, Value)> = session
         .iter()
         .filter(|(name, _)| {
-            !KEPT_FIELDS.contains(&name.as_str())
+            *name != "sessionId"
+                && !IDENTITY_FIELDS.contains(&name.as_str())
                 && !DETAIL_FIELDS.iter().any(|(detail, _)| detail == name)
         })
         .map(|(name, value)| (name.clone(), empty_like(value)))
         .collect();
-    for pass in [detail, rest] {
+    let identity: Vec<(String, Value)> = IDENTITY_FIELDS
+        .iter()
+        .filter_map(|&name| session.get(name).map(|value| (name.to_owned(), empty_like(value))))
+        .collect();
+    for pass in [detail, rest, identity] {
         let mut fields: Vec<(String, Value, usize)> = pass
             .into_iter()
             .filter_map(|(name, empty)| {
