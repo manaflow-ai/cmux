@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { cloudFolderName, cloudFolders, folderRunLocation, normalizedFolder } from "./runLocationDefault";
+import { cloudFolderName, cloudFolders, folderRunLocation, newChatRunLocation, normalizedFolder } from "./runLocationDefault";
 import type { AcpmuxSessionEntry } from "./sessionList";
 
 // Expected names computed apart from this code (32-bit FNV-1a over the path's UTF-8 bytes, low 24
@@ -75,4 +75,12 @@ test("a peer acpmux names a Cloud peer counts as Cloud without a host kind", () 
   const folder = "/Users/me/src/paint";
   const peerChat: AcpmuxSessionEntry = { sessionId: "p", cwd: "/home/cmux/work/paint-33f597", peer: "vm-7", ...at(4) };
   expect(folderRunLocation(folder, [local(folder, 1), peerChat], { "vm-7": "cloud" })).toBe("cloud");
+});
+
+test("Start New Chats In: Cloud makes every new chat Cloud; This Mac leaves the folder's default", () => {
+  expect(newChatRunLocation("cloud", undefined)).toBe("cloud");
+  expect(newChatRunLocation("cloud", "local")).toBe("cloud");
+  expect(newChatRunLocation("local", undefined)).toBeUndefined();
+  expect(newChatRunLocation("local", "cloud")).toBe("cloud");
+  expect(newChatRunLocation("local", "local")).toBe("local");
 });

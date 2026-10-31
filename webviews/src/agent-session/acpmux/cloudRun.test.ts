@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { cloudPageRefusal, cloudStartToasted, oneCloudStart, startCloudChat } from "./cloudRun";
+import { cloudPageRefusal, cloudStartFolder, cloudStartToasted, oneCloudStart, startCloudChat } from "./cloudRun";
 
 test("a Cloud start sends the prompt, folder, agent and model with a key, and answers ok", async () => {
   const calls: [string, Record<string, unknown>][] = [];
@@ -60,4 +60,21 @@ test("a second Return while a start waits on the host starts nothing; after the 
   expect(await first).toEqual({ ok: true });
   expect(start({ task: "three" })).toBeDefined();
   expect(calls).toEqual(["one", "three"]);
+});
+
+test("a Cloud chat copies its project; with none (or home) it starts in the machine's own folder", () => {
+  expect(cloudStartFolder("/Users/me/src/paint")).toEqual({ cwd: "/Users/me/src/paint" });
+  expect(cloudStartFolder("/Users/me/src/paint/")).toEqual({ cwd: "/Users/me/src/paint" });
+  for (const none of [undefined, "", "relative/path", "/", "/Users", "/Users/me", "/Users/me/", "/home/me"])
+    expect(cloudStartFolder(none)).toEqual({ home: true });
+});
+
+test("a start with no project tells the host home, and never names a folder", async () => {
+  const calls: Record<string, unknown>[] = [];
+  await startCloudChat(
+    async (_method, params) => (calls.push(params), {}),
+    { task: "hi", home: true, harness: "claude" },
+    "00000000-0000-4000-8000-000000000002",
+  );
+  expect(calls).toEqual([{ task: "hi", home: true, harness: "claude", key: "00000000-0000-4000-8000-000000000002" }]);
 });

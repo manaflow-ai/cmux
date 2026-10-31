@@ -8,8 +8,11 @@ public import Foundation
 public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     /// The person's first prompt (never logged).
     public var task: String
-    /// The chat's folder on this Mac, absolute; nil: the tab's own folder.
+    /// The chat's folder on this Mac, absolute; nil: the tab's own folder, or none with ``home``.
     public var cwd: String?
+    /// The page said the chat has no project (cloudRun.ts `cloudStartFolder`): nothing is copied,
+    /// and the chat starts in the machine's own folder for chats. Never with ``cwd``.
+    public var home = false
     public var harness: String?
     public var model: String?
     /// The page's send: a second call with the same key while one runs is the same send.
@@ -36,7 +39,10 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
               let harness = name("harness"), let model = name("model") else { return nil }
         let cwd = params?["cwd"]
         if let cwd, !((cwd as? String).map { $0.hasPrefix("/") && !$0.contains("\0") && $0.count <= 4096 } ?? false) { return nil }
+        let home = params?["home"]
+        if let home, !(home is Bool) || cwd != nil { return nil }
         self.init(task: task, cwd: cwd as? String, harness: harness, model: model, key: key)
+        self.home = home as? Bool ?? false
     }
 
     /// The machine's chat tab's creation key: a retry of the same send (its answer was lost after
@@ -68,7 +74,7 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
 
     /// The seed of the chat on the Cloud machine, in `cwd` (the folder's copy there): the person's
     /// prompt, sent once with the Send's gesture, on the agent and model the page picked.
-    public func seed(cwd: String) -> AgentPaneSeed {
+    public func seed(cwd: String?) -> AgentPaneSeed {
         AgentPaneSeed(cwd: cwd, prompt: task, promptBy: .person, harness: harness, model: model)
     }
 }

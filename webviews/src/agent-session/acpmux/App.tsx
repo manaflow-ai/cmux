@@ -440,8 +440,9 @@ import { pullRequestRows as prSourceRows } from "./summary/pullRequestRows";
 import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
 import { RecapCard, useRecapCard } from "./RecapCard";
 import { HarnessStatusCard } from "./HarnessStatusCard";
-import { cloudPageRefusal, cloudStartToasted, oneCloudStart, type CloudStart } from "./cloudRun";
-import { folderRunLocation } from "./runLocationDefault";
+import { cloudPageRefusal, cloudStartFolder, cloudStartToasted, oneCloudStart, type CloudStart } from "./cloudRun";
+import { folderRunLocation, newChatRunLocation } from "./runLocationDefault";
+import { harnessLabel } from "./subagents/agentRuns";
 import { cloudStartBegun, cloudStartEnded, cloudStartPushed, type CloudStartProgress } from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
@@ -4860,11 +4861,15 @@ function AcpmuxPane() {
   // Debug measurement (acpmuxPerf): the pane's own render, before its children.
   const paneRenderStart = acpmuxPerf.enabled ? performance.now() : 0;
   const t = useT();
-  const { scrollToBottomOnSend } = useComposerSettings();
+  const { scrollToBottomOnSend, newChatsIn } = useComposerSettings();
   const scrollToBottomOnSendRef = useRef(scrollToBottomOnSend);
   scrollToBottomOnSendRef.current = scrollToBottomOnSend;
   /// Labs preview features are off until the host explicitly enables them.
   const [preview, setPreview] = useState(false);
+  /// Cloud as where a new chat runs, and the environment picker that offers it: with Labs, or once
+  /// Settings' Start New Chats In says Cloud (Leo, 2026-10-31: "whenever i start a chat it should
+  /// be able to send me to cloud autommatically"), which is not a Labs feature.
+  const cloudOn = preview || newChatsIn === "cloud";
   /// A new chat's Run as (preview, hq#3367): Persistent is the chat as before; Sandboxed runs the
   /// first message once on a throwaway Cloud VM and shows its receipt instead. The host holds this
   /// tab's one Sandboxed send and the page renders what it says (sandboxRun.ts SandboxTab). A refused
@@ -6949,7 +6954,7 @@ function AcpmuxPane() {
   /// before the host said what this tab already sent (`sandbox.checked`): a run it holds takes the
   /// chat view, so a send picked before that could only be refused, its prompt with it.
   const sandboxOffered =
-    preview &&
+    cloudOn &&
     sandbox.checked &&
     freshChat &&
     !snapshot.sessionId &&
@@ -7008,7 +7013,7 @@ function AcpmuxPane() {
     // Another Return while a start waits starts nothing, and the card keeps that start.
     if (!started) return false;
     cloudStartPending.current = true;
-    setCloudStart(cloudStartBegun(key, text, start.cwd));
+    setCloudStart(cloudStartBegun(key, text, start.cwd, start.harness ? harnessLabel(start.harness) : undefined));
     void started.then((answer) => {
       cloudStartPending.current = false;
       setCloudStartsEnded((count) => count + 1);
@@ -7989,12 +7994,17 @@ function AcpmuxPane() {
   /// went to a Cloud machine, else this Mac. Only while Cloud is offered, and only until the person
   /// picks in this pane. Sandboxed, or Cloud the person picked, is never changed; a Cloud default
   /// goes back to this Mac when the folder's history no longer says Cloud or Cloud is not offered.
+  /// Settings' Start New Chats In (`agentPane.newChatsIn`) set to Cloud makes it Cloud whatever the
+  /// folder's history says (newChatRunLocation); This Mac in the composer's picker still wins.
   const folderRunDefault = useMemo(
     () =>
       sandboxOffered
-        ? folderRunLocation(composerSnapshot.summary?.cwd ?? newTab?.cwd, snapshot.sessions, snapshot.peerKinds)
+        ? newChatRunLocation(
+            newChatsIn,
+            folderRunLocation(composerSnapshot.summary?.cwd ?? newTab?.cwd, snapshot.sessions, snapshot.peerKinds),
+          )
         : undefined,
-    [sandboxOffered, composerSnapshot.summary?.cwd, newTab?.cwd, snapshot.sessions, snapshot.peerKinds],
+    [sandboxOffered, newChatsIn, composerSnapshot.summary?.cwd, newTab?.cwd, snapshot.sessions, snapshot.peerKinds],
   );
   /// The chat the folder default last saw (its session, or the New Tab adoption it came with).
   const defaultedChat = useRef<string | undefined>(undefined);
@@ -11299,8 +11309,9 @@ function AcpmuxPane() {
               if (authBlock) return false;
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
               if (cloudPicked) {
+                // The chat's project, copied to the machine; none: the machine's own folder (cloudStartFolder).
                 const refused = sendToCloud(text, chips?.length ?? 0, {
-                  ...(projectDraft ? { cwd: projectDraft } : {}),
+                  ...cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd),
                   ...heldPick(composerSnapshot),
                 });
                 if (refused) directClient.current?.notice(refused);
@@ -11522,7 +11533,7 @@ function AcpmuxPane() {
                     })
             }
             localName={machineName}
-            environments={preview}
+            environments={cloudOn}
             {...(sandboxOffered ? { runMode: sandboxModeRows } : {})}
             onBrowseFolder={
               canMove
@@ -11878,7 +11889,7 @@ function AcpmuxPane() {
                     );
                   }}
                   key={newTabGeneration}
-                  environments={preview}
+                  environments={cloudOn}
                   // The tab's run, found by a read, takes the chat view: the page's draft goes to its composer.
                   onLeaveDraft={(text, attachments) => {
                     // A Sandboxed send from the page already took its prompt (or held it back).
@@ -11904,7 +11915,7 @@ function AcpmuxPane() {
                         ) =>
                           sendToCloud(text, attachments.length, {
                             harness,
-                            ...(cwd ? { cwd } : {}),
+                            ...cloudStartFolder(cwd),
                             ...(model ? { model } : {}),
                           }),
                         onSandbox: (harness: string, text: string, attachments: ComposerAttachment[]) => {

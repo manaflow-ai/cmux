@@ -14,7 +14,10 @@ import Foundation
 /// gesture, as onboarding's first task). This Mac's tab, which never started a chat, then closes.
 ///
 /// Progress and failures are Move to Cloud's toasts, and the page gets the failure's message.
-/// Behind Labs preview features, like the picker's Cloud row.
+/// Not behind Labs: the person picked Cloud in the composer, or Settings' Start New Chats In says
+/// Cloud (`agentPane.newChatsIn`; Leo, 2026-10-31: "whenever i start a chat it should be able to
+/// send me to cloud autommatically"). A chat with no project (``AgentPaneCloudStart/home``) copies
+/// nothing and starts in the machine's own folder for chats.
 @MainActor
 struct CloudStartChat {
     let services: AppServices
@@ -56,7 +59,6 @@ struct CloudStartChat {
     /// Why no Cloud chat can start at all now, the sandbox's codes (`AgentPageChats.wireSandbox`).
     static func refusal(_ services: AppServices) -> String? {
         if services.registry.disabledFeatures.contains(.cloud) || !services.cloud.mayCallCloud { return "cloud_disabled" }
-        if services.settings?.snapshot.previewFeatures != true { return "labs_off" }
         return services.cloud.isSignedIn ? nil : "not_signed_in"
     }
 
@@ -90,6 +92,7 @@ struct CloudStartChat {
 
     /// The start; returns the machine's name.
     private func run(_ start: AgentPaneCloudStart, tab: TabModel, report: @MainActor (Step) -> Void) async throws -> String {
+        if start.home { return try await runHome(start, tab: tab, report: report) }
         // The folder the page named, as Move to Cloud's `path` takes one: an existing folder, never
         // the home folder or the disk's root. A page could already start a chat on this Mac in it.
         guard let chat = start.cwd ?? tab.cwd, await Self.isFolder(chat),
@@ -134,6 +137,34 @@ struct CloudStartChat {
             for window in services.windows.controllers { window.state.selection.select(opened.key, in: pane.id) }
         }
         // This Mac's tab never started a chat: the chat is the machine's now.
+        do {
+            try await services.daemon.connection?.closeTabs([tab.surface], endTerminals: false, reason: .sessionEnd)
+        } catch {
+            services.cloud.logger.error("cloud start chat: closing this Mac's tab failed: \(String(describing: error), privacy: .public)")
+        }
+        return name
+    }
+}
+
+extension CloudStartChat {
+    /// A chat with no project (the page's `home`): no folder is read or copied. The machine is
+    /// picked as for any start (with no folder to size it by), and the chat opens with no folder,
+    /// so the machine's daemon starts it in its own folder for chats.
+    fileprivate func runHome(_ start: AgentPaneCloudStart, tab: TabModel, report: @MainActor (Step) -> Void) async throws -> String {
+        let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user)
+        report(Step(name: "machine"))
+        let machine = try await self.machine(for: start, invocation: invocation) { await CloudChatPick(services: services).read(folder: nil, tab: tab) }
+        let name = machine.machine.title
+        let context = AppActionContext(services: services)
+        let anchor = try await CloudHandlers.terminalAnchor(on: machine, context)
+        report(Step(name: "opening", machine: name, size: Self.sizeText(machine.machine.size)))
+        let pending = try services.agentTabs.open(in: anchor.pane.handle, of: machine.daemon, seed: AgentPaneSeedSource(start.seed(cwd: nil)),
+                                                 idempotencyKey: start.tabKey)
+        let opened = try await pending.value()
+        CloudHandlers.show(anchor.id, context)
+        if let pane = await machine.daemon.store.firstPane(mirroring: anchor.key) {
+            for window in services.windows.controllers { window.state.selection.select(opened.key, in: pane.id) }
+        }
         do {
             try await services.daemon.connection?.closeTabs([tab.surface], endTerminals: false, reason: .sessionEnd)
         } catch {

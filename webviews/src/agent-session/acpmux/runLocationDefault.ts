@@ -15,6 +15,16 @@ import { listed, type AcpmuxSessionEntry } from "./sessionList";
 
 export type RunLocation = "local" | "cloud";
 
+/// Where a new chat runs when its composer picks nothing: Cloud when Settings' Start New Chats In
+/// (`agentPane.newChatsIn`) says Cloud, else where its folder's newest chat ran (folderRunLocation),
+/// else undefined (this Mac, as before). The composer's own pick always wins over this (App.tsx).
+export function newChatRunLocation(
+  newChatsIn: "local" | "cloud",
+  folderDefault: RunLocation | undefined,
+): RunLocation | undefined {
+  return newChatsIn === "cloud" ? "cloud" : folderDefault;
+}
+
 /// The machine's folders for copied folders (CloudMoveSetup `workRoots`), in the app's order.
 export const CLOUD_WORK_ROOTS = ["/home/cmux/work", "/root/work"] as const;
 

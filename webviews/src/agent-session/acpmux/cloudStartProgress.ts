@@ -35,12 +35,19 @@ export type CloudStartProgress = {
   network?: "full" | "limited";
   /// A failure's words, the host's own.
   message?: string;
+  /// The agent the chat starts, by name ("Claude Code"), for the opening step.
+  agent?: string;
 };
 
 /// The start the page just sent: the message, and the folder by its name.
-export function cloudStartBegun(key: string, task: string, cwd: string | undefined): CloudStartProgress {
+export function cloudStartBegun(
+  key: string,
+  task: string,
+  cwd: string | undefined,
+  agent?: string,
+): CloudStartProgress {
   const folder = cwd?.replace(/\/+$/, "").split("/").pop();
-  return { key, task, state: "starting", ...(folder ? { folder } : {}) };
+  return { key, task, state: "starting", ...(folder ? { folder } : {}), ...(agent ? { agent } : {}) };
 }
 
 /// Text the card shows from the host: one line, at most `max` characters.
