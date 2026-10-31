@@ -432,6 +432,7 @@ extension SidebarGridAlignmentTests {
             #expect(abs(origin + workspace.icon.frame.minX - Self.lead(comfortable)) <= 0.5)
             #expect(abs(workspace.title.frame.minX - workspace.icon.frame.maxX - 8) <= 0.5)
             // The emoji keeps its 16 pt square, centered in the column box.
+            workspace.icon.layout()
             for glyph in workspace.icon.subviews where !glyph.isHidden {
                 #expect(glyph.frame.width <= 16.5)
                 #expect(abs(glyph.frame.midX - box / 2) <= 0.5)
