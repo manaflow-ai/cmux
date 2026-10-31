@@ -3,6 +3,7 @@ import {
   readCreatorNames,
 } from "../../../../services/vms/creators";
 import { normalizedDisplayName } from "../../../../services/vms/displayName";
+import { readVmRunningSince, vmCostFields } from "../../../../services/vms/machineCost";
 import {
   invalidVmDisplayNameResponse,
   jsonResponse,
@@ -19,6 +20,7 @@ import { PublicationNotFoundError } from "../../../../services/vm-publications/r
 import { deleteVmPublicationsForVmDeletion } from "../../../../services/vm-publications/vmDeletion";
 import { publicationErrorResponse } from "../publications/routeShared";
 import { vmModelPlaneRevoker } from "../../../../services/vms/modelPlaneGateway";
+import { gcpCredentialFromRequest } from "../../../../services/vms/routeInput";
 
 
 // Mirrors VM_ROUTE_DEADLINES (services/vms/routeDeadline.ts): work past the
@@ -39,6 +41,7 @@ export async function GET(
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
+      const providerCredential = gcpCredentialFromRequest(request);
       const run = await runVmRoute(getVm({
         userId: user.id,
         billingTeamId: account.entitlements.billingTeamId,
@@ -47,9 +50,27 @@ export async function GET(
         // A status read is how a gone machine is usually noticed first, and the
         // row it retires is one no destroy or cron pass can revisit.
         modelPlane: vmModelPlaneRevoker(),
+        providerCredential,
       }), { request, readDeadline: { operation: "getVm" } });
       if (!run.ok) return run.response;
       const vm = run.value;
+      const live = vm.status === "running" || vm.status === "provisioning";
+      // Both side reads are bounded and best effort; start them together so a
+      // stalled database costs one bound, not two, as in the list.
+      const [creatorNames, runningSince] = await Promise.all([
+        readCreatorNames({
+          userIds: [vm.createdByUserId],
+          teamId: vm.ownerTeamId,
+          caller: user,
+        }),
+        live
+          ? readVmRunningSince([vm.providerVmId], {
+            onFailure: (error) => setSpanAttributes(span, {
+              "cmux.vm.running_since_error": error instanceof Error ? error.name : "unknown",
+            }),
+          })
+          : Promise.resolve(new Map<string, Date>()),
+      ]);
       // The same machine shape `GET /api/vm` lists: `kind` is what the client
       // shows a Displays row and opens the desktop for (`cmux vm status`,
       // `cmux vm open`), and `address` is the private address those open.
@@ -67,16 +88,16 @@ export async function GET(
         // Same field the list carries. A client that merges a detail read into
         // the row it already listed would otherwise overwrite the author with
         // nothing, and the resulting "Unknown" reads as a client bug.
-        createdBy: creatorFor(vm, await readCreatorNames({
-          userIds: [vm.createdByUserId],
-          teamId: vm.ownerTeamId,
-          caller: user,
-        })),
+        createdBy: creatorFor(vm, creatorNames),
         address: { ipv4: vm.addressIpv4 ?? null, ipv6: vm.addressIpv6 ?? null },
         agentUpdates: vm.agentUpdates,
+        idlePauseMinutes: vm.idlePauseMinutes,
+        pauseReason: vm.pauseReason,
         // Contract recorded when the provider attached cmux-tui. This is
         // rollout metadata, not a live daemon probe.
         cmuxTuiContract: vm.cmuxTuiContract,
+        // Same cost fields as the list, so a detail read never drops them.
+        ...vmCostFields(vm, runningSince.get(vm.providerVmId)),
       });
     },
   );
@@ -155,12 +176,14 @@ export async function DELETE(
         }
         return publicationErrorResponse(err);
       }
+      const providerCredential = gcpCredentialFromRequest(request);
       const run = await runVmRoute(destroyVm({
         userId: user.id,
         billingTeamId: account.entitlements.billingTeamId,
         teamIds: user.teamIds,
         providerVmId: id,
         modelPlane: vmModelPlaneRevoker(),
+        providerCredential,
       }), { request, deadline: { operation: "destroy" } });
       if (!run.ok) return run.response;
       return jsonResponse({ ok: true });

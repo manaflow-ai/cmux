@@ -135,6 +135,67 @@ struct AgentCLIUpdateObservationTests {
         #expect(h.owner.starts.map(\.1) == ["original", "after-close"])
     }
 
+    /// Each captured route subscribes to its own connection's changes; a reconnect is a new stream.
+    @MainActor final class Connections {
+        let owner = AgentCLIUpdateActionsTests.Owner()
+        let ledger = AgentCLIUpdateRecoveryTests.Ledger()
+        var subscriptions: [AsyncStream<Void>.Continuation] = []
+
+        func route() -> AgentCLIUpdateActions.Route {
+            var route = owner.route()
+            route.changes = {
+                let (events, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+                self.subscriptions.append(continuation)
+                return events
+            }
+            return route
+        }
+
+        func waitForObservations(_ count: Int) async {
+            for _ in 0..<500 where owner.observations < count { await Task.yield() }
+        }
+    }
+
+    /// A reconnect (new epoch) to the same owner retires the old route. The next read of the
+    /// jobs re-captures the owner and restarts the follow on the new connection, whose events
+    /// then deliver the outcome with no refresh. Reads with no reconnect never subscribe again.
+    @Test func aReconnectRestartsTheFollowOnTheNewConnectionAndRepeatedReadsDoNotDuplicateIt() async throws {
+        let c = Connections()
+        let actions = AgentCLIUpdateActions(capture: { _ in c.route() }, persistence: c.ledger.port)
+        let registry = ActionRegistry.standard(); actions.bind(into: registry)
+        _ = try await actions.runSettings(id: "work-profile",
+            context: .init(page: "cmux.settings", opid: "original", userGesture: true, gestureEvent: 1), registry: registry)
+        await c.waitForObservations(1)
+        #expect(c.subscriptions.count == 1 && c.owner.observations == 1)
+        let firstFollow = try #require(actions.intents["original"]?.following)
+        #expect(actions.state.arrayValue?.first?["state"] == "pending")
+
+        for _ in 0..<5 { _ = actions.state }
+        #expect(c.subscriptions.count == 1, "reads with no reconnect start no other follow")
+        #expect(actions.intents["original"]?.following == firstFollow)
+        #expect(c.owner.captures == 1)
+
+        c.owner.epoch += 1
+        #expect(actions.state.arrayValue?.first?["state"] == "pending")
+        #expect(c.owner.captures == 2, "the read after a reconnect re-captures the owner")
+        #expect(c.subscriptions.count == 2, "the follow restarts on the new connection")
+        let secondFollow = try #require(actions.intents["original"]?.following)
+        #expect(secondFollow != firstFollow && firstFollow.isCancelled)
+        for _ in 0..<5 { _ = actions.state }
+        #expect(c.subscriptions.count == 2 && c.owner.captures == 2, "the fresh route is reused, not re-captured")
+        #expect(actions.intents["original"]?.following == secondFollow)
+
+        await c.waitForObservations(2)
+        c.owner.outcome = "exited"
+        c.subscriptions[1].yield()
+        c.subscriptions[1].finish()
+        await secondFollow.value
+        let job = try #require(actions.state.arrayValue?.first)
+        #expect(job["state"] == "exited" && job["exit_code"] == 23)
+        #expect(actions.settled == ["original"] && c.ledger.rows.isEmpty)
+        #expect(c.owner.starts.count == 1 && c.subscriptions.count == 2)
+    }
+
     @Test(arguments: ["before", "during", "failed-read"])
     func withdrawnRoutesAndFailedReadsNeverInventCompletion(mode: String) async throws {
         let h = Harness(); let (actions, registry) = h.make()

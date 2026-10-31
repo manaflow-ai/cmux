@@ -20,6 +20,7 @@ import net from "node:net";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { stopDevServer } from "./support/devServer";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmDevServer } from "./support/warmDevServer";
 
@@ -110,7 +111,37 @@ await requireBrowserLane("diff-virtualization.test.ts", async () => {
     return { files, rows, nodes };
   }
 
-  /** The named file's header relative to the viewer top, once it is laid out. */
+  /**
+   * Resolves once the viewer has painted three frames alike (its scroll position and height, and
+   * every mounted header's place and state) with its pointer events back on: CodeView has rendered
+   * the window, reconciled the measured heights, and ended the scroll that turned pointer events
+   * off (it turns them back on 120 ms after the last scroll event).
+   */
+  async function quiet(page: Page) {
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          let last = "";
+          let alike = 0;
+          window.cmuxAfterPaint(() => {
+            const root = document.querySelector(".code-view-root")!;
+            const view = (window as any).__INSTANCE;
+            const headers = Array.from(
+              document.querySelectorAll(".file-header"),
+              (header) => `${header.getBoundingClientRect().top}:${header.getAttribute("aria-expanded")}`,
+            ).join();
+            const now = `${root.scrollTop}/${root.scrollHeight}/${headers}`;
+            alike = now === last ? alike + 1 : 0;
+            last = now;
+            if (alike < 2 || view.pointerEventsDisabled || view.scrollInteractionFixTimer != null) return true;
+            resolve();
+            return false;
+          });
+        }),
+    );
+  }
+
+  /** The named file's header relative to the viewer top, once it is laid out and the viewer is quiet. */
   async function headerOffset(page: Page, name: string) {
     const find = (name: string) => {
       const viewer = document.querySelector(".code-view-root")!.getBoundingClientRect();
@@ -125,14 +156,15 @@ await requireBrowserLane("diff-virtualization.test.ts", async () => {
     };
     // A file mounted by a jump, or laid out again after a collapse, renders its
     // header slot a few frames later.
-    for (let tries = 0; tries < 50; tries += 1) {
-      const found = await page.evaluate(find, name);
-      if (found != null) {
-        return found;
-      }
-      await page.waitForTimeout(100);
+    const laidOut = await page
+      .waitForFunction(find, name, { timeout: 5_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (!laidOut) {
+      return null;
     }
-    return null;
+    await quiet(page);
+    return page.evaluate(find, name);
   }
 
   /** The center of `selector` inside the named file's header. */
@@ -156,14 +188,10 @@ await requireBrowserLane("diff-virtualization.test.ts", async () => {
     return point;
   }
 
-  // CodeView turns pointer events off while it scrolls and back on 120 ms later.
-  const POINTER_SETTLE_MS = 150;
-
   async function clickIn(page: Page, name: string, selector: string) {
     const point = await pointIn(page, name, selector);
-    await page.waitForTimeout(POINTER_SETTLE_MS);
     await page.mouse.click(point.x, point.y);
-    await page.waitForTimeout(300);
+    await quiet(page);
   }
 
   /** Clicks the files tree row of `name`, scrolling the tree's own list to it first. */
@@ -199,7 +227,7 @@ await requireBrowserLane("diff-virtualization.test.ts", async () => {
         [name, approximateRow] as const,
       );
       if (point != null) {
-        await page.waitForTimeout(POINTER_SETTLE_MS);
+        await quiet(page);
         // The virtualized tree can lay out again while the pointer settles (a loaded WebKit on
         // CI): click only if the row is still under the point, else find it again.
         const still = await page.evaluate(
@@ -223,23 +251,24 @@ await requireBrowserLane("diff-virtualization.test.ts", async () => {
           [name, point.x, point.y] as const,
         );
         if (!still) {
-          await page.waitForTimeout(100);
           continue;
         }
         await page.mouse.click(point.x, point.y);
-        await page.waitForTimeout(900);
+        await quiet(page);
         return;
       }
-      await page.waitForTimeout(100);
+      // The tree renders the rows it scrolled to on its next frame.
+      await page.evaluate(() => window.cmuxPaintFrame().then(() => window.cmuxPaintFrame()));
     }
     throw new Error(`no tree row for ${name}`);
   }
 
-  /** Jump to a file through the toolbar's jump-to-file palette. */
+  /** Jump to a file through the toolbar's jump-to-file palette, and wait for its header to land. */
   async function jumpToFile(page: Page, name: string) {
     await page.click("button[aria-label='Jump to file']");
     await page.fill("input.jump-palette-input", name);
     await page.keyboard.press("Enter");
+    await headerOffset(page, name);
   }
 
   async function scrollViewer(page: Page, top: number) {
@@ -248,8 +277,7 @@ await requireBrowserLane("diff-virtualization.test.ts", async () => {
     }, top);
     // CodeView renders the new window on the next frame and reconciles
     // measured heights on the one after.
-    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-    await page.waitForTimeout(200);
+    await quiet(page);
   }
 
   /** Pierre's CodeView instance (it publishes itself as `window.__INSTANCE`). */
@@ -265,6 +293,7 @@ await requireBrowserLane("diff-virtualization.test.ts", async () => {
       beforeAll(async () => {
         browser = await type.launch({ headless: true });
         page = await browser.newPage({ viewport: VIEWPORT });
+        await installPaintedFrames(page);
         const ready = () =>
           page.waitForFunction(() => document.getElementById("files-sidebar")?.dataset.fileCount === "2000", null, {
             timeout: 60_000,
@@ -276,7 +305,7 @@ await requireBrowserLane("diff-virtualization.test.ts", async () => {
         await page.waitForLoadState("networkidle");
         await page.goto(`${base}/test/browser/diff-virtualization.html`);
         await ready();
-        await page.waitForTimeout(500);
+        await quiet(page);
       });
 
       afterAll(async () => {
@@ -304,7 +333,6 @@ await requireBrowserLane("diff-virtualization.test.ts", async () => {
           false,
         );
         await jumpToFile(page, "file1500.ts");
-        await page.waitForTimeout(1200);
         expect((await headerOffset(page, "file1500.ts"))?.offset).toBe(0);
         expect((await page.evaluate(census)).files).toBeLessThanOrEqual(MAX_FILES);
       });
@@ -338,12 +366,11 @@ await requireBrowserLane("diff-virtualization.test.ts", async () => {
 
         // Drag across the file name: the path is selected and the file stays open.
         const name = await pointIn(page, "file0001.ts", ".file-header-name");
-        await page.waitForTimeout(POINTER_SETTLE_MS);
         await page.mouse.move(name.left + 1, name.y);
         await page.mouse.down();
         await page.mouse.move(name.right - 1, name.y, { steps: 8 });
         await page.mouse.up();
-        await page.waitForTimeout(200);
+        await quiet(page);
         expect((await page.evaluate(() => window.getSelection()?.toString() ?? "")).trim()).not.toBe("");
         expect((await headerOffset(page, "file0001.ts"))?.expanded).toBe("true");
 
@@ -382,7 +409,6 @@ await requireBrowserLane("diff-virtualization.test.ts", async () => {
       test("a file row in the tree expands, collapses in place, or scrolls, like its header bar", async () => {
         // Collapse an unmounted file from its bar, then go back to the top.
         await jumpToFile(page, "file1700.ts");
-        await page.waitForTimeout(1200);
         await clickIn(page, "file1700.ts", ".file-header-spacer");
         expect((await headerOffset(page, "file1700.ts"))?.expanded).toBe("false");
         await scrollViewer(page, 0);
@@ -394,8 +420,26 @@ await requireBrowserLane("diff-virtualization.test.ts", async () => {
         const row = 1700 + 2 + 2 + 17;
         await clickTreeRow(page, "file1700.ts", row);
         expect(await headerOffset(page, "file1700.ts")).toEqual({ offset: 0, expanded: "true" });
-        await page.waitForTimeout(500);
-        // No jump once the expanded height is measured.
+        // No jump once the expanded height is measured: the header holds still for 30 more frames.
+        expect(
+          await page.evaluate(
+            (name) =>
+              new Promise<number[]>((resolve) => {
+                const offsets: number[] = [];
+                window.cmuxAfterPaint(() => {
+                  const viewer = document.querySelector(".code-view-root")!.getBoundingClientRect();
+                  const header = Array.from(document.querySelectorAll(".file-header")).find(
+                    (element) => element.querySelector(".file-header-name")?.textContent === name,
+                  );
+                  offsets.push(header == null ? NaN : Math.round(header.getBoundingClientRect().top - viewer.top));
+                  if (offsets.length < 30) return true;
+                  resolve(offsets);
+                  return false;
+                });
+              }),
+            "file1700.ts",
+          ),
+        ).toEqual(Array(30).fill(0));
         expect(await headerOffset(page, "file1700.ts")).toEqual({ offset: 0, expanded: "true" });
 
         // Expanded and in place: the tree row collapses it and the bar stays put.
@@ -411,26 +455,28 @@ await requireBrowserLane("diff-virtualization.test.ts", async () => {
 
         // The tree selection follows the file in view.
         await scrollViewer(page, await topOf(page, "src/mod03/file0300.ts"));
-        await page.waitForTimeout(400);
-        expect(
-          await page.evaluate(() => {
-            const find = (root: Document | ShadowRoot): string | null => {
-              for (const element of root.querySelectorAll("*")) {
-                if (element.hasAttribute("data-item-selected")) {
-                  return element.getAttribute("data-item-path");
-                }
-                if (element.shadowRoot) {
-                  const found = find(element.shadowRoot);
-                  if (found != null) {
-                    return found;
-                  }
+        // The selected row's path; with `want`, only once it is that one.
+        const selected = (want: string | null) => {
+          const find = (root: Document | ShadowRoot): string | null => {
+            for (const element of root.querySelectorAll("*")) {
+              if (element.hasAttribute("data-item-selected")) {
+                return element.getAttribute("data-item-path");
+              }
+              if (element.shadowRoot) {
+                const found = find(element.shadowRoot);
+                if (found != null) {
+                  return found;
                 }
               }
-              return null;
-            };
-            return find(document);
-          }),
-        ).toBe("src/mod03/file0300.ts");
+            }
+            return null;
+          };
+          const path = find(document);
+          return want == null || path === want ? path : null;
+        };
+        // The tree moves its selection after the scroll; one that never follows fails below.
+        await page.waitForFunction(selected, "src/mod03/file0300.ts", { timeout: 5_000 }).catch(() => {});
+        expect(await page.evaluate(selected, null)).toBe("src/mod03/file0300.ts");
       });
     });
   }

@@ -463,8 +463,34 @@ public actor MockHomeSource: HomeSource {
     /// Posts `text` as `author` under `key` (a Chief's reply carries its turn key) and returns its seq.
     @discardableResult
     public func post(_ text: String, from author: ParticipantID, in conversation: ConversationID, key: IdempotencyKey) -> Seq? {
-        guard (try? commitMessage(in: conversation, author: author, parts: [.text(text)], key: key)) != nil else { return nil }
+        post([.text(text)], from: author, in: conversation, key: key)
+    }
+
+    /// Posts `parts` as `author` under `key`, in `threadRoot`'s thread when one is given (a Chief's
+    /// done marker answers the message it closes), and returns its seq.
+    @discardableResult
+    public func post(_ parts: [MessagePart], from author: ParticipantID, in conversation: ConversationID, key: IdempotencyKey,
+                     threadRoot: MessageID? = nil) -> Seq? {
+        guard (try? commitMessage(in: conversation, author: author, parts: parts, key: key, threadRoot: threadRoot)) != nil else { return nil }
         return conversations[conversation]?.lastSeq
+    }
+
+    /// Adds `kind` from `author` to part `partIndex` of message `messageID`, as the owner
+    /// commits another participant's `reaction.add` (a Chief's `react` tool, a group member's
+    /// tapback): the message's update reaches every subscriber. False when the message is unknown.
+    @discardableResult
+    public func react(_ kind: Reaction.Kind, to messageID: MessageID, from author: ParticipantID,
+                      in conversation: ConversationID, partIndex: Int = 0) -> Bool {
+        guard var list = stored[conversation], let index = list.firstIndex(where: { $0.id == messageID }),
+              var summary = conversations[conversation] else { return false }
+        let reaction = Reaction(author: author, partIndex: partIndex, kind: kind)
+        if !list[index].reactions.contains(reaction) { list[index].reactions.append(reaction) }
+        stored[conversation] = list
+        summary.rev += 1
+        if summary.lastMessage?.id == messageID { summary.lastMessage = list[index] }
+        conversations[conversation] = summary
+        publish(.message(list[index], rev: summary.rev))
+        return true
     }
 
     /// Posts a message as someone else (incoming traffic for demos).
@@ -476,6 +502,14 @@ public actor MockHomeSource: HomeSource {
     /// DEBUG Home fixture's width sweep). Nothing is stored: the reply posts only through ``receive(_:from:in:)``.
     public func streamDraft(_ update: HomeDraftUpdate) {
         publish(.draft(update))
+    }
+
+    /// Publishes one live run frame (``HomeLiveEvent``), as an owner sends a running Chief's
+    /// "working on" line (the DEBUG Home fixture's status-line captures). Nothing is stored.
+    ///
+    /// - Parameter event: The frame, for example an `.activity` frame with the step running now.
+    public func streamLive(_ event: HomeLiveEvent) {
+        publish(.live(event))
     }
 
     // MARK: Owner logic
@@ -557,8 +591,8 @@ public actor MockHomeSource: HomeSource {
             let id = createConversation(title: "", participants: [me, agent])
             _ = try? commitMessage(in: id, author: agent.id, parts: [.text(MockHomeSeed.chiefGreeting(trimmed))], key: .make())
             return HomeOpResult(rev: inboxRev, conversation: id)
-        case .createGroup(let title, let ids):
-            let participants = [me] + ids.compactMap { people[$0] }
+        case .createGroup(let title, let ids, let invites):
+            let participants = [me] + ids.compactMap { people[$0] } + invites.map { personFor($0).0 }
             guard participants.count >= 3 else { throw HomeRejection.invalid("group_needs_three") }
             let id = createConversation(title: title, participants: participants)
             return HomeOpResult(rev: inboxRev, conversation: id)
@@ -771,8 +805,20 @@ public actor MockHomeSource: HomeSource {
         }
     }
 
-    private func typing(_ who: ParticipantID, in conversation: ConversationID, on: Bool) {
+    /// Sets a participant's activity for demos without starting a timed reply.
+    public func typing(_ who: ParticipantID, in conversation: ConversationID, on: Bool) {
         publish(.typing(conversation, who, on: on))
+    }
+
+    /// Who has `conversation` open, the whole set, as an owner's presence frame (fixtures and
+    /// captures: `debug.home.drive` `presence`); an empty set is nobody.
+    public func showPresence(_ viewing: Set<ParticipantID>, in conversation: ConversationID) {
+        publish(.presence(conversation, viewing: viewing))
+    }
+
+    /// `who` starts or stops typing in `conversation`, as an owner's typing frame (fixtures).
+    public func showTyping(_ who: ParticipantID, in conversation: ConversationID, on: Bool) {
+        typing(who, in: conversation, on: on)
     }
 
     private func reply(as responder: Participant, in conversation: ConversationID) {

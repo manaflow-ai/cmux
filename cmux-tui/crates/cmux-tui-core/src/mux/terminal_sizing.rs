@@ -3,7 +3,9 @@
 use super::*;
 
 mod grid_hold;
+mod handheld_ceiling;
 pub(super) use grid_hold::AppliedSeat;
+pub(crate) mod host_policy;
 
 impl Mux {
     /// Activity by one client view: attach, explicit focus-click, or keyboard,
@@ -126,6 +128,8 @@ impl Mux {
                 changed |= entry.engine.update_identity(&participant);
             }
             sizing.note_size_state(runtime, changed);
+            // A changed identity may change which views are this Mac's.
+            self.refresh_host_policy_locked(&mut sizing, runtime);
             // The same-user handheld rule may change who counts.
             self.apply_terminal_grid(&sizing, runtime);
         }
@@ -392,9 +396,15 @@ impl Mux {
             .iter()
             .filter(|(runtime, _)| !sizing.terminal_size_policies.contains_key(runtime))
             .filter_map(|(runtime, entry)| {
-                let placement = entry.placements.iter().next().copied().unwrap_or(*runtime);
-                (self.surface_workspace(placement) == Some(workspace))
-                    .then_some((*runtime, placement))
+                // Any placement in the workspace: a terminal shown there and
+                // elsewhere follows this default too (workspace_default_of).
+                let placement = entry
+                    .placements
+                    .iter()
+                    .copied()
+                    .chain(self.runtime_placements(*runtime))
+                    .find(|placement| self.surface_workspace(*placement) == Some(workspace))?;
+                Some((*runtime, placement))
             })
             .collect::<Vec<_>>();
         let mut owner_changes = HashSet::new();
@@ -430,7 +440,7 @@ impl Mux {
         Some(view_participant_id(runtime, surface, client))
     }
 
-    pub(super) fn client_sizing_identity(&self, client: u64) -> ClientSizingIdentity {
+    pub(crate) fn client_sizing_identity(&self, client: u64) -> ClientSizingIdentity {
         if client == 0 {
             // The in-process frontend, named after its host like a remote TUI.
             static DEVICE_NAME: OnceLock<String> = OnceLock::new();
@@ -480,8 +490,9 @@ impl Mux {
         if let Some(policy) = sizing.terminal_size_policies.get(&runtime) {
             return policy.clone();
         }
-        self.surface_workspace(placement)
-            .and_then(|workspace| sizing.workspace_size_policies.get(&workspace).cloned())
+        self.workspace_default_of(sizing, runtime, placement)
+            .or_else(|| self.host_policy_for(sizing, runtime))
+            .or_else(|| sizing.host_policy.as_ref().map(|host| host.expand(&[])))
             .unwrap_or_default()
     }
 
@@ -558,6 +569,7 @@ impl Mux {
             }
         };
         sizing.note_size_state(runtime, changed);
+        self.refresh_host_policy_locked(sizing, runtime);
     }
 
     /// Resize the PTY to the engine's decision when that decision changed.
@@ -600,6 +612,8 @@ impl Mux {
         let mut sizing = self.client_sizing.lock().unwrap();
         let owners_before = sizing.terminal_owner_clients(runtime);
         let result = mutate(self, &mut sizing);
+        // Participants may have come, gone or changed identity.
+        self.refresh_host_policy_locked(&mut sizing, runtime);
         self.apply_terminal_grid(&sizing, runtime);
         let owners_after = sizing.terminal_owner_clients(runtime);
         drop(sizing);

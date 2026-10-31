@@ -22,8 +22,8 @@ nonisolated enum AppearanceSettingsSchema {
                 AppThemeSetting().configPath, section: .appearance, group: appTheme,
                 title: SettingsText.keyed("settings.appearance.theme", "Theme"),
                 help: SettingsText.keyed("settings.appearance.theme.help",
-                                        "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it."),
-                summary: SettingsText.keyed("settings.appearance.theme.summary", "Colors for cmux and its terminals"),
+                                        "Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it."),
+                summary: SettingsText.keyed("settings.appearance.theme.summary", "Colors for terminals, and cmux unless App Theme is set"),
                 kind: .theme, default: nil, defaultLabel: ghostty,
                 keywords: ["theme", "color", "colors", "color scheme", "dark", "light", "ghostty", "palette"]
             ),
@@ -31,8 +31,8 @@ nonisolated enum AppearanceSettingsSchema {
                 ChromeThemeSetting().configPath, section: .appearance, group: appTheme,
                 title: SettingsText.keyed("settings.appearance.appTheme", "App Theme"),
                 help: SettingsText.keyed("settings.appearance.appTheme.help",
-                                        "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast."),
-                summary: SettingsText.keyed("settings.appearance.appTheme.summary", "Colors for cmux's own pages"),
+                                        "Colors for the window, sidebar, tabs and cmux's pages. Terminals keep the Terminal Theme. Every color meets WCAG AA contrast."),
+                summary: SettingsText.keyed("settings.appearance.appTheme.summary", "Colors for the window, sidebar, tabs and pages"),
                 kind: .theme, default: .string(ChromeThemeSetting.followTerminal),
                 defaultLabel: SettingsText.keyed("settings.default.followTerminal", "Match Terminal Theme"),
                 keywords: ["app theme", "accent", "chrome", "interface", "colors", "contrast", "wcag"]
@@ -64,6 +64,16 @@ nonisolated enum AppearanceSettingsSchema {
                 ]),
                 default: .string(ThemeAccent.neutral.rawValue),
                 keywords: ["accent", "color", "colour", "highlight", "selection", "personality", "rose pine", "ansi"]
+            ),
+            SettingDescriptor(
+                HighlightColorSetting().configPath, section: .appearance, group: appTheme,
+                title: SettingsText.keyed("settings.appearance.highlightColor", "Highlight Color"),
+                help: SettingsText.keyed("settings.appearance.highlightColor.help",
+                                        "The color of selected text everywhere: terminals, Markdown, editors, the address bar and text fields. Unset, it is the terminal theme's selection color."),
+                summary: SettingsText.keyed("settings.appearance.highlightColor.summary", "Color of selected text"),
+                kind: .color, default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.terminalTheme", "Terminal Theme"),
+                keywords: ["highlight", "selection", "selected text", "selection-background", "color", "colour", "theme"]
             ),
             SettingDescriptor(
                 BackdropArtSetting().configPath, section: .appearance, group: window,
@@ -100,6 +110,7 @@ nonisolated enum AppearanceSettingsSchema {
                 keywords: ["shuffle", "rotate", "rotating", "wallpaper", "interval", "change picture", "background"]
             ),
             PaneBackgroundsSetting.descriptor(group: window),
+            ReducedBackgroundsSetting.descriptor(group: window),
             SettingDescriptor(
                 ExperimentalAppearanceSetting().configPath, section: .appearance, group: window,
                 title: SettingsText.keyed("settings.appearance.experimentalControls", "Experimental Appearance Controls"),
@@ -133,6 +144,23 @@ nonisolated enum AppearanceSettingsSchema {
                 ]),
                 default: nil, defaultLabel: ghostty,
                 keywords: ["blur", "vibrancy", "liquid glass", "background-blur", "transparency"]
+            ),
+            SettingDescriptor(
+                WindowBackgroundSetting.inactiveDimPath, section: .appearance, group: window,
+                title: SettingsText.keyed("settings.appearance.inactiveWindowDim", "Dim Inactive Windows"),
+                help: SettingsText.keyed("settings.appearance.inactiveWindowDim.help",
+                                        "How much more theme color covers a window while another one is in front. 0 keeps the same look."),
+                kind: .number(SettingNumber(WindowBackgroundSetting.inactiveDimRange, step: 0.05, unit: .fraction, placeholder: 0)),
+                default: .number(0),
+                keywords: ["inactive", "unfocused", "focus", "dim", "opacity", "transparency", "background"]
+            ),
+            SettingDescriptor(
+                WallpaperTintSetting().configPath, section: .appearance, group: window,
+                title: SettingsText.keyed("settings.appearance.wallpaperTint", "Tint with Desktop Wallpaper"),
+                help: SettingsText.keyed("settings.appearance.wallpaperTint.help",
+                                        "The glass takes the colors of your desktop picture and follows it when the picture or Space changes."),
+                kind: .toggle, default: .bool(WallpaperTintSetting.fallback),
+                keywords: ["wallpaper", "desktop", "tint", "tinting", "glass", "color", "colour", "space", "background"]
             ),
             SettingDescriptor(
                 AppearanceTuningSetting.glassTransparencyPath, section: .appearance, group: tuning,
@@ -208,6 +236,10 @@ nonisolated enum AppearanceSettingsSchema {
                    keywords: ["sidebar", "width", "size", "sidebarWidth"]),
             metric(.columnGap, SettingsText.keyed("settings.appearance.columnGap", "Column Gap"), look, densityDefault,
                    keywords: ["column", "gap", "spacing", "columnGap"]),
+            metric(.dividerThickness, SettingsText.keyed("settings.appearance.dividerThickness", "Divider Thickness"), look, densityDefault,
+                   consumers: [.cmuxNext], keywords: ["divider", "split", "pane", "line", "thickness", "dividerThickness"]),
+            metric(.dividerHitWidth, SettingsText.keyed("settings.appearance.dividerHitWidth", "Divider Drag Width"), look, densityDefault,
+                   consumers: [.cmuxNext], keywords: ["divider", "split", "pane", "drag", "hit", "width", "dividerHitWidth"]),
             metric(.titlebarHeight, SettingsText.keyed("settings.appearance.titlebarHeight", "Titlebar Height"), look, densityDefault,
                    keywords: ["titlebar", "title bar", "header", "height", "titlebarHeight"]),
             SettingDescriptor(
@@ -238,7 +270,7 @@ nonisolated enum AppearanceSettingsSchema {
                 PaneFocusSettings.inactiveTabStylePath, section: .appearance, group: look,
                 title: SettingsText.keyed("settings.focus.inactiveTabStyle", "Unfocused Pane Tabs"),
                 help: SettingsText.keyed("settings.focus.inactiveTabStyle.help",
-                                        "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill."),
+                                        "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill."),
                 summary: SettingsText.keyed("settings.focus.inactiveTabStyle.summary", "How tabs in other panes tone down"),
                 kind: .choice([
                     SettingChoice(InactiveTabStyle.fade.rawValue, SettingsText.keyed("settings.choice.fade", "Fade")),
@@ -390,11 +422,11 @@ nonisolated enum AppearanceSettingsSchema {
     /// An `appearance.metrics.*` size row: its default is the density's (the compact one is the
     /// placeholder). cmux-next and cmux-browser read it.
     private static func metric(_ metric: LayoutMetricSetting, _ title: SettingText, _ group: SettingText, _ densityDefault: SettingText,
-                               keywords: [String]) -> SettingDescriptor {
+                               consumers: Set<SettingConsumer> = [.cmuxNext, .cmuxBrowser], keywords: [String]) -> SettingDescriptor {
         SettingDescriptor(
             metric.configPath, section: .appearance, group: group, title: title,
             kind: .number(SettingNumber(metric.range, step: 1, unit: .points, placeholder: metric.compact)),
             default: nil, defaultLabel: densityDefault, keywords: keywords
-        ).consumed(by: [.cmuxNext, .cmuxBrowser])
+        ).consumed(by: consumers)
     }
 }

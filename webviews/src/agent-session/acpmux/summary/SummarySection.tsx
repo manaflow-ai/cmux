@@ -5,29 +5,31 @@ import { useT } from "../i18n";
 const FOLDED = 5;
 
 /// One titled list in the summary popover. A long list shows its first rows and a "View all"
-/// that opens the rest in place. A `fixed` section stays while empty, with "None", so the
-/// popover keeps its sections in place while a turn adds to them. `lead` is the list's first row,
-/// unfolded (a section with one stays without "None"); `footer` draws under the list, empty or not.
+/// that opens the rest in place. A section with nothing to list is not drawn: no title over
+/// "None". `lead` is the list's first row, unfolded; `footer` draws under the list (Outputs'
+/// gallery row), and a section with only a lead or a footer still draws.
 export function SummarySection<T>({
   title,
   items,
   row,
-  fixed = false,
   lead,
   footer,
   action,
+  keep = false,
 }: {
   title: string;
   items: readonly T[];
   row: (item: T) => React.ReactNode;
-  fixed?: boolean;
   lead?: React.ReactNode;
   footer?: React.ReactNode;
   /// A control at the title's end (Sources' Attach files or folders).
   action?: React.ReactNode;
+  /// Draw the section with nothing to list (Sources while its + offers Use tools).
+  keep?: boolean;
 }) {
   const t = useT();
   const [all, setAll] = useState(false);
+  if (items.length === 0 && !lead && !footer && !keep) return null;
   const heading = action ? (
     <div className="acpmux-summary-heading">
       <h3 className="acpmux-summary-title">{title}</h3>
@@ -36,18 +38,6 @@ export function SummarySection<T>({
   ) : (
     <h3 className="acpmux-summary-title">{title}</h3>
   );
-  if (items.length === 0 && !lead) {
-    if (!fixed) return null;
-    return (
-      <section className="acpmux-summary-section" aria-label={title}>
-        {heading}
-        <ul className="acpmux-summary-list">
-          <li className="acpmux-summary-row acpmux-summary-none">{t("summary.none")}</li>
-        </ul>
-        {footer}
-      </section>
-    );
-  }
   const shown = all ? items : items.slice(0, FOLDED);
   return (
     <section className="acpmux-summary-section" aria-label={title}>

@@ -21,6 +21,8 @@ nonisolated extension ActionCatalog {
         // Focus history and notifications
         "focusHistoryBack", "focusHistoryForward", "focusHistoryLast", "jumpToUnread", "jumpToLastPrompt", "markOldestUnreadAndJumpNext",
         "notificationOpen", "vaultFocusSession", "computerUseFocus", "computerUseFocusCallingTerminal",
+        // Chief subagents: show a subagent's tab, else open a workspace on it
+        "chief.openSubagent",
         // Windows
         "showMainWindow", "showHideAllWindows",
     ]

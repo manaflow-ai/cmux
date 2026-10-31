@@ -31,10 +31,13 @@ public final class WebPopupHost {
         public var width: CGFloat
         /// A tooltip: one row that takes no clicks and draws no check column.
         public var tooltip: Bool
+        /// The page shows nothing with an entrance (a New Tab, Leo 2026-10-22): the menu opens in
+        /// one frame; its close still fades.
+        public var instant: Bool
 
         /// Reads `{items:[{id,label,shortcut?,checked?,disabled?,separator?}], highlighted?,
         /// anchor:{left,top,right,bottom}, side:"bottom"|"top", align:"start"|"end", width,
-        /// kind?:"menu"|"tooltip"}`.
+        /// kind?:"menu"|"tooltip", instant?:true}`.
         public init?(_ params: [String: Any]) {
             guard let rows = params["items"] as? [[String: Any]], let anchor = params["anchor"] as? [String: Any],
                   let left = Self.number(anchor["left"]), let top = Self.number(anchor["top"]),
@@ -51,6 +54,7 @@ public final class WebPopupHost {
             side = params["side"] as? String == "top" ? .above : .below
             trailing = params["align"] as? String == "end"
             tooltip = params["kind"] as? String == "tooltip"
+            instant = params["instant"] as? Bool ?? false
             width = max(tooltip ? 40 : 120, min(Self.number(params["width"]) ?? 200, 800))
         }
 
@@ -96,7 +100,7 @@ public final class WebPopupHost {
         let anchor = window.convertToScreen(webView.convert(flipped, to: nil))
         let size = CGSize(width: model.width * scale, height: panel.rows.contentHeight)
         guard let placed = popup.show(size: size, anchor: anchor, in: window, preferred: model.side,
-                                      trailing: model.trailing) else { return ["shown": false] }
+                                      trailing: model.trailing, entrance: !model.instant) else { return ["shown": false] }
         panel.isClosing = false
         let frame = placed.frame
         return ["shown": true, "side": placed.side == .below ? "bottom" : "top",
@@ -124,7 +128,10 @@ public final class WebPopupHost {
     public func update(_ model: Model) {
         // A menu closing here stays closed: the page may still post an update for it.
         guard self.model != nil, panel?.isVisible == true else { return }
-        if model.items != self.model?.items || model.anchor != self.model?.anchor { show(model); return }
+        if model.items != self.model?.items || model.anchor != self.model?.anchor ||
+            model.tooltip != self.model?.tooltip || model.width != self.model?.width ||
+            model.side != self.model?.side || model.trailing != self.model?.trailing ||
+            model.instant != self.model?.instant { show(model); return }
         self.model = model
         panel?.rows.update(model.items, highlighted: model.highlighted)
     }
@@ -137,7 +144,12 @@ public final class WebPopupHost {
 
     private func picked(_ id: String) {
         guard model?.items.contains(where: { $0.id == id && !$0.disabled && !$0.separator }) == true else { return }
-        send(["type": "pick", "id": id])
+        // Activation is synchronous with the native row's release. Preserve its modifiers for
+        // page actions such as Option-Fork, including when Option was pressed after opening.
+        let modifiers = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
+        send(["type": "pick", "id": id, "altKey": modifiers.contains(.option),
+              "ctrlKey": modifiers.contains(.control), "metaKey": modifiers.contains(.command),
+              "shiftKey": modifiers.contains(.shift)])
         hide()
     }
 
@@ -213,13 +225,35 @@ final class WebPopupRows: NSView {
     }
 
     func update(_ items: [WebPopupHost.Item], highlighted: String?) {
-        if items != self.items || plain != builtPlain || rows.isEmpty != items.isEmpty { rebuild(items) }
+        if plain != builtPlain || rows.isEmpty != items.isEmpty || (items != self.items && !updateLabelsInPlace(items)) {
+            rebuild(items)
+        }
         self.highlighted = highlighted
         for (item, view) in rows { (view as? PopupRowView)?.isHighlighted = item.id == highlighted }
         setFrameSize(NSSize(width: superview?.bounds.width ?? frame.width, height: contentHeight))
         needsLayout = true
         layoutSubtreeIfNeeded()
         scrollToHighlight()
+    }
+
+    /// Keeps native row views when only tooltip labels change; menu structure and state changes
+    /// still rebuild their rows.
+    private func updateLabelsInPlace(_ next: [WebPopupHost.Item]) -> Bool {
+        guard plain, plain == builtPlain, next.count == items.count, rows.count == next.count,
+              zip(items, next).allSatisfy({ old, new in
+                  old.id == new.id && old.shortcut == new.shortcut && old.checked == new.checked &&
+                      old.disabled == new.disabled && old.separator == new.separator
+              }) else { return false }
+        for (index, item) in next.enumerated() {
+            guard let row = rows[index].view as? PopupRowView else { return false }
+            if row.titleLabel.stringValue != item.label {
+                row.titleLabel.stringValue = item.label
+                row.setAccessibilityLabel(item.label)
+                row.needsLayout = true
+            }
+        }
+        self.items = next
+        return true
     }
 
     private func rebuild(_ items: [WebPopupHost.Item]) {

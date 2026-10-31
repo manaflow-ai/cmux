@@ -6,8 +6,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("composer-footer-essentials.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -24,7 +24,7 @@ await requireBrowserLane("composer-footer-essentials.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   const url = (entry: string, variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&variant=${variant}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -34,8 +34,8 @@ await requireBrowserLane("composer-footer-essentials.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
+    await warmGalleryFrame(vite, ["agent-pane.composer", "agent-pane.composer-context"], { browser });
   });
 
   afterAll(async () => {
@@ -81,10 +81,10 @@ await requireBrowserLane("composer-footer-essentials.test.ts", async () => {
     expect(model?.visible).toBe("Opus 5.5");
     expect(model?.title).toStartWith("Claude Opus 5.5");
     const access = await read(page, ".acpmux-access-trigger");
-    // Whether the default mode shows its label at rest is the access chip's call (base's per-mode
-    // shield); its full text stays in the title and the accessible text.
-    expect(access?.title).toContain("Default");
-    expect(access?.text).toContain("Default");
+    // The mode's symbol and its name, Claude Code's own ("Manual" for its default mode,
+    // harnessModes.ts); the full text stays in the title and the accessible text.
+    expect(access?.title).toContain("Manual");
+    expect(access?.text).toContain("Manual");
     // No usage before anything is used: Claude Code's split keeps the ring's place in the quiet
     // row from the first frame (hq#1957, the composer holds still), but it draws only its track,
     // never a share.

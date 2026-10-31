@@ -120,6 +120,10 @@ pub struct Owner {
     pub drafts: Vec<(String, optchat_chief::draft::Draft)>,
     /// Rejections for the next `message.send` ops, in order (None: accept).
     pub rejects: VecDeque<Option<String>>,
+    /// Rejections for report appends, after recording the attempted write.
+    pub run_append_rejects: VecDeque<Option<OpError>>,
+    /// Models a Cloud or older owner that never supports run storage.
+    pub runs_unsupported: bool,
     pub reconnects: usize,
     /// When set, `message.send` keys are remembered as the real owner does:
     /// a reused key with the same text replays (posts nothing), with other
@@ -143,6 +147,9 @@ pub struct Owner {
     pub no_link_previews: bool,
     /// Every run record summary the brain appended (`run_append`'s run).
     pub runs: Vec<Value>,
+    pub run_steps: Vec<(String, Value, Vec<Value>)>,
+    /// When set, every attachment upload is refused with this code.
+    pub refuse_uploads: Option<String>,
 }
 
 /// One side conversation as the fake owner keeps it.
@@ -232,6 +239,9 @@ impl PreviewPort for FakeUploader {
         height: u32,
     ) -> Result<DerivedImage, OpError> {
         use sha2::Digest;
+        if let Some(code) = self.0.lock().unwrap().refuse_uploads.clone() {
+            return Err(OpError::Rejected(code));
+        }
         let image = DerivedImage {
             hash: sha2::Sha256::digest(bytes)
                 .iter()
@@ -413,6 +423,8 @@ impl ConversationPort for FakeDaemon {
                 let seq = owner.messages.len() as u64 + 1;
                 let mut m = message(seq, "agent_mux", "");
                 m.parts = parts.clone();
+                // The owner keeps the sender's client_msg_id (a voice rides in it).
+                m.client_msg_id = key.to_owned();
                 owner.messages.push(m.clone());
                 Ok(Some(Change::Message { message: m }))
             }
@@ -425,8 +437,27 @@ impl ConversationPort for FakeDaemon {
         Ok(())
     }
 
-    fn run_append(&mut self, _: &str, run: Value, _: Vec<Value>) -> Result<(), OpError> {
-        self.0.lock().unwrap().runs.push(run);
+    fn run_append(
+        &mut self,
+        conversation: &str,
+        run: Value,
+        steps: Vec<Value>,
+    ) -> Result<(), OpError> {
+        let mut owner = self.0.lock().unwrap();
+        owner
+            .run_steps
+            .push((conversation.to_owned(), run.clone(), steps));
+        if owner.runs_unsupported {
+            return Err(OpError::Rejected("runs_unsupported".into()));
+        }
+        if run["id"]
+            .as_str()
+            .is_some_and(|id| id.starts_with("reports:"))
+            && let Some(reason) = owner.run_append_rejects.pop_front().flatten()
+        {
+            return Err(reason);
+        }
+        owner.runs.push(run);
         Ok(())
     }
 
@@ -518,6 +549,9 @@ pub struct Agents {
     pub events_error: Option<String>,
     /// Sessions whose turn was cancelled, in order.
     pub cancels: Vec<String>,
+    /// Sessions whose running background processes were ended
+    /// (`_acpmux/process/kill` of each), in order.
+    pub killed_processes: Vec<String>,
     /// Queued prompts taken out (`_acpmux/queue_remove`): (session, prompt id).
     pub removed_queued: Vec<(String, String)>,
     /// The next prompt's answer (default `{"stopReason": "end_turn"}`), used once.
@@ -533,6 +567,9 @@ pub struct Agents {
     /// The next this many `cancel` calls are recorded but change nothing
     /// (a cancel that reached acpmux before the prompt did).
     pub ignore_cancels: usize,
+    /// The next `cancel` calls are recorded and fail with these texts, one
+    /// each, in order (acpmux refused the cancel).
+    pub cancel_errors_once: std::collections::VecDeque<String>,
     /// The prompt's answer comes this long after its events (acpmux records
     /// `turn_end` before it answers the prompt).
     pub answer_delay: Option<Duration>,
@@ -575,6 +612,9 @@ pub struct Agents {
     pub steering: bool,
     /// Every steer delivered: (session, blocks).
     pub steers: Vec<(String, Vec<Value>)>,
+    /// Every steer's prompt id, and whether it asked to be read now (`steer_now`: the
+    /// agent's current step stops, as the pane's Send now does), in `steers` order.
+    pub steer_ids: Vec<(String, bool)>,
     /// The next this many steers fail (acpmux refused them).
     pub steer_errors: usize,
     /// Steers that failed.
@@ -621,6 +661,49 @@ pub struct FakeAgents {
 }
 
 impl FakeAgents {
+    /// A steer as acpmux takes it: `now` when it asked to be read at once (`steer_now`).
+    fn fake_steer(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+        now: bool,
+    ) -> Result<optchat_chief::acpmux::SteerWait, String> {
+        let mut inner = self.inner.lock().unwrap();
+        if !inner.steering {
+            return Err("steer.unavailable".into());
+        }
+        if inner.steer_errors > 0 {
+            inner.steer_errors -= 1;
+            inner.failed_steers += 1;
+            drop(inner);
+            self.changed.notify_all();
+            return Err("steer: the connection dropped".into());
+        }
+        inner.steers.push((session.to_owned(), blocks));
+        inner.steer_ids.push((prompt_id.to_owned(), now));
+        let at_end = inner.steer_at_end;
+        let turn = inner.answered_turns;
+        // acpmux echoes the steer (a mux `user_message`) to the turn.
+        if let Some(tx) = inner.signals.get(session) {
+            let _ = tx.send(optchat_chief::acpmux::event_signal(
+                "_acpmux/event",
+                &json!({"dir": "mux", "kind": "user_message"}),
+            ));
+        }
+        drop(inner);
+        self.changed.notify_all();
+        let me = self.me.upgrade().expect("alive");
+        Ok(Box::new(move || {
+            // codex-acp answers a steer only when the turn ends.
+            let mut inner = me.inner.lock().unwrap();
+            while at_end && inner.answered_turns == turn {
+                inner = me.changed.wait(inner).unwrap();
+            }
+            Ok(())
+        }))
+    }
+
     pub fn new(script: Script) -> Arc<FakeAgents> {
         Arc::new_cyclic(|me| FakeAgents {
             inner: Mutex::new(Agents::default()),
@@ -881,6 +964,7 @@ impl AgentPort for FakeAgents {
         });
         Ok(Some(serde_json::from_value(json!({
             "sessionId": id, "name": spec.name, "harness": harness, "cwd": spec.cwd, "status": status,
+            "tags": spec.tags,
         })).unwrap()))
     }
 
@@ -923,40 +1007,18 @@ impl AgentPort for FakeAgents {
         &self,
         session: &str,
         blocks: Vec<Value>,
-        _prompt_id: &str,
+        prompt_id: &str,
     ) -> Result<optchat_chief::acpmux::SteerWait, String> {
-        let mut inner = self.inner.lock().unwrap();
-        if !inner.steering {
-            return Err("steer.unavailable".into());
-        }
-        if inner.steer_errors > 0 {
-            inner.steer_errors -= 1;
-            inner.failed_steers += 1;
-            drop(inner);
-            self.changed.notify_all();
-            return Err("steer: the connection dropped".into());
-        }
-        inner.steers.push((session.to_owned(), blocks));
-        let at_end = inner.steer_at_end;
-        let turn = inner.answered_turns;
-        // acpmux echoes the steer (a mux `user_message`) to the turn.
-        if let Some(tx) = inner.signals.get(session) {
-            let _ = tx.send(optchat_chief::acpmux::event_signal(
-                "_acpmux/event",
-                &json!({"dir": "mux", "kind": "user_message"}),
-            ));
-        }
-        drop(inner);
-        self.changed.notify_all();
-        let me = self.me.upgrade().expect("alive");
-        Ok(Box::new(move || {
-            // codex-acp answers a steer only when the turn ends.
-            let mut inner = me.inner.lock().unwrap();
-            while at_end && inner.answered_turns == turn {
-                inner = me.changed.wait(inner).unwrap();
-            }
-            Ok(())
-        }))
+        self.fake_steer(session, blocks, prompt_id, false)
+    }
+
+    fn start_steer_now(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+    ) -> Result<optchat_chief::acpmux::SteerWait, String> {
+        self.fake_steer(session, blocks, prompt_id, true)
     }
 
     fn prewarm(
@@ -992,9 +1054,21 @@ impl AgentPort for FakeAgents {
         Ok(true)
     }
 
+    fn kill_processes(&self, session: &str) -> Result<usize, String> {
+        self.inner
+            .lock()
+            .unwrap()
+            .killed_processes
+            .push(session.to_owned());
+        Ok(1)
+    }
+
     fn cancel(&self, session: &str) -> Result<(), String> {
         let mut inner = self.inner.lock().unwrap();
         inner.cancels.push(session.to_owned());
+        if let Some(e) = inner.cancel_errors_once.pop_front() {
+            return Err(e);
+        }
         if inner.ignore_cancels > 0 {
             inner.ignore_cancels -= 1;
             drop(inner);

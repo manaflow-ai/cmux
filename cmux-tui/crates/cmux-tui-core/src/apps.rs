@@ -24,6 +24,8 @@ mod cancel;
 #[cfg(unix)]
 mod catalog;
 #[cfg(unix)]
+mod deploy;
+#[cfg(unix)]
 mod egress;
 pub(crate) mod envelope;
 #[cfg(unix)]
@@ -73,7 +75,7 @@ mod terminal_links;
 #[cfg(unix)]
 mod terminal_ops;
 #[cfg(unix)]
-mod timer;
+pub(crate) mod timer;
 
 use std::sync::{Arc, OnceLock};
 

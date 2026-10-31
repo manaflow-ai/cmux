@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import SwiftUI
+import CmuxNextTasks
 
 extension InternalPageID {
     static let workspaceTodo = InternalPageID(rawValue: "workspace-todo")

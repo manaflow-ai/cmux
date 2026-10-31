@@ -46,6 +46,8 @@ TRAIN_WORKFLOW = ".github/workflows/nightly-next-train.yml"
 TRAIN_INPUTS = ("pulled_build", "good_build", "quarantine", "reason")
 ISSUE_TITLE = "nightly-next fix-forward needed"
 SHA = re.compile(r"^[0-9a-f]{40}$")
+# The events of a nightly.yml run that publishes (find-nightly-next-recovery.py).
+PUBLISHED_EVENTS = {"push", "schedule", "workflow_dispatch"}
 
 Api = Callable[..., object]
 
@@ -71,12 +73,20 @@ def build_run(build: str) -> str:
 
 def build_commit(api: Api, repo: str, build: str) -> str | None:
     """The nightly-next commit a build was made from, or None when its run is
-    not a nightly-next run of this repository (a Linux-writer build)."""
+    not a nightly-next run of this repository (a Linux-writer build).
+
+    A fork's pull_request run on a branch named nightly-next reports the same
+    head_branch with the fork's commit, so the run must also be a publishing
+    event whose head is this repository (as find-nightly-next-recovery.py)."""
     try:
         run = api(f"repos/{repo}/actions/runs/{build_run(build)}")
     except Exception:  # noqa: BLE001 - an unknown run is a build we can't place
         return None
     if not isinstance(run, dict) or run.get("head_branch") != "nightly-next":
+        return None
+    if run.get("event") not in PUBLISHED_EVENTS:
+        return None
+    if ((run.get("head_repository") or {}).get("full_name") or "").lower() != repo.lower():
         return None
     sha = run.get("head_sha", "")
     return sha if SHA.match(sha) else None

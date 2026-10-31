@@ -46,6 +46,16 @@ public struct ChiefPetNotice: Equatable, Identifiable {
         self.reply = reply
     }
 
+    /// The title of a notice whose poster gave none: `name` (its tab's) and what happened there,
+    /// so it never reads as a bare tab name ("New chat") that says neither which chat nor what.
+    public static func title(_ name: String, kind: Kind) -> String {
+        switch kind {
+        case .done: ChiefPetStrings.finished(name)
+        case .needsYou: ChiefPetStrings.needsYou(name)
+        case .failed: ChiefPetStrings.failed(name)
+        }
+    }
+
     /// What the bubble draws: the same content shown again is not a new arrival.
     var content: [String] { [title, detail, "\(kind)"] }
 }

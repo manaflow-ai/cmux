@@ -22,6 +22,9 @@ import type { UpstreamClient } from "./upstream/client.ts";
 import { snapshotsHandlers } from "./handlers/snapshots.ts";
 import { terminalsHandlers } from "./handlers/terminals.ts";
 import { apiKeysHandlers } from "./handlers/api-keys.ts";
+import { agentsHandlers } from "./handlers/agents.ts";
+import type { AgentStore } from "./db/agents.ts";
+import { runAgentReaper, type ReapReport } from "./agents/reaper.ts";
 import type { TeamAdmin } from "./auth/team-admin.ts";
 import type { ApiKeyAdminStore } from "./db/api-keys.ts";
 import type { SnapshotStore } from "./db/snapshots.ts";
@@ -55,7 +58,7 @@ export type Services =
 type MeshServices = MeshStore | UpstreamMesh | MeshConfig | MembershipCache | WebhookDeliveryStore;
 
 /** Snapshots and terminals (slice S3a). */
-type S3aServices = SnapshotStore | UpstreamSnapshots | UpstreamTerminals | ApiKeyAdminStore | TeamAdmin;
+type S3aServices = SnapshotStore | UpstreamSnapshots | UpstreamTerminals | ApiKeyAdminStore | TeamAdmin | AgentStore;
 
 /** JSON request bodies above this are refused with 413 before any handler runs. File uploads have their own limit. */
 export const MAX_JSON_BODY_BYTES = 2 * 1024 * 1024;
@@ -102,6 +105,7 @@ export const makeWebHandler = (services: Layer.Layer<Services>, options: WebHand
     Layer.provide(authenticated(snapshotsHandlers)),
     Layer.provide(authenticated(terminalsHandlers)),
     Layer.provide(authenticated(apiKeysHandlers)),
+    Layer.provide(authenticated(agentsHandlers)),
     Layer.provide(authenticated(meshHandlers)),
     Layer.provide(authenticated(overlayServerHandlers)),
     Layer.provide(overlayServerDeviceHandlers),
@@ -127,6 +131,8 @@ export const makeWebHandler = (services: Layer.Layer<Services>, options: WebHand
       await web.dispose();
       await runtime.dispose();
     },
+    /** One agent reaper run (the Worker's cron): expired and revoked agents' VMs, and orphaned client sessions. */
+    reap: (): Promise<ReapReport> => runtime.runPromise(perWebhook(runAgentReaper)),
     /** Refuses oversized JSON bodies, then serves the API. Uploads stream untouched to their handler. */
     handler: (request: Request): Promise<Response> => {
       if (new URL(request.url).pathname === STACK_WEBHOOK_PATH) return webhook(request);

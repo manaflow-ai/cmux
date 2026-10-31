@@ -6,6 +6,10 @@ nonisolated enum AgentActivityStrings {
         String(localized: key, defaultValue: value, bundle: .module)
     }
 
+    static var unsupportedOperation: String {
+        t("operation.unsupported", "This operation is not supported by Agent Activity.")
+    }
+
     static var title: String { t("pane.title", "Agent Activity") }
     static var filter: String { t("pane.filter", "Filter") }
     static var emptyTitle: String { t("pane.empty.title", "No computer use yet") }
@@ -64,27 +68,28 @@ nonisolated enum AgentActivityStrings {
     static var thisMac: String { t("machine.thisMac", "This Mac") }
     static var foregroundOnly: String { t("pane.foregroundOnly", "Foreground only") }
 
+    static var noFrames: String { t("pane.noFrames", "No screenshots yet") }
+    /// "4 of 12": the frame viewer's position; the page fills in both numbers.
+    static var viewerPosition: String { t("viewer.position", "%1$lld of %2$lld") }
+    static var viewerPrevious: String { t("viewer.previous", "Previous") }
+    static var viewerNext: String { t("viewer.next", "Next") }
+    static var viewerClose: String { t("viewer.close", "Close") }
+
+    /// The step that made a frame, by the tool the agent called.
+    static var stepClick: String { t("step.click", "Click") }
+    static var stepType: String { t("step.type", "Type") }
+    static var stepKeys: String { t("step.keys", "Press Keys") }
+    static var stepOpenApp: String { t("step.openApp", "Open App") }
+    static var stepReadWindow: String { t("step.readWindow", "Read Window") }
+    static var stepListWindows: String { t("step.listWindows", "List Windows") }
+    static var stepScroll: String { t("step.scroll", "Scroll") }
+    static var stepDrag: String { t("step.drag", "Drag") }
+    static var stepScreenshot: String { t("step.screenshot", "Screenshot") }
+
     static var layout: String { t("layout.title", "Layout") }
     static var layoutSplit: String { t("layout.split", "Split") }
     static var layoutTimeline: String { t("layout.timeline", "Timeline") }
     static var layoutGrid: String { t("layout.grid", "Grid") }
-
-    // The lanes view (cx-v9k2f).
-    static var lanes: String { t("lanes.title", "Lanes") }
-    static var computerUse: String { t("lanes.computerUse", "Computer use") }
-    static var pageView: String { t("lanes.view", "View") }
-    static var laneWorking: String { t("lanes.state.working", "Working") }
-    static var laneInput: String { t("lanes.state.input", "Waiting on you") }
-    static var laneIdle: String { t("lanes.state.idle", "Idle") }
-    static var laneFailed: String { t("lanes.state.failed", "Failed") }
-    static var laneLost: String { t("lanes.state.lost", "Lost") }
-    static var lanesOwn: String { t("lanes.own", "On their own") }
-    /// `{count}` is the number of sessions; the page fills it in.
-    static var lanesAttention: String { t("lanes.attention", "Needs you: {count}") }
-    static var lanesEmpty: String { t("lanes.empty", "No agent sessions") }
-    static var lanesNoMatch: String { t("lanes.noMatch", "No matching sessions") }
-    /// A lane's state and how long it has been in it; the page fills both in.
-    static var laneStatus: String { t("lanes.status", "{state} · {duration}") }
 
     /// Every string the web page shows, by the key the page reads (`model.ts` `strings`).
     static var page: [String: String] {
@@ -95,10 +100,10 @@ nonisolated enum AgentActivityStrings {
             "thisMac": thisMac, "layout": layout, "layoutSplit": layoutSplit, "layoutTimeline": layoutTimeline,
             "layoutGrid": layoutGrid, "notStarted": connection(.notStarted) ?? "",
             "notSetUp": connection(.notSetUp) ?? "", "unreachable": connection(.unreachable) ?? "",
-            "lanes": lanes, "computerUse": computerUse, "pageView": pageView, "laneWorking": laneWorking,
-            "laneInput": laneInput, "laneIdle": laneIdle, "laneFailed": laneFailed, "laneLost": laneLost,
-            "lanesOwn": lanesOwn, "lanesAttention": lanesAttention, "lanesEmpty": lanesEmpty,
-            "lanesNoMatch": lanesNoMatch, "laneStatus": laneStatus,
+            "noFrames": noFrames, "position": viewerPosition, "previous": viewerPrevious, "next": viewerNext,
+            "close": viewerClose, "stepClick": stepClick, "stepType": stepType, "stepKeys": stepKeys,
+            "stepOpenApp": stepOpenApp, "stepReadWindow": stepReadWindow, "stepListWindows": stepListWindows,
+            "stepScroll": stepScroll, "stepDrag": stepDrag, "stepScreenshot": stepScreenshot,
         ]
     }
 }

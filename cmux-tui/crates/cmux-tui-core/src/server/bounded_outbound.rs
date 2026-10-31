@@ -16,6 +16,7 @@ use super::OUTBOUND_CONTROL_BYTE_RESERVE;
 use super::OUTBOUND_CONTROL_RESERVE;
 use super::OutboundStream;
 use super::RENDER_ATTACH_MAX_BYTES;
+use crate::panic_free::RecoverPoison;
 use crate::platform::transport;
 use std::collections::HashMap;
 use std::collections::VecDeque;
@@ -70,23 +71,35 @@ pub(super) enum OutboundItem {
 
 #[derive(Clone)]
 pub(super) struct ConnectionPermit {
-    pub(super) _lease: Arc<ConnectionPermitLease>,
-}
-
-pub(super) struct ConnectionPermitLease(Arc<crate::diagnostics::ConnectionStats>);
-
-impl Drop for ConnectionPermitLease {
-    fn drop(&mut self) {
-        self.0.release();
-    }
+    pub(super) _lease: Arc<crate::diagnostics::ConnectionLease>,
 }
 
 pub(super) fn claim_connection(
     connections: &Arc<crate::diagnostics::ConnectionStats>,
 ) -> Option<ConnectionPermit> {
-    connections
-        .try_claim(MAX_SERVER_CONNECTIONS as u64)
-        .then(|| ConnectionPermit { _lease: Arc::new(ConnectionPermitLease(connections.clone())) })
+    claim_connection_watching(connections, None)
+}
+
+/// A slot for a local client, taken back if the client hangs up while its
+/// thread is still parked (`diagnostics::ConnectionLease`, #27669).
+pub(super) fn claim_watched_connection(
+    connections: &Arc<crate::diagnostics::ConnectionStats>,
+    stream: &dyn transport::Stream,
+) -> Option<ConnectionPermit> {
+    let peer: Option<crate::diagnostics::PeerClosed> = match stream.try_clone_box() {
+        Ok(peer) => Some(Box::new(move || peer.peer_closed())),
+        Err(_) => None,
+    };
+    claim_connection_watching(connections, peer)
+}
+
+fn claim_connection_watching(
+    connections: &Arc<crate::diagnostics::ConnectionStats>,
+    peer_closed: Option<crate::diagnostics::PeerClosed>,
+) -> Option<ConnectionPermit> {
+    connections.try_claim(MAX_SERVER_CONNECTIONS as u64).then(|| ConnectionPermit {
+        _lease: crate::diagnostics::ConnectionLease::new(connections.clone(), peer_closed),
+    })
 }
 
 impl BoundedOutbound {
@@ -112,7 +125,7 @@ impl BoundedOutbound {
         stream: &OutboundStream,
         initial: bool,
     ) -> std::io::Result<()> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         let result = Self::push_regular_locked(&mut state, text, stream, initial);
         drop(state);
         self.changed.notify_all();
@@ -124,7 +137,7 @@ impl BoundedOutbound {
         text: Arc<BudgetedText>,
         stream: &OutboundStream,
     ) -> std::io::Result<()> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         loop {
             if state.closed {
                 return Err(std::io::Error::new(
@@ -143,7 +156,7 @@ impl BoundedOutbound {
                 self.changed.notify_all();
                 return result;
             }
-            let (next, _) = self.changed.wait_timeout(state, BACKPRESSURE_RECHECK).unwrap();
+            let (next, _) = self.changed.wait_timeout(state, BACKPRESSURE_RECHECK).recover_poison();
             state = next;
         }
     }
@@ -224,7 +237,7 @@ impl BoundedOutbound {
     }
 
     pub(super) fn push_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         Self::push_control_locked(&mut state, text)?;
         self.changed.notify_one();
         Ok(())
@@ -232,7 +245,7 @@ impl BoundedOutbound {
 
     pub(super) fn flush_control(&self, timeout: Duration) -> std::io::Result<()> {
         let (flushed_tx, flushed_rx) = std::sync::mpsc::sync_channel(1);
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if state.closed {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
@@ -257,7 +270,7 @@ impl BoundedOutbound {
         text: Arc<BudgetedText>,
         stream: &OutboundStream,
     ) -> std::io::Result<()> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         stream.close();
         Self::purge_stream_locked(&mut state, stream.id);
         if stream.terminal_enqueued.swap(true, Ordering::AcqRel) {
@@ -284,7 +297,7 @@ impl BoundedOutbound {
                 "outbound stream terminal exceeds its byte capacity",
             ));
         }
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         loop {
             if state.closed {
                 return Err(std::io::Error::new(
@@ -322,7 +335,7 @@ impl BoundedOutbound {
                 self.changed.notify_all();
                 return Ok(());
             }
-            let (next, _) = self.changed.wait_timeout(state, BACKPRESSURE_RECHECK).unwrap();
+            let (next, _) = self.changed.wait_timeout(state, BACKPRESSURE_RECHECK).recover_poison();
             state = next;
         }
     }
@@ -336,7 +349,7 @@ impl BoundedOutbound {
         if stream.terminal_enqueued.swap(true, Ordering::AcqRel) {
             return Ok(());
         }
-        let overflow_text = stream.overflow_text.lock().unwrap().clone();
+        let overflow_text = stream.overflow_text.lock().recover_poison().clone();
         if let Err(error) = Self::push_control_locked(state, overflow_text) {
             state.closed = true;
             return Err(std::io::Error::new(
@@ -391,7 +404,7 @@ impl BoundedOutbound {
 
     #[cfg(test)]
     pub(super) fn try_pop(&self) -> Option<String> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         loop {
             match Self::pop_locked(&mut state) {
                 Some(OutboundItem::Text(text)) => {
@@ -403,7 +416,7 @@ impl BoundedOutbound {
                     drop(state);
                     self.changed.notify_all();
                     let _ = flushed.send(());
-                    state = self.state.lock().unwrap();
+                    state = self.state.lock().recover_poison();
                 }
                 None => return None,
             }
@@ -411,7 +424,7 @@ impl BoundedOutbound {
     }
 
     pub(super) fn recv(&self) -> Option<OutboundItem> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         loop {
             if let Some(item) = Self::pop_locked(&mut state) {
                 drop(state);
@@ -421,7 +434,7 @@ impl BoundedOutbound {
             if state.closed {
                 return None;
             }
-            state = self.changed.wait(state).unwrap();
+            state = self.changed.wait(state).recover_poison();
         }
     }
 
@@ -459,11 +472,11 @@ impl BoundedOutbound {
     }
 
     pub(super) fn is_open(&self) -> bool {
-        !self.state.lock().unwrap().closed
+        !self.state.lock().recover_poison().closed
     }
 
     pub(super) fn close(&self) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         state.closed = true;
         state.control.retain(|item| matches!(item, ControlOutbound::Text(_)));
         drop(state);
@@ -471,7 +484,7 @@ impl BoundedOutbound {
     }
 
     pub(super) fn abort(&self) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         state.closed = true;
         for usage in state.stream_usage.values() {
             usage.stream.close();
@@ -488,7 +501,7 @@ impl BoundedOutbound {
     }
 
     pub(super) fn close_after_control(&self) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         for usage in state.stream_usage.values() {
             usage.stream.close();
         }
@@ -606,8 +619,9 @@ impl SynchronizedTcpStream {
         payload: &[u8],
     ) -> std::io::Result<()> {
         let (header, header_len) = websocket_server_frame_header(opcode, payload.len());
-        let _guard = self.write_lock.lock().unwrap();
-        self.stream.write_all(&header[..header_len])?;
+        let _guard = self.write_lock.lock().recover_poison();
+        let header = header.get(..header_len).ok_or(std::io::ErrorKind::InvalidData)?;
+        self.stream.write_all(header)?;
         self.stream.write_all(payload)?;
         self.stream.flush()
     }
@@ -647,13 +661,13 @@ impl Read for SynchronizedTcpStream {
 
 impl Write for SynchronizedTcpStream {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let _guard = self.write_lock.lock().unwrap();
+        let _guard = self.write_lock.lock().recover_poison();
         self.stream.write_all(buf)?;
         Ok(buf.len())
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        let _guard = self.write_lock.lock().unwrap();
+        let _guard = self.write_lock.lock().recover_poison();
         self.stream.flush()
     }
 }

@@ -8,6 +8,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -87,6 +88,8 @@ await requireBrowserLane("agent-pane-reading-place.test.ts", async () => {
     }
   }
 
+  /// Requests the daemon has not answered yet.
+  let inflight = 0;
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
@@ -103,7 +106,11 @@ await requireBrowserLane("agent-pane-reading-place.test.ts", async () => {
           if (message.id === undefined) return;
           const result = answer(message.method, message.params ?? {});
           // A page comes a little later, as over a network.
-          setTimeout(() => ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result })), 30);
+          inflight++;
+          setTimeout(() => {
+            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+            inflight--;
+          }, 30);
         },
       },
     });
@@ -125,12 +132,13 @@ await requireBrowserLane("agent-pane-reading-place.test.ts", async () => {
   /// Opens the chat with the host keeping `anchor` as where it last rested.
   async function reopen(anchor: { rowId: string; offset: number } | null): Promise<Page> {
     const tab = await browser!.newPage({ viewport: { width: 900, height: 760 } });
-    // Every frame: the first question drawn while the transcript shows, and whether Jump to latest
+    await installPaintedFrames(tab);
+    // Every painted frame: the first question drawn while the transcript shows, and whether Jump to latest
     // showed while it did not.
     await tab.addInitScript(() => {
       const frames: { shown: string | null; jump: boolean }[] = [];
       (window as any).openFrames = frames;
-      const look = () => {
+      window.cmuxAfterPaint(() => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
         const bubble = scroller?.querySelector(".cv-user__bubble");
         if (scroller && bubble) {
@@ -140,9 +148,7 @@ await requireBrowserLane("agent-pane-reading-place.test.ts", async () => {
             jump: hidden && document.querySelector(".acpmux-jump-latest[data-shown]") !== null,
           });
         }
-        requestAnimationFrame(look);
-      };
-      requestAnimationFrame(look);
+      });
     });
     await tab.addInitScript((kept) => {
       const saved: unknown[] = [];
@@ -160,6 +166,31 @@ await requireBrowserLane("agent-pane-reading-place.test.ts", async () => {
     await tab.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${CHAT}`);
     return tab;
   }
+  /// Until the daemon has answered every request and the transcript, done seeking, has held its
+  /// scroll position over three painted frames with no animation left running.
+  const settle = async (tab: Page) => {
+    for (let tries = 0; tries < 50; tries++) {
+      await tab.evaluate(async () => {
+        const finite = () =>
+          document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity);
+        await Promise.all(finite().map((animation) => animation.finished.catch(() => undefined)));
+        await new Promise<void>((resolve) => {
+          let last = -1;
+          let still = 0;
+          window.cmuxAfterPaint(() => {
+            const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+            const top = scroller && !scroller.hasAttribute("data-seeking") ? scroller.scrollTop : -1;
+            still = top >= 0 && top === last ? still + 1 : 0;
+            last = top;
+            if (still < 2) return true;
+            resolve();
+            return false;
+          });
+        });
+      });
+      if (inflight === 0) return;
+    }
+  };
   /// Where `text`'s bubble sits from the top of the transcript's view; undefined when it is not drawn.
   const bubbleTop = (tab: Page, text: string) =>
     tab.evaluate((wanted) => {
@@ -183,7 +214,7 @@ await requireBrowserLane("agent-pane-reading-place.test.ts", async () => {
     const errors: string[] = [];
     tab.on("pageerror", (error) => errors.push(error.message));
     await tab.getByText("Question 100", { exact: true }).waitFor({ timeout: 60_000 });
-    await tab.waitForTimeout(800);
+    await settle(tab);
 
     // The row the reader rested on is back at the top of the view, and the view did not open at the
     // latest message first.
@@ -207,7 +238,7 @@ await requireBrowserLane("agent-pane-reading-place.test.ts", async () => {
   test("a chat left at its latest message reopens there", async () => {
     const tab = await reopen(null);
     await tab.getByText(`Question ${TURNS}`, { exact: true }).waitFor({ timeout: 60_000 });
-    await tab.waitForTimeout(500);
+    await settle(tab);
     const top = await bubbleTop(tab, `Question ${TURNS}`);
     const height = await tab.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.clientHeight);
     expect(top).toBeDefined();

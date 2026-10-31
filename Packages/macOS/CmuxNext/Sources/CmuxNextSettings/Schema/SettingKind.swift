@@ -5,6 +5,9 @@ public nonisolated enum SettingKind: Sendable, Hashable {
     /// A fixed value or a number (`browser.hibernation`: "off", "moderate",
     /// "aggressive" or minutes).
     case choiceOrNumber([SettingChoice], SettingNumber)
+    /// A fixed value or an object whose only member `urlKey` is an http(s)
+    /// origin (`home.server`: "hosted" or `{"selfHosted": "http://mini.tail1234.ts.net:7320"}`).
+    case choiceOrURL([SettingChoice], urlKey: String)
     case toggle
     case number(SettingNumber)
     /// `#RRGGBB` or `#RRGGBBAA`; absent means the theme's color.
@@ -29,6 +32,8 @@ public nonisolated enum SettingKind: Sendable, Hashable {
     case numberList(SettingNumber)
     /// An object whose values are all strings (`sidebar.workspaceIcons`: workspace title to glyph).
     case stringMap
+    /// An object of ``NotificationSoundRule``s by id or name (`notifications.sounds.workspaces`).
+    case soundRules
     /// A list of non-empty strings (`notifications.mutedWorkspaces`: workspace ids).
     case stringList
     /// Choice values in an order the user picks; values left out follow in

@@ -136,15 +136,15 @@
     "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:190 (ThemeTokens.derive); Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/ProfileBarView+Marks.swift:72-80 (ProfileBarView.markColor)"
    },
    "textPrimary": {
-    "value": "readable(fg, worst, 4.5), worst = the lower-contrast for fg of over(pressedFill,bg) and over(selectionFill,bg) (pressedFill with the neutral accent): fg pushed toward white (surface lum<0.18) or black in 0.02 steps until 4.5:1",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:153-155,224-234 (ThemeTokens.derive)"
+    "value": "inks(fg, rows = [worst, bg]), worst = the lower-contrast for fg of over(pressedFill,bg) and over(selectionFill,bg) (pressedFill with the neutral accent). fg when it reaches 4.5:1 on both rows; otherwise two candidates, fg pushed toward white and toward black (the pole with more contrast on worst first) in 0.02 steps until 4.5:1 on both rows (or the pole), each with its own textSecondary and textTertiary; the candidate whose textPrimary and textSecondary keep the higher least contrast over rows wins, the score capped at 4.5 (a tie keeps the first). Grass takes white (black reaches only 3.73:1 on its bg), Hot Dog Stand the dark ink (white reaches 4.20:1 on its red). Every port replays schemas/theme/theme-ink-vectors.json",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:156-161,240-273 (ThemeTokens.derive, ThemeTokens.inks, ThemeTokens.readable(_:over:toward:minimum:))"
    },
    "textSecondary": {
-    "value": "muted(textPrimary toward bg, up to 0.38, keeping 4.5:1 over worst (see textPrimary)); steps of 0.01",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:156,239-247 (ThemeTokens.derive)"
+    "value": "muted(textPrimary toward bg, up to 0.38, keeping 4.5:1 over inkWorst); steps of 0.01. inkWorst = the lowest-contrast for textPrimary (each inks candidate's, see textPrimary) of worst and bg, and with background-opacity < 1 also of tint, over(pressedFill,tint) and over(selectionFill,tint), tint = over(alpha(bg, background-opacity), dark ? white : black)",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:253-254,276-294 (ThemeTokens.inks, ThemeTokens.seeThroughSurfaces, ThemeTokens.muted)"
    },
    "textTertiary": {
-    "value": "muted(textPrimary toward bg, up to 0.55, keeping 3:1 over worst (see textPrimary))",
+    "value": "muted(textPrimary toward bg, up to 0.55, keeping 3:1 over inkWorst (see textSecondary))",
     "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:157 (ThemeTokens.derive)"
    },
    "textPlaceholder": {
@@ -1985,12 +1985,12 @@
   },
   "dividerThickness": {
    "value": 1,
-   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/ChromeTunables.swift:32 (ChromeTunables.dividerThickness)",
+   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift:107-109 (MetricTunables.dividerThickness)",
    "unit": "pt"
   },
   "dividerHitWidth": {
    "value": 7,
-   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/ChromeTunables.swift:33 (ChromeTunables.dividerHitWidth)",
+   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift:110-112 (MetricTunables.dividerHitWidth)",
    "unit": "pt"
   },
   "panePadding": {
@@ -2036,7 +2036,7 @@
    "olderMacOS": "The vibrancy branch cannot run in the macOS app today: Packages/macOS/CmuxNext/Package.swift requires macOS 26. Ports without Liquid Glass use vibrancy where the platform has a blur, else the opaque fallback."
   },
   "opaqueFallback": {
-   "value": "mix(opaque windowBackground, opaque textPrimary, 0.14) with 1/scale border opaque separator",
+   "value": "light theme, or a dark theme whose opaque textPrimary is darker than its page (Hot Dog Stand): mix(opaque windowBackground, white, 0.14); else mix(opaque windowBackground, opaque textPrimary, 0.14), the amount stepping down by 0.01 until textSecondary keeps 4.5:1 on over(hoverFill, fill) (the page at 0). 1/scale border opaque separator. schemas/theme/theme-ink-vectors.json holds it per bundled theme",
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OverlayMaterial.swift (ThemeTokens.opaqueOverlayFill); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OverlaySurface.swift (OverlaySurfaceView.applyTheme); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/ChromeTunables.swift:40-42 (ChromeTunables.opaqueOverlayLift)"
   },
   "glassTintStrength": {
@@ -2117,21 +2117,23 @@
    },
    "scroll": {
     "value": {
-     "response": 0.22,
+     "response": 0.2,
      "dampingFraction": 0.9
     },
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:15 (MotionTunables.springDefaults)",
     "unit": "s",
-    "use": "Strip reveal, column reveal, fling snap"
+    "use": "Strip reveal, column reveal, fling snap",
+    "note": "Response 0.22 until 2026-10-20 (visible end 190 ms); 0.2 ends visibly at 173 ms, inside the standard step (Leo 2026-10-20 motion scale)."
    },
    "screen": {
     "value": {
-     "response": 0.22,
+     "response": 0.2,
      "dampingFraction": 0.9
     },
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:16 (MotionTunables.springDefaults)",
     "unit": "s",
-    "use": "Screen switch slide"
+    "use": "Screen switch slide",
+    "note": "Response 0.22 until 2026-10-20 (visible end 190 ms); 0.2 ends visibly at 173 ms, inside the standard step (Leo 2026-10-20 motion scale)."
    },
    "track": {
     "value": {
@@ -2153,39 +2155,43 @@
    },
    "panel": {
     "value": {
-     "response": 0.18,
+     "response": 0.165,
      "dampingFraction": 0.85
     },
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:19 (MotionTunables.springDefaults)",
     "unit": "s",
-    "use": "Hover card slide"
+    "use": "Hover card slide",
+    "note": "Response 0.18 until 2026-10-20 (visible end 194 ms); 0.165 ends visibly at 177 ms, inside the standard step (Leo 2026-10-20 motion scale)."
    },
    "pinDrag": {
     "value": {
-     "response": 0.3512407365520363,
+     "response": 0.215,
      "dampingFraction": 0.8385254915624211
     },
     "source": "cmux-tui/crates/cmux-motion (MotionSpring::PinDrag): MessagesLab SidebarPinDragging.spring, CASpringAnimation mass 1, stiffness 320, damping 30",
     "unit": "s",
-    "use": "Home list pin drag: tiles making room, rows below the grid, a dropped tile landing"
+    "use": "Home list pin drag: tiles making room, rows below the grid, a dropped tile landing",
+    "note": "MessagesLab response 0.351 ended visibly at 390 ms. Leo 2026-10-20 motion scale (schemas/motion-scale/motion-scale.json): ends visibly by the 240 ms ceiling: response 0.215 with the same damping fraction (the same give, about 1.6 pt overshoot on 200 pt) ends at 238 ms."
    },
    "zoom": {
     "value": {
-     "response": 0.30,
+     "response": 0.2,
      "dampingFraction": 1
     },
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
     "unit": "s",
-    "use": "A pane zooming to fill its screen and back (Cmd-Shift-Enter): its content takes the full size once, the spring rect reveals it, and it covers the other panes, which do not fade (Leo 2026-10-13, Lawrence 2026-10-18)"
+    "use": "A pane zooming to fill its screen and back (Cmd-Shift-Enter): its content takes the full size once, the spring rect reveals it, and it covers the other panes, which do not fade (Leo 2026-10-13, Lawrence 2026-10-18)",
+    "note": "Response 0.30 until 2026-10-20 (visible end 354 ms); 0.2 ends visibly at 235 ms, under the 240 ms ceiling (Leo 2026-10-20 motion scale)."
    },
    "exit": {
     "value": {
-     "response": 0.24,
+     "response": 0.2,
      "dampingFraction": 1
     },
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
     "unit": "s",
-    "use": "A window closing: the whole window fades out on it before its state closes, critically damped (plans/cmux-next/close-animation/DESIGN.md). A pane close takes the split spring since 2026-10-19 (a close is a split run backwards)."
+    "use": "A window closing: the whole window fades out on it before its state closes, critically damped (plans/cmux-next/close-animation/DESIGN.md). A pane close takes the split spring since 2026-10-19 (a close is a split run backwards).",
+    "note": "Response 0.24 until 2026-10-20 (visible end 283 ms); 0.2 ends visibly at 235 ms, under the 240 ms ceiling (Leo 2026-10-20 motion scale)."
    },
    "tabOpen": {
     "value": {
@@ -2198,12 +2204,12 @@
    },
    "split": {
     "value": {
-     "response": 0.28,
+     "response": 0.23,
      "dampingFraction": 0.95
     },
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
     "unit": "s",
-    "use": "Cmd-D and Cmd-Shift-D (plans/cmux-next/split-spring-animation/DESIGN.md): the new pane grows in from the split edge while every pane of its chain makes room, one spring from the key's frame to rest (Lawrence 2026-10-19). Half the travel at ~73 ms, a 700 pt split visibly at rest by ~375 ms, overshoot under 0.1 pt. Not structural. macOS only until cmux-motion's MotionSpring gets it (build.rs reads only its own list)."
+    "use": "Cmd-D and Cmd-Shift-D (plans/cmux-next/split-spring-animation/DESIGN.md): the new pane grows in from the split edge while every pane of its chain makes room, one spring from the key's frame to rest (Lawrence 2026-10-19). Response 0.23 since Leo 2026-10-20 (motion scale; 0.28 ended visibly at 287 ms): half the travel at ~60 ms, visible end (0.5%) 235 ms, overshoot under 0.1 pt. Not structural. macOS only until cmux-motion's MotionSpring gets it (build.rs reads only its own list)."
    }
   },
   "tweens": {
@@ -2244,7 +2250,7 @@
      "closeEndWidth": 0,
      "minActiveWidth": 56,
      "minInactiveWidth": 32,
-     "pinnedWidth": 64,
+     "pinnedWidth": 36,
      "reorderThreshold": 16,
      "closingMode": {
       "belowPad": 40,
@@ -2258,7 +2264,7 @@
      "closeEndWidth": 0,
      "minActiveWidth": 56,
      "minInactiveWidth": 32,
-     "pinnedWidth": 64,
+     "pinnedWidth": 36,
      "reorderThreshold": 16,
      "closingMode": {
       "belowPad": 40,
@@ -2332,10 +2338,22 @@
     "use": "Hover and pressed fills clearing: 0 is instant"
    },
    "focus": {
-    "value": 0.1,
+    "value": 0.08,
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:32 (MotionTunables.fadeDefaults)",
     "unit": "s",
-    "use": "Pane focus ring and inactive dim"
+    "use": "Pane focus ring"
+   },
+   "paneDim": {
+    "value": 0.12,
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.fadeDefaults)",
+    "unit": "s",
+    "use": "The dim over an unfocused pane easing in and out when focus moves"
+   },
+   "focusFlash": {
+    "value": 0.5,
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.fadeDefaults)",
+    "unit": "s",
+    "use": "The focus ring flashed on a pane focus moved to without a click, fading out (Debug focus.flashOnMove, off by default)"
    },
    "fadeIn": {
     "value": 0.12,
@@ -2350,7 +2368,7 @@
     "use": "Palette close, find bar, notices, hover card hide"
    },
    "crossfade": {
-    "value": 0.1,
+    "value": 0.08,
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:35 (MotionTunables.fadeDefaults)",
     "unit": "s",
     "use": "Hover card thumbnail swap; Reduce Motion ceiling"
@@ -2362,7 +2380,7 @@
     "use": "Sidebar drag lift shadow"
    },
    "theme": {
-    "value": 0.16,
+    "value": 0.12,
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:37 (MotionTunables.fadeDefaults)",
     "unit": "s",
     "use": "Theme switch"
@@ -2380,22 +2398,22 @@
     "use": "Launch mark resolving on the glass of a window still connecting (Motion.revealLaunchMark); under 400 ms at normal speed"
    },
    "clickPulse": {
-    "value": 0.25,
+    "value": 0.24,
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.fadeDefaults)",
     "unit": "s",
     "use": "Agent cursor click ripple grows and fades"
    },
    "cursorHide": {
-    "value": 0.3,
+    "value": 0.24,
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.fadeDefaults)",
     "unit": "s",
     "use": "Agent cursor fades out once its agent goes idle"
    },
    "hibernateIcon": {
-    "value": 0.25,
+    "value": 0.24,
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.fadeDefaults)",
     "unit": "s",
-    "use": "Hibernated tab favicon shrinks into its dotted ring and grows back on wake (Chromium TabIcon, 250 ms ease-in)",
+    "use": "Hibernated tab favicon shrinks into its dotted ring and grows back on wake (Chromium TabIcon, 250 ms ease-in; 240 ms here, the motion scale ceiling)",
     "curve": "easeIn"
    },
    "hibernateRing": {
@@ -2484,7 +2502,7 @@
    }
   },
   "reduceMotion": {
-   "value": "No movement springs, no loops; fades capped at crossfade (0.1 s). Speed off disables fades too.",
+   "value": "No movement springs, no loops; fades capped at crossfade (0.08 s, the motion scale quick step). Speed off disables fades too.",
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionPolicy.swift:20-50 (MotionPolicy.animatesMovement)"
   }
  },
@@ -2575,8 +2593,8 @@
      "quiet"
     ],
     "default": "fade",
-    "strength": 0.35,
-    "cmuxJson": "focus.inactiveTabStyle (Settings > Appearance > Unfocused Pane Tabs); the Debug Settings tunable of the same name overrides it. focus.inactiveTabStrength (0.35) stays a Debug tunable."
+    "strength": 0.4,
+    "cmuxJson": "focus.inactiveTabStyle (Settings > Appearance > Unfocused Pane Tabs); the Debug Settings tunable of the same name overrides it. focus.inactiveTabStrength (0.4) stays a Debug tunable."
    },
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/PaneFocusSettings.swift (PaneFocusSettings.inactiveTabStylePath); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DesignSettings.swift (DesignSettings.inactiveTabStyle, effectiveInactiveTabStyle); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FocusIndicatorTunables.swift:9-16 (FocusIndicatorTunables.inactiveTabStyle)"
   },
@@ -3210,7 +3228,7 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FocusIndicatorTunables.swift:9-16 (FocusIndicatorTunables.inactiveTabStyle)"
    ],
    "metrics": {
-    "strength": 0.35,
+    "strength": 0.4,
     "floors": {
      "primary": 3.5,
      "secondary": 2.5,
@@ -3221,7 +3239,7 @@
    },
    "variants": {
     "focus.inactiveTabStyle": {
-     "fade": "text tiers mixed toward the page by strength until contrast floors; selectionFill and hoverFill alpha *(1-strength)",
+     "fade": "text tiers mixed toward the page by strength until contrast floors; selectionFill alpha *max(1-strength, 0.4), hoverFill alpha *(1-strength/2)",
      "tonal": "primary<-secondary, secondary<-tertiary, tertiary faded strength/2; selectionFill = hoverFill alpha *(1-strength/2)",
      "quiet": "primary<-secondary, secondary/tertiary faded strength/2; selectionFill transparent"
     },

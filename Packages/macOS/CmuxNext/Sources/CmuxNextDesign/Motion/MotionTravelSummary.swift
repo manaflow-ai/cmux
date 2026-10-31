@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 public import QuartzCore
 
 /// How one animator's `MotionTrace` travel sample (`tabs.travel`: the points its springs have

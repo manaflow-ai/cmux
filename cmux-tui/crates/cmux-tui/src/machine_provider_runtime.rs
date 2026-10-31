@@ -4738,7 +4738,10 @@ mod tests {
             disconnected.machines.clear();
             disconnected.selected_machine_id = None;
             let (_second_stream, _second_reader) = serve_initial_snapshot(&listener, disconnected);
-            finished.recv_timeout(Duration::from_secs(2)).unwrap();
+            // Hold both provider streams open until the client is done. No
+            // fixed bound: on a loaded host the reconnect alone took 2.9 s,
+            // and a test that fails drops `finish`, which ends this wait.
+            let _ = finished.recv();
         });
         let connector = Arc::new(UnixProviderConnector::new(socket.path.clone(), token()));
         let state_root = TestStateRoot::create("provider-reconnect");

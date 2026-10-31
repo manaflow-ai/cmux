@@ -29,6 +29,11 @@ KEY = "8729cadfd262d8c13cad8f8ad5d7d54ca4984e01"
 
 FAKE_CURL = r"""#!/usr/bin/env python3
 import json, os, sys
+from datetime import datetime, timedelta, timezone
+def started(minutes):
+    # A run that started this many minutes ago (default: just now).
+    when = datetime.now(timezone.utc) - timedelta(minutes=float(minutes or 0))
+    return when.strftime("%Y-%m-%dT%H:%M:%SZ")
 args = sys.argv[1:]
 url = next(a for a in args if a.startswith("http"))
 out = args[args.index("-o") + 1] if "-o" in args else None
@@ -42,6 +47,7 @@ if "/actions/runs/" in url and "/jobs" in url:
     jobs = [{"name": "cmux-tui tree preflight", "status": "completed"}]
     if os.environ.get("FAKE_NOTIFY_STATUS"):
         jobs.append({"name": "report an unpublished cmux-tui tree to cmux-next", "status": os.environ["FAKE_NOTIFY_STATUS"]})
+    jobs += json.loads(os.environ.get("FAKE_DAEMON_JOBS", "[]"))
     print(json.dumps({"total_count": len(jobs), "jobs": jobs}))
     sys.exit(0)
 if "/actions/runs/" in url and os.environ.get("FAKE_OWNER_ENDS_AFTER"):
@@ -55,13 +61,15 @@ if "/actions/runs/" in url:
     if run_id in os.environ.get("FAKE_BUILDERS", "").split(","):
         print(json.dumps({"status": os.environ.get("FAKE_BUILDER_STATUS", "in_progress"),
                           "event": os.environ.get("FAKE_BUILDER_EVENT", "push"),
-                          "head_branch": os.environ.get("FAKE_BUILDER_BRANCH", "feat-cmux-next")}))
+                          "head_branch": os.environ.get("FAKE_BUILDER_BRANCH", "feat-cmux-next"),
+                          "run_started_at": started(os.environ.get("FAKE_BUILDER_MINUTES"))}))
         sys.exit(0)
     if os.environ["FAKE_OWNER_STATUS"] == "fail":
         sys.exit(22)
     print(json.dumps({"status": os.environ["FAKE_OWNER_STATUS"], "conclusion": os.environ.get("FAKE_OWNER_CONCLUSION", ""),
                       "event": os.environ.get("FAKE_OWNER_EVENT", "push"), "head_branch": os.environ.get("FAKE_OWNER_BRANCH", "feat-cmux-next"),
-                      "head_sha": os.environ.get("FAKE_OWNER_SHA", "b" * 40)}))
+                      "head_sha": os.environ.get("FAKE_OWNER_SHA", "b" * 40),
+                      "run_started_at": started(os.environ.get("FAKE_OWNER_MINUTES"))}))
     sys.exit(0)
 if os.environ.get("FAKE_TREE_PUBLISHED") != "1":
     sys.exit(22)
@@ -107,34 +115,9 @@ def recheck_step():
     return next((s for s in steps if s.get("id") == "recheck"), None)
 
 
-FAKE_GH = """#!/bin/sh
-echo "gh $*" >> "$FAKE_LOG"
-case "$*" in
-  *--jq*) printf '%b' "$FAKE_ARTIFACTS" ;;
-  *"run rerun $FAKE_RERUN_FAILS"*) exit 1 ;;
-esac
-"""
-
-
 def handoff_script():
     steps = job("notify-unpublished-tree")["steps"]
     return next(s for s in steps if "deferred" in s.get("name", ""))["run"]
-
-
-def run_handoff(artifacts, rerun_fails="none"):
-    with tempfile.TemporaryDirectory() as tmp:
-        gh = os.path.join(tmp, "gh")
-        with open(gh, "w") as handle:
-            handle.write(FAKE_GH)
-        os.chmod(gh, os.stat(gh).st_mode | stat.S_IXUSR)
-        log = os.path.join(tmp, "log")
-        open(log, "w").close()
-        env = dict(os.environ, PATH=f"{tmp}:{os.environ['PATH']}", KEY=KEY, RUN_ID="5",
-                   GITHUB_REPOSITORY="manaflow-ai/cmux", GH_TOKEN="x", FAKE_LOG=log,
-                   FAKE_ARTIFACTS=artifacts, FAKE_RERUN_FAILS=rerun_fails)
-        result = subprocess.run(["bash", "-e", "-c", handoff_script()], cwd=tmp, env=env,
-                                capture_output=True, text=True, timeout=60)
-        return result, open(log).read()
 
 
 def run_wait(owner, script=None, **fake):
@@ -143,7 +126,9 @@ def run_wait(owner, script=None, **fake):
         os.makedirs(os.path.join(tmp, "scripts", "ci"))
         os.makedirs(bin_dir)
         for path, body in ((os.path.join(bin_dir, "curl"), FAKE_CURL), (os.path.join(bin_dir, "sleep"), FAKE_SLEEP),
-                           (os.path.join(tmp, "scripts", "ci", "cmux-tui-tree-claim.sh"), FAKE_CLAIM)):
+                           (os.path.join(tmp, "scripts", "ci", "cmux-tui-tree-claim.sh"), FAKE_CLAIM),
+                           (os.path.join(tmp, "scripts", "ci", "cmux_tui_publisher_testing.py"),
+                            open(os.path.join(ROOT, "scripts", "ci", "cmux_tui_publisher_testing.py")).read())):
             with open(path, "w") as handle:
                 handle.write(body)
             os.chmod(path, os.stat(path).st_mode | stat.S_IXUSR)
@@ -156,7 +141,10 @@ def run_wait(owner, script=None, **fake):
                    SERVER_URL="https://github.invalid", GITHUB_OUTPUT=output, GITHUB_RUN_ID="5", RUNNER_TEMP=tmp,
                    FAKE_LOG=log)
         env = {**env, "EVENT_NAME": "push", "REF": "refs/heads/feat-cmux-next", "SHA": "f" * 40,
-               "FAKE_OWNER_STATUS": "in_progress", "FAKE_CLAIM_RESULT": "owner=7 granted=false", **fake}
+               "FAKE_OWNER_STATUS": "in_progress", "FAKE_CLAIM_RESULT": "owner=7 granted=false",
+               "DAEMON_POOL": "glaeda-side-light-xcode-26.6", **fake}
+        env["TREE_READY"] = "true" if env.get("FAKE_TREE_PUBLISHED") == "1" else "false"
+        env["DAEMON_TESTED"] = "false" if env["TREE_READY"] == "true" and env.get("FAKE_MARKER", "1") != "1" else "true"
         result = subprocess.run(["bash", "-e", "-c", script or wait_script()], cwd=tmp, env=env, capture_output=True, text=True, timeout=60)
         return result, open(output).read(), open(log).read()
 
@@ -221,6 +209,41 @@ def check_recheck():
     result, out, log = run_wait("4", script=script, FAKE_NOTIFY_STATUS="in_progress")
     _check(result.returncode == 0 and "takeover=false" in out and 0 < log.count("sleep") <= 16,
            f"an owner whose hand-off never ends: the wait is bounded ({out.strip()!r}, {log.count('sleep')} sleeps)")
+
+
+def check_lease():
+    """A live owner holds its key for a bounded lease, not until its job timeout.
+
+    2026-10-28: owner run 40641041752 of tree 04cb6703 hung in a Zig package
+    fetch for over 25 minutes (as 40630560459 had for 58). Every later
+    feat-cmux-next push of the key saw a live owner and deferred, so nothing
+    built the key until the owner timed out: the feat-cmux-next tree went two
+    hours and 97 commits unpublished.
+    """
+    env = job("tree-owner-wait")["steps"]
+    lease = next(s for s in env if s.get("id") == "wait")["env"].get("OWNER_LEASE_MINUTES")
+    _check(lease is not None and 15 <= int(lease) <= 30,
+           f"a live owner's lease is bounded so the newest tree publishes within about 30 minutes ({lease})")
+    for status in ("in_progress", "queued"):
+        result, out, log = run_wait("4", FAKE_OWNER_STATUS=status, FAKE_OWNER_MINUTES="40")
+        _check(result.returncode == 0 and "takeover=true" in out and "feat_builder=true" in out and "deferred=false" in out,
+               f"a feat-cmux-next push takes over a key whose {status} feat-cmux-next owner is past its lease ({out.strip()!r}, {result.stderr.strip()[-300:]!r})")
+    result, out, log = run_wait("4", FAKE_OWNER_MINUTES="10")
+    _check(result.returncode == 0 and "takeover=false" in out and "deferred=true" in out,
+           f"a feat-cmux-next owner inside its lease still holds the key ({out.strip()!r})")
+    result, out, log = run_wait("4", FAKE_OWNER_MINUTES="40", REF="refs/heads/op-next-other")
+    _check(result.returncode == 0 and "takeover=false" in out,
+           f"only a feat-cmux-next push takes a stuck owner's key over ({out.strip()!r})")
+    result, out, log = run_wait("4", FAKE_OWNER_MINUTES="40", FAKE_TREE_PUBLISHED="1")
+    _check(result.returncode == 0 and "takeover=false" in out,
+           f"a stuck owner that published anyway: no build ({out.strip()!r})")
+    # Later pushes defer to the run that took over, while it holds its own lease.
+    result, out, log = run_wait("4", FAKE_OWNER_MINUTES="40", FAKE_BUILDERS="9", FAKE_BUILDER_MINUTES="5")
+    _check(result.returncode == 0 and "takeover=false" in out and "owner=9" in out,
+           f"a later push defers to the feat-cmux-next run that took a stuck owner's key over ({out.strip()!r})")
+    result, out, log = run_wait("4", FAKE_OWNER_MINUTES="40", FAKE_BUILDERS="9", FAKE_BUILDER_MINUTES="40")
+    _check(result.returncode == 0 and "takeover=true" in out,
+           f"a feat-cmux-next builder past its own lease does not hold the key either ({out.strip()!r})")
 
 
 def main():
@@ -303,6 +326,13 @@ def main():
                                     FAKE_OWNER_BRANCH="feat-cmux-next")
         _check(result.returncode == 0 and "takeover=false" in out and "unmarked=false" in out,
                f"an unmarked tree whose feat-cmux-next push owner is {status} is not re-tested ({out.strip()!r})")
+    # 2026-10-21: the owner's daemon-test job sat queued on a label the pool
+    # variable no longer names, and every later push deferred to it.
+    result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1", FAKE_MARKER="0", FAKE_OWNER_STATUS="in_progress",
+                                FAKE_OWNER_BRANCH="feat-cmux-next", DAEMON_POOL="glaeda-side-light-xcode-26.6",
+                                FAKE_DAEMON_JOBS='[{"name": "cmux_next_ daemon tests (macOS)", "status": "queued", "conclusion": null, "created_at": "2026-10-21T05:43:00Z", "labels": ["glaeda-side-std-xcode-26.6"]}]')
+    _check(result.returncode == 0 and "unmarked=true" in out,
+           f"an unmarked tree whose feat-cmux-next owner's daemon tests are stuck is re-tested ({out.strip()!r})")
     for event, branch, why in (("push", "op-next-idle-caret", "lane-branch push"),
                                ("pull_request_target", "op-next-idle-caret", "pull request"),
                                ("workflow_dispatch", "feat-cmux-next", "feat-cmux-next dispatch")):
@@ -329,6 +359,9 @@ def main():
                                     FAKE_OWNER_CONCLUSION="failure", FAKE_OWNER_BRANCH=branch)
         _check(result.returncode == 0 and "takeover=false" in out and "unmarked=true" in out,
                f"an unmarked tree whose {branch} owner ended is re-tested ({out.strip()!r})")
+    result, out, log = run_wait("", FAKE_TREE_PUBLISHED="1", FAKE_MARKER="0")
+    _check(result.returncode == 0 and "takeover=false" in out and "deferred=true" in out and "unmarked=true" in out,
+           f"a published unmarked tree with no live owner leaves a takeover marker ({out.strip()!r})")
     result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1", FAKE_MARKER="0", FAKE_OWNER_STATUS="fail")
     _check(result.returncode == 0 and "unmarked=true" in out,
            f"an unmarked tree whose owner cannot be read is re-tested ({out.strip()!r})")
@@ -346,21 +379,17 @@ def main():
     checkout = next(s for s in promote["steps"] if "checkout" in str(s.get("uses", "")))
     _check("feat-cmux-next" in str(checkout["with"]["ref"]), "that request runs from the feat-cmux-next head's own checkout")
 
+    # The hand-off's ordering, marker use, re-run cap and quota skip are tested in
+    # tests/test_cmux_tui_tree_handoff.py, which runs the script with a fake gh.
     try:
-        handoff_script()
+        script = handoff_script()
     except (StopIteration, KeyError):
         _check(False, "notify-unpublished-tree hands the key to a run that deferred to it")
     else:
-        result, log = run_handoff("11\\t9\\tlane\\n12\\t8\\tfeat-cmux-next\\n13\\t5\\tfeat-cmux-next\\n")
-        _check(result.returncode == 0 and "run rerun 8" in log and "artifacts/12" in log
-               and "run rerun 9" not in log and "rerun 5" not in log,
-               f"an owner that ends unpublished re-runs one deferred run, feat-cmux-next first, never itself ({log.strip()!r})")
-        result, log = run_handoff("11\\t9\\tlane\\n12\\t8\\tfeat-cmux-next\\n", rerun_fails="8")
-        _check(result.returncode == 0 and "run rerun 9" in log and "artifacts/11" in log and "artifacts/12" not in log,
-               f"a deferred run that cannot be re-run keeps its marker and passes the key to the next ({log.strip()!r})")
-        result, log = run_handoff("")
-        _check(result.returncode == 0 and "rerun" not in log, "no deferred run: nothing is re-run")
+        _check("scripts/ci/cmux_tui_tree_handoff.py" in script,
+               "notify-unpublished-tree hands the key on through scripts/ci/cmux_tui_tree_handoff.py")
 
+    check_lease()
     check_recheck()
 
     if FAILURES:

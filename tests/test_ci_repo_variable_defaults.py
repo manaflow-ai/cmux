@@ -11,7 +11,9 @@ Two rules, both checked against the workflows themselves rather than a list of
 known-good sites:
 
 1. A `runs-on:` that reads a repository variable needs a literal runner label
-   to fall back to. An empty `runs-on:` cannot schedule at all.
+   to fall back to. An empty `runs-on:` cannot schedule at all. A job whose
+   `if:` requires `vars.X != ''` for every variable its runs-on reads is
+   skipped when one is unset, so it never schedules on an empty runs-on.
 2. A variable that selects how much work to do, or where a cache lives, needs
    the repository's own value written next to it as a literal. The table below
    is the one hand-maintained part, and it names three variables, not the
@@ -139,8 +141,93 @@ def default_chain_reaches_literal(text: str, end: int) -> bool:
         rest = rest[chained.end():]
 
 
+JOB_KEY = re.compile(r"^  [A-Za-z0-9_-]+:\s*(?:#.*)?$")
+
+
+def job_if(lines: list[str], index: int) -> str:
+    """The job-level `if:` (with its continuation lines) of the job holding lines[index]."""
+    start = index
+    while start > 0 and not JOB_KEY.match(lines[start]):
+        start -= 1
+    end = index + 1
+    while end < len(lines) and not JOB_KEY.match(lines[end]):
+        end += 1
+    for at in range(start + 1, end):
+        if lines[at].startswith("    if:"):
+            parts = [lines[at][len("    if:"):]]
+            at += 1
+            while at < end and (not lines[at].strip() or lines[at].startswith("      ")):
+                parts.append(lines[at])
+                at += 1
+            return " ".join(part.strip() for part in parts)
+    return ""
+
+
+def top_level_conjuncts(condition: str) -> list[str]:
+    """`a && (b || c) && d` -> ['a', '(b || c)', 'd'], ignoring quoted text."""
+    condition = condition.strip()
+    if condition.startswith(">-"):
+        condition = condition[2:].strip()
+    elif condition[:1] in (">", "|"):
+        return []  # a kept trailing newline makes the whole value a non-empty string
+    if condition.startswith("${{") and condition.endswith("}}"):
+        condition = condition[3:-2]
+    if "${{" in condition or "}}" in condition:
+        return []  # text around a template: GitHub reads a string, always true
+    parts, depth, quoted, current = [], 0, False, ""
+    index = 0
+    while index < len(condition):
+        char = condition[index]
+        if char == "'":
+            quoted = not quoted
+        elif not quoted and char == "(":
+            depth += 1
+        elif not quoted and char == ")":
+            depth -= 1
+        elif not quoted and depth == 0 and condition.startswith("&&", index):
+            parts.append(current.strip())
+            current = ""
+            index += 2
+            continue
+        elif not quoted and depth == 0 and condition.startswith("||", index):
+            return []  # a top-level `||` makes no conjunct required
+        current += char
+        index += 1
+    parts.append(current.strip())
+    return parts
+
+
+def gated_on_every_read(condition: str, reads: list[re.Match], expression: str = "") -> bool:
+    conjuncts = top_level_conjuncts(condition)
+    if all(f"vars.{read.group(1)} != ''" in conjuncts for read in reads):
+        return True
+    # `runs-on: ${{ vars.A || vars.B }}` is non-empty when either is set, so a
+    # job gated on `(vars.A != '' || vars.B != '')` never schedules on an empty
+    # runs-on either. Only a pure `||` chain of the same variables qualifies.
+    names = {read.group(1) for read in reads}
+    chain = re.fullmatch(r"\$\{\{\s*(vars\.[A-Z0-9_]+(?:\s*\|\|\s*vars\.[A-Z0-9_]+)*)\s*\}\}", expression.strip())
+    if chain is None:
+        return False
+    for conjunct in conjuncts:
+        inner = conjunct.strip()
+        if inner.startswith("(") and inner.endswith(")"):
+            inner = inner[1:-1]
+        terms = [term.strip() for term in inner.split("||")]
+        gated = set()
+        for term in terms:
+            matched = re.fullmatch(r"vars\.([A-Z0-9_]+) != ''", term)
+            if matched is None:
+                gated = set()
+                break
+            gated.add(matched.group(1))
+        if gated and gated == names:
+            return True
+    return False
+
+
 def check_runs_on(path: Path, errors: list[str]) -> None:
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+    lines = path.read_text(encoding="utf-8").splitlines()
+    for number, line in enumerate(lines, start=1):
         matched = RUNS_ON.match(line)
         if matched is None:
             continue
@@ -149,6 +236,8 @@ def check_runs_on(path: Path, errors: list[str]) -> None:
         if not reads:
             continue
         if any(default_chain_reaches_literal(expression, read.end()) for read in reads):
+            continue
+        if gated_on_every_read(job_if(lines, number - 1), reads, expression):
             continue
         # A last top-level `|| 'label'` is the fallback of the whole expression
         # (build-nightly-app: trusted tuple || hosted 'macos-26').
@@ -268,6 +357,47 @@ def self_test_gate_matcher(errors: list[str]) -> None:
                 )
 
 
+def self_test_runs_on_gate(errors: list[str]) -> None:
+    """A job-level `vars.X != ''` conjunct for every read (or one disjunction over a pure `||` chain) excuses a bare runs-on."""
+    import tempfile
+
+    def job(condition: str, runs_on: str = "${{ vars.A_RUNNER }}") -> str:
+        return f"jobs:\n  one:\n    if: {condition}\n    runs-on: {runs_on}\n    steps: []\n"
+
+    probes = (
+        (job("github.repository_owner == 'manaflow-ai' && vars.A_RUNNER != ''"), 0, "a gated job"),
+        (job(">-\n      ${{ github.repository_owner == 'manaflow-ai' &&\n          vars.A_RUNNER != '' }}"), 0,
+         "a gated job with a folded if"),
+        (job("github.repository_owner == 'manaflow-ai'"), 1, "an ungated job"),
+        (job("vars.A_RUNNER != '' || github.event_name == 'push'"), 1, "a gate inside a top-level `||`"),
+        (job("(vars.A_RUNNER != '' || vars.B != '') && github.ref == 'x'"), 1, "a gate inside parentheses"),
+        (job("vars.B_RUNNER != ''"), 1, "a gate on another variable"),
+        (job("vars.A_RUNNER != ''", "${{ vars.A_RUNNER || vars.B_RUNNER }}"), 1, "one of two reads gated"),
+        (job("x == 'y' && (vars.A_RUNNER != '' || vars.B_RUNNER != '')", "${{ vars.A_RUNNER || vars.B_RUNNER }}"), 0,
+         "a `||` chain gated on either of its variables"),
+        (job("x == 'y' && (vars.A_RUNNER != '' || vars.C_RUNNER != '')", "${{ vars.A_RUNNER || vars.B_RUNNER }}"), 1,
+         "a `||` chain gated on another variable"),
+        (job("(vars.A_RUNNER != '' || vars.B_RUNNER != '')", "${{ vars.A_RUNNER && vars.B_RUNNER }}"), 1,
+         "an `&&` read gated on either variable"),
+        ("jobs:\n  one:\n    if: vars.A_RUNNER != ''\n    steps: []\n  two:\n    runs-on: ${{ vars.A_RUNNER }}\n",
+         1, "another job's gate"),
+        ("jobs:\n  one:\n    if: vars.A_RUNNER != ''\n    steps: []\n  two: # note\n    runs-on: ${{ vars.A_RUNNER }}\n",
+         1, "another job's gate above a commented job header"),
+        (job("${{ github.ref == 'x' }} && vars.A_RUNNER != ''"), 1, "text outside the template"),
+        (job(">\n      ${{ github.ref == 'x' &&\n          vars.A_RUNNER != '' }}"), 1, "a folded `>` if, which keeps its newline"),
+    )
+    with tempfile.TemporaryDirectory() as directory:
+        for body, expected, description in probes:
+            probe = Path(directory) / "probe.yml"
+            probe.write_text(body, encoding="utf-8")
+            found: list[str] = []
+            check_runs_on(probe, found)
+            if len(found) != expected:
+                errors.append(
+                    f"runs-on gate self-test: {description} produced {len(found)} error(s), expected {expected}"
+                )
+
+
 def main() -> int:
     errors: list[str] = []
     files = workflow_files()
@@ -275,6 +405,7 @@ def main() -> int:
         print(f"no workflows found under {WORKFLOWS}", file=sys.stderr)
         return 1
     self_test_gate_matcher(errors)
+    self_test_runs_on_gate(errors)
     for path in files:
         check_runs_on(path, errors)
         check_cheap_defaults(path, errors)

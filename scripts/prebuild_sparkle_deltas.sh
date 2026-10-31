@@ -13,6 +13,12 @@
 # generate_appcast, it keeps a delta only after applying it to the old app
 # succeeds; BinaryDelta apply checks the result against the new tree's hash.
 #
+# BinaryDelta holds every changed file in memory while it diffs: 5.8 GB peak for
+# a nightly-next arm64 app, whose 270 MB Chromium framework is re-signed (so
+# changed) in every build. Deltas therefore run SPARKLE_DELTA_JOBS at a time,
+# by default one per 6 GiB of RAM (one on a 7 GB hosted runner), never more
+# than the CPU count.
+#
 # Best effort: it always exits 0. A delta it skips or fails to build is left
 # to generate_appcast, which then creates it exactly as before.
 set -uo pipefail
@@ -108,8 +114,33 @@ if [[ "${#candidates[@]}" -eq 0 ]]; then
   exit 0
 fi
 
+jobs="${SPARKLE_DELTA_JOBS:-}"
+if ! [[ "$jobs" =~ ^[1-9][0-9]*$ ]]; then
+  jobs=$(( $(sysctl -n hw.memsize 2>/dev/null || echo 0) / (6 * 1024 * 1024 * 1024) ))
+  cpus="$(sysctl -n hw.ncpu 2>/dev/null || echo 1)"
+  (( jobs <= cpus )) || jobs="$cpus"
+  (( jobs >= 1 )) || jobs=1
+fi
+log "building up to ${MAX_DELTAS} delta(s), ${jobs} at a time"
+
 pids=()
 outputs=()
+built=0
+# Waits for every started delta; bash 3.2 (macOS /bin/bash) has no `wait -n`.
+wait_started() {
+  local index
+  for index in ${pids[@]+"${!pids[@]}"}; do
+    if wait "${pids[$index]}"; then
+      built=$((built + 1))
+      log "built $(basename "${outputs[$index]}")"
+    else
+      rm -f "${outputs[$index]}"
+      log "failed to build $(basename "${outputs[$index]}"); generate_appcast will create it"
+    fi
+  done
+  pids=()
+  outputs=()
+}
 started="$(date +%s)"
 while IFS= read -r entry; do
   old_version="${entry%% *}"
@@ -134,17 +165,10 @@ while IFS= read -r entry; do
   ) &
   pids+=("$!")
   outputs+=("$delta")
-done < <(printf '%s\n' "${candidates[@]}" | sort -rn | awk '!seen[$1]++' | head -n "$MAX_DELTAS")
-
-built=0
-for index in ${pids[@]+"${!pids[@]}"}; do
-  if wait "${pids[$index]}"; then
-    built=$((built + 1))
-    log "built $(basename "${outputs[$index]}")"
-  else
-    rm -f "${outputs[$index]}"
-    log "failed to build $(basename "${outputs[$index]}"); generate_appcast will create it"
+  if [[ "${#pids[@]}" -ge "$jobs" ]]; then
+    wait_started
   fi
-done
+done < <(printf '%s\n' "${candidates[@]}" | sort -rn | awk '!seen[$1]++' | head -n "$MAX_DELTAS")
+wait_started
 log "built ${built} delta(s) in $(( $(date +%s) - started ))s"
 exit 0

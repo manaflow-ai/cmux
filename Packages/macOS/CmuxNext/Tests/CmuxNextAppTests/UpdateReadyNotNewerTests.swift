@@ -55,6 +55,66 @@ import Testing
         #expect(updater.readyCard == nil, "a check while nothing newer is staged showed Update Ready")
     }
 
+    /// Hiding the card is not enough: Sparkle's install session for that
+    /// build stays open, so quitting would install the running build again
+    /// (install on quit no longer cancels a phase that shows nothing) and
+    /// Check for Updates would be ignored behind it. A staged update that is
+    /// not newer has its installer cancelled (Skip on Sparkle's held ready
+    /// reply, which records no skipped version) as soon as it shows.
+    @Test func aStagedBuildThatIsNotNewerHasItsInstallerCancelled() {
+        for (staged, version) in [("100", "1.0.0"), ("99", "0.9.9")] {
+            let updater = Self.updater(stagedBuild: staged)
+            let cancels = Counter()
+            updater.cancelStaged = { cancels.count += 1; return true }
+            updater.debugIndicatorPhase = .ready(version: version)
+            #expect(cancels.count > 0, "build \(staged)'s staged installer still runs: quitting installs it again")
+        }
+    }
+
+    /// Only a known build number proves a staged update is not newer. One of
+    /// unknown version, or known only by its display version, can be a newer
+    /// build the user asked for (Install Update with automatic downloads off
+    /// answers Sparkle's prompt itself), so it stays hidden but keeps its
+    /// installer.
+    @Test func aStagedUpdateWithNoBuildNumberKeepsItsInstaller() {
+        for version in [nil, "1.0.0", "1.0.1"] as [String?] {
+            let updater = Self.updater(stagedBuild: nil)
+            let cancels = Counter()
+            updater.cancelStaged = { cancels.count += 1; return true }
+            updater.debugIndicatorPhase = .ready(version: version)
+            updater.checkForUpdates()
+            #expect(cancels.count == 0, "a staged update of version \(version ?? "unknown") with no build number was cancelled")
+        }
+    }
+
+    /// The installer is cancelled once: the log says so only when Sparkle
+    /// held one (the cancel reports it), never again for the same item, and
+    /// never when nothing was held.
+    @Test func theCancelIsLoggedOnlyWhenAnInstallerWasHeld() {
+        let line = "is not newer than build 100: cancelling its installer"
+        let updater = Self.updater(stagedBuild: "100")
+        let calls = Counter()
+        updater.cancelStaged = { calls.count += 1; return calls.count == 1 }
+        updater.debugIndicatorPhase = .ready(version: "1.0.0")
+        updater.checkForUpdates()
+        updater.send(.checkRequested)
+        #expect(updater.log.recent.filter { $0.contains(line) }.count == 1, "\(updater.log.recent)")
+
+        let nothingHeld = Self.updater(stagedBuild: "100")
+        nothingHeld.cancelStaged = { false }
+        nothingHeld.debugIndicatorPhase = .ready(version: "1.0.0")
+        #expect(!nothingHeld.log.recent.contains { $0.contains(line) }, "logged a cancel with no installer held")
+    }
+
+    @Test func aNewerStagedBuildKeepsItsInstaller() {
+        let updater = Self.updater(stagedBuild: "101")
+        let cancels = Counter()
+        updater.cancelStaged = { cancels.count += 1; return true }
+        updater.debugIndicatorPhase = .ready(version: "1.0.1")
+        updater.checkForUpdates()
+        #expect(cancels.count == 0, "a newer staged update was cancelled")
+    }
+
     @Test func aNewerStagedBuildStillShowsTheCard() {
         let updater = Self.updater(stagedBuild: "101")
         updater.debugIndicatorPhase = .ready(version: "1.0.1")
@@ -62,4 +122,9 @@ import Testing
         #expect(updater.stagedVersion == "1.0.1")
         #expect(updater.footerPill == .ready)
     }
+}
+
+/// Counts calls from a stubbed closure.
+@MainActor private final class Counter {
+    var count = 0
 }

@@ -37,6 +37,9 @@ public struct DaemonNotification: Sendable, Hashable, Decodable {
     public var preview: String?
     public var level: NotificationLevel
     public var surface: SurfaceID?
+    /// The workspace of a notification with no terminal (`cmux notify --workspace ws_…`,
+    /// its public id); nil for a terminal's notification and from older daemons.
+    public var workspaceID: ResourceID?
     /// Not serialized on the `notification` event by current daemons; the
     /// `list-notifications` ledger carries `created_at_ms`.
     public var createdAtMs: UInt64?
@@ -53,6 +56,7 @@ public struct DaemonNotification: Sendable, Hashable, Decodable {
     enum CodingKeys: String, CodingKey {
         case notification, title, subtitle, body, preview, level, surface, source, desktop, reply
         case createdAtMs = "created_at_ms"
+        case workspaceID = "workspace_id"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -64,6 +68,7 @@ public struct DaemonNotification: Sendable, Hashable, Decodable {
         preview = try? c.decodeIfPresent(String.self, forKey: .preview)
         level = (try? c.decode(NotificationLevel.self, forKey: .level)) ?? .info
         surface = try c.decodeIfPresent(SurfaceID.self, forKey: .surface)
+        workspaceID = try? c.decodeIfPresent(ResourceID.self, forKey: .workspaceID)
         createdAtMs = try c.decodeIfPresent(UInt64.self, forKey: .createdAtMs)
         source = try? c.decodeIfPresent(String.self, forKey: .source)
         desktop = (try? c.decodeIfPresent(Bool.self, forKey: .desktop)) ?? true

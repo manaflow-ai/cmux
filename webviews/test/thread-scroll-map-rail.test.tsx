@@ -6,7 +6,7 @@ import { afterAll, afterEach, expect, jest, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
-// These tests drive the full-height map, the default arm (layout.experiment.ts).
+// These tests drive the full-height map; the default arm draws no minimap (layout.experiment.ts).
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "full" };
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -128,13 +128,11 @@ async function mount(prompts: number) {
 const ticks = () => [...document.querySelectorAll<HTMLElement>('.acpmux-scrollmap__mark[data-kind="user"]')];
 const tick = (index: number) => ticks()[index]!;
 const card = () => document.querySelector<HTMLElement>(".acpmux-minimap__card");
-/// The top of a mounted row in the thread, from its transform.
-const rowTop = (id: string) =>
-  Number(
-    /translateY\(([\d.]+)px\)/.exec(
-      document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${id}"]`)!.style.transform,
-    )?.[1],
-  );
+/// The place of a mounted row in the thread: its CSS offset less the thread's 16 px top padding.
+const rowTop = (id: string) => {
+  const row = document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${id}"]`)!;
+  return Number.parseFloat(row.style.top) + (Number.parseFloat(row.style.marginTop) || 0) - 16;
+};
 /// Where a jump to turn `index` leaves the scroller: the prompt's bubble 35 px below the viewport
 /// top (the thread pads its rows 16 px down).
 const landing = (index: number) => {
@@ -205,6 +203,61 @@ test("a focused prompt keeps its card when earlier turns arrive above it", async
     );
     // The card follows the prompt, not the mark's old place in the list.
     expect(card()?.textContent).toContain("Question 4");
+  } finally {
+    await view.unmount();
+  }
+});
+
+test("a chat that fits its pane above the composer has no map", async () => {
+  // Two short turns: the transcript is shorter than the 600 px viewport.
+  const view = await mount(2);
+  try {
+    expect(document.querySelector(".acpmux-scrollmap")).toBeNull();
+  } finally {
+    await view.unmount();
+  }
+});
+
+test("the marks under the view bar are current, at the top and at the bottom", async () => {
+  const view = await mount(12);
+  try {
+    const current = () => ticks().flatMap((node, index) => (node.dataset.tone === "current" ? [index] : []));
+    expect(current()[0]).toBe(0);
+    expect(current()).not.toContain(11);
+    // The bottom: as far as the transcript scrolls.
+    view.scroller.scrollTop =
+      parseFloat(document.querySelector<HTMLElement>(".acpmux-spacer")!.style.height) - VIEWPORT;
+    await view.scrolled();
+    expect(current()).toContain(11);
+    expect(current()).not.toContain(0);
+  } finally {
+    await view.unmount();
+  }
+});
+
+test("the previewed prompt stays lit while focus is on its card", async () => {
+  const view = await mount(12);
+  try {
+    await act(async () => tick(6).focus());
+    expect(tick(6).dataset.tone).toBe("active");
+    const bookmark = card()!.querySelector<HTMLButtonElement>(".acpmux-minimap__bookmark")!;
+    await act(async () => bookmark.focus());
+    expect(card()?.textContent).toContain("Question 6");
+    expect(tick(6).dataset.tone).toBe("active");
+  } finally {
+    await view.unmount();
+  }
+});
+
+test("the card draws outside the transcript scroller, whose edge mask would keep its blur from the rows", async () => {
+  const view = await mount(12);
+  try {
+    await act(async () => tick(6).focus());
+    expect(card()?.textContent).toContain("Question 6");
+    // A masked ancestor is the card's backdrop root (conversation.css's soft edges, #23782).
+    expect(card()!.closest(".acpmux-scroll")).toBeNull();
+    expect(card()!.parentElement).toBe(view.scroller.parentElement);
+    expect(view.scroller.querySelector(".acpmux-minimap > .acpmux-minimap__anchor")).not.toBeNull();
   } finally {
     await view.unmount();
   }

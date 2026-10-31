@@ -8,7 +8,7 @@ use super::super::origin_gate::{set_role_for_test, set_verified_app_for_test};
 use super::super::tests::captured_writer;
 use super::super::*;
 use crate::cloud_conversations::testing::{FakeBackend, wait_until};
-use crate::cloud_conversations::{CloudConversations, ServiceOptions};
+use crate::cloud_conversations::{CloudConversations, CloudError, ServiceOptions};
 
 const CONV: &str = "conv_0123456789ABCDEFGHJKMNPQRS";
 const ME: &str = "user_00000000000000000001";
@@ -713,6 +713,161 @@ fn the_owners_typing_reaches_the_socket_subscribers_that_asked_for_it() {
     mux.cloud_conversations().unwrap().shutdown();
 }
 
+/// `cloud-conversation-presence`: the person views the conversation while
+/// any client of the daemon does, so only a change of that goes out as the
+/// owner's `presence.set {conversation, viewing}` frame on the shared
+/// socket: again on a new socket while viewing, and off when the last
+/// viewing client closes or unsubscribes. Without a subscriber it is
+/// refused and nothing is sent.
+#[test]
+fn presence_goes_out_as_the_owners_presence_set_frame_on_the_shared_socket() {
+    let (mux, client, backend) = cloud_mux();
+    let identity = run(&mux, client, json!({"cmd":"identify"})).unwrap();
+    let advertised = identity["capabilities"].as_array().unwrap();
+    assert!(advertised.iter().any(|v| v == "cloud-conversation-presence-v1"), "{identity}");
+    sign_in(&mux, client);
+    let presence = json!({"id":1,"cmd":"cloud-conversation-presence","conversation":CONV,
+                          "viewing":true});
+    let refused = reply(&mux, client, presence);
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(refused["reason"], "not_subscribed", "{refused}");
+
+    let welcome = || {
+        json!({"t":"welcome","principal":{"user":ME},"streams":[format!("conv:{CONV}")]})
+            .to_string()
+    };
+    let events = mux.subscribe();
+    let wire = backend.wire();
+    wire.push_text(welcome());
+    run(&mux, client, json!({"cmd":"cloud-conversation-subscribe","conversation":CONV})).unwrap();
+    // Another subscriber keeps the socket when `client` unsubscribes.
+    let other = mux.control_clients.register(ClientTransport::Unix, writer());
+    run(&mux, other, json!({"cmd":"cloud-conversation-subscribe","conversation":CONV})).unwrap();
+    let mut seen = Vec::new();
+    wait_until("the socket to go live", || {
+        seen.extend(cloud_events(&events));
+        seen.iter()
+            .any(|event| event["event"] == "cloud-subscription-state" && event["state"] == "live")
+    });
+    let frames = |wire: &crate::cloud_conversations::testing::ScriptedWire| -> Vec<Value> {
+        wire.sent()
+            .iter()
+            .filter_map(|frame| serde_json::from_str::<Value>(frame).ok())
+            .filter(|frame| frame["t"] == "presence.set")
+            .collect()
+    };
+    let frame = |viewing: bool| json!({"t":"presence.set","conversation":CONV,"viewing":viewing});
+    let view = |client: u64, viewing: bool| {
+        let sent = run(
+            &mux,
+            client,
+            json!({"cmd":"cloud-conversation-presence","conversation":CONV,"viewing":viewing}),
+        )
+        .unwrap();
+        assert_eq!(sent["conversation"], CONV, "{sent}");
+    };
+    let first = mux.control_clients.register(ClientTransport::Unix, writer());
+    let second = mux.control_clients.register(ClientTransport::Unix, writer());
+    view(first, true);
+    wait_until("the viewing frame", || !frames(&wire).is_empty());
+    // A second viewer, and the first one leaving, change nothing upstream.
+    view(second, true);
+    view(first, false);
+    // The last viewer's connection closes: the person stops viewing.
+    disconnect_client(&mux, second, false);
+    wait_until("the viewing off", || frames(&wire).len() > 1);
+    view(first, true);
+    wait_until("the viewing again", || frames(&wire).len() > 2);
+    assert_eq!(frames(&wire), vec![frame(true), frame(false), frame(true)]);
+
+    // The socket drops while viewing: the next socket sends it again once live.
+    let next = backend.wire();
+    wire.push_close(None);
+    next.push_text(welcome());
+    wait_until("the viewing frame on the new socket", || !frames(&next).is_empty());
+    // A subscriber views too; the first viewer closes; then the subscriber
+    // unsubscribes (`other` keeps the socket) and the person stops viewing.
+    view(client, true);
+    disconnect_client(&mux, first, false);
+    run(&mux, client, json!({"cmd":"cloud-conversation-unsubscribe","conversation":CONV})).unwrap();
+    wait_until("the viewing off on the new socket", || frames(&next).len() > 1);
+    assert_eq!(frames(&next), vec![frame(true), frame(false)]);
+    mux.cloud_conversations().unwrap().shutdown();
+}
+
+/// The owner's `conversation-presence` set of a subscribed conversation
+/// reaches the daemon socket's subscribers that echoed
+/// `cloud-conversation-presence-v1` as `cloud-conversation-presence
+/// {conversation, participants:[{participant, viewing}]}`. Another
+/// conversation's set and a malformed one do not pass; when the socket ends
+/// the daemon sends an empty set (the owner sends it again only to the next
+/// socket). A subscribe replays the live socket's last set after its reply.
+/// A connection that did not echo the capability hears none.
+#[cfg(unix)]
+#[test]
+fn the_owners_presence_reaches_the_socket_subscribers_that_asked_for_it() {
+    use super::super::client_hello::tests::Client;
+    let (mux, client, backend) = cloud_mux();
+    sign_in(&mux, client);
+    let mut page = Client::connect(&mux, "cloud-presence-page");
+    let echoed = page.request(json!({"cmd":"set-client-info","name":"cmux page: home-channels",
+        "capabilities":["cloud-conversation-presence-v1"]}));
+    assert_eq!(echoed["ok"], true, "{echoed}");
+    assert_eq!(page.request(json!({"cmd":"subscribe"}))["ok"], true);
+    let mut old = Client::connect(&mux, "cloud-presence-old");
+    assert_eq!(old.request(json!({"cmd":"subscribe"}))["ok"], true);
+
+    let wire = backend.wire();
+    wire.push_text(
+        json!({"t":"welcome","principal":{"user":ME},"streams":[format!("conv:{CONV}")]})
+            .to_string(),
+    );
+    run(&mux, client, json!({"cmd":"cloud-conversation-subscribe","conversation":CONV})).unwrap();
+    let live =
+        |event: &Value| event["event"] == "cloud-subscription-state" && event["state"] == "live";
+    assert!(page.event_within(Duration::from_secs(10), live).is_some(), "the socket went live");
+    assert!(old.event_within(Duration::from_secs(10), live).is_some(), "the old one hears it");
+
+    let viewers = json!([{"participant":ME,"viewing":true}]);
+    let set = |conversation: &str, participants: Value| {
+        json!({"t":"conversation-presence","conversation":conversation,
+               "participants":participants})
+        .to_string()
+    };
+    wire.push_text(set("conv_ZZZZZZZZZZZZZZZZZZZZZZZZZZ", viewers.clone()));
+    wire.push_text(set(CONV, json!([{"participant":ME}])));
+    wire.push_text(set(CONV, viewers.clone()));
+    let is_presence = |event: &Value| event["event"] == "cloud-conversation-presence";
+    let expected = |participants: Value| {
+        json!({"event":"cloud-conversation-presence","conversation":CONV,
+               "participants":participants})
+    };
+    let shown = page.event_within(Duration::from_secs(10), is_presence);
+    assert_eq!(shown, Some(expected(viewers.clone())));
+    // The dropped frames were before the one that passed.
+    assert!(page.event_within(Duration::from_millis(300), is_presence).is_none());
+
+    // A subscribe (a page that lost events subscribes again) replays the
+    // current set after its reply, without waiting for a change.
+    let again = mux.control_clients.register(ClientTransport::Unix, writer());
+    let subscribed = reply(
+        &mux,
+        again,
+        json!({"id":7,"cmd":"cloud-conversation-subscribe","conversation":CONV}),
+    );
+    assert_eq!(subscribed["ok"], true, "{subscribed}");
+    let replayed = page.event_within(Duration::from_secs(10), is_presence);
+    assert_eq!(replayed, Some(expected(viewers)));
+
+    // The socket drops: the set it showed empties for the page.
+    let _next = backend.wire();
+    wire.push_close(None);
+    let emptied = page.event_within(Duration::from_secs(10), is_presence);
+    assert_eq!(emptied, Some(expected(json!([]))));
+    assert!(old.event_within(Duration::from_millis(300), is_presence).is_none());
+    mux.cloud_conversations().unwrap().shutdown();
+}
+
 /// One `message.send` event of the conversation stream at `seq`.
 fn message_event(seq: u64) -> String {
     json!({"t":"event","stream":format!("conv:{CONV}"),"seq":seq,"tx":format!("tx-{seq}"),
@@ -920,4 +1075,126 @@ fn a_snapshot_that_never_decodes_is_asked_for_a_bounded_number_of_times_then_the
         vec![("cloud-conversation-resynced".to_string(), 2)],
         "{seen:#?}"
     );
+}
+
+fn inbox_page(conversations: &[&str], next_cursor: Value, revision: &str) -> Value {
+    let entries: Vec<Value> = conversations
+        .iter()
+        .map(|conversation| json!({"conversation": conversation, "last_seq": 1}))
+        .collect();
+    json!({"ok":true,"op":"inbox.list","value":{"entries":entries,"next_cursor":next_cursor},"revision":revision})
+}
+
+fn listed_ids(value: &Value) -> Vec<&str> {
+    value["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|entry| entry["conversation"].as_str())
+        .collect()
+}
+
+/// `cloud-inbox-list` is one page per call, from the client's cursor, and hands
+/// back the owner's `next_cursor`, so a client can read past the newest 200.
+#[test]
+fn inbox_list_reads_one_page_from_the_cursor_and_returns_the_next() {
+    let (mux, client, backend) = cloud_mux();
+    sign_in(&mux, client);
+    backend.reply("/v1/read", 200, inbox_page(&["conv_a"], json!("k1"), "7"));
+    let first = reply(&mux, client, json!({"id":1,"cmd":"cloud-inbox-list"}));
+    assert_eq!(first["data"]["next_cursor"], "k1", "{first}");
+    backend.reply("/v1/read", 200, inbox_page(&["conv_b"], Value::Null, "8"));
+    let second =
+        reply(&mux, client, json!({"id":2,"cmd":"cloud-inbox-list","cursor":"k1","limit":5}));
+    assert_eq!(listed_ids(&second["data"]), ["conv_b"], "{second}");
+    assert_eq!(second["data"]["next_cursor"], Value::Null);
+    let posted = backend.posted();
+    assert_eq!(posted.len(), 2, "one read per call");
+    assert_eq!(posted[0].body["params"], json!({"limit":200}));
+    assert_eq!(posted[1].body["params"], json!({"limit":5,"cursor":"k1"}));
+}
+
+/// `home-inbox`'s Cloud rows: every page, an entry a later page lists again
+/// once (first copy), the first page's revision.
+#[test]
+fn inbox_list_all_reads_every_page_once() {
+    let (mux, client, backend) = cloud_mux();
+    sign_in(&mux, client);
+    backend.reply("/v1/read", 200, inbox_page(&["conv_a", "conv_b"], json!("k1"), "7"));
+    backend.reply("/v1/read", 200, inbox_page(&["conv_b", "conv_c"], json!("k2"), "8"));
+    backend.reply("/v1/read", 200, inbox_page(&["conv_d"], Value::Null, "9"));
+    let all = super::lease_user(&mux, client)
+        .unwrap()
+        .inbox_list_all(false, Duration::from_secs(60))
+        .unwrap();
+    assert_eq!(listed_ids(&all), ["conv_a", "conv_b", "conv_c", "conv_d"]);
+    assert_eq!(all["revision"], "7");
+    assert_eq!(all["next_cursor"], Value::Null);
+    let cursors: Vec<Value> =
+        backend.posted().iter().map(|post| post.body["params"]["cursor"].clone()).collect();
+    assert_eq!(cursors, [Value::Null, json!("k1"), json!("k2")]);
+}
+
+/// A cursor the owner hands back unchanged ends the read instead of looping;
+/// any page that fails fails the read (the app then keeps its last rows).
+#[test]
+fn inbox_list_all_stops_on_a_stuck_cursor_and_fails_on_a_later_failure() {
+    let (mux, client, backend) = cloud_mux();
+    sign_in(&mux, client);
+    let service = super::lease_user(&mux, client).unwrap();
+    backend.reply("/v1/read", 200, inbox_page(&["conv_a"], json!("k1"), "7"));
+    backend.reply("/v1/read", 200, inbox_page(&["conv_b"], json!("k1"), "7"));
+    let stuck = service.inbox_list_all(false, Duration::from_secs(60)).unwrap();
+    assert_eq!(listed_ids(&stuck), ["conv_a", "conv_b"]);
+    assert_eq!(backend.posted().len(), 2);
+
+    backend.reply("/v1/read", 200, inbox_page(&["conv_c"], json!("k9"), "8"));
+    backend.fail("/v1/read", "connection reset");
+    assert!(service.inbox_list_all(false, Duration::from_secs(60)).is_err());
+
+    // The first page's failure is the read's.
+    backend.fail("/v1/read", "connection reset");
+    assert!(service.inbox_list_all(false, Duration::from_secs(60)).is_err());
+}
+
+/// Past the budget, no further page is read.
+#[test]
+fn inbox_list_all_stops_at_its_budget() {
+    let (mux, client, backend) = cloud_mux();
+    sign_in(&mux, client);
+    backend.reply("/v1/read", 200, inbox_page(&["conv_a"], json!("k1"), "7"));
+    let read =
+        super::lease_user(&mux, client).unwrap().inbox_list_all(false, Duration::ZERO).unwrap();
+    assert_eq!(listed_ids(&read), ["conv_a"]);
+    assert_eq!(read["next_cursor"], "k1");
+    assert_eq!(backend.posted().len(), 1);
+}
+
+/// A page the owner refuses mid-read (a rate limit) leaves the Cloud rows
+/// `unavailable`, never `signed_out`: the app keeps its last rows instead of
+/// showing the person signed out.
+#[test]
+fn a_refused_inbox_page_leaves_the_cloud_rows_unavailable() {
+    let (mux, client, backend) = cloud_mux();
+    sign_in(&mux, client);
+    backend.reply("/v1/read", 200, inbox_page(&["conv_a"], json!("k1"), "7"));
+    backend.reply(
+        "/v1/read",
+        429,
+        json!({"error":{"code":"rate_limited","message":"slow down","retryable":true}}),
+    );
+    let error = super::lease_user(&mux, client)
+        .unwrap()
+        .inbox_list_all(false, Duration::from_secs(60))
+        .map_err(anyhow::Error::from)
+        .unwrap_err();
+    assert_eq!(conversations::cloud_rows_failure(&error), "unavailable", "{error}");
+    for (signed_out, state) in [
+        (CloudError::SignedOut, "signed_out"),
+        (CloudError::SessionExpired, "signed_out"),
+        (CloudError::Unauthenticated, "signed_out"),
+        (CloudError::Unavailable("reset".into()), "unavailable"),
+    ] {
+        assert_eq!(conversations::cloud_rows_failure(&signed_out.into()), state);
+    }
 }

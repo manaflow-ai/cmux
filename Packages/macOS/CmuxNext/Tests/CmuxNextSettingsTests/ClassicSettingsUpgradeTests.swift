@@ -23,6 +23,8 @@ import Testing
       },
       "notifications": {
         "paneFlashColor": "#778899",
+        "paneFlash": false,
+        "paneFlashOnTyping": false,
         "unreadPaneRing": true,
         "suppressWhenAppFocused": true
       },
@@ -48,6 +50,8 @@ import Testing
         (["layout", "paneBorderColor"], .string("#112233")),
         (["focusRing", "color"], .string("#445566")),
         (["notifications", "attention", "color"], .string("#778899")),
+        (["notifications", "attention", "flash"], .bool(false)),
+        (["notifications", "attention", "flashOnTyping"], .bool(false)),
         (["workspaces", "newPlacement"], .string("bottom")),
         (["layout", "splitSizing"], .string("even")),
         (["window", "titlebar"], .string("standard")),

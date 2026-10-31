@@ -1,10 +1,12 @@
 // l10n-allow-file: gallery fixtures (sample prompts, replies and render HTML), not shipped UI.
 // The chat's gallery (GalleryDialog.tsx): the summary's Outputs section offers it once the chat has
 // images or renders; it opens over the pane as a grid, filtered by kind, and an image opens the
-// image viewer.
+// image viewer. In the gallery's widths the pane has no room for the summary's inline column
+// (summary/cardState.ts, #21564), so the summary is the popover the header's Summary button opens;
+// a pane wide enough shows the column on its own.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
-import { activity, assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
+import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import { latencyChart, pricingCard, renderTool } from "../../../gallery/fixtures/renders";
 import { sampleChart, sampleDiagram, sampleGradient } from "../mockFixture";
 
@@ -38,8 +40,34 @@ const media = () =>
     { title: "Make sample images for the docs" },
   );
 
-const openGallery = async (ctx: PlayContext) => {
+const toolOutputs = () =>
+  chat(
+    [
+      user("Capture the chart and show the request flow", 3),
+      activity(
+        [
+          tool("Capture chart", "read", "completed", {
+            images: [`data:image/svg+xml;base64,${btoa(sampleChart())}`],
+          }),
+        ],
+        2,
+      ),
+      assistant(`Captured the chart. Here is the request flow.\n\n${image("Request flow", sampleDiagram())}`, 1),
+      summary(1, { status: "completed", toolCount: 1 }),
+    ],
+    { title: "Capture the chart and show the request flow" },
+  );
+
+/** Shows the summary from the header's Summary button unless it shows already (a pane wide enough
+ * for its inline column shows it on its own), and waits for Outputs' gallery row. */
+const showOutputs = async (ctx: PlayContext) => {
+  if (ctx.find({ selector: ".acpmux-summary-button" }).getAttribute("aria-pressed") !== "true")
+    await ctx.click({ selector: ".acpmux-summary-button" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-summary-gallery"));
+};
+
+const openGallery = async (ctx: PlayContext) => {
+  await showOutputs(ctx);
   await ctx.click({ selector: ".acpmux-summary-gallery" });
 };
 
@@ -60,12 +88,25 @@ export default agentPaneEntry({
     },
   },
   variants: {
-    outputs: {
-      note: "The wide pane keeps the summary inline; Outputs offers the gallery with its five items.",
-      snapshot: media(),
+    "tool-outputs": {
+      note: "A completed tool screenshot and a reply image both appear in Gallery.",
+      snapshot: toolOutputs(),
+      play: openGallery,
+    },
+    "tool-image": {
+      note: "A tool screenshot opens the existing image viewer and closes Gallery.",
+      snapshot: toolOutputs(),
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-summary-gallery"));
+        await openGallery(ctx);
+        await ctx.click({ selector: '[data-gallery-kind="tool"] [data-open-image]' });
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-chat-gallery"));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-image-viewer"));
       },
+    },
+    outputs: {
+      note: "Play: show the summary; Outputs offers the gallery with its five items.",
+      snapshot: media(),
+      play: showOutputs,
     },
     open: {
       note: "Play: open the gallery from Outputs; three images, then two render cards waiting to run.",

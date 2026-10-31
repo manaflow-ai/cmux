@@ -16,8 +16,14 @@ extension SidebarListViewComponents {
         switch press.key {
         case let .workspace(id):
             guard !model.isPlaceholder(id) else { return }
-            let ids = model.selection.contains(id) ? model.orderedSelection : [id]
-            if !model.selection.contains(id) { model.click(id) }
+            let ids = model.selection.contains(id) && press.switchedOnPress == nil ? model.orderedSelection : [id]
+            // A plain press's drag moves the row and leaves the shown workspace (and the selection) as it was
+            // before the press: a press that switched on mouse-down switches back.
+            if let before = press.switchedOnPress {
+                if let shown = before.shown, shown != model.activeWorkspaceID { model.click(shown) }
+                model.selection = before.selection
+                if !patchSelection(from: .workspace(id), oldSelection: [id]) { reload(animated: false) }
+            } else if !model.selection.contains(id), press.clickOnRelease != id { model.click(id) }
             payload = .workspaces(ids)
             hidden = Set(ids.map(SidebarRowKey.workspace))
             origin = ids.first.flatMap { SidebarEdits.position(of: $0, in: model.sections) }.map(DropTarget.position)
@@ -27,6 +33,11 @@ extension SidebarListViewComponents {
             hidden = [.group(group)]
             for ws in groups[group]?.workspaces ?? [] { hidden.insert(.workspace(ws.id)) }
             for member in groups[group]?.items ?? [] { hidden.insert(.item(member.item.id)) }
+            // Its subgroups and their rows lift with it (nested groups): every row under the header deeper than it.
+            if let start = displayed.rows.firstIndex(where: { $0.key == press.key }) {
+                let depth = displayed.rows[start].depth
+                for row in displayed.rows[(start + 1)...].prefix(while: { $0.depth > depth }) { hidden.insert(row.key) }
+            }
             origin = .position(DropPosition(section: model.sections[s].id, index: n))
         case let .item(item):
             // A listed document item drags only on the document.
@@ -34,7 +45,7 @@ extension SidebarListViewComponents {
             payload = .item(item)
             hidden = [press.key]
             origin = .position(DropPosition(section: row.section, group: row.group, index: row.siblingIndex)) // a group's member item: inside it
-        case .tab, .section, .emptySection, .folder, .block:
+        case .tab, .section, .emptySection, .emptyGroup, .folder, .block, .doneFold, .showMore, .status:
             return
         }
         hidden.formUnion(Self.tabKeys(of: hidden, in: model))
@@ -56,18 +67,19 @@ extension SidebarListViewComponents {
         drag.grabOffsetX = press.point.x - rowFrame.minX
         drag.lastY = press.point.y
         drag.restFrame = rowFrame
-        if rows.first?.group != nil { // the gutter comes back only for a drop into a group (morphLift)
-            drag.restFrame.origin.x -= SidebarStyle.groupGutter
-            drag.restFrame.size.width += SidebarStyle.groupGutter
-        }
+        // A grouped row lifts at the list's inset; its indent comes back only for a drop into a group (morphLift).
+        let stepIn = max(0, rowFrame.minX - inset)
+        drag.restFrame.origin.x -= stepIn
+        drag.restFrame.size.width += stepIn
         drag.morphs = rows.count == 1
-        if case .group = payload { drag.groupHeadHeight = rows.first?.height }
         self.drag = drag
         // The document's acceptance table: the drag's one reducer call before its drop.
         if let doc = model.docDrag, let items = doc.items(payload) {
             drag.docItems = items
             drag.docAcceptance = doc.begin(items)
         }
+        // A group drag freezes its base and cuts its card here (`SidebarListView+GroupDrag`).
+        if case .group = payload { beginGroupDrag(drag, lifted: rows, card: rowFrame) }
         suppressed.formUnion(hidden)
         setHovered(nil)
         for key in hidden { rowViews[key]?.alphaValue = 0 }
@@ -78,8 +90,7 @@ extension SidebarListViewComponents {
         guard let drag else { return }
         let started = CACurrentMediaTime()
         defer { lastDragWorkMs = (CACurrentMediaTime() - started) * 1000 }
-        if SidebarListPinDrop.holds(self, drag, at: windowPoint) { return }
-        if offerHandoff(drag, windowPoint: windowPoint) { return }
+        if SidebarListPinDrop.holds(self, drag, at: windowPoint) || offerHandoff(drag, windowPoint: windowPoint) || holdsDragOut(drag, windowPoint: windowPoint) { return }
         drag.lastWindowPoint = windowPoint
         let point = convert(windowPoint, from: nil)
         // The lifted row follows the pointer vertically; x stays locked. A tile has neighbours beside it: it follows both ways.
@@ -94,6 +105,7 @@ extension SidebarListViewComponents {
             drag.movingUp = point.y < drag.lastY
             drag.lastY = point.y
         }
+        if drag.group != nil { return updateGroupDrag(drag) }
         if drag.docItems != nil { return updateDocDrag(drag, point: point) }
         let sections = listSections // the held rows as shown (`SidebarRowHold`)
         let base = SidebarLayout.make(sections: sections, metrics: metrics, options: options(includeGap: false))
@@ -104,10 +116,13 @@ extension SidebarListViewComponents {
         drag.lift.setRefused(target == nil)
         showDragLayout()
     }
-    func finishDrag() {
+    func finishDrag(at windowPoint: NSPoint? = nil) {
         guard let drag else { return }
         autoscroll.stop()
         if SidebarListPinDrop.finish(self, drag) { return }
+        if let windowPoint, finishDragOut(drag, at: windowPoint) { return } // the release decides; none: a programmatic end
+        // A group dropped where it came from, or where nothing takes it, moves nothing: it goes back as for a cancel.
+        if let group = drag.group, group.slot == group.plan.origin || group.drops[group.slot] == nil { return cancelDrag() }
         if let items = drag.docItems, let doc = model.docDrag {
             guard let target = drag.docTarget else { return cancelDrag() }
             // The list keeps the drop's look until the move lands; the card settles into the slot it shows.
@@ -160,27 +175,26 @@ extension SidebarListViewComponents {
             drag.blockBases = blockBases()
             let base = SidebarLayout.make(sections: listSections, metrics: metrics, options: options(includeGap: false))
             drag.docGeometry = doc.geometry(base, width: bounds.width, acceptance: drag.docAcceptance, blocks: drag.blockBases)
-            if drag.groupHeadHeight != nil { drag.groupBlocks = SidebarGroupReorder.blocks(of: base.rows) }
+            // The outliner rule: at a nested block's bottom edge the pointer's x picks the level (`SidebarIndent`).
+            drag.docGeometry?.0.outline = (indent, inset, indentWidth)
         }
         guard let (geometry, rows) = drag.docGeometry else { return }
         // The rest shape's centre under the pointer: it does not move when the card morphs (no hit oscillation at a block edge).
-        // A dragged group is a tall card (its header and every member row): its header decides, where the pointer
-        // holds it, not the card's centre many rows away.
         let displayY = drag.morphs || drag.tileSource != nil ? point.y - drag.grabOffsetY * drag.restFrame.height / max(1, drag.lift.frame.height)
-            + drag.restFrame.height / 2 : drag.groupHeadHeight.map { drag.lift.frame.minY + $0 / 2 } ?? drag.probeCard.midY
+            + drag.restFrame.height / 2 : drag.probeCard.midY
         var y = drag.blockTarget != nil ? baseY(displayY: displayY, blockGap: drag.blockTarget, bases: drag.blockBases)
             : SidebarDragGeometry.baseY(displayY: displayY, gapY: displayed.gapY, gapHeight: displayed.gapShift)
-        // A dragged group moves by its edges (u2455): its bottom past the middle of the block below moves it down,
-        // its top past the middle of the block above moves it up (`SidebarGroupReorder`), for tall and short groups.
-        if drag.groupHeadHeight != nil, drag.blockTarget == nil, let gapY = displayed.gapY, !drag.groupBlocks.isEmpty {
-            var reorder = SidebarGroupReorder(blocks: drag.groupBlocks, shift: displayed.gapShift)
-            let current = reorder.index(ofGapAt: gapY)
-            // The blocks below the gap as drawn: the gap plus the spacing between groups (6 pt more than `gapShift`).
-            let shown = SidebarGroupReorder.blocks(of: displayed.rows.filter { !drag.hiddenKeys.contains($0.key) })
-            if current < min(shown.count, drag.groupBlocks.count) { reorder.shift = shown[current].lowerBound - drag.groupBlocks[current].lowerBound }
-            let card = drag.lift.frame
-            let index = reorder.index(top: card.minY, bottom: card.maxY, current: current)
-            if let probe = reorder.probeY(for: index) { y = probe }
+        if drag.blockTarget == nil {
+            // A row moves by its edges too (Lawrence 2026-10-20): its top past the middle of the row above moves it up,
+            // its bottom past the middle of the row below moves it down (`SidebarDragGeometry.edgeY`). The rest shape's
+            // edges, as for the centre above, so a morph does not move them. A block's tiles keep the centre.
+            let morphs = drag.morphs || drag.tileSource != nil
+            let height = morphs ? drag.restFrame.height : drag.lift.frame.height
+            let top = morphs ? displayY - height / 2 : drag.lift.frame.minY
+            let reversing = drag.docTargetChangedUp.map { $0 != drag.movingUp } ?? false
+            guard let edge = geometry.edgeY(top: top, bottom: top + height, x: point.x, movingUp: drag.movingUp, gapY: displayed.gapY,
+                                            gapHeight: displayed.gapShift, current: drag.docTarget, reversing: reversing) else { return }
+            if let hit = geometry.hit(CGPoint(x: point.x, y: edge)), rows[hit.slot.key] != nil { y = edge }
         }
         guard let hit = geometry.hit(CGPoint(x: point.x, y: y)) else {
             // Nowhere to drop: no gap shows.
@@ -218,7 +232,7 @@ extension SidebarListViewComponents {
 
     /// Shapes the card as the drop will look (DESIGN "Drag feel" 2): the
     /// block slot it opens (a tile, a chip, an item row), else its list row,
-    /// indented under a group's line when it goes into a group. The pointer
+    /// at a nested group's step-in when it goes into one. The pointer
     /// keeps the same relative grab point on the card.
     func morphLift(_ drag: Drag, point: NSPoint) {
         guard drag.morphs || drag.tileSource != nil else { return }
@@ -228,11 +242,14 @@ extension SidebarListViewComponents {
             shape = slot
             rest = false
         } else if drag.tileSource != nil || drag.restShaped == false {
-            shape = NSRect(x: inset, y: 0, width: max(0, bounds.width - inset * 2), height: metrics.rowHeight)
+            shape = NSRect(x: inset, y: 0, width: indentWidth, height: metrics.rowHeight)
         }
-        if rest, case let .position(position)? = drag.target, position.group != nil {
-            shape.origin.x = inset + SidebarStyle.groupGutter
-            shape.size.width = max(0, bounds.width - inset * 2 - SidebarStyle.groupGutter)
+        if rest, case let .position(position)? = drag.target, let group = position.group,
+           let header = displayed.row(for: .group(group)) {
+            // Into a group: where its members sit, by the one indent rule (`SidebarIndent`).
+            let stepIn = indent.offset(level: header.depth + 1, width: indentWidth)
+            shape.origin.x = inset + stepIn
+            shape.size.width = max(0, shape.size.width - stepIn)
         }
         let old = drag.lift.frame
         guard shape.size != old.size || (rest && shape.minX != old.minX) else { return }
@@ -253,16 +270,20 @@ extension SidebarListViewComponents {
         if let source = drag.tileSource { drag.tileRegion?.docSpentPress = source.item } // the tile's press drags nothing more
         suppressed = drag.hiddenKeys
         reload(animated: true, adopt: true) // the gap closes and the source slot opens on the drag's spring
-        land(drag)
+        land(drag) { [weak region = drag.tileSource == nil ? nil : drag.tileRegion] in region?.endDocPress() } // a list press eats the tile's release
     }
     /// Flies the lifted view to its row's current frame (or `slot`, the
     /// band slot of a pin drop), then swaps it out and runs `then`.
     func land(_ drag: Drag, at slot: NSRect? = nil, then: (@MainActor () -> Void)? = nil) {
-        let tile = drag.tileSource.flatMap { source in drag.tileRegion?.itemView(source.item).map { convert($0.bounds, from: $0) } }
+        let tile = drag.tileSource.flatMap { source in drag.tileRegion?.itemView(source.item).map { convert($0.bounds, from: $0).clippedX(to: bounds) } } // as `dragTile` cut it
         // The dragged rows where the layout just applied puts them (their views' model frames), not the
         // `displayed` geometry: on the document path that can lag the views a held drag moved (ptr5: 36 pt pops).
-        let destination = slot ?? tile ?? settledFrame(drag.hiddenKeys.compactMap { rowViews[$0] })
-            ?? SidebarListLift.blockFrame(self, SidebarListLift.rows(self, for: drag.grabbedKey, hidden: drag.hiddenKeys)) ?? drag.lift.frame
+        // A group's card also covers its members' line, as it did when it lifted (SidebarListLift.blockFrame).
+        let lifted = SidebarListLift.rows(self, for: drag.grabbedKey, hidden: drag.hiddenKeys)
+        let settled = settledFrame(drag.hiddenKeys.compactMap { rowViews[$0] }).map { rows in
+            SidebarListLift.withLines(self, lifted, rows) { row in self.rowViews[row.key].map { self.convert($0.bounds, from: $0) } ?? self.frame(for: row) }
+        }
+        let destination = slot ?? tile ?? settled ?? SidebarListLift.blockFrame(self, lifted) ?? drag.lift.frame
         landing = drag
         drag.landingThen = then
         SidebarReorderLift.land(drag.lift, at: destination) { [weak self] in
@@ -386,7 +407,9 @@ extension SidebarListViewComponents {
         if !rows.isEmpty {
             let frames = rows.map { frame(for: $0) }
             let views = rows.compactMap { rowViews[$0.key] }.filter { !($0 is SidebarBlockRowView) }
-            return (views, Set(rows.map(\.key).filter { rowViews[$0] != nil }), frames.dropFirst().reduce(frames[0]) { $0.union($1) })
+            // A group's block covers its members' line, as its lifted card does (SidebarListLift.blockFrame).
+            let block = SidebarListLift.withLines(self, rows, frames.dropFirst().reduce(frames[0]) { $0.union($1) })
+            return (views, Set(rows.map(\.key).filter { rowViews[$0] != nil }), block)
         }
         var views: [NSView] = []
         for id in drag.docItems ?? [] {
@@ -402,7 +425,7 @@ extension SidebarListViewComponents {
     func settledFrame(_ views: [NSView]) -> NSRect? {
         let frames = views.filter { $0.isDescendant(of: self) }.map { convert($0.bounds, from: $0) }
         guard let first = frames.first else { return nil }
-        return frames.dropFirst().reduce(first) { $0.union($1) }
+        return frames.dropFirst().reduce(first) { $0.union($1) }.clippedX(to: bounds) // a band row runs past the edge by its trim
     }
 
     // MARK: - The drag's look (DESIGN "Drag feel" 3)
@@ -458,18 +481,30 @@ extension SidebarListViewComponents {
         for (key, view) in rowViews where layout.row(for: key) == nil && !suppressed.contains(key) {
             SidebarDragSpring.fade(view, to: 0)
         }
-        // A tile dropped among rows opens the list's slot underlay with the rows.
-        let gapFrame = layout.gapHeight > 0 ? layout.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: layout.gapHeight) } : nil
+        // A tile dropped among rows opens the list's slot underlay with the rows. The gap is the drop's one mark
+        // (no line over the rows, Lawrence 2026-10-23): it starts at the x its rows take in the group it joins.
+        let stepIn = dropStepIn(layout)
+        let gapFrame = layout.gapHeight > 0 ? layout.gapY.map {
+            NSRect(x: inset + stepIn, y: $0, width: max(0, indentWidth - stepIn), height: layout.gapHeight)
+        } : nil
         decorations.frame = bounds
         decorations.setGap(gapFrame, animated: true)
         let lines = groupLineViews.update(groupLines(layout), from: groupLines(layout, current: true), in: self, above: decorations, animated: true)
+        SidebarDragSpring.move(lines.springs, in: self)
         Motion.sidebar.animate(.move, in: self, { lines.changes() }, completion: { [leaving = lines.leaving] in leaving.forEach { $0.removeFromSuperview() } })
+    }
+
+    /// How far in the held drag's gap starts: the x of the rows of the group its drop joins (`SidebarIndent`).
+    func dropStepIn(_ layout: SidebarLayout) -> CGFloat {
+        guard case let .position(position)? = shownDrag?.target, let group = position.group,
+              let header = layout.row(for: .group(group)) else { return 0 }
+        return indent.offset(level: header.depth + 1, width: indentWidth)
     }
 
     /// An adopting apply's motion: kept rows spring from where they are,
     /// new ones fade in at their slots, leaving ones fade where they are.
     func adoptRows(targets: [(SidebarRowView, NSRect)], leaving: [(SidebarRowView, NSRect)],
-                   lines: (changes: () -> Void, leaving: [NSView])) {
+                   lines: SidebarGroupLineViews.LineMotion) {
         for (view, target) in targets {
             SidebarDragSpring.move(view, to: target)
             SidebarDragSpring.fade(view, to: 1)
@@ -478,13 +513,13 @@ extension SidebarListViewComponents {
         guard !leaving.isEmpty else { return }
         // The motion probe keeps sampling a fading row until it is gone (a fade is not a pop).
         for (view, _) in leaving { fadingRows[ObjectIdentifier(view)] = view }
+        let generations = leaving.map(\.0.reuseGeneration)
         Motion.feedback.animate(.hover, in: self, {
             for (view, _) in leaving { view.animator().alphaValue = 0 }
-        }, completion: { [weak self, leaving] in
+        }, completion: { [weak self, leaving, generations] in
             guard let self else { return }
-            for (view, _) in leaving {
-                self.fadingRows[ObjectIdentifier(view)] = nil
-                if !self.rowViews.values.contains(where: { $0 === view }) { self.recycle(view) }
+            for ((view, _), generation) in zip(leaving, generations) {
+                self.finishLeaving(view, generation: generation)
             }
         })
     }

@@ -12,13 +12,14 @@ impl Surface {
     /// v4 host also never starts its child before activation. The host starts
     /// with Kitty graphics disabled; its share of the image budget is applied
     /// once the surface commits. `standby` is a host process started ahead
-    /// (R81, the pool's spare); `None` starts one now.
+    /// (R81, the pool's spare); `None` starts one now. The host's first
+    /// record names `workspace_key` (its recovery mirror; empty for none).
     pub(crate) fn prelaunch_hosted(
         id: SurfaceId,
         opts: SurfaceOptions,
         mux: Weak<Mux>,
         terminal_id: crate::terminal_host::TerminalId,
-        cell_pixels: (u16, u16),
+        (cell_pixels, workspace_key): ((u16, u16), &str),
         standby: Option<crate::terminal_host_runtime::StandbyTerminalHost>,
     ) -> anyhow::Result<PrelaunchedHost> {
         let root = opts
@@ -41,6 +42,7 @@ impl Surface {
             initial_kitty_limits,
             terminal_id,
             standby,
+            workspace_key,
         )?;
         Ok(PrelaunchedHost {
             id,
@@ -85,7 +87,7 @@ impl Surface {
             (default_colors, cell_pixels, initial_kitty_limits),
             terminal_id,
             None,
-            seed,
+            (seed, ""),
         )?;
         Self::spawn_hosted(
             id,

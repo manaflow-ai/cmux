@@ -61,6 +61,12 @@ const CHANGE_RIGHTS: u32 =
 /// `FILE_DELETE_CHILD` matters on directories in addition to the file
 /// mutation rights above.
 const DIRECTORY_CHANGE_RIGHTS: u32 = CHANGE_RIGHTS | 0x40;
+/// Rights that let another identity replace an existing namespace component.
+/// Adding a sibling is harmless once every missing component is opened and
+/// authenticated after creation. `FILE_WRITE_DATA` (`FILE_ADD_FILE` for a
+/// directory) is included because `FSCTL_SET_REPARSE_POINT` requires it.
+const ANCESTOR_REPLACE_RIGHTS: u32 =
+    0x2 | 0x40 | 0x1_0000 | 0x4_0000 | 0x8_0000 | 0x4000_0000 | 0x1000_0000;
 const READ_CONTROL_ACCESS: u32 = 0x0002_0000;
 const WRITE_DAC_ACCESS: u32 = 0x0004_0000;
 const WRITE_SECURITY_ACCESS: u32 = READ_CONTROL_ACCESS | WRITE_DAC_ACCESS;
@@ -265,21 +271,41 @@ fn open_directory(path: &Path) -> io::Result<File> {
 /// owner-only (mode 0700 on create on Unix). An existing folder is left as
 /// it is.
 pub(crate) fn create_dir_all(dir: &Path) -> io::Result<()> {
-    if dir.is_dir() {
-        return Ok(());
+    crate::config::refuse_lost_home(dir).map_err(io::Error::other)?;
+    create_missing_directories(&missing_directories(dir))
+}
+
+fn missing_directories(dir: &Path) -> Vec<std::path::PathBuf> {
+    let mut missing = Vec::new();
+    let mut current = dir;
+    while !current.is_dir() {
+        missing.push(current.to_path_buf());
+        let Some(parent) =
+            current.parent().filter(|parent| !parent.as_os_str().is_empty() && *parent != current)
+        else {
+            break;
+        };
+        current = parent;
     }
-    if let Some(parent) = dir.parent().filter(|p| !p.as_os_str().is_empty()) {
-        create_dir_all(parent)?;
-    }
+    missing
+}
+
+fn create_missing_directories(missing: &[std::path::PathBuf]) -> io::Result<()> {
     let sd = descriptor(&user_sid()?, true)?;
     let attrs = attributes(&sd);
-    let name = wide(dir);
-    // SAFETY: a NUL-terminated name and valid attributes.
-    if unsafe { CreateDirectoryW(name.as_ptr(), &attrs) } == 0 {
-        let e = io::Error::last_os_error();
-        if e.kind() != io::ErrorKind::AlreadyExists {
-            return Err(e);
+    for dir in missing.iter().rev() {
+        let name = wide(dir);
+        // SAFETY: a NUL-terminated name and valid attributes.
+        if unsafe { CreateDirectoryW(name.as_ptr(), &attrs) } == 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::AlreadyExists {
+                return Err(error);
+            }
         }
+        // A concurrent creator may have won after the existence check. Never
+        // accept its wide directory or reparse point as a trusted parent.
+        let opened = open_directory(dir)?;
+        ensure_opened_private_directory(dir, &opened)?;
     }
     Ok(())
 }
@@ -287,24 +313,18 @@ pub(crate) fn create_dir_all(dir: &Path) -> io::Result<()> {
 /// Makes `dir` owner-only, or checks an existing one: a wider folder is
 /// refused (mode 0700 and the uid check on Unix).
 pub(crate) fn private_dir(dir: &Path) -> io::Result<()> {
+    // Capture every absent component before validating the existing chain.
+    // A component planted during validation still gets CreateDirectoryW's
+    // AlreadyExists path and the full object check below.
+    let missing = missing_directories(dir);
     ensure_safe_parent(dir)?;
-    create_dir_all(dir)?;
+    create_missing_directories(&missing)?;
     let opened = open_directory(dir)?;
     finish_private_dir(dir, &opened)
 }
 
 fn finish_private_dir(dir: &Path, opened: &File) -> io::Result<()> {
-    use std::os::windows::fs::MetadataExt;
-    let attributes = opened.metadata()?.file_attributes();
-    if attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 || attributes & FILE_ATTRIBUTE_DIRECTORY == 0
-    {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("{} is not a private directory", dir.display()),
-        ));
-    }
-    ensure_opened_owner(opened)?;
-    ensure_no_other_changer(opened, true)?;
+    ensure_opened_private_directory(dir, opened)?;
     // Normalize even an owner-only but read-only legacy DACL: state
     // directories must let this user create, replace and delete children.
     restrict_opened(opened, true)?;
@@ -321,6 +341,21 @@ fn finish_private_dir(dir: &Path, opened: &File) -> io::Result<()> {
     Ok(())
 }
 
+fn ensure_opened_private_directory(dir: &Path, opened: &File) -> io::Result<()> {
+    use std::os::windows::fs::MetadataExt;
+
+    let attributes = opened.metadata()?.file_attributes();
+    if attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 || attributes & FILE_ATTRIBUTE_DIRECTORY == 0
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{} is not a private directory", dir.display()),
+        ));
+    }
+    ensure_opened_owner(opened)?;
+    ensure_no_other_changer(opened, true)
+}
+
 fn ensure_safe_parent(path: &Path) -> io::Result<()> {
     let mut saw_existing = false;
     for candidate in path.ancestors().skip(1) {
@@ -328,7 +363,7 @@ fn ensure_safe_parent(path: &Path) -> io::Result<()> {
             Ok(opened) => {
                 saw_existing = true;
                 ensure_opened_owner(&opened)?;
-                ensure_no_other_changer(&opened, true)?;
+                ensure_no_other_replacer(&opened)?;
             }
             Err(error) if !saw_existing && error.kind() == io::ErrorKind::NotFound => {}
             Err(error) => return Err(error),
@@ -442,6 +477,16 @@ fn ensure_no_other_changer(opened: &File, directory: bool) -> io::Result<()> {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             format!("state object is writable by another identity ({sid})"),
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_no_other_replacer(opened: &File) -> io::Result<()> {
+    if let Some(sid) = wider_opened(opened, ANCESTOR_REPLACE_RIGHTS)? {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("state path can be replaced by another identity ({sid})"),
         ));
     }
     Ok(())
@@ -588,6 +633,24 @@ mod tests {
         assert!(output.status.success(), "icacls: {}", String::from_utf8_lossy(&output.stderr));
     }
 
+    fn grant_everyone_add_subdirectory(path: &Path) {
+        let output = std::process::Command::new("icacls")
+            .arg(path)
+            .args(["/grant", "*S-1-1-0:(AD)"])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "icacls: {}", String::from_utf8_lossy(&output.stderr));
+    }
+
+    fn grant_everyone_add_file(path: &Path) {
+        let output = std::process::Command::new("icacls")
+            .arg(path)
+            .args(["/grant", "*S-1-1-0:(WD)"])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "icacls: {}", String::from_utf8_lossy(&output.stderr));
+    }
+
     #[test]
     fn private_dir_refuses_an_existing_directory_another_sid_can_change() {
         let root = std::env::temp_dir().join(format!(
@@ -600,6 +663,38 @@ mod tests {
         grant_everyone(&checked);
         private_dir(&checked).expect_err("a directory writable by Everyone was trusted");
         assert!(!only_owner_reads(&checked).unwrap(), "the unsafe DACL was silently erased");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn private_dir_allows_an_ancestor_that_can_only_add_a_sibling() {
+        let root = std::env::temp_dir().join(format!(
+            "acpmux-owner-add-only-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
+        let checked = root.join("checked");
+        private_dir(&root).unwrap();
+        private_dir(&checked).unwrap();
+        grant_everyone_add_subdirectory(&root);
+
+        private_dir(&checked).expect("add-subdirectory alone could replace an existing child");
+        assert!(only_owner_reads(&checked).unwrap());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn private_dir_refuses_an_ancestor_that_can_be_made_a_reparse_point() {
+        let root = std::env::temp_dir().join(format!(
+            "acpmux-owner-add-file-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
+        private_dir(&root).unwrap();
+        grant_everyone_add_file(&root);
+
+        private_dir(&root.join("checked"))
+            .expect_err("FILE_WRITE_DATA can turn the ancestor into a reparse point");
         let _ = std::fs::remove_dir_all(&root);
     }
 

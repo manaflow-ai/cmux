@@ -10,6 +10,7 @@ mod dev_orphan_exit;
 pub(crate) fn run_headless<F>(
     mux: &Arc<Mux>,
     socket_path: &Path,
+    exit_with: Option<local_owner::ExitWith>,
     remote_runtime_finished: F,
 ) -> anyhow::Result<()>
 where
@@ -20,6 +21,8 @@ where
         "{BIN}: headless, control socket at {}",
         socket_path.display()
     );
+    #[cfg(target_vendor = "apple")]
+    fatal_faults_end_the_owner();
     // The daemon is ready: apps with an `always` server start off this path.
     #[cfg(unix)]
     cmux_tui_core::server::start_apps_when_ready(mux);
@@ -33,37 +36,60 @@ where
     // re-check these flags.
     mux.set_daemon_shutdown_waker(wake_headless);
     #[cfg(unix)]
-    {
+    let signal_wait = {
         // Peek, not read: other shutdown waiters (remote runtime, browser
         // proxy) consume the same wake byte. Record the session shutdown
         // start here, before the loop wakes and teardown begins, so a
         // shell that dies of the same logout signal is a host loss
         // (`session-shutdown`).
         let signalled = Arc::downgrade(mux);
-        let _ = std::thread::Builder::new().name("headless-signal-wait".into()).spawn(move || {
-            wait_for_shutdown_signal_peek();
-            if shutdown_requested()
-                && let Some(mux) = signalled.upgrade()
-            {
-                mux.begin_session_shutdown();
-                // Name who stopped this owner (cx-0tgl LA).
-                if let Some((signal, sender, uid)) = signal_sender::shutdown_signal() {
-                    mux.record_daemon_signal(signal, sender, uid);
+        std::thread::Builder::new()
+            .name("headless-signal-wait".into())
+            .spawn(move || {
+                wait_for_shutdown_signal_peek();
+                if shutdown_requested()
+                    && let Some(mux) = signalled.upgrade()
+                {
+                    mux.begin_session_shutdown();
+                    // Name who stopped this owner (cx-0tgl LA).
+                    if let Some((signal, sender, uid)) = signal_sender::shutdown_signal() {
+                        mux.record_daemon_signal(signal, sender, uid);
+                    }
                 }
-            }
-            wake_headless();
-        });
-    }
+                wake_headless();
+            })
+            .ok()
+    };
+    #[cfg(not(unix))]
+    let signal_wait: Option<std::thread::JoinHandle<()>> = None;
     // DEV builds only: stop an orphaned app owner; its terminals keep
     // running (dev_orphan_exit.rs).
     #[cfg(unix)]
     let orphan_exit = dev_orphan_exit::start_for_owner(mux);
+    // `--exit-with-pid`: armed once startup work has begun, so the stop
+    // ends every terminal that work made (a starter already gone stops the
+    // owner at once).
+    #[cfg(any(target_vendor = "apple", target_os = "linux"))]
+    local_owner::exit_with(mux, exit_with);
+    #[cfg(not(any(target_vendor = "apple", target_os = "linux")))]
+    let _ = exit_with;
     let (lock, wake) = &HEADLESS_WAKE;
     let mut generation = lock.lock().unwrap();
     while !(shutdown_requested() || mux.daemon_shutdown_requested() || remote_runtime_finished()) {
         generation = wake.wait(generation).unwrap();
     }
     drop(generation);
+    // Another waiter (the remote runtime) can wake the loop on the same
+    // signal before the signal thread has recorded the shutdown start and
+    // the sender; teardown and exit then raced that record and left a cut
+    // `daemon_signal` line. A signal stop waits for the record (the thread
+    // returns once the signal is seen); any other stop leaves the thread
+    // parked on the wake descriptor.
+    if shutdown_requested()
+        && let Some(signal_wait) = signal_wait
+    {
+        let _ = signal_wait.join();
+    }
     if let Some(chief_brains) = chief_brains {
         chief_brains.stop();
     }
@@ -72,6 +98,36 @@ where
         orphan_exit.stop();
     }
     Ok(())
+}
+
+/// macOS: a memory fault ends a headless owner at once, with no handler.
+///
+/// When the volume holding the owner's executable is force-removed (an
+/// ejected disk image, a CI runner's instance-store volume that vanished
+/// under a DerivedData build), every code page that is not resident can no
+/// longer be read. The Rust runtime's SIGBUS/SIGSEGV handler (its
+/// stack-overflow check) is itself code in that executable, so the kernel
+/// cannot run it and the faulting thread retries without end at about 100%
+/// system time. Two orphaned probe owners on aws-m4pro-5 spun at 390-570%
+/// for 13 hours this way. With the default action the kernel ends the
+/// process on the first such fault (with a crash report) and runs none of
+/// its code. Reproduced on Blacksmith macOS: with the handler the owner
+/// spun at about 3.7 s of CPU a second after `hdiutil detach -force`; with
+/// the default it was gone within 200 ms.
+///
+/// The only loss is the runtime's "has overflowed its stack" message: a
+/// stack overflow still ends the owner, as a plain SIGBUS/SIGSEGV crash.
+/// The owner's terminal hosts are separate processes and keep running for
+/// the next owner to adopt. Nothing in the owner handles these signals
+/// otherwise; Linux keeps an unlinked executable's pages readable, so it
+/// is unaffected.
+#[cfg(target_vendor = "apple")]
+fn fatal_faults_end_the_owner() {
+    for signal in [libc::SIGBUS, libc::SIGSEGV] {
+        // SAFETY: restores the default action of a synchronous fault
+        // signal; no handler of this process is replaced but the runtime's.
+        unsafe { libc::signal(signal, libc::SIG_DFL) };
+    }
 }
 
 /// The WebSocket token: `--ws-token`, else `server.ws_token`. A headless

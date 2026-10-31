@@ -24,7 +24,7 @@
 .acpmux-handoff-review .acpmux-handoff-confirm { display: flex; align-items: center; gap: 8px; }
 .acpmux-handoff-confirm input { accent-color: var(--agent-text); }
 .acpmux-handoff-review details label { margin-top: 12px; }
-.acpmux-handoff-review summary { cursor: pointer; color: var(--agent-muted); }
+.acpmux-handoff-review summary { cursor: default; color: var(--agent-muted); }
 .acpmux-handoff-coverage { margin: 0; color: var(--agent-muted); font-size: 11px; }
 .acpmux-handoff-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .acpmux-handoff-buttons button {
@@ -34,7 +34,7 @@
   font: inherit;
   color: var(--agent-text);
   background: var(--agent-control, color-mix(in srgb, var(--agent-text) 10%, transparent));
-  cursor: pointer;
+  cursor: default;
 }
 .acpmux-handoff-buttons button[type=button] { background: none; color: var(--agent-muted); }
 .acpmux-handoff-buttons button:disabled { opacity: .45; cursor: default; }
@@ -42,22 +42,4 @@
 .acpmux-handoff-review [role=alert] { margin: 0; color: var(--agent-text); }
 .acpmux-handoff-header-tools { margin-left: auto; display: flex; align-items: center; gap: 8px; min-width: 0; }
 .acpmux-session-coverage { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; color: var(--agent-muted); }
-.acpmux-handoff-targets { position: relative; }
-.acpmux-handoff-targets > summary { list-style: none; cursor: pointer; color: var(--agent-muted); padding: 4px 8px; }
-.acpmux-handoff-targets > div {
-  position: absolute;
-  z-index: 10;
-  right: 0;
-  top: 100%;
-  padding: 6px;
-  min-width: 160px;
-  border-radius: 10px;
-  background: var(--surface-popup);
-  box-shadow: var(--elevation-2);
-}
-.acpmux-handoff-targets button { display: block; width: 100%; text-align: left; border: 0; border-radius: 6px; background: none; color: var(--agent-text); padding: 8px; font: inherit; cursor: pointer; }
-.acpmux-handoff-targets button:hover { background: var(--acpmux-menu-hover); }
-.acpmux-handoff-targets button:disabled { color: var(--agent-muted); cursor: default; }
-
-.acpmux-handoff-targets > button { color: var(--agent-muted); width: auto; white-space: nowrap; }
 .acpmux-handoff-error { margin: 8px 24px; color: var(--agent-text); font-size: 12px; }

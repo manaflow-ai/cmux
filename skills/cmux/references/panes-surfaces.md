@@ -13,6 +13,7 @@ cmux pane pane_… split --down --ratio 0.3 --cwd "$PWD"
 cmux pane pane_… run --name dev -- npm run dev
 cmux pane pane_… run shell 'tail -f logs/dev.log'
 cmux tab create terminal --pane pane_… --cwd "$PWD" --name shell
+cmux tab create terminal --pane pane_… --name top -- htop   # the new tab runs htop, not a shell
 cmux tab create browser --pane pane_… --url https://example.com
 
 # focus and close
@@ -42,8 +43,10 @@ cmux workspace mute-unmute --target ws_…  # the sidebar row speaker's click
 
 Only a loaded browser tab can be muted. MCP offers the same verbs as tools.
 
+An agent chat tab's notifications (not its sound) mute and unmute with `cmux tab toggle-chat-notifications --target tab_…` (MCP `app_tab_toggle_chat_notifications`). Only an agent chat on this Mac can be muted.
+
 ## Running a command
 
-`pane <sel> run -- <argv…>` opens a tab running the exact argv, with no shell in between. `run shell '<script>'` runs a shell script. `--on-exit close|keep` decides whether the tab stays after the process exits. To type into an existing shell instead, use `cmux terminal term_… write --text $'npm test\n'`; the text is literal, so include the newline.
+`pane <sel> run -- <argv…>` opens a tab running the exact argv, with no shell in between. `run shell '<script>'` runs a shell script. `--on-exit close|keep|shell` decides whether the tab stays after the process exits (`shell` drops it into a new shell). To type into an existing shell instead, use `cmux terminal term_… write --text $'npm test\n'`; the text is literal, so include the newline.
 
 `pane <sel> split -- <argv…>` (or `--shell '<script>'`) makes the new pane run that command instead of a shell. The old `new-split`, `new-pane`, `new-surface`, `list-panels`, `list-pane-surfaces`, `split-off` and `reorder-surface` commands are gone. The app action `cmux workspace new --command "…"` still types a first command into a new workspace.

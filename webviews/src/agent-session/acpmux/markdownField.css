@@ -1,19 +1,95 @@
 /* The composer's Milkdown prompt (MarkdownField.tsx), drawn as the plain textarea it replaces
-   (.acpmux-composer-field): 15px on 22px lines, no chrome. Formatting shows only where the
-   user formats. Theme tokens only. */
+   (.acpmux-composer-field): the chat font size and line height, no chrome. Formatting shows
+   only where the user formats. Theme tokens only. */
 .acpmux-md-field {
   position: relative;
-  /* Keep long drafts inside the composer. Eight lines matches the reference composer and
-     leaves the transcript and location shelf anchored while the draft grows. */
-  max-height: calc(var(--text-body--line-height, 22px) * 8 + var(--cmux-control-height, 23px));
+  /* Goldilocks after #24984: the old cap was eight body lines plus the control row, then
+     31bbb2fd6d4 let 40vh win. Lawrence found that growth too big; twelve lines is the compromise,
+     with 40vh still limiting unusually tall panes. Short panes still give up height (bottomStack.css). */
+  max-height: min(
+    calc(var(--text-content--line-height) * var(--acpmux-composer-max-lines, 12) + var(--cmux-control-height, 23px)),
+    40vh
+  );
   overflow-y: auto;
   /* A long draft scrolls in this box alone (Leo 2026-10-20: reaching the top or the bottom must
      not shift anything): no chaining into the transcript, no bounce. */
   overscroll-behavior: contain;
   padding: calc(15px * var(--cmux-interface-scale, 1)) calc(16px * var(--cmux-interface-scale, 1)) calc(8px * var(--cmux-interface-scale, 1));
-  font-size: var(--text-title, 15px);
-  line-height: var(--text-title--line-height, 22px);
+  font-size: var(--text-content);
+  line-height: var(--text-content--line-height);
   color: var(--agent-text);
+}
+/* A long draft's soft edges (Leo 2026-10-21), the transcript's (.acpmux-scroll, conversation.css):
+   the edge with more draft past it (data-fade-top / data-fade-bottom, MarkdownField.tsx) fades the
+   text out as it scrolls under it. An alpha mask on the scroller itself, never a painted overlay, so
+   the composer's glass shows through; at the start and the end that edge is plain. The overlay
+   scrollbar's narrow lane at the right keeps full ink. Reduce Transparency keeps plain edges. The band
+   (--acpmux-md-fade-band) comes from MarkdownField.tsx, whose caret reveal keeps clear of it. */
+.acpmux-md-field {
+  --acpmux-md-fade-top: 0px;
+  --acpmux-md-fade-bottom: 0px;
+  --acpmux-md-scrollbar-lane: 8px;
+  /* The minimal scroller's track (scrollers.ts) stops short of the composer's rounded corners. */
+  --cmux-minimal-scroller-inset: calc(10px * var(--cmux-interface-scale, 1));
+  /* Under the scrollbar fade its thumb paces with the pane's other fades (conversation.css). */
+  --cmux-scroller-fade-in: var(--agent-motion-in, 120ms);
+  --cmux-scroller-fade-out: var(--agent-motion-move, 180ms);
+  /* Its lane is always reserved (scrollers.ts), so it comes out of the right padding: the
+     draft keeps the same width, and never rewraps, whether or not it overflows. */
+  padding-right: max(0px, calc(16px * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px)));
+}
+.acpmux-md-field[data-fade-top] {
+  --acpmux-md-fade-top: var(--acpmux-md-fade-band);
+}
+.acpmux-md-field[data-fade-bottom] {
+  --acpmux-md-fade-bottom: var(--acpmux-md-fade-band);
+}
+.acpmux-md-field[data-fade-top],
+.acpmux-md-field[data-fade-bottom] {
+  -webkit-mask-image:
+    linear-gradient(
+      to bottom,
+      transparent,
+      #000 var(--acpmux-md-fade-top),
+      #000 calc(100% - var(--acpmux-md-fade-bottom)),
+      transparent
+    ),
+    linear-gradient(#000, #000);
+  mask-image:
+    linear-gradient(
+      to bottom,
+      transparent,
+      #000 var(--acpmux-md-fade-top),
+      #000 calc(100% - var(--acpmux-md-fade-bottom)),
+      transparent
+    ),
+    linear-gradient(#000, #000);
+  -webkit-mask-size:
+    100% 100%,
+    var(--acpmux-md-scrollbar-lane) 100%;
+  mask-size:
+    100% 100%,
+    var(--acpmux-md-scrollbar-lane) 100%;
+  -webkit-mask-position:
+    0 0,
+    100% 0;
+  mask-position:
+    0 0,
+    100% 0;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-md-field[data-fade-top],
+  .acpmux-md-field[data-fade-bottom] {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+:root[data-reduce-transparency] .acpmux-md-field[data-fade-top],
+:root[data-reduce-transparency] .acpmux-md-field[data-fade-bottom] {
+  -webkit-mask-image: none;
+  mask-image: none;
 }
 .acpmux-md-placeholder {
   position: absolute;
@@ -47,9 +123,10 @@
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   vertical-align: 1px;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-md {
-  min-height: var(--text-title--line-height, 22px);
+  min-height: var(--text-content--line-height);
   outline: none;
   white-space: pre-wrap;
   word-break: break-word;
@@ -74,7 +151,7 @@
   border-radius: 4px;
   background: color-mix(in srgb, var(--agent-text) 9%, transparent);
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 13px;
+  font-size: var(--cv-code-size, calc(var(--text-content) * 13 / 14));
 }
 .acpmux-md pre {
   padding: 8px 10px;
@@ -82,16 +159,22 @@
   background: color-mix(in srgb, var(--agent-text) 6%, transparent);
   overflow-x: auto;
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 13px;
-  line-height: 19px;
+  font-size: var(--cv-codeblock-size, calc(var(--text-content) * 12 / 14));
+  line-height: var(--cv-codeblock-line-height, calc(var(--text-content) * 20 / 14));
 }
 .acpmux-md pre code {
+  font-size: inherit;
   padding: 0;
   background: none;
 }
-.acpmux-md ul,
-.acpmux-md ol {
+.acpmux-md ul {
   padding-left: 22px;
+}
+/* A number hangs left of its item, and WebKit puts about 1.2em between it and the text. The
+   editor scrolls and clips at its own edge, so this padding is all the room a number has: 22px
+   cut the left of "1." (Austin 2026-10-20). 3em holds "10." in SF and in DejaVu Sans (the gallery runner). */
+.acpmux-md ol {
+  padding-left: 3em;
 }
 .acpmux-md li > p {
   margin: 0;
@@ -104,7 +187,7 @@
 .acpmux-md h1,
 .acpmux-md h2,
 .acpmux-md h3 {
-  font-size: 15px;
+  font-size: inherit;
   font-weight: 600;
 }
 .acpmux-md hr {
@@ -129,6 +212,17 @@
 .acpmux-md p {
   margin-top: 0;
   margin-bottom: 0;
+}
+/* The draft never widens the composer (https://github.com/manaflow-ai/cmux/issues/28672): a run of
+   spaces, a long word or a URL wraps inside the text column, and no line's content can ask the box
+   for more width. `anywhere` (the deprecated `word-break: break-word` above names it too) also lets
+   the field's min-content width drop to one character, so a grid or flex parent never sizes the
+   field to its longest unbroken run; the field is a vertical scroller with no width of its own. */
+.acpmux-md {
+  overflow-wrap: anywhere;
+}
+.acpmux-md-field {
+  min-width: 0;
 }
 
 /*
@@ -194,6 +288,10 @@
   bottom: -2px;
   border: 2px solid var(--agent-accent);
   pointer-events: none;
+}
+/* A selected numbered item: around its number, inside the editor's edge. */
+.acpmux-md ol > li.ProseMirror-selectednode::after {
+  left: calc(2px - 3em);
 }
 .acpmux-md img.ProseMirror-separator {
   display: inline !important;

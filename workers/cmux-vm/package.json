@@ -33,7 +33,11 @@
     "@types/node": "26.6.3",
     "oxlint": "1.86.0",
     "typescript": "7.0.2",
-    "vitest": "4.1.11",
+    "vitest": "4.1.12",
     "wrangler": "4.143.0"
+  },
+  "overrides": {
+    "sharp": "0.35.5",
+    "undici": "7.29.1"
   }
 }

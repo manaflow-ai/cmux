@@ -14,7 +14,7 @@ struct HomeGroupContactRow: View {
         Button(action: onToggle) {
             HStack(spacing: Metrics.space3) {
                 Image(systemName: isChosen ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(isChosen ? colors.accent : colors.tertiary)
+                    .foregroundStyle(isChosen ? colors.litGlyph : colors.tertiary)
                 Text(contact.name)
                     .font(Font(isChosen ? Typography.bodyEmphasized : Typography.body))
                     .foregroundStyle(colors.primary)

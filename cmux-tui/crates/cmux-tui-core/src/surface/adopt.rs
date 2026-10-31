@@ -188,7 +188,7 @@ impl Surface {
         let mut mouse_encoders = MouseEncoders::new()?;
         mouse_encoders.sync_from_terminal(&term);
         let render_state = RenderState::new()?;
-        let frame_requests = Arc::new(FrameRequests::default());
+        let frame_requests = frame_producer::FrameRequests::new();
         #[cfg(test)]
         let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
         let command = opts
@@ -208,11 +208,12 @@ impl Surface {
                 terminal_public_id: Some(Arc::new(terminal_public_id)),
                 journal_generation,
                 journal_capture_supported: true,
+                #[cfg(unix)]
+                local_output: None,
                 journal_capture_epoch: AtomicU64::new(0),
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
-                journal_capture_disabled: AtomicBool::new(false),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
@@ -246,6 +247,7 @@ impl Surface {
                 exit_notified: AtomicBool::new(true),
                 dead: AtomicBool::new(true),
                 owner_detaching: AtomicBool::new(false),
+                recover_requested: AtomicBool::new(false),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Exited as u8),
                 host_fallback: std::sync::OnceLock::new(),
                 dirty: AtomicBool::new(true),

@@ -17,8 +17,8 @@ final class SidebarNoticeCardView: NSView {
     var onAction: ((String, String) -> Void)?
     var onDismiss: ((String) -> Void)?
     private(set) var notice: SidebarNoticeCard?
-    private let eyebrowLabel = ChromeLabel(labelWithString: "")
-    private let titleLabel = ChromeLabel(labelWithString: "")
+    let eyebrowLabel = ChromeLabel(labelWithString: "")
+    let titleLabel = ChromeLabel(labelWithString: "")
     private let detailLabel = ChromeLabel(wrappingLabelWithString: "")
     private let shortcutLabel = ChromeLabel(labelWithString: "")
     /// List lines under the detail (a changelog), one label each.
@@ -268,7 +268,6 @@ final class SidebarNoticeCardView: NSView {
         titleLabel.font = Typography.bodyEmphasized
         detailLabel.font = Typography.caption
         shortcutLabel.font = Typography.caption
-        closeButton.frame = NSRect(x: b.width - pad / 2 - close, y: pad / 2, width: close, height: close)
         let dismissWidth = dismissButton.fittingWidth, dismissHeight = SidebarCardTextButton.height
         let titleY = pad + (eyebrowLabel.isHidden ? 0 : line.caption)
         dismissButton.frame = NSRect(x: b.width - pad / 2 - dismissWidth, y: titleY + (line.body - dismissHeight) / 2,
@@ -286,6 +285,13 @@ final class SidebarNoticeCardView: NSView {
         spinner.frame = icon.frame
         let titleWidth = max(0, b.width - pad - textX - (eyebrowLabel.isHidden || !dismissButton.isHidden ? closeRoom : 0))
         titleLabel.frame = NSRect(x: textX, y: y, width: titleWidth, height: line.body)
+        // The x centers on the first line's capitals, the heading's or else the title's (live-qa
+        // 2026-10-21: centered in the padding corner it sat a point above the heading).
+        let first = eyebrowLabel.isHidden ? titleLabel : eyebrowLabel
+        let capMid = first.frame.minY + first.firstBaselineOffsetFromTop - (first.font?.capHeight ?? 0) / 2
+        let scale = window?.backingScaleFactor ?? 2
+        closeButton.frame = NSRect(x: b.width - pad / 2 - close, y: ((capMid - close / 2) * scale).rounded() / scale,
+                                   width: close, height: close)
         y += line.body
         let textWidth = max(0, b.width - pad - textX)
         if !detailLabel.isHidden {

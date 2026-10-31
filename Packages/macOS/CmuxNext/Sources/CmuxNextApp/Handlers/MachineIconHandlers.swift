@@ -11,7 +11,7 @@ import Foundation
 /// undo. The home daemon takes every change and stores an image or SVG pick.
 enum MachineIconHandlers {
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
-        let services = ctx.services, capability = DaemonCapabilities.shared.sessionIcon
+        let services = ctx.services, capability = DaemonCapability.sessionIcon.rawValue
         registry.bind("machine.setIcon", requires: capability, daemon: services.machines.local, run: { invocation in
             let machine = try machineID(invocation, services)
             let history = IconHistory.machine(ctx), current = services.machines.icon(machine: machine)
@@ -73,8 +73,8 @@ extension IconHistory {
         inActiveWindow(ctx) { id, update in
             let machines = ctx.services.machines, home = machines.local
             guard let session = machines.sessionID(machine: id) else { return false }
-            guard home.supports(DaemonCapabilities.shared.sessionIcon) else {
-                throw ActionFailure(message: home.missingCapabilityMessage(DaemonCapabilities.shared.sessionIcon))
+            guard home.supports(DaemonCapability.sessionIcon.rawValue) else {
+                throw ActionFailure(message: home.missingCapabilityMessage(DaemonCapability.sessionIcon.rawValue))
             }
             let icon: String?
             switch update {

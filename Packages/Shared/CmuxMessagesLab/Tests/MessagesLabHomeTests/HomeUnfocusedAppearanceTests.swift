@@ -4,9 +4,9 @@ import Testing
 @testable import MessagesLabHome
 
 /// Home looks the same when its window or tab is not focused (Lawrence 2026-10-18: "imessage home ui should not
-/// have different appearance when imessage tab is not focused"). MessagesLab switches to Messages' inactive-window
-/// palette (lighter background, other bubble colours, grey lights) when its window resigns key; cmux keeps the key
-/// palette unless `--follow-key-state` asks for MessagesLab's parity behavior.
+/// have different appearance when imessage tab is not focused"). MessagesLab greys its window view (the typing
+/// indicator and the lights, MessagesLab 806ef0c) when that window resigns key; cmux keeps the key look unless
+/// `--follow-key-state` asks for MessagesLab's parity behavior.
 @MainActor @Suite(.serialized) struct HomeUnfocusedAppearanceTests {
     final class NoWake: ChatWakeScheduler {
         func schedule(after seconds: Double, _ action: @escaping @MainActor @Sendable () -> Void) {}
@@ -17,7 +17,7 @@ import Testing
     static let them = ParticipantID("agent_chief")
 
     /// A Home pane over a loaded conversation in an offscreen window that is never key.
-    private func pane() -> (NSWindow, ChatController) {
+    private func pane(followsKeyWindow: Bool) -> (NSWindow, ChatController) {
         let people = [CmuxHomeCore.Participant(id: Self.me, kind: .human, displayName: "Me"),
                       CmuxHomeCore.Participant(id: Self.them, kind: .agent, displayName: "Chief", agentClass: .chief)]
         let base = Date(timeIntervalSince1970: 1_800_000_000)
@@ -33,42 +33,45 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 700), styleMask: [.titled], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         let controller = ChatController(host: HostView(frame: NSRect(x: 0, y: 0, width: 600, height: 700)), wake: NoWake())
+        controller.followsKeyWindow = followsKeyWindow
         window.contentView = controller.host
         controller.install(conv, windowStart: w.start, total: w.total)
         controller.host.layoutSubtreeIfNeeded()
         return (window, controller)
     }
 
-    @Test func theInactivePaletteNeedsTheParitySwitch() {
-        #expect(!HomeKeyState.paletteInactive(followsKeyWindow: false, keyWindowShowsHome: false))
-        #expect(!HomeKeyState.paletteInactive(followsKeyWindow: false, keyWindowShowsHome: true))
-        #expect(HomeKeyState.paletteInactive(followsKeyWindow: true, keyWindowShowsHome: false))
-        #expect(!HomeKeyState.paletteInactive(followsKeyWindow: true, keyWindowShowsHome: true))
+    @Test func theInactiveStateNeedsTheParitySwitch() {
+        #expect(!ChatController.viewInactive(followsKeyWindow: false, windowIsKey: false))
+        #expect(!ChatController.viewInactive(followsKeyWindow: false, windowIsKey: true))
+        #expect(ChatController.viewInactive(followsKeyWindow: true, windowIsKey: false))
+        #expect(!ChatController.viewInactive(followsKeyWindow: true, windowIsKey: true))
     }
 
     @Test(arguments: [false, true])
-    func aHomeInAWindowThatIsNotKeyKeepsTheKeyPalette(light: Bool) throws {
-        let state = HomeKeyState.shared
-        let saved = (state.followsKeyWindow, Fixture.inactive, Fixture.lightAppearance)
-        defer { state.followsKeyWindow = saved.0; Fixture.inactive = saved.1; Fixture.lightAppearance = saved.2 }
-        let (window, controller) = pane()
+    func aHomeInAWindowThatIsNotKeyKeepsTheKeyLook(light: Bool) throws {
+        let saved = Fixture.lightAppearance
+        defer { Fixture.lightAppearance = saved }
+        let (window, controller) = pane(followsKeyWindow: false)
         defer { window.close() }
         let demo = try #require(controller.demo)
         demo.setLightAppearance(light)
-        state.register(controller)
         #expect(window.isKeyWindow == false)
-
-        state.followsKeyWindow = false
-        demo.setInactive(false)
         let keyBackground = Fixture.background
-        state.apply()
-        #expect(Fixture.inactive == false, "Home switched to the inactive palette in a window that is not key")
-        #expect(Fixture.background == keyBackground)
+        controller.followKeyState()
+        #expect(demo.inactive == false, "Home greyed its view in a window that is not key")
         #expect(demo.backgroundColor == keyBackground)
+        let key = Fixture.typingColors(inactive: false)
+        #expect(Fixture.typingColors(inactive: demo.inactive).fill == key.fill)
+    }
 
-        // The parity switch still gives MessagesLab's inactive window.
-        state.followsKeyWindow = true
-        state.apply()
-        #expect(Fixture.inactive == true)
+    @Test func theParitySwitchGreysOnlyItsOwnView() throws {
+        let (window, controller) = pane(followsKeyWindow: true)
+        defer { window.close() }
+        let (other, steady) = pane(followsKeyWindow: false)
+        defer { other.close() }
+        controller.followKeyState()
+        steady.followKeyState()
+        #expect(try #require(controller.demo).inactive == true)
+        #expect(try #require(steady.demo).inactive == false)
     }
 }

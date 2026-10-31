@@ -10,6 +10,8 @@ public nonisolated enum ContextMenuEntry: Sendable, Hashable {
     case choices(ActionID)
     /// A titled submenu of less used rows ("Move ▸").
     case folder(MenuFolder, [ContextMenuEntry])
+    /// A submenu the person made in Settings > Menus (``ContextMenuLayout``), with its title.
+    case group(ContextMenuGroup, [ContextMenuEntry])
 }
 
 /// Right-click menus generated from the actions' placements
@@ -22,6 +24,7 @@ public nonisolated struct ContextMenuCatalog: Sendable {
     public static let shared = Self(descriptors: ActionCatalog.all)
 
     private let menus: [ActionMenuContext: [ContextMenuEntry]]
+    private let selectionMenus: [ActionMenuContext: [ContextMenuEntry]]
     private let labels: [ActionMenuContext: [ActionID: String]]
 
     public init(descriptors: [ActionDescriptor]) {
@@ -37,11 +40,20 @@ public nonisolated struct ContextMenuCatalog: Sendable {
             let entries = Self.topLevel(rows)
             return (context, ContextMenuEssentials.menus[context].map { ContextMenuEssentials.apply($0, to: entries) } ?? entries)
         })
+        selectionMenus = Dictionary(uniqueKeysWithValues: ContextMenuEssentials.selectionMenus.map { context, essentials in
+            (context, ContextMenuEssentials.apply(essentials, to: Self.topLevel(rows[context] ?? [])))
+        })
         self.labels = labels
     }
 
     public func entries(for context: ActionMenuContext) -> [ContextMenuEntry] {
         menus[context] ?? []
+    }
+
+    /// The menu for `context` opened on one of several selected rows
+    /// (``ContextMenuEssentials/selectionMenus``); the one-row menu where it has none.
+    public func selectionEntries(for context: ActionMenuContext) -> [ContextMenuEntry] {
+        selectionMenus[context] ?? entries(for: context)
     }
 
     /// The menu-only row titles of `context` (``ContextMenuPlacement/label``).
@@ -62,7 +74,7 @@ public nonisolated struct ContextMenuCatalog: Sendable {
             case .submenu(let id, let children): [id] + referencedIDs(children)
             // A choices row's trailer is in its submenu (Move to Group > New Group).
             case .choices(let id): [id] + (ContextMenuEssentials.choiceTrailers[id].map { [$0] } ?? [])
-            case .folder(_, let children): referencedIDs(children)
+            case .folder(_, let children), .group(_, let children): referencedIDs(children)
             }
         }
     }
@@ -74,7 +86,7 @@ public nonisolated struct ContextMenuCatalog: Sendable {
         Self.removing(hidden, from: entries(for: context))
     }
 
-    static func removing(_ hidden: Set<ActionID>, from entries: [ContextMenuEntry]) -> [ContextMenuEntry] {
+    public static func removing(_ hidden: Set<ActionID>, from entries: [ContextMenuEntry]) -> [ContextMenuEntry] {
         var result: [ContextMenuEntry] = []
         for entry in entries {
             switch entry {
@@ -87,6 +99,9 @@ public nonisolated struct ContextMenuCatalog: Sendable {
             case .folder(let folder, let children):
                 let kept = removing(hidden, from: children)
                 if kept.contains(where: { if case .separator = $0 { false } else { true } }) { result.append(.folder(folder, kept)) }
+            case .group(let group, let children):
+                let kept = removing(hidden, from: children)
+                if kept.contains(where: { if case .separator = $0 { false } else { true } }) { result.append(.group(group, kept)) }
             }
         }
         return result
@@ -95,8 +110,13 @@ public nonisolated struct ContextMenuCatalog: Sendable {
     /// The cmux items after an engine's own page menu (Chromium lists Back,
     /// Forward and Reload itself): the page menu without that group.
     public var browserPageAfterEngineMenu: [ContextMenuEntry] {
-        let navigation: Set<ActionID> = ["browserBack", "browserForward", "browserReload"]
-        var entries = entries(for: .browserPage).filter { if case .action(let id) = $0 { !navigation.contains(id) } else { true } }
+        Self.afterEngineMenu(entries(for: .browserPage))
+    }
+
+    /// A page menu (`entries`) without the navigation rows an engine's own menu lists, wherever the
+    /// person put them (Settings > Menus can move them into a submenu).
+    static func afterEngineMenu(_ entries: [ContextMenuEntry]) -> [ContextMenuEntry] {
+        var entries = removing(["browserBack", "browserForward", "browserReload"], from: entries)
         while case .separator? = entries.first { entries.removeFirst() }
         return entries
     }

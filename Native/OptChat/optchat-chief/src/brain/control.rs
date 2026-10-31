@@ -161,8 +161,10 @@ pub(super) fn prompt_parts(request: &Value) -> (String, Vec<(String, String)>) {
 }
 
 /// A subagent's permission prompt as the Chief's note: the prompt, its
-/// options, and how to answer, steer or ask the user.
-pub(super) fn permission_note(id: &str, request: &Value) -> String {
+/// options, and how to deny or steer it. Only the person's app can allow
+/// (acpmux), so the note never asks the Chief to allow; `shown`: the app
+/// shows the prompt with a working Allow button (`approval_shown`).
+pub(super) fn permission_note(id: &str, request: &Value, shown: bool) -> String {
     let (title, options) = prompt_parts(request);
     let input = request
         .get("toolCall")
@@ -182,8 +184,18 @@ pub(super) fn permission_note(id: &str, request: &Value) -> String {
             .collect::<Vec<_>>()
             .join(", ")
     };
+    let who = if shown {
+        format!(
+            "Only the user can allow it, with the Allow button in {id}'s workspace; tell them in one line if it matters."
+        )
+    } else {
+        format!(
+            "Nobody can allow it: the app shows no working Allow button for {id}. The host denies it after {} s.",
+            crate::approval::PERMISSION_WAIT.as_secs()
+        )
+    };
     format!(
-        "[{id}] waits on a prompt: {title}{input}\nOptions: {options}\nAnswer: control(action: \"answer\", id: \"{id}\", option: OPTION_ID or \"deny\"). Or steer it: control(action: \"interrupt\", id: \"{id}\", message: \"do this instead\"). Approve only safe steps (reads, edits and tests in its worktree); ask the user for money, legal, destructive or credential steps."
+        "[{id}] waits on a prompt: {title}{input}\nOptions: {options}\n{who} Deny it: control(action: \"answer\", id: \"{id}\", option: \"deny\"). Or steer it: control(action: \"interrupt\", id: \"{id}\", message: \"do this instead\")."
     )
 }
 
@@ -260,7 +272,7 @@ impl Brain {
             .spawns
             .values()
             .flat_map(|r| r.subs.iter())
-            .filter(|s| matches!(s.status, SubStatus::Starting | SubStatus::Running))
+            .filter(|s| s.at_work())
         {
             *by_state.entry(self.state_of(sub, now)).or_default() += 1;
         }
@@ -384,7 +396,11 @@ impl Brain {
         }
         if let Some(p) = &sub.permission {
             out.push('\n');
-            out.push_str(&permission_note(&sub.id, &p.request));
+            out.push_str(&permission_note(
+                &sub.id,
+                &p.request,
+                Self::approval_shown(sub),
+            ));
         }
         out
     }
@@ -393,7 +409,7 @@ impl Brain {
         sub.status == SubStatus::Running && sub.session_id.is_some()
     }
 
-    fn control_interrupt(
+    pub(super) fn control_interrupt(
         &mut self,
         sub: &SubRecord,
         message: Option<&str>,
@@ -475,24 +491,131 @@ impl Brain {
                 ),
             );
         }
-        let answer = if deny { None } else { Some(option) };
+        // A deny answers with the prompt's reject option (a cancel when it
+        // has none).
+        // Never `reject_always`: a lasting rule would refuse a later allow
+        // of the person's.
+        let reject = p
+            .request
+            .get("options")
+            .and_then(Value::as_array)
+            .and_then(|o| {
+                o.iter()
+                    .find(|o| o.get("kind").and_then(Value::as_str) == Some("reject_once"))
+            })
+            .and_then(|o| o.get("optionId").and_then(Value::as_str))
+            .map(str::to_owned);
+        let answer = if deny {
+            reject.as_deref()
+        } else {
+            Some(option)
+        };
         match self.agents.respond_permission(&session, &p.id, answer) {
             Ok(()) => {
                 if let Some(sub) = self.state.sub_mut(id) {
                     sub.permission = None;
                 }
+                self.forget_unanswered(&session, &p.id);
                 self.save();
                 self.trace
                     .emit("control.answer", json!({"id": id, "option": option}));
                 outcome("done", format!("{id}'s prompt is answered: {option}"))
             }
-            Err(e) => outcome(
+            Err(e) if deny => outcome(
                 "refused",
-                format!(
-                    "{id}'s prompt was not answered ({e}). acpmux takes an allow only from the person's app; deny works, or steer it: control(action: \"interrupt\", id: \"{id}\", message: \"...\"), or ask the user to answer in its workspace"
-                ),
+                format!("{id}'s prompt was not denied ({e}); it may be answered already"),
             ),
+            Err(e) if !e.contains("approve this on the Mac app") => outcome(
+                "refused",
+                format!("{id}'s prompt was not answered ({e}); it may be answered already"),
+            ),
+            Err(e) => {
+                // acpmux takes an allow only from the person's app (the
+                // user's "allow" relayed by the Chief, too). Never leave
+                // the prompt open silently: the person hears where to
+                // allow it, or, with no working button for it, it is denied
+                // so the subagent goes on.
+                (self.log)(&format!("allowing {id}'s prompt {}: {e}", p.id));
+                let shown = Self::approval_shown(sub);
+                let what = crate::approval::describe(
+                    &crate::approval::tool_name(&p.request),
+                    p.request.pointer("/toolCall/rawInput"),
+                );
+                if shown {
+                    self.tell_person_once(
+                        &p.id,
+                        &format!(
+                            "{id} waits for your approval to {what}: use the Allow button in its workspace."
+                        ),
+                    );
+                    return outcome(
+                        "refused",
+                        format!(
+                            "{id}'s prompt was not allowed: only the user can allow, with the Allow button in {id}'s workspace, and they were just told so in the chat. Do not try to allow it again; you may deny it or steer it: control(action: \"interrupt\", id: \"{id}\", message: \"...\")"
+                        ),
+                    );
+                }
+                let denied = self
+                    .agents
+                    .respond_permission(&session, &p.id, reject.as_deref());
+                if denied.is_ok() {
+                    if let Some(sub) = self.state.sub_mut(id) {
+                        sub.permission = None;
+                    }
+                    self.forget_unanswered(&session, &p.id);
+                    self.save();
+                } else {
+                    self.watch_unanswered(
+                        crate::approval::Pending {
+                            session_id: session.clone(),
+                            permission_id: p.id.clone(),
+                            tool: crate::approval::tool_name(&p.request),
+                            request: p.request.clone(),
+                            child: Some(id.to_owned()),
+                        },
+                        super::approvals::NOT_DELIVERED,
+                    );
+                }
+                if denied.is_ok() {
+                    self.tell_person_once(
+                        &p.id,
+                        &format!(
+                            "{id} asked to {what}; I denied it, because only the cmux app can approve and it has no Allow button for {id}."
+                        ),
+                    );
+                }
+                outcome(
+                    "refused",
+                    format!(
+                        "{id}'s prompt cannot be allowed: only the user's app allows, and it shows no working Allow button for {id}. {} The user was told. Steer it: control(action: \"interrupt\", id: \"{id}\", message: \"...\")",
+                        match denied {
+                            Ok(()) => "It was denied.".to_owned(),
+                            Err(e) => format!(
+                                "Denying it failed too ({e}); the host denies it again later."
+                            ),
+                        }
+                    ),
+                )
+            }
         }
+    }
+
+    /// Posts `text` to the person in the main conversation, in the front
+    /// desk's voice, once per `permission` (a model that relays the same
+    /// "allow" again posts nothing more).
+    fn tell_person_once(&mut self, permission: &str, text: &str) {
+        let Some(conversation) = self.state.conversation.clone() else {
+            return;
+        };
+        if !self.approval_told.insert(permission.to_owned()) {
+            return;
+        }
+        let key = crate::voice::key(crate::voice::DESK, &format!("approval:{permission}"));
+        self.state
+            .outbox
+            .push(super::reply_entry(conversation, &key, text));
+        self.save();
+        self.flush_outbox();
     }
 
     fn control_pause(&mut self, sub: &SubRecord) -> Result<String, String> {
@@ -606,6 +729,8 @@ impl Brain {
             s.after_stop = None;
         }
         self.save();
+        // No longer at work: its slot frees now, not when its turn ends.
+        self.start_queued();
         match sub.status {
             SubStatus::Queued => {
                 self.stop_subagent(id);
@@ -613,12 +738,15 @@ impl Brain {
             }
             SubStatus::Starting | SubStatus::Running => match sub.session_id.as_deref() {
                 Some(session) => match self.agents.cancel(session) {
-                    Ok(()) => outcome(
-                        "done",
-                        format!(
-                            "{id} is cancelled; its turn stops now; its chat stays for zoom(\"{id}\")"
-                        ),
-                    ),
+                    Ok(()) => {
+                        self.end_background_processes(id, session);
+                        outcome(
+                            "done",
+                            format!(
+                                "{id} is cancelled; its turn stops now; its chat stays for zoom(\"{id}\")"
+                            ),
+                        )
+                    }
                     Err(e) => outcome(
                         "refused",
                         format!("{id} is marked cancelled, but its turn did not stop: {e}"),
@@ -626,7 +754,9 @@ impl Brain {
                 },
                 None => outcome(
                     "done",
-                    format!("{id} is cancelled; it is still starting and gets nothing more"),
+                    format!(
+                        "{id} is cancelled; it is still starting, and its turn stops as soon as it starts"
+                    ),
                 ),
             },
             SubStatus::Done | SubStatus::Reported => {
@@ -635,13 +765,14 @@ impl Brain {
         }
     }
 
-    fn control_restart(
+    pub(super) fn control_restart(
         &mut self,
         sub: &SubRecord,
         message: Option<&str>,
     ) -> Result<String, String> {
         let id = sub.id.as_str();
         let text = message.unwrap_or(RESTART_PROMPT).to_owned();
+        self.outcome_resumed(id);
         if let Some(s) = self.state.sub_mut(id) {
             s.cancelled = false;
             s.paused = false;
@@ -729,14 +860,18 @@ impl Brain {
     fn control_cloud(&mut self, peer: Option<&str>) -> Result<String, String> {
         let now = |p: Option<&str>| {
             match p {
+            Some(crate::subagents::PER_AGENT) => "each new subagent runs in its own Freestyle VM (chief-sub-<id>), sized to its task; tasks that need the Mac stay here (spawn place \"local\" keeps one here, \"cloud:small|medium|large\" picks the size)".to_owned(),
             Some(p) => format!("new subagents run on the cloud peer {p} (spawn place \"local\" keeps one here)"),
             None => "new subagents run on this host (spawn place \"cloud\" needs a peer: control cloud PEER)".to_owned(),
         }
         };
         let current = self.state.cloud_peer.clone();
+        // Nothing saved: cloud by default when a pool tool is set up (v2).
+        let pool = self.cloud_vms.as_ref().is_some_and(|v| v.available());
         let effective = |saved: &Option<String>| match saved.as_deref() {
             Some("") => None,
             Some(p) => Some(p.to_owned()),
+            None if pool => Some(crate::subagents::PER_AGENT.to_owned()),
             None => None,
         };
         let Some(peer) = peer.map(str::trim).filter(|p| !p.is_empty()) else {
@@ -1047,10 +1182,11 @@ mod tests {
             "toolCall": {"title": "Bash: rm -rf build", "rawInput": {"command": "rm -rf build"}},
             "options": [{"optionId": "allow_once", "name": "Allow"}, {"optionId": "reject", "name": "Reject"}],
         });
-        let note = permission_note("a3", &request);
+        let note = permission_note("a3", &request, true);
         assert!(note.starts_with("[a3] waits on a prompt: Bash: rm -rf build"));
         assert!(note.contains("allow_once (Allow), reject (Reject)"));
-        assert!(note.contains("ask the user for money, legal, destructive or credential steps"));
+        assert!(note.contains("Only the user can allow it"));
+        assert!(permission_note("a3", &request, false).contains("Nobody can allow it"));
     }
 
     #[test]

@@ -119,7 +119,7 @@ function ChartBox({
       </svg>
       {tip && (
         <div
-          className={center > box.width / 2 ? "cu-tooltip is-left" : "cu-tooltip"}
+          className={center > box.width / 2 ? "ui-glass cu-tooltip is-left" : "ui-glass cu-tooltip"}
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the tooltip holds a <dl>, which an <output> (phrasing content only) may not contain.
           role="status"
           style={{ left: `${center}px` }}

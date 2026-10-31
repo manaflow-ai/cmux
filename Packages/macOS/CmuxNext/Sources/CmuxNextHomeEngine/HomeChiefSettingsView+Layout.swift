@@ -18,7 +18,9 @@ extension HomeChiefSettingsView {
         avatarButton.target = self
         avatarButton.action = #selector(showPictureMenu)
         avatarButton.setAccessibilityLabel(HomeEngineStrings.changePicture)
-        avatarButton.toolTip = HomeEngineStrings.changePicture
+        avatarButton.themedToolTip = HomeEngineStrings.changePicture
+        // A picture dropped on the avatar is chosen as Choose Picture… chooses one.
+        avatarButton.onDropPicture = { [weak self] in self?.editPicture($0) }
         nameField.target = self
         nameField.action = #selector(renamed)
         // Leaving the field (a click elsewhere, the popover closing) keeps the name, as Return does.
@@ -34,7 +36,7 @@ extension HomeChiefSettingsView {
         hostSwitch.isBordered = false
         hostSwitch.bezelStyle = .inline
         hostSwitch.font = Typography.caption
-        hostSwitch.contentTintColor = Palette.accent
+        hostSwitch.contentTintColor = Palette.litGlyph
         hostSwitch.target = self
         hostSwitch.action = #selector(switchHost)
         hostSwitch.isHidden = true
@@ -112,8 +114,9 @@ extension HomeChiefSettingsView {
         diagnosticsToggle.setAccessibilityLabel(HomeEngineStrings.diagnostics)
         let title = HomeChiefLinkButton(title: HomeEngineStrings.diagnostics, target: self, action: #selector(clickDiagnosticsTitle))
         // One control for VoiceOver and Tab: the triangle (named Diagnostics, with its expanded
-        // state); the title is a larger click target for the pointer only.
-        title.setAccessibilityElement(false)
+        // state); the title is a larger click target for the pointer only. A button is never an
+        // element itself, its cell is, so the cell is the one to hide.
+        title.cell?.setAccessibilityElement(false)
         title.refusesFirstResponder = true
         title.ink = .secondary
         title.textFont = Typography.header

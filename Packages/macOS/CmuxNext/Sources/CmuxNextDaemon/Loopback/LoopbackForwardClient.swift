@@ -15,7 +15,7 @@ public actor LoopbackForwardClient {
 
     /// This client's receive window per stream.
     public static let receiveWindow = 256 * 1024
-    public static let capability = DaemonCapabilities.shared.loopbackForward
+    public static let capability = DaemonCapability.loopbackForward.rawValue
 
     private let endpoint: EndpointProvider
     let requestTimeout: Duration

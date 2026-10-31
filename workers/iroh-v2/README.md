@@ -82,7 +82,7 @@ legacy production and staging version IDs in `scripts/rollout-policy.ts` qualify
 for the first v6-preserving deployment; unknown versions fail closed. Do not add
 an ID without inspecting that immutable version's migration reader.
 
-From a clean, committed checkout, using Bun 1.4.2 and the authorized Cloudflare
+From a clean, committed checkout, using the Bun in `webviews/package.json` devEngines (1.4.4) and the authorized Cloudflare
 account, first deploy staging through the same guards:
 
 ```sh

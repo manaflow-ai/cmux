@@ -54,6 +54,7 @@ public final class ImportStepModel {
     public private(set) var selectedProfiles: Set<String> = []
     /// What to bring from every selected profile.
     public private(set) var kinds: Set<ImportDataKind> = Set(ImportStepModel.offeredKinds)
+        .subtracting(ImportStepModel.optInKinds)
     /// The kinds a caller opened the step on (the cookie import card: cookies
     /// only); detection then leaves passwords unchecked unless they are among them.
     @ObservationIgnored private var presetKinds: Set<ImportDataKind>?
@@ -61,6 +62,14 @@ public final class ImportStepModel {
     /// card: the profile of the tab that showed it); nil makes one new
     /// profile per source.
     public private(set) var mergeTarget: String?
+    /// The cmux profiles a row can go into (each row's menu); empty hides the menu.
+    public private(set) var targetChoices: [ImportTargetChoice] = []
+    /// Keep in Sync: each imported profile's history is read again whenever
+    /// its browser writes it (off until the person checks it).
+    public private(set) var keepsHistoryInSync = false
+    /// Rows going into an existing cmux profile (`BrowserSourceProfile.id`
+    /// to profile id); the rest get their own matching profile.
+    public private(set) var targets: [String: String] = [:]
     @ObservationIgnored private let services: any OnboardingServices
     @ObservationIgnored private var task: Task<Void, Never>?
     /// The plan being run, and each started row's count so far (progress
@@ -161,7 +170,10 @@ public final class ImportStepModel {
     public func importPasswordsFromCSV() { services.importPasswordsFromCSV(into: mergeTarget) }
 
     /// The kinds every profile row is shown for.
-    public static let offeredKinds: [ImportDataKind] = [.bookmarks, .history, .cookies]
+    public static let offeredKinds: [ImportDataKind] = [.bookmarks, .history, .openTabs, .cookies, .searchEngines]
+    /// Offered unchecked: the search engine is one setting for every profile, and open tabs open a
+    /// workspace per profile, so each happens only when asked.
+    public static let optInKinds: Set<ImportDataKind> = [.openTabs, .searchEngines]
 
     /// The one line of checkboxes: passwords too when this build can save them.
     public var kindChoices: [ImportDataKind] { passwordStore ? Self.offeredKinds + [.passwords] : Self.offeredKinds }
@@ -183,13 +195,25 @@ public final class ImportStepModel {
     /// Browsers whose data macOS blocks until the user grants Full Disk Access.
     public var needsFullDiskAccess: Bool { sources.contains(where: \.needsFullDiskAccess) }
 
-    /// Finds the browsers once, when a person asks (Find Browsers). Never when
-    /// the step only shows: detection reads other apps' data (Safari's files,
+    /// Finds the browsers once, when the person opens Import from Browser or
+    /// asks to check again. Detection reads other apps' data (Safari's files,
     /// each Chromium `Local State`), which macOS guards with a privacy prompt
-    /// (LAUNCH-NO-TCC-PROMPTS). `redetect()` is Check again.
+    /// (LAUNCH-NO-TCC-PROMPTS); the tool itself is an explicit import request,
+    /// so opening it is the point at which that work may begin. `redetect()`
+    /// is Check again.
     public func detect() {
         guard phase == .idle else { return }
         redetect()
+    }
+
+    /// The window ended while browsers were still being looked for: stop
+    /// the scan so it neither keeps probing nor updates a closed step. A
+    /// running import is left alone (it finishes after the window moves on).
+    public func stopDetecting() {
+        guard phase == .detecting else { return }
+        task?.cancel()
+        task = nil
+        phase = .idle
     }
 
     public func redetect() {
@@ -202,11 +226,21 @@ public final class ImportStepModel {
         task?.cancel()
         phase = .detecting
         task = Task { [weak self, services] in
+            // A cancelled scan (stopDetecting, a newer redetect) stops before its next probe.
             let found = await services.detectBrowsers()
+            guard !Task.isCancelled else { return }
             let awaiting = await services.browsersAwaitingAccess()
+            guard !Task.isCancelled else { return }
             let chromiumPasswords = found.contains { $0.profiles.contains { $0.availability(of: .passwords).isImportable } }
             let store = chromiumPasswords ? await services.canImportPasswords() : false
+            guard !Task.isCancelled else { return }
+            let choices = await services.importTargets()
+            guard !Task.isCancelled else { return }
+            let earlier = await services.earlierImportTargets()
             guard let self, !Task.isCancelled else { return }
+            targetChoices = choices
+            // A source imported into another profile before goes there again, if that profile is still here.
+            targets = earlier.filter { _, id in choices.contains { $0.id == id } }
             sources = Self.edgeFirst(found)
             awaitingAccess = awaiting
             // Checked like the rest the first time it is offered; Import asks before anything is read.
@@ -269,6 +303,24 @@ public final class ImportStepModel {
         mergeTarget = target
     }
 
+    public func toggleKeepInSync() {
+        guard canEditSelection else { return }
+        keepsHistoryInSync.toggle()
+    }
+
+    /// The cmux profile a row goes into: nil is the source's own matching profile.
+    public func target(_ profile: BrowserSourceProfile) -> String? { mergeTarget ?? targets[profile.id] }
+
+    /// Picks the cmux profile `profile` goes into; nil makes its own.
+    public func setTarget(_ target: String?, for profile: BrowserSourceProfile) {
+        guard canEditSelection, mergeTarget == nil, profiles.contains(profile) else { return }
+        guard let target, targetChoices.contains(where: { $0.id == target }) else {
+            targets[profile.id] = nil
+            return
+        }
+        targets[profile.id] = target
+    }
+
     /// Back to one new profile per source (the step opened from anywhere but the card).
     public func resetTarget() {
         guard !isImporting, !isConfirmingPasswords else { return }
@@ -294,8 +346,9 @@ public final class ImportStepModel {
     /// user agreed to on the consent screen.
     public var plan: ImportPlan {
         ImportPlan(items: profiles.filter { selectedProfiles.contains($0.id) }.map { profile in
-            ImportPlan.Item(profile: profile, kinds: passwordConsent.contains(profile.id) ? kinds : kinds.subtracting([.passwords]))
-        }, mergeTarget: mergeTarget)
+            ImportPlan.Item(profile: profile, kinds: passwordConsent.contains(profile.id) ? kinds : kinds.subtracting([.passwords]),
+                            target: targets[profile.id])
+        }, mergeTarget: mergeTarget, keepsHistoryInSync: keepsHistoryInSync && kinds.contains(.history))
     }
 
     /// Checked profiles with passwords to bring: the consent screen's list.

@@ -68,7 +68,7 @@ export default agentPaneEntry({
   title: "Composer dictation (chat)",
   area: "Agent pane",
   height: 420,
-  widths: { narrow: 400, normal: 760, wide: 760 },
+  widths: { narrow: 297, normal: 760, wide: 760 },
   anchors: [{ selector: ".acpmux-scroll" }],
   covers: [
     "agent-session/acpmux/DictationMic.tsx#DictationMic",

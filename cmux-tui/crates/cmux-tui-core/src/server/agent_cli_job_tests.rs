@@ -71,6 +71,33 @@ fn resolve_request(mux: &Mux, cli: &str, key: &str) -> Value {
 }
 
 #[test]
+fn bun_installation_binding_owner_job_keeps_admission_replay_and_receipt_privacy() {
+    let plan = json!({"cli":"codex","argv":["/usr/bin/env", "-u", "XDG_CONFIG_HOME",
+        "BUN_INSTALL_GLOBAL_DIR=/private/owner/packages", "BUN_INSTALL_BIN=/private/owner/bin",
+        "/private/owner/bun", "add", "-g", "@manaflow-ai/codex@latest"]});
+    let owner = Owner::new(json!(["harnessUpdatePrepare"]), plan);
+    let mux = owner.mux("bun-bound-job");
+    let unverified = Caller::new(&mux, false);
+    assert_code(
+        &unverified.call(&mux, request(&mux, "codex", "unverified")),
+        "agent_cli_job.not_trusted",
+    );
+    let caller = Caller::new(&mux, true);
+    let mut spoofed = request(&mux, "codex", "spoofed");
+    spoofed["env"] = json!({"BUN_INSTALL_BIN":"/other"});
+    assert_code(&caller.call(&mux, spoofed), "agent_cli_job.bad_request");
+    let first = caller.call(&mux, request(&mux, "codex", "bound-intent"));
+    assert_eq!(first["ok"], true, "{first}");
+    let replayed = caller.call(&mux, request(&mux, "codex", "bound-intent"));
+    assert_eq!(replayed["ok"], true, "{replayed}");
+    assert_eq!(replayed["data"]["replayed"], true);
+    assert_eq!(first["data"]["path"], replayed["data"]["path"]);
+    assert!(!first.to_string().contains("BUN_INSTALL"));
+    assert!(!first.to_string().contains("private/owner"));
+    assert_eq!(owner.methods(), ["initialize", "_acpmux/harness/update/prepare"]);
+}
+
+#[test]
 fn cmux_next_agent_cli_job_resolve_recovers_a_receipt_without_preparing_or_executing() {
     let owner = Owner::new(json!(["harnessUpdatePrepare"]), prepared());
     let mux = owner.mux("job-resolve-created");

@@ -1,10 +1,13 @@
 #![cfg(unix)]
-//! An agent acpmux starts carries a launch credential for its own ACP
-//! session (bead cx-55d27, PR 4): acpmux mints it from the cmux session
-//! daemon that `CMUX_TUI_SOCKET` names (`credential.mint {acp_session}`), so
-//! the agent's `cmux agent message` is sent by a verified sender. Without a
-//! reachable daemon the agent still starts, without a credential. Its own
-//! binary: the test sets acpmux's process environment.
+//! acpmux asks the cmux session daemon that `CMUX_TUI_SOCKET` names for a
+//! launch credential for each agent's ACP session (`credential.mint
+//! {acp_session}`, bead cx-55d27). Since dab1e80a0f8 only the verified cmux
+//! app mints, so the daemon refuses acpmux (`credential_owner_only`) and the
+//! agent starts without a credential, as it does without a daemon; its
+//! messages go out unverified until the app can delegate mint authority.
+//! A credential the app mints still sends as its session
+//! (agent_message_policy `the_sender_is_the_verified_actor`). Its own binary:
+//! the test sets acpmux's process environment.
 
 #[path = "agent_message_policy/harness.rs"]
 mod harness;
@@ -24,7 +27,7 @@ mod agent_message_launch_credential {
     const NAME: &str = "CMUX_LAUNCH_CREDENTIAL";
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn an_acpmux_agent_sends_as_its_own_session() {
+    async fn an_acpmux_agent_starts_without_a_credential_the_daemon_refuses() {
         let daemon = tokio::task::spawn_blocking(|| Daemon::start_without_acpmux("acp-cred", &[]))
             .await
             .unwrap();
@@ -47,24 +50,11 @@ mod agent_message_launch_credential {
         tokio::spawn(serve_connection_with(hub, in_rx, out_tx, Origin::Local));
         let mut client = Client(in_tx, out_rx, 0);
 
-        let (session, value) = client.session_env(NAME).await;
-        let credential = value.strip_prefix(&format!("{NAME}=")).unwrap_or_default().to_owned();
-        assert!(credential.starts_with("cmuxlc1."), "the agent got no launch credential: {value}");
-        let (_, socket) = client.session_env("CMUX_TUI_SOCKET").await;
-        assert_eq!(socket, format!("CMUX_TUI_SOCKET={}", daemon.socket.display()));
-
-        // The daemon takes the agent's message as sent by its session.
-        let sent = tokio::task::spawn_blocking(move || {
-            let sent = daemon.sent(
-                Some(&credential),
-                json!({"recipients": ["acp:someone"], "body": "from an acpmux agent"}),
-            );
-            drop(daemon);
-            sent
-        })
-        .await
-        .unwrap();
-        assert_eq!(sent["sender"], format!("acp:{session}"), "{sent}");
+        // acpmux is not the verified app: the daemon refuses its mint, and
+        // the agent starts without a credential.
+        let (_, value) = client.session_env(NAME).await;
+        assert_eq!(value, format!("{NAME}="), "acpmux minted a credential: {value}");
+        tokio::task::spawn_blocking(move || drop(daemon)).await.unwrap();
 
         // No daemon on the socket: the agent starts without a credential.
         // SAFETY: as above.

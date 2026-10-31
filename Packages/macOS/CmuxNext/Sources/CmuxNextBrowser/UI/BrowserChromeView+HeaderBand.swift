@@ -1,8 +1,8 @@
 public import AppKit
 public import CmuxNextDesign
 
-// R109 `tabs.barOrder` below the toolbar: an empty band under the toolbar
-// rows that the pane pins its tab strip to (`PaneHeaderBandHosting`).
+// R109 `tabs.barOrder`: an empty band between the toolbar rows and the page
+// that the pane pins its tab strip to (`PaneHeaderBandHosting`).
 extension BrowserChromeView: PaneHeaderBandHosting {
     public func setPaneHeaderBandHeight(_ height: CGFloat) {
         let height = max(0, height)
@@ -34,14 +34,16 @@ extension BrowserChromeView: PaneHeaderBandHosting {
 
     public var paneContentAccessibilityElements: [Any] { [contentContainer] }
 
-    /// The empty band under the toolbar rows; 0 high until a pane opens it.
-    func installHeaderBand(below bar: NSView) {
+    /// The empty band between the toolbar rows and the page (under them, or
+    /// above them with the toolbar at the bottom); 0 high until a pane opens it.
+    func installHeaderBand(beside bar: NSView) {
         let guide = headerBand.guide
         addLayoutGuide(guide)
         let height = guide.heightAnchor.constraint(equalToConstant: 0)
         headerBand.height = height
+        toolbarEdge.top.append(guide.topAnchor.constraint(equalTo: bar.bottomAnchor))
+        toolbarEdge.bottom.append(guide.bottomAnchor.constraint(equalTo: bar.topAnchor))
         NSLayoutConstraint.activate([
-            guide.topAnchor.constraint(equalTo: bar.bottomAnchor),
             guide.leadingAnchor.constraint(equalTo: leadingAnchor),
             guide.trailingAnchor.constraint(equalTo: trailingAnchor),
             height,

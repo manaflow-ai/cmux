@@ -39,6 +39,28 @@ struct AgentPriorityRankingTests {
         #expect(SidebarPriorityPanel(entries: entries).attentionCount == 4)
     }
 
+    /// A chat whose pull request's checks fail (the session tree's PR badge reads red) ranks as Red
+    /// CI: after a finished result nobody has seen and a failed turn, before the working ones. A
+    /// question or an unseen result outranks its red checks; read, the result leaves them showing.
+    @Test func aChatWhosePullRequestChecksFailRanksAsRedCIBeforeWorking() {
+        let red = Self.lane("red-ci", .idle, ago: 3), stale = Self.lane("red-stale", .idle, ago: 60 * 48)
+        let ranking = AgentPriorityRanking()
+        let entries = ranking.entries(Self.lanes + [red, stale], marks: .init(), now: Self.now, failingChecks: ["red-ci", "red-stale"])
+        #expect(entries.map(\.id) == ["asks-new", "asks", "done", "broke", "red-ci", "red-stale", "working", "idle-new", "idle-old"])
+        #expect(entries[4].state == .ciFailing && entries[4].needsAttention)
+        #expect(ranking.nextChange([stale], marks: .init(), now: Self.now, failingChecks: ["red-stale"]) == nil)
+
+        let overlapping: Set<String> = ["asks", "done", "working"]
+        var states = Dictionary(uniqueKeysWithValues: ranking.entries(Self.lanes, marks: .init(), now: Self.now,
+                                                                      failingChecks: overlapping).map { ($0.id, $0.state) })
+        #expect(states["asks"] == .needsYou && states["done"] == .done && states["working"] == .ciFailing)
+        let marks = AgentPriorityMarks(defaults: nil)
+        marks.markRead(Self.lane("done", .idle, ago: 20, unread: true))
+        states = Dictionary(uniqueKeysWithValues: ranking.entries(Self.lanes, marks: marks.state, now: Self.now,
+                                                                  failingChecks: overlapping).map { ($0.id, $0.state) })
+        #expect(states["done"] == .ciFailing)
+    }
+
     @Test func aPinnedChatLeadsItsTierAndStaysWhileIdleForLong() {
         let marks = AgentPriorityMarks(defaults: nil)
         let stale = Self.lane("stale", .idle, ago: 60 * 48)

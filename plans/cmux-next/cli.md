@@ -182,6 +182,26 @@ On `feat-cmux-next-browser-input` (browser group 4):
   events, which needs engine input support (not done; temporary until browser step e routes
   `press` to the host's `input.key`). `select` with words is this verb; bare `select` is the
   tab verb. Selector actions do not retry for an element that has not appeared yet.
+- `browser.page.mouse {kind: down|up|move|click, x, y, button?, click_count?, modifiers?}`,
+  `browser.page.wheel {x, y, dx?, dy?, modifiers?}`, `browser.page.insert_text {text}` and
+  `browser.page.key {key, kind?: down|up|press, modifiers?}`: raw input at a viewport point
+  (CSS px) or on the focused element, as native input: trusted events (`isTrusted`) with the
+  browser's default actions (Tab moves focus, a held button drags, a wheel scrolls), which real
+  sites check for. A WebKit page gets AppKit events to its web view (`WebKitNativeInput`, the
+  browser host driver's path); a Chromium page gets DevTools `Input.dispatchMouseEvent`,
+  `Input.dispatchKeyEvent` and `Input.insertText` (`BrowserNativeInputs`). Neither moves the
+  person's pointer or keyboard focus. The answer's `native` says which ran: with no engine view (a
+  WebKit page in no window, a Chromium page with no browser, AppKit's back and forward buttons,
+  and for a wheel a WebKit window on no screen, where WebKit would hold a native wheel; an
+  occluded window on a screen gets the native wheel; decided before sending, so it scrolls once)
+  the input runs as page events instead (untrusted, no default actions): a mouse down focuses
+  what it hits, a right down sends `contextmenu`, an up after a down of the same button clicks, a
+  wheel the page does not cancel scrolls the box under the point, and a printable key press
+  types its character. Text needs an editable focus either way (`not_editable`). Daemon
+  `browser.input.mouse|wheel|text|key` on a page the app draws (WebKit or CEF) run as these: the
+  daemon answers `browser_rendered_by_app` and the CLI and MCP route the verb
+  (`cli/app_browser_route.rs`).
+  `pointer_frame_seq` names a daemon frame and is not read there.
 
 On `feat-cmux-next-mcp` (PR into `feat-cmux-next-acpmux`):
 

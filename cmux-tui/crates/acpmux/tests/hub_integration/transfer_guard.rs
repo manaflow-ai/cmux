@@ -74,6 +74,8 @@ fn config(policy: &str, extra: Value) -> Config {
 /// A daemon on `cfg`, its log in memory or under `store`, and a client that is the person.
 async fn daemon(mut cfg: Config, store: Option<&Path>) -> (Arc<Hub>, TestClient) {
     cfg.store.mode = if store.is_some() { StoreMode::Local } else { StoreMode::Memory };
+    // The queue path before the inbox (`hub/inbox.rs`), which these tests cover.
+    cfg.agent_inbox = Some(false);
     let dir = store.unwrap_or(Path::new("/nonexistent"));
     let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, dir).unwrap());
     let client = connect(&hub).await;
@@ -362,7 +364,8 @@ async fn a_web_guarded_chat_asks_and_rules_or_policies_that_approve_are_refused(
     assert_eq!(finish(&mut dst, &rid, json!({})).await.unwrap()["policy"], "deny-all");
 
     for extra in [
-        json!({"permissionPolicy": "approve-all"}),
+        // Its owner's (an approve-all with no source asks here, `hub/policy_source.rs`).
+        json!({"permissionPolicy": "approve-all", "policySource": "set"}),
         json!({"permissionPolicy": "approve-edits"}),
         json!({"permissionRules": {"autoApprove": ["Bash"]}}),
         json!({"permissionRules": {"default": "approve"}}),
@@ -379,6 +382,27 @@ async fn a_web_guarded_chat_asks_and_rules_or_policies_that_approve_are_refused(
             assert_eq!(&s["policy"], policy, "{s}");
         }
         assert_eq!(s["rules"], extra.get("permissionRules").is_some(), "{s}");
+    }
+}
+
+/// A chat moved in with an approve-all an older daemon saved with no source (the approve-all
+/// vmHost gave, or one that could be), or with vmHost's, asks (`hub/policy_source.rs`); one whose
+/// source says its owner set it keeps its approve-all.
+#[tokio::test]
+async fn a_moved_in_approve_all_with_no_owner_source_asks() {
+    let root = Scratch::home("vmhost-grant");
+    let (_b, mut dst) = daemon(config("ask", json!({})), None).await;
+    for (extra, policy) in [
+        (json!({"remoteOrigin": true}), "ask"),
+        (json!({"remoteOrigin": false}), "ask"),
+        (json!({"remoteOrigin": true, "policySource": "vmHost"}), "ask"),
+        (json!({"remoteOrigin": true, "policySource": "set"}), "approve-all"),
+    ] {
+        let mut m = meta(root.path(), extra.clone());
+        m["permissionPolicy"] = json!("approve-all");
+        let rid = receive(&mut dst, guard("peer", &[root.path()]), &m, &[]).await.unwrap();
+        let s = finish(&mut dst, &rid, json!({})).await.unwrap();
+        assert_eq!(s["policy"], policy, "{extra}: {s}");
     }
 }
 
@@ -603,20 +627,21 @@ async fn a_chat_with_no_asking_mode_moves_under_peer_control_but_not_under_web()
         assert_eq!(q["control"], "peer", "{q}");
         assert_ne!(q["trustGate"], true, "{q}");
     }
-    let send_now = json!({"sessionId": id, "promptId": "p-a", "op": "send_now"});
-    dst.request("_acpmux/queue_edit", send_now).await.unwrap();
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
-    while !texts(&mut dst, &id, "user_message").await.contains(&"a".to_owned()) {
-        assert!(tokio::time::Instant::now() < deadline, "the held prompt never ran");
-        tokio::time::sleep(Duration::from_millis(100)).await;
+    // Its agent may not start under peer control (its family has no asking mode, 307889914b9):
+    // each held prompt ends refused and names why, never left waiting with no word.
+    for prompt_id in ["p-a", "p-b"] {
+        let refused =
+            wait_record(&mut dst, &id, "prompt_refused", |m| m["promptId"] == prompt_id).await;
+        assert_eq!(refused["data"]["reason"], "remote.mode_not_asking", "{refused}");
+        assert!(refused["error"].as_str().is_some_and(|e| e.contains("asking mode")), "{refused}");
     }
-    assert!(records(&mut dst, &id, "prompt_refused").await.is_empty());
+    assert!(!texts(&mut dst, &id, "user_message").await.contains(&"a".to_owned()));
 
     // The same kind of chat in a family the Web drives is refused for its mode and policy.
     let modes = json!({"currentModeId": "strict", "availableModes": []});
     for (extra, error) in [
         (json!({"modes": modes}), "transfer.mode"),
-        (json!({"permissionPolicy": "approve-all"}), "transfer.policy"),
+        (json!({"permissionPolicy": "approve-all", "policySource": "set"}), "transfer.policy"),
     ] {
         let m = meta(root.path(), extra.clone());
         let rid = receive(&mut dst, guard("web", &[root.path()]), &m, &[]).await.unwrap();
@@ -778,6 +803,11 @@ async fn a_guarded_move_never_replaces_a_moved_away_copy_outside_the_roots() {
     let back = move_chat(&mut b, &mut a, &id, g(), json!({})).await.unwrap();
     assert_eq!(back["sessionId"], id.as_str(), "{back}");
     assert_ne!(back["status"], "closed", "{back}");
+    let returned = a.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(
+        returned["transferBlocked"], false,
+        "returning import clears revocation: {returned}"
+    );
 }
 
 /// A moved-in chat cannot say an agent here sent its prompts: a guarded move drops the

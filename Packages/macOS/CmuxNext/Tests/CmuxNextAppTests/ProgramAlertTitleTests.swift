@@ -31,7 +31,8 @@ struct ProgramAlertTitleTests {
         decision.desktop = true
         service.deliver(notification, source: .terminal, located: located, decision: decision,
                         program: service.programStatus(of: notification, source: .terminal, located: located))
-        return service.desktop.posted.last?.title
+        // The headline is the subtitle; the title says where (workspace › tab).
+        return service.desktop.posted.last?.subtitle
     }
 
     @Test func aBlockedProgramsBannerReadsInTheAppsLanguage() throws {

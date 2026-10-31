@@ -1,6 +1,10 @@
 public import Foundation
 import SQLite3
+#if canImport(os)
 import os
+#else
+import CMUXMobileCore
+#endif
 
 private let syncStoreLog = Logger(subsystem: "com.cmuxterm.app", category: "CmuxSyncStore")
 

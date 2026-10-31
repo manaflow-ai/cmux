@@ -10,6 +10,24 @@ public struct LinkMenuRow: Sendable, Equatable {
         case open, openInTextEditor, openWith, openWithOther, revealInFinder, copyPath
         /// One app in an Open In or Open With submenu.
         case app
+
+        /// The row's SF Symbol (the catalog's for the same action: Open Link in New Tab, Copy
+        /// Link, Reveal in Finder, Copy Path); nil for an app row, which shows the app's icon.
+        var symbol: String? {
+            switch self {
+            case .openInCmuxBrowser: "globe"
+            case .openInNewCmuxTab: "plus.square.on.square"
+            case .openInDefaultBrowser: "arrow.up.right.square"
+            case .openIn, .openWith: "arrow.up.forward.app"
+            case .copyLink: "link"
+            case .open: "doc"
+            case .openInTextEditor: "square.and.pencil"
+            case .openWithOther: "ellipsis.circle"
+            case .revealInFinder: "folder"
+            case .copyPath: "doc.on.doc"
+            case .app: nil
+            }
+        }
     }
 
     public var kind: Kind
@@ -44,6 +62,9 @@ public struct LinkMenu {
     public var openInNewTab: ((URL) -> Void)?
     /// Overrides Copy Link and Copy Path (tests); nil: the router's.
     public var copy: ((String) -> Void)?
+    /// Whether a row may still act, checked when it runs and when its panel answers (an agent
+    /// chat's: still on this Mac); nil: always.
+    public var allowed: (@MainActor () -> Bool)?
     /// The most apps a submenu lists.
     nonisolated static let appLimit = 24
 
@@ -190,6 +211,10 @@ public struct LinkMenu {
             let item = PageMenuAction.item(row.title) { perform(row, link: link, file: file) }
             if let app = row.app, row.kind == .app {
                 item.image = LinkMenuAppCache.icon(for: app)
+            } else if let symbol = row.kind.symbol, let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) {
+                // Every cmux menu row shows its action's symbol, as the action registry's menus do.
+                image.isTemplate = true
+                item.image = image
             }
             if !row.children.isEmpty {
                 let submenu = NSMenu(title: row.title)
@@ -202,6 +227,7 @@ public struct LinkMenu {
     }
 
     func perform(_ row: LinkMenuRow, link: URL?, file: URL?) {
+        guard allowed?() ?? true else { return }
         let copy = copy ?? router.copy
         if let link {
             switch row.kind {
@@ -233,11 +259,17 @@ public struct LinkMenu {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         panel.prompt = Strings.open
-        let router = router
+        let menu = self
         panel.begin { response in
             guard response == .OK, let app = panel.url else { return }
-            router.open(file, withApplicationAt: app)
+            menu.openChosen(app, for: file)
         }
+    }
+
+    /// Other…'s answer: `file` in `app`, unless the menu may no longer act.
+    func openChosen(_ app: URL, for file: URL) {
+        guard allowed?() ?? true else { return }
+        router.open(file, withApplicationAt: app)
     }
 
     enum Strings {

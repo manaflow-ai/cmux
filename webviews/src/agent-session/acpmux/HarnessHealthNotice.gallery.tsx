@@ -2,7 +2,20 @@
 import { useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
+import { assistant, chat, user } from "../../gallery/fixtures/acpmux";
+import { Composer } from "./Composer";
 import { HarnessHealthNotice, type HarnessHealth, type UpdateOffer } from "./HarnessHealthNotice";
+import { NoticeSlot } from "./NoticeSlot";
+
+/// The started Codex chat the notice sits in.
+const codexChat = chat(
+  [
+    user("Add retries with backoff to the fetch helper", 6),
+    assistant("Done: GETs retry, POSTs only with a policy.", 5),
+  ],
+  { title: "Codex chat", harness: "codex", model: "gpt-5-codex" },
+);
+const NoChips = () => null;
 
 type Props = {
   health: HarnessHealth;
@@ -26,34 +39,48 @@ function GalleryHarnessHealthNotice({ health, updater = "ok", midTurn = false }:
     );
   };
   return (
-    <div
-      className="harness-health-gallery"
+    // The pane's own frame (App.tsx): the stage, then the bottom stack in the pane's flow with the
+    // notice slot over the real composer, so a notice that draws nothing still shows the composer
+    // it leaves. The stage gives up the notice's height; the composer keeps its place.
+    <section
+      className="acpmux-shell harness-health-gallery"
+      aria-label={codexChat.summary?.title}
       data-harness-opened={opened ? "true" : "false"}
       data-harness-command={opened}
       data-harness-calls={calls.join(" ")}
     >
-      <HarnessHealthNotice
-        health={health}
-        harness={health.id}
-        name="Codex"
-        cwd="/Users/you/src/cmux"
-        open={({ text }) => setOpened(text)}
-        native={native}
-        turnRunning={midTurn}
-        onOffer={setOffer}
-      />
-      {/* The model chip's update row stands in here: the offer is never a line over the chat. */}
-      {offer && (
-        <div className="harness-health-gallery-offer" data-harness-offer={offer.latest}>
-          <button type="button" data-notice-action="update" onClick={offer.update}>
-            Update
-          </button>
-          <button type="button" data-notice-action="skip" onClick={offer.skip}>
-            Skip This Version
-          </button>
+      <div className="acpmux-main">
+        <div className="acpmux-stage">
+          {/* The model chip's update row stands in here: the offer is never a line over the chat,
+            so it sits in the stage, out of the bottom stack. */}
+          {offer && (
+            <div className="harness-health-gallery-offer" data-harness-offer={offer.latest}>
+              <button type="button" data-notice-action="update" onClick={offer.update}>
+                Update
+              </button>
+              <button type="button" data-notice-action="skip" onClick={offer.skip}>
+                Skip This Version
+              </button>
+            </div>
+          )}
         </div>
-      )}
-    </div>
+        <div className="acpmux-dock">
+          <NoticeSlot>
+            <HarnessHealthNotice
+              health={health}
+              harness={health.id}
+              name="Codex"
+              cwd="/Users/you/src/cmux"
+              open={({ text }) => setOpened(text)}
+              native={native}
+              turnRunning={midTurn}
+              onOffer={setOffer}
+            />
+          </NoticeSlot>
+          <Composer snapshot={codexChat} chips={NoChips} onSend={() => true} onStop={() => undefined} />
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -94,6 +121,7 @@ const dismiss: Play = async (ctx) => {
   await runUpdate(ctx);
   await ctx.click({ selector: '[data-notice-action="dismiss"]' });
   await ctx.waitFor(() => ctx.document.querySelector("[data-harness-notice]") === null);
+  if (!ctx.document.querySelector(".acpmux-composer")) throw new Error("dismissing the notice removed the composer");
 };
 
 const signedOut: HarnessHealth = { id: "codex", auth: "signedOut", login: "codex login" };
@@ -111,15 +139,17 @@ export default componentEntry<Props>({
   title: "Agent CLI health notice",
   area: "Agent pane",
   pane: true,
-  height: 150,
+  height: 280,
   widths: { narrow: 360, normal: 560, wide: 760 },
-  anchors: [{ selector: ".acpmux-harness-notice" }],
+  // The composer, not the notice: Not Now removes the notice, and the composer under it must stay put.
+  anchors: [{ selector: ".acpmux-composer" }],
   covers: ["agent-session/acpmux/HarnessHealthNotice.tsx#HarnessHealthNotice"],
   styles: () => import("./styles.css"),
   checks: {
     anchorMovePx: {
       value: 0,
-      reason: "Running an agent login or an in-place update must leave the inline notice anchored above the composer.",
+      reason:
+        "Running an agent login, an in-place update or Not Now must leave the composer under the notice in place.",
     },
     layoutShiftMax: {
       value: 0,

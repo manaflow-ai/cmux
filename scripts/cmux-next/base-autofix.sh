@@ -4,7 +4,7 @@
 #   - generated files: copies DIR's files (the cmux-next generated files job's
 #     cmux-next-generated-patch artifact, or the base autofix's action-exports
 #     artifact: the action contracts, the CI target graph and the settings
-#     exports with their source stamp, regenerated on a Mac by
+#     exports, regenerated on a Mac by
 #     regenerate-action-exports.sh and regenerate-settings-exports.sh, at their
 #     repository paths) over the checkout;
 #   - the CI target graph: rewrites Packages/macOS/CmuxNext/ci-target-graph.json
@@ -12,6 +12,8 @@
 #     on Linux dumps the same manifest as the Mac);
 #   - SDK wire layers: every language binding's generated files from
 #     cmux-tui/spec/sdk-schema.json (cmux-tui/bindings/codegen/generate.py; with --sdk);
+#   - the daemon capability export: plans/cmux-next/daemon-capabilities.json from
+#     DaemonEndpoint.swift (scripts/cmux-next/check-daemon-capabilities-fresh.py; with --capabilities);
 #   - the docs shortcuts: web/data/cmux-shortcuts.generated.json from the
 #     committed action catalog export (web/scripts/export-docs-shortcuts.ts;
 #     with --docs-shortcuts);
@@ -31,7 +33,11 @@
 #     workflow's read-only webviews-fmt job (it installs webviews' packages,
 #     which never run next to the push token); a patch reaching outside
 #     webviews/, or into its package.json or lockfile, is not applied
-#     (with --webviews-fmt-patch PATCH);
+#     (with --webviews-fmt-patch PATCH). The base autofix's job also rebuilds the Chief memory
+#     inspector page (build-optchat-inspector-web.sh, which bundles webviews
+#     sources), so the patch may also carry
+#     Native/OptChat/optchat-chief/inspector/index.html (a stale page left after
+#     #22839 broke every webviews bundle build);
 #   - cmux-tui tree inputs: reports each embed check_cmux_tui_tree_inputs.py
 #     finds missing;
 #   - the app FFI pin: reports a stale pin (Package.swift is frozen; the
@@ -50,16 +56,17 @@
 # Prints one line per change ("fixed: ..."), skip ("skipped (frozen): ...") or
 # repair left to a person ("left: ...").
 #
-# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO
+# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO
 set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-generated="" package_dump="" sdk=0 docs_shortcuts=0 app_host=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" fmt=1
+generated="" package_dump="" sdk=0 capabilities=0 docs_shortcuts=0 app_host=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" fmt=1
 while (( $# > 1 )); do
   case "$1" in
     --generated) generated="$2"; shift 2 ;;
     --package-dump) package_dump="$2"; shift 2 ;;
     --strings) shift ;; # a no-op since #21946 (page strings are build output)
     --sdk) sdk=1; shift ;;
+    --capabilities) capabilities=1; shift ;;
     --docs-shortcuts) docs_shortcuts=1; shift ;;
     --app-host) app_host=1; shift ;;
     --unverified-exports) unverified_exports=1; shift ;;
@@ -68,10 +75,10 @@ while (( $# > 1 )); do
     --cloud-clients) cloud_clients=1; shift ;;
     --webviews-fmt-patch) webviews_patch="$2"; shift 2 ;;
     --no-fmt) fmt=0; shift ;;
-    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO" >&2; exit 2 ;;
+    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO" >&2; exit 2 ;;
   esac
 done
-repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO}" && pwd)"
+repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO}" && pwd)"
 frozen_list="$script_dir/base-autofix-frozen.txt"
 
 frozen() { # repository-relative path -> 0 when frozen; a "!" line exempts a path
@@ -131,6 +138,17 @@ if (( sdk )) && [[ -f "$repo/cmux-tui/bindings/codegen/generate.py" ]]; then
   fi
 fi
 
+# 1d2. Daemon capability export. The source parser is the same check used by
+# cmux-next checks; write mode keeps the base bot from leaving a stale catalog
+# after a Swift-only capability change.
+if (( capabilities )) && [[ -f "$repo/scripts/cmux-next/check-daemon-capabilities-fresh.py" ]]; then
+  before="$(cksum < "$repo/plans/cmux-next/daemon-capabilities.json" 2>/dev/null || true)"
+  python3 -I "$repo/scripts/cmux-next/check-daemon-capabilities-fresh.py" --repo "$repo" --write >/dev/null
+  if [[ "$before" != "$(cksum < "$repo/plans/cmux-next/daemon-capabilities.json")" ]]; then
+    echo "fixed: regenerated plans/cmux-next/daemon-capabilities.json"
+  fi
+fi
+
 # 1e. The docs shortcuts copy of the catalog export.
 shortcuts=web/data/cmux-shortcuts.generated.json
 if (( unverified_exports )); then
@@ -148,6 +166,23 @@ if (( docs_shortcuts )) && [[ -f "$repo/web/scripts/export-docs-shortcuts.ts" ]]
     else
       echo "fixed: regenerated $shortcuts"
     fi
+  fi
+fi
+
+# 1e1. The cmux-next docs reference pages (web/data/next-docs), from the same
+# export and the settings schema (plans/cmux-next/docs-DESIGN.md).
+if (( docs_shortcuts )) && [[ -f "$repo/web/scripts/export-next-docs.ts" ]]; then
+  (cd "$repo" && bun web/scripts/export-next-docs.ts >/dev/null)
+  changed="$(git -C "$repo" status --porcelain -- web/data/next-docs | cut -c4-)"
+  if [[ -n "$changed" ]]; then
+    while IFS= read -r rel; do
+      if frozen "$rel"; then
+        git -C "$repo" checkout --quiet -- "$rel" 2>/dev/null || rm -f "$repo/$rel"
+        echo "skipped (frozen): $rel (stale; bun web/scripts/export-next-docs.ts)"
+      else
+        echo "fixed: regenerated $rel"
+      fi
+    done <<<"$changed"
   fi
 fi
 
@@ -170,7 +205,7 @@ fi
 
 # 1e3. The defaults snapshot, from the action and settings exports
 # (scripts/ci/defaults_guard.py). Rewriting it never passes the defaults guard:
-# a changed default still needs a call owner's approval on the pull request.
+# a changed default still needs a SHIP review receipt or a call owner's approval on the pull request.
 defaults_snapshot=schemas/defaults/cmux-next.json
 if (( unverified_exports || unverified_settings )); then
   waits=()
@@ -219,11 +254,18 @@ if (( cloud_clients )) && [[ -f "$repo/$protocol/scripts/export-rust-client.ts" 
   done <<<"$(sort -u <<<"$changed")"
 fi
 
-# 1h. Webviews formatting, from the read-only job's patch.
+# 1h. Webviews formatting and the inspector page, from the read-only job's patch.
+inspector_page=Native/OptChat/optchat-chief/inspector/index.html
 if [[ -n "$webviews_patch" && -s "$webviews_patch" ]]; then
   outside="" include=()
   while IFS=$'\t' read -r _ _ rel; do
-    if [[ "$rel" != webviews/* || "$rel" == webviews/package.json || "$rel" == webviews/bun.lock || "$rel" == */node_modules/* ]]; then
+    if [[ "$rel" == "$inspector_page" ]]; then
+      if frozen "$rel"; then
+        echo "skipped (frozen): $rel (stale; scripts/cmux-next/build-optchat-inspector-web.sh)"
+      else
+        include+=("--include=$rel")
+      fi
+    elif [[ "$rel" != webviews/* || "$rel" == webviews/package.json || "$rel" == webviews/bun.lock || "$rel" == */node_modules/* ]]; then
       outside+="$rel "
     elif frozen "$rel"; then
       echo "skipped (frozen): $rel (unformatted; vp fmt in webviews)"
@@ -235,7 +277,13 @@ if [[ -n "$webviews_patch" && -s "$webviews_patch" ]]; then
     echo "left: the webviews formatting patch reaches $outside; nothing applied (vp fmt in webviews by hand)"
   elif (( ${#include[@]} )); then
     git -C "$repo" apply "${include[@]}" "$webviews_patch"
-    for arg in "${include[@]}"; do echo "fixed: vp fmt ${arg#--include=}"; done
+    for arg in "${include[@]}"; do
+      if [[ "${arg#--include=}" == "$inspector_page" ]]; then
+        echo "fixed: rebuilt $inspector_page"
+      else
+        echo "fixed: vp fmt ${arg#--include=}"
+      fi
+    done
   fi
 fi
 

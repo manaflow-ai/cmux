@@ -18,17 +18,27 @@
 //    mid-motion starts from what is on screen.
 // 6. Reduce Motion: positions and sizes change in one frame; only a rename keeps a crossfade of at
 //    most `crossfade` (motion.md rule 7). `ui.animationSpeed` off: everything in one frame.
-import { springStepResponse, springVisibleEnd, type SpringParameters } from "../files-panel-motion";
+import {
+  MOTION_FADES,
+  MOTION_SPRINGS,
+  springStepResponse,
+  springVisibleEnd,
+  type SpringParameters,
+} from "../files-panel-motion";
 
-/** Motion tokens at speed "fast" (plans/cmux-next/spec-proposals/visuals/design-tokens.json). */
+/** Motion springs at speed "fast": the app's (MotionTunables.springDefaults, MOTION_SPRINGS). */
 export const SYNC_SPRINGS = {
-  move: { response: 0.15, dampingFraction: 1 },
-  appear: { response: 0.135, dampingFraction: 1 },
-  disappear: { response: 0.11, dampingFraction: 1 },
+  move: MOTION_SPRINGS.move,
+  appear: MOTION_SPRINGS.appear,
+  disappear: MOTION_SPRINGS.disappear,
 } as const satisfies Record<string, SpringParameters>;
 
-/** Fade tokens in ms at speed "fast" (design-tokens.json `motion.fades`). */
-export const SYNC_FADES = { fadeIn: 120, fadeOut: 80, crossfade: 100 } as const;
+/** Fade tokens in ms at speed "fast": the motion scale's steps, and the Reduce Motion crossfade. */
+export const SYNC_FADES = {
+  fadeIn: MOTION_FADES.fadeIn,
+  fadeOut: MOTION_FADES.fadeOut,
+  crossfade: MOTION_FADES.crossfade,
+} as const;
 
 /** A change that moves more rows than this at once is a re-sort, not a move: it applies at once. */
 export const BURST_MOVE_LIMIT = 12;

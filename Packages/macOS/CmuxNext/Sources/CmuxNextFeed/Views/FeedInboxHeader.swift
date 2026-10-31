@@ -60,7 +60,7 @@ struct FeedInboxHeader: View {
                     .accessibilityLabel(FeedStrings.markAllRead).accessibilityIdentifier("cmux.feed.markAllRead")
                 if canRefresh {
                     Button(action: refresh) { Icon(.actionReload, size: Self.glyphSide) }
-                        .buttonStyle(.plain).themedHelp(FeedStrings.refresh)
+                        .buttonStyle(.plain)
                         .accessibilityLabel(FeedStrings.refresh).accessibilityIdentifier("cmux.feed.refresh")
                 }
             }

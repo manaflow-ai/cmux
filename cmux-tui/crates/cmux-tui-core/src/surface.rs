@@ -15,8 +15,12 @@ mod directory;
 mod exit_state;
 mod frame_producer;
 mod geometry;
+#[cfg(unix)]
+mod holder_spawn;
+mod host_launch;
 mod host_state;
 mod input;
+mod local_output;
 mod metadata;
 mod mouse_input;
 mod options;
@@ -31,6 +35,9 @@ mod stream_progress;
 mod terminal_runtime;
 mod terminal_stream;
 pub use color_overrides::apply_terminal_color_overrides;
+#[cfg(unix)]
+pub(crate) use holder_spawn::{HolderAdoption, HolderSpawn};
+pub(crate) use host_launch::HostLaunch;
 pub use host_state::{TerminalHostConnectionState, TerminalHostFallback};
 // Hosted (unix) code and the unit tests are the only callers.
 use clear_history::LOCAL_PASTE_WRITE_TIMEOUT;
@@ -48,7 +55,7 @@ use color_overrides::{
     terminal_color_override_delta, terminal_color_override_full_state,
     terminal_color_overrides_match_applied,
 };
-use frame_producer::{FrameRequests, spawn_frame_producer};
+use frame_producer::spawn_frame_producer;
 use scrolling::{
     broadcast_render_scroll_locked, set_terminal_scroll_offset, terminal_scroll_position,
 };
@@ -112,10 +119,10 @@ use hosted_callbacks::hosted_terminal_callbacks;
 use hosted_reader::HostedReader;
 #[cfg(any(unix, windows))]
 mod host_kitty_limits;
-#[cfg(all(test, unix))]
-mod journal_failure_tests;
 #[cfg(any(unix, windows))]
 mod journal_reconnect;
+#[cfg(unix)]
+mod link_recover;
 #[cfg(any(unix, windows))]
 mod prelaunch;
 #[cfg(any(unix, windows))]
@@ -569,6 +576,16 @@ impl Surface {
         }
     }
 
+    /// The hex terminal id key-press flow marks name this terminal by (`cmux_flow_trace`): the host's
+    /// terminal id, which the terminal host and the holder also know. Empty for a browser surface or a
+    /// local PTY with no host identity.
+    pub(crate) fn flow_terminal_id(&self) -> &str {
+        match self {
+            Self::Pty(surface) => surface.flow_terminal_id(),
+            Self::Browser(_) => "",
+        }
+    }
+
     /// Create another view placement for this terminal without creating a
     /// second process or terminal emulator.
     pub(crate) fn project_terminal(
@@ -730,7 +747,7 @@ impl Surface {
             platform::snapshot_cwd_to_local_path(cwd, Some(attachment.record.owner_token.as_str()))
         });
         let render_state = RenderState::new()?;
-        let frame_requests = Arc::new(FrameRequests::default());
+        let frame_requests = frame_producer::FrameRequests::new();
         #[cfg(test)]
         let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
         let surface = Arc::new(Surface::Pty(PtySurface {
@@ -745,11 +762,12 @@ impl Surface {
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation,
                 journal_capture_supported,
+                #[cfg(unix)]
+                local_output: None,
                 journal_capture_epoch: AtomicU64::new(0),
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
-                journal_capture_disabled: AtomicBool::new(false),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
@@ -785,6 +803,7 @@ impl Surface {
                 exit_notified: AtomicBool::new(false),
                 dead: AtomicBool::new(false),
                 owner_detaching: AtomicBool::new(false),
+                recover_requested: AtomicBool::new(false),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
                 host_fallback: host_fallback.map(std::sync::OnceLock::from).unwrap_or_default(),
                 dirty: AtomicBool::new(true),
@@ -877,7 +896,7 @@ impl Surface {
             title_changed,
             pending_bells,
             output_apply_delay: HostedReader::output_apply_delay_from_env(),
-            flap_backoff: TerminalHostReconnectBackoff::default(),
+            flap_backoff: TerminalHostReconnectBackoff::retrying_after_failure(),
             resync_backoff: TerminalHostReconnectBackoff::default(),
             connected_at: None,
         };
@@ -963,6 +982,8 @@ impl Surface {
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PtyGeometryTestStep {
+    LocalReaderReady,
+    LocalDrainSnapshot,
     ResizeStarted,
     ResizeCommitBoundary,
     CellPixelStarted,

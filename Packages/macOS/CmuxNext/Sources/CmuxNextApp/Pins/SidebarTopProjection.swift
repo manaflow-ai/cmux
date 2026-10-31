@@ -41,7 +41,9 @@ struct SidebarWorkspaceItems {
     static func workspaceInfos(_ layout: SidebarLayoutDocument, refs: WorkspaceLayoutRefs) -> [LayoutItemRef: SidebarItemInfo] {
         var infos: [LayoutItemRef: SidebarItemInfo] = [:]
         for item in layout.sections.lazy.flatMap(\.items) where item.ref.kind == LayoutItemRef.workspaceKind && infos[item.ref] == nil {
-            if let (workspace, _) = refs.workspace(for: item.ref) { infos[item.ref] = workspaceInfo(workspace) }
+            if let (workspace, daemon) = refs.workspace(for: item.ref) {
+                infos[item.ref] = workspaceInfo(workspace, machine: MachineID(daemon.machineID))
+            }
         }
         return infos
     }
@@ -51,11 +53,12 @@ struct SidebarWorkspaceItems {
     /// page's favicon, else none: text only, no kind glyph or agent brand
     /// (WORKSPACE-ROWS-NO-DEFAULT-ICON), in the workspace's color, with the row's status.
     /// The selection marks it active (SidebarModel.selectedItem).
-    static func workspaceInfo(_ workspace: WorkspaceModel) -> SidebarItemInfo {
-        let row = SidebarMapping.shared.row(workspace, machine: .local, showsUnread: false)
+    static func workspaceInfo(_ workspace: WorkspaceModel, machine: MachineID) -> SidebarItemInfo {
+        let row = SidebarMapping.shared.row(workspace, machine: machine, showsUnread: false)
         var info = glyphInfo(row, color: SidebarMapping.shared.color(workspace.color))
         info.activity = row.activity
         info.activityStyle = row.activityStyle
+        (info.workspace, info.workspaceRow) = (row.id, row) // the row's hover card reads `workspaceRow`
         return info
     }
 
@@ -67,8 +70,14 @@ struct SidebarWorkspaceItems {
             var info = SidebarItemInfo(title: row.title, symbol: "globe", color: color)
             info.favicon = image
             return info
-        case .swatch?, nil:
+        case .swatch?:
+            // The workspace's color as its list row draws it: a dot before the title (SidebarItemRowView).
             var info = SidebarItemInfo(title: row.title, symbol: "textformat", color: color)
+            info.textOnly = true
+            return info
+        case nil:
+            // No icon and no color shown (none set, or Show Workspace Colors off): the title alone.
+            var info = SidebarItemInfo(title: row.title, symbol: "textformat", color: nil)
             info.textOnly = true
             return info
         }

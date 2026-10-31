@@ -46,9 +46,10 @@ public final class AgentPriorityMarks {
         state = saved ?? State()
     }
 
-    /// What a mark on `lane` holds for: its state and since when.
+    /// What a mark on `lane` holds for: its state and since when, or the notice it shows when the
+    /// lane names one (`markKey`: another machine's chat, whose notice may have no time).
     public nonisolated static func stamp(_ lane: AgentActivityLane) -> String {
-        "\(lane.state.rawValue)@\(lane.since.map { Int64($0.timeIntervalSince1970 * 1000) } ?? 0)"
+        "\(lane.state.rawValue)@\(lane.markKey ?? String(lane.since.map { Int64($0.timeIntervalSince1970 * 1000) } ?? 0))"
     }
 
     public func markRead(_ lane: AgentActivityLane) { state.read[lane.id] = Self.stamp(lane) }

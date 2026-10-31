@@ -13,6 +13,7 @@ use super::CREATION_RECEIPTS_CAPABILITY;
 use super::CREATION_SELECTOR_FALLBACKS_CAPABILITY;
 use super::ClientIdentityWire;
 use super::GUARDED_BROWSER_POINTER_CAPABILITY;
+use super::HOST_GRID_VIEW_CAPABILITY;
 use super::LOOPBACK_FORWARD_CAPABILITY;
 use super::MessageWriter;
 use super::OPEN_DEVICE_KINDS_CAPABILITY;
@@ -39,7 +40,6 @@ use super::{
     app_trust, clipboard_read, conversation_tabs_wire, loopback_forward, terminal_snapshot,
     url_open,
 };
-use crate::SurfaceId;
 use crate::browser::BrowserPointerOwner;
 use crate::mux::ClientSizingIdentity;
 use crate::mux::ResourceWaitWake;
@@ -47,6 +47,7 @@ use crate::resource::RequestId as ResourceRequestId;
 use crate::resource::ResourceError;
 use crate::resource::StreamPublicId;
 use crate::sizing_policy::TerminalSizingState;
+use crate::{SurfaceId, panic_free::RecoverPoison};
 use base64::Engine;
 use serde_json::Value;
 use serde_json::json;
@@ -98,6 +99,8 @@ pub(super) struct AttachedSurface {
     pub(super) lease_by_stream: BTreeMap<u64, String>,
     pub(super) view_sizes: HashMap<String, Option<(u16, u16)>>,
     pub(super) geometry_lease: Option<String>,
+    /// Leases of `terminal.attach read_only` views: they watch and never size.
+    pub(super) read_only_leases: HashSet<String>,
 }
 
 pub(super) struct DetachedSurface {
@@ -176,7 +179,7 @@ impl ResourceWaitCancellation {
     }
 
     pub(super) fn register(&self, wake: &Arc<ResourceWaitWake>) {
-        let mut wakeups = self.wakeups.lock().unwrap();
+        let mut wakeups = self.wakeups.lock().recover_poison();
         wakeups.retain(|registered| registered.strong_count() > 0);
         if self.is_canceled() {
             drop(wakeups);
@@ -190,14 +193,14 @@ impl ResourceWaitCancellation {
         if self.canceled.swap(true, Ordering::AcqRel) {
             return;
         }
-        let wakeups = std::mem::take(&mut *self.wakeups.lock().unwrap());
+        let wakeups = std::mem::take(&mut *self.wakeups.lock().recover_poison());
         for wake in wakeups.into_iter().filter_map(|wake| wake.upgrade()) {
             wake.notify();
         }
     }
 
     pub(super) fn begin_completion(&self) -> bool {
-        let mut lifecycle = self.lifecycle.lock().unwrap();
+        let mut lifecycle = self.lifecycle.lock().recover_poison();
         if self.is_canceled() || lifecycle.completion_started {
             return false;
         }
@@ -206,33 +209,33 @@ impl ResourceWaitCancellation {
     }
 
     pub(super) fn completion_started(&self) -> bool {
-        self.lifecycle.lock().unwrap().completion_started
+        self.lifecycle.lock().recover_poison().completion_started
     }
 
     pub(super) fn mark_response_attempted(&self) {
-        let mut lifecycle = self.lifecycle.lock().unwrap();
+        let mut lifecycle = self.lifecycle.lock().recover_poison();
         lifecycle.response_attempted = true;
         self.lifecycle_changed.notify_all();
     }
 
     pub(super) fn wait_for_response_attempt(&self) -> bool {
-        let mut lifecycle = self.lifecycle.lock().unwrap();
+        let mut lifecycle = self.lifecycle.lock().recover_poison();
         while !lifecycle.response_attempted && !lifecycle.worker_finished {
-            lifecycle = self.lifecycle_changed.wait(lifecycle).unwrap();
+            lifecycle = self.lifecycle_changed.wait(lifecycle).recover_poison();
         }
         lifecycle.response_attempted
     }
 
     pub(super) fn mark_worker_finished(&self) {
-        let mut lifecycle = self.lifecycle.lock().unwrap();
+        let mut lifecycle = self.lifecycle.lock().recover_poison();
         lifecycle.worker_finished = true;
         self.lifecycle_changed.notify_all();
     }
 
     pub(super) fn wait_for_worker_finish(&self) {
-        let mut lifecycle = self.lifecycle.lock().unwrap();
+        let mut lifecycle = self.lifecycle.lock().recover_poison();
         while !lifecycle.worker_finished {
-            lifecycle = self.lifecycle_changed.wait(lifecycle).unwrap();
+            lifecycle = self.lifecycle_changed.wait(lifecycle).recover_poison();
         }
     }
 }
@@ -320,6 +323,8 @@ pub(crate) struct ClientRegistry {
     /// Connection-scoped browser hosts (`browser-runtime-v1`).
     #[cfg(unix)]
     pub(super) browser_runtimes: super::browser_runtime::BrowserRuntimes,
+    /// Size leases of connections with `size-lease-v1` (size_lease.rs).
+    pub(super) size_leases: Arc<super::size_lease::SizeLeases>,
     /// Connection-scoped agent session attachments (`agent-session-attach-v1`).
     #[cfg(unix)]
     pub(super) agent_sessions: agent_session_attach::AgentSessions,
@@ -384,6 +389,7 @@ impl ClientRegistry {
             loopback: loopback_forward::LoopbackForwarder::default(),
             #[cfg(unix)]
             browser_runtimes: Default::default(),
+            size_leases: Default::default(),
             #[cfg(unix)]
             agent_sessions: Default::default(),
             snapshot_viewers: Default::default(),
@@ -411,8 +417,20 @@ impl ClientRegistry {
     }
 
     pub(super) fn register(&self, transport: ClientTransport, writer: MessageWriter) -> u64 {
+        self.register_classified(transport, writer, false)
+    }
+
+    /// `register`, with `owner_plugin` true for a connection from the owner's
+    /// own journal plugin (orphan_shutdown.rs), fixed before the presence
+    /// observer hears of it.
+    pub(super) fn register_classified(
+        &self,
+        transport: ClientTransport,
+        writer: MessageWriter,
+        owner_plugin: bool,
+    ) -> u64 {
         let client = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if state.daemon_handoff.is_some() {
             drop(state);
             writer.close();
@@ -426,6 +444,7 @@ impl ClientRegistry {
                 name: None,
                 kind: None,
                 identity: ClientIdentityWire::default(),
+                remote_device: false,
                 capabilities: HashSet::new(),
                 browser_pointer_owner: None,
                 attached: BTreeMap::new(),
@@ -440,6 +459,7 @@ impl ClientRegistry {
                 writer,
                 origin: Default::default(),
                 person: false,
+                owner_plugin,
                 #[cfg(unix)]
                 machine_catalog: None,
             },
@@ -450,21 +470,21 @@ impl ClientRegistry {
     }
 
     pub(super) fn client_ids(&self) -> Vec<u64> {
-        self.state.lock().unwrap().clients.keys().copied().collect()
+        self.state.lock().recover_poison().clients.keys().copied().collect()
     }
 
     #[cfg(test)]
     pub(super) fn daemon_handoff_pending(&self) -> bool {
-        self.state.lock().unwrap().daemon_handoff.is_some()
+        self.state.lock().recover_poison().daemon_handoff.is_some()
     }
 
     pub(crate) fn daemon_handoff_in_progress(&self) -> bool {
-        self.state.lock().unwrap().daemon_handoff.is_some()
+        self.state.lock().recover_poison().daemon_handoff.is_some()
     }
 
     pub(crate) fn daemon_handoff_committed(&self) -> bool {
         matches!(
-            self.state.lock().unwrap().daemon_handoff,
+            self.state.lock().recover_poison().daemon_handoff,
             Some(DaemonHandoffReservation::Committed(_))
         )
     }
@@ -475,7 +495,7 @@ impl ClientRegistry {
         stream_id: &StreamPublicId,
         outbound: OutboundStream,
     ) -> Result<(Arc<AtomicBool>, ResourceWorkerPermit), ResourceStreamInstallError> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         let record =
             state.clients.get_mut(&client).ok_or(ResourceStreamInstallError::UnknownClient)?;
         if record.resource_streams.contains_key(stream_id.as_str()) {
@@ -501,7 +521,7 @@ impl ClientRegistry {
     ) -> Option<ResourceClientStream> {
         self.state
             .lock()
-            .unwrap()
+            .recover_poison()
             .clients
             .get_mut(&client)?
             .resource_streams
@@ -514,7 +534,7 @@ impl ClientRegistry {
         stream_id: &StreamPublicId,
         outbound_id: u64,
     ) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         let Some(record) = state.clients.get_mut(&client) else { return };
         if record
             .resource_streams
@@ -531,7 +551,7 @@ impl ClientRegistry {
         request_id: &ResourceRequestId,
     ) -> Result<(Arc<ResourceWaitCancellation>, ResourceWorkerPermit), ResourceWaitInstallError>
     {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         let record =
             state.clients.get_mut(&client).ok_or(ResourceWaitInstallError::UnknownClient)?;
         if record.resource_waits.contains_key(request_id) {
@@ -559,7 +579,7 @@ impl ClientRegistry {
         request_id: &ResourceRequestId,
         canceled: &Arc<ResourceWaitCancellation>,
     ) -> bool {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         let Some(record) = state.clients.get(&client) else { return false };
         record
             .resource_waits
@@ -575,7 +595,7 @@ impl ClientRegistry {
         canceled: &Arc<ResourceWaitCancellation>,
     ) -> bool {
         let removed = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().recover_poison();
             let Some(record) = state.clients.get_mut(&client) else { return false };
             if record
                 .resource_waits
@@ -599,7 +619,7 @@ impl ClientRegistry {
         request_id: &ResourceRequestId,
     ) -> ResourceWaitCancel {
         {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().recover_poison();
             let Some(record) = state.clients.get_mut(&client) else {
                 return ResourceWaitCancel::Missing;
             };
@@ -623,7 +643,7 @@ impl ClientRegistry {
         kind: Option<String>,
         capabilities: Option<Vec<String>>,
     ) -> anyhow::Result<(Option<String>, Option<String>)> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if kind.as_deref() == Some("native-browser") && state.daemon_handoff.is_some() {
             anyhow::bail!("daemon handoff is already in progress");
         }
@@ -644,6 +664,8 @@ impl ClientRegistry {
                     || capability == VIEW_ATTACHMENT_DETACH_CAPABILITY
                     || capability == SHARED_SIZING_CAPABILITY
                     || capability == SIZING_VIEW_DETACH_CAPABILITY
+                    || capability == super::SIZE_LEASE_CAPABILITY
+                    || capability == HOST_GRID_VIEW_CAPABILITY
                     || capability == OPEN_DEVICE_KINDS_CAPABILITY
                     || capability == TERMINAL_COLOR_OVERRIDES_CAPABILITY
                     || capability == TERMINAL_PENDING_SEQUENCE_CAPABILITY
@@ -656,9 +678,11 @@ impl ClientRegistry {
                     || conversation_tabs_wire::negotiable(capability)
                     || capability == super::conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY
                     || capability == super::FRONTEND_BROWSER_TABS_CAPABILITY
-                    || capability == super::conversation_runs::CONVERSATION_RUNS_CAPABILITY
+                    || (capability == super::conversation_runs::CONVERSATION_RUNS_CAPABILITY || capability == super::conversation_runs::CONVERSATION_RUN_ANSWERS_CAPABILITY)
                     || capability == super::conversation_live::CHIEF_LIVE_CAPABILITY
                     || capability == super::cloud_conversations::CLOUD_TYPING_CAPABILITY
+                    || capability == super::cloud_conversations::CLOUD_PRESENCE_CAPABILITY
+                    || agent_session_presence(capability)
                     // No placement restatement on `session.events`
                     // (state/placement_shift.rs).
                     || capability == crate::state::placement_shift::CAPABILITY
@@ -673,7 +697,7 @@ impl ClientRegistry {
 
     /// The client's declared API revision (server/api_revision_wire.rs).
     pub(super) fn set_api_revision(&self, client: u64, revision: u32) -> anyhow::Result<()> {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         let record =
             state.clients.get(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
         record.writer.api_revision.declare(revision)
@@ -681,7 +705,7 @@ impl ClientRegistry {
 
     /// Merge identity fields: absent fields keep their previous value.
     pub(super) fn set_sizing_identity(&self, client: u64, identity: ClientIdentityWire) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         let Some(record) = state.clients.get_mut(&client) else { return };
         let current = &mut record.identity;
         if identity.user_id.is_some() {
@@ -701,10 +725,18 @@ impl ClientRegistry {
         }
     }
 
+    /// Marks the connection as a remote device's lane (`host-size-policy-v1`).
+    pub(super) fn mark_remote_device(&self, client: u64) {
+        let mut state = self.state.lock().recover_poison();
+        if let Some(record) = state.clients.get_mut(&client) {
+            record.remote_device = true;
+        }
+    }
+
     /// The connection's identity for shared sizing. Without explicit
     /// fields it falls back to `name` and a device kind parsed from `kind`.
     pub(crate) fn sizing_identity(&self, client: u64) -> Option<ClientSizingIdentity> {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         let record = state.clients.get(&client)?;
         let mut identity = record.identity.clone();
         if identity.display_name.is_none() {
@@ -713,7 +745,8 @@ impl ClientRegistry {
         if identity.device_kind.is_none() {
             identity.device_kind.clone_from(&record.kind);
         }
-        Some(identity.into_identity())
+        let remote = record.remote_device;
+        Some(ClientSizingIdentity { remote, ..identity.into_identity() })
     }
 
     /// Deliver a `size-state` event on every attach stream of `surface`.
@@ -726,7 +759,7 @@ impl ClientRegistry {
         size_state: &TerminalSizingState,
     ) {
         let targets = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             state
                 .attached_by_surface
                 .get(&surface)
@@ -784,7 +817,7 @@ impl ClientRegistry {
         event: &Value,
     ) -> bool {
         let target = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             state.clients.get(&client).map(|record| {
                 let streams = Self::event_streams(record, surface);
                 let target = match stream {
@@ -811,7 +844,7 @@ impl ClientRegistry {
     ) -> Result<(Option<String>, Option<String>), ResourceError> {
         let name = name.map(|name| validate_resource_client_label("name", name)).transpose()?;
         let kind = kind.map(|kind| validate_resource_client_label("kind", kind)).transpose()?;
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if kind.as_ref().and_then(|kind| kind.as_deref()) == Some("native-browser")
             && state.daemon_handoff.is_some()
         {
@@ -840,7 +873,7 @@ impl ClientRegistry {
     pub(super) fn resource_records(&self) -> Vec<ResourceClientRecord> {
         self.state
             .lock()
-            .unwrap()
+            .recover_poison()
             .clients
             .iter()
             .map(|(client, record)| ResourceClientRecord {
@@ -870,7 +903,7 @@ impl ClientRegistry {
     /// tabs, the cmux app, is attached to this session). A page relay or a
     /// page's WebSocket renders no tabs, so its declaration never counts.
     pub(crate) fn any_client_supports(&self, capability: &str) -> bool {
-        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let state = self.state.lock().recover_poison();
         state.clients.values().any(|record| {
             record.origin.role != crate::request_origin::HelloRole::PageRelay
                 && record.origin.page.is_none()
@@ -878,10 +911,10 @@ impl ClientRegistry {
         })
     }
 
-    pub(super) fn supports_capability(&self, client: u64, capability: &str) -> bool {
+    pub(crate) fn supports_capability(&self, client: u64, capability: &str) -> bool {
         self.state
             .lock()
-            .unwrap()
+            .recover_poison()
             .clients
             .get(&client)
             .is_some_and(|record| record.capabilities.contains(capability))
@@ -892,7 +925,7 @@ impl ClientRegistry {
         client: u64,
         surface: SurfaceId,
     ) -> bool {
-        self.state.lock().unwrap().clients.get(&client).is_some_and(|record| {
+        self.state.lock().recover_poison().clients.get(&client).is_some_and(|record| {
             record.attached.contains_key(&surface) || record.retired_surfaces.contains(&surface)
         })
     }
@@ -902,13 +935,13 @@ impl ClientRegistry {
         client: u64,
         surface: SurfaceId,
     ) -> bool {
-        self.state.lock().unwrap().clients.get(&client).is_some_and(|record| {
+        self.state.lock().recover_poison().clients.get(&client).is_some_and(|record| {
             !record.attached.contains_key(&surface) && record.retired_surfaces.contains(&surface)
         })
     }
 
     pub(super) fn browser_pointer_owner(&self, client: u64) -> anyhow::Result<BrowserPointerOwner> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         let record = state
             .clients
             .get_mut(&client)
@@ -930,7 +963,7 @@ impl ClientRegistry {
         requesting_client: u64,
         force: bool,
     ) -> anyhow::Result<()> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         let requester = state
             .clients
             .get(&requesting_client)
@@ -957,7 +990,7 @@ impl ClientRegistry {
         requesting_client: u64,
         acknowledge: impl FnOnce() -> std::io::Result<()>,
     ) -> anyhow::Result<()> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         match state.daemon_handoff {
             Some(DaemonHandoffReservation::Pending(requester))
                 if requester == requesting_client =>
@@ -971,14 +1004,14 @@ impl ClientRegistry {
     }
 
     pub(crate) fn cancel_daemon_handoff(&self, requesting_client: u64) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(requesting_client)) {
             state.daemon_handoff = None;
         }
     }
 
     pub(crate) fn list_json(&self, requesting_client: u64) -> Value {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         json!(
             state
                 .clients
@@ -1015,5 +1048,19 @@ impl ClientRegistry {
                 })
                 .collect::<Vec<_>>()
         )
+    }
+}
+
+/// An attached agent session's presence (`agent-session-presence`), which only a unix host serves,
+/// as it alone attaches agent sessions.
+fn agent_session_presence(capability: &str) -> bool {
+    #[cfg(unix)]
+    {
+        capability == agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = capability;
+        false
     }
 }

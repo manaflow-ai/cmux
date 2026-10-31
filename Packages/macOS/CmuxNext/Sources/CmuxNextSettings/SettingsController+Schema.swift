@@ -38,19 +38,28 @@ extension SettingsController {
         if descriptor.path == DensitySetting().configPath, try await file.value(at: customDensity) != nil {
             linked.append((path: customDensity, value: nil))
         }
-        if let value {
-            guard descriptor.accepts(value) else { throw SettingRefused(key: descriptor.id, value: value) }
-            if legacy != nil || !linked.isEmpty {
-                try await file.apply([(path: descriptor.path, value: value)] + (legacy.map { [(path: $0, value: nil)] } ?? []) + linked)
+        if let value, !descriptor.accepts(value) { throw SettingRefused(key: descriptor.id, value: value) }
+        // Before the write, so an observer of the new value already sees what the hook recorded;
+        // the hook's undo runs if the write fails.
+        let undo = writer == .user ? userWillWrite?(descriptor, value) : nil
+        do {
+            if let value {
+                if legacy != nil || !linked.isEmpty {
+                    try await file.apply([(path: descriptor.path, value: value)] + (legacy.map { [(path: $0, value: nil)] } ?? []) + linked)
+                } else {
+                    try await file.set(value, at: descriptor.path)
+                }
+                if descriptor.kind == .fontFamily, let family = value.stringValue { recentFonts.record(family) }
+                await reloadAfterWrite()
             } else {
-                try await file.set(value, at: descriptor.path)
+                if let legacy { try await file.remove(legacy) }
+                // One publish removes the pair; removePruning then drops the emptied parents.
+                if !linked.isEmpty { try await file.apply([(path: descriptor.path, value: nil)] + linked) }
+                try await removePruning(descriptor.path)
             }
-            await reloadAfterWrite()
-        } else {
-            if let legacy { try await file.remove(legacy) }
-            // One publish removes the pair; removePruning then drops the emptied parents.
-            if !linked.isEmpty { try await file.apply([(path: descriptor.path, value: nil)] + linked) }
-            try await removePruning(descriptor.path)
+        } catch {
+            undo?()
+            throw error
         }
         validatedWrites[descriptor.id, default: 0] += 1
     }
@@ -80,6 +89,9 @@ extension SettingsController {
         let managed = file.managedGuard.managedKeys
         for descriptor in SettingsSchema.all where managed[descriptor.id] == nil && !SettingsSchema.keptOnResetAll.contains(descriptor.path) {
             try await removePruning(descriptor.path)
+        }
+        for key in SettingsSchema.retiredKeys.keys.sorted() where managed[key] == nil {
+            try await removePruning(CmuxConfigFile.keyPath(from: key))
         }
         try await file.remove(["shortcuts", "bindings"])
         if case .object(let members)? = try await file.value(at: ["shortcuts"]) {

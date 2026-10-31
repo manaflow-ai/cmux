@@ -1,8 +1,17 @@
 // The New Tab page templates (cx-yabk, plans/cmux-next/new-tab-templates.md), set in Settings as
 // `tabs.newTabTemplate`.
 
-/// Template ids, the default (Cards) first. Terminal draws the Cards screen: New Tab never opens a terminal by itself.
-export const NEW_TAB_TEMPLATES = ["cards", "default", "composer", "threads", "console", "classic", "terminal"] as const;
+/// Template ids, the default (Minimal) first. Terminal draws the Cards screen: New Tab never opens a terminal by itself.
+export const NEW_TAB_TEMPLATES = [
+  "minimal",
+  "cards",
+  "default",
+  "composer",
+  "threads",
+  "console",
+  "classic",
+  "terminal",
+] as const;
 export type NewTabTemplate = (typeof NEW_TAB_TEMPLATES)[number];
 
 /// The templates the one-field screen draws (Classic is the kind-switch page; Terminal has no page).
@@ -28,9 +37,13 @@ export type ScreenSections = {
 };
 
 const SECTIONS: Record<ScreenTemplate, ScreenSections> = {
-  // Cards (u2851, from a scrawl of Aside's New Tab page): one rounded field with the Search | Ask
-  // switch in it, the project and the agent's chips in a row under it, then three chat cards.
-  // The page an unset template shows (shownTemplate).
+  // Minimal (Leo 2026-10-20: "only do the composer for the default"): the composer, about the
+  // window's middle, with no greeting (Leo 2026-10-22). The rest is widgets the user
+  // turns on (pageWidgets.ts); with the project card, the actions or the chats on, the page takes
+  // Default's stage around them. What an unset template shows (shownTemplate).
+  minimal: { chats: "list", allChats: false, recent: 5, prompt: false, closed: false, stage: true },
+  // Cards (u2851, from a scrawl of Aside's New Tab page): one rounded field, the project and
+  // the agent's chips in a row under it, then three chat cards.
   cards: { chats: "cards", allChats: false, recent: 3, prompt: false, closed: false, stage: false },
   // Calm (Leo 2026-10-11): the composer, then a few recent chats as quiet rows. The pane's
   // actions live in the palette and the pane's toolbar, not on the page.
@@ -44,7 +57,7 @@ export function screenSections(template: ScreenTemplate): ScreenSections {
   return SECTIONS[template];
 }
 
-/// The screen template a template draws with. Terminal draws the Cards screen (the default); Classic is not a screen.
+/// The screen template a template draws with. Terminal draws the Cards screen; Classic is not a screen.
 export function screenTemplate(template: NewTabTemplate): ScreenTemplate {
   return template === "terminal" || template === "classic" ? "cards" : template;
 }
@@ -55,13 +68,16 @@ export function parseNewTabTemplate(value: unknown): NewTabTemplate | undefined 
 }
 
 /// The styles the page's style switch offers, in its order (Leo 2026-10-13, cx-txe89). Terminal is
-/// not one: New Tab never opens a terminal by itself.
-export const PAGE_STYLES = ["cards", "default", "composer", "threads", "console", "classic"] as const;
+/// not one: New Tab never opens a terminal by itself. The legacy `composer` id remains parseable
+/// for saved settings, but is not offered: it was the same one-composer page as Minimal.
+export const PAGE_STYLES = ["minimal", "cards", "default", "threads", "console", "classic"] as const;
 export type PageStyle = (typeof PAGE_STYLES)[number];
 
 /// The style the switch marks for a template (Terminal draws the Cards screen).
 export function pageStyle(template: NewTabTemplate): PageStyle {
-  return template === "terminal" ? "cards" : template;
+  if (template === "terminal") return "cards";
+  if (template === "composer") return "minimal";
+  return template;
 }
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -74,9 +90,10 @@ export function pickNewTabStyle(style: PageStyle, deps: { callNative: Native; sh
 }
 
 /// The template an unset `tabs.newTabTemplate` shows (the schema's default, NewTabTemplate.fallback).
-export const DEFAULT_NEW_TAB_TEMPLATE: NewTabTemplate = "cards";
+export const DEFAULT_NEW_TAB_TEMPLATE: NewTabTemplate = "minimal";
 
-/// The template to show: the saved one, else the Debug Settings design (`a` is Classic), else Cards.
+/// The template to show: the saved one, else the Debug Settings design (`a` is Classic), else Minimal.
 export function shownTemplate(host: { template?: NewTabTemplate; layout: "a" | "b" }): NewTabTemplate {
-  return host.template ?? (host.layout === "a" ? "classic" : DEFAULT_NEW_TAB_TEMPLATE);
+  const saved = host.template === "composer" ? DEFAULT_NEW_TAB_TEMPLATE : host.template;
+  return saved ?? (host.layout === "a" ? "classic" : DEFAULT_NEW_TAB_TEMPLATE);
 }

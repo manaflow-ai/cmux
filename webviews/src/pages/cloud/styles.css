@@ -8,7 +8,6 @@
   color-scheme: light dark;
   --cloud-text: var(--cmux-text, CanvasText);
   --cloud-text-2: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 70%, transparent));
-  --cloud-text-3: var(--cmux-text-tertiary, color-mix(in srgb, CanvasText 50%, transparent));
   --cloud-separator: var(--cmux-separator, color-mix(in srgb, CanvasText 8%, transparent));
   --cloud-hover: var(--cmux-hover, color-mix(in srgb, CanvasText 6%, transparent));
   --cloud-selection: var(--cmux-selection, color-mix(in srgb, CanvasText 10%, transparent));
@@ -26,7 +25,7 @@ body {
   margin: 0;
   background: transparent;
   color: var(--cloud-text);
-  font: 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font: 13px var(--font-ui);
   -webkit-font-smoothing: antialiased;
   user-select: none;
 }
@@ -42,7 +41,7 @@ body {
 }
 
 :focus-visible:not(:where(input:not([type="button"], [type="submit"], [type="reset"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="image"]), textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="searchbox"])):not([role="menu"], .ui-popup) {
-  outline: 2px solid var(--cloud-text-3);
+  outline: 2px solid var(--cloud-text-2);
   outline-offset: 1px;
 }
 
@@ -149,7 +148,7 @@ select {
   justify-items: center;
   gap: 8px;
   padding: 32px 24px;
-  color: var(--cloud-text-3);
+  color: var(--cloud-text-2);
   text-align: center;
 }
 
@@ -171,21 +170,26 @@ select {
   color: var(--cloud-text);
 }
 
-/* Three regions that wrap in narrow panes: machines, detail, account. */
+/* The machines list, detail, and account rail share one stable structure. */
 .cloud-body {
   flex: 1;
   display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
+  align-items: flex-start;
+  flex-wrap: nowrap;
   gap: 0 24px;
   overflow-y: auto;
   padding: 0 18px 24px;
   min-width: 0;
 }
 
+.cloud-body.layout-cards {
+  flex-wrap: wrap;
+  align-content: flex-start;
+}
+
 .cloud-machines {
-  flex: 1 1 260px;
-  max-width: 420px;
+  flex: 0 1 280px;
+  max-width: 280px;
   min-width: 0;
 }
 
@@ -196,7 +200,7 @@ select {
 
 .cloud-detail,
 .cloud-detail-placeholder {
-  flex: 3 1 360px;
+  flex: 1 1 360px;
   min-width: 0;
 }
 
@@ -204,7 +208,10 @@ select {
   flex: 1 1 220px;
   max-width: 320px;
   min-width: 0;
+  margin-top: 0;
   padding-top: 14px;
+  padding-inline-start: var(--page-edge);
+  border-inline-start: 1px solid var(--cloud-separator);
 }
 
 .cloud-section-header,
@@ -228,8 +235,8 @@ select {
 }
 
 .cloud-subsection-title {
-  margin: 18px 0 6px;
-  font-size: 12px;
+  margin: 14px 0 5px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--cloud-text-2);
 }
@@ -285,7 +292,7 @@ select {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--cloud-text-3);
+  background: var(--cloud-text-2);
 }
 
 .cloud-machine.layout-cards .cloud-status-dot {
@@ -336,7 +343,7 @@ select {
 .cloud-item-detail,
 .cloud-muted {
   font-size: 11px;
-  color: var(--cloud-text-3);
+  color: var(--cloud-text-2);
 }
 
 .cloud-machine-size {
@@ -409,7 +416,7 @@ select {
 
 .cloud-detail-status {
   font-size: 11px;
-  color: var(--cloud-text-3);
+  color: var(--cloud-text-2);
 }
 
 .cloud-detail-actions {
@@ -427,7 +434,7 @@ select {
 }
 
 .cloud-fields dt {
-  color: var(--cloud-text-3);
+  color: var(--cloud-text-2);
 }
 
 .cloud-fields dd {
@@ -453,11 +460,11 @@ select {
 }
 
 .cloud-input:focus {
-  border-color: var(--cloud-text-3);
+  border-color: var(--cloud-text-2);
 }
 
 .cloud-input::placeholder {
-  color: var(--cloud-text-3);
+  color: var(--cloud-text-2);
 }
 
 .cloud-port-input {
@@ -476,7 +483,7 @@ select {
 
 .cloud-meter {
   display: grid;
-  grid-template-columns: 70px minmax(60px, 1fr) max-content;
+  grid-template-columns: minmax(0, 70px) minmax(0, 1fr) minmax(0, max-content);
   align-items: center;
   gap: 10px;
 }
@@ -486,6 +493,7 @@ select {
   font-size: 11px;
   color: var(--cloud-text-2);
   font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 
 .cloud-meter-track {
@@ -559,7 +567,7 @@ select {
 
 .cloud-field-label {
   font-size: 11px;
-  color: var(--cloud-text-3);
+  color: var(--cloud-text-2);
   padding: 0;
 }
 
@@ -596,7 +604,7 @@ select {
 }
 
 .cloud-size-choice.unavailable {
-  color: var(--cloud-text-3);
+  color: var(--cloud-text-2);
 }
 
 .cloud-size-name {
@@ -605,7 +613,7 @@ select {
 
 .cloud-size-spec {
   font-size: 11px;
-  color: var(--cloud-text-3);
+  color: var(--cloud-text-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -777,7 +785,7 @@ select {
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--cloud-text-3);
+  color: var(--cloud-text-2);
 }
 
 .cloud-store-headline {
@@ -796,6 +804,7 @@ select {
   line-height: 1.45;
   color: var(--cloud-text-2);
   text-wrap: pretty;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .cloud-store-cta {
@@ -908,12 +917,14 @@ select {
 .cloud-store-benefit-title {
   font-size: var(--text-body);
   font-weight: 600;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .cloud-store-benefit-body {
   font-size: var(--text-detail);
   line-height: 1.4;
   color: var(--cloud-text-2);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .cloud-store-sizes-header {
@@ -932,6 +943,7 @@ select {
   font-size: var(--text-detail);
   color: var(--cloud-text-2);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .cloud-store-availability .cloud-dot {
@@ -970,18 +982,20 @@ select {
 
 .cloud-store-tier.locked .cloud-store-tier-size,
 .cloud-store-tier.locked .cloud-store-tier-hint {
-  color: var(--cloud-text-3);
+  color: var(--cloud-text-2);
 }
 
 .cloud-store-tier-size {
   font-size: var(--text-heading);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-heading--letter-spacing);
 }
 
 .cloud-store-tier-unit {
   font-size: var(--text-caption);
-  color: var(--cloud-text-3);
+  color: var(--cloud-text-2);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .cloud-store-tier-hint {
@@ -990,6 +1004,7 @@ select {
   font-size: var(--text-detail);
   line-height: 1.4;
   color: var(--cloud-text-2);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .cloud-store-tier-footer {
@@ -1014,11 +1029,44 @@ select {
 
 .cloud-store-account .cloud-account {
   max-width: none;
-  padding-top: 0;
+  margin-top: 0;
+  padding: 0;
+  border-inline-start: 0;
+  border-top: 0;
 }
 
 .cloud-header .cloud-title {
   min-width: 0;
+}
+
+@media (max-width: 960px) {
+  .cloud-body,
+  .cloud-body.layout-cards {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 0;
+  }
+
+  .cloud-machines,
+  .cloud-detail,
+  .cloud-detail-placeholder,
+  .cloud-account {
+    flex: none;
+    width: 100%;
+    max-width: none;
+  }
+
+  .cloud-account {
+    margin-top: 18px;
+    padding-block-start: var(--page-edge);
+    padding-inline-start: 0;
+    border-top: 1px solid var(--cloud-separator);
+    border-inline-start: 0;
+  }
+
+  .cloud-body.layout-cards .cloud-machines {
+    flex-basis: auto;
+  }
 }
 
 /* Narrow panes stack the hero: the art goes above the text. */

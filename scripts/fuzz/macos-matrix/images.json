@@ -1,0 +1,56 @@
+{
+  "comment": "Pinned Tart base images for scripts/fuzz/macos-matrix/vm.sh. Public cirruslabs images use the image's public admin/admin login. vm.sh never pulls a missing image unless FUZZ_ALLOW_PULL=1 (each is about 25 GB compressed); a fleet step never pulls.",
+  "tart": {
+    "version": "2.40.1",
+    "url": "https://github.com/openai/tart/releases/download/2.40.1/tart.tar.gz",
+    "sha256": "363e2701154a8155cbc1bb6d845430c9b42697d2a186bc49574471ca2877db46"
+  },
+  "images": [
+    {
+      "major": "14",
+      "name": "Sonoma",
+      "ref": "ghcr.io/cirruslabs/macos-sonoma-base",
+      "digest": "sha256:e2ebdfc4d354b336fe00d729c11a8136a019b8046f41cc183a2fe51b85d18f49",
+      "upload_time": "2026-09-05T08:31:09Z",
+      "compressed_bytes": 22563882329,
+      "disk_bytes": 50000000000,
+      "guest_os": "14.8.7"
+    },
+    {
+      "major": "15",
+      "name": "Sequoia",
+      "ref": "ghcr.io/cirruslabs/macos-sequoia-base",
+      "digest": "sha256:eee659985b01e4df2a6c0754bd8d25e54969933c43fdcd4edef8bea337b3d354",
+      "upload_time": "2026-10-03T10:07:25Z",
+      "compressed_bytes": 25458766500,
+      "disk_bytes": 50000000000,
+      "guest_os": "15.7.7"
+    },
+    {
+      "major": "26",
+      "name": "Tahoe",
+      "ref": "ghcr.io/cirruslabs/macos-tahoe-base",
+      "digest": "sha256:87f3aa5ce21b5c876268f233bdfecf38b4c2a8116fe9bbb718e714cbae187377",
+      "upload_time": "2026-10-03T10:23:18Z",
+      "compressed_bytes": 26978586425,
+      "disk_bytes": 50000000000,
+      "guest_os": "26.6.2"
+    },
+    {
+      "major": "27",
+      "name": "Golden Gate",
+      "ref": "ghcr.io/cirruslabs/macos-golden-gate-base",
+      "digest": "sha256:5302a9ea6cd68c059d00fa253fe75c8ebdf4e0dc8c45d4e136ecc6e7a4c02b70",
+      "upload_time": "2026-10-03T08:35:52Z",
+      "compressed_bytes": 34132268774,
+      "disk_bytes": 41046507520,
+      "guest_os": "27.x (golden-gate-base latest on 2026-10-24; boot it to record the exact build)",
+      "host_os_min": "27"
+    }
+  ],
+  "images_disk_on_host_kb": {
+    "14": 29658904,
+    "15": 32534308,
+    "26": 32337700
+  }
+}

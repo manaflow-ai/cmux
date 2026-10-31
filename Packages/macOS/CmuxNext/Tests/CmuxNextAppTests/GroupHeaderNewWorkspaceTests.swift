@@ -57,7 +57,7 @@ struct GroupHeaderNewWorkspaceTests {
         services.palette.bindRegistryActions()
         services.windows.ordersWindowsIn = false
         services.daemon.start {
-            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
+            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil, sessionEvents: true), endpointProvider: launcher.endpointProvider)
         }
         services.windows.restoreWhenLoaded()
         await Self.wait(within: .seconds(90)) {

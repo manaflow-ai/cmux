@@ -35,6 +35,15 @@ is never reused; the next run sweeps what a killed removal left. `evict` drops
 every directory no job holds, for disk tooling and for
 owned_build_state.py's `keep` when it runs out of space. Any error leaves the
 package to build as before.
+
+`link` also removes the kept resource bundles (<triple>/<config>/*.bundle).
+SwiftPM copies a target's resources into its bundle but never deletes one the
+current tree no longer has, so a kept bundle carried a String Catalog from
+another branch's job into the next job on the same runner, and
+compile-string-catalogs.sh then compiled a file that is not in the checkout
+(cmux#26961, 2026-10-29: "MiscHandlers.xcstrings: error: Missing required key
+'version'" from a branch that moved the catalog). The bundles are copies of
+the sources, so SwiftPM copies them again in seconds; compiled modules stay.
 """
 from __future__ import annotations
 
@@ -212,6 +221,19 @@ def hold(lock: Path) -> subprocess.Popen[str]:
     return holder
 
 
+def drop_resource_bundles(build: Path) -> list[Path]:
+    """Remove the resource bundles in a kept BUILD's products folders (<triple>/<config>/*.bundle,
+    beside the description.json SwiftPM writes there), so the next build copies only the resources
+    the checkout has."""
+    dropped = []
+    for description in sorted(build.glob("*/*/description.json")):
+        for bundle in sorted(description.parent.glob("*.bundle")):
+            if bundle.is_dir() and not bundle.is_symlink():
+                shutil.rmtree(bundle, ignore_errors=True)
+                dropped.append(bundle)
+    return dropped
+
+
 def link(workspace: Path, store: Path, runner: str, fingerprint: str | None = None) -> list[str]:
     if "-glaeda" not in runner or not store.is_dir():
         return []
@@ -231,6 +253,7 @@ def link(workspace: Path, store: Path, runner: str, fingerprint: str | None = No
         build = package / ".build"
         try:
             target.mkdir(parents=True, exist_ok=True)
+            drop_resource_bundles(target)
             if build.is_symlink():
                 build.unlink()
             elif build.exists():

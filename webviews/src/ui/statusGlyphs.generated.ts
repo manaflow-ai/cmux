@@ -73,6 +73,92 @@ export const STATUS_GLYPHS = {
     master: "M4 10A6 6 0 1 0 16 10A6 6 0 1 0 4 10Z",
     x1: "M3 2h4v1h-4ZM2 3h6v4h-6ZM3 7h4v1h-4Z",
   },
+  dotsIdle: {
+    set: "dots",
+    for: "nothing running (Dots): a hollow dot",
+    tint: "var(--cmux-app-text-secondary, GrayText)",
+    master: "M2 10A8 8 0 1 0 18 10A8 8 0 1 0 2 10ZM4 10A6 6 0 1 0 16 10A6 6 0 1 0 4 10Z",
+    x1: "M3 1h4v1h-4ZM2 2h1v1h-1ZM7 2h1v1h-1ZM1 3h1v4h-1ZM8 3h1v4h-1ZM2 7h1v1h-1ZM7 7h1v1h-1ZM3 8h4v1h-4Z",
+  },
+  dotsWorking: {
+    set: "dots",
+    for: "an agent works (Dots): the hollow dot, its lower half filled",
+    tint: "var(--cmux-app-text, CanvasText)",
+    master: "M2 10A8 8 0 1 0 18 10A8 8 0 1 0 2 10ZM4 10A6 6 0 1 0 16 10A6 6 0 1 0 4 10ZM4 10L16 10A6 6 0 0 1 4 10Z",
+    x1: "M3 1h4v1h-4ZM2 2h1v1h-1ZM7 2h1v1h-1ZM1 3h1v2h-1ZM8 3h1v2h-1ZM1 5h8v2h-8ZM2 7h6v1h-6ZM3 8h4v1h-4Z",
+  },
+  dotsWaiting: {
+    set: "dots",
+    for: "waiting on you, a question or blocked with no reason (Dots): a dot in a ring",
+    tint: "var(--cmux-app-warning, #b26b00)",
+    master:
+      "M2 10A8 8 0 1 0 18 10A8 8 0 1 0 2 10ZM4 10A6 6 0 1 0 16 10A6 6 0 1 0 4 10ZM6 10A4 4 0 1 0 14 10A4 4 0 1 0 6 10Z",
+    x1: "M3 1h4v1h-4ZM2 2h1v1h-1ZM7 2h1v1h-1ZM1 3h1v4h-1ZM4 3h2v1h-2ZM8 3h1v4h-1ZM3 4h4v2h-4ZM4 6h2v1h-2ZM2 7h1v1h-1ZM7 7h1v1h-1ZM3 8h4v1h-4Z",
+  },
+  dotsPermission: {
+    set: "dots",
+    for: "needs permission or a sign-in (Dots): a dot with a bar cut out",
+    tint: "var(--cmux-app-warning, #b26b00)",
+    master: "M2 10A8 8 0 1 0 18 10A8 8 0 1 0 2 10ZM8 4L12 4L12 16L8 16Z",
+    x1: "M3 1h4v1h-4ZM2 2h2v1h-2ZM6 2h2v1h-2ZM1 3h3v4h-3ZM6 3h3v4h-3ZM2 7h2v1h-2ZM6 7h2v1h-2ZM3 8h4v1h-4Z",
+  },
+  dotsDone: {
+    set: "dots",
+    for: "finished (Dots): a dot with a check cut out",
+    tint: "var(--cmux-app-success, #2f8f46)",
+    master: "M2 10A8 8 0 1 0 18 10A8 8 0 1 0 2 10ZM4.5 10L6.5 8L8.5 10L13 5.5L15 7.5L8.5 14Z",
+    x1: "M3 1h4v1h-4ZM2 2h6v1h-6ZM1 3h6v1h-6ZM8 3h1v2h-1ZM1 4h1v2h-1ZM3 4h3v1h-3ZM4 5h1v1h-1ZM7 5h2v1h-2ZM1 6h2v1h-2ZM6 6h3v1h-3ZM2 7h2v1h-2ZM5 7h3v1h-3ZM3 8h4v1h-4Z",
+  },
+  dotsError: {
+    set: "dots",
+    for: "failed (Dots): a dot with an x cut out",
+    tint: "var(--cmux-app-danger, #c42b1c)",
+    master: "M2 10A8 8 0 1 0 18 10A8 8 0 1 0 2 10ZM5 7L7 5L10 8L13 5L15 7L12 10L15 13L13 15L10 12L7 15L5 13L8 10Z",
+    x1: "M3 1h4v1h-4ZM2 2h6v1h-6ZM1 3h2v1h-2ZM4 3h2v1h-2ZM7 3h2v1h-2ZM1 4h3v2h-3ZM6 4h3v2h-3ZM1 6h2v1h-2ZM4 6h2v1h-2ZM7 6h2v1h-2ZM2 7h6v1h-6ZM3 8h4v1h-4Z",
+  },
+  pictogramsIdle: {
+    set: "pictograms",
+    for: "nothing running (Pictograms): a crescent moon",
+    tint: "var(--cmux-app-text-secondary, GrayText)",
+    master: "M10.4 1.01L10.402 1.009A9 9 0 1 0 18.454 13.087L18.454 13.087A7.5 7.5 0 0 1 10.402 1.009Z",
+    x1: "M2 1h3v1h-3ZM1 2h3v1h-3ZM1 3h2v2h-2ZM1 5h3v1h-3ZM1 6h4v1h-4ZM8 6h1v1h-1ZM2 7h7v1h-7ZM3 8h4v1h-4Z",
+  },
+  pictogramsWorking: {
+    set: "pictograms",
+    for: "an agent works (Pictograms): an hourglass, its sand run down",
+    tint: "var(--cmux-app-text, CanvasText)",
+    master: "M0 0L20 0L20 2L12 10L20 18L20 20L0 20L0 18L8 10L0 2ZM3 2L17 2L10 9Z",
+    x1: "M0 0h10v1h-10ZM1 1h1v1h-1ZM8 1h1v1h-1ZM2 2h1v1h-1ZM7 2h1v1h-1ZM3 3h1v1h-1ZM6 3h1v1h-1ZM4 4h2v2h-2ZM3 6h4v1h-4ZM2 7h6v1h-6ZM1 8h8v1h-8ZM0 9h10v1h-10Z",
+  },
+  pictogramsWaiting: {
+    set: "pictograms",
+    for: "waiting on you, a question or blocked with no reason (Pictograms): a speech bubble with three dots",
+    tint: "var(--cmux-app-warning, #b26b00)",
+    master:
+      "M3 2L17 2A3 3 0 0 1 20 5L20 11A3 3 0 0 1 17 14L8 14L2 18L3 14A3 3 0 0 1 0 11L0 5A3 3 0 0 1 3 2ZM2 8A2 2 0 1 0 6 8A2 2 0 1 0 2 8ZM8 8A2 2 0 1 0 12 8A2 2 0 1 0 8 8ZM14 8A2 2 0 1 0 18 8A2 2 0 1 0 14 8Z",
+    x1: "M1 1h8v1h-8ZM0 2h10v1h-10ZM0 3h1v2h-1ZM3 3h1v2h-1ZM6 3h1v2h-1ZM9 3h1v2h-1ZM0 5h10v1h-10ZM1 6h8v1h-8ZM1 7h3v1h-3ZM1 8h1v1h-1Z",
+  },
+  pictogramsPermission: {
+    set: "pictograms",
+    for: "needs permission or a sign-in (Pictograms): a padlock",
+    tint: "var(--cmux-app-warning, #b26b00)",
+    master: "M4 8L4 6A6 6 0 0 1 16 6L16 8L14 8L14 6A4 4 0 0 0 6 6L6 8ZM2 8L18 8L18 20L2 20ZM8 12L12 12L12 16L8 16Z",
+    x1: "M3 0h4v1h-4ZM2 1h1v3h-1ZM7 1h1v3h-1ZM1 4h8v2h-8ZM1 6h3v2h-3ZM6 6h3v2h-3ZM1 8h8v2h-8Z",
+  },
+  pictogramsDone: {
+    set: "pictograms",
+    for: "finished (Pictograms): a check",
+    tint: "var(--cmux-app-success, #2f8f46)",
+    master: "M0 11L3 8L7 12L17 2L20 5L7 18Z",
+    x1: "M9 1h1v1h-1ZM8 2h2v1h-2ZM7 3h3v1h-3ZM0 4h1v1h-1ZM6 4h3v1h-3ZM0 5h2v1h-2ZM5 5h3v1h-3ZM0 6h3v1h-3ZM4 6h3v1h-3ZM1 7h5v1h-5ZM2 8h3v1h-3ZM3 9h1v1h-1Z",
+  },
+  pictogramsError: {
+    set: "pictograms",
+    for: "failed (Pictograms): a warning triangle with ! cut out",
+    tint: "var(--cmux-app-danger, #c42b1c)",
+    master: "M9 0L11 0L20 18L20 20L0 20L0 18ZM9 6L11 6L11 12L9 12ZM9 14L11 14L11 16L9 16Z",
+    x1: "M4 0h2v2h-2ZM3 2h4v1h-4ZM3 3h1v1h-1ZM6 3h1v1h-1ZM2 4h2v2h-2ZM6 4h2v2h-2ZM1 6h8v1h-8ZM1 7h3v1h-3ZM6 7h3v1h-3ZM0 8h10v2h-10Z",
+  },
 } as const satisfies Record<string, StatusGlyphArt>;
 
 export type StatusGlyphName = keyof typeof STATUS_GLYPHS;
@@ -85,5 +171,19 @@ export const STATUS_GLYPH_SETS = {
     permission: { glyph: "shieldLine", tint: "var(--cmux-app-text-secondary, GrayText)" },
     done: { glyph: "dot", tint: `var(--cmux-status-unread, ${STATUS_UNREAD})` },
     error: { glyph: "info", tint: "var(--cmux-app-danger, #c42b1c)" },
+  },
+  dots: {
+    working: { glyph: "dotsWorking", tint: "var(--cmux-app-text, CanvasText)" },
+    waiting: { glyph: "dotsWaiting", tint: "var(--cmux-app-warning, #b26b00)" },
+    permission: { glyph: "dotsPermission", tint: "var(--cmux-app-warning, #b26b00)" },
+    done: { glyph: "dotsDone", tint: "var(--cmux-app-success, #2f8f46)" },
+    error: { glyph: "dotsError", tint: "var(--cmux-app-danger, #c42b1c)" },
+  },
+  pictograms: {
+    working: { glyph: "pictogramsWorking", tint: "var(--cmux-app-text, CanvasText)" },
+    waiting: { glyph: "pictogramsWaiting", tint: "var(--cmux-app-warning, #b26b00)" },
+    permission: { glyph: "pictogramsPermission", tint: "var(--cmux-app-warning, #b26b00)" },
+    done: { glyph: "pictogramsDone", tint: "var(--cmux-app-success, #2f8f46)" },
+    error: { glyph: "pictogramsError", tint: "var(--cmux-app-danger, #c42b1c)" },
   },
 } as const satisfies Record<string, Record<string, { glyph: StatusGlyphName; tint: string }>>;

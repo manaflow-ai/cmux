@@ -8,6 +8,20 @@ nonisolated enum MotionSettingsSchema {
         let motion = SettingsText.keyed("settings.group.motion", "Motion")
         return [
             SettingDescriptor(
+                CalmModeSetting.configPath, section: .appearance, group: motion,
+                title: SettingsText.keyed("settings.ui.calm", "Calm Mode"),
+                help: SettingsText.keyed("settings.ui.calm.help",
+                                        "Calm: nothing slides, springs or spins, hover cards stay closed and the pointer leaves no highlight on tabs, rows and buttons. Still: Calm, and every animation is instant. Your other motion and hover card settings come back when it is off."),
+                kind: .choice([
+                    SettingChoice(CalmMode.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
+                    SettingChoice(CalmMode.calm.rawValue, SettingsText.keyed("settings.choice.calm", "Calm")),
+                    SettingChoice(CalmMode.still.rawValue, SettingsText.keyed("settings.choice.still", "Still")),
+                ]),
+                default: .string(CalmModeSetting.fallback.rawValue),
+                keywords: ["calm", "quiet", "focus", "zen", "reduce motion", "reduced motion", "hover", "no hover",
+                           "highlight", "distraction", "busy", "noise", "minimal", "still"]
+            ),
+            SettingDescriptor(
                 MotionCategoriesSetting.enabledPath, section: .appearance, group: motion,
                 title: SettingsText.keyed("settings.ui.animations.enabled", "Play Animations"),
                 help: SettingsText.keyed("settings.ui.animations.enabled.help",

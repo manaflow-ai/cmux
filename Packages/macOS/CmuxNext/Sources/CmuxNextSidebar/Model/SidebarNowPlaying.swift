@@ -21,6 +21,12 @@ public nonisolated struct SidebarNowPlaying: Hashable, Sendable {
     public var positionDate: Date
     public var canPrevious: Bool
     public var canNext: Bool
+    /// Where it plays, as the card's first line shows it ("youtube.com"); empty for a player.
+    public var site: String
+    /// It is a video that can float in Picture in Picture (a browser tab's); the card offers the button.
+    public var canPictureInPicture: Bool
+    /// The video floats in Picture in Picture now; the button brings it back.
+    public var isPictureInPicture: Bool
     public var labels: Labels
     /// The app that plays, for the New Tab player's Open in; nil for cmux's own player and tabs.
     public var app: App?
@@ -42,18 +48,24 @@ public nonisolated struct SidebarNowPlaying: Hashable, Sendable {
         public var pause: String
         public var previous: String
         public var next: String
+        public var pictureInPicture: String
+        public var exitPictureInPicture: String
 
-        public init(play: String, pause: String, previous: String, next: String) {
+        public init(play: String, pause: String, previous: String, next: String, pictureInPicture: String = "",
+                    exitPictureInPicture: String = "") {
             self.play = play
             self.pause = pause
             self.previous = previous
             self.next = next
+            self.pictureInPicture = pictureInPicture
+            self.exitPictureInPicture = exitPictureInPicture
         }
     }
 
     public init(title: String, artist: String = "", artwork: Data? = nil, isPlaying: Bool, position: TimeInterval? = nil,
                 duration: TimeInterval? = nil, rate: Double = 1, positionDate: Date = Date(), canPrevious: Bool = false,
-                canNext: Bool = false, labels: Labels, app: App? = nil) {
+                canNext: Bool = false, site: String = "", canPictureInPicture: Bool = false, isPictureInPicture: Bool = false,
+                labels: Labels, app: App? = nil) {
         self.title = title
         self.artist = artist
         self.artwork = artwork
@@ -64,6 +76,9 @@ public nonisolated struct SidebarNowPlaying: Hashable, Sendable {
         self.positionDate = positionDate
         self.canPrevious = canPrevious
         self.canNext = canNext
+        self.site = site
+        self.canPictureInPicture = canPictureInPicture
+        self.isPictureInPicture = isPictureInPicture
         self.labels = labels
         self.app = app
     }
@@ -90,4 +105,6 @@ public nonisolated enum SidebarNowPlayingCommand: Hashable, Sendable {
     case next
     /// Moves to this many seconds in.
     case seek(TimeInterval)
+    /// Floats the video in Picture in Picture, or brings it back (``SidebarNowPlaying/canPictureInPicture``).
+    case pictureInPicture
 }

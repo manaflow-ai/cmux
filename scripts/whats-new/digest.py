@@ -9,6 +9,7 @@ same files the signed release notes use). Each file is one entry:
     category: improved                      (new | improved | fixed | security; default new)
     action: palette.checkForUpdates | Try it   (optional try-it action)
     docs: https://cmux.com/docs/updates        (optional)
+    pr: https://github.com/manaflow-ai/cmux/pull/123 (optional)
     platforms: macos, cli                      (optional; default macos)
     audience: all                              (optional; default all)
 
@@ -61,6 +62,8 @@ def parse(path, text):
         entry["tryIt"] = {"action": meta["action"].partition("|")[0].strip()}
     if meta.get("docs"):
         entry["docs"] = meta["docs"]
+    if meta.get("pr"):
+        entry["pr"] = meta["pr"]
     return entry
 
 
@@ -81,14 +84,15 @@ def entry_problems(entry):
     return validate.validate_document("0.0.0-nightly.1.json", document)
 
 
-def build(version, date, head, since="", report=lambda line: print(line, file=sys.stderr)):
-    """The digest of the highlight files added in since..head. A file that does not
-    parse or validate is skipped with a report, so one bad file never empties the digest."""
+def build(version, date, head, since="", report=lambda line: print(line, file=sys.stderr), also=()):
+    """The digest of the highlight files added in since..head, and the paths in `also` (a recent
+    highlight that just got its clip, release-notes.py). A file that does not parse or validate
+    is skipped with a report, so one bad file never empties the digest."""
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     span = f"{since}..{head}" if since else head
     added = git("log", "--diff-filter=A", "--name-only", "--format=", span, "--", HIGHLIGHTS).split()
     entries = []
-    for path in sorted({p for p in added if p.endswith(".md")}):
+    for path in sorted({p for p in [*added, *also] if p.endswith(".md")}):
         try:
             entry = parse(path, git("show", f"{head}:{path}"))
         except ValueError as error:

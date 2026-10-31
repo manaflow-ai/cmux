@@ -41,7 +41,7 @@ function transcript(mode: Props["mode"]) {
 function composer() {
   return (
     <div className="acpmux-composer">
-      <div className="acpmux-composer-box">
+      <div className="ui-glass acpmux-composer-box">
         <div className="acpmux-composer-field">Ask the agent anything…</div>
       </div>
     </div>

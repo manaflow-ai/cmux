@@ -146,7 +146,7 @@ describe("machine steps in a run (workerd)", { timeout: 60_000 }, () => {
       idempotency_key: crypto.randomUUID(),
       origin: "user"
     })
-    const machine = created.frames.find((frame) => frame.t === "result")?.value?.machine?.id
+    const machine = (created.frames.find((frame) => frame.t === "result")?.value as { machine?: { id?: string } } | undefined)?.machine?.id
     expect(machine).toMatch(/^vm_/)
     const file = await bindFile(cloud, machine!)
     const { body } = await bindBody({ user, team: SHARED_TEAM }, machine!, file.json.bind_token)

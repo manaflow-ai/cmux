@@ -106,6 +106,29 @@
             "approve",
             "safety"
           ]
+        },
+        {
+          "key": "sessions.promptSuggestions",
+          "name": "promptSuggestions",
+          "note": "Agents get the cmux-sessions MCP tools (ACPMUX_OFFER_TOOLS=1, read at each acpmux daemon start) and the pages show their suggested tasks (AgentPaneSuggestedTasks). On by default, as the Debug toggle agent.suggestedTasks was (Leo 2026-10-19); off here turns them off. That toggle is now off by default and only forces them on.",
+          "title": {
+            "key": "settings.sessions.promptSuggestions",
+            "text": "Suggest Follow-Up Tasks"
+          },
+          "help": {
+            "key": "settings.sessions.promptSuggestions.help",
+            "text": "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "suggestions",
+            "prompt",
+            "follow-up",
+            "tasks",
+            "child chats",
+            "subagents"
+          ]
         }
       ]
     },

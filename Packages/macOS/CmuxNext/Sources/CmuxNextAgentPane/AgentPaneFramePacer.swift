@@ -27,16 +27,27 @@ import CmuxNextWakeups
 ///   interval) one frame interval after the previous call began, on the fallback deadline. So
 ///   streaming and notifications keep arriving, one busy moment adds no wait, and a burst is still
 ///   at most one call per frame interval.
+/// - A pane nobody can see (out of a window, hidden, or in a covered or minimized window): its
+///   frames wait, and its page gets no call, until it shows (``visibilityChanged()``), or the frames
+///   are ones the page waits on (``schedule(urgent:_:)``: a reply to its request, a turn's end, the
+///   close, or a backlog). Each call woke the hidden page's web process: a streaming chat behind another tab
+///   took 148 calls and 109 web-process sleep and wake cycles in two minutes (2026-10-21). Frames
+///   the page waits on go at most every ``hiddenInterval``, on the fallback deadline. Twenty mostly
+///   hidden chats each streaming a call per frame interval kept the main thread busy until the app
+///   beachballed (2026-10-20).
 @MainActor public final class AgentPaneFramePacer: AgentPaneTransportPacer {
     /// One display frame at the slowest rate the pacer assumes.
     public static let frameInterval: TimeInterval = 1.0 / 120
     /// Longest wait for a display frame before the pacer treats the link as stalled.
     public static let fallbackDelay: Duration = .milliseconds(20)
+    /// Shortest time between two calls to a pane nobody can see.
+    public static let hiddenInterval: TimeInterval = 0.25
 
     private let frames: any AgentPaneFrameTicks
     private let fallback: any AgentPaneFallbackDeadline
     private let now: @MainActor () -> TimeInterval
     private let nextTurn: @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void
+    private let isHidden: @MainActor () -> Bool
     private var flush: (@MainActor @Sendable () -> AgentPaneFlush)?
     /// Frames arrived, or a capped flush left some, since the last call began.
     private var pending = false
@@ -47,6 +58,14 @@ import CmuxNextWakeups
     private var nextTurnScheduled = false
     /// Stalled link under sustained load: the next call waits out the frame interval on the deadline.
     private(set) var waitingForInterval = false
+    /// A hidden pane's next call waits out ``hiddenInterval`` on the deadline.
+    private(set) var waitingWhileHidden = false
+    /// A hidden pane's frames wait for it to show, or for frames its page waits on.
+    private(set) var held = false
+    /// The waiting frames include ones the page waits on (``schedule(urgent:_:)``) or a backlog.
+    private var urgent = false
+    /// The pane's ``AgentPaneVisibilityProbe``.
+    private var probe: NSView?
     /// The last delivery found frames waiting within one frame interval of its call's start.
     private var loadedBefore = false
     private var lastCall: TimeInterval = -.infinity
@@ -58,23 +77,48 @@ import CmuxNextWakeups
                 nextTurn: @escaping @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void = { work in
                     // task-owner: one next-turn delivery; the pacer runs it once, on the main actor
                     Task { @MainActor in work() }
-                }) {
+                },
+                isHidden: @escaping @MainActor () -> Bool = { false }) {
         self.frames = frames
         self.fallback = fallback
         self.now = now
         self.nextTurn = nextTurn
+        self.isHidden = isHidden
         frames.onTick = { [weak self] in self?.ticked() }
     }
 
     /// The pacer of a pane: its window's display frames, a ``DemandTimer`` fallback.
     public convenience init(view: NSView) {
-        self.init(frames: AgentPaneWindowFrames(view: view), fallback: AgentPaneDemandDeadline())
+        self.init(frames: AgentPaneWindowFrames(view: view), fallback: AgentPaneDemandDeadline(),
+                  isHidden: { [weak view] in view.map(Self.nobodySees) ?? true })
+        let probe = AgentPaneVisibilityProbe(frame: .zero)
+        probe.onChange = { [weak self] in self?.visibilityChanged() }
+        view.addSubview(probe)
+        self.probe = probe
+    }
+
+    /// Whether nobody can see `view`: out of a window, hidden, or its window covered or minimized.
+    static func nobodySees(_ view: NSView) -> Bool {
+        guard let window = view.window else { return true }
+        return view.isHiddenOrHasHiddenAncestor || !window.occlusionState.contains(.visible)
     }
 
     public func schedule(_ flush: @escaping @MainActor @Sendable () -> AgentPaneFlush) {
+        schedule(urgent: false, flush)
+    }
+
+    public func schedule(urgent: Bool, _ flush: @escaping @MainActor @Sendable () -> AgentPaneFlush) {
         self.flush = flush
         pending = true
-        guard !inFlight, !waitingForFrame, !waitingForInterval, !nextTurnScheduled else { return }
+        // Frames the page waits on stay waiting until a call takes them.
+        self.urgent = self.urgent || urgent
+        // Only frames the page waits on reach a held pacer (the socket wakes it for no others);
+        // the rest go when the pane shows (``visibilityChanged()``).
+        if held {
+            guard urgent else { return }
+            held = false
+        }
+        guard !inFlight, !waitingForFrame, !waitingForInterval, !nextTurnScheduled, !waitingWhileHidden else { return }
         call()
     }
 
@@ -110,24 +154,60 @@ import CmuxNextWakeups
         waitingForFrame = false
         nextTurnScheduled = false
         waitingForInterval = false
+        waitingWhileHidden = false
+        held = false
+        urgent = false
         loadedBefore = false
         fallback.cancel()
         frames.deactivate()
     }
 
     /// Stops pacing (the pane closed).
-    public func stop() { reset() }
+    public func stop() {
+        reset()
+        probe?.removeFromSuperview()
+        probe = nil
+    }
+
+    /// The pane may have come into sight: frames held while it was hidden go now.
+    func visibilityChanged() {
+        guard held || waitingWhileHidden, !isHidden() else { return }
+        held = false
+        if waitingWhileHidden {
+            waitingWhileHidden = false
+            fallback.cancel()
+        }
+        call()
+    }
 
     private func call() {
         guard let flush, pending else { return }
+        // Every path here has the deadline free: none of the waits that use it is on.
+        if isHidden() {
+            guard urgent else {
+                held = true
+                return
+            }
+            let wait = Self.hiddenInterval - (now() - lastCall)
+            if wait > 0.001 {
+                waitingWhileHidden = true
+                fallback.schedule(after: .nanoseconds(Int64(wait * 1e9))) { [weak self] in self?.hiddenIntervalPassed() }
+                return
+            }
+        }
+        // A late `delivered()` can take a hidden wait's deadline; the flag goes with this call.
+        waitingWhileHidden = false
         pending = false
+        urgent = false
         inFlight = true
         lastCall = now()
         let result = flush()
         if result.delivered { calls += 1 } else { inFlight = false }
         // A capped flush leaves frames: they go when this call is done, or next turn without one.
+        // They are a backlog, which a hidden pane gets too.
         if result.more {
             pending = true
+            urgent = true
             if !inFlight { scheduleNextTurn() }
         }
     }
@@ -146,6 +226,12 @@ import CmuxNextWakeups
         }
         waitingForFrame = false
         fallback.cancel()
+        call()
+    }
+
+    private func hiddenIntervalPassed() {
+        guard waitingWhileHidden else { return }
+        waitingWhileHidden = false
         call()
     }
 

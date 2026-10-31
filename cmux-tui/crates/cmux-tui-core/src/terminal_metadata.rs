@@ -661,7 +661,8 @@ impl TerminalMetadata {
         }
     }
 
-    /// Whether the command fact changed since the last call (marks it taken).
+    /// Whether the command, prompt or last-output fact changed since the last
+    /// call (marks it taken).
     pub(crate) fn take_busy_change(&mut self) -> bool {
         self.activity.take_change()
     }

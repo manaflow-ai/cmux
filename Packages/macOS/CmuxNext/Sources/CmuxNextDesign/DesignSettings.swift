@@ -1,6 +1,7 @@
 public import CoreGraphics
 public import Observation
 import Foundation
+public import CmuxNextDesignTokens
 
 /// Metrics a user may override individually on top of a density preset.
 /// Raw values are the cmux.json keys under `appearance.metrics`.
@@ -16,6 +17,9 @@ public enum MetricKey: String, Sendable, CaseIterable, Codable {
     case tabPinnedWidth
     case paletteRowHeight
     case columnGap
+    /// The visible line and draggable hit area between split panes.
+    case dividerThickness
+    case dividerHitWidth
     case panelCornerRadius
     case chromeFontSize
     /// The unified titlebar height (cmux-browser's header height reads the same key).
@@ -29,6 +33,8 @@ public enum MetricKey: String, Sendable, CaseIterable, Codable {
 @Observable
 public final class DesignSettings {
     public static let shared = DesignSettings()
+    /// Every motion-setting change, for hosts outside Observation (``Motion/changes``).
+    public let motionChanges = MotionChanges()
 
     /// Intentional Command/Control hold hints (`shortcuts.showModifierHoldHints`).
     public var showModifierHoldHints = true
@@ -55,18 +61,24 @@ public final class DesignSettings {
     /// Whether `interfaceScale` applies: the Debug Settings toggle `chrome.interfaceSize`, off by
     /// default (and always off in Release, where the tunable store is inert).
     public var interfaceScaleEnabled: Bool { ChromeTunables.interfaceSize.override ?? false }
-    /// Sets the `--cmux-interface-scale` token web chrome reads: the multiplier, or 1 when it is off.
-    public var interfaceScaleScript: String {
-        "document.documentElement.style.setProperty('--cmux-interface-scale', '\(interfaceScaleEnabled ? interfaceScale : 1)')"
+    /// Sets the chrome multiplier and the effective page zoom used by web column sizing. The latter
+    /// is passed explicitly by page hosts so Agent Chat Zoom is included without making generic pages
+    /// depend on the agent setting; a change event lets chat row measurement follow CSS immediately.
+    public func interfaceScaleScript(pageZoom: Double? = nil) -> String {
+        let effectivePageZoom = max(pageZoom ?? Double(uiScale), 0.01)
+        return "document.documentElement.style.setProperty('--cmux-interface-scale', '\(interfaceScaleEnabled ? interfaceScale : 1)');"
+            + "document.documentElement.style.setProperty('--cmux-ui-scale', '\(effectivePageZoom)');"
+            + "window.dispatchEvent(new Event('cmux-ui-scale-change'))"
     }
     /// `agentPane.zoom`, the focused agent chat's own display scale.
     public var agentPaneZoom: CGFloat = 1
     /// `ui.animationSpeed`: how fast chrome animates (see `Motion`). A change posts
-    /// `Motion.speedDidChange` for hosts outside Observation (a video wallpaper's player).
+    /// `Motion.speedDidChange` and tells `motionChanges`, for hosts outside Observation (a video
+    /// wallpaper's player).
     public var animationSpeed: MotionSpeed = .fast {
         didSet {
             guard animationSpeed != oldValue else { return }
-            NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
+            motionChanges.post(.speed)
         }
     }
     /// `ui.animations.enabled`, the master motion switch: false makes every
@@ -75,7 +87,7 @@ public final class DesignSettings {
     public var animationsEnabled = true {
         didSet {
             guard animationsEnabled != oldValue else { return }
-            NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
+            motionChanges.post(.speed)
         }
     }
     /// The categories whose `ui.animations.<category>` is false: their
@@ -83,13 +95,31 @@ public final class DesignSettings {
     public var disabledAnimationCategories: Set<MotionCategory> = [] {
         didSet {
             guard disabledAnimationCategories != oldValue else { return }
-            NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
+            motionChanges.post(.speed)
         }
     }
     /// `appearance.colorTransition.*`: how theme and color changes animate (``ColorTransition``;
     /// read it resolved through `ColorTransition.current`). Web pages take a new value with their
     /// next theme payload.
     public var colorTransition = ColorTransition()
+    /// `appearance.inactiveWindowDim`: how much more of the theme color covers a window that is
+    /// not key (``WindowMaterialView``); 0, the default, keeps its look. Posts
+    /// `WindowMaterialView.inactiveDimDidChange`.
+    public var inactiveWindowDim = 0.0 {
+        didSet {
+            guard inactiveWindowDim != oldValue else { return }
+            NotificationCenter.default.post(name: WindowMaterialView.inactiveDimDidChange, object: nil)
+        }
+    }
+    /// `appearance.wallpaperTint`: where the desktop shows through the window, its tint takes the
+    /// desktop picture's hue (``WallpaperTint``), as macOS tints its own windows. Off until the
+    /// setting reaches it (``SettingsApplier``).
+    public var wallpaperTint = false {
+        didSet {
+            guard wallpaperTint != oldValue else { return }
+            BackdropImageStore.shared.desktop.tintEnabled = wallpaperTint
+        }
+    }
     /// `ui.animations.bounce`: structural springs are critically damped or bounce subtly.
     public var animationBounce: MotionBounce = .none
     /// The `ui.animations.{newTab,newWorkspace}` kinds on: new tabs by default
@@ -106,6 +136,9 @@ public final class DesignSettings {
     /// `home.chiefBubbleStyle` is `theme`: the Chief chat's bubbles take the theme's colours; false (the
     /// default) keeps iMessage's blue and grey. The Home transcript follows it (`HomeNativeTranscriptView.bubbleStyle`).
     public var homeChiefBubblesThemed = false
+    /// `home.bubbleColors.*`: the bubble colours every Home chat starts with, `#RRGGBB` by role (`sent`,
+    /// `sentText`, `received`, `receivedText`); empty keeps the bubble style's. A chat's own Chat Colors… go over it.
+    public var homeBubbleColors: [String: String] = [:]
     /// `home.chiefPetEnabled`: the floating Chief pet shows; the empty Chief conversation's pet row follows it.
     public var homeChiefPetEnabled = false
     /// Per-metric overrides in points, clamped by `setOverride`.
@@ -129,6 +162,22 @@ public final class DesignSettings {
             NotificationCenter.default.post(name: Self.hoverCardsDidChange, object: nil)
         }
     }
+    /// `ui.calm` (``CalmMode``): Reduce Motion behavior, no hover cards and no hover fills, and
+    /// with `still` no animation at all. A change posts the motion, Reduce Motion and hover-card
+    /// notifications, so cached motion values re-read and a shown card goes at once.
+    public var calmMode: CalmMode = .off {
+        didSet {
+            guard calmMode != oldValue else { return }
+            motionChanges.post(.speed)
+            motionChanges.post(.reduceMotion)
+            NotificationCenter.default.post(name: Self.hoverCardsDidChange, object: nil)
+            ThemeScope.app.store.repaintAll()
+        }
+    }
+    /// Hover cards open on hover: `sidebar.hoverCards.enabled` and not calm mode.
+    public var showsHoverCards: Bool { hoverCardsEnabled && calmMode.showsHoverEffects }
+    /// The pointer paints a hover fill on tabs, sidebar rows and chrome buttons (off in calm mode).
+    public var showsHoverFills: Bool { calmMode.showsHoverEffects }
     /// `sidebar.hoverCards.delay`: pointer rest before a sidebar row's or a tab's card opens.
     /// Defaults to `HoverCardTiming.showDelay`.
     public var hoverCardDelay: Duration = HoverCardTiming.showDelay
@@ -140,9 +189,9 @@ public final class DesignSettings {
     /// `layout.closeFocus`: who gets focus when the focused pane closes.
     public var closeFocus: CloseFocusPolicy = .previousNeighbor
     /// `layout.defaultColumnWidth`: new column width, a viewport fraction.
-    public var defaultColumnWidth: Double = 0.5
+    public var defaultColumnWidth: Double = 2.0 / 3.0
     /// `layout.newColumnWidth`: how a new column's width is chosen.
-    public var newColumnWidth: NewColumnWidthMode = .matchCurrent
+    public var newColumnWidth: NewColumnWidthMode = .fixed
     /// `layout.splitSizing`: what a split does to its column.
     public var splitSizing: SplitSizing = .even
     /// `layout.dockColumnEdge`, `layout.dockColumnMode`.
@@ -159,6 +208,12 @@ public final class DesignSettings {
     /// `layout.scrollAreas`: a split that cannot fit scrolls instead of squashing its panes
     /// (plans/cmux-next/scroll-areas-DESIGN.md). Off by default.
     public var layoutScrollAreas = false
+    /// `layout.scrollModifier`: Command + scroll moves the layout and a plain scroll goes to the
+    /// pane under the pointer (`command`, default), or the rule before it (`none`).
+    public var layoutScrollModifier: LayoutScrollModifier = .command
+    /// `layout.pagesHandleCommandScroll`: a web page that cancels Command + wheel (Figma,
+    /// Excalidraw zoom) keeps a Command scroll that starts over it; on by default.
+    public var pagesHandleCommandScroll = true
     /// `layout.minimumPaneWidth`, `layout.minimumPaneHeight`: the smallest
     /// content area a pane keeps below its chrome, in points.
     public var minimumPaneContentSize = CGSize(width: 200, height: 64)
@@ -189,7 +244,7 @@ public final class DesignSettings {
     /// Pages that show code draw in the terminal's face (`WebTheme.Terminal`): a change of it
     /// repaints, so every page resends its theme.
     private func repaintIfTerminalFaceChanged(from before: String?) {
-        if effectiveTerminalFontFamily != before { ThemeStore.shared.repaintAll() }
+        if effectiveTerminalFontFamily != before { ThemeScope.app.store.repaintAll() }
     }
     /// `status.*`: inferred command busy and run notifications.
     public var statusBehavior = StatusBehaviorSettings()
@@ -231,6 +286,8 @@ public final class DesignSettings {
     public var tabBarPosition: TabBarPosition = .top
     /// `tabs.barOrder` (R109).
     public var tabBarOrder: TabBarOrder = .aboveToolbar
+    /// `browser.toolbarPosition`: the omnibar row above or below the page.
+    public var browserToolbarPosition: ToolbarPosition = .top
     /// `appearance.paneBackgrounds`: one background for the window or a copy per pane.
     public var paneBackgrounds: PaneBackgroundMode = .shared
 
@@ -261,6 +318,8 @@ public final class DesignSettings {
         case .tabPinnedWidth: 24...120
         case .paletteRowHeight: 26...48
         case .columnGap: 0...24
+        case .dividerThickness: 0...6
+        case .dividerHitWidth: 1...24
         case .panelCornerRadius: 0...20
         case .chromeFontSize: 10...16
         case .titlebarHeight: 24...56

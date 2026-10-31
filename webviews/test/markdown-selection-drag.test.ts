@@ -13,6 +13,12 @@
 //
 // The app draws the page in WebKit; the same bugs showed in Chromium, so both run. An engine that is
 // not installed is skipped.
+//
+// Every page loads the markdown entry alone (`entryPath`, src/gallery/registry.ts). Without it each
+// of the 16 pages, in a fresh context, loaded all ~150 gallery entries (about 2,300 modules), and
+// the warm-up transformed them all first: beside seven other dev server files on the CI runner the
+// file took about 113 s of its 120 s (run 39554271195), and the next run was killed in its last
+// test (job 119068678028), with nothing stuck.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
@@ -20,20 +26,23 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("markdown-selection-drag.test.ts", async () => {
-  setDefaultTimeout(120_000);
-  const engines: [string, BrowserType][] = [];
-  for (const engine of [
+  const ENTRY_PATH = "src/pages/markdown/markdown.gallery.ts";
+  // Half the runner's limit per file (scripts/ci/run-webviews-tests.sh): a stuck step fails as its
+  // own test, by name, instead of the runner killing the file with no failure in its log.
+  setDefaultTimeout(60_000);
+  // The probe's browser is the one the tests use: a launch takes seconds on a loaded runner.
+  const browsers = new Map<string, Browser>();
+  for (const [name, type] of [
     ["chromium", chromium],
     ["webkit", webkit],
   ] as [string, BrowserType][]) {
     try {
-      await (await engine[1].launch({ headless: true })).close();
-      engines.push(engine);
+      browsers.set(name, await type.launch({ headless: true }));
     } catch {
-      console.warn(`markdown-selection-drag: skipping ${engine[0]} (run \`bunx playwright install ${engine[0]}\`)`);
+      console.warn(`markdown-selection-drag: skipping ${name} (run \`bunx playwright install ${name}\`)`);
     }
   }
-  if (engines.length === 0) {
+  if (browsers.size === 0) {
     describe.skip("markdown selection", () => test("no engine", () => {}));
     return;
   }
@@ -41,7 +50,6 @@ await requireBrowserLane("markdown-selection-drag.test.ts", async () => {
   const webviews = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
-  const browsers = new Map<string, Browser>();
 
   beforeAll(async () => {
     vite = await createServer({
@@ -50,9 +58,15 @@ await requireBrowserLane("markdown-selection-drag.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
-    for (const [name, type] of engines) browsers.set(name, await type.launch({ headless: true }));
-  });
+    // The entry and the page it mounts (pages/markdown/main.tsx), not the frame: its registry names
+    // every entry. Module URLs carry the config's base, /gallery/; a path outside it is a 404 that
+    // warms nothing, so a warm-up that found no imports fails here. Both share one budget that ends
+    // inside this hook's limit, so a slow warm-up reports its own error, not a hook timeout.
+    const deadline = Date.now() + 40_000;
+    for (const url of [`/gallery/${ENTRY_PATH}`, "/gallery/src/pages/markdown/main.tsx"])
+      if ((await warmViteServer(vite, url, { timeoutMs: Math.max(1, deadline - Date.now()) })) === 0)
+        throw new Error(`warmViteServer: ${url} imports nothing; is it served?`);
+  }, 60_000);
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();
     await vite?.close();
@@ -65,10 +79,12 @@ await requireBrowserLane("markdown-selection-drag.test.ts", async () => {
     const page = await context.newPage();
     const port = (vite!.httpServer!.address() as { port: number }).port;
     for (let attempt = 1; ; attempt++) {
-      await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?entry=pages.markdown&variant=selection`);
+      await page.goto(
+        `http://127.0.0.1:${port}/gallery/frame.html?entry=pages.markdown&entryPath=${ENTRY_PATH}&variant=selection`,
+      );
       try {
         // KaTeX loads with the first equation: the inline formula is drawn once it is in.
-        await page.waitForSelector(".md-prose .md-math-inline", { timeout: 60_000 });
+        await page.waitForSelector(".md-prose .md-math-inline", { timeout: 30_000 });
         break;
       } catch (error) {
         // Vite's dependency optimizer can reload the first page while it compiles.
@@ -121,7 +137,7 @@ await requireBrowserLane("markdown-selection-drag.test.ts", async () => {
     await rest(page);
   };
 
-  for (const [engine] of engines)
+  for (const engine of browsers.keys())
     describe(`markdown selection (${engine})`, () => {
       test("a drag across a highlight and inline math keeps the text under the pointer in place", async () => {
         const page = await open(engine);
@@ -181,12 +197,18 @@ await requireBrowserLane("markdown-selection-drag.test.ts", async () => {
         await page.context().close();
       });
 
-      test("a drag inside a table still selects whole cells", async () => {
+      // User 2026-10-28: snapping a drag to whole cells was "extremely unintuitive". A drag inside a
+      // table selects text, as anywhere else (whole cells come from Cmd-A, markdown-table-obsidian).
+      test("a drag inside a table selects text, not whole cells", async () => {
         const page = await open(engine);
         await park(page);
         await press(page, await at(page, "Name", 1), await at(page, "Engineer", 3));
         await page.mouse.up();
-        expect(await page.locator(".md-prose .selectedCell").count()).toBe(4);
+        await rest(page);
+        expect(await page.locator(".md-prose .selectedCell").count()).toBe(0);
+        const text = await selected(page);
+        expect(text).toContain("ame");
+        expect(text).toContain("Eng");
         await page.context().close();
       });
 

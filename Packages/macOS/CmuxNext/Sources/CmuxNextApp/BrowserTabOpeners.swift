@@ -121,8 +121,24 @@ final class BrowserTabOpeners {
     /// one this client is closing), for the close successor
     /// (`FocusAfterClose.tab`). Nothing is changed.
     func relations(among tabs: [TabModel]) -> [String: String] {
-        let id = Dictionary(tabs.map { ($0.surface, $0.id) }) { first, _ in first }
-        return FocusAfterClose.liveOpeners(openerOf, among: tabs.map(\.surface)).reduce(into: [:]) { if let c = id[$1.key], let o = id[$1.value] { $0[c] = o } }
+        relations(among: tabs.map { ($0.surface, $0.id) })
+    }
+
+    private func relations(among tabs: [(SurfaceID, String)]) -> [String: String] {
+        let id = Dictionary(tabs) { first, _ in first }
+        return FocusAfterClose.liveOpeners(openerOf, among: tabs.map(\.0)).reduce(into: [:]) { if let c = id[$1.key], let o = id[$1.value] { $0[c] = o } }
+    }
+
+    /// A pane's relations for its close successor (`TabSelectionMemory.resolve`'s `openers`), over
+    /// its `tabs` and `last`, the tabs (surface, tab id) its previous apply saw: a tab this client just
+    /// closed is out of the pane's tabs (TabCloseOverlay) by the apply that picks the successor, and its
+    /// opener picks it. Call on every apply with that pane's own `last` (each window's controller keeps
+    /// its own), so the first close in a pane has its tabs too; the closure runs only on a close.
+    func closeRelations(among tabs: [TabModel], last: inout [(SurfaceID, String)]) -> () -> [String: String] {
+        let now = tabs.map { ($0.surface, $0.id) }
+        let seen = last + now
+        last = now
+        return { [weak self] in self?.relations(among: seen) ?? [:] }
     }
 
     func forgetAll() {

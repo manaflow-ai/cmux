@@ -83,6 +83,10 @@ class ColumnMoveDirection(str, Enum):
     LEFT = 'left'
     RIGHT = 'right'
 
+class ColumnSide(str, Enum):
+    LEFT = 'left'
+    RIGHT = 'right'
+
 class ConversationThreadStatus(str, Enum):
     OPEN = 'open'
     RESOLVED = 'resolved'
@@ -115,6 +119,12 @@ class HomeInboxKind(str, Enum):
     DIRECT = 'direct'
     CHANNEL = 'channel'
     GROUP = 'group'
+
+class HostSizeMode(str, Enum):
+    SMALLEST = 'smallest'
+    MAC = 'mac'
+    LATEST = 'latest'
+    PRIORITY = 'priority'
 
 class NameSource(str, Enum):
     USER = 'user'
@@ -360,6 +370,7 @@ class AgentRecord:
     state: AgentState
     updated_at_ms: int
     agent: Union[str, None, MissingType] = field(default=MISSING)
+    agent_session_id: Union[str, None, MissingType] = field(default=MISSING)
     last_prompt: Union[str, None, MissingType] = field(default=MISSING)
     since_ms: Union[int, MissingType] = field(default=MISSING)
 
@@ -540,6 +551,13 @@ class CloseTerminalResult:
     registry_id: str
     terminal_incarnation: Union[str, None]
     terminal_revision: int
+
+
+@dataclass(frozen=True)
+class CloudConversationPresenceParticipant:
+    __cmux_schema_path__: ClassVar[str] = 'types/CloudConversationPresenceParticipant'
+    participant: str
+    viewing: bool
 
 
 @dataclass(frozen=True)
@@ -854,6 +872,13 @@ class GetCellPixelsResult:
 
 
 @dataclass(frozen=True)
+class GetHostSizePolicyResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/GetHostSizePolicyResult'
+    mac_participants: List[str]
+    policy: HostSizePolicy
+
+
+@dataclass(frozen=True)
 class GetSizeStateResult:
     __cmux_schema_path__: ClassVar[str] = 'types/GetSizeStateResult'
     self_participant: Union[str, None]
@@ -924,6 +949,20 @@ class HomeInboxRow:
 
 
 @dataclass(frozen=True)
+class HostSizePolicy:
+    __cmux_schema_path__: ClassVar[str] = 'types/HostSizePolicy'
+    mode: HostSizeMode
+    order: List[str]
+
+
+@dataclass(frozen=True)
+class HostSizePolicyRequest:
+    __cmux_schema_path__: ClassVar[str] = 'types/HostSizePolicyRequest'
+    mode: HostSizeMode
+    order: Union[List[str], None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class IdMapping:
     __cmux_schema_path__: ClassVar[str] = 'types/IdMapping'
     id: Id
@@ -947,6 +986,7 @@ class IdentifyResult:
     api_revision: Union[int, None, MissingType] = field(default=MISSING)
     build_commit: Union[str, None, MissingType] = field(default=MISSING)
     build_id: Union[str, None, MissingType] = field(default=MISSING)
+    build_time: Union[int, None, MissingType] = field(default=MISSING)
     capabilities: Union[List[str], MissingType] = field(default=MISSING)
     cli_path: Union[str, None, MissingType] = field(default=MISSING)
     crate_version: Union[str, None, MissingType] = field(default=MISSING)
@@ -1128,6 +1168,8 @@ class NewRowResult:
     surface: Id
     pane: Id
     terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    pane_id: Union[str, MissingType] = field(default=MISSING)
+    tab_id: Union[str, MissingType] = field(default=MISSING)
     terminal_incarnation: Union[str, None, MissingType] = field(default=MISSING)
     transaction: Union[str, MissingType] = field(default=MISSING)
 
@@ -1425,6 +1467,12 @@ class Screen:
 
 
 @dataclass(frozen=True)
+class SendExpectAgent:
+    __cmux_schema_path__: ClassVar[str] = 'types/SendExpectAgent'
+    session: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class ServerStatsConnections:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsConnections'
     accepted: int
@@ -1446,6 +1494,14 @@ class ServerStatsHistogram:
 
 
 @dataclass(frozen=True)
+class ServerStatsHookQueue:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsHookQueue'
+    queued_events: int
+    reset_dropped_events: int
+    undeliverable_events: int
+
+
+@dataclass(frozen=True)
 class ServerStatsJournalWriter:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsJournalWriter'
     batch_size: ServerStatsHistogram
@@ -1461,6 +1517,20 @@ class ServerStatsJournalWriter:
     receipt_wait_us: ServerStatsHistogram
     terminal_events: int
     terminal_queued: int
+
+
+@dataclass(frozen=True)
+class ServerStatsLockDetail:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsLockDetail'
+    by_hold_p99: List[ServerStatsLockSiteDetail]
+    by_hold_total: List[ServerStatsLockSiteDetail]
+    contended_acquisitions: int
+    hold_us: ServerStatsHistogram
+    holder: Union[ServerStatsLockHolder, None]
+    last_stall: Union[ServerStatsLockStall, None]
+    sites: int
+    stalls: int
+    wait_us: ServerStatsHistogram
 
 
 @dataclass(frozen=True)
@@ -1480,11 +1550,31 @@ class ServerStatsLockSite:
 
 
 @dataclass(frozen=True)
+class ServerStatsLockSiteDetail:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsLockSiteDetail'
+    acquisitions: int
+    hold_max_us: int
+    hold_p99_us: int
+    hold_total_us: int
+    site: str
+    wait_max_us: int
+    wait_p99_us: int
+    wait_total_us: int
+
+
+@dataclass(frozen=True)
 class ServerStatsLockStall:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsLockStall'
     blocker: Union[str, None]
     waited_us: int
     waiter: str
+
+
+@dataclass(frozen=True)
+class ServerStatsLocks:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsLocks'
+    registry: ServerStatsLockDetail
+    state: ServerStatsLockDetail
 
 
 @dataclass(frozen=True)
@@ -1529,6 +1619,8 @@ class ServerStatsResult:
     registry_lock: ServerStatsRegistryLock
     schema: int
     uptime_ms: int
+    hook_queue: Union[ServerStatsHookQueue, MissingType] = field(default=MISSING)
+    locks: Union[ServerStatsLocks, MissingType] = field(default=MISSING)
     resource_projection: Union[ServerStatsResourceProjection, MissingType] = field(default=MISSING)
     write_path: Union[ServerStatsWritePath, MissingType] = field(default=MISSING)
 
@@ -1548,6 +1640,12 @@ class SetCellPixelsResult:
     __cmux_schema_path__: ClassVar[str] = 'types/SetCellPixelsResult'
     failures: List[CellPixelFailure]
     resizes: List[CellPixelResize]
+
+
+@dataclass(frozen=True)
+class SetHostSizePolicyResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/SetHostSizePolicyResult'
+    policy: HostSizePolicy
 
 
 @dataclass(frozen=True)
@@ -1948,6 +2046,23 @@ class TerminalPlacement:
     terminal_incarnation: Union[str, None]
     terminal_revision: int
     terminal_resource_id: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class TerminalPortsListener:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalPortsListener'
+    bound: str
+    host: str
+    port: int
+    url: str
+
+
+@dataclass(frozen=True)
+class TerminalPortsResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalPortsResult'
+    surface: Id
+    closed: List[int]
+    listeners: List[TerminalPortsListener]
 
 
 @dataclass(frozen=True)
@@ -2525,6 +2640,13 @@ class CloudConversationOpRequest:
 
 
 @dataclass(frozen=True)
+class CloudConversationPresenceRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-conversation-presence/request'
+    conversation: str
+    viewing: bool
+
+
+@dataclass(frozen=True)
 class CloudConversationRunRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/cloud-conversation-run/request'
     agent: str
@@ -2602,6 +2724,7 @@ class CloudHostReplicaStatusRequest:
 @dataclass(frozen=True)
 class CloudInboxListRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/cloud-inbox-list/request'
+    cursor: Union[str, None, MissingType] = field(default=MISSING)
     include_archived: Union[bool, MissingType] = field(default=MISSING)
     limit: Union[int, None, MissingType] = field(default=MISSING)
 
@@ -2659,6 +2782,12 @@ class CloudRequestsListRequest:
 
 
 @dataclass(frozen=True)
+class CloudSelfhostInfoRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-selfhost-info/request'
+    pass
+
+
+@dataclass(frozen=True)
 class CloudSessionClearRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/cloud-session-clear/request'
     pass
@@ -2667,10 +2796,11 @@ class CloudSessionClearRequest:
 @dataclass(frozen=True)
 class CloudSessionSetRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/cloud-session-set/request'
-    access_token: str
     api_base_url: str
-    expires_at: int
+    access_token: Union[str, MissingType] = field(default=MISSING)
+    auth: Union[str, None, MissingType] = field(default=MISSING)
     client_version: Union[str, None, MissingType] = field(default=MISSING)
+    expires_at: Union[int, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2987,6 +3117,7 @@ class ConversationRunAppendResult:
 class ConversationRunsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-runs/request'
     conversation: str
+    answers: Union[List[str], None, MissingType] = field(default=MISSING)
     before_started_at: Union[int, None, MissingType] = field(default=MISSING)
     limit: Union[int, None, MissingType] = field(default=MISSING)
     turns: Union[List[str], None, MissingType] = field(default=MISSING)
@@ -3368,6 +3499,12 @@ class GetFrontendProjectionRequest:
     frontend: str
     scope: str
     subject_key: str
+
+
+@dataclass(frozen=True)
+class GetHostSizePolicyRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/get-host-size-policy/request'
+    surface: Union[Id, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3863,6 +4000,7 @@ class NewPaneRightRequest:
     pane_id: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+    side: Union[ColumnSide, None, MissingType] = field(default=MISSING)
     tab_id: Union[str, None, MissingType] = field(default=MISSING)
     url: Union[str, None, MissingType] = field(default=MISSING)
     width: Union[float, None, MissingType] = field(default=MISSING)
@@ -3890,8 +4028,10 @@ class NewRowRequest:
     cwd: Union[str, None, MissingType] = field(default=MISSING)
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
+    pane_id: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+    tab_id: Union[str, None, MissingType] = field(default=MISSING)
     transaction: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -4314,7 +4454,10 @@ class SendRequest:
     text: Union[str, None, MissingType] = field(default=MISSING)
     bytes_data: Union[Base64, None, MissingType] = field(default=MISSING, metadata={'wire_name': 'bytes'})
     paste: Union[bool, MissingType] = field(default=MISSING)
+    expect_agent: Union[SendExpectAgent, None, MissingType] = field(default=MISSING)
     expect_foreground: Union[str, None, MissingType] = field(default=MISSING)
+    flow: Union[int, None, MissingType] = field(default=MISSING)
+    submit: Union[bool, MissingType] = field(default=MISSING)
     terminal_id: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -4356,6 +4499,7 @@ class SetClientInfoRequest:
     device_name: Union[str, None, MissingType] = field(default=MISSING)
     display_name: Union[str, None, MissingType] = field(default=MISSING)
     install: Union[str, None, MissingType] = field(default=MISSING)
+    remote: Union[bool, None, MissingType] = field(default=MISSING)
     user_id: Union[str, None, MissingType] = field(default=MISSING)
     version: Union[str, None, MissingType] = field(default=MISSING)
 
@@ -4401,6 +4545,12 @@ class SetFrontendBrowserHistoryRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-frontend-browser-history/request'
     surface: Id
     history: Union[JsonValue, None]
+
+
+@dataclass(frozen=True)
+class SetHostSizePolicyRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-host-size-policy/request'
+    policy: HostSizePolicyRequest
 
 
 @dataclass(frozen=True)
@@ -4652,6 +4802,12 @@ class TerminalHistoryRequest:
 
 
 @dataclass(frozen=True)
+class TerminalPortsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/terminal-ports/request'
+    surface: Id
+
+
+@dataclass(frozen=True)
 class TerminalReadRangeRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/terminal-read-range/request'
     surface: Id
@@ -4757,6 +4913,7 @@ class UpdateBrowserProfileRequest:
     color: Union[str, None, MissingType] = field(default=MISSING)
     icon: Union[str, None, MissingType] = field(default=MISSING)
     name: Union[str, None, MissingType] = field(default=MISSING)
+    proxy: Union[JsonValue, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -4903,6 +5060,7 @@ class AgentChangedEvent(EventBase):
     state: AgentState
     updated_at_ms: int
     agent: Union[str, None, MissingType] = field(default=MISSING)
+    agent_session_id: Union[str, None, MissingType] = field(default=MISSING)
     last_prompt: Union[str, None, MissingType] = field(default=MISSING)
     since_ms: Union[int, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
@@ -5040,6 +5198,16 @@ class CloudConversationLiveEvent(EventBase):
     conversation: str
     event: Literal['cloud-conversation-live']
     frame: Union[JsonValue, None]
+    account: Union[str, MissingType] = field(default=MISSING)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class CloudConversationPresenceEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/cloud-conversation-presence/payload'
+    conversation: str
+    event: Literal['cloud-conversation-presence']
+    participants: List[CloudConversationPresenceParticipant]
     account: Union[str, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
@@ -5852,7 +6020,7 @@ PaneRef = Any
 TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudConversationTypingEvent, CloudHostReplicaNeededEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationPresenceEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudConversationTypingEvent, CloudHostReplicaNeededEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -5871,12 +6039,14 @@ __all__ = [
     'ClientTransport',
     'CloseReason',
     'ColumnMoveDirection',
+    'ColumnSide',
     'ConversationThreadStatus',
     'CursorStyle',
     'DetachReason',
     'FrontendFocusTarget',
     'HomeChiefState',
     'HomeInboxKind',
+    'HostSizeMode',
     'NameSource',
     'NotificationLevel',
     'NotificationSource',
@@ -5918,6 +6088,7 @@ __all__ = [
     'ClientInfo',
     'ClientSize',
     'CloseTerminalResult',
+    'CloudConversationPresenceParticipant',
     'ColumnPin',
     'ConversationChange',
     'ConversationImportMessage',
@@ -5949,6 +6120,7 @@ __all__ = [
     'FrontendJournalEventViewport',
     'FrontendProjection',
     'GetCellPixelsResult',
+    'GetHostSizePolicyResult',
     'GetSizeStateResult',
     'GuestUrlAcknowledgeResult',
     'GuestUrlClaimResult',
@@ -5957,6 +6129,8 @@ __all__ = [
     'HistorySearchHit',
     'HistorySearchRange',
     'HomeInboxRow',
+    'HostSizePolicy',
+    'HostSizePolicyRequest',
     'IdMapping',
     'IdentifyResult',
     'IdsResult',
@@ -6005,17 +6179,23 @@ __all__ = [
     'SavedTabGroupMember',
     'SavedTabGroupRecord',
     'Screen',
+    'SendExpectAgent',
     'ServerStatsConnections',
     'ServerStatsHistogram',
+    'ServerStatsHookQueue',
     'ServerStatsJournalWriter',
+    'ServerStatsLockDetail',
     'ServerStatsLockHolder',
     'ServerStatsLockSite',
+    'ServerStatsLockSiteDetail',
     'ServerStatsLockStall',
+    'ServerStatsLocks',
     'ServerStatsRegistryLock',
     'ServerStatsResourceProjection',
     'ServerStatsResult',
     'ServerStatsWritePath',
     'SetCellPixelsResult',
+    'SetHostSizePolicyResult',
     'SetSizeCountsResult',
     'SetSizePolicyResult',
     'SetTerminalIdlePolicyResult',
@@ -6057,6 +6237,8 @@ __all__ = [
     'TerminalKeyInput',
     'TerminalModifiers',
     'TerminalPlacement',
+    'TerminalPortsListener',
+    'TerminalPortsResult',
     'TerminalReadRangeResult',
     'TerminalRecord',
     'TerminalRegistryEvent',
@@ -6121,6 +6303,7 @@ __all__ = [
     'CloudConversationHistoryRequest',
     'CloudConversationLiveRequest',
     'CloudConversationOpRequest',
+    'CloudConversationPresenceRequest',
     'CloudConversationRunRequest',
     'CloudConversationRunsRequest',
     'CloudConversationSnapshotRequest',
@@ -6140,6 +6323,7 @@ __all__ = [
     'CloudMuxUnsubscribeRequest',
     'CloudParticipantAvatarGetRequest',
     'CloudRequestsListRequest',
+    'CloudSelfhostInfoRequest',
     'CloudSessionClearRequest',
     'CloudSessionSetRequest',
     'CloudSessionStatusRequest',
@@ -6225,6 +6409,7 @@ __all__ = [
     'GetCellPixelsRequest',
     'GetFrontendBrowserHistoryRequest',
     'GetFrontendProjectionRequest',
+    'GetHostSizePolicyRequest',
     'GetSizeStateRequest',
     'HistorySearchRequest',
     'HistorySearchResult',
@@ -6345,6 +6530,7 @@ __all__ = [
     'SetColumnDockRequest',
     'SetDefaultColorsRequest',
     'SetFrontendBrowserHistoryRequest',
+    'SetHostSizePolicyRequest',
     'SetPersonalTerminalRequest',
     'SetPersonalWorkspaceRequest',
     'SetProfileFollowsRequest',
@@ -6374,6 +6560,7 @@ __all__ = [
     'TerminalClipboardSubscribeRequest',
     'TerminalEventsRequest',
     'TerminalHistoryRequest',
+    'TerminalPortsRequest',
     'TerminalReadRangeRequest',
     'TerminalResourcesRequest',
     'TerminalResumeCommandRequest',
@@ -6418,6 +6605,7 @@ __all__ = [
     'ClientListInvalidatedEvent',
     'CloudConversationChangedEvent',
     'CloudConversationLiveEvent',
+    'CloudConversationPresenceEvent',
     'CloudConversationResyncedEvent',
     'CloudConversationRunChangedEvent',
     'CloudConversationTypingEvent',

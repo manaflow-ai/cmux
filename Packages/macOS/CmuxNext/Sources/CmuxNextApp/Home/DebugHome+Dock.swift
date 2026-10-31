@@ -39,7 +39,7 @@ extension DebugHome {
         ])
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.home.drive {action: legacy_pins, pins?}`: the Messages-list pins this Mac keeps (the old
     /// store the one-time move reads, HomePinMigration), after setting them to `pins` when given.
     static func legacyPins(_ params: [String: JSONValue], services: AppServices) -> CmuxNextSettings.JSONValue {

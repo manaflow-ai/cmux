@@ -37,6 +37,8 @@ const drainers: Record<ProjectionTarget, (env: Env, stream: string, rows: Readon
 
 /** The outbox projector: primary decides; the shadow mirrors best-effort. */
 export const projectRows = async (env: Env, stream: string, rows: ReadonlyArray<OutboxRow>, impl: typeof drainers = drainers): Promise<DrainResult> => {
+  // A self-hosted chat server (backend/apps/home-server) has no PlanetScale: its rows are done.
+  if ((env.PROJECTION_PRIMARY as string | undefined) === "none") return { sent: rows.map((r) => r.id), dead: [] }
   const { primary, shadow } = projectionTargets(env)
   const result = await impl[primary](env, stream, rows)
   if (shadow) {

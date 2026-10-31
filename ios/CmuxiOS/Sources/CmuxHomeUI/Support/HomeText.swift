@@ -16,6 +16,7 @@ enum HomeText {
     static var newGroup: String { String(localized: "home.compose.newGroup", defaultValue: "New Group", bundle: .module) }
     static var newChief: String { String(localized: "home.compose.newChief", defaultValue: "New Chief", bundle: .module) }
     static var inviteButton: String { String(localized: "home.invite.button", defaultValue: "Invite", bundle: .module) }
+    static var chatServerSettings: String { String(localized: "home.settings.chatServer", defaultValue: "Chat Server", bundle: .module) }
     static var inviteHint: String { String(localized: "home.invite.hint", defaultValue: "Invites someone to cmux by email or text message.", bundle: .module) }
     static var untitledConversation: String { String(localized: "home.row.untitled", defaultValue: "Conversation", bundle: .module) }
     static var noMessages: String { String(localized: "home.row.noMessages", defaultValue: "No messages yet", bundle: .module) }

@@ -110,4 +110,14 @@ extension PaletteController {
         guard selection.length == 0 else { return (false, false) }
         return (selection.location == 0, selection.location == (editor.string as NSString).length)
     }
+
+    /// Whether an input method is composing in the query (marked text):
+    /// it then owns Return, Escape, Tab and the arrows, as in a content
+    /// window (`KeyRouter.belongsToInputMethod`); a Command chord still
+    /// reaches the palette.
+    static func inputMethodOwns(_ event: NSEvent, in window: NSWindow?) -> Bool {
+        guard !event.modifierFlags.contains(.command),
+              let client = window?.firstResponder as? NSTextInputClient else { return false }
+        return client.hasMarkedText()
+    }
 }

@@ -31,10 +31,11 @@ enum BrowserHitStrings {
     /// The media hub with no tab playing (BrowserMediaMenu).
     static var mediaNothingPlaying: String { t("browserHits.media.nothingPlaying", "Nothing Playing") }
 
-    // The toolbar's Downloads menu (BrowserDownloadsMenu).
+    // The toolbar's Downloads popup (BrowserDownloadsPopup) and its rows' menu (BrowserDownloadsMenu).
     static var downloadsEmpty: String { t("browserHits.downloads.empty", "No Downloads") }
     static var downloadsClear: String { t("browserHits.downloads.clear", "Clear Finished Downloads") }
     static var downloadOpen: String { t("browserHits.downloads.open", "Open") }
+    static var downloadsShowFolder: String { t("browserHits.downloads.showFolder", "Open Downloads Folder") }
     static var downloadShowInFinder: String { t("browserHits.downloads.showInFinder", "Show in Finder") }
     static var downloadPause: String { t("browserHits.downloads.pause", "Pause") }
     static var downloadResume: String { t("browserHits.downloads.resume", "Resume") }

@@ -21,16 +21,6 @@ extension RemoteTerminalService {
     func move(_ tab: TabModel, from source: DaemonService, to workspace: WorkspaceModel, on destination: DaemonService,
               completion: @escaping (Bool) -> Void) {
         let registry = services.registry
-        guard tab.kind != .browser else {
-            registry.refuse(RemoteStrings.moveBrowserAcrossMachines)
-            return completion(false)
-        }
-        // A chat, New Tab, Home or page tab has no terminal to reference there: it says so
-        // instead of failing with the generic "could not move" (it stays where it was).
-        guard tab.kind == .pty || tab.kind == .remoteTerminal else {
-            registry.refuse(RemoteStrings.moveTabAcrossMachines)
-            return completion(false)
-        }
         guard let target = Self.landingPane(in: workspace) else {
             // An empty workspace (no pane yet) cannot hold the tab.
             registry.refuse(RefusalStrings.noPaneID(workspace.displayName))
@@ -39,6 +29,10 @@ extension RemoteTerminalService {
         guard let sourceConnection = source.connection, let destinationConnection = destination.connection else {
             registry.refuse(WorkspaceVerbStrings.machineNotConnected)
             return completion(false)
+        }
+        // A browser, chat or page tab has no process to reference there: it reopens there on the same page.
+        guard tab.kind == .pty || tab.kind == .remoteTerminal else {
+            return reopen(tab, in: target, closingOn: sourceConnection, on: destinationConnection, completion: completion)
         }
         let targetHandle = target.handle
         let surface = tab.surface
@@ -72,7 +66,7 @@ extension RemoteTerminalService {
             })
             return
         }
-        guard destination.supports(DaemonCapabilities.shared.remoteTerminalTabs) else {
+        guard destination.supports(DaemonCapability.remoteTerminalTabs.rawValue) else {
             registry.refuse(RemoteStrings.needsRemoteTerminalTabs)
             return completion(false)
         }
@@ -90,44 +84,37 @@ extension RemoteTerminalService {
             return completion(false)
         }
         let terminalConnection = tab.kind == .remoteTerminal ? services.machines.daemon(session: ref.sessionID)?.connection : sourceConnection
-        let (name, pinned) = (tab.name.flatMap { $0.isEmpty ? nil : $0 }, tab.pinned)
-        registry.track(Task { [weak self] in
-            do {
-                // Kept first: closing the old tab must never end it.
-                let kept = try? await terminalConnection?.keepTerminal(ref.terminalID)
-                if let known = kept ?? resource { self?.remember(ref, resource: known) }
-                let created = try await destinationConnection.newRemoteTerminalTab(ref, in: targetHandle, title: title)
-                // The new tab is the same tab to the user: its name and pin come along. A daemon
-                // without tab metadata keeps the tab unpinned; the move still lands.
-                if let name { try? await destinationConnection.renameTab(created.surface, to: name) }
-                if pinned { _ = try? await destinationConnection.setTabPinned(created.surface, true) }
-                try await sourceConnection.closeTab(surface)
-                self?.forget(tabID: tab.id)
-                completion(true)
-                return nil
-            } catch {
-                completion(false)
-                return ActionWorkFailure("move terminal to another machine", error)
-            }
-        })
+        land(tab, closingOn: sourceConnection, on: destinationConnection, completion: completion) { [weak self] in
+            // Kept first: closing the old tab must never end it.
+            let kept = try? await terminalConnection?.keepTerminal(ref.terminalID)
+            if let known = kept ?? resource { self?.remember(ref, resource: known) }
+            return try await destinationConnection.newRemoteTerminalTab(ref, in: targetHandle, title: title).surface
+        }
     }
 
     /// A new terminal on `machine` shown as a remote-terminal tab in
     /// `pane` (whose workspace is homed on `home`). The terminal has no tab
     /// on `machine`: `create-terminal {detached}` (`detached-terminals-v1`),
     /// else created in one of the machine's workspaces (a scratch one when
-    /// it has none) and that tab closed.
-    func openTerminal(on machine: DaemonService, in pane: PaneModel, home: DaemonService, cwd: String?) -> ActionWorkFailure? {
+    /// it has none) and that tab closed. With `direction` the tab lands in a
+    /// new split of `pane` (right or bottom) instead of a tab of it.
+    ///
+    /// `name` is the tab's own name (what `open-remote` finds it by the next time), `command` is typed
+    /// into the new shell, `ratio` is the split's share for the new pane and `keepFocus` leaves the
+    /// user's focus where it was (daemons without `tab-split-keep-focus-v1` take focus anyway).
+    func openTerminal(on machine: DaemonService, in pane: PaneModel, home: DaemonService, cwd: String?,
+                      splitting direction: SplitDirection? = nil, name tabName: String? = nil, command: String? = nil,
+                      ratio: Double? = nil, keepFocus: Bool = false) -> ActionWorkFailure? {
         // Only the tab's session stores the reference; the terminal's session
         // needs no new capability.
-        guard home.supports(DaemonCapabilities.shared.remoteTerminalTabs) else {
+        guard home.supports(DaemonCapability.remoteTerminalTabs.rawValue) else {
             return ActionWorkFailure(RemoteStrings.needsRemoteTerminalTabs)
         }
         guard let machineConnection = machine.connection, let homeConnection = home.connection,
               let session = machine.identity?.sessionID else { return ActionWorkFailure(WorkspaceVerbStrings.machineNotConnected) }
         let name = sessionName(of: machine)
         let paneHandle = pane.handle
-        let detached = machine.supports(DaemonCapabilities.shared.detachedTerminals)
+        let detached = machine.supports(DaemonCapability.detachedTerminals.rawValue)
         let existing = machine.store.workspaces.first { $0.key != nil }?.key
         services.registry.track(Task { [weak self] in
             do {
@@ -149,7 +136,18 @@ extension RemoteTerminalService {
                 }
                 let ref = RemoteTerminalRef(sessionID: session, terminalID: terminal, sessionName: name)
                 if let resource { self?.remember(ref, resource: resource) }
-                _ = try await homeConnection.newRemoteTerminalTab(ref, in: paneHandle, title: RemoteStrings.terminalOn(name))
+                let created = try await homeConnection.newRemoteTerminalTab(ref, in: paneHandle, title: RemoteStrings.terminalOn(name))
+                if let tabName { try await homeConnection.renameTab(created.surface, to: tabName) }
+                // Placed by moving the new tab to a split of its pane (move-tab-to-split): no local seed shell.
+                if let direction {
+                    _ = try await homeConnection.moveTabToSplit(created.surface, pane: paneHandle, edge: direction == .right ? .right : .bottom,
+                                                                ratio: ratio, keepFocus: keepFocus)
+                }
+                // The terminal exists and is placed; a command that cannot be typed is reported, not rolled back.
+                if let command {
+                    guard let resource else { return ActionWorkFailure(RemoteStrings.machineHasNoTerminal) }
+                    try await machineConnection.writeTerminal(resource, text: command + "\n")
+                }
                 return nil
             } catch {
                 return ActionWorkFailure("open terminal on machine", error)
@@ -161,7 +159,7 @@ extension RemoteTerminalService {
     /// The name stored on a reference (the placeholder label while the
     /// session is away).
     func sessionName(of daemon: DaemonService) -> String {
-        if daemon.isLocal { return daemon.identity?.machineName ?? MacName().kernelHostName() }
+        if daemon.isLocal { return daemon.identity?.machineName ?? MacName().hostName() }
         return services.machines.machineName(daemon.machineID) ?? daemon.identity?.machineName ?? daemon.identity?.session ?? daemon.machineID
     }
 

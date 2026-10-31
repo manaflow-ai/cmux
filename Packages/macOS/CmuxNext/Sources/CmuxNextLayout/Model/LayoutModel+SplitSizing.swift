@@ -27,6 +27,17 @@ extension LayoutModel {
         return pruned.map { EvenSplitRatios.changes(splitting: pane, axis: axis, in: $0) } ?? []
     }
 
+    /// The ratio intents a tab drop that splits `pane` at `zone` sends once its move landed: the
+    /// ones its drop target previews (`DropPreviewLayout.ratioChanges`), so the panes land where the
+    /// target drew them. Compute before the move. A drop the preview cannot predict (a column with
+    /// rows) sends the split's own sizing.
+    public func dropSizingChanges(splitting pane: PaneID, zone: PaneDropZone, removing: PaneID?) -> [SplitRatioChange] {
+        guard let screen = screen(containing: pane), let axis = zone.splitAxis else { return [] }
+        let preview = DropPreviewLayout(splitting: pane, zone: zone, in: screen.layout, removing: removing,
+                                        evenSizing: splitSizing == .even, equalizesClose: !screen.zoomed)
+        return preview?.ratioChanges ?? splitSizingChanges(splitting: pane, axis: axis, removing: removing)
+    }
+
     /// Sends `changes` as ended divider intents (after the split succeeded).
     public func applySplitSizing(_ changes: [SplitRatioChange]) {
         for change in changes {

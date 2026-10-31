@@ -1,7 +1,8 @@
 //! Part of `Hub`; see `hub/mod.rs`. Prompt bookmarks (`_acpmux/bookmark_get`,
 //! `_acpmux/bookmark_set`): the person's marks on a chat's own prompts, from
-//! the pane's thread minimap. Each is the seq of a `user_message` record in
-//! the chat's log, kept in its `SessionMeta` so a restart, a move and every
+//! the pane's thread minimap, and the Pin of a message's action row. Each is
+//! the seq of a `user_message` record (a prompt) or a `turn_result` record (the
+//! answer of its turn) in the chat's log, kept in its `SessionMeta` so a restart, a move and every
 //! attached pane see the same marks. A change is logged as a mux `bookmarks`
 //! record, as tags are, which is how attached panes hear of it.
 
@@ -12,18 +13,19 @@ impl Hub {
     /// The most bookmarks one chat keeps.
     pub const MAX_BOOKMARKS: usize = 1000;
 
-    /// Mark or unmark the prompt logged at `seq`, and return the chat's marks.
-    /// Only a `user_message` record of this chat can be marked; unmarking takes
-    /// any seq, so a mark whose prompt is gone can still be cleared.
+    /// Mark or unmark the prompt (or the turn's answer) logged at `seq`, and
+    /// return the chat's marks. Only a `user_message` or `turn_result` record of
+    /// this chat can be marked; unmarking takes any seq, so a mark whose message
+    /// is gone can still be cleared.
     pub async fn set_bookmark(
         self: &Arc<Self>,
         session: &Session,
         seq: u64,
         bookmarked: bool,
     ) -> Result<Vec<u64>, RpcError> {
-        if bookmarked && !self.is_prompt(session, seq).await {
+        if bookmarked && !self.is_markable(session, seq).await {
             return Err(RpcError::invalid_params(format!(
-                "seq {seq} is not a prompt in session {}",
+                "seq {seq} is not a prompt or an answer in session {}",
                 session.id
             )));
         }
@@ -66,9 +68,9 @@ impl Hub {
         Ok(marks)
     }
 
-    /// Whether `seq` is a prompt (`user_message`) in the chat's log. The store reads files, so
+    /// Whether `seq` is a prompt (`user_message`) or a turn's answer (`turn_result`) in the chat's log. The store reads files, so
     /// the scan runs off the async workers.
-    async fn is_prompt(self: &Arc<Self>, session: &Session, seq: u64) -> bool {
+    async fn is_markable(self: &Arc<Self>, session: &Session, seq: u64) -> bool {
         if seq == 0 || seq > session.seq.load(Ordering::SeqCst) {
             return false;
         }
@@ -76,7 +78,9 @@ impl Hub {
         let scan = tokio::task::spawn_blocking(move || {
             let mut found = false;
             let _ = hub.store.scan(&id, seq - 1, &mut |e: EventRecord| {
-                found = e.seq == seq && e.dir == "mux" && e.kind == "user_message";
+                found = e.seq == seq
+                    && e.dir == "mux"
+                    && (e.kind == "user_message" || e.kind == "turn_result");
                 false
             });
             found

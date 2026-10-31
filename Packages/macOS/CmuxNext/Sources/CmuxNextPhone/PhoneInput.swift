@@ -36,13 +36,15 @@ public enum PhoneInput: Sendable, Hashable {
     case install(URL)
     /// Launches an installed app by its bundle id or package name.
     case launch(String)
+    /// Shows or hides the on-screen keyboard (iOS: the simulator's software keyboard toggle).
+    case softwareKeyboard
 
     /// The capability the backend needs for this input.
     public var requiredCapability: PhoneCapabilities {
         switch self {
         case .tap, .swipe: .touch
         case .text: .keyboard
-        case .button: .buttons
+        case .button, .softwareKeyboard: .buttons
         case .openURL: .openURL
         case .pasteboard: .pasteboard
         case .appearance: .appearance
@@ -66,6 +68,7 @@ public enum PhoneInput: Sendable, Hashable {
         case .locale: "locale"
         case .install: "install"
         case .launch: "launch"
+        case .softwareKeyboard: "software-keyboard"
         }
     }
 }

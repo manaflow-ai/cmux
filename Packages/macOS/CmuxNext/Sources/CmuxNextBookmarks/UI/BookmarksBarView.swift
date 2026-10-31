@@ -39,7 +39,7 @@ public final class BookmarksBarView: NSView {
         }
         overflow.image = NSImage.icon(.overflowMore, size: 14)
         overflow.image?.accessibilityDescription = BookmarkStrings.moreBookmarks
-        overflow.themedToolTip = BookmarkStrings.moreBookmarks
+        overflow.setAccessibilityLabel(BookmarkStrings.moreBookmarks)
         overflow.action = #selector(showOverflow)
         otherButton.image = NSImage.icon(.folder, size: 14)
         otherButton.title = BookmarkStrings.otherBookmarks
@@ -75,7 +75,7 @@ public final class BookmarksBarView: NSView {
             let item = BookmarkBarItemView(node: node, image: source?.favicon(for: node))
             item.onClick = { [weak self] item, event in self?.click(item, event) }
             item.onDragStart = { [weak self] item, event in self?.beginDrag(item, event) }
-            item.onContextMenu = { [weak self] item in self?.source?.contextMenu(for: item.node) }
+            item.onContextMenu = { [weak self] item in self.flatMap { $0.source?.contextMenu(for: item.node)?.themeRows(in: $0.themeScope.fullStrength) } }
             addSubview(item)
             return item
         }
@@ -173,7 +173,7 @@ public final class BookmarksBarView: NSView {
         folderMenu.menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: view, gap: 2), in: view)
     }
 
-    public override func menu(for event: NSEvent) -> NSMenu? { source?.contextMenu(for: nil) }
+    public override func menu(for event: NSEvent) -> NSMenu? { source?.contextMenu(for: nil)?.themeRows(in: themeScope.fullStrength) }
 
     // MARK: Drag and drop (BookmarksBarView+Drag)
 

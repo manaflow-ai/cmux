@@ -38,6 +38,12 @@ public enum DetectionSource: Sendable, Equatable, Hashable, Encodable {
         case .server(let address): address
         }
     }
+
+    /// A shell variable (`$CLAUDE_CODE_OAUTH_TOKEN`), not a saved sign-in.
+    public var isEnvironment: Bool {
+        if case .environment = self { return true }
+        return false
+    }
 }
 
 /// One provider's detection result. A credential value is never kept

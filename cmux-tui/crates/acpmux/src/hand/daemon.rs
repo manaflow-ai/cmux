@@ -56,11 +56,17 @@ static RESTARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool:
 /// One connect at a time: two starts at once would both start a daemon.
 static CONNECT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+/// `<acpmux> [prefix…] daemon start --person-key-fd 0`: the key arrives on
+/// stdin. Inside cmux-tui the prefix is `acp`.
+fn keyed_start_command(this: &crate::self_command::SelfCommand) -> tokio::process::Command {
+    this.tokio_command(&["daemon", "start", "--person-key-fd", "0"])
+}
+
 async fn start_keyed() -> Result<(), HandError> {
     use tokio::io::AsyncWriteExt;
-    let exe = std::env::current_exe().map_err(|e| HandError::new("agent.daemon", e.to_string()))?;
-    let mut child = tokio::process::Command::new(exe)
-        .args(["daemon", "start", "--person-key-fd", "0"])
+    let this = crate::self_command::SelfCommand::current()
+        .map_err(|e| HandError::new("agent.daemon", e.to_string()))?;
+    let mut child = keyed_start_command(&this)
         .env("ACPMUX_HOME", crate::config::home())
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::null())
@@ -114,4 +120,21 @@ pub async fn connect() -> Result<(Arc<Client>, bool), HandError> {
         );
     }
     Ok((client, proven))
+}
+
+#[cfg(test)]
+mod self_command_tests {
+    #[test]
+    fn the_keyed_start_runs_under_the_daemon_prefix() {
+        let [standalone, tui] = crate::self_command::test_commands();
+        let args = |c: &tokio::process::Command| -> Vec<String> {
+            c.as_std().get_args().map(|a| a.to_string_lossy().into_owned()).collect()
+        };
+        let start = ["daemon", "start", "--person-key-fd", "0"];
+        assert_eq!(args(&super::keyed_start_command(&standalone)), start);
+        let command = super::keyed_start_command(&tui);
+        assert_eq!(command.as_std().get_program(), tui.exe.as_os_str());
+        assert_eq!(args(&command)[0], "acp");
+        assert_eq!(args(&command)[1..], start);
+    }
 }

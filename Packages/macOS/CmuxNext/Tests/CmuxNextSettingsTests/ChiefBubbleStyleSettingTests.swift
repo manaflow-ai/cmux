@@ -2,7 +2,7 @@ import CmuxNextSettings
 import Testing
 
 /// `home.chiefBubbleStyle`: the Chief chat's bubbles are iMessage's (the default) until the person, or
-/// an agent (it is looks only), picks Theme in Settings > Agents > Chief Chat or cmux.json.
+/// an agent (it is looks only), picks Theme in Settings > Chief > Chief Chat or cmux.json.
 struct ChiefBubbleStyleSettingTests {
     @Test func iMessageByDefault() throws {
         let snapshot = CmuxConfigSnapshot.parse(.object([:]), validDensities: [], validMetrics: [])
@@ -39,8 +39,8 @@ struct ChiefBubbleStyleSettingTests {
         #expect(SettingsSchema.agentRefusedKeys[HomeChiefBubbleStyleSetting.key] == nil)
     }
 
-    @Test func theSettingsPageDrawsItInAgents() throws {
-        let agents = try #require(SettingsPageLayout().categories().first { $0.spec.id == "agents" })
-        #expect(agents.groups.contains { $0.rows.contains(HomeChiefBubbleStyleSetting.key) })
+    @Test func theSettingsPageDrawsItInChief() throws {
+        let chief = try #require(SettingsPageLayout().categories().first { $0.spec.id == "chief" })
+        #expect(chief.groups.contains { $0.rows.contains(HomeChiefBubbleStyleSetting.key) })
     }
 }

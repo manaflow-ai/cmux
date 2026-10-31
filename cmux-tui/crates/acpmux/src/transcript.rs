@@ -76,6 +76,13 @@ pub struct Transcript {
     pub user_at: std::collections::HashMap<usize, u64>,
     /// (user item index, turn start ms, turn end ms) per turn seen.
     pub turn_times: Vec<(usize, u64, Option<u64>)>,
+    /// Steers the agent has not read yet: (promptId, user item index). A steer that
+    /// lands as its turn ends is run as the next prompt and logged again with the
+    /// same promptId and no `steer` (`hub/steer_end.rs`); that record replaces its row.
+    waiting_steers: Vec<(String, usize)>,
+    /// Item indices removed since the TUI last read them, in order, so it can move
+    /// state it keys by index (folds) with the rows that stay.
+    pub(crate) removed_items: Vec<usize>,
 }
 
 /// Line diff of two texts: `+`, `-` and ` ` prefixed lines, in order. LCS
@@ -89,30 +96,39 @@ pub fn diff_lines(old: &str, new: &str) -> Vec<(char, String)> {
         return out;
     }
     let (n, m) = (a.len(), b.len());
-    let mut lcs = vec![vec![0u32; m + 1]; n + 1];
-    for i in (0..n).rev() {
-        for j in (0..m).rev() {
-            lcs[i][j] =
-                if a[i] == b[j] { lcs[i + 1][j + 1] + 1 } else { lcs[i + 1][j].max(lcs[i][j + 1]) };
+    // Cell `i * width + j`: the longest common subsequence of `a[i..]` and `b[j..]`.
+    let width = m + 1;
+    let mut lcs = vec![0u32; (n + 1) * width];
+    let at = |lcs: &[u32], i: usize, j: usize| lcs.get(i * width + j).copied().unwrap_or(0);
+    for (i, x) in a.iter().enumerate().rev() {
+        for (j, y) in b.iter().enumerate().rev() {
+            let v = if x == y {
+                at(&lcs, i + 1, j + 1) + 1
+            } else {
+                at(&lcs, i + 1, j).max(at(&lcs, i, j + 1))
+            };
+            if let Some(cell) = lcs.get_mut(i * width + j) {
+                *cell = v;
+            }
         }
     }
     let (mut i, mut j) = (0, 0);
     let mut out = Vec::new();
-    while i < n && j < m {
-        if a[i] == b[j] {
-            out.push((' ', a[i].to_string()));
+    while let (Some(x), Some(y)) = (a.get(i), b.get(j)) {
+        if x == y {
+            out.push((' ', x.to_string()));
             i += 1;
             j += 1;
-        } else if lcs[i + 1][j] >= lcs[i][j + 1] {
-            out.push(('-', a[i].to_string()));
+        } else if at(&lcs, i + 1, j) >= at(&lcs, i, j + 1) {
+            out.push(('-', x.to_string()));
             i += 1;
         } else {
-            out.push(('+', b[j].to_string()));
+            out.push(('+', y.to_string()));
             j += 1;
         }
     }
-    out.extend(a[i..].iter().map(|l| ('-', l.to_string())));
-    out.extend(b[j..].iter().map(|l| ('+', l.to_string())));
+    out.extend(a.get(i..).unwrap_or_default().iter().map(|l| ('-', l.to_string())));
+    out.extend(b.get(j..).unwrap_or_default().iter().map(|l| ('+', l.to_string())));
     out
 }
 
@@ -124,7 +140,7 @@ pub fn diff_text(path: &str, old: &str, new: &str) -> String {
         .map(|i| {
             let lo = i.saturating_sub(2);
             let hi = (i + 3).min(lines.len());
-            lines[lo..hi].iter().any(|(k, _)| *k != ' ')
+            lines.get(lo..hi).unwrap_or_default().iter().any(|(k, _)| *k != ' ')
         })
         .collect();
     let mut out = String::new();
@@ -132,8 +148,8 @@ pub fn diff_text(path: &str, old: &str, new: &str) -> String {
         out.push_str(&format!("@@ {path}\n"));
     }
     let mut gap = false;
-    for (i, (k, l)) in lines.iter().enumerate() {
-        if !keep[i] {
+    for ((k, l), &kept) in lines.iter().zip(&keep) {
+        if !kept {
             gap = true;
             continue;
         }
@@ -182,9 +198,48 @@ fn text_of(content: &Value) -> String {
     }
 }
 
+/// Whether a user row's `shown` text is prompt `text`: the TUI's echo of a prompt with
+/// images adds an `[image: …]` line (`tui/mod.rs`).
+fn shows_prompt(shown: &str, text: &str) -> bool {
+    match shown.strip_prefix(text) {
+        Some("") => true,
+        Some(rest) => rest.starts_with(if text.is_empty() { "[image: " } else { "\n[image: " }),
+        None => false,
+    }
+}
+
 impl Transcript {
     pub(crate) fn invalidate_layout(&mut self, from: usize) {
         self.layout_dirty_from = self.layout_dirty_from.min(from);
+    }
+
+    /// Removes user item `pos`, keeping the per-item indices after it in step.
+    fn remove_user_item(&mut self, pos: usize) -> Item {
+        self.invalidate_layout(pos);
+        let item = self.items.remove(pos);
+        self.removed_items.push(pos);
+        let moved: std::collections::HashMap<usize, u64> = self
+            .user_at
+            .drain()
+            .filter_map(|(k, v)| match k.cmp(&pos) {
+                std::cmp::Ordering::Equal => None,
+                std::cmp::Ordering::Greater => Some((k - 1, v)),
+                std::cmp::Ordering::Less => Some((k, v)),
+            })
+            .collect();
+        self.user_at = moved;
+        for tt in self.turn_times.iter_mut() {
+            if tt.0 > pos {
+                tt.0 -= 1;
+            }
+        }
+        self.waiting_steers.retain(|(_, i)| *i != pos);
+        for (_, i) in self.waiting_steers.iter_mut() {
+            if *i > pos {
+                *i -= 1;
+            }
+        }
+        item
     }
 
     /// Apply a `session/update` params object (live or replayed).
@@ -199,6 +254,10 @@ impl Transcript {
             self.last_seq = seq;
         }
         let Some(update) = params.get("update") else { return };
+        // A subagent's words are its own view's, never the chat's reply.
+        if crate::subagents::is_subagents(params) && is_words(update) {
+            return;
+        }
         self.apply_session_update(update);
     }
 
@@ -460,6 +519,8 @@ impl Transcript {
             }
             if msg.get("method").and_then(Value::as_str) == Some("session/update")
                 && let Some(update) = msg.pointer("/params/update")
+                && !(msg.get("params").is_some_and(crate::subagents::is_subagents)
+                    && is_words(update))
             {
                 self.apply_session_update(update);
             }
@@ -498,33 +559,29 @@ impl Transcript {
             "user_message" => {
                 let text = msg.get("text").and_then(Value::as_str).unwrap_or("").to_owned();
                 let steer = msg.get("steer").and_then(Value::as_bool).unwrap_or(false);
+                let prompt_id = msg.get("promptId").and_then(Value::as_str).unwrap_or("");
+                if !steer
+                    && !prompt_id.is_empty()
+                    && let Some(w) = self.waiting_steers.iter().position(|(id, _)| id == prompt_id)
+                {
+                    // A steer the turn ended before reading, now run as this prompt: its row
+                    // gives way. Only its own: another steer's re-run may still be queued.
+                    let (_, pos) = self.waiting_steers.remove(w);
+                    self.remove_user_item(pos);
+                }
                 // A queued message becomes the live one when its turn starts:
                 // it moves to the end so it sits after the turn that ran before it.
-                let promoted = self.items.iter().position(
-                    |i| matches!(i, Item::User { text: t, queued: true, .. } if *t == text),
-                );
+                // A steer starts no turn, so it never takes a queued row.
+                let promoted = (!steer)
+                    .then(|| {
+                        self.items.iter().position(
+                            |i| matches!(i, Item::User { text: t, queued: true, .. } if *t == text),
+                        )
+                    })
+                    .flatten();
                 match promoted {
                     Some(pos) => {
-                        let item = self.items.remove(pos);
-                        let moved: std::collections::HashMap<usize, u64> = self
-                            .user_at
-                            .drain()
-                            .filter_map(|(k, v)| {
-                                if k == pos {
-                                    None
-                                } else if k > pos {
-                                    Some((k - 1, v))
-                                } else {
-                                    Some((k, v))
-                                }
-                            })
-                            .collect();
-                        self.user_at = moved;
-                        for tt in self.turn_times.iter_mut() {
-                            if tt.0 > pos {
-                                tt.0 -= 1;
-                            }
-                        }
+                        let item = self.remove_user_item(pos);
                         if let Item::User { text, steer, .. } = item {
                             self.items.push(Item::User { text, steer, queued: false });
                         }
@@ -534,9 +591,25 @@ impl Transcript {
                             // Already on screen from the local echo.
                             self.optimistic.remove(pos);
                         } else {
-                            self.items.push(Item::User { text, steer, queued: false });
+                            self.items.push(Item::User {
+                                text: text.clone(),
+                                steer,
+                                queued: false,
+                            });
                         }
                     }
+                }
+                if steer
+                    && !prompt_id.is_empty()
+                    && let Some(idx) = (0..self.items.len()).rev().find(|&i| {
+                        let shown = match self.items.get(i) {
+                            Some(Item::User { text: t, steer: true, .. }) => shows_prompt(t, &text),
+                            _ => false,
+                        };
+                        shown && !self.waiting_steers.iter().any(|(_, w)| *w == i)
+                    })
+                {
+                    self.waiting_steers.push((prompt_id.to_owned(), idx));
                 }
                 if let Some(idx) = self.items.iter().rposition(|i| matches!(i, Item::User { .. }))
                     && at > 0
@@ -670,11 +743,20 @@ impl Transcript {
             "stderr" => self.items.push(Item::Stderr {
                 text: msg.get("text").and_then(Value::as_str).unwrap_or("").to_owned(),
             }),
+            // A hibernation (the idle exit, `hub/idle.rs`) and its wake are not the person's to
+            // see: the chat reads as it did.
+            "exited" | "stopped"
+                if msg.get("hibernated").and_then(Value::as_bool) == Some(true) => {}
+            "resumed" if msg.get("wake").and_then(Value::as_bool) == Some(true) => {}
             "exited" => self.items.push(Item::Status {
-                text: format!(
-                    "agent exited unexpectedly (code {})",
-                    msg.get("code").map(|c| c.to_string()).unwrap_or_default()
-                ),
+                text: if msg.get("code").and_then(Value::as_i64) == Some(0) {
+                    "agent stopped".into()
+                } else {
+                    format!(
+                        "agent exited unexpectedly (code {})",
+                        msg.get("code").map(|c| c.to_string()).unwrap_or_default()
+                    )
+                },
             }),
             "stopped" => self.items.push(Item::Status { text: "agent stopped".into() }),
             "resumed" => self.items.push(Item::Status {
@@ -704,6 +786,9 @@ impl Transcript {
                     text: format!("model: {}", self.model.clone().unwrap_or_default()),
                 });
             }
+            // The settings a new agent was given again (`replay_config`): nothing changed, and a
+            // wake from hibernation does it every time.
+            "config" if msg.get("replayed").and_then(Value::as_bool) == Some(true) => {}
             "config" => {
                 if msg.get("configId").and_then(Value::as_str) == Some("model") {
                     self.model = msg.get("value").and_then(Value::as_str).map(str::to_owned);
@@ -753,4 +838,16 @@ pub fn item_text(item: &Item) -> String {
         Item::Permission { title, .. } => title.clone(),
         Item::TurnEnd { stop } => stop.clone(),
     }
+}
+
+#[cfg(test)]
+#[path = "transcript_tests.rs"]
+mod tests;
+
+/// A message or thought chunk: the words a reader of the chat's own text keeps.
+fn is_words(update: &Value) -> bool {
+    matches!(
+        update.get("sessionUpdate").and_then(Value::as_str),
+        Some("agent_message_chunk" | "agent_thought_chunk")
+    )
 }
