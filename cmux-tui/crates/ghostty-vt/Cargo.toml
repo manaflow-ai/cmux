@@ -14,3 +14,6 @@ workspace = true
 base64.workspace = true
 ghostty-vt-sys.workspace = true
 png.workspace = true
+
+[dev-dependencies]
+proptest = { version = "1", default-features = false, features = ["std"] }
