@@ -2,6 +2,7 @@ import CmuxNextFileGrid
 import CmuxNextFiles
 @testable import CmuxNextScreenshots
 import Foundation
+import os
 import Testing
 
 /// The pane's live model: merged listing, watch events, filters and the drop folder.
@@ -182,5 +183,48 @@ import Testing
 nonisolated struct SilentWatcher: FolderWatching {
     func changes(in folder: URL) -> AsyncStream<FolderChange> {
         AsyncStream { $0.finish() }
+    }
+}
+
+/// ~/Desktop is macOS's default screenshot folder, which macOS guards. The app's page model is made with
+/// `listsAtOnce: false`: a page an agent or a script made off screen reads and watches no folder until it is on
+/// screen (`startListing()`).
+@MainActor @Suite struct ScreenshotsModelListsOnlyWhenStartedTests {
+    @Test func aModelNotStartedReadsAndWatchesNoFolder() async {
+        let lister = RecordingLister()
+        let watcher = RecordingWatcher()
+        let model = ScreenshotsModel(reader: ScreenshotFolderReader(lister: lister), watcher: watcher, listsAtOnce: false)
+        let desktop = URL(fileURLWithPath: "/Users/someone/Desktop", isDirectory: true)
+        model.setSources([ScreenshotsModelTests.source("system", desktop)])
+        await model.refresh()
+        #expect(!model.isListing)
+        #expect(await lister.listed.isEmpty)
+        #expect(watcher.watched.isEmpty)
+
+        model.startListing()
+        await model.refresh()
+        #expect(model.isListing)
+        #expect(await lister.listed.contains(desktop.path))
+        #expect(watcher.watched.contains(desktop.path))
+    }
+}
+
+/// Records each folder the model lists.
+private actor RecordingLister: DirectoryListing {
+    private(set) var listed: [String] = []
+    func list(_ folder: URL) async throws -> [FileEntry] {
+        listed.append(folder.path)
+        return []
+    }
+    func entry(at url: URL) async -> FileEntry? { nil }
+}
+
+/// Records each folder the model watches; reports no change.
+private final class RecordingWatcher: FolderWatching {
+    private let paths = OSAllocatedUnfairLock(initialState: [String]())
+    var watched: [String] { paths.withLock { $0 } }
+    func changes(in folder: URL) -> AsyncStream<FolderChange> {
+        paths.withLock { $0.append(folder.path) }
+        return AsyncStream { $0.finish() }
     }
 }

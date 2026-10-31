@@ -42,15 +42,25 @@ public final class ScreenshotsModel {
     /// Above this many changed names in one batch, the source is read again.
     @ObservationIgnored private let rescanThreshold = 128
 
+    /// Whether the folders are read and watched (``startListing()``).
+    public private(set) var isListing: Bool
+
     /// Makes a model.
     ///
     /// - Parameters:
     ///   - reader: reads folders (default: the disk through CmuxNextFiles).
     ///   - watcher: reports changes (default: CmuxNextFiles' FSEvents ``FolderWatcher``).
-    public init(reader: ScreenshotFolderReader = ScreenshotFolderReader(), watcher: any FolderWatching = FolderWatcher()) {
+    ///   - listsAtOnce: read and watch the folders as soon as they are set; off, nothing is read or watched
+    ///     until ``startListing()`` (the app's page: macOS guards ~/Desktop, its default screenshot folder).
+    public init(reader: ScreenshotFolderReader = ScreenshotFolderReader(), watcher: any FolderWatching = FolderWatcher(),
+                listsAtOnce: Bool = true) {
         self.reader = reader
         self.watcher = watcher
+        isListing = true
     }
+
+    /// Reads and watches the folders from now on (the page is on screen).
+    public func startListing() {}
 
     /// The files the grid shows: the selected source's (or all), matching the search, newest first.
     public var visibleItems: [FileGridItem] {
