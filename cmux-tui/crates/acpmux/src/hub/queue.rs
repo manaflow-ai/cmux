@@ -297,7 +297,7 @@ impl Hub {
                     let waits = self.enqueue(session, &p, position, &turn_id).map_err(Answer::Err)?;
                     let mut accepted = json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "position": position});
                     if awaiting_owner {
-                        accepted["awaitingOwner"] = json!(true);
+                        accepted.set("awaitingOwner", json!(true));
                     }
                     accept(accepted);
                     Some(waits)
@@ -585,8 +585,8 @@ impl Hub {
         }
         // It waits for the owner (`queue_approve.rs`); a restart keeps it waiting.
         if awaiting_owner {
-            queued["awaitingOwner"] = json!(true);
-            queued["revision"] = json!(0);
+            queued.set("awaitingOwner", json!(true));
+            queued.set("revision", json!(0));
         }
         // Its images are kept now and named, so its row shows them before it runs
         // (`prompt_images.rs`).
@@ -915,9 +915,9 @@ impl Hub {
             let Some(i) = queue.iter().position(|q| q.turn_id == turn_id) else {
                 return Err(withdrawn_reply(prompt_id, turn_id));
             };
-            if queue[i].awaiting_owner {
+            if let Some(q) = queue.get_mut(i).filter(|q| q.awaiting_owner) {
                 // Its steer flag goes: once approved it runs in its place, never as a steer.
-                queue[i].steer = false;
+                q.steer = false;
                 return Ok(None);
             }
             session.queued.fetch_sub(1, Ordering::SeqCst);
@@ -1174,12 +1174,12 @@ impl Hub {
                         // A revision never goes back: a log from before edits were logged under
                         // the queue lock may hold an older edit after a newer one, and the newer
                         // one is the words the queue had (and an approval may name).
-                        let revision = e.msg["revision"].as_u64();
-                        let stale = |had: &Value| {
-                            matches!((revision, had.as_u64()), (Some(new), Some(had)) if new < had)
+                        let revision = e.msg.get("revision").and_then(Value::as_u64);
+                        let stale = |had: Option<&Value>| {
+                            matches!((revision, had.and_then(Value::as_u64)), (Some(new), Some(had)) if new < had)
                         };
                         if let Some(q) =
-                            waiting.first_of_turn(turn_id).filter(|q| !stale(&q.msg["revision"]))
+                            waiting.first_of_turn(turn_id).filter(|q| !stale(q.msg.get("revision")))
                         {
                             for k in [
                                 "text",
@@ -1314,8 +1314,10 @@ impl Hub {
             let supersede = crate::author::restored_supersede(&e.msg).map(str::to_owned);
             // Its approval counts for this incarnation at the revision the owner saw, which an
             // edit since replaced.
-            let revision = e.msg["revision"].as_u64();
-            let approval = approved.get(&turn_id).filter(|a| a["revision"].as_u64() == revision);
+            let revision = e.msg.get("revision").and_then(Value::as_u64);
+            let approval = approved
+                .get(&turn_id)
+                .filter(|a| a.get("revision").and_then(Value::as_u64) == revision);
             let awaiting_owner =
                 e.msg.get("awaitingOwner") == Some(&Value::Bool(true)) && approval.is_none();
             restored.push((prompt_id.clone(), turn_id.clone()));

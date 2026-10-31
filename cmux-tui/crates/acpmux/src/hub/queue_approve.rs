@@ -23,6 +23,7 @@
 //! (`restore_queue`).
 
 use super::*;
+use cmux_json::JsonSet as _;
 use std::sync::atomic::Ordering;
 
 /// What the `session/prompt` of a declined prompt answers.
@@ -76,7 +77,7 @@ pub(in crate::hub) fn released(q: &QueuedPrompt) -> Result<(), RpcError> {
 }
 
 fn refused(code: i64, reason: &str, message: &str, mut data: Value) -> RpcError {
-    data["reason"] = json!(reason);
+    data.set("reason", json!(reason));
     RpcError::new(code, format!("{reason}: {message}")).with_data(data)
 }
 
@@ -194,14 +195,16 @@ impl Hub {
                         }
                         "queue_updated" => {
                             if let Some(q) = waiting.first_of_turn(turn) {
-                                q.msg["revision"] = e.msg["revision"].clone();
-                                q.msg["awaitingOwner"] = e.msg["awaitingOwner"].clone();
+                                for k in ["revision", "awaitingOwner"] {
+                                    q.msg.set(k, e.msg.get(k).cloned().unwrap_or(Value::Null));
+                                }
                             }
                         }
                         "queue_approved" => {
-                            if let (Some(turn), Some(revision)) =
-                                (turn.and_then(Value::as_str), e.msg["revision"].as_u64())
-                            {
+                            if let (Some(turn), Some(revision)) = (
+                                turn.and_then(Value::as_str),
+                                e.msg.get("revision").and_then(Value::as_u64),
+                            ) {
                                 approved.insert(turn.to_owned(), revision);
                             }
                         }
@@ -213,14 +216,15 @@ impl Hub {
                 .into_records()
                 .into_iter()
                 .filter(|q| {
-                    q.msg["awaitingOwner"] == true
-                        && q.msg["turnId"].as_str().is_none_or(|turn| {
-                            q.msg["revision"]
-                                .as_u64()
+                    q.msg.get("awaitingOwner").and_then(Value::as_bool) == Some(true)
+                        && q.msg.get("turnId").and_then(Value::as_str).is_none_or(|turn| {
+                            q.msg
+                                .get("revision")
+                                .and_then(Value::as_u64)
                                 .is_none_or(|revision| approved.get(turn) != Some(&revision))
                         })
                 })
-                .filter_map(|q| q.msg["promptId"].as_str().map(str::to_owned))
+                .filter_map(|q| q.msg.get("promptId").and_then(Value::as_str).map(str::to_owned))
                 .collect();
             held.sort();
             held.dedup();
@@ -266,7 +270,7 @@ impl Hub {
         }
         let mut data = json!({"promptId": prompt_id});
         if let Some(decided) = decided {
-            data["decided"] = json!(decided);
+            data.set("decided", json!(decided));
         }
         refused(-32002, "queue.not_found", "no prompt waits for the owner under this id", data)
     }

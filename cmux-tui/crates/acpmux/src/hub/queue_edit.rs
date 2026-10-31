@@ -333,13 +333,14 @@ impl Hub {
             // Its author's edit of a prompt that waits for the owner is a new revision: an
             // approval names the words the owner saw (`queue_approve.rs`).
             if again {
-                q.revision += 1;
+                q.revision = q.revision.saturating_add(1);
             }
             (q.turn_id.clone(), q.run.clone(), text, again.then_some(q.revision))
         };
         let mut msg = json!({"promptId": prompt_id, "turnId": turn_id, "text": text, "prompt": run.blocks, "control": run.control.as_str(), "trustGate": run.trust_gate});
         if let Some(revision) = revision {
-            (msg["awaitingOwner"], msg["revision"]) = (json!(true), json!(revision));
+            msg.set("awaitingOwner", json!(true));
+            msg.set("revision", json!(revision));
         }
         // Its images, kept and named as `queued` names them (`prompt_images.rs`).
         let images = super::prompt_images::keep(&run.blocks);

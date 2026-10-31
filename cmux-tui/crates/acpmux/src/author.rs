@@ -64,7 +64,7 @@ impl Author {
             p.set("node", json!(node));
         }
         if self.awaits_owner {
-            p["approval"] = json!(APPROVAL_OWNER);
+            p.set("approval", json!(APPROVAL_OWNER));
         }
         p
     }

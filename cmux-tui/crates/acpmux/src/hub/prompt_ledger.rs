@@ -177,7 +177,8 @@ impl Hub {
                     // Withdrawal is a terminal outcome even when the prompt never
                     // reached turn_started. A resend must return cancellation, or the decline.
                     // Read on: a later incarnation may reuse its id (above).
-                    declined |= rec.kind == "queue_declined" || rec.msg["reason"] == "declined";
+                    declined |= rec.kind == "queue_declined"
+                        || rec.msg.get("reason").and_then(Value::as_str) == Some("declined");
                     started = true;
                     ended = Some(json!({"stopReason": "cancelled", "status": "withdrawn"}));
                 }

@@ -10,6 +10,7 @@
 //! them forwarded (`peer_forward.rs`).
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 /// Whether `m` is one of them.
 pub(super) fn handles(m: &str) -> bool {
@@ -40,10 +41,10 @@ pub(super) async fn handle(
         // message, checked as it leaves, so an edit meanwhile keeps the person's prompt.
         let agents_only = params.get("fromAgentsOnly").and_then(Value::as_bool) == Some(true);
         let w = hub.withdraw_queued(&s, prompt_id, editor, agents_only)?;
-        reply["removed"] = json!(w == crate::hub::Withdrawn::Removed);
+        reply.set("removed", json!(w == crate::hub::Withdrawn::Removed));
         if agents_only {
-            reply["fromAgentsOnly"] = json!(true);
-            reply["notFromAgent"] = json!(w == crate::hub::Withdrawn::NotFromAgent);
+            reply.set("fromAgentsOnly", json!(true));
+            reply.set("notFromAgent", json!(w == crate::hub::Withdrawn::NotFromAgent));
         }
         return Ok(reply);
     }
@@ -59,11 +60,12 @@ pub(super) async fn handle(
         let gated = super::super::trust_gate::gated(conn.origin, params);
         let by = crate::hub::Approver { control, trust_gate: gated, device: device.as_deref() };
         hub.approve_queued(&s, prompt_id, turn_id, revision, &by)?;
-        reply["turnId"] = json!(turn_id);
-        (reply["approved"], reply["revision"]) = (json!(true), json!(revision));
+        reply.set("turnId", json!(turn_id));
+        reply.set("approved", json!(true));
+        reply.set("revision", json!(revision));
     } else {
         hub.decline_queued(&s, prompt_id)?;
-        reply["declined"] = json!(true);
+        reply.set("declined", json!(true));
     }
     Ok(reply)
 }
