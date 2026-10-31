@@ -290,7 +290,6 @@ import Testing
         #expect(!DiffRenderer.preparesInPlace(Self.file(lines: 400, width: 10)))
     }
 }
-#endif
 
 @MainActor
 @Suite struct CardViewedKeyTests {
@@ -316,6 +315,7 @@ import Testing
         #expect(CodeView.PreparedLines().lines(for: first).isEmpty)
     }
 }
+#endif
 
 #if os(iOS)
 /// An HTML thumbnail scrolled away while the grid moves leaves the snapshot queue at once:
