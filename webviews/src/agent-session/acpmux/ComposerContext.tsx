@@ -4,7 +4,10 @@ import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../.
 import { Popover } from "../../ui/Popover";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
+import { experimentArm } from "../../experiments/experiment";
+import { autoScopeLook } from "./autoScope.experiment";
 import {
+  AutoIcon,
   EnvironmentIcon,
   EnvironmentPicker,
   SECTION_LABELS,
@@ -120,6 +123,7 @@ export function ComposerContext({
   onComputer,
   cloudMachines,
   onCloudMachine = (machine) => void runCloudMachine(machine),
+  auto,
   runMode,
   closeOnTrustAsk = false,
   showMachineLoadWarnings,
@@ -184,6 +188,9 @@ export function ComposerContext({
   cloudMachines?: readonly CloudMachine[];
   /// A pick of one acpmux does not list: it resumes (paused) or opens; by default through the app.
   onCloudMachine?(machine: CloudMachine): void;
+  /// A new chat's default destination (autoEnvironment.ts): the destination's name and kind. The
+  /// picker keeps Auto selected until an explicit row wins.
+  auto?: { detail: string; kind?: EnvironmentKind; selected: boolean; onPick(): void };
   /// A new chat's Run as in the environment picker (Persistent or Sandboxed, hq#3367).
   runMode?: RunModeRows;
   /// A trust question takes precedence over an open destination picker.
@@ -194,6 +201,25 @@ export function ComposerContext({
   const t = useT();
   const composerSettings = useComposerSettings();
   const newChat = !started && onProject !== undefined;
+  const autoLabel = auto?.selected ? `${t("composer.auto")} · ${auto.detail}` : undefined;
+  // The scope line under Auto, by the `auto-scope-look` arm: one "Auto · destination" label, the
+  // destination with a quiet Auto tag, or Auto's icon before the destination. Its accessible value
+  // is always `autoLabel`. The Cloud row's icon is Cloud's own, uncoloured, as when it is picked.
+  const autoArm = experimentArm(autoScopeLook);
+  const autoFace = auto?.selected && (
+    <LocationFace
+      icon={
+        autoArm === "icon" ? (
+          <AutoIcon />
+        ) : (
+          <EnvironmentIcon kind={auto.kind ?? "local"} name={auto.kind === "cloud" ? undefined : auto.detail} />
+        )
+      }
+      value={autoArm === "dot" ? autoLabel! : auto.detail}
+      {...(autoArm === "tag" ? { tag: t("composer.auto") } : {})}
+      chevron
+    />
+  );
   const accountMachines = useCloudMachines();
   const shownMachines = cloudMachines ?? accountMachines;
   // Every machine acpmux lists (`_acpmux/status` peers) and every host its chats ran on, with each
@@ -329,6 +355,7 @@ export function ComposerContext({
   if (!currentComputer && !currentFolder && !projectChoices) return <div className="acpmux-composer-strip" />;
   const readOnly = started || onProject === undefined;
   const sandboxPicked = runMode?.mode === "sandboxed" && !started && !readOnly;
+  const cloudPicked = runMode?.mode === "cloud" && !started && !readOnly;
   const newChats = started && onNewChat !== undefined;
   const branch = summary?.branch;
   // The folder control names the repository (projectRepos.ts), and a worktree's branch while no
@@ -378,9 +405,12 @@ export function ComposerContext({
   const pickComputer = (id: string) => {
     if (pickCloudMachine(id)) return;
     if (waiting) setWaiting(undefined);
-    if (!readOnly && id !== selectedComputer) {
+    if (!readOnly && (id !== selectedComputer || auto?.selected)) {
       setSelectedComputer(id);
       const folder = availableFolders(summary, sessions, id)[0]?.id;
+      // Under Auto a machine row is an explicit pick even when it lands on a folder: the caller hears
+      // the machine first (it ends Auto), then the folder.
+      if (folder && auto?.selected) onComputer?.(id);
       if (folder) onProject?.(folder, id === "local" ? undefined : id);
       else onComputer?.(id);
     }
@@ -500,14 +530,22 @@ export function ComposerContext({
               label={t(CONTEXT_LABELS.environment)}
               menu="Computer"
               value={
-                sandboxPicked
+                autoLabel ??
+                (sandboxPicked
                   ? t("composer.sandboxed")
-                  : (waitingName ?? savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer))
+                  : cloudPicked
+                    ? t("composer.cloud")
+                    : (waitingName ?? savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)))
               }
               face={
-                // Sandboxed picked (hq#3367): the control names it where the machine was.
-                sandboxPicked ? (
-                  <LocationFace icon={<EnvironmentIcon kind="cloud" />} value={t("composer.sandboxed")} chevron />
+                // Sandboxed (hq#3367) or Cloud picked: the control names it where the machine was.
+                autoFace ||
+                (sandboxPicked || cloudPicked ? (
+                  <LocationFace
+                    icon={<EnvironmentIcon kind="cloud" />}
+                    value={t(sandboxPicked ? "composer.sandboxed" : "composer.cloud")}
+                    chevron
+                  />
                 ) : waiting && waitingName ? (
                   <LocationFace
                     icon={<EnvironmentIcon kind="cloud" name={waiting.name} />}
@@ -525,11 +563,12 @@ export function ComposerContext({
                     value={savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
                     chevron
                   />
-                )
+                ))
               }
               environments={offload && currentComputer ? [currentComputer] : computers}
               current={selectedComputer}
               onPick={pickEnvironment}
+              {...(auto ? { auto } : {})}
               {...(offload && onOffload ? { offload, onOffload } : {})}
               {...(!started && onConnect ? { onConnect } : {})}
               {...(savedRows ? { saved: savedRows } : {})}
@@ -698,11 +737,14 @@ function normalizeCwd(cwd?: string): string | undefined {
 function LocationFace({
   icon,
   value,
+  tag,
   chevron,
   middle = false,
 }: {
   icon?: React.ReactNode;
   value: string;
+  /// A quiet word after the value (Auto, `auto-scope-look` arm `tag`).
+  tag?: string;
   chevron: boolean;
   middle?: boolean;
 }) {
@@ -718,6 +760,7 @@ function LocationFace({
       ) : (
         <span className="acpmux-location-label">{value}</span>
       )}
+      {tag && <span className="acpmux-location-tag">{tag}</span>}
       {chevron && (
         <span className="ui-ghost-icon" aria-hidden="true">
           <ChevronIcon />
