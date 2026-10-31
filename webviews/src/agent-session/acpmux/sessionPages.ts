@@ -149,7 +149,6 @@ const sameBut = (a: unknown, b: unknown) =>
   b !== null &&
   JSON.stringify({ ...a, updatedAt: 0 }) === JSON.stringify({ ...b, updatedAt: 0 });
 
-
 /**
  * `list` with each session's `usageStats` from `usage` (SessionPager.usage), the same array when
  * none changed. A session keeps the stats it holds when they are newer (a turn's end announced
@@ -164,7 +163,8 @@ export function withUsage<S extends Summary>(list: S[], usage: ReadonlyMap<strin
   let changed = false;
   const next = list.map((session) => {
     const stats = usage.get(session.sessionId);
-    if (stats === undefined || at(stats) <= at(session.usageStats) || sameBut(stats, session.usageStats)) return session;
+    if (stats === undefined || at(stats) <= at(session.usageStats) || sameBut(stats, session.usageStats))
+      return session;
     changed = true;
     return { ...session, usageStats: stats };
   });

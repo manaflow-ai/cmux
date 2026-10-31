@@ -407,9 +407,13 @@ test("Session Info asks for every chat's usage once when it shows", async () => 
   const onShowUsage = () => {
     asked += 1;
   };
-  await render(<ChatInspector summary={{ sessionId: "fresh", cwd: "/repo" }} allSessions={SESSIONS} onShowUsage={onShowUsage} />);
+  await render(
+    <ChatInspector summary={{ sessionId: "fresh", cwd: "/repo" }} allSessions={SESSIONS} onShowUsage={onShowUsage} />,
+  );
   expect(asked).toBe(1);
   // A redraw with the same callback asks nothing more.
-  await render(<ChatInspector summary={{ sessionId: "fresh", cwd: "/repo" }} allSessions={SESSIONS} onShowUsage={onShowUsage} />);
+  await render(
+    <ChatInspector summary={{ sessionId: "fresh", cwd: "/repo" }} allSessions={SESSIONS} onShowUsage={onShowUsage} />,
+  );
   expect(asked).toBe(1);
 });
