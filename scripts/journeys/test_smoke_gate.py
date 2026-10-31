@@ -485,14 +485,15 @@ class OmnibarDrawn(unittest.TestCase):
     def tearDown(self):
         self.win.windows, self.win.png_size, self.win.crop_read = self.saved
 
-    def check(self, lines, rect="1100,560,100,22"):
+    def check(self, lines, rect=[600, 398, 100, 22]):
         crops = self.crops
         self.win.windows = lambda j: {"W": {"frame": [500, 100, 940, 720], "screen": [0, 0, 1920, 1080]}}
         self.win.png_size = lambda path: (1880, 1440)  # a 2x snapshot of the 940x720 window
         self.win.crop_read = lambda j, image, box, up: crops.append(box) or lines
         j = type("J", (), {})()
         j.key_window, j.checks, j.out = "W", 0, Path("/tmp")
-        j.app = type("A", (), {"rpc": staticmethod(lambda m, p=None: {"editor": {"screen_rect": rect}}),
+        reply = {"field_frame": rect, "editor": {"text_kit": "2"}} if rect else {"field_frame": None, "editor": {}}
+        j.app = type("A", (), {"rpc": staticmethod(lambda m, p=None: reply),
                                "snapshot": staticmethod(lambda path: Path(path))})()
         return self.ext.cond_smoke_omnibar_drawn(j, {"host": "example.com", "min_suffix": 6}, {})
 
@@ -500,7 +501,7 @@ class OmnibarDrawn(unittest.TestCase):
         ok, detail = self.check(["‹ample.com"])
         self.assertTrue(ok)
         self.assertEqual(detail["matched"], "ample.com")
-        # window top = 1080 - (100 + 720) = 260; field at (1100-500, 560-260) points, 2x, 3 points of padding
+        # field top from the window's top = 720 - (398 + 22) = 300; at (600, 300) points, 2x, 3 points of padding
         self.assertEqual(self.crops[0], [1194, 594, 212, 56])
 
     def test_less_than_six_characters_or_another_text_is_not_drawn(self):
