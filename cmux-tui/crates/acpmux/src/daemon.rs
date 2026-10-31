@@ -21,6 +21,7 @@ mod router_owner;
 pub(crate) use router_owner::open_router_owner;
 pub(crate) use router_owner::router_owner_path;
 use router_owner::{ensure_router, release_router};
+mod app_orphan;
 // Decided on every platform so its tests run everywhere; used on macOS only.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) mod login_placement;
@@ -31,7 +32,6 @@ pub(crate) mod login_session;
 #[cfg(unix)]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod cloud_handoff;
-mod dev_orphan;
 mod handover;
 mod home_watch;
 mod notify;
@@ -531,9 +531,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     };
     #[cfg(not(unix))]
     let ctrl_c = tokio::signal::ctrl_c();
-    // A DEV build's daemon whose app is gone (`daemon/dev_orphan.rs`); its
-    // bundle is read before the ready line.
-    let dev_orphan = dev_orphan::watch();
+    // A daemon whose cmux app is gone (`daemon/app_orphan.rs`); its bundle is
+    // read before the ready line.
+    let app_orphan = app_orphan::watch();
     // Before the ready line: a launcher may remove the home as soon as it reads it
     // (`daemon/home_watch.rs`). Its own task, so it keeps watching through a shutdown that began
     // on a signal: a home replaced while the agents drain is still marked lost before their last
@@ -640,10 +640,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 },
                 _ = next_signal(int.as_mut()) => {},
                 _ = hub.shutdown.notified() => {},
-                // Its build is gone too: nothing is left to adopt its agents, so they end with
-                // it. An app that only quit keeps them, as its Quit does (`daemon/dev_orphan.rs`).
-                executable_gone = dev_orphan => {
-                    if executable_gone {
+                // No build of its app is left to adopt its agents, so they end with it. An app
+                // that only quit or was updated keeps them, as its Quit does
+                // (`daemon/app_orphan.rs`).
+                end_agents = app_orphan => {
+                    if end_agents {
                         let _ = hub.end_agents_at_shutdown(Default::default());
                     }
                 },
@@ -657,10 +658,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             tokio::select! {
                 _ = ctrl_c => {},
                 _ = hub.shutdown.notified() => {},
-                // Its build is gone too: nothing is left to adopt its agents, so they end with
-                // it. An app that only quit keeps them, as its Quit does (`daemon/dev_orphan.rs`).
-                executable_gone = dev_orphan => {
-                    if executable_gone {
+                // No build of its app is left to adopt its agents, so they end with it. An app
+                // that only quit or was updated keeps them, as its Quit does
+                // (`daemon/app_orphan.rs`).
+                end_agents = app_orphan => {
+                    if end_agents {
                         let _ = hub.end_agents_at_shutdown(Default::default());
                     }
                 },
