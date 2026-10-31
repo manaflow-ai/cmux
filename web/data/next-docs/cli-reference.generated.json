@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 768,
-    "mcp": 684
+    "verbs": 764,
+    "mcp": 680
   },
   "nouns": [
     {
@@ -3539,39 +3539,6 @@
           "id": "appearance.chromeStyle.twoTone",
           "mcp": false,
           "mcpTool": null
-        }
-      ]
-    },
-    {
-      "noun": "share",
-      "verbs": [
-        {
-          "command": "cmux share chat",
-          "title": "Share Chat with Guest…",
-          "id": "agent.share",
-          "mcp": true,
-          "mcpTool": "app_share_chat"
-        },
-        {
-          "command": "cmux share kick",
-          "title": "Remove Guest",
-          "id": "agent.share.kick",
-          "mcp": true,
-          "mcpTool": "app_share_kick"
-        },
-        {
-          "command": "cmux share list",
-          "title": "List Guest Links",
-          "id": "agent.share.list",
-          "mcp": true,
-          "mcpTool": "app_share_list"
-        },
-        {
-          "command": "cmux share revoke",
-          "title": "Revoke Guest Link",
-          "id": "agent.share.revoke",
-          "mcp": true,
-          "mcpTool": "app_share_revoke"
         }
       ]
     },

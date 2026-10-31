@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1237,
+    "entries": 1236,
     "shortcuts": 189
   },
   "sections": [
@@ -6056,12 +6056,6 @@
           "title": "Set Agent Chat Model…",
           "shortcut": null,
           "command": "cmux agent set-model"
-        },
-        {
-          "id": "agent.share",
-          "title": "Share Chat with Guest…",
-          "shortcut": null,
-          "command": "cmux share chat"
         },
         {
           "id": "chief.screenShare.start",
