@@ -362,6 +362,21 @@ typed after the creation hold, every other check runs and is counted per round; 
 must be a new folder. Writes `summary.json` and `summary.txt`. Test:
 `python3 scripts/journeys/test_smoke_gate.py`.
 
+### Building a smoke candidate (the only way)
+
+```bash
+scripts/journeys/build-smoke-candidate.sh SHA [--tag TAG] [--dry-run]
+```
+
+cmux-ad 2026-10-31 08:15Z: a plain Release build has no `debug.*` socket, so the gate cannot drive it
+(every round stops at step 1, `debug.windows: method_not_found`). Every smoke candidate, feat or
+perf, is built like the dogfood lines: `cmux-ci build cmux --release` of a tag that
+`Resources/build/cmux-next.dogfood.conf` names, which `reload.sh` builds as the bench configuration
+(Release optimization plus `CMUX_BENCH_HOOKS`; it never ships). The script adds that mapping (commit
+`c6d35671018`, no app source change) to SHA when SHA lacks it, pushes it as
+`cp/smoke-candidate-<sha12>` (a dogfood line, never merge), submits the build and prints the job id
+for `smoke-gate.py --build JOB`. `--dry-run` shows the commit and the build command without pushing.
+
 ## Not supported yet
 
 - Generated journeys: one per action catalog row, settings schema entry and keyboard shortcut
