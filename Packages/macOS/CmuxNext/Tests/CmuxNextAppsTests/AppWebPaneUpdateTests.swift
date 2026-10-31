@@ -1,11 +1,13 @@
 import AppKit
 @testable import CmuxNextApps
 import CmuxNextCompat
+import CmuxNextTestSupport
 import Testing
 import WebKit
 
 /// A registry replacement can change both the web root and the entry document.
 @MainActor
+@Suite(.closesItsWindows)
 struct AppWebPaneUpdateTests {
     @Test(.timeLimit(.minutes(1))) func anOpenPaneFollowsTheReplacedManifest() async throws {
         let bundle = FileManager.default.temporaryDirectory.appendingPathComponent("pane-update-\(UUID().uuidString)")
@@ -22,7 +24,10 @@ struct AppWebPaneUpdateTests {
         let view = AppWebPaneView(pane: pane, client: client)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: false)
         window.contentView = view
-        defer { window.contentView = nil }
+        defer {
+            window.contentView = nil
+            window.closeAfterTest()
+        }
         await transport.waitForLog("ready one")
 
         try writePage(root: newRoot, entry: "main.html", version: "two")
