@@ -29,6 +29,22 @@ import UserNotifications
         #expect(marker.permits(keys.trust()))
     }
 
+    /// A Keychain write failure must be visible to the sign-out owner; the
+    /// old marker is still authorized until the owner handles revocation.
+    private struct RejectingSecrets: PushSecretStore {
+        struct Failed: Error {}
+        func read(_ account: String) throws -> Data? { Data("u1".utf8) }
+        func write(_ data: Data, account: String) throws { throw Failed() }
+        func delete(_ account: String) {}
+    }
+
+    @Test func failedMarkerClearIsReported() {
+        let marker = PushActiveAccount(store: RejectingSecrets())
+        #expect(marker.userID() == "u1")
+        #expect(throws: RejectingSecrets.Failed.self) { try marker.update(userID: nil) }
+        #expect(marker.userID() == "u1")
+    }
+
     @Test func queuedSealedPushIsGenericUntilTheCorrectAccountSignsIn() throws {
         let (keys, macKey, publicKey) = try SealedPushTests.setUp()
         let raw = try SealedPushTests.sealedPush(macKey: macKey, pushKey: publicKey, payload: SealedPushTests.question)
