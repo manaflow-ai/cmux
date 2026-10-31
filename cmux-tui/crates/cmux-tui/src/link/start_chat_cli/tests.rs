@@ -450,7 +450,7 @@ fn a_send_is_kept_under_the_account_it_began_in() {
         Destination::New
     );
     assert_eq!(pins.machines_of(TEAM_B), BTreeSet::from(["vm-b".to_string()]));
-    assert_eq!(pins.machines_of(&ACCOUNT.to_uppercase()).len(), 2);
+    assert_eq!(pins.machines_of(&ACCOUNT.to_uppercase()), BTreeSet::from(["vm-a".to_string()]));
 }
 
 /// A pin to a machine the App made since its list was read (in its store,
