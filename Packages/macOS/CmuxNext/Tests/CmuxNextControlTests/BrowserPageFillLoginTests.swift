@@ -332,7 +332,10 @@ import Testing
         let engine = LoginEngine(url: "https://www.example.com/login", fill: Self.filledBoth)
         let router = install(engine, Lookups(Self.saved), guardsFile: file)
         #expect(try await call(router).get()["reason"] == "guard_unreadable")
-        _ = try await eval(router, tab: "tab_other").get()
+        guard case .failure = await eval(router, tab: "tab_other") else {
+            Issue.record("agent code ran without a durable exclusion mark")
+            return
+        }
         #expect(try Data(contentsOf: file) == Data("not json".utf8), "the broken file is never overwritten")
         #expect(engine.evaluated.isEmpty)
     }

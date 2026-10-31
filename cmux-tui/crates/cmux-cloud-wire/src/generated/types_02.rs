@@ -4,6 +4,18 @@
 #[allow(unused_imports)]
 use super::*;
 
+/// A screenshot the agent uploaded to this conversation (intent, then PUT; image/png, image/jpeg or image/webp, at most 4 MiB); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeCardImage {
+    pub hash: HomeSha256,
+    pub mime_type: HomeCardImageMimeType,
+    pub byte_count: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub width: Option<Option<i64>>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub height: Option<Option<i64>>,
+}
+
 wire_enum! {
     HomeCardImageMimeType {
         ImagePng = "image/png",
@@ -884,21 +896,4 @@ wire_enum! {
         Skipped = "skipped",
         Dead = "dead",
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RunWithBody {
-    pub id: RunId,
-    pub automation: AutomationId,
-    pub automation_version: i64,
-    pub owner: TeamId,
-    pub trigger: RunWithBodyTrigger,
-    pub state: RunState,
-    pub step: i64,
-    pub created_at: i64,
-    pub started_at: Option<i64>,
-    pub finished_at: Option<i64>,
-    pub error: Option<RunError>,
-    pub outcome: Option<RunWithBodyOutcome>,
-    pub body: Body,
 }

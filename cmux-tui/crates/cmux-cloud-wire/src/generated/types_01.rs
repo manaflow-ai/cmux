@@ -896,15 +896,3 @@ wire_enum! {
         ImageWebp = "image/webp",
     }
 }
-
-/// A screenshot the agent uploaded to this conversation (intent, then PUT; image/png, image/jpeg or image/webp, at most 4 MiB); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeCardImage {
-    pub hash: HomeSha256,
-    pub mime_type: HomeCardImageMimeType,
-    pub byte_count: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub width: Option<Option<i64>>,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub height: Option<Option<i64>>,
-}

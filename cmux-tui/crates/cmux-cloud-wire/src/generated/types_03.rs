@@ -5,6 +5,23 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RunWithBody {
+    pub id: RunId,
+    pub automation: AutomationId,
+    pub automation_version: i64,
+    pub owner: TeamId,
+    pub trigger: RunWithBodyTrigger,
+    pub state: RunState,
+    pub step: i64,
+    pub created_at: i64,
+    pub started_at: Option<i64>,
+    pub finished_at: Option<i64>,
+    pub error: Option<RunError>,
+    pub outcome: Option<RunWithBodyOutcome>,
+    pub body: Body,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RunWithBodyTrigger {
     pub id: Option<TriggerId>,
     pub r#type: String,
@@ -880,21 +897,4 @@ pub struct TriggerInputContinue {
     pub cooldown_seconds: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_runs: Option<i64>,
-}
-
-wire_enum! {
-    TriggerInputPresenceWhen {
-        UserActive = "user_active",
-        UserReturnsAfter = "user_returns_after",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TriggerInputPresence {
-    pub r#type: LitPresence,
-    pub when: TriggerInputPresenceWhen,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub idle_minutes: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub earliest: Option<CronSpec>,
 }
