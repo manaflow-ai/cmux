@@ -1,0 +1,15 @@
+{
+  "title": "Add remote group: host picker and nested groups from the CLI",
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "A group from the CLI", "cmux": ["workspace", "group", "create", "--name", "Fleet"], "wait": 1.5, "shot": false},
+    {"title": "A workspace in it", "cmux": ["workspace", "new", "--name", "builds"], "wait": 1.5, "shot": false},
+    {"title": "Put it in the group", "cmux": ["workspace", "group", "Fleet", "add", "--workspace", "name:builds"], "wait": 1.5, "shot": false},
+    {"title": "A nested group from the CLI (--parent)", "cmux": ["workspace", "group", "create", "--parent", "Fleet", "--name", "Mac minis"],
+     "wait": 2, "optional": "the sidebar document is off on this runner"},
+    {"title": "Sidebar: Fleet with its nested group Mac minis, made by `cmux workspace group create --parent`", "wait": 0.5},
+    {"title": "New Remote Group asks for the host", "cmux": ["action", "run", "remote.newGroup", "--interactive", "--no-wait"], "wait": 2.5, "shot": false},
+    {"title": "Palette: New Remote Group lists connected machines, Tailscale peers and ~/.ssh/config hosts, plus Enter Host…", "wait": 0.5},
+    {"title": "Close the palette", "rpc": {"method": "debug.key", "params": {"key": "escape"}}, "wait": 1, "shot": false}
+  ]
+}

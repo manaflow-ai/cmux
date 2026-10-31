@@ -79,6 +79,17 @@ const always = () => true;
 /// The resize each box is playing (`playResize`), so a resize that ends late lets go of only its own.
 const resizing = new WeakMap<HTMLElement, Animation>();
 
+/// Clips `node` while its fold or resize plays (or while it is pinned shut), and marks it
+/// `data-fold-clip` so a style rule can tell. A rule that read the clip from the inline style
+/// instead (`[style*="overflow"]` inside `:has()`, bottomStack.css) made Chromium restyle the whole
+/// page on every inline style write anywhere in it: each tick a pointer crossed on the session rail
+/// cost about 16 ms of style work (test/latency/rail-sweep.ts).
+export function clipFold(node: HTMLElement, on: boolean): void {
+  node.style.overflow = on ? "hidden" : "";
+  if (on) node.dataset.foldClip = "";
+  else delete node.dataset.foldClip;
+}
+
 /// Slides a box that stays drawn from the height it was drawn at before a change (`from`, read before
 /// it) to the height it lays out at now: a cut card opening whole, or cut again. The fold's duration
 /// and easing, clipped while it plays; at once when the fold may not move. A resize that turns back
@@ -90,7 +101,7 @@ export function playResize(node: HTMLElement, from: number): void {
   if (ms <= 0 || Math.abs(to - from) < 0.5) return;
   // The rows below are placed before paint while it plays, as a fold's are (`heightFoldInFlight`).
   markHeightFold(node, ms);
-  node.style.overflow = "hidden";
+  clipFold(node, true);
   // `max-height` too: a cut box's own max-height would otherwise hold it short while it opens.
   const animation = node.animate(
     [
@@ -103,7 +114,7 @@ export function playResize(node: HTMLElement, from: number): void {
   const release = () => {
     if (resizing.get(node) !== animation) return;
     resizing.delete(node);
-    node.style.overflow = "";
+    clipFold(node, false);
   };
   animation.onfinish = release;
   animation.oncancel = release;
@@ -115,7 +126,7 @@ export function cancelResize(node: HTMLElement): void {
   if (!animation) return;
   // Let go of the clip now: the cancel event comes after this frame's paint.
   resizing.delete(node);
-  node.style.overflow = "";
+  clipFold(node, false);
   animation.cancel();
 }
 
@@ -124,7 +135,7 @@ export function cancelResize(node: HTMLElement): void {
 function pin(node: HTMLElement, value: 0 | undefined): void {
   node.style.height = value === undefined ? "" : "0px";
   node.style.opacity = value === undefined ? "" : "0";
-  node.style.overflow = value === undefined ? "" : "hidden";
+  clipFold(node, value !== undefined);
 }
 
 export type Fold = {
@@ -173,7 +184,7 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
       if (running.current && foldMs(node) <= 0) {
         // Cancel removes Web Animation effects immediately, while its cancel event may be queued.
         // Settle the layout synchronously first so a closing body cannot flash back to natural height.
-        if (opening) node.style.overflow = "";
+        if (opening) clipFold(node, false);
         else {
           pin(node, 0);
           setClosing(false);
@@ -220,7 +231,7 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
     const fromOpacity = open && !fadeIn ? 1 : turning ? Number(styleOf(node)?.opacity ?? 0) || 0 : open ? 0 : 1;
     cancelRunning();
     const toHeight = open ? node.scrollHeight : 0;
-    node.style.overflow = "hidden";
+    clipFold(node, true);
     const animation = node.animate(
       [
         { height: `${fromHeight}px`, opacity: fromOpacity },
@@ -261,7 +272,7 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
           running.current = undefined;
           stopWatching();
           unwatchMotion();
-          node.style.overflow = "";
+          clipFold(node, false);
         };
         rest.onfinish = settledRest;
         rest.oncancel = settledRest;
@@ -275,7 +286,7 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
       unwatchMotion();
       running.current = undefined;
       if (open) {
-        node.style.overflow = "";
+        clipFold(node, false);
         return;
       }
       // The animation lets go of the box as it ends, and React removes the body only on its next

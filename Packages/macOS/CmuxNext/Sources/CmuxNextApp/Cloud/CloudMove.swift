@@ -218,11 +218,12 @@ struct CloudMove {
     }
 
     /// Syncs `folder` under the first of the machine's work roots it can write.
-    private func sync(_ folder: CloudMoveFolder, to socket: String, machine: String, cli: CloudMoveCLI,
-                      retry: CloudMoveRetries.Retry) async throws -> (folder: String, chat: String) {
+    /// `place`: a folder under the work root the copy goes in (a Cloud start's own, ``AgentPaneCloudStart/remotePlace``).
+    func sync(_ folder: CloudMoveFolder, to socket: String, machine: String, cli: CloudMoveCLI,
+                      retry: CloudMoveRetries.Retry, place: String? = nil) async throws -> (folder: String, chat: String) {
         var last = CloudMoveCLI.Answer(ok: false)
         for root in services.cloud.move.workRoots {
-            let remote = folder.remote(under: root)
+            let remote = folder.remote(under: place.map { (root.hasSuffix("/") ? root : root + "/") + $0 } ?? root)
             do {
                 last = try await cli.syncPush(socket: socket, local: folder.root, remote: remote.folder)
             } catch {
@@ -256,7 +257,7 @@ struct CloudMove {
     }
 
     /// The machine the chat moves to, connected; a new one is sized for the chat (`pick`).
-    private func machine(_ invocation: ActionInvocation, pick: () async -> CloudWorkPick?) async throws -> CloudMachineSession {
+    func machine(_ invocation: ActionInvocation, pick: () async -> CloudWorkPick?) async throws -> CloudMachineSession {
         let machines = services.machines
         let named = invocation["machine"]?.targetValue?.id ?? invocation["machine"]?.stringValue
         if let named {
@@ -277,8 +278,10 @@ struct CloudMove {
         guard session.appLink == nil else { throw Failure(message: CloudMoveStrings.linkUnsupported(session.machine.title)) }
         // A paused machine (idle auto-pause) resumes on this attach; a live one connects. A
         // record that may be stale (paused behind the app) is read again first.
+        try CloudHandlers.requireAttachableState(session)
         if session.daemon.connection == nil {
             await session.refreshIfMaybePaused()
+            try CloudHandlers.requireAttachableState(session)
             if session.machine.status == .paused { session.attach(origin: CloudHandlers.connectOrigin(for: invocation)) } else { session.connect(origin: CloudHandlers.connectOrigin(for: invocation)) }
         }
         let daemon = session.daemon

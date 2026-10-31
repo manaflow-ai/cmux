@@ -110,6 +110,8 @@ struct TerminalDemoDriver {
             await wait(1)
             mark("state " + (model.controller?.debugState ?? "-"))
         }
+        // Opt-in only (not in `all`): the keyboard reversed mid-animation.
+        if selected.contains("kbinterrupt") { await keyboardInterrupt() }
         mark("end")
         if let log = model.controller?.presentLog, !log.isEmpty,
            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -197,6 +199,33 @@ struct TerminalDemoDriver {
         mark("keyboard hide")
         model.toggleKeyboard()
         await wait(1.5)
+    }
+
+    /// `kbinterrupt`: the keyboard key and then the terminal 0.1 s apart (the
+    /// keyboard is still moving), the same calls a tap on each makes; then the
+    /// keyboard key twice 0.1 s apart. Each second action reverses the first
+    /// from where the keyboard is, never after it settles.
+    private func keyboardInterrupt() async {
+        model.controller?.focusTerminal()
+        await wait(1.5)
+        for round in 1...3 {
+            mark("kbinterrupt hide \(round)")
+            model.toggleKeyboard()
+            await wait(0.1)
+            mark("kbinterrupt terminal \(round)")
+            model.controller?.focusTerminal()
+            await wait(1.5)
+        }
+        model.toggleKeyboard()
+        await wait(1.5)
+        for round in 1...2 {
+            mark("kbinterrupt show \(round)")
+            model.toggleKeyboard()
+            await wait(0.1)
+            mark("kbinterrupt key \(round)")
+            model.toggleKeyboard()
+            await wait(1.5)
+        }
     }
 
     private func tui() async {

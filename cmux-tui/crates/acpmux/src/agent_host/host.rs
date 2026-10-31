@@ -98,8 +98,9 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         // started (background shells included).
         .process_group(0)
         .kill_on_drop(false);
-    // Below the GUI's CPU class (macOS), the tools it starts with it.
-    spec.cpu_class.apply(&mut cmd);
+    // Never at background class while it starts (`cpu_class.rs`): the daemon lowers it once its
+    // session's start is over.
+    crate::cpu_class::start_at_normal(&mut cmd);
     // Bind before the harness starts, so a failure leaves nothing running.
     let _ = std::fs::remove_file(&spec.socket);
     let listener = UnixListener::bind(&spec.socket)
@@ -1067,7 +1068,8 @@ impl State {
                 self.on_line(msg).await;
                 // Behind every line of it: the writer answers once they are written.
                 // Its stdin writer stopped (the harness's stdin closed): never written.
-                self.orphan.unwritten += usize::from(receipt.is_some());
+                self.orphan.unwritten =
+                    self.orphan.unwritten.saturating_add(usize::from(receipt.is_some()));
                 if let Some(receipt) = receipt
                     && self.stdin_tx.send(Stdin::Receipt(receipt)).is_err()
                 {

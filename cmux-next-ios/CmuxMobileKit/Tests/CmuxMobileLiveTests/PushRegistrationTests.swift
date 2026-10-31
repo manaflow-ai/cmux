@@ -8,6 +8,28 @@ struct PushRegistrationTests {
     private let original = PushRegistration.Preferences(kinds: ["question"], previews: false)
     private let changed = PushRegistration.Preferences(kinds: ["completed"], mutedMacs: ["mac"], previews: true)
 
+    /// Chief's local alerts stand down only once the service has accepted a
+    /// registration that includes `chief` (duplicate Chief notifications, 2026-10-30).
+    @Test func receivesChiefPushesOnlyAfterAcceptedChiefRegistration() async {
+        let server = RegistrationServer()
+        let registration = makeRegistration(server)
+        registration.setPreferences(.init(kinds: ["question", "chief"]))
+        #expect(!registration.receivesChiefPushes)
+        registration.didRegister(deviceToken: Data([1, 2]))
+        await registration.task?.value
+        #expect(registration.receivesChiefPushes)
+
+        registration.setPreferences(.init(kinds: ["question"]))
+        await registration.task?.value
+        #expect(!registration.receivesChiefPushes)
+
+        registration.setPreferences(.init(kinds: ["chief"]))
+        await registration.task?.value
+        #expect(registration.receivesChiefPushes)
+        await registration.unregister()
+        #expect(!registration.receivesChiefPushes)
+    }
+
     @Test func restoringAcceptedPreferencesWhileWriteIsPendingRestoresServer() async {
         let server = RegistrationServer()
         let registration = makeRegistration(server)

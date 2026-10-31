@@ -235,7 +235,9 @@ test("a no-project ask sends chat.new with noProject and no folder", async () =>
   const { newTabScreenActions } = await import("../src/agent-session/acpmux/newtab/screenActions");
   const sent: [string, unknown][] = [];
   const actions = newTabScreenActions({
-    callNative: async (method, params) => void sent.push([method, params]),
+    // chat.new answers with the started session, as the host does: an empty answer is a failed
+    // start, whose rejection would land in the next test (#28543).
+    callNative: async (method, params) => (sent.push([method, params]), method === "chat.new" ? "started" : undefined),
     cwd: HOME,
     chatCwd: "/Users/you/src/billing",
     leave: noop,
@@ -243,7 +245,7 @@ test("a no-project ask sends chat.new with noProject and no folder", async () =>
     showAllChats: noop,
     runShell: noop,
   });
-  actions.onAsk("claude", "hi", undefined, undefined, true);
+  await actions.onAsk("claude", "hi", undefined, undefined, true);
   expect(sent.find(([method]) => method === "chat.new")?.[1]).toEqual({ harness: "claude", noProject: true });
 });
 

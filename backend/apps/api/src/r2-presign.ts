@@ -36,7 +36,9 @@ export const presignUrl: Presigner = (i) => {
   for (const [k, v] of Object.entries(i.headers)) headers[k.toLowerCase()] = v
   const names = Object.keys(headers).sort()
   const signedHeaders = names.join(";")
+  // The URL's own query (an UploadPart's partNumber and uploadId) is signed with the presign fields.
   const query: Record<string, string> = {
+    ...Object.fromEntries(u.searchParams),
     "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
     "X-Amz-Credential": `${i.accessKeyId}/${scope}`,
     "X-Amz-Date": amzDate,

@@ -20,7 +20,7 @@ public nonisolated enum SettingsSchema {
             + AgentPaneEditedFilesSettingsSchema.descriptors + AgentPaneComposerSettingsSchema.descriptors + AgentPaneZoomSettingsSchema.descriptors
             + AgentDefaultsSettingsSchema.descriptors + HangReportsSettingsSchema.descriptors
             + MacScreenSettingsSchema.descriptors + MacScreenDebugSettingsSchema.descriptors
-            + DeviceHubSettingsSchema.descriptors
+            + DeviceHubSettingsSchema.descriptors + [ContextMenusSetting.showCustomizeItemDescriptor]
         return next.map { sharedWithBrowser.contains($0.id) ? $0.consumed(by: [.cmuxNext, .cmuxBrowser]) : $0 }
             + BrowserAppSettingsSchema.descriptors
     }()
@@ -208,7 +208,6 @@ public nonisolated enum SettingsSchema {
             ),
             TabSettingsSchema.newTabTemplate(group: tabs),
             TabSettingsSchema.nativeNewTabPage(group: tabs),
-            TabSettingsSchema.terminalFirst(group: tabs),
             TabSettingsSchema.newTabPosition(group: tabs),
             TabSettingsSchema.plusButton(group: tabs),
         ] + TabBarSettingsSchema.descriptors(group: tabs) + TabWidthSettingsSchema.descriptors(group: tabs) + [

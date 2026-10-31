@@ -4838,6 +4838,7 @@ struct ParkedTemplate {
     host_pid: u32,
     identity: (Vec<u8>, Vec<u8>, String),
     registry_id: serde_json::Value,
+    workspace_key: String,
 }
 
 /// Start a terminal, then park its daemon the way the Cloud bake does: a
@@ -4905,6 +4906,7 @@ fn park_template_host(harness: &mut RecoveryHarness) -> ParkedTemplate {
         host_pid,
         identity: before,
         registry_id: registry_before,
+        workspace_key: record.workspace_key,
     }
 }
 
@@ -4922,6 +4924,7 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
         host_pid,
         identity: before,
         registry_id: registry_before,
+        workspace_key: builder_key,
     } = park_template_host(&mut harness);
     harness.adopt_template_terminal = true;
     harness.restart();
@@ -4988,6 +4991,17 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
         request(&harness.socket, serde_json::json!({"id": 7, "cmd": "list-workspaces"}));
     assert_eq!(workspaces["workspaces"].as_array().unwrap().len(), 1, "{workspaces}");
     assert_eq!(workspaces["workspaces"][0]["name"], "Cloud", "{workspaces}");
+    // Every clone of one snapshot holds this host: its workspace takes a fresh key, never the
+    // builder's, or every clone's workspace is one workspace to an app that shows several machines.
+    assert!(!builder_key.is_empty());
+    let clone_key = workspaces["workspaces"][0]["key"].as_str().unwrap().to_string();
+    assert_ne!(clone_key, builder_key, "{workspaces}");
+    // The host's own record (its recovery mirror) names the clone's workspace, not the builder's.
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while wait_for_host_records(&harness.host_root(), 1)[0].1.workspace_key != clone_key {
+        assert!(Instant::now() < deadline, "the host record still names the builder's workspace");
+        std::thread::sleep(Duration::from_millis(20));
+    }
     // The template settings configure this daemon only. A terminal it spawns
     // must not inherit them (the Cloud user's shells and agents).
     let env_file = harness.dir.join("template-child-env");
@@ -5276,6 +5290,9 @@ mod durable_tab_links;
 #[path = "terminal_host_recovery/host_orphan.rs"]
 mod host_orphan;
 
+#[path = "terminal_host_recovery/restart_host_leak.rs"]
+mod restart_host_leak;
+
 #[path = "terminal_host_recovery/false_exit.rs"]
 mod false_exit;
 
@@ -5318,6 +5335,9 @@ mod kitty_budget_resync;
 
 #[path = "terminal_host_recovery/parallel_new_tabs.rs"]
 mod parallel_new_tabs;
+
+#[path = "terminal_host_recovery/startup_adoption_order.rs"]
+mod startup_adoption_order;
 
 #[path = "terminal_host_recovery/host_scrollback.rs"]
 mod host_scrollback;
