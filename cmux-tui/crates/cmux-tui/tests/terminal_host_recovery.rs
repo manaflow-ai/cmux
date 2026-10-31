@@ -5336,6 +5336,9 @@ mod kitty_budget_resync;
 #[path = "terminal_host_recovery/parallel_new_tabs.rs"]
 mod parallel_new_tabs;
 
+#[path = "terminal_host_recovery/startup_adoption_order.rs"]
+mod startup_adoption_order;
+
 #[path = "terminal_host_recovery/host_scrollback.rs"]
 mod host_scrollback;
 
