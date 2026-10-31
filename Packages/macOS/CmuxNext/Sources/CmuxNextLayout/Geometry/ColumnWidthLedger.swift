@@ -81,8 +81,19 @@ nonisolated struct ColumnWidthLedger: Sendable, Equatable {
     /// is not compared, nor one that took a new pane (a split inside it); a split tree's column is the
     /// column that holds most of its panes now.
     mutating func take(_ current: [Column], viewportWidth: CGFloat) -> [Change] {
-        // Red stub (R3b): compares nothing yet.
-        record = nil
-        return []
+        guard let record else { return [] }
+        self.record = nil
+        guard record.viewportWidth == viewportWidth else { return [] }
+        let recorded = record.columns.reduce(into: Set<PaneID>()) { $0.formUnion($1.panes) }
+        return record.columns.compactMap { old in
+            let now: Column? = if let id = old.id {
+                current.first { $0.id == id }
+            } else {
+                current.filter { !$0.panes.isDisjoint(with: old.panes) }
+                    .max { $0.panes.intersection(old.panes).count < $1.panes.intersection(old.panes).count }
+            }
+            guard let now, now.panes.isSubset(of: recorded), abs(now.width - old.width) > Self.tolerance else { return nil }
+            return Change(column: old.id?.rawValue ?? "screen", before: old.width, after: now.width)
+        }
     }
 }
