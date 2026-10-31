@@ -503,6 +503,48 @@ class Scratch(unittest.TestCase):
         self.assertTrue((outside / "arm64-apple-macosx/debug/B.bundle").is_dir())
         self.assertFalse((self.scratch / "xcode-a/Packages__macOS__B").is_symlink())
 
+    def test_jobs_starting_together_never_make_more_roots_than_the_disk_holds(self):
+        # Root 0 is built (100 bytes) and held; root 1 was just made by another job and is held, unbuilt.
+        # The disk has room above the reserve for one more root's worth, which root 1 will take: no root 2.
+        self.checkout()
+        names = ("root-0", "root-1", "root-2", "root-3")
+        self.lease(names)
+        self.built("root-0")
+        (self.scratch / "root-0/blob").write_bytes(b"x" * 100)
+        self.lease(names)
+        self.assertTrue((self.scratch / "root-1").is_dir())
+        with unittest.mock.patch.object(scratch, "free_bytes", return_value=1000 + 150), \
+                unittest.mock.patch.object(scratch, "disk_reserve_bytes", return_value=1000), \
+                unittest.mock.patch.object(scratch, "tree_stats", return_value=(100, 1.0)):
+            self.assertIsNone(self.lease(names))
+        self.assertFalse((self.scratch / "root-2").exists())
+
+    def test_every_new_root_is_admitted_against_the_disk_not_only_the_first(self):
+        # Root 0 is held and unbuilt (pending); the job loses root 1 to another job after the first check:
+        # root 2 is checked again, and with room for only one pending root it is not made.
+        self.checkout()
+        self.lease(("root-0", "root-1", "root-2"))
+        self.scratch.mkdir(exist_ok=True)
+        with open(scratch.lock_path(self.scratch / "root-1"), "a") as other:
+            fcntl.flock(other, fcntl.LOCK_EX)
+            with unittest.mock.patch.object(scratch, "free_bytes", return_value=1000 + 150), \
+                    unittest.mock.patch.object(scratch, "disk_reserve_bytes", return_value=1000), \
+                    unittest.mock.patch.object(scratch, "tree_stats", return_value=(100, 1.0)):
+                self.assertIsNone(self.lease(("root-0", "root-1", "root-2")))
+        self.assertFalse((self.scratch / "root-2").exists())
+
+    def test_a_root_that_is_a_link_is_admitted_against_the_disk(self):
+        self.checkout()
+        self.lease(("root-0", "root-1"))
+        self.built("root-0")
+        outside = Path(self.tmp.name) / "outside-root-1"
+        outside.mkdir()
+        os.symlink(str(outside), self.scratch / "root-1")
+        with unittest.mock.patch.object(scratch, "free_bytes", return_value=10), \
+                unittest.mock.patch.object(scratch, "disk_reserve_bytes", return_value=10):
+            self.assertIsNone(self.lease(("root-0", "root-1")))
+        self.assertTrue((self.scratch / "root-1").is_symlink())  # not replaced: no room for a root
+
     def test_a_directory_replaced_by_a_link(self):
         self.checkout()
         source = self.lease()
