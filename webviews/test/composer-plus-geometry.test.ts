@@ -464,8 +464,8 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     if (layout.expect?.includes("suggestions")) {
       if (!m.popover) out.push("the suggestions' popover is not drawn");
       else {
-        if (m.popover.alpha < 0.75)
-          out.push(`the suggestions' fill is ${f(m.popover.alpha)} opaque, under the menus' 0.78`);
+        if (m.popover.alpha < 0.85)
+          out.push(`the suggestions' fill is ${f(m.popover.alpha)} opaque, under the + menu's 0.86`);
         if (!/blur\(/.test(m.popover.backdrop))
           out.push(`the suggestions' popover has no blur (${m.popover.backdrop})`);
       }
