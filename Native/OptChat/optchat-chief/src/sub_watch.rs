@@ -716,6 +716,34 @@ pub fn unlanded(report: &str) -> bool {
         })
 }
 
+/// Whether a subagent's report ends a turn that leaves its task open: it asks the user
+/// something (an interview's questions, a decision) or waits on a build, a test or an
+/// answer. Such a subagent runs on when told, so its workspace must stay where the user
+/// can find it; the short-task close of a "finished" one closed a6's interview and a8's
+/// build wait (2026-10-30: "none of them are actually discoverable").
+pub fn awaits_more(report: &str) -> bool {
+    let text = format!(" {}", report.to_lowercase());
+    const OPEN: [&str; 16] = [
+        "?",
+        "question",
+        "waiting",
+        "waits on",
+        "await",
+        "pending",
+        "still running",
+        "in progress",
+        "queued",
+        "not finished",
+        "not done",
+        "nothing pushed",
+        "built nothing",
+        "your answer",
+        "reply ",
+        "once the",
+    ];
+    OPEN.iter().any(|w| text.contains(w))
+}
+
 pub fn minutes(ms: u64) -> String {
     let s = ms / 1000;
     if s < 60 {
