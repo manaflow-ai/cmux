@@ -41,9 +41,9 @@ public final class TerminalSizeInvariant {
         for (key, sample) in confirmed.sorted(by: { $0.key < $1.key }) {
             reported[key] = sample
             #if DEBUG
-            logger.fault("terminal size invariant: \(key, privacy: .public) \(sample.description, privacy: .public) after \(action, privacy: .public)")
+            logger.fault("terminal size invariant: \(key, privacy: .public) \(sample.problem, privacy: .public): \(sample.description, privacy: .public) after \(action, privacy: .public)")
             #else
-            logger.error("terminal size invariant: \(key, privacy: .public) \(sample.description, privacy: .public) after \(action, privacy: .public)")
+            logger.error("terminal size invariant: \(key, privacy: .public) \(sample.problem, privacy: .public): \(sample.description, privacy: .public) after \(action, privacy: .public)")
             #endif
         }
         violations += confirmed.count

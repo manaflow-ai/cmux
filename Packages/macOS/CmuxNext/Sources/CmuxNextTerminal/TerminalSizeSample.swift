@@ -41,11 +41,22 @@ public nonisolated struct TerminalSizeSample: Sendable, Equatable, CustomStringC
     /// One size everywhere: grid == fit(bounds) == Ghostty's surface == the PTY's == the daemon's. The surface
     /// renders only grids the daemon announced in its stream, so `grid` is the daemon's size as the view
     /// applied it; the link's record of the announcement (`acked`) is compared when it has one (an attach's
-    /// grid arrives before its link is live and is not recorded there). A pending ack is logged, not judged.
+    /// grid arrives before its link is live and is not recorded there). A sent grid still waiting for its
+    /// echo does not hold either: on one check it is on its way, but still waiting a settle later (the
+    /// invariant confirms on a second check) it holds the next resize for an echo that cannot come.
     public var holds: Bool {
         guard let fit, surface == fit, grid == fit else { return false }
         guard let link else { return true }
-        return link.sent == fit && (link.acked == nil || link.acked == fit)
+        return link.sent == fit && (link.acked == nil || link.acked == fit) && !link.awaitingAck
+    }
+
+    /// What breaks the invariant, for the log.
+    public var problem: String {
+        guard let fit, surface == fit, grid == fit, let link, link.sent == fit, link.acked == nil || link.acked == fit else {
+            return "sizes differ"
+        }
+        return link.awaitingAck ? "grid held across two checks a settle apart, waiting for an echo that cannot come"
+            + (link.acked == nil ? " (no grid announced on the link since its attach)" : "") : "holds"
     }
 
     public var description: String {
