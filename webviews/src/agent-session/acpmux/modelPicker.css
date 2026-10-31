@@ -528,7 +528,7 @@
    first keeps the bare mark, each later one a small badge at the mark's lower trailing corner,
    never a name (Leo 2026-10-31: "plus all this dumbass shit in the model picker"; cmux #29425).
    A ring in the popup's own colour cuts it out of the mark. `hue` (the default): a dot, each twin
-   its own colour; `shape`: one colour, a dot, ring, square or diamond; `index`: a small numeral. */
+   its own colour; `shape`: one colour, a dot, ring, square or diamond. */
 .acpmux-quick-rail-twin {
   --acpmux-twin-size: 7px;
   position: absolute;
@@ -558,15 +558,6 @@
 .acpmux-quick-rail-twin[data-twin-look="shape"]:not([data-twin="1"], [data-twin="2"], [data-twin="3"]) {
   border-radius: 1px;
   transform: rotate(45deg) scale(0.85);
-}
-.acpmux-quick-rail-twin[data-twin-look="index"] {
-  --acpmux-twin-size: 10px;
-  inset-block-end: 2px;
-  inset-inline-end: 2px;
-  color: var(--acpmux-twin-cut, var(--cmux-surface-solid, Canvas));
-  font-size: 8px;
-  font-weight: 700;
-  line-height: 1;
 }
 /* The hairline between the symbols and the list is the list's: a row of icon tabs never sits on a
    plate of its own (gallery-control-surfaces). An inset shadow, not a border, so it takes no room

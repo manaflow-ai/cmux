@@ -94,8 +94,7 @@ export type QuickMenu = {
   /// (sr), Codex and Codex (work)): the first keeps the bare mark, each later one gets a small
   /// corner badge, never a name (Leo 2026-10-31: "plus all this dumbass shit in the model picker",
   /// over nine tabs where three Claude sparks and three OpenAI knots read the same). `hue` (the
-  /// default) a dot in its own colour, `shape` a one-colour dot, ring, square or diamond, `index`
-  /// its place among the twins as a small numeral (gallery versions).
+  /// default) a dot in its own colour, `shape` a one-colour dot, ring, square or diamond.
   twinMarks?: TwinMarkLook;
 };
 
@@ -122,7 +121,7 @@ function initialOf(name: string): string {
   return (name.match(/\p{L}|\p{N}/u)?.[0] ?? "?").toLocaleUpperCase();
 }
 
-export type TwinMarkLook = "hue" | "shape" | "index";
+export type TwinMarkLook = "hue" | "shape";
 
 /// What a symbols-row tab draws, as one key: two tabs with one key look the same (a profile's own
 /// icon wins over its brand, as AgentMark picks; a tab with no symbol draws its name's initial).
@@ -1199,9 +1198,7 @@ export function QuickModelMenu({
                       data-twin-look={twinLook}
                       data-twin={twinMarks.get(family.id)}
                       aria-hidden="true"
-                    >
-                      {twinLook === "index" ? twinMarks.get(family.id)! + 1 : null}
-                    </span>
+                    />
                   )}
                   {/* The symbols row is marks only, never text on a tab (Leo 2026-10-31: "NOBODY
                       FUCKING ASKED FOR THE HARNESSES TO HAVE FUCKING LABELED FUCKING TEXT ON THEM
