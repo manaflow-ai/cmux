@@ -406,8 +406,7 @@ impl Hub {
         if session.moving().is_some() {
             return Err(super::queue::moving_error());
         }
-        self.set_policy(session, policy).await;
-        Ok(())
+        self.set_policy_answered(session, policy).await
     }
 
     /// The move did not happen: the chat takes prompts and runs its queue again. `reason` says

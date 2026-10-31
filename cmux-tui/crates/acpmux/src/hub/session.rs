@@ -37,6 +37,10 @@ pub struct Session {
     /// Held from sequence allocation until the record is stored and sent,
     /// so the log and fan-out always see sequences in order.
     pub(super) append_lock: StdMutex<()>,
+    /// Held by each save of its metadata from the copy through the write (`meta_save.rs`), so
+    /// the saves reach `session.json` in the order of their copies: an older copy never writes
+    /// over a newer one (fuzz row g finding g2).
+    pub(super) meta_save: StdMutex<()>,
     /// Message projection ids, loaded once from the journal on first use; only
     /// message acceptance/recovery touches this, never streamed tokens.
     /// Dedupe key is message id plus the target session for sender copies.

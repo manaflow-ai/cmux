@@ -1708,7 +1708,7 @@ impl Hub {
             .await?;
         self.write_mode_state(session, [ModeWrite::CurrentMode(json!(mode_id))]);
         self.append(session, "mux", "mode", json!({"modeId": mode_id}));
-        self.save_meta(session);
+        self.save_meta_answered(session)?;
         Ok(r)
     }
 
@@ -1847,7 +1847,7 @@ impl Hub {
             std::mem::replace(&mut m.name, name.clone())
         };
         self.append(session, "mux", "renamed", json!({"from": old, "to": name}));
-        self.save_meta(session);
+        self.save_meta_answered(session)?;
         Ok(())
     }
 
