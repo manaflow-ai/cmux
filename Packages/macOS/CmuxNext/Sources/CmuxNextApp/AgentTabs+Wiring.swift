@@ -110,7 +110,8 @@ extension AgentTabStore {
     /// The agent tabs' view store of `services`, wired to every machine's tree and daemon.
     static func wired(to services: AppServices) -> AgentTabStore {
         let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
-                                 linkScheme: services.linkScheme, settings: services.settings, openPanel: services.openPanel, peerApprover: services.peerApprover)
+                                 linkScheme: services.linkScheme, settings: services.settings, openPanel: services.openPanel, daemons: services.acpmuxDaemons,
+                                 updates: services.daemonUpdates, peerApprover: services.peerApprover)
         tabs.machineTargets = { [weak services] in
             // Only the machines of the account signed in now, from a list loaded for it (as the
             // Cloud machine picker, AgentPaneCloudMachines+App.swift): never a previous account's or
@@ -149,6 +150,7 @@ extension AgentTabStore {
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
         // The environment picker's Cloud machines: the account's, with Open and Resume (`cloudMachine.*`).
         tabs.cloudMachines.wire(services)
+        tabs.remoteControl = services.iphone.remoteControl
         // The composer strip's machine dot: the sidebar header's same link state; using a machine
         // that is down runs its header's Reconnect.
         tabs.machineLink.state = { [weak tabs, weak services] view in
@@ -162,12 +164,11 @@ extension AgentTabStore {
         tabs.machineLink.reconnect = { [weak tabs] machine in
             _ = tabs?.actionRegistry?.perform("machine.reconnect", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: machine), origin: .user))
         }
-        Self.wireRemoteControl(services)
         // The composer chips and shell commands chat pages held at the last quit (every relaunch's quit).
         tabs.relaunchWake = services.relaunchWake
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
         let home = ChiefHome.resolve(tag: services.environment.tag)
-        let chief = ChiefHomeAcpmux(home: home, local: tabs.host, ensureHost: { [weak services] in
+        let chief = ChiefHomeAcpmux(home: home, local: tabs.host, daemons: services.acpmuxDaemons, ensureHost: { [weak services] in
             await MainActor.run { _ = services?.home.brain.ensure(asked: false) }
         }, startHost: { [weak services] in
             await MainActor.run { services?.home.brain.ensureForChat() ?? false }
@@ -175,7 +176,9 @@ extension AgentTabStore {
         (tabs.chiefHost, tabs.chiefPaneHost) = (chief.host, chief.paneHost)
         // A subagent tab made under another Chief home of this Mac attaches there (#25262).
         tabs.chiefHomes = ChiefHomeDirectory(parents: ChiefHomeDirectory.homeParents(of: home), work: services.work,
-                                             environment: { ChiefHomeAcpmux.environment(home: $0) }, peerApprover: tabs.peerApprover)
+                                             environment: { ChiefHomeAcpmux.environment(home: $0) }) { [daemons = services.acpmuxDaemons, peerApprover = tabs.peerApprover] in
+            AcpmuxHost(daemons: daemons, environment: $0, startsDaemons: $1, peerApprover: peerApprover)
+        }
         tabs.localSessionHost = chief.localRouter(tabs.host)
         // This Mac's stable install id (the Cloud device id): only this host attaches to its acpmux.
         tabs.blankChatHandler = { [weak services] key in
@@ -262,6 +265,12 @@ extension AgentTabStore {
             guard let services, let (_, pane) = services.locateTab(chat), let source = services.paneController(for: pane),
                   let found = source.workspace?.paneController(key: key) else { return nil }
             return (pane: found.pane.handle, daemon: found.daemon)
+        }
+        // Fork to New Column Right / Left / New Row (u18673): the fork's tab moves beside the chat.
+        tabs.placeFork = { [weak services] key, chat, left in
+            guard let services, let (_, pane) = services.locateTabOnAnyMachine(chat), let (tab, _) = services.locateTabOnAnyMachine(key) else { return }
+            let height = services.paneController(for: pane).flatMap { $0.workspace?.layoutModel.newRowHeight(below: $0.layoutPaneID) } ?? 1000
+            services.daemon(for: pane).placeFork(tab.surface, beside: pane, left: left, rowHeight: height) { TabMoves.toNewColumn(tab, anchor: pane, afterColumn: $0, services: services, completion: $1) }
         }
         tabs.selectInPane = { [weak services] key in
             guard let services, let (tab, pane) = services.locateTabOnAnyMachine(key) else { return }
@@ -354,9 +363,9 @@ extension AgentTabStore {
             // A Cloud machine (the app's own record, never the guest's) starts a chat or asks folder
             // trust only on the Cloud API's owner answer on the link the call goes over, checked as
             // it is sent, through any daemon (the legacy link's or the app link's own answer).
-            let ownerLink = services.machines.session(daemon.machineID).map { AgentTabRemoteHost.ownerLink(appLink: $0.appLink, link: $0.link) }
-            host.ownerLink = ownerLink
-            let teammate = services.machines.session(daemon.machineID).map { AgentTabRemoteHost.teammate(appLink: $0.appLink, link: $0.link) }
+            let links = services.machines.session(daemon.machineID).map { CloudMachineLinks(appLink: $0.appLink, link: $0.link) }
+            host.ownerLink = links?.ownerLink
+            host.ownerCloud = RemoteAcpmuxWire.ownerCloud(links?.ownerLink, served: daemon.supports(RemoteAcpmuxWire.ownerCloudCapability))
             if started {
                 // The tab may still be provisional here: each handshake reads its store surface.
                 host.existing = { [weak tabs] in
@@ -373,7 +382,7 @@ extension AgentTabStore {
                 host.start = { [weak tabs] cwd, harness, model, personKey in
                     guard let tabs else { throw CancellationError() }
                     return try await tabs.startRemoteChat(key, machine: machine, cwd: cwd, harness: harness, model: model, personKey: personKey,
-                                                          ownerLink: ownerLink, teammate: teammate, reconnect: reconnect, endpoint: endpoint)
+                                                          ownerLink: links?.ownerLink, teammate: links?.teammate, reconnect: reconnect, endpoint: endpoint)
                 }
             }
             // cx-0q7o: the app's own ssh exec to that machine restarts its acpmux with a key.

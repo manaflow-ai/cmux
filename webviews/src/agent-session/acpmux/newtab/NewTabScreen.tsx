@@ -59,6 +59,7 @@ import {
   type ScreenRow,
 } from "./screenModel";
 import { RowGlyph } from "./RowGlyph";
+import { fitCreateStrip } from "./createStripFit";
 import { WidgetCards } from "./WidgetCards";
 import { NewTabHeadline } from "./NewTabHeadline";
 import {
@@ -644,6 +645,13 @@ export function NewTabScreen(props: Props) {
     [touched, shell, text, omnibar, home, ask, creates, commandQuery, props.suggestionOrder, nt],
   );
   const rows = text !== dismissed ? suggested : [];
+  // The strip's labels are measured again when their words change (another language): a new ref.
+  const stripTitles = rows
+    .filter(inStrip)
+    .map((row) => rowTitle(nt, row))
+    .join("\n");
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- the titles are the measured input; fitCreateStrip reads the DOM
+  const stripRef = useCallback((node: HTMLDivElement | null) => fitCreateStrip(node), [stripTitles]);
   // New tabs or pages from the host can shorten the rows under a highlight.
   // A highlighted row that went away (its tab closed) hands Return back to the top row.
   const kept = selected === undefined ? -1 : rows.findIndex((row) => rowKey(row) === selected);
@@ -1920,7 +1928,7 @@ export function NewTabScreen(props: Props) {
                 // The create actions the rows don't list (screenModel.ts): options still, so the arrow
                 // keys and the native popup reach them, drawn as one quiet line.
                 // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                <div className="nt-create-strip" role="group" aria-label={nt("create.label")}>
+                <div ref={stripRef} className="nt-create-strip" role="group" aria-label={nt("create.label")}>
                   {rows.map((row, index) =>
                     inStrip(row) ? (
                       <div
@@ -1931,6 +1939,9 @@ export function NewTabScreen(props: Props) {
                         role="option"
                         tabIndex={-1}
                         aria-selected={index === current}
+                        aria-label={rowTitle(nt, row)}
+                        // tooltip-allow: a narrow pane ellipsizes all three labels (French: "Nouv…"); the tooltip names the action
+                        title={rowTitle(nt, row)}
                         data-type={row.type}
                         className={index === current ? "nt-create-strip-item is-selected" : "nt-create-strip-item"}
                         // As the rows: hover lights it, only the keyboard makes it Return's.

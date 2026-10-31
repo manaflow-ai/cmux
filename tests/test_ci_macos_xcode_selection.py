@@ -82,9 +82,6 @@ EXEMPT = {
     ("nightly.yml", "pick-nightly-build-runner"):
         "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
         "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",
-    ("nightly.yml", "prepare-nightly-variant"):
-        "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
-        "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",
     ("nightly.yml", "pick-nightly-sign-runner"):
         "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
         "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",
@@ -94,7 +91,7 @@ EXEMPT = {
     ("nightly.yml", "prepare-nightly-variant-primary"):
         "takes Blacksmith macOS only while Blacksmith Linux overflow is off; builds nothing, only "
         "lipo -thin, whose bytes match llvm-lipo's on Linux whatever the Xcode",
-    ("nightly.yml", "prepare-nightly-variant-fallback"):
+    ("nightly.yml", "prepare-nightly-variant"):
         "takes Blacksmith macOS only while Blacksmith Linux overflow is off; builds nothing, only "
         "lipo -thin, whose bytes match llvm-lipo's on Linux whatever the Xcode",
     ("cmux-next-batch.yml", "build"):

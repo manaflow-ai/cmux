@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
 /// A drop on the omnibar (Chromium `OmniboxViewViews::PerformDrop`): the dropped URL, else the
 /// dropped text with its whitespace collapsed, replaces the box's text, with `javascript:` stripped;
 /// the box takes focus with all of it selected, and nothing loads until Enter.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct OmnibarDropTests {
     private func reduce(_ state: OmnibarState, _ inputs: [OmnibarInput]) -> (OmnibarState, [OmnibarEffect]) {
         var state = state
@@ -49,7 +50,8 @@ struct OmnibarDropTests {
 
     /// The bar at rest takes the dropped text: it focuses, shows the text, all selected.
     @Test func theBarTakesADroppedURLAndFocuses() {
-        let (bar, _) = restingBar()
+        let (bar, window) = restingBar()
+        defer { window.closeAfterTest() }
         #expect(bar.acceptDrop("https://swift.org/"))
         #expect(bar.isEditing)
         #expect(bar.displayedText == "https://swift.org/")
@@ -58,7 +60,8 @@ struct OmnibarDropTests {
 
     /// Nothing the box shows (an image drag, whitespace only): the bar refuses it and stays at rest.
     @Test func theBarRefusesADropWithNothingToShow() {
-        let (bar, _) = restingBar()
+        let (bar, window) = restingBar()
+        defer { window.closeAfterTest() }
         #expect(!bar.acceptDrop(nil))
         #expect(!bar.isEditing)
     }

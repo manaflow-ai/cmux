@@ -335,6 +335,18 @@ pub fn registry_lanes(hosts: &[(Vec<String>, Value)], name: &str) -> Option<Valu
     hosts.iter().find(|(names, _)| names.contains(&short)).map(|(_, l)| l.clone())
 }
 
+/// The disk `name` (by name or alias) keeps free, in bytes: its registry `lanes.free_gb_floor`,
+/// else the default every lane host is sized with. `session move --host auto` passes over a
+/// host whose free disk, less the move's size, is under it.
+pub fn disk_floor(registry: Option<&Value>, name: &str) -> u64 {
+    let lanes = lane_hosts(registry)
+        .and_then(|hosts| registry_lanes(&hosts, name))
+        .filter(Value::is_object)
+        .map(|l| Lanes::from_registry(&l))
+        .unwrap_or_default();
+    (lanes.free_gb_floor * GB) as u64
+}
+
 /// fleet-registry.json: `FLEET_REGISTRY`, else the copy `reach --install`
 /// renders, else the leo-workspace checkout.
 pub fn registry_path() -> Option<PathBuf> {
