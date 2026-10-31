@@ -79,7 +79,7 @@ struct CloudStartChat {
             throw CloudMove.Failure(message: CloudMoveStrings.notConnected(name))
         }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
-        let remote = try await move.sync(folder, to: socket, machine: name, cli: cli, retry: again)
+        let remote = try await move.sync(folder, to: socket, machine: name, cli: cli, retry: again, place: start.remotePlace)
         let context = AppActionContext(services: services)
         let anchor = try await CloudHandlers.terminalAnchor(on: machine, context)
         let seed = start.seed(cwd: remote.chat)
