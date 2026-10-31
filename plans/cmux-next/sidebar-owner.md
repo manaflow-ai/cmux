@@ -185,6 +185,10 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 3. Failing test first, then the fix. Real-app captures from the Mac-mini fleet, before and after.
 4. Land on `feat-cmux-next` (rebase, plain push). Add the commit to the log at the end of this note.
 
+## Group editor opens in one frame (2026-10-29)
+
+- Leo 2026-10-24: "why the fuck would you fade in opening up a fucking menu? Just open the menu... Every single fucking instance." The group editor opens at final opacity and size without entrance motion; its placement, contents, colors and closing fade/shrink stay unchanged. This intentionally takes back #26400's opening animation. Native motion coverage: `PopupGrowMotionTests`, `PagePopupMotionTests`. Real light/dark app captures remain pending the coordinator's Swift HOLD #26809.
+
 ## Target look (Lawrence's words win)
 
 | Part | Target | Source |
@@ -785,6 +789,14 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 
 - Leo 2026-10-29, verbatim: "why is there all this weird stuff at the bottom of the sidebar", "the rendering gets borked there too :(". `acpmux new --group X` makes a group X holding one workspace X, so the list drew a header X and an indented member X (a coordinator's group, a visual-check lane under "UI think tank"). Now a group whose one member is titled as the group (trimmed) draws one row: the member's, in the header's place and at its indent (`SidebarLayout+SoleMember`, `SidebarRow.standsForGroup`). The row stays the group's member: its rail runs along the row at the header bar's x (`SidebarStyle.groupBarX`, the x `railReach(for:)` already used), and its menu adds the group's menu under "Group options". Two or more members, an item member, a member named otherwise or subgroups keep the header; nothing else moves (no inset, column or trailing change). Look change: one row fewer per such group. Test: `SidebarSingleMemberGroupTests`; gallery scenario `soleMember` (`AANestedGroupsGalleryTests`).
 - Keyboard (2026-10-31, review on #27875): the one row is its group's keyboard stop as well as its member's (`SidebarGroupKeys.stops`: the group's stop, then the member's, as a header and its first member). Focused from the keyboard (Tab, Left on the row, Up from below), the row draws the header's focus ring (the same 1.5 x divider border in `Palette.focusRing`), and every group key acts as on the header. Look change: that ring on the one row while its group has keyboard focus. Test: `SidebarSingleMemberGroupKeyTableTests`.
+
+## Disclosure rows join the keyboard walk (2026-10-30)
+
+- [89e3362105d](https://github.com/manaflow-ai/cmux/commit/89e3362105d) and [cefa3bccc16](https://github.com/manaflow-ai/cmux/commit/cefa3bccc16) (PR [#27961](https://github.com/manaflow-ai/cmux/pull/27961)): the Done (N) and Show N more fold rows become keyboard stops (Up/Down, Tab/Shift-Tab; Return and Space toggle; Left/Right close or open). Behavior change; the only drawing is the sidebar's existing keyboard focus ring on a fold row the keyboard reached, as group headers already draw. Row look, height and layout unchanged. Both commits came from a lane that ended before adding a `Sidebar-Look:` trailer; reviewed and logged here. Tests: `SidebarFoldKeyboardTests`, `SidebarFoldAccessibilityTests`.
+
+## Squash merges of logged PRs (2026-10-30)
+
+- Base's squash commits of three PRs whose branch commits are logged above, so the CI sweep from `342462ca6ee` names them by their squash sha: [4367c16e12c](https://github.com/manaflow-ai/cmux/commit/4367c16e12c) is PR #24073 (logged as `f19e4c28604`, the top mask under the traffic lights), [6c1a5ab8bf3](https://github.com/manaflow-ai/cmux/commit/6c1a5ab8bf3) is PR #24295 (logged as `350b65e877c`, the profile menu on the menu grid) and [eb8105b0747](https://github.com/manaflow-ai/cmux/commit/eb8105b0747) is PR #27561 (logged as `4bf0793659a`, `a780175e437`, `2920608979b`, `7f3ff5f0d6a`, the trailing slots). Same diffs as those entries; no look change beyond them.
 
 ## Runaway session warning badge (2026-10-30)
 
