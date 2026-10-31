@@ -310,8 +310,11 @@ test("Session Info does not render when the transcript scrolls", async () => {
   });
   const beforeScroll = renders;
   const shell = container.querySelector<HTMLElement>(".acpmux-shell")!;
-  for (let frame = 0; frame < 20; frame++)
-    await act(async () => shell.dispatchEvent(new dom!.window.Event("scroll", { bubbles: true })));
+  for (let frame = 0; frame < 20; frame++) {
+    await act(async () => {
+      shell.dispatchEvent(new dom!.window.Event("scroll", { bubbles: true }));
+    });
+  }
   expect(shell.dataset.scrollFrame).toBe("20");
   expect(renders).toBe(beforeScroll);
 });
