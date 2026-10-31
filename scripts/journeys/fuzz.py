@@ -503,7 +503,9 @@ def main(argv=None):
     # sequence is then confirmed (a try that failed with the same oracle, else one more lease) and written as a
     # regression journey. The same failure is shrunk once (by oracle and signature), not per round.
     repros, done_sigs, k = out / "repros", set(), 0
-    for r in [r for r in rounds if r["build"] == "test" and r.get("failure")]:
+    # A --replay plays a sequence that is already a repro: it is the confirmation itself, never shrunk again (each
+    # ddmin try would spend a lease on a sequence already minimal).
+    for r in [r for r in rounds if r["build"] == "test" and r.get("failure") and not opts.replay]:
         sig = ext_fuzz.signature(r["failure"]["oracle"], r["failure"]["detail"])
         report = fuzz_report(out / f"round-{r['round']:03d}-test") or {}
         seq = r.get("shrunk") or report.get("sequence") or []

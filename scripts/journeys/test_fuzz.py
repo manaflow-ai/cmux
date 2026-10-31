@@ -336,6 +336,14 @@ class Verdicts(unittest.TestCase):
         threading.Thread(target=later, daemon=True).start()
         self.assertEqual(fuzz.wait_go(opts, "round 1 test")[0], "cmux19")
 
+    def test_replay_is_never_shrunk(self):
+        tmp = Path(tempfile.mkdtemp())
+        rp = tmp / "r.json"
+        rp.write_text(json.dumps([{"a": "split_right", "t": "pair"}, {"a": "split_right", "t": "slow"}]))
+        done, summary, calls, _ = self.run_fuzz({"jobT": {"fail_sequences": True}}, "--diagnostic", "--replay", str(rp))
+        self.assertEqual(summary["verdict"], "RED")
+        self.assertEqual(len(calls), 1)  # the replay's own lease only: no ddmin tries, no confirm lease
+
     def test_cmux17_refused(self):
         tmp = Path(tempfile.mkdtemp())
         done = subprocess.run([sys.executable, str(HERE / "fuzz.py"), "--build", "j", "--host", "cmux17", "--out", str(tmp / "o")],
