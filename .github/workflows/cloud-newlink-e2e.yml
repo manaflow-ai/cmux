@@ -1,0 +1,67 @@
+name: Cloud NEXT new-link create E2E
+
+# Manual proof of the development Worker path. This workflow is deliberately
+# separate from the classic /api/vm smoke jobs.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  create-and-link:
+    # The environment owns both the dedicated Stack account and the dev
+    # Freestyle key; no secret is available to pull-request events.
+    environment: cmux-next-vm-image-dev
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout the dispatched integration ref
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Install web dependencies
+        working-directory: web
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Materialize the dedicated dev credentials
+        env:
+          CMUX_UITEST_STACK_EMAIL: ${{ secrets.CMUX_UITEST_STACK_EMAIL }}
+          CMUX_UITEST_STACK_PASSWORD: ${{ secrets.CMUX_UITEST_STACK_PASSWORD }}
+          FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$CMUX_UITEST_STACK_EMAIL" || { echo "::error::CMUX_UITEST_STACK_EMAIL is missing"; exit 1; }
+          test -n "$CMUX_UITEST_STACK_PASSWORD" || { echo "::error::CMUX_UITEST_STACK_PASSWORD is missing"; exit 1; }
+          test -n "$FREESTYLE_API_KEY" || { echo "::error::FREESTYLE_API_KEY is missing"; exit 1; }
+          mkdir -p "$HOME/.secrets"
+          ( umask 077; printf 'CMUX_DOGFOOD_STACK_EMAIL=%s\nCMUX_DOGFOOD_STACK_PASSWORD=%s\n' "$CMUX_UITEST_STACK_EMAIL" "$CMUX_UITEST_STACK_PASSWORD" > "$HOME/.secrets/cmuxterm-dev.env" )
+          key="$RUNNER_TEMP/freestyle.key"
+          ( umask 077; printf '%s' "$FREESTYLE_API_KEY" > "$key" )
+          unset CMUX_UITEST_STACK_EMAIL CMUX_UITEST_STACK_PASSWORD FREESTYLE_API_KEY
+          echo "FREESTYLE_KEY=$key" >> "$GITHUB_ENV"
+
+      - name: Run the NEXT new-link create and connect E2E
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/cloud-dev-e2e"
+          bun web/scripts/cmux-vm-image/dev-e2e.ts --out-dir "$RUNNER_TEMP/cloud-dev-e2e" --credentials "$HOME/.secrets/cmuxterm-dev.env" --freestyle-key-file "$FREESTYLE_KEY"
+
+      - name: Upload redacted E2E evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77ae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloud-newlink-e2e-${{ github.sha }}
+          path: ${{ runner.temp }}/cloud-dev-e2e/e2e.json
+          if-no-files-found: warn
+          retention-days: 3
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f "$HOME/.secrets/cmuxterm-dev.env" "$RUNNER_TEMP/freestyle.key"
