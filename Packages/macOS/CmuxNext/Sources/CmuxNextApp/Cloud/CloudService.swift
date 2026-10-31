@@ -100,6 +100,7 @@ final class CloudService {
     @ObservationIgnored var confirmCreate: (@MainActor (CloudMachineCreateFlow.Prompt) async -> Bool)?
     /// Machine creations in flight (sidebar can show a placeholder).
     private(set) var creating = 0
+    @ObservationIgnored let changes = CloudMachineChanges()
     /// The names app server creates in flight asked for, typed or default: a default picked meanwhile skips them.
     @ObservationIgnored private var machineNamesInFlight: [String] = []
     /// New Cloud Workspace runs from the click to the open terminal: each
@@ -123,6 +124,11 @@ final class CloudService {
     /// `cmux cloud start-session` runs, joined by a repeat of the same ask (``CloudStartSessionRuns``).
     @ObservationIgnored let startSessionRuns = CloudStartSessionRuns()
     @ObservationIgnored let signedOutCreation = CloudSignedOutCreationContinuation()
+    #if DEBUG
+    /// `debug.cloud_machine_fixture {backend: true}`: Cloud reads as reachable in a capture build that has no
+    /// Cloud backend or client, so its actions show the signed-out state a person's build does.
+    @ObservationIgnored var debugBackendFixture = false
+    #endif
     /// When the loaded list landed (``hasCurrentList(within:)``).
     @ObservationIgnored private var listLoadedAt: ContinuousClock.Instant?
     /// Moved chats' file requests for this Mac, asked in their chats.
@@ -254,6 +260,9 @@ final class CloudService {
         // RestrictToManagedTeam (P17-3): no request goes out without the managed team.
         if auth.managedTeamID != nil, auth.teamID == nil { return RefusalStrings.turnedOffByOrganization }
         // The app server path needs no web backend (cx-t2rz): only the legacy /api/vm path does.
+        #if DEBUG
+        if debugBackendFixture { return nil }
+        #endif
         if case .localOnly = configuration.backend, configuration.linkSource == .legacy { return CloudStrings.localBackend }
         if binary == nil { return CloudStrings.noClient }
         return nil
@@ -271,7 +280,7 @@ final class CloudService {
 
     func start() {
         deviceID.preload()
-        auth.start()
+        auth.start(); changes.start()
         startCredentialProvider()
         if configuration.linkSource == .appServer, linkEvents == nil {
             // `cloud.link.changed` arrives on the local daemon as an app server event.
@@ -357,6 +366,7 @@ final class CloudService {
         // homes for a later confirmed run after policy is restored.
         codexBroker.setAvailable(!disabled)
         if disabled {
+            changes.stop()
             signedOutCreation.cancel()
             for session in machines.cloud {
                 session.daemon.policyBlock.set(true)
@@ -368,6 +378,7 @@ final class CloudService {
             // So does this Mac's link (the session stays).
             link.policyTurnedOff()
         } else {
+            changes.start()
             dropAllMachines()
             // task-owner: one list fetch after the policy lifted
             Task { [weak self] in
@@ -382,7 +393,7 @@ final class CloudService {
     func stop() {
         signedOutCreation.cancel()
         for observer in observers { observer.cancel() }
-        observers.removeAll()
+        observers.removeAll(); changes.stop()
         if let linkEvents { machines.local.store.sideEvents.unsubscribe(linkEvents) }
         linkEvents = nil
         if let credentialEvents { machines.local.store.sideEvents.unsubscribe(credentialEvents) }
@@ -448,6 +459,7 @@ final class CloudService {
     @discardableResult
     func refresh() async -> Bool {
         guard auth.isSignedIn, unavailableReason == nil else { return false }
+        changes.start()
         lastRefresh = .now
         listGeneration += 1
         let generation = listGeneration
@@ -466,11 +478,12 @@ final class CloudService {
                 list = listed.machines
                 limits = listed.limits
             }
-            guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return false }
+            guard listGeneration == generation, auth.isSignedIn, listAccount == account, !Task.isCancelled else { return false }
             machines.cloudLimits = limits
             if let limits { planObserved(limits.planId) }
             lastError = nil
             reconcile(list, read: read, connectsAtRead: connectsAtRead)
+            changes.listed(machines.cloud.map(\.machine)) { [weak self] in _ = await self?.refresh() }
             hasLoadedMachines = true
             loadedAccount = account
             listedMachineIDs = Set(list.filter { $0.status != .destroyed }.map(\.id))
@@ -478,7 +491,7 @@ final class CloudService {
             await startHubForSSHRoutes()
             return true
         } catch {
-            guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return false }
+            guard listGeneration == generation, auth.isSignedIn, listAccount == account, !Task.isCancelled else { return false }
             lastError = CloudStrings.errorText(error)
             logger.error("machine list failed: \(String(describing: error), privacy: .public)")
             return false
@@ -512,6 +525,7 @@ final class CloudService {
         recordReads += 1
         // Lists need ordering only; they must never acquire an outstanding status entry.
         if let machineID { recordReadsOutstanding[recordReads] = machineID }
+        changes.readIssued(recordReads)
         return recordReads
     }
 
@@ -534,7 +548,7 @@ final class CloudService {
                 guard read > recordReadApplied[machine.id, default: 0] else { continue }
                 // The machine's record now comes from this list: older reads land behind it.
                 recordReadApplied[machine.id] = read
-                addSession(machine)
+                addSession(changes.applyingPending(to: machine, read: read))
             }
         }
         let ids = Set(visible.map(\.id))
@@ -569,6 +583,7 @@ final class CloudService {
     private func removeConfirmedMachine(_ machineID: String, destructionConfirmed: Bool) {
         deferredRecordRemovals[machineID] = nil
         guard machines.session(machineID) != nil else { return }
+        changes.removed(machineID)
         if let user = auth.user {
             let scope = CloudCodexBrokerScope(userID: user.id, teamID: auth.teamID)
             // task-owner: confirmed removal stops renewal, then discards the deleted target.
@@ -590,14 +605,17 @@ final class CloudService {
     func apply(_ machine: CloudMachine, to session: CloudMachineSession, read: Int, connectsAtRead: Int? = nil) {
         // Apply the newer record before releasing any removal it was protecting.
         defer { finishRecordRead(read) }
-        guard read > recordReadApplied[machine.id, default: 0], machines.session(machine.id) === session else { return }
+        guard !policyDisabled, machine.id == session.machineID,
+              read > recordReadApplied[machine.id, default: 0], machines.session(machine.id) === session else { return }
         recordReadApplied[machine.id] = read
         if machine.status == .destroyed {
             session.machine = machine
             removeConfirmedMachine(machine.id, destructionConfirmed: true)
             return
         }
-        session.listed(machine, connectsAtRead: connectsAtRead ?? session.connects)
+        // Read ordering admits the record; mutation tracking supplies presentation until the
+        // matching operation settles, so an in-flight status read cannot reopen action gates.
+        session.listed(changes.applyingPending(to: machine, read: read), connectsAtRead: connectsAtRead ?? session.connects)
     }
 
     @discardableResult
@@ -632,6 +650,9 @@ final class CloudService {
     }
 
     private func dropAllMachines() {
+        // Account teardown must also fence a mutation that finishes after sign-out.
+        // The next permitted refresh re-enables tracking for the current account.
+        changes.stop()
         // A list in flight belongs to the machines dropped here.
         listGeneration += 1
         for creation in creations.all { creations.end(creation) }
@@ -739,29 +760,35 @@ final class CloudService {
         if let requested { return requested }
         return await current()
     }
-
+    /// Kill, Pause and Resume show their transition from the click until the next list settles it.
     func deleteMachine(_ machineID: String) async throws {
-        let brokerScope = auth.user.map { CloudCodexBrokerScope(userID: $0.id, teamID: auth.teamID) }
-        if let brokerScope { try? await codexBroker.revoke(machineID: machineID, scope: brokerScope) }
-        try await api.deleteMachine(machineID)
-        if let brokerScope { await codexBroker.machineWasDeleted(machineID, scope: brokerScope) }
+        // Retain credentials and broker registration until a list confirms removal. Both
+        // the request and the asynchronous provider deletion can still fail.
+        try await changes.run(.deleting, machineID: machineID, of: { machines.session(machineID) },
+                              onRollback: { [weak self] id in self?.machines.session(machineID)?.mutationFailed(id) }) {
+            try await api.deleteMachine(machineID)
+        }
         // A list in flight was asked while this machine still existed.
         listGeneration += 1
         creations.machineRemoved(machineID)
-        machines.remove(machineID)?.disconnect()
+        if let session = machines.session(machineID) { session.retainForDeleteTransition() }; changes.began { [weak self] in _ = await self?.refresh() }
         logger.info("deleted machine \(machineID, privacy: .public)")
     }
 
     func pauseMachine(_ machineID: String) async throws {
-        try await api.pauseMachine(machineID)
-        await refresh()
-        logger.info("paused machine \(machineID, privacy: .public)")
+        try await changes.run(.pausing, machineID: machineID, of: { machines.session(machineID) },
+                              onRollback: { [weak self] id in self?.machines.session(machineID)?.mutationFailed(id) }) {
+            try await api.pauseMachine(machineID)
+        }
+        changes.began { [weak self] in _ = await self?.refresh() }; await refresh(); logger.info("paused machine \(machineID, privacy: .public)")
     }
 
     func resumeMachine(_ machineID: String) async throws {
-        try await api.resumeMachine(machineID)
-        await refresh()
-        logger.info("resumed machine \(machineID, privacy: .public)")
+        try await changes.run(.starting, machineID: machineID, of: { machines.session(machineID) },
+                              onRollback: { [weak self] id in self?.machines.session(machineID)?.mutationFailed(id) }) {
+            try await api.resumeMachine(machineID)
+        }
+        changes.began { [weak self] in _ = await self?.refresh() }; await refresh(); logger.info("resumed machine \(machineID, privacy: .public)")
     }
 
     /// The machine's idle auto-pause (`PUT /api/vm/{id}/idle-pause`): minutes

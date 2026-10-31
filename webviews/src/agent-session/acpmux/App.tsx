@@ -170,6 +170,7 @@ import { FolderContinuation, folderContinuationRequest } from "./folderContinuat
 import type { BrowseRequest } from "./AddProjectPanel";
 import { handBackQuotes, quoteIntoComposer, replayHeldForComposer, restoreComposerDraft } from "./composerRestore";
 import {
+  attachmentSource,
   linkAttachment,
   linkItems,
   type ComposerAttachment,
@@ -177,6 +178,7 @@ import {
   recordingAttachment,
   recordingLeftOutNotice,
   remoteRecordingAttachment,
+  withSource,
 } from "./attachments";
 import type { KeptAttachments } from "./composer/keptAttachments";
 import { ComposerPickers, PICKER_LABELS, type ComposerPermissionAccess } from "./ComposerPickers";
@@ -252,6 +254,7 @@ import {
   descendants,
   subagentChangesFolder,
   subagentProcesses,
+  subagentSummary,
   withChatEnds,
   type SubagentScope,
 } from "./inspector/subagentScope";
@@ -5905,11 +5908,14 @@ function AcpmuxPane() {
       mimeType?: string;
       data?: string;
       tooLarge?: boolean;
+      source?: unknown;
     } | null>("composer.capture", { mode }).catch(() => null);
     if (shot?.tooLarge) return { name: shot.name ?? "Screenshot.png", reason: "tooLarge" } as const;
     if (!shot?.data) return undefined;
     const bytes = Uint8Array.from(atob(shot.data), (char) => char.charCodeAt(0));
-    return new File([bytes], shot.name ?? "Screenshot.png", { type: shot.mimeType ?? "image/png" });
+    // cmux took it: its chip wears cmux's icon (composer/attachmentSources.ts).
+    const file = new File([bytes], shot.name ?? "Screenshot.png", { type: shot.mimeType ?? "image/png" });
+    return withSource(file, attachmentSource(shot.source));
   }, []);
   const uploadFiles = useCallback(
     (files: File[], cancelled?: (index: number) => boolean) => uploadToMachine(files, callNative, cancelled),
@@ -12228,6 +12234,19 @@ function AcpmuxPane() {
           <SummaryCard
             key={snapshot.sessionId}
             card={summaryCard}
+            environment={{
+              summary: inspectorSubagent
+                ? subagentSummary(inspectorSummary, inspectorSubagent.agent, inspectorSubagent.rows)
+                : inspectorSummary,
+              machineName,
+              peerKinds: snapshot.peerKinds,
+              repository: githubRepository,
+              onOpenFolder:
+                quick || !inspectorLocal
+                  ? undefined
+                  : (path) =>
+                      ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.files, cwd: path, mode: "open" })),
+            }}
             rows={cardRows}
             cwd={snapshot.summary?.cwd}
             changes={quick ? undefined : cardChanges}
