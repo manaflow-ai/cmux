@@ -55,7 +55,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "..", "cmux-next"))
 import fuzz_model as model  # noqa: E402
 
-# The DevTools stall owner named in handoff/fuzz-catalog.md row k; a DevTools stall finding names it.
+# A stall during a DevTools op names its owner, so the fuzz owner can send it on with its signature and seed.
 DEVTOOLS_OWNER = "the DevTools main-thread stall owner (fuzz catalog row k)"
 
 
@@ -209,7 +209,6 @@ class Session:
         self.notes: list[str] = []
         self.stalls: dict[str, Failure] = {}
         self.download_tokens: set[str] = {run_token}
-        self.script_nav_tabs: set[str] = set()  # tabs that loaded /script-nav: the page runs its own script
         self.counts = {"ops": 0, "renderer_kills": 0, "sad_tabs": 0, "downloads": 0, "devtools": 0, "refused": 0, "no_renderer": 0, "no_verdict": 0}
 
     # -- plumbing
@@ -398,11 +397,7 @@ class Session:
             state = self.state(tab, index)
             if "error" in state:
                 return
-            # A page may run its own script (location = "javascript:..." from /script-nav), also again on a later
-            # reload, Back or Forward: its title is no finding in a tab that ever loaded /script-nav.
-            if "/script-nav" in url or "/script-nav" in (state.get("url") or ""):
-                self.script_nav_tabs.add(tab)
-            title = "" if tab in self.script_nav_tabs else state.get("title") or ""
+            title = model.judged_title(state.get("url") or "", state.get("title") or "")
             problem = model.committed_url_violation(state.get("url") or "", title, agent_op=agent and answered_ok, via_web=via_web)
             if not problem:
                 return
