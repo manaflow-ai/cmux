@@ -266,6 +266,13 @@ describe("editors", () => {
     expect(row().querySelector("input.number")).toBeNull();
   });
 
+  test("the hidden native select behind each menu is not a Tab stop", async () => {
+    page = await renderPage({ path: "/settings/general" });
+    const mirrors = [...page.container.querySelectorAll<HTMLSelectElement>("select.ui-select-native")];
+    expect(mirrors.length).toBeGreaterThan(0);
+    for (const mirror of mirrors) expect(mirror.tabIndex).toBe(-1);
+  });
+
   test("every row reserves its Reset slot, so showing Reset moves no other control", async () => {
     page = await renderPage({ path: "/settings/privacy" });
     for (const element of page.container.querySelectorAll("[data-row-key]")) {
