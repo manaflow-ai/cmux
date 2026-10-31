@@ -374,6 +374,7 @@ impl Hub {
             stuck_since: stuck.map(|s| s.1),
             stuck_error: stuck.map(|s| s.2.to_owned()),
             agent_session_id: m.agent_session_id.clone(),
+            retired_agent_session_ids: m.retired_agent_session_ids.clone(),
             created_at: m.created_at,
             updated_at: m.updated_at,
             last_seq: m.last_seq,
