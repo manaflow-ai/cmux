@@ -18,6 +18,8 @@ import CmuxNextSidebar
 /// - `fill: true`: the window takes its screen's visible height, at its own width (a folder of 20
 ///   rows is taller than the default window, and a capture is cut to the window). Its own step, so
 ///   the header is laid out at the new size before `menu`.
+/// - `backend: true`: Cloud reads as reachable though the build has no Cloud backend or client
+///   (``CloudService/debugBackendFixture``), so signed-out Cloud rows show their sign-in state; `false` ends it.
 /// - `menu: true`: a right-click on that header (`debug.mouse`), so its menu opens as the person's
 ///   does (`SidebarContextMenus.machineMenu`).
 /// - `folder: "Tools"`: with that menu open, types the folder's title (the menu's type-select) and
@@ -45,6 +47,7 @@ enum DebugCloudMachineFixture {
             return .object(["error": .string("no window")])
         }
         let sidebar = controller.sidebar
+        if let backend = params["backend"]?.boolValue { services.cloud.debugBackendFixture = backend }
         if let show = params["sidebar"]?.boolValue {
             // Machine headers are drawn only with a section per computer (`sidebar.groupByComputer`).
             DesignSettings.shared.sidebarSections.groupsByComputer = show
