@@ -129,6 +129,7 @@ import {
   scrollOrigin,
   writeAnchorScrollTop,
 } from "./conversation/scrollCoordinates";
+import { createFollowGlide, followRoom } from "./conversation/followGlide";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
 import { composerDraft, DRAFT_SETTLE_MS, notifyDraftActionsChanged, settleDraftWithin } from "./composerDraft";
 import { paneContext } from "./paneContext";
@@ -160,7 +161,7 @@ import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
 import type { BrowseRequest } from "./AddProjectPanel";
-import { restoreComposerDraft } from "./composerRestore";
+import { handBackQuotes, quoteIntoComposer, replayHeldForComposer, restoreComposerDraft } from "./composerRestore";
 import {
   linkAttachment,
   linkItems,
@@ -2535,6 +2536,11 @@ export function VirtualTranscript({
   /// not the reader's scroll, and nothing snaps it to the end before it arrives.
   const jumpTarget = useRef<number | undefined>(undefined);
   const wheelGlide = useRef<ReturnType<typeof installWheelGlide>>(undefined);
+  /// Eases the followed view's steps with a streaming reply on the compositor (followGlide.ts).
+  const followGlide = useRef<ReturnType<typeof createFollowGlide>>(undefined);
+  followGlide.current ??= createFollowGlide();
+  /// When the view last changed size: the passes that settle the rows after it never glide.
+  const resizedAt = useRef(Number.NEGATIVE_INFINITY);
   // The last transcript box on this page until this one is measured (before its first paint, below).
   const [height, setHeight] = useState(() => lastTranscriptBox.height);
   // The native pane's width, distinct from the transcript scroller's width when Push always reserves
@@ -2548,6 +2554,7 @@ export function VirtualTranscript({
   const stopJump = useCallback(() => {
     // Find, reveal and an asynchronous send own their new placement, even without a jump in flight.
     wheelGlide.current?.stop();
+    followGlide.current?.stop();
     jumpTarget.current = undefined;
     // A footnote also owns the shared runner and must end on session/send/Find transitions.
     if (ref.current) stopScroll(ref.current);
@@ -3691,6 +3698,34 @@ export function VirtualTranscript({
         followDeferred.current = !jumping && userScrollIntent(node).isHeld() && !followRequest.current?.();
         const settled = jumping ? clamped : (!followDeferred.current && settleFollowBottom(node, latest)) || clamped;
         if (settled) followTrace.set(latest);
+        // The rise this pass took, eased on screen (followGlide.ts): the same rows, the reply's
+        // new line landing in the room the live line keeps under it. Anything else (a row that came
+        // or went, a resize, a fall) moves at once, as before.
+        // In layout coordinates: the sub-pixel origin a settle keeps (scrollCoordinates.ts) moves the
+        // rows on screen too, so a rise that only re-rounds the physical offset is no rise.
+        const box = previousViewport.current;
+        const rose = layoutScrollTop(node) - (scrolledTo.current.top - previousOrigin);
+        const room = followRoom(rows, layout);
+        // A resize (a window edge dragged, the dock growing) rewraps the rows, and they settle to
+        // their drawn heights over the next passes at the same size: those are the resize too, not
+        // growth, so nothing glides until the view has held its size for a motion step (cx-sqj3h).
+        const now = performance.now();
+        if (box.height !== height || box.width !== width || box.dockSpace !== dockSpace) {
+          resizedAt.current = now;
+          followGlide.current?.stop();
+        }
+        const resizing = now - resizedAt.current < MOTION_MS.standard;
+        // A glide holding the rows back further than the room now under the last row (the live line
+        // came into view to name a call) rests at once, so nothing stays under the bottom stack.
+        followGlide.current?.fit(room);
+        if (
+          !jumping &&
+          !resizing &&
+          rose > 0.5 &&
+          rows.length === oldRows.length &&
+          rows.at(-2)?.id === oldRows.at(-2)?.id
+        )
+          followGlide.current?.rise(thread.current, rose, room);
       } else if (top > 0 || rows[0]?.id !== oldRows[0]?.id) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
         // Rows that arrived or left (a new reply segment below, older history above) move indexes,
@@ -4370,6 +4405,8 @@ export function VirtualTranscript({
       else if (touch) touchY = touch.clientY;
       readerAt.current = performance.now();
       followTrace.input();
+      // The reader takes the view: a follow step still easing lands where it lays out.
+      followGlide.current?.stop();
       // Release the follow intent synchronously when a reader starts moving up. The browser can
       // deliver the input before its scroll event; a streamed snapshot in that gap must not pin
       // the view back to the bottom. Capture the event so nested rows cannot commit first.
@@ -5041,9 +5078,7 @@ function AcpmuxPane() {
   const { scrollToBottomOnSend } = useComposerSettings();
   const scrollToBottomOnSendRef = useRef(scrollToBottomOnSend);
   scrollToBottomOnSendRef.current = scrollToBottomOnSend;
-  /// Labs preview features are off until the host explicitly enables them.
-  const [preview, setPreview] = useState(false);
-  /// A new chat's Run as (preview, hq#3367): Persistent is the chat as before; Sandboxed runs the
+  /// A new chat's Run as (hq#3367): Persistent is the chat as before; Sandboxed runs the
   /// first message once on a throwaway Cloud VM and shows its receipt instead. The host holds this
   /// tab's one Sandboxed send and the page renders what it says (sandboxRun.ts SandboxTab). A refused
   /// send's prompt goes back to the composer, or waits for it (`heldBack`).
@@ -7123,13 +7158,12 @@ function AcpmuxPane() {
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const quick = surface === "quick";
-  /// Run as is a new chat's choice, behind Labs, in a pane with tabs (not the floating chat).
+  /// Run as is a new chat's choice, in a pane with tabs (not the floating chat).
   /// Not once a chat is starting here (a harness pick, a deferred start): its session would replace
   /// the sandbox's result. The host refuses `sandbox.run` then too (AcpmuxPaneReplacements). Not
   /// before the host said what this tab already sent (`sandbox.checked`): a run it holds takes the
   /// chat view, so a send picked before that could only be refused, its prompt with it.
   const sandboxOffered =
-    preview &&
     sandbox.checked &&
     freshChat &&
     !snapshot.sessionId &&
@@ -7144,17 +7178,17 @@ function AcpmuxPane() {
   /// composer, so nothing here can start a chat over it or send a second.
   const sandboxHoldsChat = !snapshot.sessionId && sandboxView !== undefined && !sandboxRetryable(sandboxView);
   const sandboxing = sandboxOffered && !sandbox.spent() && sandbox.mode === "sandboxed";
-  /// Sandboxed is picked but can't run now (Labs went off, a chat is starting or being opened, the
-  /// tab's one send is used): a send then is refused, never sent as a Persistent chat instead.
+  /// Sandboxed is picked but can't run now (a chat is starting or being opened, the tab's one send
+  /// is used): a send then is refused, never sent as a Persistent chat instead.
   const sandboxPickedNotOffered = sandbox.mode === "sandboxed" && !snapshot.sessionId && !sandboxing;
-  const sandboxNotNow = sandbox.spent() ? "sandbox_spent" : preview ? "unavailable_now" : "labs_off";
+  const sandboxNotNow = sandbox.spent() ? "sandbox_spent" : "unavailable_now";
   const sandboxModeRows = { mode: sandbox.mode, onMode: (mode: RunMode) => sandbox.setMode(mode) };
   /// A Sandboxed send: text only, by an agent a sandbox runs. A page-side refusal comes back as its
   /// code (the prompt stays where it was typed); false: nothing was sent.
   const startSandbox = (text: string, attachmentCount: number, harness: string | undefined): string | boolean =>
     sandboxPageRefusal(attachmentCount, harness) ?? sandbox.send(text, sandboxAgent(harness));
   /// A chat shows here while the tab's run is out or ended: a notice offers it, and Show opens it in
-  /// place of the chat until Back. Whatever Labs says now: a paid run's receipt stays reachable.
+  /// place of the chat until Back: a paid run's receipt stays reachable.
   const sandboxElsewhere =
     snapshot.sessionId && sandboxView && !sandboxRetryable(sandboxView) ? sandboxView : undefined;
   const [sandboxViewing, setSandboxViewing] = useState(false);
@@ -7168,11 +7202,6 @@ function AcpmuxPane() {
     setSandboxViewing(false);
     sandboxWake.current = undefined;
   }, [snapshot.sessionId, newTabGeneration]);
-  /// Labs went off: Sandboxed is no longer offered or shown, so the composer is Persistent again
-  /// (a send from it isn't refused as Sandboxed). A run already out stays the tab's.
-  useEffect(() => {
-    if (!preview && sandbox.mode === "sandboxed") sandbox.setMode("persistent");
-  }, [preview, sandbox]);
   const viewedSandbox = sandboxViewing && snapshot.sessionId ? sandboxView : undefined;
   /// The chat view shows the tab's run as a card (SandboxRunView), which offers its own Check again.
   const sandboxCard =
@@ -7180,7 +7209,7 @@ function AcpmuxPane() {
     (sandboxView !== undefined && !snapshot.sessionId && (sandboxHoldsChat || sandbox.mode === "sandboxed"));
   /// The newest read didn't answer and no card says so: a notice does (the chat's, or the New Tab
   /// page's, where Sandboxed waits for a read that answers).
-  const sandboxUncheckedNotice = sandbox.unread && !sandboxCard && (preview || sandboxView !== undefined);
+  const sandboxUncheckedNotice = sandbox.unread && !sandboxCard;
   const sandboxUnchecked = (
     <output className="acpmux-switch-notice acpmux-folder-choice">
       <span>{t("sandbox.unchecked")}</span>{" "}
@@ -7906,6 +7935,9 @@ function AcpmuxPane() {
   /// The composer is in shell mode, whose ⌘Return answers no recap card (RecapCard.tsx `keyHint`).
   const [composerShell, setComposerShell] = useState(false);
   const heldBack = useRef<{ text: string; attachments: ComposerAttachment[] }[] | undefined>(undefined);
+  /// Quote in Reply picks made while no composer is mounted (a Sandboxed receipt or a handoff review
+  /// in its place): they go in after the draft, in order, when it mounts (composerRestore.ts).
+  const heldQuotes = useRef<string[] | undefined>(undefined);
   /// Prompts sent while a new chat starts, shown as queued rows until acpmux takes each, in order
   /// (startingSends.ts). One refused comes back to the composer with those behind it.
   const [startingRows, setStartingRows] = useState<readonly StartingSend[]>([]);
@@ -7967,7 +7999,7 @@ function AcpmuxPane() {
       holdWebSwap(
         () =>
           directClient.current?.swapHold() ||
-          (untakenSends.current > 0 || startingSends.busy || heldBack.current?.length
+          (untakenSends.current > 0 || startingSends.busy || heldBack.current?.length || heldQuotes.current?.length
             ? "composer.send-untaken"
             : null) ||
           // A Sandboxed send runs: the reload waits for it (sandboxRun.ts SandboxTab.busy, bounded).
@@ -7995,11 +8027,12 @@ function AcpmuxPane() {
       handle.wake(pendingWake.current);
       pendingWake.current = undefined;
     }
-    const waiting = heldBack.current;
-    if (!handle || !waiting) return;
-    heldBack.current = undefined;
-    for (const back of waiting) handle.restore(back.text, back.attachments);
+    replayHeldForComposer(handle, heldBack, heldQuotes);
   }, []);
+  const composerUnplacedQuotes = useCallback(
+    (quotes: string[]) => handBackQuotes(composerHandle, heldQuotes, quotes),
+    [],
+  );
   useComposerKeyboard(() => {
     if (!prompt.current) return false;
     prompt.current.focus();
@@ -8442,7 +8475,10 @@ function AcpmuxPane() {
         setShortcuts(readShortcuts(labels));
       },
       applyPreview(on) {
-        setPreview(on === true);
+        // The environment picker, Cloud (Move to Cloud, the account's Cloud machines) and Sandboxed
+        // runs are not behind Labs (Leo, 2026-10-30: "i dont like putting so much stuff in labs").
+        // Cloud's own checks stay: Cloud allowed by policy, a signed-in account, and an explicit
+        // pick; nothing creates a paid VM without one.
         setPromptSurfaces(on === true);
         // The host's existing Advanced > Labs event is the only producer today. Keep workflow
         // visibility as its own state so the summary never changes environment rendering rules;
@@ -9327,6 +9363,12 @@ function AcpmuxPane() {
             restorePrompt(String(text ?? ""), []);
             composerHandle.current?.focus();
           },
+          // Quote in Reply (the transcript selection menu): the Markdown quote goes after the
+          // draft, which stays as typed, and the caret waits in an empty paragraph below it. With no
+          // composer mounted (a Sandboxed receipt shows), it waits for the composer to come back.
+          "chat.quoteReply": async ({ markdown }) => {
+            quoteIntoComposer(composerHandle, heldQuotes, String(markdown ?? ""));
+          },
           "chat.history": () => client.loadOlder(),
           // Find in Chat (the app's Find commands on an agent pane).
           "chat.find": async ({ text }) => findRef.current?.show(typeof text === "string" ? text : undefined),
@@ -9917,7 +9959,7 @@ function AcpmuxPane() {
   // account's list is read when such a chat shows (and after each pick), never on a timer.
   const accountMachines = useCloudMachines();
   const chatMachine = chatCloudMachine(summary, accountMachines);
-  const cloudChat = preview && summary?.hostKind === "cloud";
+  const cloudChat = summary?.hostKind === "cloud";
   useEffect(() => {
     if (cloudChat) void refreshCloudMachines();
   }, [cloudChat, snapshot.sessionId]);
@@ -10195,28 +10237,27 @@ function AcpmuxPane() {
   const newBrowser = () => runSplitAction(HEADER_ACTIONS.browser, undefined, "open");
   const chatMenu = (): ChatMenuItem[] => {
     const link = snapshot.sessionId ? sessionLink(snapshot.sessionId) : undefined;
-    // Pause or Resume the chat's Cloud machine (cloudMachineMenu.ts), with Labs > Preview features
-    // as the account's machines in the composer's machine list are.
-    const machine =
-      preview && !quick
-        ? cloudMachineRows(
-            chatMachine,
-            snapshot.isWorking,
-            t,
-            (method, params) => callNative(method, params),
-            (picked) => void readUntilMoved(picked),
-            () => {
+    // Pause or Resume the chat's Cloud machine (cloudMachineMenu.ts), as the account's machines in
+    // the composer's machine list are.
+    const machine = !quick
+      ? cloudMachineRows(
+          chatMachine,
+          snapshot.isWorking,
+          t,
+          (method, params) => callNative(method, params),
+          (picked) => void readUntilMoved(picked),
+          () => {
+            const client = directClient.current;
+            return { session: client?.shownSession()?.sessionId, running: client?.turnRunning() ?? false };
+          },
+          (session) =>
+            stopWaiter.wait(() => {
               const client = directClient.current;
-              return { session: client?.shownSession()?.sessionId, running: client?.turnRunning() ?? false };
-            },
-            (session) =>
-              stopWaiter.wait(() => {
-                const client = directClient.current;
-                return client !== undefined && client.shownSession()?.sessionId === session && client.turnRunning();
-              }),
-            snapshot.sessionId,
-          )
-        : [];
+              return client !== undefined && client.shownSession()?.sessionId === session && client.turnRunning();
+            }),
+          snapshot.sessionId,
+        )
+      : [];
     const copy = copyRow(
       { link, rows: snapshot.rows, sessionId: snapshot.sessionId },
       (text) => ignoreFailure(copyText(text)),
@@ -11448,7 +11489,7 @@ function AcpmuxPane() {
             keptAttachments={quick ? undefined : keptAttachments}
             onCmuxCommand={handleCmuxCommand}
             onSend={(text, chips, steer) => {
-              // A Sandboxed new chat (preview): the message runs once on a throwaway VM, through the
+              // A Sandboxed new chat: the message runs once on a throwaway VM, through the
               // host, and the chat shows its receipt; no acpmux chat starts.
               // While the tab's run holds the chat nothing else sends as Sandboxed (the composer keeps
               // the prompt); a composer kept for a refused draft sends as Persistent once picked.
@@ -11670,7 +11711,7 @@ function AcpmuxPane() {
                     })
             }
             localName={thisMacName(localMachineName, machineName, composerSnapshot.summary)}
-            environments={preview}
+            environments
             {...(sandboxOffered ? { runMode: sandboxModeRows } : {})}
             onBrowseFolder={
               canMove ? () => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd) : undefined
@@ -11705,6 +11746,7 @@ function AcpmuxPane() {
             onShellChange={setComposerShell}
             prompt={prompt}
             handle={composerRef}
+            onUnplacedQuotes={composerUnplacedQuotes}
             // No prompt goes while a picked folder waits for the user's answer, or while the chat only
             // shows a session another app runs (WatchBanner).
             blocked={trustAsk.blocked}
@@ -12022,7 +12064,7 @@ function AcpmuxPane() {
                     );
                   }}
                   key={newTabGeneration}
-                  environments={preview}
+                  environments
                   // The tab's run, found by a read, takes the chat view: the page's draft goes to its composer.
                   onLeaveDraft={(text, attachments) => {
                     // A Sandboxed send from the page already took its prompt (or held it back).
