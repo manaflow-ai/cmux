@@ -3,6 +3,7 @@
 use super::*;
 use crate::SurfaceKind;
 use crate::resource::TerminalPublicId;
+use crate::sizing_policy::TerminalSizingMode;
 
 fn pty(mux: &Mux, surface: SurfaceId) -> bool {
     mux.surface(surface).is_some_and(|surface| surface.kind() == SurfaceKind::Pty)
@@ -42,8 +43,15 @@ pub(super) fn allows(mux: &Mux, client: u64, command: &Command) -> bool {
         Command::SetClientSizing { surface, client: None, enabled: true, exclusive: true } => {
             attached(mux, client, *surface)
         }
-        Command::SetSizePolicy { surface: Some(surface), workspace: None, .. } => {
-            attached(mux, client, *surface)
+        Command::SetSizePolicy {
+            surface: Some(surface),
+            workspace: None,
+            policy: Some(policy),
+        } => {
+            policy.mode == TerminalSizingMode::Latest
+                && policy.priority.is_empty()
+                && policy.fixed.is_none()
+                && attached(mux, client, *surface)
         }
         Command::ResizeAttachedView {
             surface, lease: Some(_), view: None, identity: None, ..
@@ -65,4 +73,14 @@ pub(super) fn allows(mux: &Mux, client: u64, command: &Command) -> bool {
         Command::SnapshotRequest(params) => attached(mux, client, params.surface),
         _ => false,
     }
+}
+
+/// The GUI's takeover sends exactly {policy:{mode:"latest"}}. Check the
+/// wire before deserialization, which intentionally ignores unknown policy
+/// fields for other carriers, so extra client/participant controls cannot hide.
+pub(super) fn latest_policy_frame(fields: &serde_json::Map<String, Value>) -> bool {
+    fields.keys().all(|key| matches!(key.as_str(), "id" | "cmd" | "surface" | "policy"))
+        && fields.get("policy").and_then(Value::as_object).is_some_and(|policy| {
+            policy.len() == 1 && policy.get("mode").and_then(Value::as_str) == Some("latest")
+        })
 }
