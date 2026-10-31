@@ -1,226 +1,107 @@
-public import CmuxHomeCore
-public import CmuxNextActions
-import CmuxNextCompat
 public import CmuxNextDaemon
 public import Foundation
-import os
 
-/// The Chief's welcome (#26053): the first time this Chief home's owner connects, the Chief's own
-/// conversation gets one message from the Chief with the key shortcuts (⌘P first), a few things to
-/// ask it and that it answers anything about cmux, coding agents and browsers. It is written with
-/// `conversation-import` under the Chief as author (client id ``clientMsgID``), so no model turn
-/// runs, and is marked read for the local user so it never shows as unread. Its keys and language are
-/// the ones of the launch that posts it.
+/// Chief's first message on a fresh install: Chief types for a moment, then welcomes the person
+/// to cmux and offers a background image (user, 2026-10-30).
 ///
-/// Once per Chief home: the record (`<home>/welcome.json`) says where it went. A Chief conversation
-/// with history, or an owner with other conversations and no Chief (an upgrade), is recorded
-/// without a post, so an upgrade never gets a new local Chief just for the welcome. Home runs it from the owner's `prepare`,
-/// after the old Chiefs' migration and before Home reads the conversation, so the import never
-/// lands under an open transcript and never puts the migration's older messages out of order.
-/// While the welcome is the conversation's only message, Home treats the conversation as empty
-/// (``Record/isOnlyMessage(of:)``): the first-run panel stays, and the Chief tab and the Hosted
-/// Chief copy see no history.
+/// The welcome is stored as real messages from Chief in the Chief conversation, through the
+/// owner's `conversation-import` (which keeps an author other than the person), so the Home
+/// transcript draws it with its own iMessage bubbles. Each message has a fixed client id, and the
+/// owner skips a message whose author and client id it already holds, so a relaunch, a second
+/// window or a retry never stores a second copy.
+///
+/// The host runs it in two steps around one deadline:
+///
+/// ```swift
+/// let welcome = ChiefWelcome(conversation: id, owner: owner, showsTyping: Motion.home.animatesLoops)
+/// if let pause = await welcome.start() {
+///     timer.schedule(after: pause) { try? await welcome.deliver() }
+/// } else {
+///     try await welcome.deliver()
+/// }
+/// ```
 public nonisolated struct ChiefWelcome: Sendable {
-    /// The welcome's client message id: the owner skips a second import of it.
-    public static let clientMsgID = "notice:chief-welcome-v1"
-    static let recordName = "welcome.json"
+    /// The client id of the welcome message.
+    public static let welcomeClientID = "chief-welcome-v1"
+    /// The client id of the background offer that follows it.
+    public static let backgroundClientID = "chief-welcome-background-v1"
+    /// How long Chief's typing dots show before the welcome arrives.
+    public static let typingPause: Duration = .milliseconds(1500)
+    /// The link in the background offer: it opens the background picker (`appearance.changeBackground`).
+    public static let backgroundLink = "cmux://settings/background"
 
-    /// Where the welcome went: `seq` 0 when none was posted (the conversation had history).
-    public struct Record: Codable, Sendable, Equatable {
-        public var conversation: String
-        public var seq: UInt64
+    /// The conversation the welcome goes to: the person's only Chief's.
+    public let conversation: String
+    /// The Chief participant that writes it.
+    public let author: String
+    private let owner: any ChiefWelcomeOwner
+    private let showsTyping: Bool
+    private let text: String
 
-        public init(conversation: String, seq: UInt64) {
-            self.conversation = conversation
-            self.seq = seq
-        }
-
-        /// Whether the welcome is all the conversation `id` (newest seq `lastSeq`) holds.
-        public func isOnlyMessage(of id: String, lastSeq: UInt64) -> Bool {
-            seq > 0 && id == conversation && lastSeq == seq
-        }
-
-        /// The same for a conversation of the Home store.
-        public func isOnlyMessage(of summary: CmuxHomeCore.ConversationSummary) -> Bool {
-            isOnlyMessage(of: summary.id.rawValue, lastSeq: summary.lastSeq)
-        }
+    /// - Parameters:
+    ///   - conversation: The Chief conversation's id.
+    ///   - author: The Chief participant's id (the local Chief's `agent_mux` by default).
+    ///   - owner: The conversation owner the dots and the messages go through.
+    ///   - showsTyping: Whether Chief types first (`Motion.home.animatesLoops`). False (Reduce
+    ///     Motion, or Home animation off): no dots and no pause, the welcome shows at once.
+    ///   - text: The welcome with the person's current shortcuts; nil uses the introductory text.
+    public init(conversation: String, author: String = DaemonHomeSource.chief.id, owner: any ChiefWelcomeOwner,
+                showsTyping: Bool, text: String? = nil) {
+        self.conversation = conversation
+        self.author = author
+        self.owner = owner
+        self.showsTyping = showsTyping
+        self.text = text ?? Self.welcomeText
     }
 
-    /// One shortcut line: the keys as the registry shows them (rebinds included) and the action's title.
-    public struct Shortcut: Sendable, Equatable {
-        public var keys: String
-        public var title: String
+    /// The welcome's text: who Chief is and what it can do.
+    public static var welcomeText: String { HomeStrings.chiefWelcome }
 
-        public init(keys: String, title: String) {
-            self.keys = keys
-            self.title = title
-        }
-    }
+    /// The background offer's text, with its picker link.
+    public static var backgroundText: String { HomeStrings.chiefWelcomeBackground(link: backgroundLink) }
 
-    /// The owner calls the welcome needs: the conversation list, the Chief conversation's
-    /// idempotent creation, the import (the seqs it gave) and the local user's read cursor.
-    public struct Owner: Sendable {
-        var list: @Sendable () async throws -> [CmuxNextDaemon.ConversationSummary]
-        var create: @Sendable () async throws -> String
-        var importMessages: @Sendable (ConversationImportRequest) async throws -> [UInt64]
-        var markRead: @Sendable (_ conversation: String, _ seq: UInt64) async throws -> Void
-
-        public init(list: @escaping @Sendable () async throws -> [CmuxNextDaemon.ConversationSummary], create: @escaping @Sendable () async throws -> String,
-                    importMessages: @escaping @Sendable (ConversationImportRequest) async throws -> [UInt64],
-                    markRead: @escaping @Sendable (_ conversation: String, _ seq: UInt64) async throws -> Void) {
-            self.list = list
-            self.create = create
-            self.importMessages = importMessages
-            self.markRead = markRead
-        }
-
-        /// The Chief owner on `connection`; a missing Chief conversation is made by `create`, Home's request.
-        public init(connection: DaemonConnection, create request: CreateConversationRequest) {
-            let client = ConversationClient(connection)
-            self.init(list: { try await client.list() }, create: { try await client.create(request).conversation.id },
-                      importMessages: { try await client.importHistory($0).imported },
-                      markRead: { conversation, seq in
-                          // The connection's own participant (the local user), as Home's markRead.
-                          _ = try await client.op(ConversationOpRequest(conversation: conversation, idempotencyKey: "read:\(ChiefWelcome.clientMsgID):\(seq)",
-                                                                        transaction: nil, op: .setReadCursor(seq: seq)))
-                      })
-        }
-    }
-
-    let record: URL
-    let chief: String
-    /// The old Chiefs' migration's record (NIGHTLY, ``ChiefHome/importsOldChiefs``): until it
-    /// exists the welcome waits, so the migration's older messages never come after it.
-    let migration: URL?
-
-    /// The welcome of the Chief home at `root`, written by `chief` (`agent_mux`).
-    public init(root: URL, chief: String, waitsForMigration: Bool = false) {
-        record = root.appendingPathComponent(Self.recordName)
-        migration = waitsForMigration ? root.appendingPathComponent(ChiefMigration.recordName) : nil
-        self.chief = chief
-    }
-
-    /// The welcome of `home`.
-    public init(home: ChiefHome, chief: String) {
-        self.init(root: home.root, chief: chief, waitsForMigration: home.importsOldChiefs)
-    }
-
-    /// The record, or nil while the welcome is still due.
-    @concurrent public func load() async -> Record? {
-        guard let data = try? Data(blockingContentsOf: record) else { return nil }
-        return try? JSONDecoder().decode(Record.self, from: data)
-    }
-
-    /// Posts the welcome (`text`, written at `at`) when due and records it. Returns the record, or
-    /// nil when the owner failed: nothing is recorded, and the next launch tries again
-    /// (the owner's `prepare` runs once per launch).
-    @concurrent public func run(owner: Owner, text: String, at: Date = Date()) async -> Record? {
-        if let done = await load() { return done }
-        if let migration, !FileManager.checked.fileExists(atPath: migration.path) { return nil }
-        do {
-            let all = try await owner.list()
-            let listed = HomeChiefName.select(from: all)
-            // Imported by an earlier launch whose record was lost (its reply, the read or the write failed).
-            if let listed, listed.lastSeq == 1, listed.lastMessage?.clientMsgID == Self.clientMsgID {
-                await markRead(owner, listed.id, seq: 1)
-                return save(Record(conversation: listed.id, seq: 1))
-            }
-            if let listed, listed.lastSeq > 0 { return save(Record(conversation: listed.id, seq: 0)) }
-            // An upgrade without a local Chief (a cloud Chief, or the local one deleted): Home looks the
-            // local Chief up and never makes one for it, so the welcome does not either.
-            if listed == nil, !all.isEmpty { return save(Record(conversation: "", seq: 0)) }
-            let id: String
-            if let listed { id = listed.id } else { id = try await owner.create() }
-            let imported = try await owner.importMessages(Self.request(conversation: id, chief: chief, text: text, at: at))
-            // Skipped: an earlier run imported it into the then empty conversation and stopped before its record.
-            let seq = imported.first ?? 1
-            await markRead(owner, id, seq: seq)
-            return save(Record(conversation: id, seq: seq))
-        } catch {
-            return nil
-        }
-    }
-
-    /// Best effort: a failed read cursor leaves one unread welcome, never a second post.
-    private func markRead(_ owner: Owner, _ conversation: String, seq: UInt64) async {
-        do { try await owner.markRead(conversation, seq) } catch {
-            Logger(subsystem: "com.cmuxterm.app.next", category: "home").info("chief welcome: read cursor not set")
-        }
-    }
-
-    private func save(_ done: Record) -> Record? {
-        guard let data = try? JSONEncoder().encode(done) else { return nil }
-        try? FileManager.checked.createDirectory(at: record.deletingLastPathComponent(), withIntermediateDirectories: true)
-        guard (try? data.blockingWrite(to: record, options: .atomic)) != nil else { return nil }
-        return done
-    }
-
-    /// The shortcuts the welcome lists under its ⌘P call-out, in order.
-    static let shortcutActions: [ActionID] = ["commandPalette", "search.chats", "newTab.default", "newSurface", "palette.newAgentChat"]
-    /// The action the welcome calls out first (⌘P).
-    static let goToAction: ActionID = "goToWorkspace"
-
-    /// Runs the welcome on `owner`'s first connection of a launch (its `prepare`, after the step set before,
-    /// the old Chiefs' migration, and before Home attaches); `create` makes a missing Chief
-    /// conversation, `report` gets the record. Isolated Chief homes (agent preflights, captures)
-    /// get no welcome unless `CMUX_NEXT_CHIEF_WELCOME=1`.
-    @MainActor
-    public static func install(on owner: ChiefConversationOwner, registry: ActionRegistry, create: CreateConversationRequest,
-                               report: @escaping @MainActor @Sendable (Record?) -> Void) {
-        let home = owner.home
-        guard !home.isolated || ProcessInfo.processInfo.environment["CMUX_NEXT_CHIEF_WELCOME"] == "1" else { return }
-        let welcome = ChiefWelcome(home: home, chief: DaemonHomeSource.chief.id)
-        let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
-        let earlier = owner.prepare
-        owner.prepare = { connection in
-            if let earlier { await earlier(connection) }
-            var record = await welcome.load()
-            if record == nil {
-                let text = await MainActor.run { Self.text(registry) }
-                record = await welcome.run(owner: Owner(connection: connection, create: create), text: text)
-                if record == nil { logger.info("chief welcome: not posted; the next launch tries again") }
-            }
-            let done = record
-            await MainActor.run { report(done) }
-        }
-    }
-
-    /// The welcome's text with `registry`'s shortcuts (an unbound action is left out).
-    @MainActor static func text(_ registry: ActionRegistry) -> String {
-        let shortcuts = shortcutActions.compactMap { id -> Shortcut? in
-            guard let keys = registry.shortcutDisplay(for: id), let title = registry.descriptor(for: id)?.title else { return nil }
-            return Shortcut(keys: keys, title: title.hasSuffix("…") ? String(title.dropLast()) : title)
-        }
-        return text(goTo: registry.shortcutDisplay(for: goToAction), shortcuts: shortcuts)
-    }
-
-    /// The welcome's Markdown: ⌘P (`goTo`, nil when unbound) called out on its own, then `shortcuts`.
-    public static func text(goTo: String?, shortcuts: [Shortcut]) -> String {
-        var blocks = [HomeStrings.chiefWelcomeIntro]
-        if let goTo { blocks.append(HomeStrings.chiefWelcomeGoTo(goTo)) }
-        if !shortcuts.isEmpty {
-            let lines = shortcuts.map { "- `\($0.keys)` \($0.title)" }
-            blocks.append(([HomeStrings.chiefWelcomeShortcuts] + lines).joined(separator: "\n"))
-        }
-        blocks.append(HomeStrings.chiefWelcomeExamplesHeader + "\n" + HomeStrings.chiefWelcomeExamples)
-        blocks.append(HomeStrings.chiefWelcomeAsk)
-        return blocks.joined(separator: "\n\n")
-    }
-
-    /// The import of `text` into `conversation`, authored by `chief`, at `at`.
-    static func request(conversation: String, chief: String, text: String, at: Date) -> ConversationImportRequest {
-        let message = ConversationImportedMessage(id: nil, clientMsgID: clientMsgID, author: chief,
-                                                  parts: [.object(["type": .string("text"), "text": .string(text)])],
-                                                  createdAt: timestamp(at))
-        return ConversationImportRequest(conversation: conversation, messages: [message])
-    }
-
-    /// The owner's time format (`YYYY-MM-DDTHH:MM:SS.mmmZ`), a millisecond back so it is never in
-    /// the owner's future.
-    static func timestamp(_ date: Date) -> String {
+    /// The import that stores both messages, dated `now`.
+    /// - Parameter now: The messages' time (the owner refuses a time in the future).
+    /// - Returns: One request with the welcome, then the background offer.
+    public func request(now: Date) -> ConversationImportRequest {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         formatter.timeZone = TimeZone(identifier: "UTC")
-        return formatter.string(from: date.addingTimeInterval(-0.001))
+        let time = formatter.string(from: now)
+        let message = { (key: String, text: String) in
+            ConversationImportedMessage(id: nil, clientMsgID: key, author: author,
+                                        parts: [.object(["type": .string("text"), "text": .string(text)])], createdAt: time)
+        }
+        return ConversationImportRequest(conversation: conversation, messages: [
+            message(Self.welcomeClientID, text),
+            message(Self.backgroundClientID, Self.backgroundText),
+        ])
+    }
+
+    /// Starts the welcome: Chief's dots show.
+    /// - Returns: How long the dots show before ``deliver(now:)``; nil when Chief does not type
+    ///   first (then deliver at once).
+    public func start() async -> Duration? {
+        guard showsTyping else { return nil }
+        await owner.showChiefTyping(true)
+        return Self.typingPause
+    }
+
+    /// Stores the messages, then takes the dots away (also when the import fails).
+    /// - Parameter now: The messages' time.
+    /// - Throws: The owner's import error; then nothing was stored.
+    public func deliver(now: Date = Date()) async throws {
+        do {
+            try await owner.importWelcome(request(now: now))
+        } catch {
+            await owner.showChiefTyping(false)
+            throw error
+        }
+        await owner.showChiefTyping(false)
+    }
+
+    /// The welcome will not be delivered (its view went away first): the dots go away.
+    public func abandon() async {
+        await owner.showChiefTyping(false)
     }
 }

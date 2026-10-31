@@ -52,6 +52,10 @@ final class CloudMachineCreation: Identifiable {
     /// What `cloud new-machine` asked for (size, idle pause); a Retry asks for the same, with
     /// the same idempotency key.
     private(set) var request: CloudMachineRequest
+    /// The name the first app server attempt sent (``CloudService/createMachine``): the one asked for, else
+    /// a readable default. Every Retry sends the same one, since an approval holds the exact params. Not
+    /// part of ``request``: a named request is a request option the app server's create refuses.
+    var pinnedMachineName: String?
 
     /// The create went to the server once, to `team`: a Retry may find the machine it made, and
     /// goes to that same team.

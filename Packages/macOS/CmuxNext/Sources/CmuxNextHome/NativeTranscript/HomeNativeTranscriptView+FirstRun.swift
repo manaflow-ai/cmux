@@ -58,24 +58,12 @@ extension HomeNativeTranscriptView {
         firstRun.setAgents(agents)
     }
 
-    /// The hero shows unless Debug Settings turns it off or the Chief's welcome is there.
-    func applyHero() {
-        firstRun.showsHero = HomeTunables.firstRunHero.value && !showsWelcome
-    }
-
-    /// Debug Settings > Home > Chief front page hero: off keeps the rows-only first-run panel. The
-    /// welcome's record (read through `isOnlyWelcome`) arriving after the rows shows the panel too.
-    /// One chain at a time: a restart (a new `isOnlyWelcome`) retires the chain before it.
+    /// Debug Settings > Home > Chief front page hero: off keeps the rows-only first-run panel.
     func followHeroTunable() {
-        firstRunWatch &+= 1
-        let watch = firstRunWatch
         withObservationTracking {
-            updateFirstRun()
+            firstRun.showsHero = HomeTunables.firstRunHero.value
         } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self, self.firstRunWatch == watch else { return }
-                self.followHeroTunable()
-            }
+            Task { @MainActor [weak self] in self?.followHeroTunable() }
         }
     }
 }

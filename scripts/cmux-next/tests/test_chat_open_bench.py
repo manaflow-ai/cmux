@@ -146,5 +146,15 @@ class OpenTests(unittest.TestCase):
         self.assertIn("shown", record["open_reply"])  # the record keeps it for the JSON artifact
 
 
+class TableTests(unittest.TestCase):
+    def test_a_measured_table_says_failed_nowhere_but_its_legend(self):
+        # The header's FAILED read as a verdict on a run where every case measured.
+        bench = load_bench("--conditions", "idle", "--cases", "sidebar")
+        ok = cos.summarize([open_(100, 10)])
+        table = bench.markdown({"host": "h", "model": "m", "ncpu": 1, "cases": {"idle": {"sidebar": ok}}})
+        self.assertNotIn("FAILED:", table)
+        self.assertEqual(sum("FAILED" in line for line in table.splitlines()), 1)  # the legend's one mention
+
+
 if __name__ == "__main__":
     unittest.main()
