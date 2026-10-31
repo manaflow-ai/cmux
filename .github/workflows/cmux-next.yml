@@ -3312,8 +3312,11 @@ jobs:
       # mini, CMUX_TEST_REQUIRE_GUI=1 turns a lost display into a failure
       # instead of a silent skip. Blacksmith and hosted labels
       # keep the skip: nothing has shown that they have a display session.
+      # Not on a pull request: display tests gate no PR (Leo, 2026-10-31: "i dont like doing display
+      # tests anymore"), so a PR's display suites skip, and a lost display never fails a PR job. Pushes
+      # and nightlies keep the requirement as advisory coverage.
       - name: Require the GUI session on a mini
-        if: ${{ startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-') }}
+        if: ${{ startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-') && github.event_name != 'pull_request' }}
         shell: bash
         run: echo "CMUX_TEST_REQUIRE_GUI=1" >> "$GITHUB_ENV"
 
@@ -3897,8 +3900,11 @@ jobs:
       # mini, CMUX_TEST_REQUIRE_GUI=1 turns a lost display into a failure
       # instead of a silent skip. Blacksmith and hosted labels
       # keep the skip: nothing has shown that they have a display session.
+      # Not on a pull request: display tests gate no PR (Leo, 2026-10-31: "i dont like doing display
+      # tests anymore"), so a PR's display suites skip, and a lost display never fails a PR job. Pushes
+      # and nightlies keep the requirement as advisory coverage.
       - name: Require the GUI session on a mini
-        if: ${{ startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-') }}
+        if: ${{ startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-') && github.event_name != 'pull_request' }}
         shell: bash
         run: echo "CMUX_TEST_REQUIRE_GUI=1" >> "$GITHUB_ENV"
 
@@ -4307,8 +4313,11 @@ jobs:
       # mini, CMUX_TEST_REQUIRE_GUI=1 turns a lost display into a failure
       # instead of a silent skip. Blacksmith and hosted labels
       # keep the skip: nothing has shown that they have a display session.
+      # Not on a pull request: display tests gate no PR (Leo, 2026-10-31: "i dont like doing display
+      # tests anymore"), so a PR's display suites skip, and a lost display never fails a PR job. Pushes
+      # and nightlies keep the requirement as advisory coverage.
       - name: Require the GUI session on a mini
-        if: ${{ startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-') }}
+        if: ${{ startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-') && github.event_name != 'pull_request' }}
         shell: bash
         run: echo "CMUX_TEST_REQUIRE_GUI=1" >> "$GITHUB_ENV"
 

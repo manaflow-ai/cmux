@@ -2302,6 +2302,11 @@ path = "tests/test_layout_grid.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_stable_next.py"
+lane = "manual"
+reason = "Run by hand with python3 when stable_next.py or stable-next.yml changes; repository policy adds no new CI tests."
+
+[[test]]
 path = "tests/test_devbox_bubblewrap.py"
 lane = "manual"
 reason = "Run by hand (cmux-ci) before changing the devbox bubblewrap recipe: it builds the Dockerfile's devtools and bubblewrap layers in Docker and runs an unprivileged sandbox; no new CI tests (CLAUDE.md, Verification)."
