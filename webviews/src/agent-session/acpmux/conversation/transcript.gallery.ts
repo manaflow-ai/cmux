@@ -3009,7 +3009,9 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-secret-card-field" });
         await ctx.type("sk-test-51Hx9", { selector: ".acpmux-secret-card-field" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-secret-card-field")?.matches("input:not(:placeholder-shown)"));
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(".acpmux-secret-card-field")?.matches("input:not(:placeholder-shown)"),
+        );
       },
     },
     queued: {
