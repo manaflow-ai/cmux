@@ -671,3 +671,59 @@ async fn transfer_refuses_a_decline_snapshot_before_the_legacy_removal() {
     let error = result.expect_err("decline without legacy removal was offered to an older target");
     assert_eq!(error.data.unwrap()["reason"], "transfer.held_prompts");
 }
+
+/// A link guest as the cmux daemon's guest relay (cmux#28928, hq#5528) reaches acpmux: its
+/// connection attaches, views and types under `guest:<share_id>.<guest_id>`, and its prompt (a
+/// `g-` id, the relay's) is accepted and waits for the owner. A guest author whose sender left
+/// `approval` off waits all the same: no guest prompt runs before the owner approves it.
+#[tokio::test]
+async fn a_relayed_guests_prompt_typing_and_view_are_taken_and_its_prompt_waits() {
+    let hub = hub();
+    let mut owner = Client::open(&hub);
+    let session = owner.new_session(json!({"harness": "fake"})).await;
+    let id = "guest:Ab-_9xYz012345678901.q-_Z0aB1cD2";
+    let bound = json!({"id": id, "name": "Theo", "approval": "owner"});
+    let mut guest = Client::open(&hub);
+    let attach =
+        by(json!({"sessionId": session, "limit": 0, "_meta": {"acpmux": {}}}), Some(&bound));
+    guest.call("_acpmux/attach", attach).await;
+    let view = json!({"sessionId": session, "visible": true, "_meta": {"acpmux": {}}});
+    guest.call("_acpmux/view", by(view, Some(&bound))).await;
+    let typing = json!({"sessionId": session, "on": true, "_meta": {"acpmux": {}}});
+    guest.call("_acpmux/typing", by(typing, Some(&bound))).await;
+
+    let unmarked = json!({"id": id, "name": "Theo"});
+    for (prompt_id, author) in [("g-Qm9xV3bT1kLp0aZr8yW2cE", &bound), ("g-unmarked", &unmarked)] {
+        let sent = by(prompt(&session, prompt_id, "guest words", None), Some(author));
+        let reply = guest.send("session/prompt", sent).await;
+        let accepted = guest
+            .until(|v| {
+                v.get("id") == Some(&json!(reply))
+                    || (v["method"] == "_acpmux/prompt_accepted"
+                        && v["params"]["promptId"] == prompt_id)
+            })
+            .await;
+        assert!(accepted.get("error").is_none(), "{author}: refused: {accepted}");
+        assert_eq!(accepted["params"]["queued"], true, "{author}: {accepted}");
+        assert_eq!(accepted["params"]["awaitingOwner"], true, "{author}: {accepted}");
+    }
+    let listed = queue(&hub, &session);
+    assert_eq!(listed.len(), 2, "{listed:?}");
+    assert!(listed.iter().all(|q| q["awaitingOwner"] == true), "{listed:?}");
+    owner.call("session/prompt", prompt(&session, "p-owner", "owner words", None)).await;
+    for prompt_id in ["g-Qm9xV3bT1kLp0aZr8yW2cE", "g-unmarked"] {
+        assert!(!ran(&mut owner, &session, prompt_id).await, "{prompt_id} ran unapproved");
+    }
+    let records = owner.records(&session, "queued").await;
+    let unmarked = records.iter().find(|m| m["promptId"] == "g-unmarked").expect("its record");
+    assert_eq!(unmarked.pointer("/_meta/provenance/approval"), Some(&json!("owner")), "{unmarked}");
+    assert_eq!(unmarked.pointer("/_meta/provenance/from"), Some(&json!(id)), "{unmarked}");
+
+    owner.call("_acpmux/queue_approve", answer(&hub, &session, "g-unmarked", Some(0))).await;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while !ran(&mut owner, &session, "g-unmarked").await {
+        assert!(std::time::Instant::now() < deadline, "the approved prompt never ran");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(!ran(&mut owner, &session, "g-Qm9xV3bT1kLp0aZr8yW2cE").await, "approved the other");
+}

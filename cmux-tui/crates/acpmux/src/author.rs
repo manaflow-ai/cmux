@@ -302,6 +302,23 @@ mod tests {
         assert!(awaits_owner(Some(&theirs)) && !awaits_owner(Some(&bo.provenance())));
         let null = author(&with(json!({"id": "user_42", "name": "Bo", "approval": null})));
         assert!(!null.unwrap().unwrap().awaits_owner);
+        // A link guest as `cmux-tui-core` binds one (`guest:<share_id>.<guest_id>`, base64url),
+        // and one whose sender left `approval` off: both wait for the owner.
+        for raw in [
+            json!({"id": "guest:Ab-_9xYz012345678901.q-_Z0aB1cD2", "name": "Theo",
+                   "approval": "owner"}),
+            json!({"id": "guest:Ab-_9xYz012345678901.q-_Z0aB1cD2", "name": "Theo"}),
+            json!({"id": "guest:Ab-_9xYz012345678901.q-_Z0aB1cD2", "name": "Theo",
+                   "approval": null}),
+        ] {
+            let guest = author(&with(raw.clone())).unwrap().unwrap();
+            assert!(guest.awaits_owner, "a link guest's prompt ran unapproved: {raw}");
+            assert_eq!(guest.provenance()["approval"], APPROVAL_OWNER, "{raw}");
+        }
+        // A guest's record that names no approval (an older writer) still waits on restore.
+        let unmarked = json!({"kind": "person_message", "from": "guest:k3x9", "fromName": "Cy"});
+        assert!(awaits_owner(Some(&unmarked)));
+        assert!(!awaits_owner(Some(&json!({"kind": "agent_message", "from": "guest:k3x9"}))));
         assert_eq!(of_provenance(Some(&json!({"kind": "agent_message", "from": "acp:x"}))), None);
         assert_eq!(of_provenance(None), None);
         let named = |p: Value| listed(Some(&p)).map(|a| (a.id, a.name));
