@@ -727,52 +727,88 @@ test("an open edit closes, unsaved, when the row turns out to be a teammate's", 
   expect(actions(container, "p-1")).toEqual([]);
 });
 
-// A Save whose bridge call rejects: when the edit cannot have reached acpmux (not connected, a typed
-// refusal) the typed text goes back to the prompt, as a refused save does; after a timeout or a closed
-// socket it may already be applied, so the text is not restored (the next snapshot shows the truth).
-// Either way nothing is left unhandled.
-for (const [name, error, restored] of [
-  ["not connected", { code: "native.not_connected" }, true],
-  ["refused by the host", { code: "chat.queue.not_author" }, true],
-  ["timed out", { code: "native.timed_out" }, false],
-  ["closed", { code: "transport.closed" }, false],
+// A Save whose bridge call fails. Before acpmux could have it (not connected, a typed refusal) the row is
+// still queued, so the typed text goes back into that row's editor, never to the composer (the prompt would
+// show twice). After a timeout or a closed socket the edit may already be applied: nothing is restored and
+// the next snapshot shows the truth. Either way nothing is left unhandled.
+async function failedSave(error: Record<string, unknown> | "answered-no") {
+  const lost: [string, string][] = [];
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown) => unhandled.push(reason);
+  process.on("unhandledRejection", onUnhandled);
+  const container = installDom();
+  const draw = (rows: typeof queue) =>
+    root!.render(
+      <ComposerQueue
+        queue={rows}
+        chat="c"
+        t={t}
+        onChange={() =>
+          error === "answered-no" ? Promise.resolve(false) : Promise.reject(Object.assign(new Error("failed"), error))
+        }
+        onRemove={async () => true}
+        onLost={(text, id) => lost.push([id, text])}
+      />,
+    );
+  await act(async () => {
+    root = createRoot(container);
+    draw(queue);
+  });
+  await startEdit(container, "p-1");
+  const field = container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea')!;
+  await act(async () => {
+    field.value = "first, reworded";
+    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  await act(async () => {
+    field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+  });
+  // Two macrotask turns: the rejection settles, then Node reports any one nobody handled.
+  await settle();
+  await settle();
+  process.off("unhandledRejection", onUnhandled);
+  const editor = () => container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea');
+  return { lost, unhandled, editor, redraw: (rows: typeof queue) => act(async () => draw(rows)) };
+}
+
+for (const [name, error] of [
+  ["not connected", { code: "native.not_connected" }],
+  ["refused by the host", { code: "chat.queue.refused" }],
 ] as const) {
-  test(`an edit whose save rejects (${name}) ${restored ? "hands its text back" : "does not restore it"}, unhandled nothing`, async () => {
-    const lost: [string, string][] = [];
-    const unhandled: unknown[] = [];
-    const onUnhandled = (reason: unknown) => unhandled.push(reason);
-    process.on("unhandledRejection", onUnhandled);
-    const container = installDom();
-    await act(async () => {
-      root = createRoot(container);
-      root.render(
-        <ComposerQueue
-          queue={queue}
-          chat="c"
-          t={t}
-          onChange={() => Promise.reject(Object.assign(new Error(name), error))}
-          onRemove={async () => true}
-          onLost={(text, id) => lost.push([id, text])}
-        />,
-      );
-    });
-    await startEdit(container, "p-1");
-    const field = container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea')!;
-    await act(async () => {
-      field.value = "first, reworded";
-      field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
-    });
-    await act(async () => {
-      field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
-    });
-    // Two macrotask turns: the rejection settles, then Node reports any one nobody handled.
-    await settle();
-    await settle();
-    process.off("unhandledRejection", onUnhandled);
-    expect(lost).toEqual(restored ? [["p-1", "first, reworded"]] : []);
-    expect(unhandled).toEqual([]);
+  test(`a save that fails before acpmux has it (${name}) reopens the row's editor with the typed text`, async () => {
+    const run = await failedSave(error);
+    expect(run.lost).toEqual([]);
+    expect(run.editor()?.value).toBe("first, reworded");
+    expect(run.unhandled).toEqual([]);
   });
 }
+
+test("a reopened editor hands its text back to the composer if the row is gone when the queue next draws", async () => {
+  const run = await failedSave({ code: "native.not_connected" });
+  expect(run.editor()?.value).toBe("first, reworded");
+  await run.redraw([queue[1]!]);
+  await settle();
+  expect(run.lost).toEqual([["p-1", "first, reworded"]]);
+  expect(run.editor()).toBeNull();
+});
+
+for (const [name, error] of [
+  ["timed out", { code: "native.timed_out" }],
+  ["closed", { code: "transport.closed" }],
+] as const) {
+  test(`a save that ${name} may already be applied: nothing is restored or reopened`, async () => {
+    const run = await failedSave(error);
+    expect(run.lost).toEqual([]);
+    expect(run.editor()).toBeNull();
+    expect(run.unhandled).toEqual([]);
+  });
+}
+
+test("a save acpmux answers no to (the prompt already started) hands its text back to the composer", async () => {
+  const run = await failedSave("answered-no");
+  expect(run.lost).toEqual([["p-1", "first, reworded"]]);
+  expect(run.editor()).toBeNull();
+});
 
 // The app's right-click menu is a native one (ui/nativeMenu.ts): it keeps the actions it opened
 // with. Picked after the row turned out to be a teammate's, none runs.

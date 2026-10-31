@@ -220,6 +220,9 @@ export function ComposerQueue({
   const [sentNow, setSentNow] = useState<ReadonlySet<string>>(new Set());
   const queueing = useQueueing();
   const [editing, setEditingId] = useState<string>();
+  // The open edit as the latest render saw it, for a call that settles later.
+  const editingNow = useRef<string | undefined>(undefined);
+  editingNow.current = editing;
   // The images the open edit drops from its prompt.
   const [dropped, setDropped] = useState<ReadonlySet<string>>(new Set());
   const setEditing = (id: string | undefined) => {
@@ -665,15 +668,22 @@ export function ComposerQueue({
     const edit: QueueEdit = removed
       ? { op: "update", text: next, images: kept.map((image) => image.id) }
       : { op: "update", text: next };
-    // A refused edit, or one that failed before acpmux could have it (not connected, a typed
-    // refusal), hands the typed text back to the prompt. A timeout or a closed bridge may have
-    // reached acpmux already: the queue's next snapshot says, and restoring too could duplicate it.
+    // A refused edit (acpmux answered no: the prompt already started) hands the typed text back to
+    // the composer. A call that failed before acpmux could have it (not connected, a typed
+    // refusal) leaves the row queued, so the text goes back into the row's editor: restoring it to
+    // the composer too would show the prompt twice. If the row is gone by the time the queue next
+    // draws, the open editor hands the text back then. A timeout or a closed bridge may have
+    // reached acpmux already: the next snapshot says, and restoring could duplicate it.
     void onChange(entry.id, edit).then(
       (ok) => {
         if (!ok) onLost?.(next, entry.id);
       },
       (error: unknown) => {
-        if (!mayHaveReachedAcpmux(error)) onLost?.(next, entry.id);
+        if (mayHaveReachedAcpmux(error)) return;
+        // Another row's edit is open now: its draft is not ours to drop, so this text goes to the composer.
+        if (editingNow.current !== undefined) return void onLost?.(next, entry.id);
+        draft.current = { id: entry.id, original: entry.prompt, text: next };
+        setEditing(entry.id);
       },
     );
   };
@@ -854,6 +864,7 @@ export function ComposerQueue({
         <QueuedEdit
           entry={entry}
           label={t("composer.queueEdit")}
+          initial={draft.current?.id === entry.id ? draft.current.text : undefined}
           onInput={(text) => (draft.current = { id: entry.id, original: entry.prompt, text })}
           onDone={(text) => (text === undefined ? cancel(index) : save(entry, text))}
         />
@@ -1018,11 +1029,14 @@ export function ComposerQueue({
 function QueuedEdit({
   entry,
   label,
+  initial,
   onInput,
   onDone,
 }: {
   entry: QueuedEntry;
   label: string;
+  /// The text the editor opens with when it comes back after a failed save; the row's own otherwise.
+  initial?: string;
   onInput(text: string): void;
   /// The new text, or undefined when cancelled.
   onDone(text: string | undefined): void;
@@ -1052,7 +1066,7 @@ function QueuedEdit({
       className="acpmux-queued-edit"
       aria-label={label}
       rows={1}
-      defaultValue={entry.prompt}
+      defaultValue={initial ?? entry.prompt}
       onInput={(event) => {
         fit();
         onInput(event.currentTarget.value);
