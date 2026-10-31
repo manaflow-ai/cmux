@@ -97,7 +97,10 @@ final class LinkOpener {
             }
             // The right column beside the source (RightColumnPlacement): a split below its one pane, else its lower pane.
             column = RightColumn.panes(beside: source.layoutPaneID, in: content)
-            return PaneHandlers.neighbor(of: source.layoutPaneID, direction: .right, in: content).flatMap { takes($0) ? $0 : nil }
+            // `right` and `column` read the same screen's frames; should the neighbour rule still find none
+            // (recency, a pane that takes no tabs), the measured column's top pane is the right side, so an
+            // occupied column never reads as empty and splits right again (review of #28044 at 1cfd9d14).
+            return PaneHandlers.neighbor(of: source.layoutPaneID, direction: .right, in: content).flatMap { takes($0) ? $0 : nil } ?? column.first
         }
         return LinkOpenPlacement(setting: placement()).target(source: source.layoutPaneID, takesTabs: takesTabs, right: right, column: column,
                                                               sourceWidth: RightColumn.width(of: source), width: width)
