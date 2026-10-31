@@ -197,30 +197,48 @@ pub fn hold(machine: &Value, now_ms: u64) -> Option<String> {
 /// (`leo-mac`, "one of Leo's own Macs, where he works", or `attended`, "a person is the recovery
 /// path"). False without a registry or for a machine it does not list.
 pub fn interactive(registry: Option<&Value>, name: &str) -> bool {
-    let Some(machines) = registry.and_then(|r| r.get("machines")).and_then(Value::as_object) else {
-        return false;
-    };
+    machine(registry, name).is_some_and(|m| {
+        m.get("interactive").and_then(Value::as_bool) == Some(true)
+            || has_role(m, "leo-mac")
+            || has_role(m, "attended")
+    })
+}
+
+/// Whether `dispatch --host auto` leaves `name` (by name or alias) out of a new lane's
+/// candidates (design/agent-dispatch.md: "Do not select [three named hosts] for a new agent lane.
+/// They are command, personal, and recovery/compute hosts rather than the automatic worker
+/// pool."): a machine a person works at (`interactive`), or one that holds the
+/// registry's role for a person's own apps (`leo-apps`, "Runs Leo-only apps"). False without a
+/// registry or for a machine it does not list.
+pub fn personal(registry: Option<&Value>, name: &str) -> bool {
+    interactive(registry, name) || machine(registry, name).is_some_and(|m| has_role(m, "leo-apps"))
+}
+
+/// Whether the registry gives `name` (by name or alias) `lanes.last_resort: true`: a host
+/// lane-place puts after every other one, and that takes a dispatch only for a capture or
+/// build (design/agent-dispatch.md: "never selected for a general agent lane"). False without
+/// a registry or for a machine it does not list.
+pub fn last_resort(registry: Option<&Value>, name: &str) -> bool {
+    machine(registry, name)
+        .is_some_and(|m| m.pointer("/lanes/last_resort").and_then(Value::as_bool) == Some(true))
+}
+
+/// The registry's entry for `name`, by name or alias (`canonical`).
+fn machine<'a>(registry: Option<&'a Value>, name: &str) -> Option<&'a Value> {
+    let machines = registry?.get("machines")?.as_object()?;
     let want = canonical(name);
-    machines
-        .iter()
-        .find(|(n, m)| {
-            canonical(n) == want
-                || m.get("aliases")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(Value::as_str)
-                    .any(|a| canonical(a) == want)
-        })
-        .is_some_and(|(_, m)| {
-            m.get("interactive").and_then(Value::as_bool) == Some(true)
-                || m.get("roles")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(Value::as_str)
-                    .any(|r| r == "leo-mac" || r == "attended")
-        })
+    machines.iter().find(|(n, m)| machine_names(n, m).contains(&want)).map(|(_, m)| m)
+}
+
+/// Whether a registry machine entry holds `role`.
+fn has_role(machine: &Value, role: &str) -> bool {
+    machine
+        .get("roles")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .any(|r| r == role)
 }
 
 /// The registry's lane hosts by every name they answer to (`name`, `aliases`).
