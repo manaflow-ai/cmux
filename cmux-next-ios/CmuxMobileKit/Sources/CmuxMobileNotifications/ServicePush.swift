@@ -24,6 +24,17 @@ public struct ServicePush: Sendable {
         return out
     }
 
+    /// An unsealed push whose category is not the phone's (`PushPayload.category`: a
+    /// terminal agent's event from a Worker that picks the kind's): the phone's, so no
+    /// button that can't act shows. Nil to keep `content` as it came.
+    public func categorized(_ content: UNNotificationContent) -> UNNotificationContent? {
+        guard SealedPush(userInfo: content.userInfo) == nil, let payload = PushPayload(userInfo: content.userInfo),
+              content.categoryIdentifier != payload.category.rawValue,
+              let out = content.mutableCopy() as? UNMutableNotificationContent else { return nil }
+        out.categoryIdentifier = payload.category.rawValue
+        return out
+    }
+
     /// The opened notification, or nil to keep `content` as it came.
     public func opened(_ content: UNNotificationContent, keys: PushKeys?) -> UNNotificationContent? {
         guard let sealed = SealedPush(userInfo: content.userInfo), let keys,

@@ -25,7 +25,8 @@
 //!
 //! A terminal agent's question (an agent hook's notification carrying the daemon's
 //! `question`: Claude Code AskUserQuestion, Codex `request_user_input`) pushes as kind
-//! `question` with its options, as an acpmux question does.
+//! `question` with its options, as an acpmux question does. Its other hook notifications
+//! push as what happened (`AgentEvent`): `completed`, `permission` or `failed`.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
@@ -98,6 +99,30 @@ pub struct TerminalClassifier {
     /// Terminal questions pushed lately, by their event id: Claude Code fires two hooks
     /// for one AskUserQuestion, and the daemon posts each.
     asked_at: HashMap<(Option<u64>, String), Instant>,
+    /// A terminal agent's events pushed lately, by tab and kind (`AgentEvent`).
+    agent_at: HashMap<(Option<u64>, &'static str), Instant>,
+}
+
+/// What a terminal agent's hook notification says happened, read from the level the
+/// daemon gives it (`agent_hook_notification`: info for a finished turn, warning for an
+/// approval or a plan review, error for an error). It pushes as the kind an agent chat's
+/// event of the same meaning does, so the person's choice in Settings → Notifications
+/// ("Needed and finished") reaches Claude Code and Codex in a terminal, not only agent
+/// chats and Chief. A program's own alert (OSC 9, `cmux notify`) stays `terminal`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct AgentEvent {
+    kind: &'static str,
+    state: &'static str,
+}
+
+impl AgentEvent {
+    fn of(level: &str) -> Self {
+        match level {
+            "warning" => Self { kind: "permission", state: "waiting" },
+            "error" => Self { kind: "failed", state: "failed" },
+            _ => Self { kind: "completed", state: "finished" },
+        }
+    }
 }
 
 const SEEN_LIMIT: usize = 512;
@@ -147,6 +172,8 @@ impl TerminalClassifier {
             .map(terminal_questions)
             .unwrap_or_default();
         let ask = !questions.is_empty();
+        let level = event.get("level").and_then(Value::as_str).unwrap_or("info");
+        let agent_event = (source == "agent" && !ask).then(|| AgentEvent::of(level));
         if let Some(surface) = surface {
             // An agent hook's and the terminal's own notification for one event.
             let echo = self.last.get(&surface).is_some_and(|(last, at)| {
@@ -154,18 +181,31 @@ impl TerminalClassifier {
                     && last != source
                     && matches!((last.as_str(), source), ("agent", "terminal") | ("terminal", "agent"))
             });
-            // A question is never an echo: the terminal's own alert ("asks a question", an
-            // OSC program status) often comes first and carries no options.
-            if echo && !ask {
+            // A question, or an agent's event, is never an echo: the terminal's own alert
+            // ("asks a question", an OSC program status) often comes first and says less.
+            if echo && !ask && agent_event.is_none() {
                 return None;
             }
             if !ask
+                && agent_event.is_none()
                 && self
                     .last
                     .get(&surface)
                     .is_some_and(|(_, at)| now.saturating_duration_since(*at) < TERMINAL_SURFACE_GAP)
             {
                 return None;
+            }
+        }
+        if let Some(agent_event) = agent_event {
+            // One event of the agent's told twice (a harness reporting one approval through two
+            // hooks): pushed once.
+            let key = (surface, agent_event.kind);
+            if self.agent_at.get(&key).is_some_and(|at| now.saturating_duration_since(*at) < ECHO_WINDOW) {
+                return None;
+            }
+            self.agent_at.insert(key, now);
+            if self.agent_at.len() > SEEN_LIMIT {
+                self.agent_at.retain(|_, at| now.saturating_duration_since(*at) < ECHO_WINDOW);
             }
         }
         while self
@@ -175,7 +215,8 @@ impl TerminalClassifier {
         {
             self.sent.pop_front();
         }
-        if !ask {
+        // The cap is for programs that loop OSC 9, not for agents finishing in many tabs.
+        if !ask && agent_event.is_none() {
             if self.sent.len() >= TERMINAL_PER_MINUTE {
                 return None;
             }
@@ -197,7 +238,6 @@ impl TerminalClassifier {
             .filter(|t| !t.is_empty())
             .collect::<Vec<_>>()
             .join(" · ");
-        let level = event.get("level").and_then(Value::as_str).unwrap_or("info");
         let agent = if source == "agent" {
             title.as_deref().and_then(hook_agent).unwrap_or("Your agent")
         } else {
@@ -242,6 +282,25 @@ impl TerminalClassifier {
                 title: Some(questions[0].question.clone()),
                 questions,
                 state: Some("waiting".into()),
+                ..NotifyEvent::default()
+            });
+        }
+        if let Some(AgentEvent { kind, state }) = agent_event {
+            // The phone reads `notification_id` without `session_id` as a terminal tab's: no
+            // Reply, Allow or Deny (those need an agent chat), a tap opens the tab. The body the
+            // daemon gives is the tool an approval waits on ("Bash"), shown as its title.
+            return Some(NotifyEvent {
+                event_id: format!("n-{id}"),
+                kind: kind.into(),
+                agent: Some(agent.into()),
+                place: place.as_ref().map(|p| p.workspace.clone()),
+                workspace: place.as_ref().map(|p| p.workspace.clone()),
+                workspace_id,
+                tab_id: place.map(|p| p.tab_id),
+                notification_id: Some(id.to_string()),
+                title: Some(body).filter(|b| !b.is_empty() && kind == "permission"),
+                state: Some(state.into()),
+                replyable: Some(false),
                 ..NotifyEvent::default()
             });
         }
