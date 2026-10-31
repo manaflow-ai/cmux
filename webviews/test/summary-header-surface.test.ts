@@ -162,8 +162,8 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
   }
   for (const variant of [
     "preview-tab-row",
-    "preview-pushed-session-info-tab-row",
-    "session-info-pushed-tab-row",
+    "preview-pushed-inspector-tab-row",
+    "inspector-pushed-tab-row",
     "session-info-pushed-no-tab-row",
   ] as const) {
     for (const height of variant === "session-info-pushed-no-tab-row" ? [0] : [28, 40]) {
@@ -189,14 +189,14 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
             }, height);
             if (
               process.env.CMUX_SUMMARY_CAPTURE_DIR &&
-              variant === "preview-pushed-session-info-tab-row" &&
+              variant === "preview-pushed-inspector-tab-row" &&
               height === 28
             ) {
               await mkdir(process.env.CMUX_SUMMARY_CAPTURE_DIR, { recursive: true });
               await page.screenshot({
                 path: path.join(
                   process.env.CMUX_SUMMARY_CAPTURE_DIR,
-                  `preview-pushed-session-info-${theme.endsWith("Light") ? "light" : "dark"}.png`,
+                  `preview-pushed-inspector-${theme.endsWith("Light") ? "light" : "dark"}.png`,
                 ),
               });
             }

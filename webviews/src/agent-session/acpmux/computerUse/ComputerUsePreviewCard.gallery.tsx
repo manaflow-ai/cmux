@@ -154,11 +154,11 @@ export default componentEntry<Props>({
       note: "The column keeps the card's room: the prompt wraps before the card, nothing runs under it. Narrow panes show no card.",
       props: { preview: running, chat: true },
     },
-    "beside-session-info": {
+    "beside-inspector": {
       note: "Session Info open over the chat: the card sits directly under its card, 8px below, right-aligned with it. Closed, the card is back at the top right.",
       props: { preview: running, chat: true, sessionInfo: "overlay" },
     },
-    "under-pushed-session-info": {
+    "under-pushed-inspector": {
       note: "Session Info pushing the chat (Settings Push always): the card sits under it, outside the chat, which keeps no room for it.",
       props: { preview: running, chat: true, sessionInfo: "push" },
     },

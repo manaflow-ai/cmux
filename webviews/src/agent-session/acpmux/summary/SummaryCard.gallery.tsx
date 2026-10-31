@@ -270,11 +270,11 @@ export default componentEntry<Props>({
       note: "The Preview sibling obeys the same native tab-row clearance, both beside the chat and covering a narrow pane.",
       props: { tabRowHeight: 32, preview: true, rows: [] },
     },
-    "preview-pushed-session-info-tab-row": {
+    "preview-pushed-inspector-tab-row": {
       note: "Preview and a pushed Session Info card share the pane; the native tools span both side-panel terms.",
       props: { tabRowHeight: 32, preview: true, sessionInfoPush: true, rows: [] },
     },
-    "session-info-pushed-tab-row": {
+    "inspector-pushed-tab-row": {
       note: "A pushed Session Info card keeps the native tools at the pane edge.",
       props: { tabRowHeight: 32, sessionInfoPush: true, rows: [] },
     },
