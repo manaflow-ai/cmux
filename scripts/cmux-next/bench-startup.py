@@ -289,13 +289,19 @@ class Launch:
             **(extra_env or {}),
         }
         with finder_limits() as changed:  # the limits a Finder launch gets (bench_launch.py, Resource limits)
+            # The bench's own clock (pre-main gap owner, STATUS 1800): the app's marks count from the kernel's
+            # p_starttime, so the time before Popen and the arrival of each mark are kept too. main_start's arrival
+            # minus spawned_at is the spawn-to-main time this process saw, independent of p_starttime.
+            self.spawned_at = time.monotonic()
             self.process = subprocess.Popen([app_binary(tag)], env=env, stdout=subprocess.DEVNULL,
                                             stderr=subprocess.DEVNULL, start_new_session=True, pass_fds=(write_fd,))
+            self.popen_returned_at = time.monotonic()
         print(f"bench-startup: app limits {limits_line(changed)}", file=sys.stderr, flush=True)
         os.close(write_fd)
         self.read_fd = read_fd
         self.buffer = b""
         self.marks = {}
+        self.arrived = {}  # mark -> ms after spawned_at when its line arrived on the pipe (the bench's clock)
 
     def wait_for(self, mark, timeout, any_of=False):
         """Reads marks until `mark` (or every mark of a list; with `any_of`,
@@ -318,6 +324,8 @@ class Launch:
             for line in lines:
                 name, _, ms = line.decode().partition(" ")
                 if name and ms:
+                    if name not in self.marks:
+                        self.arrived.setdefault(name, round((time.monotonic() - self.spawned_at) * 1000, 1))
                     self.marks.setdefault(name, float(ms))
         return True
 
@@ -548,6 +556,11 @@ def one_run(tag, mode, timeout, profile=None):
     if getattr(launch, "stalls", None) is not None:
         marks["stalls"] = launch.stalls
     marks["linger"] = launch.linger
+    marks["bench_clock"] = {"popen_ms": round((launch.popen_returned_at - launch.spawned_at) * 1000, 1),
+                            "arrived_ms": {k: launch.arrived[k] for k in ("main_start", "first_window_frame_committed",
+                                                                          FINAL_MARK, AGENT_MARK) if k in launch.arrived}}
+    print("BENCH-CLOCK " + json.dumps({"mode": mode, **marks["bench_clock"],
+                                       "app_main_start_ms": launch.marks.get("main_start")}), flush=True)
     return marks
 
 

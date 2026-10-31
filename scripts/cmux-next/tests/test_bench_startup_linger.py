@@ -64,6 +64,33 @@ class Linger(unittest.TestCase):
         self.assertIn(f"LINGER: {p.pid}", text)
         self.assertIsNone(p.poll(), "the probe must never end a process itself")
 
+    def test_the_bench_clock_times_each_mark_from_the_spawn(self):
+        # A fake app: it sleeps 0.5 s before it writes main_start, so the bench's own clock must see the gap whatever
+        # value (ms since p_starttime) the line carries.
+        fake = os.path.join(self.root, "fake-app.py")
+        with open(fake, "w") as f:
+            f.write("import os, sys, time\nfd = int(os.environ['CMUX_NEXT_LAUNCH_MARKS_FD'])\ntime.sleep(0.5)\n"
+                    "os.write(fd, b'main_start 9999\\nfirst_terminal_frame 10100\\n')\ntime.sleep(5)\n")
+        saved = bench_startup.app_binary
+        bench_startup.app_binary = lambda tag: sys.executable
+        try:
+            launch = bench_startup.Launch.__new__(bench_startup.Launch)
+            read_fd, write_fd = os.pipe()
+            launch.spawned_at = time.monotonic()
+            launch.process = subprocess.Popen([sys.executable, fake], env={"CMUX_NEXT_LAUNCH_MARKS_FD": str(write_fd)},
+                                              pass_fds=(write_fd,))
+            launch.popen_returned_at = time.monotonic()
+            self.procs.append(launch.process)
+            os.close(write_fd)
+            launch.read_fd, launch.buffer, launch.marks, launch.arrived = read_fd, b"", {}, {}
+            launch.wait_for(["first_terminal_frame"], 10, any_of=True)
+        finally:
+            bench_startup.app_binary = saved
+            os.close(read_fd)
+        self.assertEqual(launch.marks["main_start"], 9999.0)  # the app's own value, kept
+        self.assertGreaterEqual(launch.arrived["main_start"], 450)  # the bench saw the 0.5 s itself
+        self.assertLess(launch.arrived["main_start"], 5000)
+
     def test_no_process_is_an_empty_report(self):
         report, _ = self.watch()
         self.assertEqual((report["at_quit"], report["still"], report["past_limit"]), ([], [], []))
