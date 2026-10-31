@@ -200,19 +200,17 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
       await shells.nth(1).waitFor();
       await page.mouse.move(1, 1);
       // The Wrap lines buttons a reader sees at rest: drawn, and not see-through.
-      const shownWraps = () =>
-        page.evaluate(
-          () =>
-            [...document.querySelectorAll<HTMLElement>('.cv-shell button[aria-label="Wrap lines"]')].filter(
-              (button) => {
-                const box = button.getBoundingClientRect();
-                return box.width > 0 && Number(getComputedStyle(button).opacity) > 0.01;
-              },
-            ).length,
-        );
+      const countShown = () =>
+        [...document.querySelectorAll<HTMLElement>('.cv-shell button[aria-label="Wrap lines"]')].filter((button) => {
+          const box = button.getBoundingClientRect();
+          return box.width > 0 && Number(getComputedStyle(button).opacity) > 0.01;
+        }).length;
+      const shownWraps = () => page.evaluate(countShown);
       const atRest = { shells: (await shells.count()) >= 2, wraps: await shownWraps() };
-      // Hovering a block shows its own.
+      // Hovering a block shows its own, once the shared hover fade's delay has passed
+      // (conversation.css, --cv-actions-in-delay): wait for it rather than read the first frame.
       await shells.first().hover();
+      await page.waitForFunction(countShown, undefined, { timeout: 2_000 }).catch(() => undefined);
       const hovered = await shownWraps();
       await page.mouse.move(1, 1);
       expect({ atRest, hovered }).toEqual({ atRest: { shells: true, wraps: 0 }, hovered: 1 });
