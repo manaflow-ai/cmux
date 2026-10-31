@@ -593,7 +593,7 @@ public final class SidebarModel {
         o.flattensMachines = !groupsByComputer
         if o.flattensMachines {
             for section in sections {
-                guard let machine = section.machine, machine.kind != .local,
+                guard let machine = section.machine, machine.kind != .local, !machine.holdsStatusLabel,
                       let status = Strings.attentionStatus(machine.status) else { continue }
                 o.machineStatusLabels[machine.id] = status
             }

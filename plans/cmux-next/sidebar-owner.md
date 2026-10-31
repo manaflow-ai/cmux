@@ -697,6 +697,10 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 
 - [668f7306170](https://github.com/manaflow-ai/cmux/commit/668f7306170) (PR [#24009](https://github.com/manaflow-ai/cmux/pull/24009)). Leo, verbatim: "STOP BUTTON, I HOVER OVER IT, MY CURSOR SHOULD ALSO SEE IT AS CLICKABLE.. LOTS OF AREAS LIKE THAT SHOULD BE CHANGING MY CURSOR INDICATOR TO CLICKABLE". `SidebarIconButton` now subclasses `ClickableButton` (CmuxNextDesign), so an enabled sidebar icon button shows the pointing-hand cursor. Only the superclass changes: no drawing, layout, hover or row change, so no look change. The commit predates its branch's `Sidebar-Look:` check and carries no trailer; reviewed and logged here. Test: `ClickableCursorTests`.
 
+## One list's "Connecting…" waits out the startup deadline (2026-10-30)
+
+- Leo, verbatim: "STOP SHOWING FUCKING BULLSHIT ON LOAD". In one list (machines not grouped), another machine's workspace rows named "Connecting…" from the first frame of every launch. `SidebarPlaceholderGrace.holdingConnectingLabels` (the seed's `connecting` grace, waiting `connectingDelay`: the daemon startup deadline, 10 s) marks a machine connecting for less than that `SidebarMachine.holdsStatusLabel`, and `SidebarModel.listOptions` names no label for it; a connect that lasts still says "Connecting…". Header dot, tone and every other status unchanged. Test: `DaemonStartupFailureStateTests.theConnectingLabelWaitsOutTheGrace`.
+
 ## First group fold reads a prepared lookup (2026-10-29)
 
 - [cd5b10ac221](https://github.com/manaflow-ai/cmux/commit/cd5b10ac2217376385a9c6ae34e5ff70ff966cfa) (PR [#24580](https://github.com/manaflow-ai/cmux/pull/24580)), Leo: "we know them beforehand, we can cache it, we can store those, like, saved operations." No visual change: `SidebarModel` builds its group lookup when sections arrive, so the first fold no longer scans every group before the row animation starts. Rows, layout and fold motion are unchanged. The commit carries no `Sidebar-Look:` trailer; reviewed and logged here. Test: `SidebarGroupToggleScalingTests.firstFoldDoesNotScanOtherGroups`.

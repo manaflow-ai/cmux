@@ -168,7 +168,7 @@ public final class DaemonService {
                                                 terminalEnvironment: terminalEnvironment,
                                                 daemonEnvironment: Self.firstPartyAppsEnvironment, webSocketPageOrigins: Self.pageOrigins)
             } catch {
-                noteStartupFailure((error as? DaemonError) ?? .launchFailed(String(describing: error)))
+                noteStartupFailure((error as? DaemonError) ?? .launchFailed(String(describing: error)), retries: false)
                 return
             }
         }
@@ -374,24 +374,24 @@ public final class DaemonService {
         relaunchKeptLayoutIfNeeded(connection)
     }
 
-    /// Records a failed first-connect attempt. Shows as unavailable once the
-    /// deadline has passed, or at once when retrying cannot help.
-    func noteStartupFailure(_ error: DaemonError) {
+    /// Records a failed connect attempt (`DaemonStartupState.showsFailure`): unavailable after the deadline, or at once when no retry can help.
+    func noteStartupFailure(_ error: DaemonError, retries: Bool = true) {
         logger.error("cmux-tui daemon unavailable: \(error.description, privacy: .public)")
         lastStartupError = error
-        store.markFailed(error.description)
-        if startup.isUnavailable || DaemonStartup.shared.isPermanent(error) {
+        if startup.showsFailure(error, retries: retries) { store.markFailed(error.description) }
+        if startup.isUnavailable || DaemonStartup.shared.isPermanent(error) || !retries {
             startup = .unavailable(error)
             resumeConnectionWaiters()
         }
     }
 
-    private func armStartupDeadline() {
+    func armStartupDeadline() {
         startupDeadlineTimer?.cancel()
         let timer = DemandTimer(owner: "DaemonService.startupDeadline", clock: startupClock)
         startupDeadlineTimer = timer
         timer.schedule(after: startupDeadline) { @MainActor [weak self] in
             guard let self, self.startup == .connecting else { return }
+            if let error = self.lastStartupError { self.store.markFailed(error.description) }
             self.startup = .unavailable(self.lastStartupError ?? .timedOut("first connection to cmux-tui"))
             self.resumeConnectionWaiters()
         }
