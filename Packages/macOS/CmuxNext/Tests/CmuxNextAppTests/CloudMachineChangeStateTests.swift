@@ -347,6 +347,24 @@ struct CloudMachineChangeStateTests {
     }
 
     @Test(arguments: [CloudMachine.Status.pausing, .starting])
+    func appServerRevisionsRetireSupersededChangesAfterAcknowledgement(change: CloudMachine.Status) async throws {
+        let session = Self.session(status: change == .pausing ? .running : .paused)
+        defer { session.disconnect() }
+        let status = change == .pausing ? "running" : "paused"
+        // Decimal revisions exceed fixed-width integers; preserve their ordering losslessly.
+        let baseline = try Self.next("{\"id\":\"\(session.machineID)\",\"status\":\"\(status)\",\"revision\":\"99999999999999999999\"}")
+        session.machine = baseline
+        let changes = CloudMachineChanges()
+        defer { changes.stop() }
+        changes.readIssued(1)
+        try await changes.run(change, machineID: session.machineID, of: { session }) {}
+        let newer = try Self.next("{\"id\":\"\(session.machineID)\",\"status\":\"\(status)\",\"revision\":\"100000000000000000000\"}")
+        #expect(changes.applyingPending(to: newer, read: 1).pendingChange == change)
+        #expect(changes.applyingPending(to: baseline, read: 2).pendingChange == change)
+        #expect(changes.applyingPending(to: newer, read: 3).pendingChange == nil)
+    }
+
+    @Test(arguments: [CloudMachine.Status.pausing, .starting])
     func appServerTerminalRecordsWithoutUpdatedAtRespectReadOrdering(change: CloudMachine.Status) async throws {
         let services = MachineIconTests.services()
         let cloud = services.cloud
