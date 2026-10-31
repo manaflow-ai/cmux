@@ -160,11 +160,11 @@ public actor BrowserLoginGuards {
         let keys = origins.map { Self.key(profile: profile, origin: $0) }
         let prefix = Self.key(profile: profile, origin: "")
         let (rawScripted, attached) = mirrorState.withLock { ($0.rawScripted, $0.attached.values.contains(prefix)) }
+        if attached { return refused(.rawAttached) }
         if rawTabs.contains(tab) || scripted.contains(Self.key(profile: profile, origin: "null"))
             || keys.contains(where: { scripted.contains($0) || rawScripted.contains($0) }) {
             return refused(.scripted)
         }
-        if attached { return refused(.rawAttached) }
         if keys.contains(where: unsaved.contains) { return refused(.unsaved) }
         let added = Set(keys).subtracting(filled)
         let id = UUID()

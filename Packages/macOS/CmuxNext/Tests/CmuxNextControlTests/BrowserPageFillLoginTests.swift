@@ -23,6 +23,7 @@ import Testing
         let opener = Mutex(false)
         let probeFails = Mutex(false)
         let probeCount = Mutex(0)
+        let asyncScriptCount = Mutex(0)
         let fill: JSONValue
         let failure: ControlError?
         let fillResult: (@Sendable (String) async -> JSONValue)?
@@ -57,6 +58,9 @@ import Testing
             case .evaluate(let script):
                 agentScripts.withLock { $0.append(script) }
                 return ["value": 1]
+            case .evaluateAsync:
+                asyncScriptCount.withLock { $0 += 1 }
+                return [:]
             default:
                 return [:]
             }
@@ -374,12 +378,14 @@ import Testing
         }
     }
 
-    @Test func aScriptedWaitReadsTheGuardOncePerPageNotPerPoll() async throws {
+    @Test func aScriptedWaitAdmitsEveryExecutionChunk() async throws {
         let engine = LoginEngine(url: "https://www.example.com/login", fill: Self.filledBoth)
         let router = install(engine, Lookups(Self.saved))
         _ = await router.handle(ControlRequest(method: "browser.page.wait",
                                                params: ["tab": "tab_0123abcd", "function": "false", "timeout_ms": 300]))
-        #expect(engine.probes == 2, "one guard read before the wait and one after, however many polls ran")
+        let chunks = engine.asyncScriptCount.withLock { $0 }
+        #expect(chunks > 0)
+        #expect(engine.probes == chunks + 1, "each chunk is admitted; the final probe records its ending site")
     }
 
     @Test func theBrowserHostGateGuardsItsAgentCodeAndCaptures() async throws {
@@ -431,10 +437,10 @@ import Testing
         #expect(await gate.admitRaw(tabID: "tab_other", url: engine.url, profile: profile) == nil)
         engine.navigate(to: "https://login.example.net/")
         #expect(try await call(router).get()["reason"] == "raw_devtools_attached")
-        // Detached: the other tab fills; the relayed tab itself never does.
+        // Detached: child targets the raw session could have scripted still exclude fills.
         gate.rawEnded(tabID: "tab_other")
         #expect(try await call(router, tab: "tab_other").get()["reason"] == "scripted_origin")
-        #expect(try await call(router).get()["filled"] == true)
+        #expect(try await call(router).get()["reason"] == "scripted_origin")
     }
 
     @Test func aRawMessageMarksItsSiteAtOnce() async throws {
