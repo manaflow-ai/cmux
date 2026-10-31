@@ -172,7 +172,7 @@ final class SidebarTabRowView: SidebarRowView {
         icon.frame = NSRect(x: iconX, y: (b.height - iconSide) / 2, width: iconSide, height: iconSide)
         // Without a favicon the title takes the icon's place (Lawrence 2026-10-23: "as left as possible").
         let textX = icon.isHidden ? iconX - SidebarStyle.labelCellPadding : icon.frame.maxX + Metrics.space2
-        var trailing = b.width - SidebarStyle.horizontalInset
+        var trailing = SidebarStyle.trailingColumnStart(rowWidth: b.width) + SidebarStyle.trailingSlotSide
         // The tab's status, else its dot, centers on the trailing column, as a workspace row's does (Leo 2026-10-28:
         // "do we seriously not have these fucking things aligned? ... because it's the inner tab thing"); a dot
         // beside a status goes left of the column. On hover the ✕ takes the column (`SidebarRowCloseButton`, the
@@ -195,7 +195,7 @@ final class SidebarTabRowView: SidebarRowView {
             let side = SidebarStyle.dotSize
             // Beside a status, on the next slot (`trailingSlotPitch`), the line a workspace row's chevron takes.
             unreadDot.frame = activity.showsGlyph
-                ? NSRect(x: SidebarStyle.trailingSlotCenterX(rowWidth: b.width, slot: 1) - side / 2, y: cy - side / 2, width: side, height: side)
+                ? SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: cy, side: side, slot: 1)
                 : SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: cy, side: side)
             trailing = min(trailing, SidebarStyle.trailingColumnStart(rowWidth: b.width), unreadDot.frame.minX) - Metrics.space2
         }

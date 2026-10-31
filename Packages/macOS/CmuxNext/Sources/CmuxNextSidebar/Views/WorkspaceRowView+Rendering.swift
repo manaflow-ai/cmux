@@ -119,7 +119,7 @@ extension WorkspaceRowView {
         // Trailing cluster, right to left: the dot or spinner on the trailing column, the disclosure
         // and the tab count (fixed slots, the same with or without hover), close-or-badge, then
         // the other marks.
-        var trailing = b.width - SidebarStyle.horizontalInset // the pill's own inset, as the text's (Leo 2026-10-13)
+        var trailing = SidebarStyle.trailingColumnStart(rowWidth: b.width) + SidebarStyle.trailingSlotSide
         let control = SidebarStyle.controlSize
         // Lawrence msg 11914: the row's dot or spinner owns the trailing column (the x the group
         // header chevron and every band item's dot share) whatever else the row shows; the

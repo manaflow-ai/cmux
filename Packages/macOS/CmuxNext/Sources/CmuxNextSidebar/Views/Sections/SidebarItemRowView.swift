@@ -296,7 +296,7 @@ class SidebarItemRowView: NSView {
         let badgeWidth = badge.isHidden ? 0 : badge.preferredWidth
         var badgeX = style == .chip
             ? (badge.isHidden ? trailing : trailing - Metrics.space2 - badgeWidth)
-            : b.width - inset * 2 - badgeWidth
+            : SidebarStyle.trailingColumnFrame(rowWidth: b.width - inset, centerY: b.midY, side: badgeWidth).minX
         if let columnStart = layoutColumnMark(in: b) {
             // A count beside the column's mark (a Chief's) sits left of the column.
             badgeX = badge.isHidden || style == .chip ? columnStart : columnStart - Metrics.space2 - badgeWidth
