@@ -8,6 +8,10 @@ extension ShellWindow {
     /// A pane's cursor-rect policy (`cursorRectHold`) sees every event first. An Option-press on a
     /// top-row tab bar's empty space drags its pane instead (`PaneSwapDrag`).
     override func sendEvent(_ event: NSEvent) {
+        // A press while this window's Chromium page, a panel or no window holds the key acts at once (`FirstClickPolicy`):
+        // made key first, AppKit gives the press to the view under it instead of spending it on making the window key.
+        if FirstClickPolicy().takesFirstClick(event, in: self, keyWindow: NSApp.keyWindow, mainWindow: NSApp.mainWindow,
+                                              appIsActive: NSApp.isActive, appIsModal: NSApp.modalWindow != nil) { makeKey() }
         cursorRectHold?.windowWillSend(event, in: self)
         // A press in a workspace shown beside the focused one (`sidebar.multiView`) focuses it before it lands there.
         switch event.type {
