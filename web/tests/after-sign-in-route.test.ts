@@ -204,7 +204,7 @@ describe("after sign-in native handoff", () => {
   // A DEV build pointed at production (CMUX_AUTH_ENVIRONMENT=production)
   // returns through the same hosted page on the deployed host, with a
   // per-build scheme no server allowlist can know in advance.
-  for (const scheme of ["cmux-dev", "cmux-dev-cloud-firstsend", "cmux-dev-issue-11397-nonblocking"]) {
+  for (const scheme of ["cmux-dev", "cmux-dev-cloud-firstsend", `cmux-dev-${"a".repeat(64)}`]) {
     test(`redirects verified handoffs to the ${scheme} DEV build on the deployed host`, async () => {
       handoffCookie = "handoff-nonce";
       const nativeReturnTo = `${scheme}://auth-callback?cmux_auth_state=state-dev`;
@@ -228,7 +228,6 @@ describe("after sign-in native handoff", () => {
       "cmux-dev-://auth-callback?cmux_auth_state=s",
       "cmux-dev--x://auth-callback?cmux_auth_state=s",
       "cmux-dev-bad_tag://auth-callback?cmux_auth_state=s",
-      `cmux-dev-${"a".repeat(64)}://auth-callback?cmux_auth_state=s`,
       "cmux-dev-test://elsewhere?cmux_auth_state=s",
       "cmux-dev-test://auth-callback/path?cmux_auth_state=s",
       "https://auth-callback/?cmux_auth_state=s",
