@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1229,
+    "entries": 1232,
     "shortcuts": 189
   },
   "sections": [
@@ -3874,6 +3874,12 @@
           "command": "cmux bookmark edit"
         },
         {
+          "id": "browser.editSource",
+          "title": "Edit Source",
+          "shortcut": null,
+          "command": "cmux browser edit-source"
+        },
+        {
           "id": "fileEditorZoomReset",
           "title": "Editor: Actual Size",
           "shortcut": "⌘0",
@@ -6868,6 +6874,12 @@
           "command": null
         },
         {
+          "id": "app.install",
+          "title": "Install App…",
+          "shortcut": null,
+          "command": "cmux apps install"
+        },
+        {
           "id": "palette.applyUpdateIfAvailable",
           "title": "Install Available Update",
           "shortcut": null,
@@ -6986,6 +6998,12 @@
           "title": "Reload Configuration",
           "shortcut": "⇧⌘,",
           "command": "cmux settings reload-configuration"
+        },
+        {
+          "id": "app.remove",
+          "title": "Remove App…",
+          "shortcut": null,
+          "command": "cmux apps remove"
         },
         {
           "id": "appearance.reset",
