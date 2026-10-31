@@ -112,17 +112,27 @@ nonisolated struct RustRow: Codable {
     /// A drag keeps the "Done (N)" rows folded, so a group can end in such a row, or, with the fold open, in a Done
     /// workspace drawn below it with its tab rows: the resolver then reads the group as it would with no fold
     /// (`endingGroup`), and a drop below it can still leave the group.
-    static func resolvable(_ rows: [SidebarRow], preservesTabRows: Bool = false) -> [RustRow] {
+    ///
+    /// `soleRowsAsHeaders`: a group's one row (`SidebarRow.standsForGroup`) sits in its header's slot, so a workspace or
+    /// group drag reads it as the group's open header: its upper edge drops before the group, its body into the group.
+    /// A tab drop keeps it a workspace row, so a tab still drops into that workspace.
+    static func resolvable(_ rows: [SidebarRow], preservesTabRows: Bool = false, soleRowsAsHeaders: Bool = true) -> [RustRow] {
         var resolvable: [RustRow] = []
         var folded: [String] = []
         var itemTops: [String: Double] = [:] // per group, the lowest link, tab or app row still shown (no drop target, but open)
         var nesting: [(group: String, depth: Int, section: SectionID)] = [] // the group headers above this row, outermost first
         var parents: Set<String> = [] // groups that draw a subgroup (only an open group does)
+        var sole: SidebarRow? // the last one row read as its header, until its tab rows have their workspace
         for row in rows {
+            // A group's one row stands in its header's place, one level in: its parent still draws a subgroup.
+            let header = row.standsForGroup ? row.depth - 1 : row.depth
             if case .group = row.key, let group = row.group?.rawValue {
-                while let top = nesting.last, top.depth >= row.depth || top.section != row.section { nesting.removeLast() }
+                while let top = nesting.last, top.depth >= header || top.section != row.section { nesting.removeLast() }
                 if let parent = nesting.last { parents.insert(parent.group) }
-                nesting.append((group, row.depth, row.section))
+                nesting.append((group, header, row.section))
+            } else if row.standsForGroup {
+                while let top = nesting.last, top.depth >= header || top.section != row.section { nesting.removeLast() }
+                if let parent = nesting.last { parents.insert(parent.group) }
             }
             switch row.key {
             case .doneFold:
@@ -139,6 +149,18 @@ nonisolated struct RustRow: Codable {
                 continue
             default:
                 if case .custom = row.section { continue } // the older resolver knows Pinned and machines only
+                if soleRowsAsHeaders, let header = row.standingHeader {
+                    resolvable.append(RustRow(header))
+                    sole = row
+                    continue
+                }
+                // The one row's tab rows drop after it in its group, as a member's do: the resolver finds their
+                // workspace's row, so it gets one with no height right before them (the tab row is hit, never it).
+                if case let .tab(id, _) = row.key, var parent = sole, parent.key == .workspace(id) {
+                    (parent.y, parent.height) = (row.y, 0)
+                    resolvable.append(RustRow(parent))
+                }
+                sole = nil
                 resolvable.append(RustRow(row))
             }
         }

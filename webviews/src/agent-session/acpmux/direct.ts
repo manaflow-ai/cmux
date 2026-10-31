@@ -550,6 +550,7 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
     kind: toolCall?.kind ?? (subjectCommand ? "execute" : undefined),
     ...(typeof toolCall?.toolCallId === "string" ? { toolCallId: toolCall.toolCallId } : {}),
     scope: permissionScopeFromMessage(raw, toolCall),
+    diffs: permissionDiffs(toolCall),
     pending: true,
     options: (raw.options ?? []).map((option: any) => ({
       id: String(option.optionId ?? option.id),
@@ -899,6 +900,16 @@ export function inputDiffs(rawInput: any, result?: string, canonical?: string): 
       ...mark,
     }));
   return diffs.length ? diffs : undefined;
+}
+
+/// The ask's proposed edits. Explicit ACP diffs win over input fragments, including acpmux's Write
+/// fragment with no old text, which shows the text the Write will put there (`toolFiles`). An edit
+/// tool's input is read only when no diff came: there a Write's content is left out, since before
+/// approval there is no result proving it creates a new file.
+export function permissionDiffs(
+  tool: { kind?: unknown; content?: unknown; locations?: unknown; rawInput?: unknown } | undefined,
+): AcpmuxFileDiff[] | undefined {
+  return toolDiffs(tool?.content, tool?.locations) ?? (tool?.kind === "edit" ? inputDiffs(tool.rawInput) : undefined);
 }
 
 /// The input an earlier event of a call carried, kept as its `inputSummary` JSON.

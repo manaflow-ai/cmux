@@ -2426,7 +2426,10 @@ describe("VM REST auth", () => {
       callerPlanId: "pro",
       maxActiveVms: 5,
       modelPlane: expect.objectContaining({}),
+      // The owner team's member list for the caller's vmKind.
+      teamDirectory: expect.objectContaining({}),
     });
+    expect(typeof (attachInput.teamDirectory as { listMemberIds?: unknown }).listMemberIds).toBe("function");
     // An opted-in machine's agent-update exec runs after the response.
     expect(typeof deferAfterResponse).toBe("function");
     expect(openAttachEndpoint).not.toHaveBeenCalled();
