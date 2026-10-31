@@ -938,7 +938,7 @@ export function NewTabScreen(props: Props) {
       field.current?.focus();
       // AllSelection in an empty document selects the root, outside its typing paragraph:
       // attachment insertion then has no inline parent and menus see a noncollapsed selection.
-      if (field.current?.plainText()) field.current.selectAll();
+      if (field.current?.plainText().trim()) field.current.selectAll();
       else field.current?.setCaret(0);
     };
     if (fieldReady && focusOnShow) focus();
