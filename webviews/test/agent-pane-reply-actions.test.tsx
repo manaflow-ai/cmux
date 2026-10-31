@@ -100,7 +100,8 @@ test("the footer copies the whole turn: every reply in order and each tool run's
   );
   const footer = rows.find((one) => one.kind === "turnSummary")!;
   expect(turnCopyText(t, footer.turnCopy!)).toBe(
-    [BEFORE_STEER, "Read a file, ran 2 commands", "Read turns.ts", ANSWER].join("\n\n"),
+    // A steer is the person's, not the agent's: it neither copies nor splits the run around it.
+    [BEFORE_STEER, "Ran 2 commands, read a file", ANSWER].join("\n\n"),
   );
   const html = renderToStaticMarkup(<TurnFooter row={footer} />);
   expect(html).toContain('aria-label="Copy"');
