@@ -83,12 +83,7 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
             var geometry = ScreenGeometry(viewport: viewport, contentWidth: viewport.width, isColumns: false,
                                           stripWidth: viewport.width, stripHeight: viewport.height, uncoveredMaxX: viewport.width,
                                           uncoveredMaxY: viewport.height, clipMaxX: viewport.width, clipMaxY: viewport.height)
-            // A split tree is the screen's one full-width column (the daemon's model): laid out as
-            // that column would be, so its panes stay where they are when a first column opens
-            // beside it (R3b). With no strip gap this is the whole viewport.
-            let tree = ColumnStripGeometry.frames(widths: [1], viewport: viewport, gap: style.stripGap, scale: scale).frames.first
-                ?? CGRect(origin: .zero, size: viewport)
-            let result = geometry.layoutTree(root, in: tree, style: style, scale: scale)
+            let result = geometry.layoutTree(root, in: CGRect(origin: .zero, size: viewport), style: style, scale: scale)
             (geometry.panes, geometry.dividers) = (result.panes, result.dividers)
             return geometry
         case let .columns(all):

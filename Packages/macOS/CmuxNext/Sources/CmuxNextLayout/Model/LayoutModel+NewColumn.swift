@@ -17,10 +17,10 @@ extension LayoutModel {
         newColumnWidthModeOverride ?? (followsDesignMetrics ? DesignSettings.shared.newColumnWidth : .matchCurrent)
     }
 
-    /// The width of a new column next to `pane`, by any path (New Column, Split Right, a tab dropped
-    /// into a new column), per `layout.newColumnWidth` (plans/cmux-next/column-sizing.md). It is all
-    /// a create sends: the columns there keep their widths and the strip scrolls (R3b). `removing`
-    /// is a pane that leaves in the same step.
+    /// The width of a new column next to `pane`, by any path (New Column, a tab dropped into a new
+    /// column), per `layout.newColumnWidth` (plans/cmux-next/column-sizing.md). It is all a create
+    /// sends: the columns there keep their widths and the strip scrolls (R3b). `removing` is a pane
+    /// that leaves in the same step.
     public func newColumnWidth(nextTo pane: PaneID, removing: PaneID? = nil) -> Double {
         let layout = screen(containing: pane)?.layout
         // A screen that has never had a second column is a split tree (the daemon root is not a

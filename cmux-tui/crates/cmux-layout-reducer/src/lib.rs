@@ -958,7 +958,7 @@ fn apply_kind(
                 return Err(Reject::InvalidWidth(*width_permille));
             }
             let slot = state.require_pane(*anchor)?;
-            if state.workspaces[slot.workspace].screens[slot.screen].columns_active {
+            if state.screen_mut(slot).columns_active {
                 state.ensure_fresh(&[*new_pane, *new_column, new_tab.tab])?;
             } else {
                 state.ensure_fresh(&[*new_pane, *new_column, *base_column, new_tab.tab])?;

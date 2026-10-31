@@ -162,14 +162,22 @@ pub(crate) fn transition_problems(
     model: Option<&LayoutState>,
     after: &State,
 ) -> Vec<String> {
-    let after = project(after);
-    let mut problems = introduced_violations(before, &after, &BTreeSet::new())
+    model_transition_problems(before, model, &project(after))
+}
+
+/// [`transition_problems`] on the model of the live result.
+fn model_transition_problems(
+    before: &LayoutState,
+    model: Option<&LayoutState>,
+    after: &LayoutState,
+) -> Vec<String> {
+    let mut problems = introduced_violations(before, after, &BTreeSet::new())
         .iter()
         .map(ToString::to_string)
         .collect::<Vec<_>>();
     if let Some(model) = model {
         problems.extend(
-            placement_mismatches(model, &after)
+            placement_mismatches(model, after)
                 .iter()
                 .map(|mismatch| format!("the layout reducer disagrees: {mismatch}")),
         );
@@ -187,9 +195,10 @@ pub(crate) fn validate_layout_transition(
     kind: Option<&LayoutOpKind>,
     after: &State,
 ) -> anyhow::Result<()> {
-    let mut problems = transition_problems(before, model, after);
+    let after = project(after);
+    let mut problems = model_transition_problems(before, model, &after);
     if kind.is_some_and(LayoutOpKind::creates_column) {
-        problems.extend(resized_columns(before, &project(after)).iter().map(ToString::to_string));
+        problems.extend(resized_columns(before, &after).iter().map(ToString::to_string));
     }
     if problems.is_empty() { Ok(()) } else { Err(rejection(operation, problems)) }
 }

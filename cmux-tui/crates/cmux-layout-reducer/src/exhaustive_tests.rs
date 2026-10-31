@@ -273,6 +273,26 @@ fn ops(state: &LayoutState, next: u64) -> Vec<LayoutOpKind> {
             }
         }
     }
+    // New Column beside every pane, on each side, with fresh and reused ids
+    // and out-of-range widths.
+    let new_tab = NewTab { tab: next + 4, content: RESPAWN_CONTENT };
+    for anchor in ids.clone() {
+        for before in [false, true] {
+            for (width_permille, sets) in [(99, &sets[..1]), (1001, &sets[..1]), (667, &sets[..])] {
+                for [new_pane, new_column, base_column] in sets.iter().copied() {
+                    out.push(LayoutOpKind::InsertColumn {
+                        anchor,
+                        before,
+                        width_permille,
+                        new_pane,
+                        new_column,
+                        base_column,
+                        new_tab: new_tab.clone(),
+                    });
+                }
+            }
+        }
+    }
     for runtime in 0..=2 {
         out.push(LayoutOpKind::RuntimeExited { runtime });
     }
@@ -319,7 +339,41 @@ fn check_op(state: &LayoutState, op: &LayoutOp) -> bool {
             assert_eq!(after.panes[&pane], vec![respawn.tab], "{op:?} on {state:?}");
             assert_eq!(after.panes[&new_pane], vec![tab], "{op:?} on {state:?}");
         }
+        // New Column adds exactly its tab, alone in its new pane.
+        LayoutOpKind::InsertColumn { new_pane, ref new_tab, .. } => {
+            let mut expected = state.tabs.clone();
+            expected.insert(new_tab.tab, new_tab.content.clone());
+            assert_eq!(after.tabs, expected, "{op:?} on {state:?}");
+            assert_eq!(after.panes[&new_pane], vec![new_tab.tab], "{op:?} on {state:?}");
+        }
         _ => assert_eq!(after.tabs, state.tabs, "{op:?} on {state:?} changed the tabs"),
+    }
+    // R3b, stated without the crate's checker: every column there keeps its
+    // width when a column is created.
+    if op.kind.creates_column() {
+        let screens = |layout: &LayoutState| -> Vec<Screen> {
+            layout.workspaces.iter().flat_map(|workspace| workspace.screens.clone()).collect()
+        };
+        let new_screens = screens(&after);
+        for old in screens(state) {
+            if let Some(new) = new_screens.iter().find(|screen| screen.id == old.id) {
+                for column in &old.columns {
+                    let kept = new.columns.iter().find(|candidate| {
+                        if old.columns_active {
+                            candidate.id == column.id
+                        } else {
+                            candidate.panes.iter().any(|pane| column.panes.contains(pane))
+                        }
+                    });
+                    if let Some(kept) = kept {
+                        assert_eq!(
+                            kept.width_permille, column.width_permille,
+                            "{op:?} on {state:?}"
+                        );
+                    }
+                }
+            }
+        }
     }
 
     // I5: a replay is a no-op, and the key for another op is a conflict.
