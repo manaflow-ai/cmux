@@ -22,7 +22,7 @@ final class DaemonAppsTransport: AppsTransport {
     static let runTimeout: Duration = .seconds(30)
     static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "apps")
 
-    private let decoding = AppsWireDecoding(mountFailure: AppsAppStrings.mountFailed)
+    private let decoding = AppsWireDecoding()
     private let daemon: DaemonService
     let provider: AppsProviderChannel
     let inventory: AgentInventoryProviderBridge

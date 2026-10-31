@@ -3,10 +3,8 @@ import Foundation
 
 /// Reads the supervisor's events (`event` plus top-level fields) and replies.
 public nonisolated struct AppsWireDecoding {
-    private let mountFailure: String
-
-    /// The localized fallback when the supervisor omits a mount refusal reason.
-    public init(mountFailure: String) { self.mountFailure = mountFailure }
+    /// Creates a decoder for app supervisor events and replies.
+    public init() {}
 
     /// Decodes one supervisor event; unknown or malformed events have no effect.
     public func event(name: String, payload: CmuxNextDaemon.JSONValue) -> AppsTransportEvent? {
@@ -21,7 +19,7 @@ public nonisolated struct AppsWireDecoding {
             return .scene(mountID: mount, ops: AppSceneOp.batch(json["ops"] ?? .array([])), reset: json["reset"]?.boolValue == true)
         case "apps-mount-failed":
             guard let mount = json["mount_id"]?.stringValue else { return nil }
-            return .mountFailed(mountID: mount, reason: json["reason"]?.stringValue ?? mountFailure)
+            return .mountFailed(mountID: mount, reason: json["reason"]?.stringValue ?? AppsStrings.mountFailed)
         case "apps-host":
             guard let app = json["app"]?.stringValue, let state = json["state"]?.stringValue.flatMap(AppHostState.init(rawValue:)) else { return nil }
             return .host(app: app, state: state, reason: json["reason"]?.stringValue)

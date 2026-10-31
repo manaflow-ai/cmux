@@ -47,6 +47,9 @@ public nonisolated struct AppManifest: Sendable, Hashable, Identifiable {
     public var webRoot: String? { raw["runtime"]?["web"]?["root"]?.stringValue }
     /// `runtime.web.csp`: a policy the host adds to its own (it can only narrow it).
     public var webCSP: String? { raw["runtime"]?["web"]?["csp"]?.stringValue }
+    /// Whether the app's page is a remote pane: `cmux.pane/1` with `remote: instance`, the app's
+    /// deployed instance (docs/app-store-platonic-ideal.md 7).
+    public var remotePane: Bool { raw["implements"]?["cmux.pane/1"]?["remote"]?.stringValue == "instance" }
 
     /// Reads a manifest object; nil when it has no id.
     public init?(json: AppJSON) {

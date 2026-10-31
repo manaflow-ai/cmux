@@ -242,6 +242,8 @@ pub struct Supervisor {
     pub(super) web_inflight: Mutex<HashMap<String, usize>>,
     /// One `apps.registry.put` at a time, so two swaps of a folder never interleave.
     pub(super) registry_puts: Mutex<()>,
+    /// Deployed instances of apps with a `deploy` block (`deploy.rs`).
+    pub(super) deployments: super::deploy::Deployments,
 }
 
 pub(super) fn now_ms() -> u64 {
@@ -250,6 +252,7 @@ pub(super) fn now_ms() -> u64 {
 
 impl Supervisor {
     pub fn new(config: Config, router: Box<dyn OpRouter>, fetcher: Box<dyn Fetcher>) -> Arc<Self> {
+        let config_state_dir = config.state_dir.clone();
         let catalog = catalog::load(&config.sources);
         let mut mirror = load_mirror(config.state_dir.as_deref());
         let mut logs: HashMap<String, VecDeque<LogLine>> = HashMap::new();
@@ -324,6 +327,7 @@ impl Supervisor {
             link_changed: Mutex::new((false, false)),
             web_inflight: Mutex::new(HashMap::new()),
             registry_puts: Mutex::new(()),
+            deployments: super::deploy::Deployments::load(config_state_dir.as_deref()),
         });
         if seeded {
             let _ = supervisor.persist(&supervisor.inner.lock().unwrap().mirror);
@@ -373,7 +377,11 @@ impl Supervisor {
         ids.extend(inner.mirror.apps.iter().filter(|(_, r)| r.installed).map(|(id, _)| id));
         let apps: Vec<Value> = ids
             .into_iter()
-            .map(|id| entry(id, inner.catalog.packages.get(id), inner.mirror.apps.get(id)))
+            .map(|id| {
+                let mut row = entry(id, inner.catalog.packages.get(id), inner.mirror.apps.get(id));
+                row["instance"] = self.instance_json(id);
+                row
+            })
             .collect();
         // Where local development apps go (Chief scaffolds a pane there).
         let local_dir = self.config.sources.local.as_ref().map(|d| d.display().to_string());
