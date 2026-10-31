@@ -993,6 +993,15 @@ describe("codex responses proxy capacity hold", () => {
     expect(clock).toBeLessThanOrEqual(5 * 60_000);
   });
 
+  test("an account that only dropped its connection keeps the retryable 503 when the hold ends", async () => {
+    const { proxy: holding } = holdingProxy((async () => {
+      throw new TypeError("fetch failed");
+    }) as typeof fetch, { capacityHoldBudgetMs: 5 * 60_000 });
+    const response = await holding(responsesRequest());
+    expect(response.status).toBe(503);
+    expect(((await response.json()) as { retryable: boolean }).retryable).toBe(true);
+  });
+
   test("never replays a stream once output has reached the client", async () => {
     const { proxy: holding, bodies } = holdingProxy((async () =>
       new Response(outputEvent + capacityEvent, { status: 200, headers: { "content-type": "text/event-stream" } })) as typeof fetch);

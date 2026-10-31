@@ -286,6 +286,12 @@ async function proxyCodexRequestWith(
    */
   let holdLookupKnown = false;
   /**
+   * An account this round failed for a transient reason that did not cool it
+   * (a dropped connection, a refresh in progress). It is excluded only for the
+   * round, so an empty selection after it is not an empty pool.
+   */
+  let roundHadTransientMiss = false;
+  /**
    * Holds before a new round. The cooldown lookup covers the accounts this
    * round just cooled too, so the wait honors their `retry-after`. When it
    * finds nothing but the round failed transiently (a cooldown write may have
@@ -303,6 +309,7 @@ async function proxyCodexRequestWith(
       held_ms: hold.heldMs,
     }, "warning");
     attempted.length = 0;
+    roundHadTransientMiss = false;
     return true;
   };
   let refreshRetries = 0;
@@ -320,6 +327,7 @@ async function proxyCodexRequestWith(
     throwIfRequestAborted(request);
     if (attempted.length >= MAX_ACCOUNTS_PER_ROUND) {
       if (await holdForNextRound()) continue;
+      noUsableAccount = holdLookupKnown && !roundHadTransientMiss;
       break;
     }
     if (remainingUpstreamHeadersTimeoutMs(
@@ -380,7 +388,7 @@ async function proxyCodexRequestWith(
         break;
       }
       if (await holdForNextRound()) continue;
-      noUsableAccount = holdLookupKnown;
+      noUsableAccount = holdLookupKnown && !roundHadTransientMiss;
       break;
     }
     attempted.push(account.id);
@@ -429,7 +437,10 @@ async function proxyCodexRequestWith(
         },
       });
       if (error instanceof CoderouterOperationDeadlineError) break;
-      if (tag === "CodeRouterRefreshBusy") continue;
+      if (tag === "CodeRouterRefreshBusy") {
+        roundHadTransientMiss = true;
+        continue;
+      }
       if (tag === "CodeRouterCredentialBroken") {
         lastFailureTransient = false;
         continue;
@@ -478,6 +489,7 @@ async function proxyCodexRequestWith(
         attempt: attempt + 1,
         request_id: requestId,
       });
+      roundHadTransientMiss = true;
       continue;
     }
     if (upstream.status === 401) {
