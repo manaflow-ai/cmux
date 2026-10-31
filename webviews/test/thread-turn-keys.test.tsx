@@ -109,7 +109,9 @@ test("Previous Turn and Next Turn step the transcript through its prompts", asyn
       let read = 0;
       prompts.forEach((entry, index) => {
         const node = dom.window.document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${entry.id}"]`);
-        const top = Number.parseFloat(node?.style.top ?? "") - 16; // less the thread's top padding
+        // Less the thread's top padding.
+        const top =
+          Number.parseFloat(node?.style.top ?? "") + (Number.parseFloat(node?.style.marginTop ?? "") || 0) - 16;
         if (Math.max(0, 16 + top - 35) <= scroller.scrollTop + 1) read = index;
       });
       return read;
@@ -180,7 +182,8 @@ test("Next Turn steps past a retried prompt beside acpmux's echo of it", async (
       let read = 0;
       prompts.forEach((entry, index) => {
         const node = dom.window.document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${entry.id}"]`);
-        const top = Number.parseFloat(node?.style.top ?? "") - 16;
+        const top =
+          Number.parseFloat(node?.style.top ?? "") + (Number.parseFloat(node?.style.marginTop ?? "") || 0) - 16;
         if (Math.max(0, 16 + top - 35) <= scroller.scrollTop + 1) read = index;
       });
       return read;
