@@ -132,8 +132,8 @@ class MergeabilityWait(unittest.TestCase):
 
     def choose(self, replies):
         output = io.StringIO()
-        with patch.object(self.catch_up, "_list", side_effect=replies) as listed, \\
-             patch.object(self.catch_up.time, "sleep") as sleep, \\
+        with patch.object(self.catch_up, "_list", side_effect=replies) as listed, \
+             patch.object(self.catch_up.time, "sleep") as sleep, \
              contextlib.redirect_stdout(output):
             code = self.catch_up.main(["select", "--repo", "manaflow-ai/cmux"])
         self.assertEqual(code, 0)
