@@ -53,7 +53,8 @@ mount_points() { mount | sed -E 's/^.* on (.*) \([^()]*\)$/\1/'; }
 mount_points | sort > "$seen.base"
 watch_volumes() {
   while :; do
-    mount_points | grep -E '^/Volumes/|^/private/var/folders/' | sort | comm -13 "$seen.base" - |
+    # grep finds nothing on most hosts: that must not end the watcher (set -e and pipefail hold in this subshell)
+    { mount_points | grep -E '^/Volumes/|^/private/var/folders/' || true; } | sort | comm -13 "$seen.base" - |
       while IFS= read -r vol; do
         grep -qxF "$vol" "$seen" 2>/dev/null && continue
         echo "$vol" >> "$seen"
