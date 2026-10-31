@@ -221,6 +221,10 @@ final class QuitCoordinator {
                 #if DEBUG || CMUX_BENCH_HOOKS
                 if self?.wedgesEngineStop == true { deadline.wedgeMainThread(self?.watchdog) }
                 #endif
+                // Saves posted to the blocking-work lanes as blockShutdown (a new chat's unsent drafts, chats'
+                // scroll places, the update rollback copy) reach disk, under the deadline armed above; items
+                // not yet started that may be skipped are dropped.
+                await services.work.shutdown()
                 await services.cache.cef.shutdown()
             }
         ))

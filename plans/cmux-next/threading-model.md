@@ -43,6 +43,10 @@ How it is enforced:
   and queues" does not list; a label that is a variable is not judged). A `.wait(` with `await` before it in its
   statement is an async wait and is not refused. Escape: `// blocking-allow: <why>` (to be counted by the arch
   ratchet's `blocking_allow_escapes` row: to come, PL-arch).
+- **The count (slice (c)'s progress).** `scripts/cmux-next/guardrails.py --sites main-blocking` judges the whole tree
+  (base debt included) and prints every main-blocking site and their count: 79 at cec0a36b8ac (feat-cmux-next), 75
+  after #25852's first slice (a new chat's unsent drafts and chats' scroll places save off main through
+  StateFileWriter). Any rule id works.
 
 ## Threads and queues
 
@@ -87,7 +91,13 @@ MetalYUVRenderer. No BackgroundWork lane runs at it.
 Blocking work never runs on the cooperative pool: a process wait uses AsyncProcess (no thread waits); file I/O uses lane
 .files (serial per priority); a sync system call (getaddrinfo, Security, Launch Services, AX) uses lane .system (6 at
 once, Chrome kDefaultMaxSystemTasks); long CPU work uses lane .cpu (P-cores minus 1). ShutdownBehavior: skipOnShutdown
-(default), continueOnShutdown, blockShutdown (quit awaits BackgroundWork.shutdown()).
+(default), continueOnShutdown, blockShutdown (quit awaits BackgroundWork.shutdown() in its engine-stop step, after
+Home's last cache flush, under the engine-stop deadline, before CefShutdown; a second quit signal's forced exit drains
+the lanes after Home's last batch, under its 160 ms bound). Every blockShutdown item spends that shared budget: a slow
+one (the update rollback clone) can use up the engine-stop deadline before CefShutdown runs. The lanes still take a
+blockShutdown item after shutdown began. A small state file a main-actor owner saves on every change (a new
+chat's unsent drafts, chats' scroll places) goes through StateFileWriter (CmuxNextWakeups): encoded and written on lane
+.files at bestEffort, blockShutdown, latest save wins (at most one write runs and one waits).
 
 Donating waits (allowed for a short main-thread wait): os_unfair_lock, OSAllocatedUnfairLock, CmuxNextCompat.Mutex,
 dispatch_sync onto a serial queue (GCD sync QoS override), awaiting a Task value (Swift escalation), BackgroundWork.run

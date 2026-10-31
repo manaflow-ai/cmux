@@ -1,3 +1,4 @@
+public import CmuxNextWakeups
 public import Foundation
 
 /// Where a chat's transcript rests (cx-6bgzj): the row at the top of the view and how far into it.
@@ -29,13 +30,20 @@ public final class AgentPaneScrollAnchors {
     }
 
     let file: URL?
-    /// Saves leave the main thread: every settled scroll of a chat saves.
+    /// Writes the places off the main thread; nil keeps nothing on disk.
+    private let writer: StateFileWriter?
+    /// Reads through the shared file seam, including any saves made by its legacy queue.
     private let store: AgentPaneStateFile?
     /// Oldest first; read from the file on first use.
     private var entries: [Entry]?
 
-    public init(directory: URL?) {
+    /// - Parameters:
+    ///   - directory: The tag's state directory; nil keeps nothing.
+    ///   - work: The app's blocking-work lanes, where each save is encoded and written.
+    ///   - write: Puts a save on disk, on a lane thread; default the disk (tests record where it runs).
+    public init(directory: URL?, work: BackgroundWork, write: @escaping StateFileWriter.Write = StateFileWriter.disk) {
         file = directory?.appending(path: Self.fileName)
+        writer = file.map { StateFileWriter(file: $0, work: work, write: write) }
         store = file.map(AgentPaneStateFile.at)
     }
 
@@ -61,8 +69,15 @@ public final class AgentPaneScrollAnchors {
         return read
     }
 
+    /// Returns once every save so far is on disk (tests; the quit awaits the lanes instead).
+    public func flushed() async {
+        await writer?.flushed()
+    }
+
+    /// Hands the places to the writer: encoded and written on the files lane, never on the main thread;
+    /// none left removes the file.
     private func save() {
-        guard let store, let entries else { return }
-        store.write { entries.isEmpty ? nil : try JSONEncoder().encode(entries) }
+        guard let entries else { return }
+        writer?.save { entries.isEmpty ? nil : try JSONEncoder().encode(entries) }
     }
 }
