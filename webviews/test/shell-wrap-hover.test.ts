@@ -19,7 +19,10 @@ const rules = [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}
 }));
 
 test("a Shell block's Wrap lines is hidden at rest", () => {
-  const rest = rules.filter((rule) => rule.selectors.includes(".cv-shell__actions .cv-shell__wrap"));
+  // Its fade (the shared hover tokens) is a separate transition rule; the rest state is its opacity.
+  const rest = rules.filter(
+    (rule) => rule.selectors.includes(".cv-shell__actions .cv-shell__wrap") && /opacity:/.test(rule.body),
+  );
   expect(rest.map((rule) => rule.body.replace(/\s+/g, " ").trim())).toEqual(["opacity: 0;"]);
 });
 

@@ -2204,6 +2204,19 @@ pre.cv-math-source {
 .cv-shell:focus-within .cv-shell__wrap {
   opacity: 1;
 }
+/* It fades as a message's hover row does (#23769): in after a beat, out quickly; keyboard focus
+   shows it at once. */
+@media (prefers-reduced-motion: no-preference) {
+  .cv-shell__actions .cv-shell__wrap {
+    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+  }
+  .cv-shell:hover .cv-shell__wrap {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+  }
+  .cv-shell:focus-within .cv-shell__wrap {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
+  }
+}
 .cv-shell__title {
   display: flex;
   align-items: center;
