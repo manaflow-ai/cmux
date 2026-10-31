@@ -18,8 +18,8 @@ import Testing
         var ws = SidebarWorkspace(id: id, title: "tab 0")
         ws.tabs = tabs
         let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [.workspace(ws)])], activeWorkspaceID: id)
+        model.showWorkspaceTabs = true // the tab-row code; no setting lists tabs any more
         let design = DesignSettings()
-        design.sidebarSections.showWorkspaceTabs = true // the `sidebar.showWorkspaceTabs` setting
         let sidebar = SidebarView(model: model, design: design)
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 260, height: 1400), styleMask: [.borderless],
                               backing: .buffered, defer: false)

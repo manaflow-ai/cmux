@@ -130,6 +130,13 @@ nonisolated enum CatalogArgument {
                        isRequired: false)
     }
 
+    /// `file open --as-text`: a page cmux renders (HTML, SVG, Markdown) opens as its source in the
+    /// code editor (Open as Text); other files open as they always do.
+    static var asTextBool: ActionArgument {
+        ActionArgument(name: "asText", title: String(localized: "argument.asText", defaultValue: "As Text", bundle: .module),
+                       kind: .bool, isRequired: false)
+    }
+
     /// `cloud new-terminal-on-machine --workspace <id>`: a workspace on the Cloud machine's own
     /// daemon (the `workspace_id` an earlier run answered). Plain text: `.target(.workspace)`
     /// resolves this Mac's workspaces, not a Cloud machine's.
