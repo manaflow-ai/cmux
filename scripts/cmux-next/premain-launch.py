@@ -391,31 +391,52 @@ def signing_variants(root, app, result):
     signature cannot be made on a mini, and a changed notarized bundle has a broken seal, so it is never launched),
     as shipped, thinned to arm64, and without the Chromium framework and the helper apps. 3 launches of one new copy
     each, stopped 2 s after main_start."""
-    variants = {}
+    variants = result["variants"] = {}
+    result["variants_note"] = ("no_chromium also does no Chromium work, which matters only after main_start; the "
+                               "variants are ad hoc, so their first launch includes an XProtect scan the notarized "
+                               "path does not run")
     for name, how in (("as_shipped", None), ("arm64_only", "thin"), ("no_chromium", "strip")):
-        dest = os.path.join(root, f"V-{name}")
-        os.makedirs(dest, exist_ok=True)
-        copy = os.path.join(dest, os.path.basename(app))
-        cmd = ["ditto", "--arch", "arm64", app, copy] if how == "thin" else ["ditto", app, copy]
-        code, _, err = run(cmd, timeout=900)
+        try:
+            variants[name] = one_variant(root, app, name, how)
+        except Exception as error:  # noqa: BLE001 - one variant's failure keeps the others; a cancel passes
+            variants[name] = {"error": f"{type(error).__name__}: {error}"[:300]}
+        shutil.rmtree(os.path.join(root, f"V-{name}"), ignore_errors=True)
+
+
+def sign_inside_out(copy):
+    """Ad-hoc signs every nested code bundle deepest first, then the app (codesign --deep is deprecated for signing)."""
+    nested = sorted((p for p, _, _ in os.walk(copy) if p != copy and p.endswith((".app", ".framework", ".xpc", ".appex"))),
+                    key=lambda p: -p.count(os.sep))
+    loose = [p for p in macho_files(copy) if not any(p.startswith(b + os.sep) for b in nested)
+             and "/Contents/MacOS/" not in p]
+    for path in loose + nested + [copy]:
+        code, _, err = run(["codesign", "--force", "--sign", "-", path], timeout=900)
         if code != 0:
-            variants[name] = {"error": f"ditto: {err.strip()[:200]}"}
-            continue
-        if how == "strip":
-            frameworks = os.path.join(copy, "Contents/Frameworks")
-            for entry in os.listdir(frameworks):
-                if entry.startswith("Chromium Embedded Framework") or entry.endswith(".app"):
-                    shutil.rmtree(os.path.join(frameworks, entry), ignore_errors=True)
-            shutil.rmtree(os.path.join(copy, "Contents/Helpers"), ignore_errors=True)
-        code, _, err = run(["codesign", "--force", "--deep", "--sign", "-", copy], timeout=900)
-        entry = {"shape": bundle_shape(copy)}
-        if code != 0:
-            entry["error"] = f"codesign: {err.strip()[:200]}"
-        else:
-            entry["runs"] = [launch_release(copy, f"variant {name} run {i}", until_main=True) for i in (1, 2, 3)]
-        variants[name] = entry
-        shutil.rmtree(dest, ignore_errors=True)
-    result["variants"] = variants
+            return f"codesign {os.path.relpath(path, copy)}: {err.strip()[:200]}"
+    return None
+
+
+def one_variant(root, app, name, how):
+    dest = os.path.join(root, f"V-{name}")
+    os.makedirs(dest, exist_ok=True)
+    copy = os.path.join(dest, os.path.basename(app))
+    cmd = ["ditto", "--arch", "arm64", app, copy] if how == "thin" else ["ditto", app, copy]
+    code, _, err = run(cmd, timeout=900)
+    if code != 0:
+        return {"error": f"ditto: {err.strip()[:200]}"}
+    if how == "strip":
+        frameworks = os.path.join(copy, "Contents/Frameworks")
+        for entry in os.listdir(frameworks) if os.path.isdir(frameworks) else []:
+            if entry.startswith("Chromium Embedded Framework") or entry.endswith(".app"):
+                shutil.rmtree(os.path.join(frameworks, entry), ignore_errors=True)
+        shutil.rmtree(os.path.join(copy, "Contents/Helpers"), ignore_errors=True)
+    failed = sign_inside_out(copy)
+    entry = {"shape": bundle_shape(copy)}
+    if failed:
+        entry["error"] = failed
+    else:
+        entry["runs"] = [launch_release(copy, f"variant {name} run {i}", until_main=True) for i in (1, 2, 3)]
+    return entry
 
 
 def probe_copy(source, root, name):
