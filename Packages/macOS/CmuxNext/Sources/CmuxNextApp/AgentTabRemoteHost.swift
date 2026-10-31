@@ -35,11 +35,9 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     var ownerLink: AgentSessionAttachClient.OwnerLink?
     /// Brings the machine's daemon to this app's build now and answers whether an update turn ran
     /// (``DaemonUpdatePolicy/updateNow(_:)``); nil where the app cannot. A start that the machine's
-    /// older daemon refused (``AgentRemoteStartRefusal/olderDaemonCodes``) runs it, then tries once more: a fresh Cloud
-    /// machine boots its image's cmux-tui, which may predate what this app's start needs (a team VM
-    /// that takes its creator's chat, cmux#29107), and the app's automatic update runs in the
-    /// background, so a first chat right after the machine came up would otherwise reach the old
-    /// daemon (Leo: "whenever i start a chat it should be able to send me to cloud automatically").
+    /// older daemon refused (``AgentRemoteStartRefusal/olderDaemonCodes``, which says which) runs it, then tries once
+    /// more: a fresh Cloud machine boots its image's cmux-tui, and the automatic update runs in the background, so a
+    /// first chat right after it came up would otherwise reach the old daemon (Leo: "whenever i start a chat it should be able to send me to cloud automatically").
     var updateMachine: (@Sendable () async -> Bool)?
     /// The chat runs on the person's own Cloud VM (``RemoteAcpmuxWire/ownerCloud(_:served:)``).
     var ownerCloud: RemoteAcpmuxWire.OwnerCloud?

@@ -17,12 +17,14 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
         (self.code, self.machine, self.folder, self.detail, self.keyedRestartSafe) = (code, machine, folder, detail, keyedRestartSafe)
     }
 
-    /// No folder to start in (no seed folder, no folder in the workspace).
-    public static let folderNeededCode = "app.folder_needed"
+    /// No folder to start in (no seed folder, no folder in the workspace). The App names it
+    /// `AgentRemoteStartRefusal.folderNeededCode` (AgentTabs+RemoteStart.swift, where the defaults
+    /// guard tracks it); AgentRemoteStartRefusalCodeTests keeps the two equal.
+    static let appFolderNeeded = "app.folder_needed"
     /// The tab's host names another machine than the store that lists it (MachineRegistry).
     public static let hostMismatchCode = "app.host_mismatch"
 
-    public static func folderNeeded(machine: String) -> Self { Self(code: folderNeededCode, machine: machine) }
+    public static func folderNeeded(machine: String) -> Self { Self(code: appFolderNeeded, machine: machine) }
     /// The refusal of a start on a teammate's machine (the card's New Cloud Machine, startRefusal.ts).
     public static func teamMachine(machine: String) -> Self { Self(code: AgentSessionAttachError.teamMachine, machine: machine) }
     /// An untrusted folder on a machine whose cmux-tui cannot take the person's Trust from here.
@@ -70,7 +72,7 @@ public nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHost
         case "agent_session.above_home": RefusalStrings.format("handlers.refusal.agentRemoteStart.aboveHome", "A chat on %@ never runs in a folder above its home folder.", machine)
         case "app.trust_update":
             RefusalStrings.format("handlers.refusal.agentRemoteStart.updateForTrust", "Update cmux on %@ to trust folders from here.", machine)
-        case Self.folderNeededCode:
+        case Self.appFolderNeeded:
             RefusalStrings.format("handlers.refusal.agentRemoteStart.folderNeeded",
                                   "%@ has no work folder to start in. Use Choose folder to pick one there.", machine)
         case Self.hostMismatchCode:
