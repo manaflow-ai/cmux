@@ -42,11 +42,13 @@ seq = json.loads(opts["fuzz_sequence"]) if "fuzz_sequence" in opts else [{"a": "
 fail = seed in side.get("fail_seeds", []) or ("fuzz_sequence" in opts and side.get("fail_sequences"))
 findings = [{"oracle": "desync", "signature": f, "detail": f, "count": 2, "first_n": 1, "sequence": []} for f in side.get("findings", [])]
 failure = {"oracle": "create", "detail": "split_right+split_right: no terminal, no refusal", "index": len(seq)} if fail else None
-speed = [{"a": "new_terminal", "t": "slow", "shown_ms": side.get("typeable_ms", 100) - 20, "typeable_ms": side.get("typeable_ms", 100)}
-         for _ in range(3)]
+speed = [] if side.get("omit_speed") else [
+    {"a": "new_terminal", "t": "slow", "shown_ms": side.get("typeable_ms", 100) - 20, "typeable_ms": side.get("typeable_ms", 100)}
+    for _ in range(3)]
 report = {"seed": seed, "played": len(seq), "seconds": float(side.get("seconds", 120)), "failure": failure,
           "shrunk": seq[:2] if fail else None, "speed": speed, "sequence": seq, "findings": findings}
-json.dump(report, open(os.path.join(out, "action-fuzz", "fuzz.json"), "w"))
+if not side.get("omit_report"):
+    json.dump(report, open(os.path.join(out, "action-fuzz", "fuzz.json"), "w"))
 row = {"id": "action-fuzz", "status": "fail" if fail else side.get("status", "pass"), "reason": "", "host": "cmux99", "build_job": build}
 open(os.path.join(out, "results.jsonl"), "w").write(json.dumps(row) + "\n")
 open(os.path.join(out, "acquire.log"), "w").write("capture-host: cmux99 is exclusive until 2026-10-31T09:00:00Z: the fleet controller places no step on its workers\n")
@@ -187,6 +189,28 @@ class Verdicts(unittest.TestCase):
         done, summary, _, tmp = self.run_fuzz({"jobT": {"status": "fail"}, "jobB": {}}, "--base", "jobB")
         self.assertEqual(summary["verdict"], "RED")
         self.assertFalse((tmp / "handoff" / "jobT.clean").exists())
+
+    def test_unjudged_baseline_never_writes_a_clean_certificate(self):
+        # The test build completes its actions and speed samples, but the A/B comparison was never
+        # valid: the baseline fails outside the fuzz oracle, its report disappears, or its timings
+        # are absent. Each of these previously wrote jobT.clean.
+        for side in ({"status": "fail"}, {"omit_report": True}, {"omit_speed": True}):
+            with self.subTest(baseline=side):
+                done, summary, _, tmp = self.run_fuzz({"jobT": {}, "jobB": side}, "--base", "jobB")
+                self.assertEqual(summary["verdict"], "NOT JUDGED", done.stdout + done.stderr)
+                self.assertEqual(done.returncode, 75)
+                self.assertFalse((tmp / "handoff" / "jobT.clean").exists())
+                self.assertTrue(summary["unjudged_base_rounds"] or summary["base_speed_samples"] == 0)
+                self.assertIn("UNJUDGED BASE", (tmp / "out" / "summary.txt").read_text())
+
+    def test_a_real_baseline_fuzz_failure_is_still_judged(self):
+        # Fixing an actual baseline-only bug is a useful clean comparison; the baseline's recorded
+        # oracle is evidence, unlike a failed smoke step with no fuzz report.
+        done, summary, _, tmp = self.run_fuzz({"jobT": {}, "jobB": {"fail_seeds": [100]}}, "--base", "jobB")
+        self.assertEqual(summary["verdict"], "CLEAN", done.stdout + done.stderr)
+        self.assertTrue(summary["base_failures"])
+        self.assertEqual(summary["unjudged_base_rounds"], [])
+        self.assertTrue((tmp / "handoff" / "jobT.clean").exists())
 
     def test_no_base_or_zero_minutes_never_clean(self):
         done, summary, _, tmp = self.run_fuzz({"jobT": {}})
