@@ -345,6 +345,62 @@ mod tests {
     use super::*;
     use std::io::Write;
 
+    /// The session's turn gate also fences the transition from following an outside transcript
+    /// to accepting a live harness. A takeover must wait while a watched tail is committing.
+    #[tokio::test]
+    async fn takeover_waits_for_the_watched_tail_gate() {
+        use crate::config::{Config, StoreMode};
+
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut config: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", fake]}},
+            "defaultHarness": "fake",
+        }))
+        .unwrap();
+        config.store.mode = StoreMode::Memory;
+        let store = crate::store::open(&config.store, Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(config, store);
+        let session = hub
+            .new_session(crate::hub::NewRequest {
+                cwd: Some(std::env::temp_dir()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        {
+            let mut meta = session.meta.lock().unwrap();
+            meta.agent_session_id = Some("outside-session".to_owned());
+            meta.watching = Some(Watching {
+                family: "claude".to_owned(),
+                file: std::env::temp_dir().join("watched-outside-session.jsonl"),
+                offset: 0,
+                codex_items: false,
+                open: None,
+            });
+        }
+
+        // A tail holding this gate is still entitled to commit its watched events. The
+        // takeover must wait, then close the watch and publish the handoff in that order.
+        let tail_guard = session.turn_lock.lock().await;
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+        let taking = tokio::spawn({
+            let (hub, session) = (hub.clone(), session.clone());
+            async move {
+                let _ = ready_tx.send(());
+                hub.watch_take_over(&session, IfLive::Open).await
+            }
+        });
+        ready_rx.await.unwrap();
+        tokio::task::yield_now().await;
+        assert!(!taking.is_finished(), "takeover raced a watched tail into the journal");
+        assert!(session.meta().watching.is_some(), "the view-only owner changed before the tail finished");
+
+        drop(tail_guard);
+        taking.await.unwrap().unwrap();
+        assert!(session.meta().watching.is_none());
+        hub.shutdown_all().await;
+    }
+
     #[test]
     fn only_complete_lines_are_read_and_the_offset_follows_them() {
         let dir = std::env::temp_dir().join(format!("acpmux-watch-lines-{}", std::process::id()));
