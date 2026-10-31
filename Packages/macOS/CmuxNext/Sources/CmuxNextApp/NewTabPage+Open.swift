@@ -336,21 +336,32 @@ extension NewTabPage {
             page.services.registry.refuse(refusal)
             return
         }
+        var effectiveKind = kind
+        var effectiveText = trimmed
+        if kind == .browser, !trimmed.isEmpty {
+            let plan = NewTabSubmit.plan(text: trimmed, search: search, agent: nil,
+                                         resolver: page.services.cache.suggestionEngine.resolver)
+            switch plan {
+            case .terminal(let command): effectiveKind = .terminal; effectiveText = command
+            case .refused(let reason): page.services.registry.refuse(reason); return
+            default: break
+            }
+        }
         // Native terminal and browser picks use the same right-column decision as web picks, including
         // same-kind reuse and a lower split for the opposite kind.
         let chatPlacement = ChatColumnPlacement.keepsNewTabPage(in: page) || Self.docksChat(page)
-        if kind.opensBesideChat && chatPlacement {
-            let request = AgentPaneOpenTab(kind: kind, text: trimmed, cwd: cwd, search: search)
+        if effectiveKind.opensBesideChat && chatPlacement {
+            let request = AgentPaneOpenTab(kind: effectiveKind, text: effectiveText, cwd: cwd, search: search)
             servicesOpenNativeTool(request, from: page)
             return
         }
-        switch (kind, trimmed.isEmpty) {
-        case (.terminal, _): page.newTerminalTab(cwd: cwd, typing: command(trimmed) ?? nil)
+        switch (effectiveKind, effectiveText.isEmpty) {
+        case (.terminal, _): page.newTerminalTab(cwd: cwd, typing: effectiveText.isEmpty ? nil : effectiveText)
         case (.browser, true): _ = page.newBrowserTab()
         case (.agent, true): _ = page.openAgentTab(seed: AgentPaneSeedSource(AgentPaneSeed(cwd: cwd)))
         case (.browser, false), (.agent, false):
             // A browser's words are searched; an agent's go out as a prompt.
-            let reads = NewTabSubmit.plan(text: trimmed, search: search, agent: nil, resolver: page.services.cache.suggestionEngine.resolver)
+            let reads = NewTabSubmit.plan(text: effectiveText, search: search, agent: nil, resolver: page.services.cache.suggestionEngine.resolver)
             var searches = search
             if kind == .browser, case .chat = reads { searches = true }
             let arguments: [String: ActionValue] = ["text": .string(trimmed), "search": .bool(searches)]
