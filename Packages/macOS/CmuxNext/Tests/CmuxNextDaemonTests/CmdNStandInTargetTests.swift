@@ -133,6 +133,35 @@ struct CmdNStandInTargetTests {
         }
     }
 
+    /// Review note 1 (receipt 6547143059): the daemon's workspace has two panes by the time the create is sent (a split
+    /// made there meanwhile, its new pane active). The create pressed on Cmd-N's stand-in goes to the pane that holds
+    /// Cmd-N's first tab, the one the stand-in showed, not to the active pane; before and after Cmd-N's intent left.
+    @Test func aCreateOnCmdNsStandInGoesToThePaneOfItsFirstTabNotTheActivePane() async throws {
+        for settled in [false, true] {
+            let store = Self.store()
+            let key = WorkspaceKey.generate()
+            let workspace = ProvisionalWorkspace(key: key, name: "2", tab: Self.page())
+            let cmdN = ClientTransactionID.generate()
+            store.intend(.createWorkspace(provisional: workspace, index: nil), transaction: cmdN)
+            let first = PaneID(rawValue: 11), split = PaneID(rawValue: 13)
+            let page = SurfaceID(rawValue: 12)
+            let tree = WorkspaceSnapshot(
+                id: WorkspaceHandle(rawValue: 9), key: key, name: "2",
+                screens: [ScreenSnapshot(id: ScreenID(rawValue: 10), active: true, activePane: split,
+                                         layout: .split(id: SplitID(rawValue: 20), resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(first), b: .leaf(split)),
+                                         panes: [PaneSnapshot(id: first, tabs: [TabSnapshot(surface: page, kind: .conversation)]),
+                                                 PaneSnapshot(id: split, tabs: [TabSnapshot(surface: SurfaceID(rawValue: 14))])])])
+            store.apply(snapshot: DaemonTree(workspaceRevision: 2, workspaces: [Self.base, tree]))
+            ProvisionalTab.created(cmdN, surface: page, in: store)
+            if settled {
+                store.noteSettledAtNextSnapshot(cmdN)
+                store.apply(snapshot: DaemonTree(workspaceRevision: 3, workspaces: [Self.base, tree]))
+            }
+            let target = try await store.daemonTarget(workspace.pane)
+            #expect(target == first, "settled \(settled): named \(target), not the pane of Cmd-N's first tab \(first)")
+        }
+    }
+
     @Test func aDaemonPaneIsItsOwnTarget() async throws {
         let store = Self.store()
         let target = try await store.daemonTarget(Self.pane)
