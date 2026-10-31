@@ -17,7 +17,7 @@ extension AddDeviceServices {
         AddDeviceServices(
             list: { [weak services] in
                 #if DEBUG
-                if let fixture = DebugAddDevice.listing { return fixture.devices }
+                if let fixture = services?.debugFixtures.addDevice { return fixture.devices }
                 #endif
                 return await services?.devices.read()
             },
@@ -36,11 +36,14 @@ extension AddDeviceServices {
                 _ = services?.registry.perform("newCloudMachine")
             },
             copy: { CloudPresenter.copy($0) },
+            installTailscale: {
+                if let url = URL(string: "https://tailscale.com/download/mac") { NSWorkspace.shared.openInBackground(url) }
+            },
             // Labs labs.machineJoin: read at each opening, so the switch takes effect on the next one.
             machineJoin: { [weak services] in
                 guard let services, services.settings?.snapshot.machineJoin == true else { return nil }
                 #if DEBUG
-                if let fixture = DebugAddDevice.listing?.join { return fixture }
+                if let fixture = services.debugFixtures.addDevice?.join { return fixture }
                 #endif
                 return MachineJoinService.app(services)
             },

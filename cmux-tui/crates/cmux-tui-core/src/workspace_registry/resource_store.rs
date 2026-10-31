@@ -227,6 +227,11 @@ pub(crate) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
          DROP TRIGGER IF EXISTS resource_agent_projection_terminal_tombstone;
          CREATE INDEX IF NOT EXISTS resource_mutations_by_operation_revision
            ON resource_mutations(operation, committed_revision DESC);
+         -- Covers the startup compaction (compact_resource_mutations), which
+         -- otherwise scanned and sorted the whole table: 272 ms -> 16 ms cold
+         -- on a 41.6 GB registry.
+         CREATE INDEX IF NOT EXISTS resource_mutations_by_revision
+           ON resource_mutations(committed_revision DESC, idempotency_key);
          CREATE INDEX IF NOT EXISTS resource_agent_projections_by_revision
            ON resource_agent_projections(committed_revision DESC, terminal_id DESC);
          CREATE INDEX IF NOT EXISTS resource_agent_projections_by_state_revision
@@ -502,7 +507,12 @@ pub(crate) fn migrate_resource_mutations_to_session_scope(
          FROM resource_mutations_by_origin;
          DROP TABLE resource_mutations_by_origin;
          CREATE INDEX IF NOT EXISTS resource_mutations_by_operation_revision
-           ON resource_mutations(operation, committed_revision DESC);",
+           ON resource_mutations(operation, committed_revision DESC);
+         -- Covers the startup compaction (compact_resource_mutations), which
+         -- otherwise scanned and sorted the whole table: 272 ms -> 16 ms cold
+         -- on a 41.6 GB registry.
+         CREATE INDEX IF NOT EXISTS resource_mutations_by_revision
+           ON resource_mutations(committed_revision DESC, idempotency_key);",
     )?;
     Ok(())
 }
@@ -1592,8 +1602,8 @@ impl WorkspaceRegistry {
         validate_identifier("projection subject", subject_key)?;
         let fingerprint = canonical_json(fingerprint)?;
         let projection_json = canonical_json(projection)?;
-        if projection_json.len() > MAX_PROJECTION_BYTES {
-            anyhow::bail!("frontend projection exceeds {MAX_PROJECTION_BYTES} bytes");
+        if projection_json.len() > MAX_RESOURCE_API_PROJECTION_BYTES {
+            anyhow::bail!("frontend projection exceeds {MAX_RESOURCE_API_PROJECTION_BYTES} bytes");
         }
         let result_json = canonical_json(result)?;
         let db = self.connection.get();
@@ -4741,15 +4751,21 @@ pub(crate) fn validate_resource_invariants(transaction: &Transaction<'_>) -> any
              LEFT JOIN resource_workspaces rw
                ON rw.workspace_key = w.workspace_key AND rw.deleted_revision IS NULL
              WHERE w.tombstoned = 0 AND rw.public_id IS NULL
-               AND NOT EXISTS (
-                 SELECT 1
+               AND w.workspace_key NOT IN (
+                 -- One list, read once: a correlated NOT EXISTS reread every
+                 -- receipt per live workspace (876 x 3,723: 2 s at each open
+                 -- of a nightly registry, Lawrence 2026-10-29).
+                 SELECT json_extract(
+                          creation.intent_json,
+                          '$.workspace_reservation.workspace_key'
+                        )
                  FROM resource_creation_receipts creation
                  WHERE creation.execution_kind = 'effect'
                    AND creation.state = 'executing'
                    AND json_extract(
                          creation.intent_json,
                          '$.workspace_reservation.workspace_key'
-                       ) = w.workspace_key
+                       ) IS NOT NULL
                )
              LIMIT 1",
             [],

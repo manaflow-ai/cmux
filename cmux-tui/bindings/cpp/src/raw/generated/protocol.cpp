@@ -8544,6 +8544,55 @@ Result<ServerStatsHistogram> Codec<ServerStatsHistogram>::decode(const Json& val
     return result;
 }
 
+Result<Json> Codec<ServerStatsHookQueue>::encode(const ServerStatsHookQueue& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_queued_events = encode_value(value.queued_events);
+    if (!encoded_queued_events) return std::move(encoded_queued_events).error();
+    object.emplace("queued_events", std::move(encoded_queued_events).value());
+    auto encoded_reset_dropped_events = encode_value(value.reset_dropped_events);
+    if (!encoded_reset_dropped_events) return std::move(encoded_reset_dropped_events).error();
+    object.emplace("reset_dropped_events", std::move(encoded_reset_dropped_events).value());
+    auto encoded_undeliverable_events = encode_value(value.undeliverable_events);
+    if (!encoded_undeliverable_events) return std::move(encoded_undeliverable_events).error();
+    object.emplace("undeliverable_events", std::move(encoded_undeliverable_events).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsHookQueue> Codec<ServerStatsHookQueue>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsHookQueue result{};
+    const Json* field_queued_events = value.find("queued_events");
+    if (!field_queued_events) {
+        return make_error(ErrorCode::decode, "missing required field 'queued_events'");
+    }
+    if (field_queued_events) {
+        auto decoded = decode_value<std::uint64_t>(*field_queued_events);
+        if (!decoded) return std::move(decoded).error();
+        result.queued_events = std::move(decoded).value();
+    }
+    const Json* field_reset_dropped_events = value.find("reset_dropped_events");
+    if (!field_reset_dropped_events) {
+        return make_error(ErrorCode::decode, "missing required field 'reset_dropped_events'");
+    }
+    if (field_reset_dropped_events) {
+        auto decoded = decode_value<std::uint64_t>(*field_reset_dropped_events);
+        if (!decoded) return std::move(decoded).error();
+        result.reset_dropped_events = std::move(decoded).value();
+    }
+    const Json* field_undeliverable_events = value.find("undeliverable_events");
+    if (!field_undeliverable_events) {
+        return make_error(ErrorCode::decode, "missing required field 'undeliverable_events'");
+    }
+    if (field_undeliverable_events) {
+        auto decoded = decode_value<std::uint64_t>(*field_undeliverable_events);
+        if (!decoded) return std::move(decoded).error();
+        result.undeliverable_events = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<ServerStatsJournalWriter>::encode(const ServerStatsJournalWriter& value) {
     (void)value;
     Json::Object object;
@@ -9204,6 +9253,11 @@ Result<Json> Codec<ServerStatsResult>::encode(const ServerStatsResult& value) {
     auto encoded_connections = encode_value(value.connections);
     if (!encoded_connections) return std::move(encoded_connections).error();
     object.emplace("connections", std::move(encoded_connections).value());
+    if (value.hook_queue) {
+        auto encoded = encode_value(*value.hook_queue);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("hook_queue", std::move(encoded).value());
+    }
     if (value.journal_writer) {
         auto encoded = encode_value(*value.journal_writer);
         if (!encoded) return std::move(encoded).error();
@@ -9245,6 +9299,12 @@ Result<ServerStatsResult> Codec<ServerStatsResult>::decode(const Json& value) {
         auto decoded = decode_value<ServerStatsConnections>(*field_connections);
         if (!decoded) return std::move(decoded).error();
         result.connections = std::move(decoded).value();
+    }
+    const Json* field_hook_queue = value.find("hook_queue");
+    if (field_hook_queue) {
+        auto decoded = decode_value<ServerStatsHookQueue>(*field_hook_queue);
+        if (!decoded) return std::move(decoded).error();
+        result.hook_queue = std::move(decoded).value();
     }
     const Json* field_journal_writer = value.find("journal_writer");
     if (!field_journal_writer) {
@@ -17575,6 +17635,11 @@ Result<CloudHostReplicaStatusRequest> Codec<CloudHostReplicaStatusRequest>::deco
 Result<Json> Codec<CloudInboxListRequest>::encode(const CloudInboxListRequest& value) {
     (void)value;
     Json::Object object;
+    if (!value.cursor.is_absent()) {
+        auto encoded = encode_value(value.cursor);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cursor", std::move(encoded).value());
+    }
     if (value.include_archived) {
         auto encoded = encode_value(*value.include_archived);
         if (!encoded) return std::move(encoded).error();
@@ -17592,6 +17657,16 @@ Result<CloudInboxListRequest> Codec<CloudInboxListRequest>::decode(const Json& v
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     CloudInboxListRequest result{};
+    const Json* field_cursor = value.find("cursor");
+    if (field_cursor) {
+        if (field_cursor->is_null()) {
+            result.cursor = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_cursor);
+            if (!decoded) return std::move(decoded).error();
+            result.cursor = Field<std::string>(std::move(decoded).value());
+        }
+    }
     const Json* field_include_archived = value.find("include_archived");
     if (field_include_archived) {
         auto decoded = decode_value<bool>(*field_include_archived);

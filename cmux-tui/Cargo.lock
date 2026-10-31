@@ -19,6 +19,8 @@ dependencies = [
  "cmux-local-auth",
  "cmux-panic-log",
  "cmux-sdk",
+ "cmux-server",
+ "cmux-server-core",
  "cmux-tailnet",
  "cmux-unix-socket",
  "cmux-wg",
@@ -995,6 +997,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-chats-mirror"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-chief"
 version = "0.1.0"
 dependencies = [
@@ -1349,6 +1359,13 @@ version = "0.1.0"
 dependencies = [
  "cmux-rd-core",
  "cmux-rd-proto",
+]
+
+[[package]]
+name = "cmux-rd-link"
+version = "0.1.0"
+dependencies = [
+ "snow",
 ]
 
 [[package]]
@@ -1734,6 +1751,7 @@ dependencies = [
  "cmux-unix-socket",
  "flate2",
  "fs4",
+ "futures-util",
  "getrandom 0.3.4",
  "ghostty-vt",
  "jsonschema",
@@ -1751,6 +1769,7 @@ dependencies = [
  "sha2 0.10.9",
  "socket2",
  "tokio",
+ "tokio-tungstenite",
  "tungstenite",
  "uds_windows",
  "url",
