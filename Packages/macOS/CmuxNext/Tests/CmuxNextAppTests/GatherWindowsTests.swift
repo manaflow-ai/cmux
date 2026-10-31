@@ -226,6 +226,22 @@ struct GatherWindowsTests {
         #expect(there.state.workspaceID == "k2")
     }
 
+    /// A window known incognito only by its space (`incognitoSpaces`, before the registry flag) is
+    /// no source either: its workspaces stay and it stays open.
+    @Test func aWindowOnAnIncognitoSpaceIsNoSource() throws {
+        let services = try Self.services()
+        defer { Self.closeAll(services) }
+        let here = try Self.open(["k0"], services), there = try Self.open(["k2"], services)
+        services.windows.incognitoSpaces[there.state.id] = ProfileID(rawValue: "incognito-there")
+
+        try services.windows.bringSpace(Self.rooms[1], into: here.state)
+        try services.windows.mergeWindows(into: here.state)
+        let registry = services.windows.registry.value
+        #expect(registry.window(there.state.id)?.workspaceIDs == ["k2"], "an incognito window's workspace moved")
+        #expect(registry.window(there.state.id)?.isOpen == true)
+        #expect(registry.window(here.state.id)?.workspaceIDs == ["k0"])
+    }
+
     /// Every other normal window's workspaces move here and keep their space; those windows close,
     /// this one keeps its space and selection, and an incognito window is left alone.
     @Test func mergingAllWindowsKeepsEachWorkspacesSpace() throws {
