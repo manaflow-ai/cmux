@@ -748,6 +748,35 @@ async fn only_allow_listed_login_variables_reach_the_agent() {
     assert_eq!(found(&reply)["loginOnly"], json!(["NPM_TOKEN"]));
 }
 
+/// A secret delivered to the machine after the daemon started
+/// (`cmux cloud deliver-secrets` writes `~/.config/cmux/machine-secrets.env`,
+/// which the login shell sources) reaches the next agent, though no
+/// allow-list prefix names it; an undelivered GITHUB_TOKEN still stays in the
+/// daemon, and the delivered value never enters the cache.
+#[tokio::test]
+async fn a_secret_delivered_after_start_reaches_the_next_agent() {
+    let dir = scratch(
+        "deliver",
+        "export ANTHROPIC_API_KEY=sk-login\nexport GITHUB_TOKEN=ghp-login\n\
+         f=\"$HOME/.config/cmux/machine-secrets.env\"; [ -f \"$f\" ] && . \"$f\"\n",
+    );
+    let d = start(&dir, json!({"claude": claude(json!({}))}), &[]).await;
+    let (reply, _) = ask(&d, "claude").await;
+    assert_eq!(found(&reply)["loginOnly"], json!([]));
+    let conf = dir.join("home/.config/cmux");
+    std::fs::create_dir_all(&conf).unwrap();
+    std::fs::write(conf.join("machine-secrets.env"), "export DEMO_KEY='dummy-delivered-value'\n")
+        .unwrap();
+    let (reply, _) = ask(&d, "claude").await;
+    assert_eq!(found(&reply)["loginOnly"], json!(["DEMO_KEY"]));
+    let cache = std::fs::read_to_string(dir.join("login-env.json")).unwrap();
+    assert!(!cache.contains("dummy-delivered-value"), "the delivered value is in the cache");
+    assert!(cache.contains("DEMO_KEY"), "the cache lists DEMO_KEY as a secret name: {cache}");
+    std::fs::remove_file(conf.join("machine-secrets.env")).unwrap();
+    let (reply, _) = ask(&d, "claude").await;
+    assert_eq!(found(&reply)["loginOnly"], json!([]), "a revoked secret still reached the agent");
+}
+
 /// A version-manager prefix passes, but never a secret under it: the agent
 /// gets MISE_DATA_DIR, not MISE_GITHUB_TOKEN or NVM_AUTH_HEADER, unless
 /// `loginEnvAllow` names one exactly.
