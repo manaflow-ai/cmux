@@ -64,7 +64,7 @@ await requireBrowserLane("workflow-agent-compact-browser.test.tsx", async () => 
         try {
           await page.setContent(
             `<style>${tokens}\n${css}\nbody { margin: 0; font: 13px system-ui, sans-serif }</style>` +
-              `<div class="acpmux-shell" style="width: 280px; overflow: hidden">${html[variant]}</div>`,
+              `<div class="acpmux-shell" style="display: block; width: 280px">${html[variant]}</div>`,
           );
           const rows = await page.evaluate(() =>
             [...document.querySelectorAll<HTMLElement>(".acpmux-workflow-agent__button")].flatMap((row) => {

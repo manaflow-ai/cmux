@@ -150,25 +150,12 @@ await requireBrowserLane("chat-inspector-changes-narrow-browser.test.tsx", async
                 lineRight: edge.right,
                 lineOverflows: line.scrollWidth > line.clientWidth + 1,
                 comments: part(".acpmux-chat-inspector-pr__comments"),
-                checks: part(".acpmux-chat-inspector-pr__checks"),
+                // Failing, the checks' parts sit on the line itself: "N failing" is the part kept whole.
+                checks: part(
+                  '.acpmux-chat-inspector-pr__failing, .acpmux-chat-inspector-pr__checks:not([data-checks="failing"])',
+                ),
                 ref: part(".acpmux-chat-inspector-pr__ref"),
                 base: part(".acpmux-chat-inspector-pr__base"),
-                // "N failing": the checks' own width less the on-base share, which may truncate.
-                failingCount: (() => {
-                  const checks = line.querySelector<HTMLElement>(
-                    '.acpmux-chat-inspector-pr__checks[data-checks="failing"]',
-                  );
-                  if (!checks) return null;
-                  const range = document.createRange();
-                  const first = [...checks.childNodes].find(
-                    (node) =>
-                      node.nodeType === Node.TEXT_NODE ||
-                      !(node as HTMLElement).matches(".acpmux-chat-inspector-pr__base, .acpmux-chat-inspector-sr-only"),
-                  )!;
-                  range.selectNodeContents(first);
-                  const box = range.getBoundingClientRect();
-                  return { width: box.width, inside: box.left >= edge.left - 0.5 && box.right <= edge.right + 0.5 };
-                })(),
                 counts: [part(".acpmux-diff-add"), part(".acpmux-diff-del")],
               };
             }),
@@ -189,11 +176,6 @@ await requireBrowserLane("chat-inspector-changes-narrow-browser.test.tsx", async
               expect(count).not.toBeNull();
               expect(count!.inside).toBe(true);
               expect(count!.whole).toBe(true);
-            }
-            // "N failing" itself is never cut: only its "(N already on base)" share gives way.
-            if (row.failingCount) {
-              expect(row.failingCount.width).toBeGreaterThan(0);
-              expect(row.failingCount.inside).toBe(true);
             }
             if (name === "failingOnBase" || name === "ordinary") {
               expect(row.base).not.toBeNull();

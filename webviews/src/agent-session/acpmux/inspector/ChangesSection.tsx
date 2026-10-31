@@ -273,20 +273,23 @@ function PullRequestRow({
             )}
             {failing !== 0 ? (
               <span className="acpmux-chat-inspector-pr__checks" data-checks="failing">
-                {failing <= 0 ? (
-                  t("rail.checksFailing")
-                ) : failing < ABBREVIATE_FROM ? (
-                  t("chatInspector.changes.failing", { count: formatCount(failing) })
-                ) : (
-                  <>
-                    <span aria-hidden="true">
-                      {t("chatInspector.changes.failing", { count: formatCount(failing) })}
-                    </span>
-                    <span className="acpmux-chat-inspector-sr-only">
-                      {t("chatInspector.changes.failing", { count: failing })}
-                    </span>
-                  </>
-                )}
+                {/* "N failing" stays whole; the on-base share after it gives way first (inspector.css). */}
+                <span className="acpmux-chat-inspector-pr__failing">
+                  {failing <= 0 ? (
+                    t("rail.checksFailing")
+                  ) : failing < ABBREVIATE_FROM ? (
+                    t("chatInspector.changes.failing", { count: formatCount(failing) })
+                  ) : (
+                    <>
+                      <span aria-hidden="true">
+                        {t("chatInspector.changes.failing", { count: formatCount(failing) })}
+                      </span>
+                      <span className="acpmux-chat-inspector-sr-only">
+                        {t("chatInspector.changes.failing", { count: failing })}
+                      </span>
+                    </>
+                  )}
+                </span>
                 {onBase > 0 && (
                   <span className="acpmux-chat-inspector-pr__base">
                     {" "}

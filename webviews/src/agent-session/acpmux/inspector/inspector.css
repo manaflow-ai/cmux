@@ -682,23 +682,27 @@ button.acpmux-chat-inspector-port:hover,
   align-items: center;
   gap: 3px;
 }
-/* The checks annotation gives way before everything else on the line (#28774's review): its
-   "(N already on base)" share truncates with an ellipsis first, while "N failing" stays whole, so
-   `repo #N` and the line counts keep their room. */
+/* The checks annotation gives way before everything else on the line (#28774's review): failing,
+   its parts are the line's own items (display: contents), so "N failing" stays whole and the
+   "(N already on base)" share after it shrinks first and ends in an ellipsis, while `repo #N` and
+   the line counts keep their room. (Inside a flex box of its own, the share's full text would set
+   that box's minimum width and push the rest out.) */
 .acpmux-chat-inspector-pr__checks {
-  flex: 0 10000 auto;
+  flex: none;
   margin-left: auto;
 }
 .acpmux-chat-inspector-pr__checks[data-checks="failing"] {
-  display: inline-flex;
-  column-gap: 0.3em;
+  display: contents;
 }
-.acpmux-chat-inspector-pr__checks[data-checks="failing"] > * {
+.acpmux-chat-inspector-pr__failing {
   flex: none;
+  margin-left: auto;
 }
 .acpmux-chat-inspector-pr__checks[data-checks="failing"] > .acpmux-chat-inspector-pr__base {
-  flex: 0 1 auto;
+  flex: 0 10000 auto;
   min-width: 0;
+  /* The line's 6px gap less a space's width: the share reads as one phrase with the count. */
+  margin-left: -3px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
