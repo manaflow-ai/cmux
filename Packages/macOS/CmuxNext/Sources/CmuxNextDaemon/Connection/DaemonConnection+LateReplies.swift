@@ -29,8 +29,8 @@ extension DaemonConnection {
         while true {
             do {
                 return try await send()
-            } catch DaemonError.timedOut(let request) where ContinuousClock.now < giveUp && !Task.isCancelled {
-                lateReplyLogger.info("\(what, privacy: .public): \(request, privacy: .public) timed out; asking again")
+            } catch let error as DaemonError where error.isLateReplyRecoverable && ContinuousClock.now < giveUp && !Task.isCancelled {
+                lateReplyLogger.info("\(what, privacy: .public): \(String(describing: error), privacy: .public); asking again")
             }
         }
     }
@@ -134,6 +134,16 @@ extension DaemonConnection {
 }
 
 private extension DaemonError {
+    /// A pending request can be retried after a transport drop, but a request made while the
+    /// actor is disconnected fails synchronously. Retrying `.notConnected` would spin until the
+    /// late-reply budget expires instead of yielding to the connection's reconnect loop.
+    var isLateReplyRecoverable: Bool {
+        switch self {
+        case .connectionClosed, .daemonShutdown, .connectFailed, .timedOut: true
+        default: false
+        }
+    }
+
     /// A reply that missed its deadline: the daemon may still be doing the work.
     var isLateStart: Bool {
         switch self {

@@ -137,7 +137,8 @@ enum WorkspaceCreation {
     /// Returns the tab's key.
     @MainActor
     static func sessionTab(_ session: String, in created: WorkspaceMutationResult, host: String? = nil, linked: Bool = false,
-                           on daemon: DaemonService, tabs: AgentTabStore) async throws -> String {
+                           until giveUp: ContinuousClock.Instant? = nil, on daemon: DaemonService,
+                           tabs: AgentTabStore) async throws -> String {
         guard let connection = daemon.connection, let localHost = tabs.localHost else { throw DaemonError.notConnected }
         guard tabs.holdsTabs(daemon) else { throw AgentTabRefusal(message: RefusalStrings.agentTabsUnsupported) }
         // A session of this Mac never opens in a workspace of another machine (cx-k21v).
@@ -150,7 +151,9 @@ enum WorkspaceCreation {
         let request = NewConversationTabRequest(agentSession: record, workspace: created.workspace,
                                                 origin: AgentTabStore.createOrigin, mutationID: UUID().uuidString)
         // One mutation id for every send: a tab the daemon made after the deadline replays.
-        let response = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command) { try await connection.request(request) }
+        let response = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command, until: giveUp) {
+            try await connection.request(request)
+        }
         let key = response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)"
         if linked {
             tabs.sessions[key] = session
