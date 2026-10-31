@@ -98,7 +98,8 @@ final class LineTransport: Sendable {
     /// reaped when the connection closes.
     private let child: BridgeChild?
 
-    init(path: String, bridge: DaemonBridge? = nil) throws(DaemonError) {
+    /// - Parameter writerLimit: The most bytes the writer queues before it refuses a write (``SocketWriter``).
+    init(path: String, bridge: DaemonBridge? = nil, writerLimit: Int = 64 << 20) throws(DaemonError) {
         self.path = path
         let fd: Int32
         if let bridge {
@@ -110,7 +111,7 @@ final class LineTransport: Sendable {
             child = nil
         }
         socket = Mutex(Socket(fd: fd))
-        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write")
+        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write", limit: writerLimit)
     }
 
     private static func connect(_ path: String) throws(DaemonError) -> Int32 {
