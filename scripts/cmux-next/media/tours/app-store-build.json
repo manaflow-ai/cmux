@@ -1,0 +1,232 @@
+{
+ "title": "App Store: examples, listing, consent card with a deploy target, installed, palette (light and dark)",
+ "settings": {
+  "labs": {
+   "previewFeatures": true
+  },
+  "appearance": {
+   "theme": "Soft Blue Light"
+  }
+ },
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "light theme",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.theme",
+    "Soft Blue Light"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "App Store: Discover with the four examples (light)",
+   "cmux": [
+    "action",
+    "run",
+    "appStore.show",
+    "--focus",
+    "--tab",
+    "discover"
+   ],
+   "wait": 4
+  },
+  {
+   "title": "Listing: Hello Deploy (install = deploy + pin) (light)",
+   "cmux": [
+    "action",
+    "run",
+    "appStore.show",
+    "--focus",
+    "--app",
+    "manaflow-ai/hello-deploy"
+   ],
+   "wait": 4
+  },
+  {
+   "title": "Consent card: cmux apps install --deploy self-hosted (light)",
+   "cmux": [
+    "--json",
+    "action",
+    "run",
+    "app.install",
+    "--no-wait",
+    "--app",
+    "manaflow-ai/hello-deploy",
+    "--deploy",
+    "self-hosted:ops@build-01.corp"
+   ],
+   "wait": 3
+  },
+  {
+   "title": "close the card (light)",
+   "rpc": {
+    "method": "debug.dialog",
+    "params": {
+     "dismiss": true
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Consent card: Standup (command-only app) (light)",
+   "cmux": [
+    "--json",
+    "action",
+    "run",
+    "app.install",
+    "--no-wait",
+    "--app",
+    "manaflow-ai/standup"
+   ],
+   "wait": 3
+  },
+  {
+   "title": "close the second card (light)",
+   "rpc": {
+    "method": "debug.dialog",
+    "params": {
+     "dismiss": true
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "App Store: Installed (light)",
+   "cmux": [
+    "action",
+    "run",
+    "appStore.show",
+    "--focus",
+    "--tab",
+    "installed"
+   ],
+   "wait": 3
+  },
+  {
+   "title": "Palette (Cmd-Shift-P) (light)",
+   "cmux": [
+    "action",
+    "run",
+    "commandPalette",
+    "--focus"
+   ],
+   "wait": 3
+  },
+  {
+   "title": "dark theme",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.theme",
+    "Soft Blue"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "App Store: Discover with the four examples (dark)",
+   "cmux": [
+    "action",
+    "run",
+    "appStore.show",
+    "--focus",
+    "--tab",
+    "discover"
+   ],
+   "wait": 4
+  },
+  {
+   "title": "Listing: Hello Deploy (install = deploy + pin) (dark)",
+   "cmux": [
+    "action",
+    "run",
+    "appStore.show",
+    "--focus",
+    "--app",
+    "manaflow-ai/hello-deploy"
+   ],
+   "wait": 4
+  },
+  {
+   "title": "Consent card: cmux apps install --deploy self-hosted (dark)",
+   "cmux": [
+    "--json",
+    "action",
+    "run",
+    "app.install",
+    "--no-wait",
+    "--app",
+    "manaflow-ai/hello-deploy",
+    "--deploy",
+    "self-hosted:ops@build-01.corp"
+   ],
+   "wait": 3
+  },
+  {
+   "title": "close the card (dark)",
+   "rpc": {
+    "method": "debug.dialog",
+    "params": {
+     "dismiss": true
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Consent card: Standup (command-only app) (dark)",
+   "cmux": [
+    "--json",
+    "action",
+    "run",
+    "app.install",
+    "--no-wait",
+    "--app",
+    "manaflow-ai/standup"
+   ],
+   "wait": 3
+  },
+  {
+   "title": "close the second card (dark)",
+   "rpc": {
+    "method": "debug.dialog",
+    "params": {
+     "dismiss": true
+    }
+   },
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "App Store: Installed (dark)",
+   "cmux": [
+    "action",
+    "run",
+    "appStore.show",
+    "--focus",
+    "--tab",
+    "installed"
+   ],
+   "wait": 3
+  },
+  {
+   "title": "Palette (Cmd-Shift-P) (dark)",
+   "cmux": [
+    "action",
+    "run",
+    "commandPalette",
+    "--focus"
+   ],
+   "wait": 3
+  }
+ ]
+}

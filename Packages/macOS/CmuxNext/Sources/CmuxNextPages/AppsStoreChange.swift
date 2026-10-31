@@ -1,5 +1,5 @@
 public import CmuxNextSettings
-import Foundation
+public import Foundation
 
 /// One App Store change the person confirms on the native consent card: `cmux.apps.install` (with
 /// an optional deploy target, install = deploy + pin) or `cmux.apps.uninstall`.
