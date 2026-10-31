@@ -221,10 +221,9 @@ impl Hub {
                     (q.msg.get("awaitingOwner").and_then(Value::as_bool) == Some(true)
                         || crate::author::awaits_owner(q.msg.pointer("/_meta/provenance")))
                         && q.msg.get("turnId").and_then(Value::as_str).is_none_or(|turn| {
-                            q.msg
-                                .get("revision")
-                                .and_then(Value::as_u64)
-                                .is_none_or(|revision| approved.get(turn) != Some(&revision))
+                            // A record from before revisions is revision 0, as a restore reads it.
+                            let revision = q.msg.get("revision").and_then(Value::as_u64);
+                            approved.get(turn) != Some(&revision.unwrap_or(0))
                         })
                 })
                 .filter_map(|q| q.msg.get("promptId").and_then(Value::as_str).map(str::to_owned))
