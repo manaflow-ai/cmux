@@ -639,8 +639,29 @@ class RunsOnFallbackTests(unittest.TestCase):
                 alternate = match.group(1) + ("alternate" if match.group(2) == "runner" else "sign_alternate")
                 if f"|| github.run_attempt > 1 && {alternate} {match.group(0)}" not in text:
                     failures.append(f"nightly.yml {job_id}: {match.group(1)}{match.group(2)} has no re-run alternative")
-        self.assertTrue({"build-sign-notarize-nightly", "sign-nightly-identity-legacy"} <= seen, seen)
+        self.assertIn("build-sign-notarize-nightly", seen)
         self.assertEqual(failures, [], "a picked signing label needs `github.run_attempt > 1 && <alternate>` before it")
+
+    def test_a_picked_owned_mac_is_read_only_on_the_attempt_that_picked_it(self) -> None:
+        # The owned-only form of the rule above. Nightlies never use Blacksmith (Lawrence, 2026-10-30, a7b6a61175c),
+        # so sign-nightly-identity-legacy and its verify read the picker's owned Mac, not a Blacksmith label with an
+        # alternate. A re-run of failed jobs keeps the old pick, so the owned read must hold only on the attempt that
+        # ran the picker; a re-run then falls through to the owned slot or pool, never to the Mac that stalled.
+        jobs = load(WORKFLOWS / "nightly.yml")["jobs"]
+        owned = re.compile(r"needs\.(pick-nightly-sign-runner)\.outputs\.(?:sign_owned|owned)\b")
+        failures, seen = [], set()
+        for job_id, job in jobs.items():
+            for expression in EXPRESSION.findall(runs_on_text(job)):
+                for alternative in split_top(unwrap(expression), "||"):
+                    match = owned.search(alternative)
+                    if not match:
+                        continue
+                    seen.add(job_id)
+                    guards = {f"needs.{match.group(1)}.outputs.attempt == github.run_attempt", "github.run_attempt == 1"}
+                    if not guards & {term.strip() for term in conjuncts(alternative)}:
+                        failures.append(f"nightly.yml {job_id}: {alternative.strip()}")
+        self.assertTrue({"sign-nightly-identity-legacy", "verify-nightly-identity-legacy"} <= seen, seen)
+        self.assertEqual(failures, [], "an owned pick needs its picker's attempt check in the same alternative")
 
     def test_a_reserved_slot_always_has_a_fallback(self) -> None:
         failures, seen = [], 0
