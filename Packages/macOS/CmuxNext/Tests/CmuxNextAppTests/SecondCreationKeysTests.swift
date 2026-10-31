@@ -159,6 +159,19 @@ struct SecondCreationKeysTests {
         return coordinator
     }
 
+    /// Whether the byte reader's result line (`K42x<nonce><hex>K`) on `surface` matches `pattern` within 20 s. It polls
+    /// read-screen (returns at once, runs after the sends before it) and joins the screen's lines first: a narrow pane
+    /// wraps the result line.
+    private static func readerGot(_ pattern: String, on surface: SurfaceID, in p: Panes) async throws -> Bool {
+        let regex = try Regex(pattern)
+        let deadline = ContinuousClock.now + .seconds(20)
+        repeat {
+            if await screen(surface, in: p).replacingOccurrences(of: "\n", with: "").contains(regex) { return true }
+            try await Task.sleep(for: .milliseconds(100))
+        } while ContinuousClock.now < deadline
+        return false
+    }
+
     private static func screen(_ surface: SurfaceID, in p: Panes) async -> String {
         (try? await p.connection.request(ReadScreenRequest(surface: surface), timeout: .seconds(5)))?.text ?? "unreadable"
     }
@@ -252,7 +265,7 @@ struct SecondCreationKeysTests {
             coordinator.resolve(firstCreation, landed: true, in: p.window)
             coordinator.resolve(secondCreation, landed: true, in: p.window)
 
-            let inFirst = try await Self.ran("K42x\(nonce)03(1b5b41|1b4f41)K", on: p.first.surface, in: p)
+            let inFirst = try await Self.readerGot("K42x\(nonce)03(1b5b41|1b4f41)K", on: p.first.surface, in: p)
             let second = await Self.screen(p.second.surface, in: p)
             let first = await Self.screen(p.first.surface, in: p)
             #expect(!second.contains("K42x\(nonce)"), "a key held for the first terminal reached the second one: \(second.suffix(300))")
@@ -288,7 +301,7 @@ struct SecondCreationKeysTests {
             try await Self.focus(p.second.pane, tab: p.second.tab, in: p)
             coordinator.resolve(creation, landed: true, in: p.window)
 
-            let inFirst = try await Self.ran("K42x\(nonce)6c731b(5b|4f)4103K", on: p.first.surface, in: p)
+            let inFirst = try await Self.readerGot("K42x\(nonce)6c731b(5b|4f)4103K", on: p.first.surface, in: p)
             @MainActor func split() -> SurfaceID? {
                 p.content.panes.filter { !before.contains($0.key) }.values.compactMap { pane in
                     pane.pane.tabs.first { $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) }?.surface
@@ -534,13 +547,9 @@ struct SecondCreationKeysTests {
             })
             // The reader prints the hex of the 4 bytes it got: "ab", Return (0d), Ctrl-C (03), in that order. Read-screen
             // returns at once and runs after the sends before it, so poll it.
-            var first = ""
-            let deadline = ContinuousClock.now + .seconds(20)
-            while !first.contains("K42x\(nonce)"), ContinuousClock.now < deadline {
-                first = await Self.screen(p.first.surface, in: p)
-                if !first.contains("K42x\(nonce)") { try await Task.sleep(for: .milliseconds(100)) }
-            }
-            #expect(first.contains("K42x\(nonce)61620d03K"), "the keys held for the evicted terminal did not arrive as typed (61 62 0d 03): \(first.suffix(300))")
+            let inOrder = try await Self.readerGot("K42x\(nonce)61620d03K", on: p.first.surface, in: p)
+            let first = await Self.screen(p.first.surface, in: p)
+            #expect(inOrder, "the keys held for the evicted terminal did not arrive as typed (61 62 0d 03): \(first.suffix(300))")
         }
     }
 }
