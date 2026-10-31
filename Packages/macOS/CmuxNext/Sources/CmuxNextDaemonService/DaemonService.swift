@@ -295,8 +295,8 @@ public final class DaemonService {
         monitor.start(queue: DispatchQueue(label: "com.cmuxterm.next.daemon.path.\(machineID)"))
         pathMonitor = monitor
         let clock = startupClock
-        var configuration = DaemonConnection.Configuration(retryWake: wake, terminalEnvironment: nil, sessionEvents: true,
-                                                           requiredCapabilities: requiredCapabilities)
+        var configuration = DaemonConnection.Configuration(requiredCapabilities: requiredCapabilities,
+                                                           retryWake: wake, terminalEnvironment: nil, sessionEvents: true)
         configuration.echoesPlacementShift = echoesPlacementShift
         runTask = Task { [weak self, drainScheduler, logger, configuration] in
             weak let weakSelf = self
