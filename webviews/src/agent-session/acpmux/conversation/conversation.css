@@ -80,6 +80,16 @@
   --cv-footer-chevron-slot: var(--cv-footer-control-slot);
   --cv-footer-gap: 0px;
   --cv-tool-run-bottom-gap: 4px;
+  /* A status row between two replies (a tool run, a subagent's or a background command's end,
+     another agent's message: model.ts `isStatusRow`) sits in the middle of the gap, as Claude Code
+     desktop's do (Leo, 2026-10-30: "see how claude code has those centered tool calls / id like more
+     alignment too"). Above it, the reply's action row (its meta gap and line) and the step's 2px top
+     margin; below it, as much (model.ts STATUS_GAP). Inside an opened "Worked for", whose replies
+     draw no action row, the plain gap on both sides (STATUS_GAP_PLAIN). */
+  --cv-status-gap: calc(var(--cv-meta-gap) + var(--cv-meta-row) + 2px);
+  --cv-status-gap-plain: 12px;
+  /* What a reply keeps under its action row over a status row (none: the gap is the action row's). */
+  --cv-status-reply-tail: 0px;
   /* A message's hover row fades as Claude Code desktop's (--cds-message-actions-reveal-*): in after
      100ms over 120ms, out at once (Claude's 60ms is off the motion scale: its quick 80ms), both on
      Claude's snap curve. */
@@ -1840,6 +1850,18 @@ pre.cv-math-source {
   --cv-tool-row-height: 26px;
   --cv-tool-run-bottom-gap: 8px;
 }
+/* Gallery versions of the room around a status row between replies (agent-pane.transcript-row-alignment):
+   `roomy` keeps the message gap under the reply's action row and gives the line as much below;
+   `off` is the earlier, uncentred rhythm (the message gap over the line, 38px, and 8 under it).
+   Capture-only comparisons. */
+:root[data-transcript-status-gap="roomy"] {
+  --cv-status-gap: calc(var(--cv-meta-gap) + var(--cv-meta-row) + var(--cv-message-gap) + 2px);
+  --cv-status-reply-tail: var(--cv-message-gap);
+}
+:root[data-transcript-status-gap="off"] {
+  --cv-status-gap: var(--cv-message-gap);
+  --cv-status-reply-tail: var(--cv-message-gap);
+}
 /* An opened run's calls stay in the transcript's one vertical scroll surface. A run can be long,
    but its summary and collapsed rows never become a second scroll box; opened shell/output bodies
    own their horizontal overflow below. */
@@ -3106,7 +3128,6 @@ a.cv-sha:focus-visible {
   justify-content: flex-start;
   gap: 8px;
   min-height: var(--cv-meta-row);
-  padding-inline-start: 2px;
   color: var(--cv-text-muted);
   font-family: var(--cv-font);
   font-size: var(--text-body);
@@ -3137,6 +3158,20 @@ a.cv-sha:focus-visible {
 }
 .cv-turn-actions .cv-iconbtn:not(.cv-turn-retry-menu) {
   width: var(--cv-meta-row);
+}
+/* The row's first glyph starts where the reply's text does, as Codex's and Claude's copy glyph does
+   (Leo, 2026-10-30: "WE NEED TO LINE OUR SHIT UP LIKE THEIRS"; design/grid.md 5.5, the action row's
+   first glyph on col-left): its 24px button overhangs the column by the glyph's inset, 4px. A
+   footer that says its time first ("Worked for 5s") starts that label on the column instead. */
+.cv-reply-actions > .cv-turn-action-group:first-child > .cv-iconbtn:first-child,
+.cv-turn-actions .cv-turn-footer-row > .cv-turn-action-group:first-child > .cv-iconbtn:first-child {
+  margin-inline-start: calc((var(--cv-glyph-slot) - var(--cv-meta-row)) / 2);
+}
+/* That button's hover pill overhangs its row, which paint containment (styles.css .acpmux-row) would
+   cut flat: the rows that hold an action row keep layout containment alone. */
+.acpmux-row.acpmux-assistant,
+.acpmux-row.acpmux-turnSummary {
+  contain: layout;
 }
 /* Claude's buttons touch: 24px squares side by side, then its age 8px on (.cv-turn-actions' gap). */
 .cv-turn-action-group {
@@ -4248,7 +4283,6 @@ a.cv-sha:focus-visible {
   gap: 8px;
   min-height: 24px;
   margin: 4px 0 8px;
-  padding-inline-start: 2px;
   font-size: var(--text-body);
   color: var(--cv-text-muted);
   letter-spacing: var(--text-body--letter-spacing);
@@ -4455,6 +4489,30 @@ a.cv-sha:focus-visible {
 }
 .acpmux-row.acpmux-row--before-step {
   padding-bottom: 0;
+}
+/* A status row between two replies sits in the middle of the gap (model.ts `statusEdge`,
+   --cv-status-gap above): the reply over it ends at its action row, and the row under it ends that
+   far from the next reply. Rows that draw nothing are 0 (the rule after this one wins). */
+article.acpmux-row.acpmux-row--before-status,
+article.acpmux-row.acpmux-row--before-status-plain,
+article.acpmux-row.acpmux-row--before-reply,
+article.acpmux-row.acpmux-row--before-reply-plain {
+  min-height: 0;
+}
+article.acpmux-row.acpmux-row--before-status {
+  padding-bottom: var(--cv-status-reply-tail);
+}
+article.acpmux-row.acpmux-row--before-status-plain {
+  padding-bottom: calc(var(--cv-status-gap-plain) - 2px);
+}
+article.acpmux-row.acpmux-row--before-reply {
+  padding-bottom: var(--cv-status-gap);
+}
+article.acpmux-row.acpmux-row--before-reply-plain {
+  padding-bottom: var(--cv-status-gap-plain);
+}
+:is(.acpmux-row--before-reply, .acpmux-row--before-reply-plain) .cv-disclosure.cv-received {
+  margin-bottom: 0;
 }
 /* A row whose renderer draws nothing (a render update that joined an earlier card, a note whose
    payload never came) takes no room: the 34px floor and the gap under it were a blank band each,

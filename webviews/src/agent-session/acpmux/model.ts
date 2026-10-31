@@ -1106,6 +1106,74 @@ export const hasReplyActions = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
 export const isBeforeFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   row.kind === "assistant" &&
   (next?.kind === "turnSummary" || ((next?.kind === WORKING || next?.kind === THINKING) && next.below === true));
+/// A status row: one quiet line the transcript draws in the tool rows' column among the replies (a
+/// tool run, a background task's or a subagent's end, a compaction, a failover, a policy the harness
+/// cannot keep, a paused agent pair, a session start, another agent's message or notice); an
+/// edited-files card is a card, not a line. Between two replies it sits in the middle of the gap, as
+/// Claude Code desktop's do (Leo, 2026-10-30: "see how claude code has those centered tool calls /
+/// id like more alignment too"): `statusEdge`.
+export const isStatusRow = (row: AcpmuxRow | undefined) =>
+  row !== undefined &&
+  (row.kind === "backgroundTask" ||
+    row.kind === SUBAGENT_DONE ||
+    row.kind === "compaction" ||
+    row.kind === "failover" ||
+    row.kind === "policyUnenforced" ||
+    row.kind === "agentPair" ||
+    row.kind === "sessionStart" ||
+    (row.kind === "user" && (row.incoming?.kind === "message" || row.incoming?.kind === "notice")) ||
+    (row.kind === "activity" && isToolRun(row)));
+/// A tool run with at least one call, not an edited-files card (turnChanges/sessionRows.ts
+/// `isEditRow`): a run of thoughts alone may draw nothing, so it keeps its own spacing. One pass
+/// over the row's items.
+function isToolRun(row: AcpmuxRow): boolean {
+  const card = row.foldRun === undefined && !isFoldedCopy(row);
+  let tool = false;
+  for (const item of row.items ?? []) {
+    if (!item.tool) continue;
+    tool = true;
+    if (card && (item.tool.kind === "edit" || item.tool.kind === "fileChange") && item.tool.status !== "pending")
+      return false;
+  }
+  return tool;
+}
+/// Where a row stands next to a status row, read from the next drawn row alone as the other edges
+/// are (no pass over the turn). A reply over a status row: its action row (MessageActions.tsx
+/// ReplyActions, its meta gap and line) is the room above the line (`before-status`), or, for a
+/// reply without one (a copy inside an opened "Worked for", one still streaming), the plain gap
+/// (`before-status-plain`). A status row over a reply takes the same room under its line: the action
+/// row's (`before-reply`), or the plain gap over a copy inside an opened fold (`before-reply-plain`),
+/// whose replies draw no action row. App.tsx marks the rows `acpmux-row--<edge>` (conversation.css
+/// `--cv-status-gap`, `--cv-status-gap-plain`).
+export type StatusEdge = "before-status" | "before-status-plain" | "before-reply" | "before-reply-plain";
+export const statusEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined): StatusEdge | undefined =>
+  row.kind === "assistant"
+    ? isStatusRow(next) && !isBeforeFooter(row, next)
+      ? hasReplyActions(row, next)
+        ? "before-status"
+        : "before-status-plain"
+      : undefined
+    : next?.kind === "assistant" && isStatusRow(row)
+      ? next.settled === true
+        ? "before-reply-plain"
+        : "before-reply"
+      : undefined;
+/// The room above and below a status row between two replies, line box to text box
+/// (conversation.css `--cv-status-gap`): a reply's action row (its meta gap and line) and the step's
+/// 2px top margin; between the copies inside an opened fold, the plain gap.
+const STATUS_GAP = META_GAP + META_ROW + TOOL_RUN_TOP;
+const STATUS_GAP_PLAIN = 12;
+/// How much a row's estimate changes at a status edge, against the bottom it has elsewhere.
+function statusDelta(row: AcpmuxRow, edge: StatusEdge | undefined): number {
+  if (edge === "before-status") return -MESSAGE_GAP;
+  if (edge === "before-status-plain") return STATUS_GAP_PLAIN - TOOL_RUN_TOP - MESSAGE_GAP;
+  if (edge === undefined) return 0;
+  const gap = edge === "before-reply" ? STATUS_GAP : STATUS_GAP_PLAIN;
+  if (row.kind === "activity") return gap - TOOL_RUN_BOTTOM;
+  // Another agent's line keeps its 2px top margin and drops the bottom one.
+  if (row.kind === "user") return gap - TOOL_RUN_TOP - MESSAGE_GAP;
+  return gap - MESSAGE_GAP;
+}
 /// The row kind of another agent's message while it waits in the queue (conversation/queuedMessages.ts):
 /// its received card after the running turn, until acpmux starts it.
 export const QUEUED_MESSAGE = "queuedMessage";
@@ -1145,9 +1213,11 @@ export const isContinuationFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined
 /// What the row after a row changes about its height (`beforeFooter`, and a reply's own action row,
 /// `hasReplyActions`), as one key.
 const rowEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined) => {
-  const edge = footerEdge(row, next);
+  const status = statusEdge(row, next);
+  const edge = status ? `${footerEdge(row, next) ?? ""}${STATUS_EDGE}${status}` : footerEdge(row, next);
   return hasReplyActions(row, next) ? `${edge ?? ""}${ACTIONS_EDGE}` : edge;
 };
+const STATUS_EDGE = "+";
 const ACTIONS_EDGE = "+actions";
 const footerEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   isBeforeFooter(row, next)
@@ -1645,19 +1715,21 @@ export function layoutConversation(
     if (kept && kept.width === width && kept.edge === edge) height = kept.height;
     else {
       const customHeight = measureOverride?.(row, width);
-      height =
-        customHeight !== undefined && Number.isFinite(customHeight) && customHeight > 0
-          ? customHeight
-          : measuredRowHeight(
-              row,
-              width,
-              cache,
-              edge?.startsWith("footer") === true,
-              edge?.startsWith("last-turn") === true,
-              sessionId,
-              edge?.startsWith("continuation") === true,
-              edge?.endsWith(ACTIONS_EDGE) === true,
-            );
+      const custom = customHeight !== undefined && Number.isFinite(customHeight) && customHeight > 0;
+      height = custom
+        ? customHeight
+        : measuredRowHeight(
+            row,
+            width,
+            cache,
+            edge?.startsWith("footer") === true,
+            edge?.startsWith("last-turn") === true,
+            sessionId,
+            edge?.startsWith("continuation") === true,
+            edge?.endsWith(ACTIONS_EDGE) === true,
+          );
+      // A row that draws nothing stays at 0; a custom renderer's height is its own.
+      if (!custom && height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn]));
       known?.set(row, { width, height, edge });
     }
     heights[index] = height;
