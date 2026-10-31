@@ -33,7 +33,7 @@
 //
 // A line is quiet at rest: no fill of its own inside the tray's glass, so the tray is one box, not
 // a box in a box. Hovering a line that opens something fills that whole line, its stop button
-// included, to the tray's own edges (one inset), and shows the hand; a line says its kind first
+// included, to the tray's own edges (one inset), with the arrow; a line says its kind first
 // ("Command", "Subagent") and ends in a chevron. A command's whole shell line is its tooltip; its
 // stop button stops only that command (`_acpmux/process/kill`), which the composer's Stop does not
 // (that cancels the turn, and the command outlives it), so its tooltip says so. (Leo 2026-10-21 on
@@ -58,6 +58,7 @@ import { StopButton as ProcessStopButton } from "../inspector/TasksSection";
 import { STATUS_LABEL, type SubagentStatus, subagentStateText, subagentStatus } from "../summary/SubagentStatusList";
 import { retryLabel, sessionRetry } from "./retryState";
 import { AgentLine } from "./AgentLine";
+import { agentTone } from "./agentTones";
 import { subagentProgress } from "./subagentProgress";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { elapsed, StopButton, useNow } from "./SubagentGroup";
@@ -356,6 +357,7 @@ export const SubagentTray = memo(function SubagentTray({
           }
           progress={subagentProgress(t, language, item.agent).join(" · ")}
           mark={item.agent.harness}
+          tone={agentTone(item.agent.id)}
           status={subagentStatus(item.agent, waiting)}
           working={subagentStatus(item.agent, waiting) === "running"}
           state={subagentStateText(t, item.agent, waiting)}
@@ -440,6 +442,8 @@ export const SubagentTray = memo(function SubagentTray({
         name={item.session.title}
         detail={liveSession(item.session) ? doingDetail(t, item.session.doing, item.session.doingTool) : undefined}
         title={item.session.doing}
+        mark={item.session.harness}
+        tone={agentTone(item.session.sessionId)}
         kind={t("tray.kind.subagent")}
         kindIcon={SUBAGENT_ICON}
         chevron
