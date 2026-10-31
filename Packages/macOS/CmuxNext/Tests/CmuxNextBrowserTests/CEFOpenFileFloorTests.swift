@@ -51,6 +51,15 @@ import Testing
         #expect(reason.waitingTabNotice == detail)
         #expect(CEFUnavailableReason.startFailed("x").waitingTabNotice == nil)
     }
+
+    /// A refused start reads as unavailable with its own reason, for the tabs and the page host
+    /// (agent chats then open in WebKit); other failures stay `startFailed`.
+    @Test func aRefusedStartIsUnavailableWithItsReason() {
+        let refused = CEFEngine.unavailableReason(pending: nil, state: .failed("limit"), refusal: .openFileLimit(256))
+        #expect(refused == .openFileLimit(256))
+        #expect(CEFEngine.unavailableReason(pending: nil, state: .failed("x"), refusal: nil) == .startFailed("x"))
+        #expect(CEFEngine.unavailableReason(pending: nil, state: .idle, refusal: nil) == nil)
+    }
 }
 
 private struct AcceptingCEFCodeSignatures: CEFCodeSignatureChecking {
