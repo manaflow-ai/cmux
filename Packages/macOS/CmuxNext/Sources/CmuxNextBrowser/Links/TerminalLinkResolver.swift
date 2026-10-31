@@ -56,7 +56,7 @@ public nonisolated struct TerminalLinkResolver: Sendable {
         guard safeTerminalText(trimmed), !hasScheme(trimmed) else { return [] }
         let path = withoutLocation(trimmed)
         guard !path.isEmpty, !path.hasPrefix("~"), !path.contains("\u{0}") else { return [] }
-        if path.hasPrefix("/") { return [(path as NSString).standardizingPath] }
+        if path.hasPrefix("/") { return [Self.lexical(path)] }
         let folder: String? = if let cwd, cwd.hasPrefix("/") {
             cwd
         } else if let cwd, let url = URL(string: cwd), url.isFileURL, url.path.hasPrefix("/") {
@@ -65,7 +65,23 @@ public nonisolated struct TerminalLinkResolver: Sendable {
             nil
         }
         guard let folder else { return [] }
-        return [((folder as NSString).appendingPathComponent(path) as NSString).standardizingPath]
+        return [Self.lexical(folder + "/" + path)]
+    }
+
+    /// An absolute path of another machine, tidied as text: empty and `.` components dropped, `..`
+    /// removes the component before it (never above `/`), no trailing `/`. Nothing of this Mac is
+    /// read: `NSString.standardizingPath` resolves `..` through this Mac's symlinks and drops
+    /// `/private` when that path exists here, which is this Mac's disk, not the VM's.
+    private static func lexical(_ path: String) -> String {
+        var parts: [Substring] = []
+        for part in path.split(separator: "/", omittingEmptySubsequences: true) {
+            switch part {
+            case ".": continue
+            case "..": _ = parts.popLast()
+            default: parts.append(part)
+            }
+        }
+        return "/" + parts.joined(separator: "/")
     }
 
     private static let openers: Set<Character> = ["\"", "'", "`", "“", "‘", "<", "[", "{", "("]
