@@ -127,7 +127,8 @@ test("sending keeps existing transcript rows mounted and does not redraw them", 
 test("an optimistic prompt keeps its DOM node and position through echo and turn start", async () => {
   const TrackingRow = ({ row: item }: { row: AcpmuxRow }) => <div>{item.text}</div>;
   const registry = { user: TrackingRow, typing: TrackingRow } as never;
-  const root = createRoot(dom.window.document.getElementById("root")!);
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
   const prompt = row("local-prompt-1", "user", "ship it");
   const render = (rows: AcpmuxRow[]) =>
     act(async () => {
@@ -144,18 +145,30 @@ test("an optimistic prompt keeps its DOM node and position through echo and turn
     });
   try {
     await render([{ ...prompt, pending: true, promptId: "prompt-1" }]);
-    const before = root.querySelector<HTMLElement>('[data-row-id="local-prompt-1"]')!;
+    const before = container.querySelector<HTMLElement>('[data-row-id="local-prompt-1"]')!;
     const beforePosition = before.getAttribute("aria-posinset");
-    await render([{ ...prompt, pending: false, promptId: "prompt-1", delivery: { state: "read", promptId: "prompt-1" } }]);
-    const echoed = root.querySelector<HTMLElement>('[data-row-id="local-prompt-1"]');
+    await render([
+      {
+        ...prompt,
+        pending: false,
+        promptId: "prompt-1",
+        delivery: { state: "read", promptId: "prompt-1", sessionId: "session-1", sentAt: 1 },
+      },
+    ]);
+    const echoed = container.querySelector<HTMLElement>('[data-row-id="local-prompt-1"]');
     expect(echoed).toBe(before);
     expect(echoed?.getAttribute("aria-posinset")).toBe(beforePosition);
 
     await render([
-      { ...prompt, pending: false, promptId: "prompt-1", delivery: { state: "read", promptId: "prompt-1" } },
+      {
+        ...prompt,
+        pending: false,
+        promptId: "prompt-1",
+        delivery: { state: "read", promptId: "prompt-1", sessionId: "session-1", sentAt: 1 },
+      },
       { id: "typing", kind: "typing", version: 1, at: 2 },
     ]);
-    const started = root.querySelector<HTMLElement>('[data-row-id="local-prompt-1"]');
+    const started = container.querySelector<HTMLElement>('[data-row-id="local-prompt-1"]');
     expect(started).toBe(before);
     expect(started?.getAttribute("aria-posinset")).toBe(beforePosition);
   } finally {
