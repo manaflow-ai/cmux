@@ -7,7 +7,6 @@
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxEnvironment.swift	1	keep	resolver: AcpmuxEnvironment
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneProjectCopy.swift	1	keep	project-local .cmux/context folder, not a state root
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneProjectFiles.swift	1	keep	project-local .cmux/context folder, not a state root
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote/JoinConsent+App.swift	1	keep	watches acpmux's machine-wide per-OS-user consent folder (cli/machine_consent.rs), shared across app tags by design; never read or written
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Server/LocalServerSource.swift	1	move	unreviewed at S7 (cx-is1kf.8)
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Settings/DebugSettingsService.swift	1	move	unreviewed at S7 (cx-is1kf.8)
 Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/CloudConfiguration.swift	1	move	unreviewed at S7 (cx-is1kf.8)
@@ -25,7 +24,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Managed/ManagedStatusReport.swi
 Packages/macOS/CmuxNext/Sources/CmuxNextTasks/SocketTasksSource.swift	1	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/acpmux/src/chats/sources.rs	3	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/acpmux/src/cli/hosts.rs	3	keep	~/.acpmux on a remote SSH host
-cmux-tui/crates/acpmux/src/cli/machine_consent.rs	1	keep	machine-wide per-OS-user consent authority, shared across app tags by design
 cmux-tui/crates/acpmux/src/config.rs	1	keep	resolver: acpmux default home
 cmux-tui/crates/acpmux/src/config/folder_profiles.rs	1	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/acpmux/src/config/profiles.rs	1	move	unreviewed at S7 (cx-is1kf.8)
@@ -40,6 +38,7 @@ cmux-tui/crates/cmux-agent-pane-policy/src/build_identity.rs	2	keep	resolver: bu
 cmux-tui/crates/cmux-agent-pane-policy/src/environment.rs	2	keep	resolver: acpmux home
 cmux-tui/crates/cmux-browser-host/src/cookie_backups.rs	1	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/cmux-chat-index/src/scan.rs	1	move	unreviewed at S7 (cx-is1kf.8)
+cmux-tui/crates/cmux-host/src/cloud/role.rs	1	keep	the Cloud VM's acpmux home (the default ~/.acpmux of the session host's user, as the image runs it); the trajectory mirror reads and restores it (#25584)
 cmux-tui/crates/cmux-remote/src/identity.rs	1	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/cmux-server-core/src/layout.rs	2	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/cmux-tasks/src/owner.rs	1	move	unreviewed at S7 (cx-is1kf.8)
@@ -50,3 +49,5 @@ cmux-tui/crates/cmux-tui/src/cli/chief/link.rs	1	move	unreviewed at S7 (cx-is1kf
 cmux-tui/crates/cmux-tui/src/remote_host/config.rs	1	keep	machine-wide cmux host config (one listener per machine, not per build); serve --dir and CMUX_HOST_DIR override it
 cmux-tui/crates/cmux-tui/src/remote_cli/acpmux_peer.rs	1	keep	~/.acpmux on a remote Cloud VM (its daemon's default acpmux home), read over the workspace RPC
 cmux-tui/crates/cmux-git/src/worktree_root.rs	1	keep	resolver: worktree_root, the person's worktrees (~/.cmux/worktrees.noindex on macOS), not per-build state; acpmux sub-sessions and git.worktree.create both ask it
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote/JoinConsent+App.swift	1	keep	watches acpmux's machine-wide per-OS-user consent folder (cli/machine_consent.rs), shared across app tags by design; never read or written
+cmux-tui/crates/acpmux/src/cli/machine_consent.rs	1	keep	machine-wide per-OS-user consent authority, shared across app tags by design
