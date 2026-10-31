@@ -128,7 +128,7 @@ extension SidebarListViewComponents {
         case let .intoWorkspace(id):
             return displayed.row(for: .workspace(id)).map(frame(for:))
         case let .intoGroup(id):
-            return displayed.row(for: .group(id)).map(frame(for:))
+            return displayed.groupRow(id).map(frame(for:))
         case .newWorkspace:
             return displayed.gapY.map { NSRect(x: inset, y: $0, width: indentWidth, height: displayed.gapHeight) }
         case let .beforeTab(workspace, tab):
