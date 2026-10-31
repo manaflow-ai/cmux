@@ -148,7 +148,7 @@ public struct ScreenSessionView: View {
                 .pickerStyle(.menu)
             }
             if features.contains(.fitToggle) {
-                Toggle("Fit to Display", systemImage: "rectangle.dashed", isOn: $session.preferences.fitToDisplay)
+                checkItem("Fit to Display", systemImage: "rectangle.dashed", isOn: $session.preferences.fitToDisplay)
             }
             if features.contains(.orientationLock) {
                 Picker("Orientation", systemImage: orientation.symbol, selection: $orientation) {
@@ -163,7 +163,7 @@ public struct ScreenSessionView: View {
                 .pickerStyle(.menu)
             }
             if features.contains(.stats) {
-                Toggle("Stream stats", isOn: $session.preferences.showStats)
+                checkItem("Stream stats", systemImage: "gauge.with.dots.needle.33percent", isOn: $session.preferences.showStats)
             }
             if features.contains(.sendKeysMenu) {
                 Section("Send") {
@@ -185,6 +185,17 @@ public struct ScreenSessionView: View {
             Label("Options", systemImage: "ellipsis.circle").labelStyle(.iconOnly)
         }
         .accessibilityIdentifier("screen.options")
+    }
+
+    /// An on/off item in the options menu: a Button that flips the value and shows a checkmark.
+    /// A Toggle there rendered on iOS 26 as three rows (one titled, two blank), all disabled.
+    private func checkItem(_ title: String, systemImage: String, isOn: Binding<Bool>) -> some View {
+        Button {
+            isOn.wrappedValue.toggle()
+        } label: {
+            Label(title, systemImage: isOn.wrappedValue ? "checkmark" : systemImage)
+        }
+        .accessibilityAddTraits(isOn.wrappedValue ? .isSelected : [])
     }
 
     private var stats: some View {
