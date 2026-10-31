@@ -65,6 +65,7 @@ extension SettingsSchema {
         "sidebar.side", "sidebar.style",
         "sidebar.spacesPosition", "sidebar.spacesVisibility",
         "tabs.newTabTemplate",
+        "tabs.nativeNewTabPage", // which New Tab page draws; a look switch, ends no work
         "tabs.newTabPosition",
         "newTerminal.opensWorkspace",
         "tabs.cmdWClosesPinnedTabs",
@@ -198,6 +199,8 @@ extension SettingsSchema {
         "browser.siteEngines",
         "browser.newTabPage",
         "browser.showBookmarksBar",
+        // Whether browser tabs offer to import cookies: the card reads nothing until the person clicks Import.
+        "browser.import.cookieBanner",
         "browser.toolbarButtons",
         "browser.hibernation",
         "browser.hibernationExclusions",
