@@ -21,15 +21,24 @@ public struct PersonalIrohDeviceRegistryDecorator: DeviceRegistryRefreshing {
         self.knownRoutes = knownRoutes
     }
 
+    /// Merges personal and team routes only while the personal snapshot remains authorized.
     public func freshRoutes(forMacDeviceID macDeviceID: String, instanceTag: String?) async -> [CmxAttachRoute]? {
-        let personal = await catalog.routes(forKnownMacDeviceID: macDeviceID, instanceTag: instanceTag)
+        guard let snapshot = await catalog.routeSnapshot(
+            forKnownMacDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ) else { return nil }
+        let personal = snapshot.routes
         guard !personal.isEmpty else { return nil }
         let local = await knownRoutes(macDeviceID, instanceTag) ?? []
+        guard await catalog.isCurrentScope(snapshot.token) else { return nil }
         return Self.merged(personal: personal, team: local.filter { $0.kind != .iroh })
     }
 
+    /// Lists discovered Macs only after revalidating the snapshot scope token.
     public func listDevices() async -> DeviceRegistryListOutcome {
-        .ok(Self.registryDevices(from: await catalog.liveMacCandidates(preferredTag: "default")))
+        guard let snapshot = await catalog.liveMacCandidateSnapshot(preferredTag: "default"),
+              await catalog.isCurrentScope(snapshot.token) else { return .ok([]) }
+        return .ok(Self.registryDevices(from: snapshot.candidates))
     }
 
     private static func registryDevices(
