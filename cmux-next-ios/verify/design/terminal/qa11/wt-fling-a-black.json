@@ -1,0 +1,29 @@
+{
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tq11/wt-fling-a.mp4",
+ "source_frames": 10279,
+ "duration": 167.25,
+ "lit_median": 0.0423,
+ "black_runs": [
+  {
+   "start": 25.61,
+   "end": 25.62,
+   "dur_ms": 10.0,
+   "source_frames": 1
+  },
+  {
+   "start": 58.807,
+   "end": 58.82,
+   "dur_ms": 13.3,
+   "source_frames": 1
+  },
+  {
+   "start": 72.492,
+   "end": 72.505,
+   "dur_ms": 13.3,
+   "source_frames": 1
+  }
+ ],
+ "black_runs_over_17ms": [],
+ "frac_gaps_over_34ms": 0.009,
+ "max_gap_ms": 51.7
+}

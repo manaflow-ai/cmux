@@ -1,0 +1,11 @@
+{
+ "scenario": "1350",
+ "old": "2e1369f0",
+ "new": "new",
+ "agent": "codex",
+ "rows": {
+  "T-REG-1350-a": "FAIL (red on new)",
+  "T-REG-1350-b": "not reproduced (green on old)",
+  "T-REG-1350-c": "not decided"
+ }
+}

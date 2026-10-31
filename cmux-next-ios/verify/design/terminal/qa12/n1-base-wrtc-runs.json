@@ -1,0 +1,162 @@
+[
+ {
+  "run": "n1-base-wrtc-01",
+  "kill_v": 3.59,
+  "before": [
+   "GEN-16699",
+   "GEN-16700",
+   "GEN-16701",
+   "GEN-16702",
+   "GEN-16703",
+   "GEN-16704"
+  ],
+  "after": [
+   "GEN-16699",
+   "GEN-16700",
+   "GEN-16701",
+   "GEN-16702",
+   "GEN-16703",
+   "GEN-16704"
+  ],
+  "replays": 2,
+  "prunes": 9,
+  "restored": [
+   [
+    "13928",
+    "13041",
+    "17072"
+   ]
+  ],
+  "restore_moved_by_prune": true,
+  "held_at_cap": [],
+  "no_match": [],
+  "blank_page": [],
+  "video_black_runs": [],
+  "source_frames": 949,
+  "load": [
+   7.99,
+   7.79,
+   7.84
+  ]
+ },
+ {
+  "run": "n1-base-wrtc-02",
+  "kill_v": 3.62,
+  "before": [
+   "GEN-28354",
+   "GEN-28355",
+   "GEN-28356",
+   "GEN-28357",
+   "GEN-28358",
+   "GEN-28359"
+  ],
+  "after": [
+   "GEN-28354",
+   "GEN-28355",
+   "GEN-28356",
+   "GEN-28357",
+   "GEN-28358",
+   "GEN-28359"
+  ],
+  "replays": 2,
+  "prunes": 9,
+  "restored": [
+   [
+    "14051",
+    "13164",
+    "17199"
+   ]
+  ],
+  "restore_moved_by_prune": true,
+  "held_at_cap": [],
+  "no_match": [],
+  "blank_page": [],
+  "video_black_runs": [],
+  "source_frames": 918,
+  "load": [
+   7.87,
+   7.79,
+   7.83
+  ]
+ },
+ {
+  "run": "n1-base-wrtc-03",
+  "kill_v": 3.58,
+  "before": [
+   "GEN-40159",
+   "GEN-40160",
+   "GEN-40161",
+   "GEN-40162",
+   "GEN-40163",
+   "GEN-40164"
+  ],
+  "after": [
+   "GEN-40159",
+   "GEN-40160",
+   "GEN-40161",
+   "GEN-40162",
+   "GEN-40163",
+   "GEN-40164"
+  ],
+  "replays": 2,
+  "prunes": 9,
+  "restored": [
+   [
+    "14326",
+    "13439",
+    "17422"
+   ]
+  ],
+  "restore_moved_by_prune": true,
+  "held_at_cap": [],
+  "no_match": [],
+  "blank_page": [],
+  "video_black_runs": [],
+  "source_frames": 938,
+  "load": [
+   8.25,
+   7.86,
+   7.86
+  ]
+ },
+ {
+  "run": "n1-base-wrtc-04",
+  "kill_v": 3.58,
+  "before": [
+   "GEN-51805",
+   "GEN-51806",
+   "GEN-51807",
+   "GEN-51808",
+   "GEN-51809",
+   "GEN-51810"
+  ],
+  "after": [
+   "GEN-51805",
+   "GEN-51806",
+   "GEN-51807",
+   "GEN-51808",
+   "GEN-51809",
+   "GEN-51810"
+  ],
+  "replays": 2,
+  "prunes": 10,
+  "restored": [
+   [
+    "13554",
+    "13554",
+    "17535"
+   ]
+  ],
+  "restore_moved_by_prune": false,
+  "held_at_cap": [],
+  "no_match": [],
+  "blank_page": [],
+  "video_black_runs": [],
+  "source_frames": 945,
+  "load": [
+   8.85,
+   8.04,
+   7.92
+  ]
+ }
+]

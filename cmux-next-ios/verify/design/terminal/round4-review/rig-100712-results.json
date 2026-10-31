@@ -1,0 +1,122 @@
+{
+  "meta": {
+    "date": "2026-10-14",
+    "run": "100712-ios26",
+    "ios_head": "aeca56d1f4f28b9a2d3c9949c922dfff6f45357b",
+    "ios_config": "Demo",
+    "ios_runtime": "com.apple.CoreSimulator.SimRuntime.iOS-26-5",
+    "simulator": {
+      "name": "cnx-term-review4",
+      "udid": "C45469AC-30D7-456E-8A57-7434FBC98E18"
+    },
+    "mac_app": "cmux DEV cnx-e2e-604fc689.app",
+    "mac_bundle_id": "com.cmuxterm.app.debug.cnx.e2e.604fc689",
+    "mac_tag": "cnx-e2e-604fc689",
+    "mac_source": "origin/feat-cnx-ios-machost 604fc6893acca49b81b7cbf2763e4503ae94776f; fleet job f9133c722640bee8bd62af2b, tag cnx-e2e-604fc689",
+    "mac_launch_s": 2.22,
+    "mac_windows": []
+  },
+  "steps": [
+    {
+      "id": "fresh_install",
+      "title": "Fresh install and Welcome",
+      "owner": "wsdesign",
+      "started": 1791997655.762811,
+      "status": "pass",
+      "notes": "Welcome in 0.9 s: ['Your Macs, in your pocket.', 'Continue with Google', 'GoogleLogo']",
+      "seconds": 3.74,
+      "screenshot": "shots/01-fresh_install.png"
+    },
+    {
+      "id": "sign_in",
+      "title": "Sign in (dev account, email 42)",
+      "owner": "prodinfra",
+      "started": 1791997660.50476,
+      "status": "pass",
+      "notes": "signed in with the DEBUG dev credential (email 42) in 1.5 s",
+      "metric_signin_s": 1.54,
+      "seconds": 7.57,
+      "screenshot": "shots/02-sign_in.png"
+    },
+    {
+      "id": "choose_space",
+      "title": "Choose team / personal, setup steps",
+      "owner": "wsdesign",
+      "started": 1791997669.042022,
+      "status": "pass",
+      "notes": "space: Personal; connect step: Aziz\u2019s MacBook Pro is online",
+      "seconds": 5.99,
+      "screenshot": "shots/03-choose_space.png"
+    },
+    {
+      "id": "mac_discovered",
+      "title": "Mac discovered, no false 'No workspaces'",
+      "owner": "fastconn",
+      "started": 1791997676.347085,
+      "status": "pass",
+      "notes": "Filter > rig Mac: rows in 1.3 s; link 'Aziz's MacBook Pro 1952 Online \u2022 Connected \u2022 WebRTC direct \u2022 0 ms'",
+      "seconds": 12.04,
+      "screenshot": "shots/04-mac_discovered.png"
+    },
+    {
+      "id": "workspace_list",
+      "title": "Workspaces list filtered by Mac matches the Mac",
+      "owner": "dataflow",
+      "started": 1791997689.550614,
+      "status": "pass",
+      "notes": "3 rows match the Mac (Home, e2e-100732, workspace-1)",
+      "seconds": 0.7,
+      "screenshot": "shots/05-workspace_list.png"
+    },
+    {
+      "id": "create_workspace",
+      "title": "Create workspace (instant)",
+      "owner": "dataflow",
+      "started": 1791997691.352231,
+      "status": "pass",
+      "notes": "'New Workspace' on the Mac in 1.61 s; phone showed its terminal in 1.60 s (closed afterwards)",
+      "metric_create_mac_s": 1.61,
+      "seconds": 7.49,
+      "screenshot": "shots/06-create_workspace.png"
+    },
+    {
+      "id": "open_workspace",
+      "title": "Open workspace",
+      "owner": "wsdesign",
+      "started": 1791997699.933057,
+      "status": "pass",
+      "notes": "opened e2e-100732 on a terminal in 0.96 s; toolbar ['e2e-t1, ~']",
+      "seconds": 1.98,
+      "screenshot": "shots/07-open_workspace.png"
+    },
+    {
+      "id": "last_tab_restore",
+      "title": "Last-tab restore and tab grid",
+      "owner": "wsdesign",
+      "started": 1791997702.843435,
+      "status": "fail",
+      "notes": "tab grid has no e2e-t2",
+      "trace": "Traceback (most recent call last):\n  File \"/Users/azizalbahar/Development/cmuxterm-hq/worktrees/feat-cnx-ios-design-terminal/cnx-ios/verify/e2e/journey.py\", line 85, in step\n    notes = fn() or {}\n  File \"/Users/azizalbahar/Development/cmuxterm-hq/worktrees/feat-cnx-ios-design-terminal/cnx-ios/verify/e2e/journey.py\", line 535, in s_last_tab_restore\n    self.tab_grid_pick(\"e2e-t2\")\n  File \"/Users/azizalbahar/Development/cmuxterm-hq/worktrees/feat-cnx-ios-design-terminal/cnx-ios/verify/e2e/journey.py\", line 517, in tab_grid_pick\n    check(cand, f\"tab grid has no {name}\")\njourney.Fail: tab grid has no e2e-t2\n",
+      "seconds": 13.83,
+      "screenshot": "shots/08-last_tab_restore.png"
+    },
+    {
+      "id": "relaunch_restore",
+      "title": "Relaunch restores the tab and attaches",
+      "owner": "wsdesign",
+      "started": 1791997717.60693,
+      "status": "pass",
+      "notes": "restored the tab in 1.5 s (no connecting label); attached 3.3 s and the Mac ran input 13.5 s after launch",
+      "metric_relaunch_attach_s": 3.25,
+      "seconds": 23.05,
+      "screenshot": "shots/09-relaunch_restore.png"
+    }
+  ],
+  "latency": {},
+  "hangs": [],
+  "summary": {
+    "pass": 8,
+    "fail": 1,
+    "blocked": 0
+  }
+}

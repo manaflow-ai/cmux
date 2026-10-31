@@ -1,0 +1,85 @@
+{
+ "tag": "gd-read2-c",
+ "mode": "read2",
+ "gap": 3.4,
+ "kills_v": [
+  5.17,
+  8.76
+ ],
+ "hostd": [
+  [
+   1.55,
+   "NFO cnx_hostd: starting device_id=\"e768bbe4-2a31-4632-a394-8ceefbb89287\" team=\"personal-4c3c1f89-a263-4381-b729-db4b6d38"
+  ],
+  [
+   2.39,
+   "NFO cnx_hostd::host: link up session_id=\"be9a6b43-af01-4de1-8954-5f6007d6f02e\" kind=WireGuard path=Relay phone=\"c839f17d"
+  ],
+  [
+   6.25,
+   "NFO cnx_hostd: starting device_id=\"e768bbe4-2a31-4632-a394-8ceefbb89287\" team=\"personal-4c3c1f89-a263-4381-b729-db4b6d38"
+  ],
+  [
+   7.02,
+   "NFO cnx_hostd::host: link up session_id=\"b61e957e-49e1-4f33-a484-55f4559d4867\" kind=WireGuard path=Relay phone=\"c839f17d"
+  ]
+ ],
+ "before": [
+  "GEN-1585",
+  "GEN-1586",
+  "GEN-1587",
+  "GEN-1588",
+  "GEN-1589",
+  "GEN-1590"
+ ],
+ "before_plus1s": [
+  "GEN-1585",
+  "GEN-1586",
+  "GEN-1587",
+  "GEN-1588",
+  "GEN-1589",
+  "GEN-1590"
+ ],
+ "after": [
+  "GEN-1585",
+  "GEN-1586",
+  "GEN-1587",
+  "GEN-1588",
+  "GEN-1589",
+  "GEN-1590"
+ ],
+ "after_plus3s": [
+  "GEN-1585",
+  "GEN-1586",
+  "GEN-1587",
+  "GEN-1588",
+  "GEN-1589",
+  "GEN-1590"
+ ],
+ "jump_visible_after": true,
+ "replays": [
+  "surface 34: mirror reset cause=reattach",
+  "surface 37: mirror reset cause=reattach",
+  "surface 34: mirror reset cause=reattach",
+  "surface 37: mirror reset cause=reattach"
+ ],
+ "unknown_surface": 0,
+ "reading_marks": [
+  "reading mark row 14954 of 16885: kept",
+  "reading mark restored row 14954 -> 14954 of 16974",
+  "reading mark row 14954 of 17058: kept",
+  "reading mark restored row 14954 -> 14954 of 17197"
+ ],
+ "blank_page_lines": [],
+ "video_black_runs": [],
+ "video_black_over_1_frame": [],
+ "framelog_blank_runs_over_1": [],
+ "framelog_blank_frames": 0,
+ "dt_max": 60.39,
+ "frac_gaps_over_34ms": 0.0939,
+ "load": [
+  10.5,
+  12.48,
+  17.36
+ ]
+}

@@ -1,0 +1,50 @@
+## Feed Teams (center 38,84; visible circle 44 pt)
+  dx=0 dy=0: tap (38,84): responded
+  dx=0 dy=-20: tap (38,64): responded
+  dx=0 dy=20: tap (38,104): responded
+  dx=-20 dy=0: tap (18,84): responded
+  dx=20 dy=0: tap (58,84): responded
+## Feed Filter (center 364,84; visible circle 44 pt)
+  dx=0 dy=0: tap (364,84): responded
+  dx=0 dy=-20: tap (364,64): responded
+  dx=0 dy=20: tap (364,104): responded
+  dx=-20 dy=0: tap (344,84): responded
+  dx=20 dy=0: tap (384,84): responded
+## Workspaces Filter (center 304,84; visible circle 44 pt)
+  dx=0 dy=0: tap (304,84): responded
+  dx=0 dy=-20: tap (304,64): responded
+  dx=0 dy=20: tap (304,104): responded
+  dx=-20 dy=0: tap (284,84): responded
+  dx=20 dy=0: tap (324,84): responded
+## Workspaces New Workspace (center 361,84; visible circle 44 pt)
+  dx=0 dy=0: tap (361,84): responded
+  dx=0 dy=-20: tap (361,64): responded
+  dx=0 dy=20: tap (361,104): responded
+  dx=-20 dy=0: tap (341,84): responded
+  dx=20 dy=0: tap (381,84): responded
+## Control check: a tap 40 pt below Feed Teams (38,124) must not open the sidebar
+  tap (38,124): NO response (matches before 0, after 0)
+## Artifacts Grid/List (center 38,100; visible circle 44 pt)
+  dx=0 dy=0: tap (38,100): responded
+  dx=0 dy=-20: tap (38,80): responded
+  dx=0 dy=20: tap (38,120): responded
+  dx=-20 dy=0: tap (18,100): responded
+  dx=20 dy=0: tap (58,100): responded
+## Artifacts Done (center 364,100; visible circle 44 pt)
+  dx=0 dy=0: tap (364,100): responded
+  dx=0 dy=-20: tap (364,80): responded
+  dx=0 dy=20: tap (364,120): responded
+  dx=-20 dy=0: tap (344,100): responded
+  dx=20 dy=0: tap (384,100): responded
+## Chat More (circle drawn x 342-386 in the screenshot) (center 364,84; visible circle 44 pt)
+  dx=0 dy=0: tap (364,84): responded
+  dx=0 dy=-20: tap (364,64): responded
+  dx=0 dy=20: tap (364,104): responded
+  dx=-20 dy=0: tap (344,84): responded
+  dx=20 dy=0: tap (384,84): responded
+## Diff options (diff file screen, -CnxDemoHold diff) (center 364,84; visible circle 44 pt)
+  dx=0 dy=0: tap (364,84): responded
+  dx=0 dy=-20: tap (364,64): responded
+  dx=0 dy=20: tap (364,104): responded
+  dx=-20 dy=0: tap (344,84): responded
+  dx=20 dy=0: tap (384,84): responded

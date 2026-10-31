@@ -1,0 +1,523 @@
+[
+ {
+  "run": "n1-fix-wrtc-01",
+  "kill_v": 3.58,
+  "before": [
+   "GEN-16622",
+   "GEN-16623",
+   "GEN-16624",
+   "GEN-16625",
+   "GEN-16626",
+   "GEN-16627"
+  ],
+  "after": [
+   "GEN-16622",
+   "GEN-16623",
+   "GEN-16624",
+   "GEN-16625",
+   "GEN-16626",
+   "GEN-16627"
+  ],
+  "replays": 2,
+  "prunes": 10,
+  "restored": [
+   [
+    "13588",
+    "13588",
+    "17622"
+   ]
+  ],
+  "restore_moved_by_prune": false,
+  "held_at_cap": [],
+  "no_match": [
+   "present: no match, placed at 0 (was 13560, report 0, request 16856)",
+   "present: no match, placed at 13540 (was 0, report 13540, request 13540)"
+  ],
+  "blank_page": [],
+  "video_black_runs": [],
+  "source_frames": 865,
+  "load": [
+   7.94,
+   7.9,
+   7.87
+  ]
+ },
+ {
+  "run": "n1-fix-wrtc-02",
+  "kill_v": 3.6,
+  "before": [
+   "GEN-28251",
+   "GEN-28252",
+   "GEN-28253",
+   "GEN-28254",
+   "GEN-28255",
+   "GEN-28256"
+  ],
+  "after": [
+   "GEN-28251",
+   "GEN-28252",
+   "GEN-28253",
+   "GEN-28254",
+   "GEN-28255",
+   "GEN-28256"
+  ],
+  "replays": 2,
+  "prunes": 10,
+  "restored": [
+   [
+    "13687",
+    "12800",
+    "16884"
+   ]
+  ],
+  "restore_moved_by_prune": true,
+  "held_at_cap": [],
+  "no_match": [
+   "present: no match, placed at 0 (was 13661, report 0, request 13661)",
+   "present: no match, placed at 12752 (was 0, report 12752, request 12752)"
+  ],
+  "blank_page": [],
+  "video_black_runs": [],
+  "source_frames": 899,
+  "load": [
+   7.94,
+   7.91,
+   7.87
+  ]
+ },
+ {
+  "run": "n1-fix-wrtc-03",
+  "kill_v": 3.58,
+  "before": [
+   "GEN-40080",
+   "GEN-40081",
+   "GEN-40082",
+   "GEN-40083",
+   "GEN-40084",
+   "GEN-40085"
+  ],
+  "after": [
+   "GEN-40080",
+   "GEN-40081",
+   "GEN-40082",
+   "GEN-40083",
+   "GEN-40084",
+   "GEN-40085"
+  ],
+  "replays": 2,
+  "prunes": 9,
+  "restored": [
+   [
+    "13984",
+    "13097",
+    "17039"
+   ]
+  ],
+  "restore_moved_by_prune": true,
+  "held_at_cap": [],
+  "no_match": [
+   "present: no match, placed at 0 (was 13958, report 0, request 13958)",
+   "present: no match, placed at 16887 (was 0, report 16887, request 13958)",
+   "present: no match, placed at 13049 (was 16887, report 13049, request 13049)"
+  ],
+  "blank_page": [],
+  "video_black_runs": [],
+  "source_frames": 889,
+  "load": [
+   8.51,
+   8.08,
+   7.94
+  ]
+ },
+ {
+  "run": "n1-fix-wrtc-04",
+  "kill_v": 3.6,
+  "before": [
+   "GEN-51705",
+   "GEN-51706",
+   "GEN-51707",
+   "GEN-51708",
+   "GEN-51709",
+   "GEN-51710"
+  ],
+  "after": [
+   "GEN-51705",
+   "GEN-51706",
+   "GEN-51707",
+   "GEN-51708",
+   "GEN-51709",
+   "GEN-51710"
+  ],
+  "replays": 2,
+  "prunes": 9,
+  "restored": [
+   [
+    "14079",
+    "13192",
+    "17098"
+   ]
+  ],
+  "restore_moved_by_prune": true,
+  "held_at_cap": [],
+  "no_match": [
+   "present: no match, placed at 0 (was 14053, report 0, request 14053)",
+   "present: no match, placed at 16943 (was 0, report 16943, request 14053)",
+   "present: no match, placed at 13144 (was 16943, report 13144, request 13144)"
+  ],
+  "blank_page": [],
+  "video_black_runs": [],
+  "source_frames": 928,
+  "load": [
+   11.7,
+   8.95,
+   8.26
+  ]
+ },
+ {
+  "run": "n1-fix-wrtc-05",
+  "kill_v": 3.58,
+  "before": [
+   "GEN-63420",
+   "GEN-63421",
+   "GEN-63422",
+   "GEN-63423",
+   "GEN-63424",
+   "GEN-63425"
+  ],
+  "after": [
+   "GEN-63420",
+   "GEN-63421",
+   "GEN-63422",
+   "GEN-63423",
+   "GEN-63424",
+   "GEN-63425"
+  ],
+  "replays": 2,
+  "prunes": 9,
+  "restored": [
+   [
+    "14263",
+    "13376",
+    "17451"
+   ]
+  ],
+  "restore_moved_by_prune": true,
+  "held_at_cap": [],
+  "no_match": [
+   "present: no match, placed at 0 (was 14237, report 0, request 14237)",
+   "present: no match, placed at 17296 (was 0, report 17296, request 14237)",
+   "present: no match, placed at 13328 (was 17296, report 13328, request 13328)"
+  ],
+  "blank_page": [],
+  "video_black_runs": [],
+  "source_frames": 899,
+  "load": [
+   10.31,
+   8.95,
+   8.29
+  ]
+ },
+ {
+  "run": "n1-fix-wrtc-06",
+  "kill_v": 3.57,
+  "before": [
+   "GEN-75094",
+   "GEN-75095",
+   "GEN-75096",
+   "GEN-75097",
+   "GEN-75098",
+   "GEN-75099"
+  ],
+  "after": [
+   "GEN-75094",
+   "GEN-75095",
+   "GEN-75096",
+   "GEN-75097",
+   "GEN-75098",
+   "GEN-75099"
+  ],
+  "replays": 2,
+  "prunes": 10,
+  "restored": [
+   [
+    "13519",
+    "13519",
+    "17447"
+   ]
+  ],
+  "restore_moved_by_prune": false,
+  "held_at_cap": [],
+  "no_match": [
+   "present: no match, placed at 0 (was 13495, report 0, request 16776)",
+   "present: no match, placed at 13471 (was 0, report 13471, request 13471)"
+  ],
+  "blank_page": [],
+  "video_black_runs": [],
+  "source_frames": 934,
+  "load": [
+   9.81,
+   9.0,
+   8.34
+  ]
+ },
+ {
+  "run": "n1-fix-wrtc-07",
+  "kill_v": 3.64,
+  "before": [
+   "GEN-86818",
+   "GEN-86819",
+   "GEN-86820",
+   "GEN-86821",
+   "GEN-86822",
+   "GEN-86823"
+  ],
+  "after": [
+   "GEN-86818",
+   "GEN-86819",
+   "GEN-86820",
+   "GEN-86821",
+   "GEN-86822",
+   "GEN-86823"
+  ],
+  "replays": 2,
+  "prunes": 10,
+  "restored": [
+   [
+    "13711",
+    "13711",
+    "17661"
+   ]
+  ],
+  "restore_moved_by_prune": false,
+  "held_at_cap": [],
+  "no_match": [
+   "present: no match, placed at 0 (was 13683, report 0, request 13683)",
+   "present: no match, placed at 17070 (was 0, report 17510, request 17070, newer)",
+   "present: no match, placed at 13663 (was 17070, report 13663, request 13663)"
+  ],
+  "blank_page": [],
+  "video_black_runs": [],
+  "source_frames": 940,
+  "load": [
+   10.2,
+   9.23,
+   8.46
+  ]
+ },
+ {
+  "run": "n1-fix-wrtc-08",
+  "kill_v": 3.59,
+  "before": [
+   "GEN-98636",
+   "GEN-98637",
+   "GEN-98638",
+   "GEN-98639",
+   "GEN-98640",
+   "GEN-98641"
+  ],
+  "after": [
+   "GEN-98636",
+   "GEN-98637",
+   "GEN-98638",
+   "GEN-98639",
+   "GEN-98640",
+   "GEN-98641"
+  ],
+  "replays": 2,
+  "prunes": 9,
+  "restored": [
+   [
+    "13998",
+    "13111",
+    "17089"
+   ]
+  ],
+  "restore_moved_by_prune": true,
+  "held_at_cap": [],
+  "no_match": [
+   "present: no match, placed at 0 (was 13957, report 0, request 13957)",
+   "present: no match, placed at 16934 (was 0, report 16934, request 13957)",
+   "present: no match, placed at 13063 (was 16934, report 13063, request 13063)"
+  ],
+  "blank_page": [],
+  "video_black_runs": [],
+  "source_frames": 917,
+  "load": [
+   9.21,
+   9.11,
+   8.45
+  ]
+ },
+ {
+  "run": "n1-fix-wrtc-09",
+  "kill_v": 3.6,
+  "before": [
+   "GEN-110312",
+   "GEN-110313",
+   "GEN-110314",
+   "GEN-110315",
+   "GEN-110316",
+   "GEN-110317"
+  ],
+  "after": [
+   "GEN-110312",
+   "GEN-110313",
+   "GEN-110314",
+   "GEN-110315",
+   "GEN-110316",
+   "GEN-110317"
+  ],
+  "replays": 2,
+  "prunes": 9,
+  "restored": [
+   [
+    "14144",
+    "13257",
+    "17291"
+   ]
+  ],
+  "restore_moved_by_prune": true,
+  "held_at_cap": [],
+  "no_match": [
+   "present: no match, placed at 0 (was 14105, report 0, request 17430)",
+   "present: no match, placed at 13209 (was 0, report 13209, request 13209)"
+  ],
+  "blank_page": [],
+  "video_black_runs": [],
+  "source_frames": 915,
+  "load": [
+   9.91,
+   9.29,
+   8.55
+  ]
+ },
+ {
+  "run": "n1-fix-wrtc-10",
+  "kill_v": 3.63,
+  "before": [
+   "GEN-122086",
+   "GEN-122087",
+   "GEN-122088",
+   "GEN-122089",
+   "GEN-122090",
+   "GEN-122091"
+  ],
+  "after": [
+   "GEN-122086",
+   "GEN-122087",
+   "GEN-122088",
+   "GEN-122089",
+   "GEN-122090",
+   "GEN-122091"
+  ],
+  "replays": 2,
+  "prunes": 10,
+  "restored": [
+   [
+    "13500",
+    "13500",
+    "17616"
+   ]
+  ],
+  "restore_moved_by_prune": false,
+  "held_at_cap": [],
+  "no_match": [
+   "present: no match, placed at 16842 (was 13461, report 17465, request 16842, newer)",
+   "present: no match, placed at 13452 (was 16842, report 13452, request 13452)"
+  ],
+  "blank_page": [],
+  "video_black_runs": [],
+  "source_frames": 853,
+  "load": [
+   8.95,
+   9.11,
+   8.51
+  ]
+ },
+ {
+  "run": "n1-fix-wrtc-11",
+  "kill_v": 3.67,
+  "before": [
+   "GEN-133758",
+   "GEN-133759",
+   "GEN-133760",
+   "GEN-133761",
+   "GEN-133762",
+   "GEN-133763"
+  ],
+  "after": [
+   "GEN-133758",
+   "GEN-133759",
+   "GEN-133760",
+   "GEN-133761",
+   "GEN-133762",
+   "GEN-133763"
+  ],
+  "replays": 2,
+  "prunes": 11,
+  "restored": [
+   [
+    "13640",
+    "13640",
+    "17615"
+   ]
+  ],
+  "restore_moved_by_prune": false,
+  "held_at_cap": [],
+  "no_match": [
+   "present: no match, placed at 0 (was 13613, report 0, request 16962)",
+   "present: no match, placed at 13592 (was 0, report 13592, request 13592)"
+  ],
+  "blank_page": [],
+  "video_black_runs": [],
+  "source_frames": 939,
+  "load": [
+   9.11,
+   9.1,
+   8.54
+  ]
+ },
+ {
+  "run": "n1-fix-wrtc-12",
+  "kill_v": 3.64,
+  "before": [
+   "GEN-145514",
+   "GEN-145515",
+   "GEN-145516",
+   "GEN-145517",
+   "GEN-145518",
+   "GEN-145519"
+  ],
+  "after": [
+   "GEN-145514",
+   "GEN-145515",
+   "GEN-145516",
+   "GEN-145517",
+   "GEN-145518",
+   "GEN-145519"
+  ],
+  "replays": 2,
+  "prunes": 9,
+  "restored": [
+   [
+    "13865",
+    "12978",
+    "16993"
+   ]
+  ],
+  "restore_moved_by_prune": true,
+  "held_at_cap": [],
+  "no_match": [
+   "present: no match, placed at 0 (was 13818, report 0, request 17202)",
+   "present: no match, placed at 12930 (was 0, report 12930, request 12930)"
+  ],
+  "blank_page": [],
+  "video_black_runs": [],
+  "source_frames": 885,
+  "load": [
+   9.37,
+   9.18,
+   8.59
+  ]
+ }
+]

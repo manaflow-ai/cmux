@@ -1,0 +1,121 @@
+{
+  "meta": {
+    "date": "2026-10-14",
+    "run": "065725-ios26",
+    "ios_head": "b46269e4011a03db94fec11dde5d546ca22062c0",
+    "ios_config": "Demo",
+    "ios_runtime": "com.apple.CoreSimulator.SimRuntime.iOS-26-5",
+    "simulator": {
+      "name": "cnx-term-review2",
+      "udid": "1E91222F-B1B2-4C90-9C5E-17BF406BE1D7"
+    },
+    "mac_app": "cmux DEV cnx-e2e-604fc689.app",
+    "mac_bundle_id": "com.cmuxterm.app.debug.cnx.e2e.604fc689",
+    "mac_tag": "cnx-e2e-604fc689",
+    "mac_source": "origin/feat-cnx-ios-machost 604fc6893acca49b81b7cbf2763e4503ae94776f; fleet job f9133c722640bee8bd62af2b, tag cnx-e2e-604fc689",
+    "mac_launch_s": 2.11,
+    "mac_windows": []
+  },
+  "steps": [
+    {
+      "id": "fresh_install",
+      "title": "Fresh install and Welcome",
+      "owner": "wsdesign",
+      "started": 1791986276.654088,
+      "status": "pass",
+      "notes": "Welcome in 1.0 s: ['Your Macs, in your pocket.', 'Continue with Google', 'GoogleLogo']",
+      "seconds": 3.84,
+      "screenshot": "shots/01-fresh_install.png"
+    },
+    {
+      "id": "sign_in",
+      "title": "Sign in (dev account, email 42)",
+      "owner": "prodinfra",
+      "started": 1791986281.3761752,
+      "status": "pass",
+      "notes": "signed in with the DEBUG dev credential (email 42) in 2.2 s",
+      "metric_signin_s": 2.21,
+      "seconds": 11.73,
+      "screenshot": "shots/02-sign_in.png"
+    },
+    {
+      "id": "choose_space",
+      "title": "Choose team / personal, setup steps",
+      "owner": "wsdesign",
+      "started": 1791986294.186274,
+      "status": "pass",
+      "notes": "space: Personal; connect step: Aziz\u2019s MacBook Pro is online",
+      "seconds": 8.05,
+      "screenshot": "shots/03-choose_space.png"
+    },
+    {
+      "id": "mac_discovered",
+      "title": "Mac discovered, no false 'No workspaces'",
+      "owner": "fastconn",
+      "started": 1791986303.482317,
+      "status": "pass",
+      "notes": "Filter > rig Mac: rows in 1.3 s; link 'Aziz's MacBook Pro 1952 Online \u2022 Connected \u2022 WebRTC direct \u2022 0 ms'",
+      "seconds": 12.87,
+      "screenshot": "shots/04-mac_discovered.png"
+    },
+    {
+      "id": "workspace_list",
+      "title": "Workspaces list filtered by Mac matches the Mac",
+      "owner": "dataflow",
+      "started": 1791986317.502439,
+      "status": "pass",
+      "notes": "3 rows match the Mac (Home, e2e-065753, workspace-1)",
+      "seconds": 0.69,
+      "screenshot": "shots/05-workspace_list.png"
+    },
+    {
+      "id": "create_workspace",
+      "title": "Create workspace (instant)",
+      "owner": "dataflow",
+      "started": 1791986319.234528,
+      "status": "pass",
+      "notes": "'New Workspace' on the Mac in 2.62 s; phone showed its terminal in 2.61 s (closed afterwards)",
+      "metric_create_mac_s": 2.62,
+      "seconds": 7.91,
+      "screenshot": "shots/06-create_workspace.png"
+    },
+    {
+      "id": "open_workspace",
+      "title": "Open workspace",
+      "owner": "wsdesign",
+      "started": 1791986328.3147478,
+      "status": "pass",
+      "notes": "opened e2e-065753 on a terminal in 0.90 s; toolbar ['e2e-t1, ~']",
+      "seconds": 1.91,
+      "screenshot": "shots/07-open_workspace.png"
+    },
+    {
+      "id": "last_tab_restore",
+      "title": "Last-tab restore and tab grid",
+      "owner": "wsdesign",
+      "started": 1791986331.129537,
+      "status": "pass",
+      "notes": "reopened on the last tab (e2e-t2); grid switch back to e2e-t1",
+      "seconds": 61.86,
+      "screenshot": "shots/08-last_tab_restore.png"
+    },
+    {
+      "id": "relaunch_restore",
+      "title": "Relaunch restores the tab and attaches",
+      "owner": "wsdesign",
+      "started": 1791986394.122572,
+      "status": "pass",
+      "notes": "restored the tab in 2.2 s (no connecting label); attached 3.6 s and the Mac ran input 15.9 s after launch",
+      "metric_relaunch_attach_s": 3.64,
+      "seconds": 24.58,
+      "screenshot": "shots/09-relaunch_restore.png"
+    }
+  ],
+  "latency": {},
+  "hangs": [],
+  "summary": {
+    "pass": 9,
+    "fail": 0,
+    "blocked": 0
+  }
+}

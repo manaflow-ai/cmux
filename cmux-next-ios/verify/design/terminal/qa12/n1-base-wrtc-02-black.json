@@ -1,0 +1,10 @@
+{
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tq12/n1-base-wrtc-02.mp4",
+ "source_frames": 918,
+ "duration": 16.2,
+ "lit_median": 0.0517,
+ "black_runs": [],
+ "black_runs_over_17ms": [],
+ "frac_gaps_over_34ms": 0.0185,
+ "max_gap_ms": 231.7
+}

@@ -1,0 +1,124 @@
+{
+ "frames": 2453,
+ "blank_frames": 0,
+ "blank_runs": [],
+ "blank_runs_over_1_frame": 0,
+ "dt_max": 49.54,
+ "dt_top10": [
+  49.54,
+  46.09,
+  40.91,
+  40.3,
+  39.94,
+  38.23,
+  38.12,
+  36.05,
+  35.68,
+  33.5
+ ],
+ "frames_over_100ms": 0,
+ "frames_over_250ms": 0,
+ "longest": [
+  {
+   "t": 1792071436.968,
+   "dt_ms": 49.54,
+   "phase": "reading",
+   "work_ms": 0.0,
+   "parts": {}
+  },
+  {
+   "t": 1792071433.338,
+   "dt_ms": 46.09,
+   "phase": "reading",
+   "work_ms": 0.0,
+   "parts": {}
+  },
+  {
+   "t": 1792071440.435,
+   "dt_ms": 40.91,
+   "phase": "reading",
+   "work_ms": 0.84,
+   "parts": {
+    "scrollbar": 0.021,
+    "present-read": 0.65,
+    "present": 0.75,
+    "viewport-request": 0.022,
+    "output-batch": 0.044
+   }
+  },
+  {
+   "t": 1792071439.568,
+   "dt_ms": 40.3,
+   "phase": "reading",
+   "work_ms": 0.01,
+   "parts": {
+    "present": 0.007
+   }
+  },
+  {
+   "t": 1792071430.968,
+   "dt_ms": 39.94,
+   "phase": "reading",
+   "work_ms": 0.05,
+   "parts": {
+    "scrollbar": 0.027,
+    "present": 0.019,
+    "output-batch": 0.004
+   }
+  },
+  {
+   "t": 1792071435.564,
+   "dt_ms": 38.23,
+   "phase": "reading",
+   "work_ms": 23.91,
+   "parts": {
+    "scrollbar": 23.387,
+    "present-read": 0.202,
+    "present": 0.241,
+    "viewport-request": 0.06,
+    "did-scroll": 0.126,
+    "output-batch": 0.211
+   }
+  },
+  {
+   "t": 1792071434.901,
+   "dt_ms": 38.12,
+   "phase": "reading",
+   "work_ms": 0.0,
+   "parts": {}
+  },
+  {
+   "t": 1792071440.371,
+   "dt_ms": 36.05,
+   "phase": "following",
+   "work_ms": 0.06,
+   "parts": {
+    "scrollbar": 0.002,
+    "viewport-request": 0.028,
+    "did-scroll": 0.042,
+    "output-batch": 0.0
+   }
+  },
+  {
+   "t": 1792071430.851,
+   "dt_ms": 35.68,
+   "phase": "reading",
+   "work_ms": 0.04,
+   "parts": {
+    "scrollbar": 0.022,
+    "present": 0.009,
+    "output-batch": 0.006
+   }
+  },
+  {
+   "t": 1792071455.435,
+   "dt_ms": 33.5,
+   "phase": "reading",
+   "work_ms": 0.03,
+   "parts": {
+    "scrollbar": 0.022,
+    "output-batch": 0.005
+   }
+  }
+ ]
+}

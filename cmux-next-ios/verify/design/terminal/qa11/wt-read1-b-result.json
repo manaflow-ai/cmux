@@ -1,0 +1,72 @@
+{
+ "tag": "wt-read1-b",
+ "mode": "read1",
+ "gap": 3.4,
+ "kills_v": [
+  5.13
+ ],
+ "hostd": [
+  [
+   1.75,
+   "NFO cnx_hostd: starting device_id=\"e768bbe4-2a31-4632-a394-8ceefbb89287\" team=\"personal-4c3c1f89-a263-4381-b729-db4b6d38"
+  ],
+  [
+   2.9,
+   "NFO cnx_hostd::host: link up session_id=\"06b877b9-7a1a-4f5f-bf23-adb817dadb51\" kind=WebRtc path=Turn phone=\"c839f17d-951"
+  ]
+ ],
+ "before": [
+  "GEN-1764",
+  "GEN-1765",
+  "GEN-1766",
+  "GEN-1767",
+  "GEN-1768",
+  "GEN-1769"
+ ],
+ "before_plus1s": [
+  "GEN-1764",
+  "GEN-1765",
+  "GEN-1766",
+  "GEN-1767",
+  "GEN-1768",
+  "GEN-1769"
+ ],
+ "after": [
+  "GEN-1764",
+  "GEN-1765",
+  "GEN-1766",
+  "GEN-1767",
+  "GEN-1768",
+  "GEN-1769"
+ ],
+ "after_plus3s": [
+  "GEN-1764",
+  "GEN-1765",
+  "GEN-1766",
+  "GEN-1767",
+  "GEN-1768",
+  "GEN-1769"
+ ],
+ "jump_visible_after": true,
+ "replays": [
+  "surface 34: mirror reset cause=reattach",
+  "surface 37: mirror reset cause=reattach"
+ ],
+ "unknown_surface": 0,
+ "reading_marks": [
+  "reading mark row 15060 of 16916: kept",
+  "reading mark restored row 15060 -> 15060 of 17023"
+ ],
+ "blank_page_lines": [],
+ "video_black_runs": [],
+ "video_black_over_1_frame": [],
+ "framelog_blank_runs_over_1": [],
+ "framelog_blank_frames": 0,
+ "dt_max": 57.2,
+ "frac_gaps_over_34ms": 0.0682,
+ "load": [
+  11.43,
+  11.91,
+  14.91
+ ]
+}
