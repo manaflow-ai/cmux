@@ -39,6 +39,16 @@ struct FileOpenAsTextTests {
         #expect(FilePageOpener.route(for: Self.url(name), userChose: true, asText: true) == asText)
     }
 
+    /// u18051 (Oct 30): "some html was just opened as html, feel like maybe it should've been opened
+    /// as a webpage". An agent's or a script's open (`file.open`, `cmux file open`, MCP, a page's
+    /// link to a local file) renders a web page in a browser tab, as the person's own open does;
+    /// its source stays one click away (Open as Text, Edit Source).
+    @Test(arguments: ["index.html", "page.htm", "logo.svg", "doc.xhtml"])
+    func anAgentsOpenOfAWebPageRendersIt(name: String) {
+        #expect(FilePageOpener.route(for: Self.url(name), userChose: false) == .renderedPage)
+        #expect(FilePageOpener.route(for: Self.url(name), userChose: false, asText: true) == .editor)
+    }
+
     @Test(arguments: ["sidebar-clean-cmux.png", "wide.jpg", "poster.webp", "document.pdf"])
     func localImageAndPDFPreviewsUseTheScopedWebKitReader(name: String) {
         #expect(FilePageOpener.tabEngine(for: Self.url(name)) == BrowserEngineTag.webkit.rawValue)
