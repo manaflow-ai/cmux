@@ -420,6 +420,8 @@
 .acpmux-home-detail{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted)}
 .acpmux-home-meta{flex:none;color:var(--agent-muted);font-size:13px;font-variant-numeric:tabular-nums}
 .acpmux-home-title+.acpmux-home-meta{margin-left:auto}
+/* A long folder name cuts with an ellipsis (its whole path is the tooltip) instead of pushing the age and chevron off the row (#28079). */
+.acpmux-home-project{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* The inbox (HomeInbox.tsx): each ask, the chat it is in under it, and its answers in place. */
 .acpmux-home-inbox .acpmux-home-label{display:flex;align-items:baseline;gap:4px}
 .acpmux-home-inbox-count{color:var(--agent-muted);font-variant-numeric:tabular-nums}
