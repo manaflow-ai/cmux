@@ -448,6 +448,11 @@ class PullRequestTiers(unittest.TestCase):
         for tier in ("macos", "scheme", "native", "swift", "generated", "daemon", "full"):
             self.assertEqual(result[tier], "false", tier)
 
+        # The warm-sources table is read only by its Linux guard test.
+        result = tiers([".github/warm-sources.json", "tests/test_ci_warm_sources.py"])
+        for tier in ("macos", "scheme", "native", "swift", "generated", "daemon", "full"):
+            self.assertEqual(result[tier], "false", tier)
+
         result = tiers([".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py"])
         for tier in ("macos", "scheme", "native", "swift", "generated", "daemon", "full"):
             self.assertEqual(result[tier], "true", tier)
