@@ -168,7 +168,7 @@ import Testing
         // Inspectors also support app web views, so the catalog has no browserFocused requirement.
         snapshot.catalog = ControlCatalog(actions: [
             ControlActionInfo(id: actionID, title: actionID, category: "browser", categoryTitle: "Browser",
-                              cliName: nil, symbol: "hammer", keywords: [], shortcut: nil, shortcutConfig: nil,
+                              cliName: actionID, symbol: "hammer", keywords: [], shortcut: nil, shortcutConfig: nil,
                               arguments: [], targets: ["pane"], requiresMask: 0, requires: [],
                               isBound: true, isDebugOnly: false, mainMenu: nil),
         ], contextMask: 1 << 1, targetKinds: ["pane", "tab"], debugActionsAvailable: false)
@@ -245,7 +245,7 @@ import Testing
         var snapshot = Self.snapshot(ownBrowser: false, neighbors: false)
         snapshot.catalog = ControlCatalog(actions: [
             ControlActionInfo(id: "browserShowHistory", title: "Show Browser History", category: "browser", categoryTitle: "Browser",
-                              cliName: nil, symbol: "clock", keywords: [], shortcut: nil, shortcutConfig: nil,
+                              cliName: "browser show-history", symbol: "clock", keywords: [], shortcut: nil, shortcutConfig: nil,
                               arguments: [], targets: [], requiresMask: 1 << 1, requires: ["browserFocused"],
                               isBound: true, isDebugOnly: false, mainMenu: nil),
         ], contextMask: 1 << 1, targetKinds: ["tab", "pane"], debugActionsAvailable: false)
