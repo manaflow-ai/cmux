@@ -90,6 +90,25 @@ struct AppRegistryPageProviderTests {
         #expect(!AppRegistryPageProvider.isAppID(publisher: String(repeating: "a", count: 40), name: "x"))
     }
 
+    @Test(arguments: ["1.0.0+" + String(repeating: "build", count: 16), "1.0.0-" + String(repeating: "preview", count: 12)])
+    func getPreservesApprovedVersionsWithLongSemverIdentifiers(version: String) async throws {
+        RegistryStub.reset { request in
+            if request.path == "/v1/apps/registry/apps/octo/board" {
+                return (200, "{\"versions\":[{\"version\":\"\(version)\",\"sha256\":\"listed\"}]}")
+            }
+            if request.path == "/v1/apps/registry/apps/octo/board/versions/\(version)/bundle" {
+                return (200, "{\"app\":\"octo/board\",\"version\":\"\(version)\",\"files\":{\"cmux-app.json\":\"e30=\"}}")
+            }
+            return (404, "{}")
+        }
+        var installedVersion: String?
+        let provider = makeProvider(put: { _, version, _, _ in installedVersion = version })
+        let got = try await provider.call("cmux.registry.get", params: ["app": "octo/board", "version": .string(version)], context: page(confirmed: true))
+        #expect(got["version"]?.stringValue == version)
+        #expect(installedVersion == version, "the schema and registry allow semver identifiers longer than 64 characters")
+        #expect(RegistryStub.seen.count == 2)
+    }
+
     @Test func gettingANewerBundleCannotReplaceActiveCodeWithoutTheNativeSheet() async throws {
         RegistryStub.reset { request in
             request.path.hasSuffix("/bundle")
