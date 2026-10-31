@@ -44,6 +44,9 @@ if status == "fail":
               open(os.path.join(out, "smoke-dogfood", "result.json"), "w"))
 open(os.path.join(out, "results.jsonl"), "w").write(json.dumps(row) + "\n")
 print("leased slot-cmux99-abc")
+if os.environ.get("SMOKE_EXCLUSIVE", "yes") == "yes":
+    open(os.path.join(out, "acquire.log"), "w").write(
+        "capture-host: cmux99 is exclusive until 2026-10-31T03:00:00Z: the fleet controller places no step on its workers (cmux99-perf)\n")
 open(os.path.join(out, "env.json"), "w").write(json.dumps({k: os.environ.get(k) for k in
     ("CAPTURE_HOST_POOL", "CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS", "CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS")}))
 '''
@@ -96,6 +99,18 @@ class Verdicts(unittest.TestCase):
             with open(os.path.join(tmp, "out", "summary.txt")) as f:
                 self.assertIn("KNOWN GAP in rounds [2]", f.read())
 
+
+    def test_a_pass_without_an_exclusive_lease_does_not_count(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code, summary = gate(["pass"] * 10, tmp, env_extra={"SMOKE_EXCLUSIVE": "no"})
+            self.assertEqual((code, summary["verdict"], summary["passed"]), (75, "NOT JUDGED", 0))
+            self.assertIn("exclusive", summary["rounds_detail"][0]["reason"])
+
+    def test_the_caller_can_name_another_owner_pool(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            gate(["pass"], tmp, env_extra={"CAPTURE_HOST_POOL": "other-pool"})
+            with open(os.path.join(tmp, "out", "round-01", "env.json")) as f:
+                self.assertEqual(json.load(f)["CAPTURE_HOST_POOL"], "other-pool")
 
     def test_a_trial_never_writes_the_pass_file(self):
         for plan, extra in ((["pass"] * 3, ()), (["pass"] * 10, ("--swap-gb", "4"))):

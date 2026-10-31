@@ -34,8 +34,9 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 JOURNEY = "smoke-dogfood"
 HANDOFF = Path("/Users/lawrence/fun/wt/handoff/dogfood-smoke")
-# Everything run.py ships to the mini: a change in any of them means the gate is not its commit.
+# The perf minis' owner-only pool (hq fleet.json owner_only_hosts): the owner's opt-in for their exclusive lease.
 OWNER_POOL = "perf-lead"
+# Everything run.py ships to the mini: a change in any of them means the gate is not its commit.
 GATE_PATHS = ("scripts/journeys", "scripts/cmux-next/build_names.py", "scripts/ci/pr_media_ocr.swift")
 # The gate cmux-ad set (2026-10-30): a .pass file needs at least this many rounds under at least this much hog.
 GATE_ROUNDS = 10
@@ -86,6 +87,16 @@ def idle_first(hosts):
         return hosts
     idle = [h for h in names if isinstance(state.get(h), dict) and state[h].get("idle") is True]
     return " ".join(idle) if idle else hosts
+
+
+def exclusive_line(out):
+    """capture-host's own word that the round's mini was exclusive ("<host> is exclusive until ...: the fleet
+    controller places no step on its workers"), from the acquire's lines run.py keeps; None when it is missing."""
+    path = out / "acquire.log"
+    if not path.is_file():
+        return None
+    return next((l.strip() for l in path.read_text(errors="replace").splitlines()
+                 if " is exclusive until " in l and "places no step" in l), None)
 
 
 def pressure(out, swap_gb):
@@ -174,10 +185,13 @@ def main(argv=None):
         hog = pressure(round_out, opts.swap_gb)
         if row.get("status") == "pass" and not hog["ok"]:
             row = dict(row, status="not run", reason=f"no memory pressure shown by the hog log: {json.dumps(hog)}")
+        exclusive = exclusive_line(round_out)
+        if row.get("status") == "pass" and not exclusive:
+            row = dict(row, status="not run", reason="capture-host did not say the lease's mini was exclusive (acquire.log)")
         leases = sorted({w for w in (done.stdout + done.stderr).split() if w.startswith("slot-")})
         record = {"round": n, "status": row.get("status"), "reason": row.get("reason"), "host": row.get("host"),
                   "seconds": round(time.time() - started), "failing_step": failing_step(round_out),
-                  "frames": frames(round_out), "hog_logs": sorted(p.name for p in round_out.glob("hog-*.jsonl")), "pressure": hog, "hosts_offered": hosts,
+                  "frames": frames(round_out), "hog_logs": sorted(p.name for p in round_out.glob("hog-*.jsonl")), "pressure": hog, "hosts_offered": hosts, "exclusive": exclusive,
                   "known_gap": "known gap" in str(row.get("reason") or ""), "leases": leases}
         rounds.append(record)
         print(f"round {n}: {record['status']}" + (f" ({record['reason'][:160]})" if record.get("reason") else "")
