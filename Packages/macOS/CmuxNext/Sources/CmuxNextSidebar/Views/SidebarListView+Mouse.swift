@@ -37,8 +37,6 @@ extension SidebarListViewComponents {
             return
         }
         var press = Press(key: row.key, point: point)
-        let tabFold = lastTabFold
-        lastTabFold = nil
         switch row.key {
         case let .workspace(id):
             SidebarGroupKeys(list: self).setFocus(nil)
@@ -49,8 +47,6 @@ extension SidebarListViewComponents {
             }
             if event.clickCount == 2, flags.isEmpty {
                 self.press = nil
-                // The first click of the pair folded or opened the tabs: put them back, the double-click renames.
-                if tabFold == id { foldTabs(id) }
                 inlineRename.begin(row.key)
                 return
             }
@@ -65,10 +61,6 @@ extension SidebarListViewComponents {
                 // The multi-view prototype (#23437): a press selects nothing; the release on this row navigates.
                 press.clickOnRelease = id
             } else {
-                // Leo 2026-10-27 ("if you just directly clicked on it, that it, like, showed and hid the thing, because
-                // that's what you can do on Chrome"): a click on the row already shown folds or opens its tabs, on the
-                // release so a drag folds nothing. A click on another row only switches to it.
-                if model.activeWorkspaceID == id, let disclosure = row.tabDisclosure, disclosure != .empty { press.foldsTabs = id }
                 // A click switches at once, on the press (Lawrence 2026-10-21: a switch on the release read as lag).
                 // Leo 2026-10-21 ("MOUSE DOWN DRAGGING ... SHOULDN'T BE IMMEDIATELY FOCUSING"): if the press becomes
                 // a drag, `beginDrag` puts the shown workspace and the selection back.
@@ -81,9 +73,6 @@ extension SidebarListViewComponents {
             // Arrow keys continue from this group; the ring is for keyboard focus only (cx-qno.17).
             SidebarGroupKeys(list: self).setFocus(group, ring: false)
             // Every click toggles, also fast ones (cx-q5jw): the bar collapses or expands.
-        case let .tab(workspace, tab):
-            // Selected at once; the press stays so a drag can take the tab.
-            model.send(.selectTab(workspace: workspace, tab: tab))
         case let .item(item):
             SidebarGroupKeys(list: self).setFocus(nil)
             // An item opens at once, as a workspace row does (`LayoutItemRef.activatesOnPress`); the press can
@@ -100,9 +89,6 @@ extension SidebarListViewComponents {
     }
     override func mouseDragged(with event: NSEvent) {
         guard let press, !press.cancelled else { return }
-        if case let .tab(workspace, tab) = press.key {
-            return tabRowDrag.dragged(workspace, tab, press: press, event: event, in: self)
-        }
         if drag == nil {
             let point = convert(event.locationInWindow, from: nil)
             guard SidebarPress.movedPastThreshold(from: press.point, to: point),
@@ -111,11 +97,6 @@ extension SidebarListViewComponents {
             guard drag != nil else { return }
         }
         updateDrag(windowPoint: event.locationInWindow)
-    }
-    /// Folds or opens workspace `id`'s listed tabs, on the move spring: the chevron and a click on the shown row.
-    func foldTabs(_ id: WorkspaceID) {
-        model.toggleWorkspaceTabs(id)
-        reload(animated: true)
     }
     override func mouseUp(with event: NSEvent) {
         defer { press = nil }
@@ -141,16 +122,10 @@ extension SidebarListViewComponents {
             model.click(id)
             if !patchSelection(from: oldItem, oldSelection: oldSelection) { reload(animated: true) }
             return syncRowStates()
-        case let .workspace(id) where press.foldsTabs == id:
-            foldTabs(id)
-            lastTabFold = id
-            return syncRowStates()
         case .workspace:
             // Mouse-down drew the click on the old and new rows (`patchSelection`) and moved no row: no layout here
             // (u2455: every click laid the whole list out and configured every row).
             return syncRowStates()
-        case .tab:
-            break
         case let .group(group):
             // An empty saved group reopens; any other group toggles.
             if let g = model.group(group), g.isPinned, g.workspaces.isEmpty, g.items.isEmpty {
