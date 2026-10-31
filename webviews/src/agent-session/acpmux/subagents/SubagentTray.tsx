@@ -16,8 +16,10 @@
 // and the chats its agent started are all "subagents" (Leo 2026-10-21: "SHOULDN'T THIS SAY
 // SUBAGENTS?"). What ended stays as compact status cards after them, never counted. A command is
 // named by what its call says it does (inspector/processes.ts `commandLabel`), a chat by its title
-// and what its turn does now. Up to three lines show under it; more start folded to the header so
-// the tray never takes the transcript's room, and the chevron opens them. Its
+// and what its turn does now. A headed tray starts folded to its header, one line, so the tray never
+// takes the transcript's room (https://github.com/manaflow-ai/cmux/issues/28875: two commands and a
+// done subagent stood open over the chat), and the chevron opens it. The person's choice holds for
+// that chat, across a switch away and back (trayFoldMemory.ts). Its
 // glass is the user bubble's: the theme's text at a low strength over the backdrop, with the
 // composer's hairline rim.
 //
@@ -68,8 +70,9 @@ import { trayMotionLook } from "./trayMotion.experiment";
 import { Tick, useTrayMotion } from "./trayMotion";
 import type { StartedSession } from "../started/startedSessions";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
+import { rememberTrayOpen, trayOpenFor } from "./trayFoldMemory";
 
-/// Lines the tray shows under its header without a click.
+/// Ended lines the tray shows before View all.
 export const TRAY_OPEN_MAX = 3;
 
 const ROW_ICON = rowIconSize(12);
@@ -93,6 +96,7 @@ export const SubagentTray = memo(function SubagentTray({
   placement = "tray",
   shown,
   enters = false,
+  chat,
 }: {
   /// What runs or waits on the person (runningTray.ts `trayItems`): the lines the header counts.
   items: readonly TrayItem[];
@@ -123,6 +127,8 @@ export const SubagentTray = memo(function SubagentTray({
   shown?: { readonly current: string | undefined };
   /// The tray appears in a chat that showed without it: it eases in.
   enters?: boolean;
+  /// The chat the tray belongs to: the person's open or fold holds for it (trayFoldMemory.ts).
+  chat?: string;
 }) {
   const t = useT();
   const language = usePaneLanguage();
@@ -130,8 +136,8 @@ export const SubagentTray = memo(function SubagentTray({
   const now = useNow(items.length > 0);
   const trayNode = useRef<HTMLElement | null>(null);
   const [narrow, setNarrow] = useState(false);
-  // The person's choice holds; until then a short list shows and a long one folds.
-  const [opened, setOpened] = useState<boolean>();
+  // Folded until the person opens it; their choice holds for this chat (trayFoldMemory.ts).
+  const [opened, setOpened] = useState<boolean | undefined>(() => trayOpenFor(chat));
   const [showFinished, setShowFinished] = useState(false);
   const [openCommands, setOpenCommands] = useState<ReadonlySet<string>>(() => new Set());
   // Read once per tray: the arm is the gallery's override or a dogfood key, never a per-tick read.
@@ -164,9 +170,9 @@ export const SubagentTray = memo(function SubagentTray({
   // The header stays while the tray has more than one line, running or ended: one of two running
   // ending never takes it (and its collapse) away.
   const headed = items.length + finished.length > 1;
-  const open = !headed || (opened ?? items.length <= TRAY_OPEN_MAX);
+  const open = !headed || opened === true;
   // The list opens and folds on the shared fold, its height only (no fade in), from the header's
-  // chevron or the list growing past TRAY_OPEN_MAX.
+  // chevron, or a lone line gaining a header (the tray then folds to it).
   // A fold while the page is away (hidden, or in its first frames back) applies at once: the shared
   // page-reveal gate (shared/pageReveal.ts), read only when the fold changes.
   const fold = useFold(open, entranceMayRun, false);
@@ -310,7 +316,10 @@ export const SubagentTray = memo(function SubagentTray({
           className="acpmux-summary-row acpmux-summary-link acpmux-running-tray__head"
           aria-expanded={open}
           aria-controls={open ? listId : undefined}
-          onClick={() => setOpened(!open)}
+          onClick={() => {
+            setOpened(!open);
+            rememberTrayOpen(chat, !open);
+          }}
         >
           <span className="acpmux-lineage__icon" data-state={runs ? "running" : "done"}>
             <Icon name="agent.session" size={14} />

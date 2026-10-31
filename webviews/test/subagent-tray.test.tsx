@@ -59,6 +59,7 @@ const { SUBAGENT_DONE } = await import("../src/agent-session/acpmux/subagents/su
 const { trayItems, finishedTrayItems, withSubagentLines, configureSubagentTray } =
   await import("../src/agent-session/acpmux/subagents/runningTray");
 const { SubagentTray, TRAY_OPEN_MAX } = await import("../src/agent-session/acpmux/subagents/SubagentTray");
+const { resetTrayOpenMemory } = await import("../src/agent-session/acpmux/subagents/trayFoldMemory");
 const { SubagentStatusList } = await import("../src/agent-session/acpmux/summary/SubagentStatusList");
 const { SubagentNavContext } = await import("../src/agent-session/acpmux/subagents/SubagentGroup");
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
@@ -351,7 +352,7 @@ describe("the tray", () => {
     }
   });
 
-  test("several get a header; past three they start folded", async () => {
+  test("several get a header and start folded to it, however few (cmux#28875)", async () => {
     const now = Date.now();
     const few = trayItems(
       [agent("A", { startedAt: now - 5000 }), agent("B", { startedAt: now - 4000 })],
@@ -364,6 +365,10 @@ describe("the tray", () => {
     );
     try {
       const head = shown.root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
+      // Folded to its one line: no line under the header until it is opened.
+      expect(head.getAttribute("aria-expanded")).toBe("false");
+      expect(shown.root.querySelectorAll(".acpmux-agent-line").length).toBe(0);
+      await act(async () => head.click());
       expect(head.getAttribute("aria-expanded")).toBe("true");
       expect(head.querySelector('svg[data-icon="agent.session"]')).not.toBeNull();
       expect(head.querySelector('[role="progressbar"]')).toBeNull();
@@ -394,6 +399,44 @@ describe("the tray", () => {
       expect(folded.root.querySelectorAll(".acpmux-agent-line").length).toBe(TRAY_OPEN_MAX + 1);
     } finally {
       await folded.done();
+    }
+  });
+
+  test("a chat's open or fold holds when the person switches away and back; another chat starts folded", async () => {
+    resetTrayOpenMemory();
+    const now = Date.now();
+    const items = trayItems(
+      [agent("A", { startedAt: now - 5000 })],
+      [command("bg1", { command: "bun run dev", startedAt: now - 3000 }), command("bg2", { startedAt: now - 2000 })],
+      NONE,
+      false,
+    );
+    // App.tsx keys the tray by chat, so a switch remounts it.
+    const tray = (chat: string) =>
+      createElement(SubagentTray, { key: chat, chat, items, working: false, waiting: new Set<string>(), onOpen: () => {} });
+    const { root, show, done } = await render(tray("chat-1"));
+    const head = () => root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
+    try {
+      expect(head().getAttribute("aria-expanded")).toBe("false");
+      expect(head().querySelector(".acpmux-running-tray__title")?.textContent).toBe(
+        "Running in background · 1 subagent · 2 commands",
+      );
+      await act(async () => head().click());
+      expect(root.querySelectorAll(".acpmux-agent-line").length).toBe(3);
+      await show(tray("chat-2"));
+      expect(head().getAttribute("aria-expanded")).toBe("false");
+      expect(root.querySelectorAll(".acpmux-agent-line").length).toBe(0);
+      await show(tray("chat-1"));
+      expect(head().getAttribute("aria-expanded")).toBe("true");
+      expect(root.querySelectorAll(".acpmux-agent-line").length).toBe(3);
+      // Folding it again holds too.
+      await act(async () => head().click());
+      await show(tray("chat-2"));
+      await show(tray("chat-1"));
+      expect(head().getAttribute("aria-expanded")).toBe("false");
+    } finally {
+      await done();
+      resetTrayOpenMemory();
     }
   });
 
@@ -1001,6 +1044,7 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
     try {
       const head = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
       expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents running");
+      await act(async () => head.click());
       head.focus();
       // Run 1 ends: one runs, one ended. The header stays, the same node, focused and open.
       await show(tray([runs[0]!, { ...runs[1]!, state: "completed", endedAt: now }]));
