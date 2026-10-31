@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 767,
-    "mcp": 683
+    "verbs": 768,
+    "mcp": 684
   },
   "nouns": [
     {
@@ -884,6 +884,13 @@
           "id": "browser.pageInfo.setPermission",
           "mcp": true,
           "mcpTool": "app_browser_set_site_permission"
+        },
+        {
+          "command": "cmux browser show-cookie-banner",
+          "title": "Show Import Cookies Banner",
+          "id": "browser.showCookieImportBanner",
+          "mcp": true,
+          "mcpTool": "app_browser_show_cookie_banner"
         },
         {
           "command": "cmux browser split-down",
