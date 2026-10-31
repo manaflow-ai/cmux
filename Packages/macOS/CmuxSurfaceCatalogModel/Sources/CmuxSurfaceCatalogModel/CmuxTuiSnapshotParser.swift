@@ -1874,6 +1874,17 @@ public struct CmuxTuiSnapshotParser: Sendable {
     public static let internalPorts: Set<Int> = [22, 1337, 8080]
     public static let displayPorts: Set<Int> = Set(Array(5901...5916) + Array(6901...6916))
 
+    /// Guest display ports for a deployment whose primary noVNC listener is
+    /// advertised by the Cloud service. The RFB listener keeps the image's
+    /// existing 1000-port offset; callers without metadata use ``displayPorts``.
+    public static func displayPorts(forDesktopPort desktopPort: Int) -> Set<Int> {
+        guard (1...65_535).contains(desktopPort) else { return displayPorts }
+        let rfbStart = max(desktopPort - 1_000, 1)
+        let rfbEnd = min(rfbStart + 15, 65_535)
+        let noVNCEnd = min(desktopPort + 15, 65_535)
+        return Set(Array(rfbStart...rfbEnd) + Array(desktopPort...noVNCEnd))
+    }
+
     public static let desktopPort = 6901
 
     /// Fallback for callers that only hold an image id. Prefer
@@ -1897,7 +1908,8 @@ public struct CmuxTuiSnapshotParser: Sendable {
     public static func display(
         machine: SurfaceMachineID,
         key: String = "display:1",
-        directURL: String? = nil
+        directURL: String? = nil,
+        desktopPort: Int = Self.desktopPort
     ) -> SurfaceResource {
         SurfaceResource(
             id: SurfaceResourceID(machine: machine, kind: .display, key: key),

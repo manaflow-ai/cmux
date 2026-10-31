@@ -470,6 +470,24 @@ struct CloudDesktopAccessTests {
         #expect(!state.isDesktop)
     }
 
+    @Test("A server-advertised desktop port drives resource-less VNC readiness")
+    func advertisedDesktopPortDrivesReadiness() {
+        let state = CloudBrowserAccessState()
+        let model = CloudPortAccessModel(target: .init(host: "10.0.0.7", port: 7042), coordinator: nil,
+            wake: {}, startForward: { _ in 48000 }, stopForward: {}, route: .loopback)
+        state.configure(model: model, url: URL(string: "http://10.0.0.7:7042/vnc.html")!, desktopPort: 7042)
+        #expect(state.isDesktop)
+    }
+
+    @Test("An arbitrary resource-less VNC page is not a desktop")
+    func arbitraryVNCPathDoesNotUseDesktopReadiness() {
+        let state = CloudBrowserAccessState()
+        let model = CloudPortAccessModel(target: .init(host: "10.0.0.7", port: 7043), coordinator: nil,
+            wake: {}, startForward: { _ in 48000 }, stopForward: {}, route: .loopback)
+        state.configure(model: model, url: URL(string: "http://10.0.0.7:7043/vnc.html")!, desktopPort: 7042)
+        #expect(!state.isDesktop)
+    }
+
     @Test("Desktop bootstrap does not paint WebKit's default white background")
     func desktopBackgroundUsesNativeBackingUntilCanvasPaints() async throws {
         let browser = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())

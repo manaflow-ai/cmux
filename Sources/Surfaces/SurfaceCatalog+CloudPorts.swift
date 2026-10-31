@@ -156,11 +156,14 @@ extension SurfaceCatalog {
         let projectedResourceIDs = Set(projections.map(\.resource))
         let displayPortsOwned = machineInfo(for: machine)?.hasDesktop == true
             || previous.contains { $0.kind == .display }
+        let displayPorts = CmuxTuiSnapshotParser.displayPorts(
+            forDesktopPort: machineInfo(for: machine)?.desktopPort ?? CmuxTuiSnapshotParser.desktopPort
+        )
         var result = refreshed
         for candidate in snapshot.resources(on: machine)
         where candidate.id.isForwardedPort
             && !CmuxTuiSnapshotParser.internalPorts.contains(candidate.id.forwardedPort ?? -1)
-            && (!displayPortsOwned || !CmuxTuiSnapshotParser.displayPorts.contains(candidate.id.forwardedPort ?? -1))
+            && (!displayPortsOwned || !displayPorts.contains(candidate.id.forwardedPort ?? -1))
             && !refreshedIDs.contains(candidate.id) {
             let wasAddedDuringRefresh = !previousIDs.contains(candidate.id)
             let remainsProjected = projectedResourceIDs.contains(candidate.id)
@@ -176,10 +179,13 @@ extension CmuxTuiSurfaceProvider {
     nonisolated static func portScan(
         from result: VMExecResult,
         privateAddress: String? = nil,
-        displayPortsOwned: Bool = false
+        displayPortsOwned: Bool = false,
+        desktopPort: Int? = nil
     ) -> CloudPortScanResult? {
         guard result.exitCode == 0, let scan = CloudPortScanResult(socketListing: result.stdout) else { return nil }
-        let excluded = displayPortsOwned ? CmuxTuiSnapshotParser.displayPorts : []
+        let excluded = displayPortsOwned
+            ? CmuxTuiSnapshotParser.displayPorts(forDesktopPort: desktopPort ?? CmuxTuiSnapshotParser.desktopPort)
+            : []
         return CloudPortScanResult(
             ports: scan.ports.filter { !excluded.contains($0) },
             loopbackOnlyPorts: scan.loopbackOnlyPorts.filter { !excluded.contains($0) },
@@ -190,9 +196,10 @@ extension CmuxTuiSurfaceProvider {
     nonisolated static func ports(
         from result: VMExecResult,
         privateAddress: String? = nil,
-        displayPortsOwned: Bool = false
+        displayPortsOwned: Bool = false,
+        desktopPort: Int? = nil
     ) -> [Int]? {
-        portScan(from: result, privateAddress: privateAddress, displayPortsOwned: displayPortsOwned)?.ports
+        portScan(from: result, privateAddress: privateAddress, displayPortsOwned: displayPortsOwned, desktopPort: desktopPort)?.ports
     }
 
     /// Reconciles one machine's port scan with its prior catalog values.
@@ -205,15 +212,19 @@ extension CmuxTuiSurfaceProvider {
         scannedPorts: [Int]?,
         previousResources: [SurfaceResource],
         privateAddress: String?,
-        displayPortsOwned: Bool = false
+        displayPortsOwned: Bool = false,
+        desktopPort: Int? = nil
     ) -> [SurfaceResource] {
+        let excludedDisplayPorts = CmuxTuiSnapshotParser.displayPorts(
+            forDesktopPort: desktopPort ?? CmuxTuiSnapshotParser.desktopPort
+        )
         let previous: [SurfaceResourceID: SurfaceResource] = Dictionary(
             uniqueKeysWithValues: previousResources
                 .filter {
                     $0.id.machine == machine
                         && $0.id.isForwardedPort
                         && !CmuxTuiSnapshotParser.internalPorts.contains($0.id.forwardedPort ?? -1)
-                        && (!displayPortsOwned || !CmuxTuiSnapshotParser.displayPorts.contains($0.id.forwardedPort ?? -1))
+                        && (!displayPortsOwned || !excludedDisplayPorts.contains($0.id.forwardedPort ?? -1))
                 }
                 .map { ($0.id, $0) }
         )
@@ -234,7 +245,7 @@ extension CmuxTuiSurfaceProvider {
         return scannedPorts
             .filter { (port: Int) in
                 (1...65_535).contains(port) && seen.insert(port).inserted
-                    && (!displayPortsOwned || !CmuxTuiSnapshotParser.displayPorts.contains(port))
+                    && (!displayPortsOwned || !excludedDisplayPorts.contains(port))
             }
             .sorted(by: <)
             .map { (port: Int) -> SurfaceResource in

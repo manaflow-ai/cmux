@@ -32,7 +32,7 @@ extension BrowserPanel {
     /// Activates an admitted Cloud route independently of the SwiftUI host.
     /// Callers validate resource ownership before reaching this boundary.
     func configureCloudBrowser(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID? = nil,
-                               request: URLRequest? = nil) {
+                               desktopPort: Int? = nil, request: URLRequest? = nil) {
         guard !isClosingWebViewLifecycle else { return }
         webView.stopLoading()
         if let machineID = (resourceID ?? cloudAccess.resourceID)?.machine.rawValue ?? cloudBrowserMachineID {
@@ -40,7 +40,7 @@ extension BrowserPanel {
         }
         // A cached model can navigate synchronously. Its machine/profile store
         // must be installed first, including on reconfiguration and duplication.
-        cloudAccess.configure(model: model, url: url, resourceID: resourceID, request: request)
+        cloudAccess.configure(model: model, url: url, resourceID: resourceID, desktopPort: desktopPort, request: request)
         // CloudBrowserAccessState canonicalizes SSH loopback identities to the
         // stable `localhost:<port>` origin before any WebKit callbacks publish
         // a URL. Seed the chrome from that identity as well.
