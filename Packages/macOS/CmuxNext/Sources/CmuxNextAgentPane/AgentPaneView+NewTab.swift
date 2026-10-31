@@ -32,6 +32,17 @@ extension AgentPaneView {
         evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-newtab-places', {detail: \(json)}))")
     }
 
+    /// The Commands palette's actions for the bar arrived (they are listed on the frame after the page
+    /// shows, so Cmd-T does not wait for them): the page takes them in place, in the same
+    /// `acpmux-newtab-places` event, with no remount, so what is typed stays.
+    public func refreshNewTabActions(_ actions: [AgentPaneOmnibar.Action]) {
+        guard model.sessionId == nil, var page = model.newTab, page.omnibar.actions != actions else { return }
+        page.omnibar.actions = actions
+        model.adoptNewTab(page)
+        guard let data = try? JSONEncoder().encode(page.omnibar), let json = String(data: data, encoding: .utf8) else { return }
+        evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-newtab-places', {detail: \(json)}))")
+    }
+
     /// The weather widget's reading arrived or changed while this page shows (``AgentPaneNewTab/weather``):
     /// the page takes it in place, as an `acpmux-newtab-weather` event, with no remount. nil (the
     /// widget turned off) takes the reading away.
