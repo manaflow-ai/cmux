@@ -1469,21 +1469,22 @@ export default agentPaneEntry({
       snapshot: chat(working, { isWorking: true, stopping: true }),
     },
     "working-steer": {
-      note: "A prompt typed while the turn runs: one ↵ control puts it into the turn now, as Return does (read when the agent's current step ends); ⌘Return queues it for after the turn; Stop sits left of the mic, as in Claude's desktop app.",
+      note: "A prompt typed while the turn runs: Stop's slot after the mic turns into the one Send, which puts the prompt into the turn as Return does (read when the agent's current step ends); ⌘Return queues it for after the turn. No second ↵ control (Leo 2026-10-31).",
       snapshot: steering(true),
       ready: { draft: "Use the new tokenizer instead" },
       play: async (ctx) => {
         await ctx.waitFor(() => {
-          const steer = ctx.document.querySelector(".acpmux-steer-now");
-          return steer?.getAttribute("aria-label") === "Steer now" && steer.textContent?.trim() === "";
+          const sends = ctx.document.querySelectorAll(".acpmux-composer-actions :is(.acpmux-send, .acpmux-cancel)");
+          return (
+            sends.length === 1 &&
+            sends[0]!.getAttribute("title") === "Send now; the agent reads it mid-turn (Return)" &&
+            ctx.document.querySelector(".acpmux-composer-actions > .acpmux-fit-mic + .acpmux-send")
+          );
         });
-        await ctx.waitFor(() =>
-          ctx.document.querySelector('.acpmux-composer-actions > button[aria-label="Stop"] + .acpmux-fit-mic'),
-        );
       },
     },
     "working-queue": {
-      note: "The same for an agent that cannot steer: no ↵ control; Return and ⌘Return queue the prompt.",
+      note: "The same for an agent that cannot steer: the one Send queues, as Return and ⌘Return do.",
       snapshot: steering(false),
       ready: { draft: "Use the new tokenizer instead" },
     },

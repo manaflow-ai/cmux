@@ -36,7 +36,6 @@ import {
   SearchIcon,
   PlanIcon,
   SlashIcon,
-  ReturnIcon,
   StopIcon,
   type ComposerPermissionAccess,
 } from "./ComposerPickers";
@@ -1143,7 +1142,8 @@ export function Composer({
   /// Sends the draft; false when there was nothing to send or the host refused it.
   const submit = (event: { preventDefault(): void }): boolean => {
     event.preventDefault();
-    return send(false, steersAlways);
+    // Send does what Return does: mid-turn it steers an agent that steers, else it queues.
+    return send(false, steersAlways || returnSteers);
   };
   const send = (force: boolean, steer = false): boolean => {
     // A send waiting for its images' originals is this one's to replace: whatever this one does
@@ -1702,8 +1702,6 @@ export function Composer({
   // Queueing off (ChatGPT's and Codex's "Turn off queueing", queueing.ts): ⌘Return and Send steer
   // too, so nothing new waits. An agent that cannot steer still runs it after the turn.
   const steersAlways = steers && !queueing;
-  // The steer control shows once a prompt is typed; with queueing off Send itself steers.
-  const steerable = steers && !steersAlways && Boolean(text.trim());
   // Mid-turn it teaches both keys, as Claude's composer does: Return steers and ⌘Return queues.
   // The Quick Composer's ⌘Return opens the window, so there it names Return alone; an agent that
   // cannot steer says it queues.
@@ -1956,8 +1954,7 @@ export function Composer({
   ) : keepLocationSlot ? (
     <div className="acpmux-composer-strip-placeholder" aria-hidden="true" />
   ) : null;
-  // Stop, for the whole turn. Claude desktop's box (Leo 2026-10-20) draws it left of the mic, the
-  // mic keeping the right edge; the other look keeps it at the cluster's end.
+  // Stop, while a turn runs and the prompt is empty, in the one send slot after the mic (both looks).
   // Once sent, Stop turns until the turn ends, so a press (or Esc) is seen to take (Leo 2026-10-21:
   // "IDK IF IM ACTUALLY STOPPING YOU"); pressed again it sends Stop again.
   const stopLabel = t(
@@ -2336,37 +2333,15 @@ export function Composer({
             />
           )
         }
-        actionsLead={
-          <>
-            {steerable && (
-              <button
-                key="steer"
-                type="button"
-                className="acpmux-send acpmux-send-ready acpmux-steer-now"
-                aria-label={t("composer.steerLabel")}
-                // tooltip-allow: names the icon-only control, what it does and its key.
-                title={t("composer.steerTooltip")}
-                // Keep focus and the caret in the prompt, as the mic does.
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => {
-                  send(false, true);
-                  field.current?.focus();
-                }}
-              >
-                <ReturnIcon />
-              </button>
-            )}
-            {quietActions && stopButton}
-          </>
-        }
         accessory={accessory}
         trailing={
-          !quietActions && stop ? (
+          stop ? (
             stopButton
-          ) : remote.canSend && (!quietActions || shell || (hasDraft && !(running && steerable))) ? (
-            // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, the mic
-            // alone on the right; Send comes in after it with the first letter. Mid-turn it
-            // queues the draft, unless the ↵ control is there to put it into the turn.
+          ) : remote.canSend && (!quietActions || shell || hasDraft) ? (
+            // One send control in both looks (Leo 2026-10-31: "THE F***ING TWO SEND
+            // BUTTONS"): mid-turn the empty prompt's slot is Stop, and the first letter turns it
+            // into Send, which does what Return does: it steers an agent that steers, else queues.
+            // Claude's box draws no Send at rest until there is a draft, the mic alone on the right.
             <button
               key="send"
               ref={sendButton}
@@ -2384,11 +2359,9 @@ export function Composer({
                       : t(
                           !snapshot.isWorking
                             ? "composer.sendTooltip"
-                            : steersAlways
+                            : steersAlways || returnSteers
                               ? "composer.steerTooltip"
-                              : returnSteers
-                                ? "composer.queueLaterTooltip"
-                                : "composer.queueTooltip",
+                              : "composer.queueTooltip",
                         )
               }
             >

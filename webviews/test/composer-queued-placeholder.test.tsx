@@ -171,6 +171,41 @@ test("Return steers a steering agent's running turn", async () => {
   expect(await press(steering({ isWorking: true }), false)).toEqual([true]);
 });
 
+/** Types `text` and clicks the composer's send control; returns each send's steer flag and the
+ * send-like controls drawn (Leo 2026-10-31: "THE F***ING TWO SEND BUTTONS"). */
+async function click(snapshot: AcpmuxSnapshot): Promise<{ steers: (boolean | undefined)[]; sends: number; stops: number }> {
+  const steers: (boolean | undefined)[] = [];
+  let handle: ComposerHandle | null = null;
+  await render(snapshot, undefined, {
+    handle: (value) => void (handle = value),
+    onSend: (_text, _attachments, steer) => {
+      steers.push(steer);
+      return true;
+    },
+  });
+  await act(async () => handle!.restore("Use the cache", []));
+  const sends = host.querySelectorAll<HTMLButtonElement>(".acpmux-send:not(.acpmux-cancel)");
+  const stops = host.querySelectorAll(".acpmux-cancel").length;
+  await act(async () => sends[0]?.click());
+  return { steers, sends: sends.length, stops };
+}
+
+test("mid-turn with a draft, one send control does what Return does: it steers a steering agent", async () => {
+  expect(await click(steering({ isWorking: true }))).toEqual({ steers: [true], sends: 1, stops: 0 });
+});
+
+test("mid-turn with a draft, the one send control queues for an agent that cannot steer", async () => {
+  expect(await click(started({ isWorking: true }))).toEqual({ steers: [false], sends: 1, stops: 0 });
+});
+
+test("mid-turn with an empty prompt, the send slot is Stop alone", async () => {
+  await render(steering({ isWorking: true }));
+  expect({
+    sends: host.querySelectorAll(".acpmux-send:not(.acpmux-cancel)").length,
+    stops: host.querySelectorAll(".acpmux-cancel").length,
+  }).toEqual({ sends: 0, stops: 1 });
+});
+
 test("⌘Return queues behind a steering agent's running turn", async () => {
   expect(await press(steering({ isWorking: true }), true)).toEqual([false]);
 });
@@ -180,7 +215,7 @@ test("an agent that cannot steer queues on both keys; nothing stops the turn", a
   expect(await press(started({ isWorking: true }), true)).toEqual([false]);
   await render(started({ isWorking: true }));
   expect(shown()).toBe("Queue a follow-up");
-  expect(host.querySelector(".acpmux-steer-now")).toBeNull();
+  expect(host.querySelectorAll(".acpmux-send:not(.acpmux-cancel)").length).toBeLessThanOrEqual(1);
 });
 
 test("the Quick Composer, whose ⌘Return opens the window, names Return alone", async () => {
