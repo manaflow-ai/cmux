@@ -236,4 +236,8 @@ export function useKeptAttachments(
   }, []);
 }
 
-const signature = (chips: readonly ComposerAttachment[]) => chips.map((chip) => chip.id).join("\n");
+// The original file may finish uploading after the preview chip was already saved.
+// Preserve its new path when reopening the draft. This compares only short metadata:
+// image data and long pasted text still travel once, never on every render.
+const signature = (chips: readonly ComposerAttachment[]) =>
+  JSON.stringify(chips.map((chip) => [chip.id, chip.path, chip.originalPath, chip.originalName]));
