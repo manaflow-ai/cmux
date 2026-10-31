@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextBridge
+import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextTabs
 import CmuxNextWakeups
@@ -326,5 +327,39 @@ struct AgentPaneRelaunchWakeTests {
         #expect(FileManager.default.fileExists(atPath: file.path), "a held shell command was not saved")
         await store.save(["tab_a": AgentPaneWakeState()])
         #expect(!FileManager.default.fileExists(atPath: file.path), "an empty composer left a file")
+    }
+
+    /// The page's own wait before it answers (schemas/agent-pane/wake-state.json `draftSettleMs`,
+    /// which webviews composerDraft.ts reads as DRAFT_SETTLE_MS).
+    static func pageDraftSettle() throws -> Duration {
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0..<6 { root.deleteLastPathComponent() }
+        let data = try Data(contentsOf: root.appendingPathComponent("schemas/agent-pane/wake-state.json"))
+        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        return .milliseconds(try #require(object["draftSettleMs"] as? Int))
+    }
+
+    /// Review of #22919 at ce9cd46, finding 1: the quit asked each chat page within 250 ms, but the
+    /// page first waits up to its draft settle time for the typed draft to reach acpmux, and a late
+    /// answer is dropped: the chat kept the state of its last handshake, losing every chip added
+    /// since, the shell command and the scroll place (a sent chip came back). The host's ask must
+    /// outlast the page's settle, with room for a large chip to cross the bridge.
+    @Test func theQuitAsksLongerThanThePageSettlesItsDraft() throws {
+        let settle = try Self.pageDraftSettle()
+        let largeChip: Duration = .milliseconds(500)
+        #expect(AgentPaneRelaunchWake.askLimit >= settle + largeChip,
+                "the host gives up at \(AgentPaneRelaunchWake.askLimit), the page may answer only after \(settle)")
+    }
+
+    /// The composer step starts after the person's other saves, each under its limit; its asks and
+    /// its write still end inside the keep quit's deadline (the quit waits for it past its own limit).
+    @Test func theComposerAskFitsTheKeepQuitDeadline() throws {
+        let steps = QuitSaveSteps(remoteSnapshots: {}, agentComposers: {}, agentImages: {}, terminalFrames: {}, browserRecords: {},
+                                  windows: {}, stopSavingWindows: {}, sidebar: {}, homeCache: {}, cloud: {})
+        let before = try #require(steps.steps.firstIndex { $0.name == "agent_composers" })
+        let startsBy = steps.steps[..<before].reduce(QuitDeadline.quitMarkLimit + QuitSaveSteps.rememberLimit) { $0 + $1.limit }
+        let write: Duration = .milliseconds(300)
+        #expect(startsBy + AgentPaneRelaunchWake.askLimit + write + QuitDeadline.replyMargin <= QuitDeadline.keepQuitLimit,
+                "the composer step starts by \(startsBy) and asks for \(AgentPaneRelaunchWake.askLimit): past the deadline")
     }
 }
