@@ -1,0 +1,145 @@
+{
+  "id": "smoke-dogfood",
+  "priority": "P1",
+  "title": "Dogfood smoke: 3 workspaces (Cmd-N, Ctrl-`), Cmd-D twice and Ctrl-` twice fast with a line typed into each new terminal at once, a browser page, quit and reopen (the same workspaces come back), close all",
+  "why": "cmux-ad 2026-10-30 (stop the line, item 2): a build goes to Lawrence only when this passes 10 of 10 rounds under memory pressure (scripts/journeys/smoke-gate.py). Keys typed into a terminal while it is created are the bug class Lawrence reports, so the lines are typed at once, with no wait for the creation hold.",
+  "source": "the dogfood smoke gate (scripts/journeys/smoke-gate.py; README)",
+  "budget_seconds": 250,
+  "steps": [
+    {"do": "smoke_ready", "timeout": 60},
+    {"do": "smoke_remember_workspaces"},
+    {"do": "smoke_make_key"},
+    {"do": "smoke_snapshot", "name": "before_workspaces"},
+    {"do": "key", "key": "n", "modifiers": ["cmd"], "mark": "ws1"},
+    {"do": "expect", "title": "Cmd-N (1 of 3) makes a workspace; Ctrl-` follows as soon as it shows, at a person's speed (the frame kept: not blank)", "since": "ws1", "timeout": 20,
+     "all": [
+       {"smoke_workspaces": {"new": 1}},
+       {"smoke_frame": {}}
+     ]},
+    {"do": "key", "key": "`", "modifiers": ["control"], "mark": "wsterm1"},
+    {"do": "smoke_type_now", "text": "echo w1-${nonce}-$((6*7))"},
+    {"do": "key", "key": "n", "modifiers": ["cmd"], "mark": "ws2"},
+    {"do": "expect", "title": "Cmd-N (2 of 3) makes a workspace; Ctrl-` follows as soon as it shows, at a person's speed (the frame kept: not blank)", "since": "ws2", "timeout": 20,
+     "all": [
+       {"smoke_workspaces": {"new": 2}},
+       {"smoke_frame": {}}
+     ]},
+    {"do": "key", "key": "`", "modifiers": ["control"], "mark": "wsterm2"},
+    {"do": "smoke_type_now", "text": "echo w2-${nonce}-$((6*7))"},
+    {"do": "key", "key": "n", "modifiers": ["cmd"], "mark": "ws3"},
+    {"do": "expect", "title": "Cmd-N (3 of 3) makes a workspace; Ctrl-` follows as soon as it shows, at a person's speed (the frame kept: not blank)", "since": "ws3", "timeout": 20,
+     "all": [
+       {"smoke_workspaces": {"new": 3}},
+       {"smoke_frame": {}}
+     ]},
+    {"do": "key", "key": "`", "modifiers": ["control"], "mark": "wsterm3"},
+    {"do": "smoke_type_now", "text": "echo w3-${nonce}-$((6*7))"},
+    {"do": "expect", "title": "each new workspace's Ctrl-` terminal ran the line typed into it at once, and no other terminal got it", "since": "wsterm1", "timeout": 30,
+     "all": [
+       {"smoke_new_terminals": {"since": "before_workspaces", "lines": ["w1-${nonce}-42", "w2-${nonce}-42", "w3-${nonce}-42"], "focused": "w3-${nonce}-42", "placement": "new_workspaces"}},
+       {"smoke_key_window": {}},
+       {"frame_screen": {"shows": ["w3-${nonce}-42"]}}
+     ]},
+    {"do": "smoke_snapshot", "name": "before_splits"},
+    {"do": "key", "key": "d", "modifiers": ["cmd"], "mark": "split1"},
+    {"do": "smoke_type_now", "text": "echo d1-${nonce}-$((6*7))"},
+    {"do": "key", "key": "d", "modifiers": ["cmd"], "mark": "split2"},
+    {"do": "smoke_type_now", "text": "echo d2-${nonce}-$((6*7))"},
+    {"do": "expect", "title": "Cmd-D twice fast: two new panes, and the line typed into each at once ran there and nowhere else", "since": "split1", "timeout": 30,
+     "all": [
+       {"smoke_panes": {"line": "d2-${nonce}-42", "count": 3}},
+       {"smoke_new_terminals": {"since": "before_splits", "lines": ["d1-${nonce}-42", "d2-${nonce}-42"], "focused": "d2-${nonce}-42", "placement": "new_panes"}},
+       {"smoke_app_lines": {"lines": ["d1-${nonce}-42", "d2-${nonce}-42"]}},
+       {"smoke_key_window": {}},
+       {"frame_screen": {"shows": ["d1-${nonce}-42", "d2-${nonce}-42"]}}
+     ]},
+    {"do": "smoke_adopt_line", "line": "d1-${nonce}-42", "as": "left"},
+    {"do": "smoke_adopt_line", "line": "d2-${nonce}-42", "as": "right"},
+    {"do": "remember", "as": "left0", "pane": "left"},
+    {"do": "remember", "as": "right0", "pane": "right"},
+    {"do": "divider_drag", "title": "R3a: drag the divider between the two new panes 120 points left", "between": ["left", "right"], "by": -120, "mark": "r3a-split"},
+    {"do": "type", "text": "echo r3as-${nonce} $(stty size)", "enter": true},
+    {"do": "smoke_long_line", "tag": "r3asw${nonce}"},
+    {"do": "expect", "title": "R3a split resize: the right pane is wider, the left narrower; in each, grid == fit(bounds) == PTY == daemon size, and a long line wraps at the new width", "since": "r3a-split", "timeout": 20, "settle": 1.5,
+     "all": [
+       {"smoke_r3": {"pane": "right", "pty_tag": "r3as-${nonce}", "long_tag": "r3asw${nonce}", "vs": "right0", "cols": "wider"}},
+       {"smoke_r3": {"pane": "left", "vs": "left0", "cols": "narrower"}},
+       {"smoke_frame": {}}
+     ]},
+    {"do": "remember", "as": "left1", "pane": "left"},
+    {"do": "remember", "as": "right1", "pane": "right"},
+    {"do": "window_drag", "title": "R3a: drag the window's right edge 160 points left", "edge": "right", "by": [-160, 0], "mark": "r3a-window"},
+    {"do": "type", "text": "echo r3aw-${nonce} $(stty size)", "enter": true},
+    {"do": "smoke_long_line", "tag": "r3aww${nonce}"},
+    {"do": "expect", "title": "R3a window resize: the window is 160 points narrower and the right pane narrower; grid == fit(bounds) == PTY == daemon size in the shown terminal, and a long line wraps at the new width", "since": "r3a-window", "timeout": 20, "settle": 1.5,
+     "all": [
+       {"window_frame": {"from": "right1", "dw": -160, "tol": 4}},
+       {"smoke_r3": {"pane": "right", "pty_tag": "r3aw-${nonce}", "long_tag": "r3aww${nonce}", "vs": "right1", "cols": "narrower"}},
+       {"smoke_r3": {"pane": "left"}},
+       {"smoke_frame": {}}
+     ]},
+    {"do": "smoke_widths", "name": "cols0"},
+    {"do": "action", "action": "newColumn", "mark": "r3b-new"},
+    {"do": "expect", "title": "R3b: New Column adds a column and every existing column keeps exactly its width", "since": "r3b-new", "timeout": 15, "settle": 1.5,
+     "all": [
+       {"smoke_same_widths": {"since": "cols0", "new": 1}},
+       {"smoke_frame": {}}
+     ]},
+    {"do": "smoke_widths", "name": "cols1"},
+    {"do": "key", "key": "d", "modifiers": ["control", "cmd"], "mark": "r3b-split"},
+    {"do": "expect", "title": "R3b: New Column's key (Ctrl-Cmd-D) adds a column and every existing column keeps exactly its width", "since": "r3b-split", "timeout": 15, "settle": 1.5,
+     "all": [
+       {"smoke_same_widths": {"since": "cols1", "new": 1}},
+       {"smoke_frame": {}}
+     ]},
+    {"do": "smoke_snapshot", "name": "before_tabs"},
+    {"do": "key", "key": "`", "modifiers": ["control"], "mark": "tab1"},
+    {"do": "smoke_type_now", "text": "echo t1-${nonce}-$((6*7))"},
+    {"do": "key", "key": "`", "modifiers": ["control"], "mark": "tab2"},
+    {"do": "smoke_type_now", "text": "echo t2-${nonce}-$((6*7))"},
+    {"do": "expect", "title": "Ctrl-` twice fast: two new tabs in the focused pane, and the line typed into each at once ran there and nowhere else", "since": "tab1", "timeout": 30,
+     "all": [
+       {"smoke_new_terminals": {"since": "before_tabs", "lines": ["t1-${nonce}-42", "t2-${nonce}-42"], "focused": "t2-${nonce}-42", "placement": "focused_pane"}},
+       {"smoke_app_lines": {"lines": ["t2-${nonce}-42"]}},
+       {"smoke_key_window": {}},
+       {"frame_screen": {"shows": ["t2-${nonce}-42"]}}
+     ]},
+    {"do": "key", "key": "l", "modifiers": ["cmd", "shift"], "mark": "browser"},
+    {"do": "expect", "title": "Cmd-Shift-L opens a browser tab whose address bar takes the keys", "since": "browser", "timeout": 15,
+     "all": [
+       {"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "equals": "addressBar"}}
+     ]},
+    {"do": "type", "text": "example.com", "mark": "url"},
+    {"do": "expect", "title": "the typed address shows in the address bar", "since": "url", "timeout": 15,
+     "all": [
+       {"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "equals": "addressBar"}},
+       {"frame_text": "example.com"}
+     ]},
+    {"do": "key", "key": "return", "modifiers": [], "mark": "loaded"},
+    {"do": "expect", "title": "the browser tab loads the page", "since": "loaded", "timeout": 45,
+     "all": [
+       {"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "equals": "browserPage"}},
+       {"frame_text": "documentation examples"}
+     ]},
+    {"do": "relaunch", "how": "quit", "mark": "reopened"},
+    {"do": "expect", "title": "after the reopen: one window, a clean launch, no blank pane, the same three workspaces with their output, and the browser page", "since": "reopened", "timeout": 60,
+     "all": [
+       {"app_rpc": {"method": "debug.windows", "path": "windows", "len": 1}},
+       {"app_rpc": {"method": "debug.crashes", "path": "launch.recovery", "equals": "clean"}},
+       {"app_rpc": {"method": "debug.surfaces", "path": "blank_panes", "equals": 0}},
+       {"smoke_workspaces": {"new": 3, "same_as": "before_splits"}},
+       {"smoke_panes": {"line": "d2-${nonce}-42", "count": 5}},
+       {"smoke_daemon_lines": {"lines": ["w1-${nonce}-42", "w2-${nonce}-42", "w3-${nonce}-42", "d1-${nonce}-42", "d2-${nonce}-42", "t1-${nonce}-42", "t2-${nonce}-42"]}},
+       {"frame_text": "documentation examples"}
+     ]},
+    {"do": "smoke_close_all", "mark": "closed"},
+    {"do": "expect", "title": "close all: the journey's workspaces are gone from the app and the window", "since": "closed", "timeout": 20,
+     "all": [
+       {"smoke_workspaces": {"new": 0}},
+       {"smoke_frame": {"lacks": ["documentation examples", "w3-${nonce}-42", "d2-${nonce}-42", "t2-${nonce}-42"]}}
+     ]}
+  ],
+  "finally": [
+    {"do": "smoke_close_all"}
+  ]
+}

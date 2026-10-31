@@ -1,0 +1,196 @@
+#!/usr/bin/env python3
+"""The action fuzzer's pure parts and its verdicts, with a stand-in for run.py: no fleet, no app.
+
+    python3 scripts/journeys/test_fuzz.py
+
+A seed always gives the same plan; bursts cut at slow actions; ddmin finds the minimal failing subsequence and stops
+on no verdict; the speed table reds only a real, repeated slowdown; fuzz.py says CLEAN (and writes the .clean file)
+only for a non-diagnostic run with no failure, no speed red and enough fuzz time; a failure is RED with its oracle,
+seed and shrunk sequence, replayed in a fresh lease and written as a regression journey. The journey loads
+(`run.py --check`).
+"""
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE.parent / "cmux-next"))  # build_names.py, as run.py finds it
+import ext_fuzz  # noqa: E402
+import fuzz  # noqa: E402
+
+# A stand-in for run.py: writes the round's results.jsonl and action-fuzz/fuzz.json from FUZZ_PLAN (JSON:
+# {"<side>": {"fail_seeds": [...], "typeable_ms": N}}), the side read from the --build job id.
+FAKE = r'''
+import json, os, sys
+args = sys.argv[1:]
+out = args[args.index("--out") + 1]
+build = args[args.index("--build") + 1]
+opts = dict(a.split("=", 1) for i, a in enumerate(args) if i and args[i - 1] == "--journey-option")
+plan = json.loads(os.environ["FUZZ_PLAN"])
+side = plan.get(build, {})
+os.makedirs(os.path.join(out, "action-fuzz"), exist_ok=True)
+with open(os.path.join(os.environ["FUZZ_LOG"]), "a") as f:
+    f.write(json.dumps({"build": build, "opts": opts, "hosts": args[args.index("--hosts") + 1]}) + "\n")
+seed = int(opts.get("fuzz_seed", 0))
+seq = json.loads(opts["fuzz_sequence"]) if "fuzz_sequence" in opts else [{"a": "split_right", "t": "pair"}] * 4
+fail = seed in side.get("fail_seeds", []) or ("fuzz_sequence" in opts and side.get("fail_sequences"))
+failure = {"oracle": "create", "detail": "split_right+split_right: no terminal, no refusal", "index": len(seq)} if fail else None
+speed = [{"a": "new_terminal", "t": "slow", "shown_ms": side.get("typeable_ms", 100) - 20, "typeable_ms": side.get("typeable_ms", 100)}
+         for _ in range(3)]
+report = {"seed": seed, "played": len(seq), "seconds": float(side.get("seconds", 120)), "failure": failure,
+          "shrunk": seq[:2] if fail else None, "speed": speed, "sequence": seq}
+json.dump(report, open(os.path.join(out, "action-fuzz", "fuzz.json"), "w"))
+row = {"id": "action-fuzz", "status": "fail" if fail else side.get("status", "pass"), "reason": "", "host": "cmux99", "build_job": build}
+open(os.path.join(out, "results.jsonl"), "w").write(json.dumps(row) + "\n")
+open(os.path.join(out, "acquire.log"), "w").write("capture-host: cmux99 is exclusive until 2026-10-31T09:00:00Z: the fleet controller places no step on its workers\n")
+sys.exit(1 if fail else 0)
+'''
+
+
+class Pure(unittest.TestCase):
+    def test_plan_is_seeded(self):
+        self.assertEqual(ext_fuzz.plan(42, 50), ext_fuzz.plan(42, 50))
+        self.assertNotEqual(ext_fuzz.plan(42, 50), ext_fuzz.plan(43, 50))
+        for item in ext_fuzz.plan(5, 400):
+            self.assertIn(item["a"], ext_fuzz.ACTIONS)
+            self.assertIn(item["t"], ext_fuzz.TIMINGS)
+            if ext_fuzz.ACTIONS[item["a"]].get("alone"):
+                self.assertEqual(item["t"], "slow")
+
+    def test_plan_has_every_action_and_same_pairs(self):
+        seq = ext_fuzz.plan(1, 3000)
+        names = {i["a"] for i in seq}
+        self.assertEqual(names, set(ext_fuzz.ACTIONS))
+        pairs = sum(1 for a, b in zip(seq, seq[1:]) if a["t"] == "pair" and a["a"] == b["a"] and ext_fuzz.ACTIONS[a["a"]].get("creates"))
+        self.assertGreater(pairs, 50)
+
+    def test_alone_action_ends_the_burst_before_it(self):
+        seq = [{"a": "new_terminal", "t": "now"}, {"a": "close_all", "t": "slow"}]
+        self.assertEqual([[i["a"] for i in b] for b in ext_fuzz.bursts(seq)], [["new_terminal", "close_all"]])
+        for burst in ext_fuzz.bursts(ext_fuzz.plan(9, 500)):
+            self.assertLessEqual(len(burst), ext_fuzz.MAX_BURST)
+            for item in burst[:-1]:
+                self.assertNotEqual(item["t"], "slow")
+
+    def test_ddmin_finds_the_pair(self):
+        seq = [{"a": "x", "i": i} for i in range(20)]
+        fails = lambda cand: {3, 11} <= {c["i"] for c in cand}
+        small, tries = ext_fuzz.ddmin(seq, fails)
+        self.assertEqual([c["i"] for c in small], [3, 11])
+        self.assertGreater(tries, 0)
+
+    def test_ddmin_stops_on_no_verdict(self):
+        seq = list(range(10))
+        calls = []
+
+        def fails(cand):
+            calls.append(cand)
+            return None if len(calls) > 2 else 5 in cand
+        small, _ = ext_fuzz.ddmin(seq, fails)
+        self.assertIn(5, small)
+        self.assertEqual(len(calls), 3)
+
+    def test_corpus_uses_known_actions(self):
+        for name, seq in ext_fuzz.CORPUS.items():
+            self.assertTrue(name.startswith("lawrence-"))
+            for item in seq:
+                self.assertIn(item["a"], ext_fuzz.ACTIONS)
+
+    def test_speed_table_reds_only_a_real_slowdown(self):
+        rows = [{"build": "base", "seed": 1, "a": "new_tab", "t": "slow", "typeable_ms": v} for v in (200, 210, 190, 205, 220)]
+        rows += [{"build": "test", "seed": 1, "a": "new_tab", "t": "slow", "typeable_ms": v} for v in (420, 400, 450, 390, 410)]
+        rows += [{"build": "base", "seed": 1, "a": "split_right", "t": "pair", "shown_ms": v} for v in (100, 110, 90, 95)]
+        rows += [{"build": "test", "seed": 1, "a": "split_right", "t": "pair", "shown_ms": v} for v in (105, 112, 99, 400)]
+        table = {(r["action"], r["mark"]): r for r in fuzz.speed_table(rows)}
+        self.assertTrue(table[("new_tab", "typeable_ms")]["red"])
+        self.assertFalse(table[("split_right", "shown_ms")]["red"])  # one slow sample is not a red
+        few = fuzz.speed_table([dict(r) for r in rows if r["a"] == "new_tab"][:3] + rows[5:8])
+        self.assertFalse(any(r["red"] for r in few))
+
+
+class Verdicts(unittest.TestCase):
+    def run_fuzz(self, plan, *extra):
+        tmp = Path(tempfile.mkdtemp())
+        fake = tmp / "fake_run.py"
+        fake.write_text(FAKE)
+        log = tmp / "calls.jsonl"
+        env = {**os.environ, "FUZZ_PLAN": json.dumps(plan), "FUZZ_LOG": str(log), "SMOKE_GATE_CMUX_CI": "/nonexistent"}
+        done = subprocess.run([sys.executable, str(HERE / "fuzz.py"), "--build", "jobT", "--minutes", "4", "--seed", "100",
+                               "--out", str(tmp / "out"), "--handoff", str(tmp / "handoff"), "--runner", str(fake), *extra],
+                              capture_output=True, text=True, env=env, timeout=120)
+        summary = json.loads((tmp / "out" / "summary.json").read_text())
+        calls = [json.loads(l) for l in log.read_text().splitlines()] if log.exists() else []
+        return done, summary, calls, tmp
+
+    def test_clean_writes_the_clean_file(self):
+        done, summary, calls, tmp = self.run_fuzz({"jobT": {}, "jobB": {}}, "--base", "jobB")
+        self.assertEqual(summary["verdict"], "CLEAN", done.stdout + done.stderr)
+        self.assertEqual(done.returncode, 0)
+        self.assertTrue((tmp / "handoff" / "jobT.clean").exists())
+        builds = [c["build"] for c in calls]
+        self.assertEqual(builds[:4], ["jobT", "jobB", "jobB", "jobT"])  # ABBA
+        self.assertTrue(all("cmux17" not in c["hosts"] for c in calls))
+
+    def test_failure_is_red_shrunk_confirmed_and_written(self):
+        done, summary, calls, tmp = self.run_fuzz({"jobT": {"fail_seeds": [101], "fail_sequences": True}, "jobB": {}}, "--base", "jobB")
+        self.assertEqual(summary["verdict"], "RED")
+        self.assertEqual(done.returncode, 1)
+        f = summary["failures"][0]
+        self.assertEqual((f["seed"], f["failure"]["oracle"]), (101, "create"))
+        self.assertEqual(len(f["shrunk"]), 2)
+        self.assertTrue(f["confirmed"])
+        repro = json.loads(Path(f["repro"]).read_text())
+        run = next(s for s in repro["steps"] if s["do"] == "fuzz_run")
+        self.assertEqual((run["shrink"], len(run["sequence"])), (False, 2))
+        self.assertFalse((tmp / "handoff" / "jobT.clean").exists())
+        self.assertTrue(any("fuzz_sequence" in c["opts"] for c in calls[-1:]))
+
+    def test_speed_regression_is_red(self):
+        done, summary, _, _ = self.run_fuzz({"jobT": {"typeable_ms": 400}, "jobB": {"typeable_ms": 150}}, "--base", "jobB")
+        self.assertEqual(summary["verdict"], "RED")
+        self.assertTrue(summary["speed_reds"])
+        self.assertIn("RED", (Path(summary["out"]) / "summary.txt").read_text())
+
+    def test_diagnostic_never_clean(self):
+        done, summary, calls, tmp = self.run_fuzz({"jobT": {}}, "--diagnostic")
+        self.assertEqual(summary["verdict"], "DIAGNOSTIC (NOT JUDGED)")
+        self.assertEqual(done.returncode, 75)
+        self.assertTrue(summary["weak_oracles"])
+        self.assertTrue(all(c["opts"].get("fuzz_mode") == "diagnostic" for c in calls))
+        self.assertFalse((tmp / "handoff" / "jobT.clean").exists())
+
+    def test_not_run_round_is_not_judged(self):
+        done, summary, _, _ = self.run_fuzz({"jobT": {"status": "not run", "seconds": 0}})
+        self.assertEqual(summary["verdict"], "NOT JUDGED")
+
+    def test_corpus_first(self):
+        done, summary, calls, _ = self.run_fuzz({"jobT": {}}, "--corpus")
+        corpus = [c for c in calls if "fuzz_sequence" in c["opts"]]
+        self.assertEqual(len(corpus), len(ext_fuzz.CORPUS))
+        self.assertEqual(calls[0]["opts"]["fuzz_sequence"], json.dumps(next(iter(ext_fuzz.CORPUS.values())), separators=(",", ":")))
+
+    def test_cmux17_refused(self):
+        tmp = Path(tempfile.mkdtemp())
+        done = subprocess.run([sys.executable, str(HERE / "fuzz.py"), "--build", "j", "--host", "cmux17", "--out", str(tmp / "o")],
+                              capture_output=True, text=True)
+        self.assertEqual(done.returncode, 2)
+
+
+class Journey(unittest.TestCase):
+    def test_journeys_validate(self):
+        done = subprocess.run([sys.executable, str(HERE / "run.py"), "--check"], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+
+    def test_driver_loads_the_group(self):
+        import driver
+        self.assertTrue(hasattr(driver.Journey, "step_fuzz_run"))
+        self.assertIn("fuzz_clean", driver.KIND)
+
+
+if __name__ == "__main__":
+    unittest.main()

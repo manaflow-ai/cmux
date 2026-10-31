@@ -1,0 +1,355 @@
+#!/usr/bin/env python3
+"""The action fuzzer: seeded, model-based runs of journeys/fuzz/action-fuzz.json (ext_fuzz.py), with an A/B of speed.
+
+    scripts/journeys/fuzz.py --build JOB [--base JOB] [--minutes 10] [--seed S] [--diagnostic] [--corpus]
+                             [--hog-swap-gb 14] [--hosts "cmux18 ..."] [--out DIR]
+    scripts/journeys/fuzz.py --build JOB --replay REPRO.json     # one shrunk sequence, in a fresh lease
+    scripts/journeys/fuzz.py --plan --seed S [--count N]         # print a seed's plan (no fleet)
+
+cmux-ad 2026-10-31 (Lawrence: "we need to fuzz greater for both correctness and speed"). One harness with the smoke
+gate: each round is one run.py lease (`--exclusive`, pool perf-lead: no fleet step runs on the mini) that plays the
+fuzz journey with a seed; the driver's action layer and the oracles are ext_fuzz.py's (its docstring lists them).
+
+- A/B: with --base, every round plays the SAME seed on the build and on the base, back to back on the same mini
+  (ABBA order over rounds), so each action's speed marks (key -> the new terminal drawn, key -> its prompt drawn,
+  Cmd-T -> the field has focus) are compared build against build on one host in one run, never against a fixed
+  number. A speed regression is red with the action, its timing kind and the seeds (see speed_table).
+- Correctness: a failure of the build names the oracle, the seed and the shrunk sequence (ext_fuzz shrinks in the
+  app with ddmin). Each shrunk sequence is replayed in a fresh lease (confirmed: fails again with the same oracle)
+  and written as a regression journey (journeys/fuzz/found-*.json shape, priority P1) under OUT/repros/; the same
+  failure on the base is reported as a base finding, not a regression.
+- --corpus plays the sequences of Lawrence's reported bugs first (ext_fuzz.CORPUS).
+- --diagnostic: a capture slot has no key window (until the Cua grant on cmux17), so keys after a create wait out the
+  creation hold; typing at once into a new terminal, quick pairs of creates, and the focus oracle are weak. The
+  verdict is DIAGNOSTIC and no clean file is written.
+
+Verdict: CLEAN (no failure on the build, no speed regression, every round ran, at least --minutes of fuzz, not
+diagnostic: writes HANDOFF/<JOB>.clean, default /Users/lawrence/fun/wt/handoff/dogfood-fuzz), RED (a failure or a
+speed regression), NOT JUDGED (a round did not run), DIAGNOSTIC. Writes OUT/summary.json and OUT/summary.txt.
+Exit 0 CLEAN, 1 RED, 75 NOT JUDGED or DIAGNOSTIC without a red, 2 usage. Fleet only: never on a person's Mac.
+"""
+import argparse
+import importlib.util
+import json
+import os
+import statistics
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parent.parent
+sys.path.insert(0, str(HERE))
+import ext_fuzz  # noqa: E402  (plan, CORPUS; nothing of it runs at import)
+
+JOURNEY = "action-fuzz"
+HANDOFF = Path("/Users/lawrence/fun/wt/handoff/dogfood-fuzz")
+# cmux17 is reserved for the Cua grant (STATUS "CUA GRANTED cmux17"); cmux16 is Leo's builder.
+DEFAULT_HOSTS = "cmux18 cmux19 cmux20 cmux21 cmux22 cmux23 cmux24"
+# A speed regression: at least MIN_SAMPLES on each side, the build's median above the base's by RATIO and by
+# FLOOR_MS, and its p90 worse too (one slow sample does not make a red).
+MIN_SAMPLES = 4
+RATIO = 1.25
+FLOOR_MS = 40
+
+
+def load_gate():
+    """smoke-gate.py's helpers (idle_first, exclusive_line, pressure): the same lease rules as the gate."""
+    spec = importlib.util.spec_from_file_location("smoke_gate", HERE / "smoke-gate.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def pct(values, q):
+    values = sorted(values)
+    if not values:
+        return None
+    k = (len(values) - 1) * q
+    lo, hi = int(k), min(int(k) + 1, len(values) - 1)
+    return round(values[lo] + (values[hi] - values[lo]) * (k - lo), 1)
+
+
+def speed_table(rows):
+    """rows: [{build: "test"|"base", seed, a, t, shown_ms, typeable_ms}] -> per (action, timing, mark): each side's
+    n, p50, p90, max, and `red` when the build is slower by the rule above."""
+    groups = {}
+    for r in rows:
+        for mark in ("shown_ms", "typeable_ms"):
+            if r.get(mark) is None:
+                continue
+            key = (r["a"], r["t"] if r["t"] == "slow" else "quick", mark)
+            side = groups.setdefault(key, {"test": [], "base": [], "seeds": set()})
+            side[r["build"]].append(float(r[mark]))
+            side["seeds"].add(r["seed"])
+    table = []
+    for (action, timing, mark), g in sorted(groups.items()):
+        row = {"action": action, "timing": timing, "mark": mark, "seeds": sorted(g["seeds"])[:12]}
+        for side in ("test", "base"):
+            v = g[side]
+            row[side] = {"n": len(v), "p50": pct(v, 0.5), "p90": pct(v, 0.9), "max": max(v) if v else None}
+        t, b = row["test"], row["base"]
+        row["red"] = bool(t["n"] >= MIN_SAMPLES and b["n"] >= MIN_SAMPLES and t["p50"] > b["p50"] * RATIO
+                          and t["p50"] - b["p50"] >= FLOOR_MS and t["p90"] >= b["p90"])
+        row["delta_p50_ms"] = round(t["p50"] - b["p50"], 1) if t["p50"] is not None and b["p50"] is not None else None
+        table.append(row)
+    return table
+
+
+def fuzz_report(out):
+    path = out / JOURNEY / "fuzz.json"
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except ValueError:
+        return None
+
+
+def journey_row(out):
+    path = out / "results.jsonl"
+    if not path.is_file():
+        return {"status": "not run", "reason": "run.py wrote no results.jsonl"}
+    for line in path.read_text().splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if row.get("id") == JOURNEY:
+            return row
+    return {"status": "not run", "reason": "no action-fuzz line"}
+
+
+def repro_journey(failure, sequence, seed, build):
+    """A regression journey that plays SEQUENCE once (no shrink) and must stay clean: red on the build it was found on."""
+    ident = f"found-{failure['oracle']}-{seed}".lower()
+    spec = json.loads((HERE / "journeys" / "fuzz" / "action-fuzz.json").read_text())
+    spec.update(id=ident, priority="P1",
+                title=f"fuzz repro ({failure['oracle']}): {' '.join(i['a'] for i in sequence)[:160]}",
+                why=f"action fuzz, seed {seed}, build {build}: {failure['detail'][:300]}",
+                source="scripts/journeys/fuzz.py (shrunk by ext_fuzz.ddmin)")
+    for step in spec["steps"]:
+        if step["do"] == "fuzz_run":
+            step.clear()
+            step.update({"do": "fuzz_run", "sequence": sequence, "shrink": False, "budget_s": 150})
+    return ident, spec
+
+
+class Runner:
+    def __init__(self, opts, gate):
+        self.opts, self.gate = opts, gate
+
+    def lease(self, build, out, options, host=None):
+        """One run.py round: the fuzz journey on BUILD in an exclusive lease (on HOST when given); (exit code,
+        journey row, fuzz report, the mini it ran on)."""
+        opts = self.opts
+        env = {**os.environ,
+               "CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS": os.environ.get("CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS", "600"),
+               "CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS": os.environ.get("CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS", "900"),
+               "CAPTURE_HOST_POOL": os.environ.get("CAPTURE_HOST_POOL", self.gate.OWNER_POOL),
+               "JOURNEYS_EXCLUDE_HOSTS": " ".join(x for x in (os.environ.get("JOURNEYS_EXCLUDE_HOSTS", "cmux16"),
+                                                                "" if opts.allow_cmux17 else "cmux17") if x)}
+        hosts = host or opts.host or self.gate.idle_first(opts.hosts)
+        env["CAPTURE_HOST_HOSTS"] = env["CAPTURE_HOST_SLOT_HOSTS"] = hosts
+        argv = [sys.executable, opts.runner, "--build", build, "--journey", JOURNEY, "--exclusive", "--hosts", hosts,
+                "--out", str(out)]
+        if opts.hog_swap_gb:
+            argv += ["--hog-swap-gb", str(opts.hog_swap_gb)]
+        for key, value in options.items():
+            argv += ["--journey-option", f"{key}={value}"]
+        if opts.diagnostic:
+            argv += ["--journey-option", "fuzz_mode=diagnostic"]
+        out.mkdir(parents=True, exist_ok=True)
+        with open(out / "run.log", "w") as log:  # live, so a long round can be followed
+            done = subprocess.run(argv, stdout=log, stderr=subprocess.STDOUT, text=True, env=env)
+        row = journey_row(out)
+        return done.returncode, row, fuzz_report(out), (row.get("host") or None)
+
+
+def summarize(rounds, opts, started):
+    test = [r for r in rounds if r["build"] == "test"]
+    fails = [r for r in test if r.get("failure")]
+    base_fails = [r for r in rounds if r["build"] == "base" and r.get("failure")]
+    not_run = [r for r in rounds if r["status"] == "not run" and not r.get("failure")]
+    speed = speed_table([dict(s, build=r["build"], seed=r["seed"]) for r in rounds for s in r.get("speed") or []])
+    reds = [s for s in speed if s["red"]]
+    fuzz_s = sum(r.get("seconds") or 0 for r in test)
+    actions = sum(r.get("played") or 0 for r in test)
+    if fails or reds:
+        verdict = "RED"
+    elif opts.diagnostic:
+        verdict = "DIAGNOSTIC (NOT JUDGED)"
+    elif not_run or fuzz_s < opts.minutes * 60 * 0.6:
+        verdict = "NOT JUDGED"
+    else:
+        verdict = "CLEAN"
+    return {"build": opts.build, "base": opts.base, "set": opts.set, "verdict": verdict, "diagnostic": opts.diagnostic,
+            "rounds": len(rounds), "test_rounds": len(test), "not_run": len(not_run), "actions": actions,
+            "fuzz_seconds": round(fuzz_s), "wall_seconds": round(time.time() - started),
+            "seeds": sorted({r["seed"] for r in test if r.get("seed") is not None}),
+            "failures": [{k: r.get(k) for k in ("round", "seed", "host", "failure", "shrunk", "confirmed", "repro", "corpus")} for r in fails],
+            "base_failures": [{k: r.get(k) for k in ("round", "seed", "host", "failure", "shrunk", "corpus")} for r in base_fails],
+            "speed": speed, "speed_reds": reds,
+            "weak_oracles": (["typeable at once (keys wait out the 2.5 s creation hold after a create)",
+                              "quick pairs of creates (the second key waits too)",
+                              "focus (a slot has no key window; AppKit has no first responder to compare)"]
+                             if opts.diagnostic else []),
+            "rounds_detail": rounds}
+
+
+def text_of(summary):
+    s = summary
+    lines = [f"action fuzz ({s['set']}) of build {s['build']}" + (f" vs base {s['base']}" if s["base"] else "")
+             + f": {s['verdict']} ({s['test_rounds']} rounds, {s['actions']} actions, {s['fuzz_seconds']} s of fuzz, "
+             f"{s['not_run']} rounds not run; seeds {s['seeds'][:10]})"]
+    if s["weak_oracles"]:
+        lines.append("DIAGNOSTIC (no key window on a slot): weak oracles: " + "; ".join(s["weak_oracles"]))
+    for f in s["failures"]:
+        fl = f["failure"] or {}
+        lines.append(f"  FAIL {fl.get('oracle')} seed {f['seed']} round {f['round']} on {f['host']}: {str(fl.get('detail'))[:220]}")
+        lines.append(f"       shrunk to {len(f['shrunk'] or [])} actions: {json.dumps(f['shrunk'])[:400]}"
+                     f" (confirmed in a fresh lease: {f.get('confirmed')}; repro {f.get('repro')})")
+    for f in s["base_failures"]:
+        fl = f["failure"] or {}
+        lines.append(f"  base finding {fl.get('oracle')} seed {f['seed']}: {str(fl.get('detail'))[:200]}")
+    for row in s["speed"]:
+        if row["test"]["n"] or row["base"]["n"]:
+            lines.append(f"  speed {row['action']:<15} {row['timing']:<5} {row['mark']:<12} build p50 {row['test']['p50']} "
+                         f"p90 {row['test']['p90']} (n {row['test']['n']}) | base p50 {row['base']['p50']} p90 "
+                         f"{row['base']['p90']} (n {row['base']['n']}) | delta p50 {row['delta_p50_ms']} ms"
+                         + ("  RED" if row["red"] else ""))
+    return "\n".join(lines)
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0], formatter_class=argparse.RawDescriptionHelpFormatter,
+                                 epilog=__doc__.split("\n\n", 1)[1])
+    ap.add_argument("--build", help="the fleet build job id under test")
+    ap.add_argument("--base", help="the base build job id for the speed A/B (same seeds, same mini, interleaved)")
+    ap.add_argument("--minutes", type=float, default=10.0, help="fuzz time on the build (the base gets as much)")
+    ap.add_argument("--seed", type=int, help="the first seed (default: from the clock); round N plays seed + N - 1")
+    ap.add_argument("--count", type=int, default=300, help="actions planned per round (a round stops at its budget)")
+    ap.add_argument("--set", default="layout", choices=sorted(ext_fuzz.SETS),
+                    help="the action set: layout (fuzz-catalog row m, the first mode: R3a/R3b under New Column, Cmd-D, "
+                         "Split Down, Ctrl-`, close pane, divider drag, window resize, relaunch) or full (every action)")
+    ap.add_argument("--corpus", action="store_true", help="play Lawrence's reported-bug sequences first")
+    ap.add_argument("--diagnostic", action="store_true", help="a slot with no key window: keys wait out the creation hold")
+    ap.add_argument("--hog-swap-gb", type=float, default=0.0, help="the memory hog (smoke_hog.py) for each round")
+    ap.add_argument("--hosts", default=DEFAULT_HOSTS)
+    ap.add_argument("--host", help="pin every round to this mini (the A/B is then on one host for the whole run)")
+    ap.add_argument("--allow-cmux17", action="store_true", help="only after STATUS says CUA GRANTED cmux17")
+    ap.add_argument("--replay", help="a repro JSON (a sequence list, or a file with `shrunk`/`sequence`): one round")
+    ap.add_argument("--plan", action="store_true", help="print the plan of --seed and exit (no fleet)")
+    ap.add_argument("--out")
+    ap.add_argument("--handoff", default=str(HANDOFF))
+    ap.add_argument("--runner", default=str(HERE / "run.py"), help=argparse.SUPPRESS)  # tests: a stand-in for run.py
+    opts = ap.parse_args(argv)
+    seed0 = opts.seed if opts.seed is not None else int(time.time()) % 1000000
+    if opts.plan:
+        for item in ext_fuzz.plan(seed0, opts.count, actions=opts.set):
+            print(json.dumps(item))
+        return 0
+    if not opts.build:
+        ap.error("--build JOB is required")
+    if opts.host and opts.host == "cmux17" and not opts.allow_cmux17:
+        ap.error("cmux17 is reserved for the Cua grant: --allow-cmux17 only after STATUS says CUA GRANTED cmux17")
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    out = Path(opts.out) if opts.out else ROOT / "artifacts" / "fuzz" / f"{opts.build[:12]}-{stamp}"
+    if out.exists() and any(out.iterdir()):
+        ap.error(f"--out {out} is not empty")
+    out.mkdir(parents=True, exist_ok=True)
+    gate = load_gate()
+    runner = Runner(opts, gate)
+    started = time.time()
+    rounds = []
+
+    # The work: (label, options) per round. Corpus entries first, then seeds until the time is spent.
+    work = []
+    if opts.replay:
+        data = json.loads(Path(opts.replay).read_text())
+        seq = data if isinstance(data, list) else (data.get("shrunk") or data.get("sequence"))
+        work.append(("replay", {"fuzz_sequence": json.dumps(seq, separators=(",", ":")), "fuzz_shrink": "false"}, None))
+    else:
+        if opts.corpus:
+            for name, seq in ext_fuzz.CORPUS.items():
+                work.append((name, {"fuzz_sequence": json.dumps(seq, separators=(",", ":"))}, None))
+
+    def play(label, options, seed, n):
+        # ABBA over rounds; the second side plays on the mini the first one got.
+        order = ["test", "base"] if not opts.base or n % 2 == 1 else ["base", "test"]
+        host = opts.host
+        for side in order:
+            if side == "base" and not opts.base:
+                continue
+            job = opts.build if side == "test" else opts.base
+            r_out = out / f"round-{n:03d}-{side}"
+            code, row, report, used = runner.lease(job, r_out, options, host)
+            host = host or used
+            rec = {"round": n, "build": side, "job": job, "label": label, "seed": seed if seed is not None else (report or {}).get("seed"),
+                   "host": used, "status": row.get("status"), "reason": (row.get("reason") or "")[:300], "exit": code,
+                   "played": (report or {}).get("played"), "seconds": (report or {}).get("seconds"),
+                   "failure": (report or {}).get("failure"), "shrunk": (report or {}).get("shrunk"),
+                   "speed": (report or {}).get("speed") or [], "corpus": label if label not in ("seed", "replay") else None,
+                   "exclusive": gate.exclusive_line(r_out), "pressure": gate.pressure(r_out, opts.hog_swap_gb) if opts.hog_swap_gb else None}
+            rounds.append(rec)
+            print(f"round {n} {side} ({label}, seed {rec['seed']}) on {used}: {rec['status']}"
+                  + (f" FAIL {rec['failure']['oracle']}: {rec['failure']['detail'][:160]}" if rec["failure"] else
+                     f" ({rec['reason'][:160]})" if rec["status"] != "pass" else f" {rec['played']} actions"), flush=True)
+
+    n = 0
+    for label, options, seed in work:
+        n += 1
+        play(label, options, seed, n)
+    if not opts.replay:
+        budget = opts.minutes * 60
+        while sum(r.get("seconds") or 0 for r in rounds if r["build"] == "test") < budget:
+            n += 1
+            seed = seed0 + n - 1
+            play("seed", {"fuzz_seed": str(seed), "fuzz_count": str(opts.count), "fuzz_set": opts.set}, seed, n)
+            test_rounds = [r for r in rounds if r["build"] == "test"]
+            if len(test_rounds) >= 3 and not any(r.get("seconds") for r in test_rounds[-3:]):
+                print("fuzz: three rounds in a row played nothing; stopping", flush=True)
+                break
+            if time.time() - started > budget * 6 + 1800:
+                print("fuzz: the wall clock is six times the fuzz budget; stopping", flush=True)
+                break
+
+    # Confirm each failure of the build in a fresh lease with its shrunk sequence, and write it as a journey.
+    repros = out / "repros"
+    for r in [r for r in rounds if r["build"] == "test" and r.get("failure")]:
+        seq = r.get("shrunk") or None
+        if not seq:
+            report = fuzz_report(out / f"round-{r['round']:03d}-test") or {}
+            seq = report.get("sequence")
+        if not seq:
+            continue
+        repros.mkdir(exist_ok=True)
+        ident, spec = repro_journey(r["failure"], seq, r["seed"], opts.build)
+        (repros / f"{ident}.json").write_text(json.dumps(spec, indent=1) + "\n")
+        r["repro"] = str(repros / f"{ident}.json")
+        c_out = out / f"confirm-{r['round']:03d}"
+        code, row, report, used = runner.lease(opts.build, c_out, {"fuzz_sequence": json.dumps(seq, separators=(",", ":")),
+                                                                    "fuzz_shrink": "false"})
+        again = (report or {}).get("failure")
+        r["confirmed"] = bool(again) and again.get("oracle") == r["failure"]["oracle"]
+        r["confirm_detail"] = (again or {}).get("detail") or row.get("reason")
+
+    summary = summarize(rounds, opts, started)
+    summary["out"] = str(out)
+    (out / "summary.json").write_text(json.dumps(summary, indent=1, default=str) + "\n")
+    text = text_of(summary)
+    (out / "summary.txt").write_text(text + "\n")
+    print(text)
+    if summary["verdict"] == "CLEAN":
+        handoff = Path(opts.handoff)
+        handoff.mkdir(parents=True, exist_ok=True)
+        (handoff / f"{opts.build}.clean").write_text(json.dumps({k: v for k, v in summary.items() if k != "rounds_detail"},
+                                                                indent=1, default=str) + "\n")
+        print(f"wrote {handoff / (opts.build + '.clean')}")
+        return 0
+    return 1 if summary["verdict"] == "RED" else 75
+
+
+if __name__ == "__main__":
+    sys.exit(main())
