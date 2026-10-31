@@ -137,6 +137,11 @@ public final class HomeSidebarView: NSView {
                 CmuxSidebarSearchResult(id: $0.id.rawValue, title: $0.name, initials: Self.initials($0.name))
             })
         }
+        list.closeTitle = HomeConversationStrings.closeNewMessage
+        list.onClose = { [weak self] id in
+            guard let self, id == Self.draftRowID.rawValue else { return }
+            onCloseDraft()
+        }
         list.onSelectSearchResult = { [weak self] id in
             guard let self, let person = teammates(list.searchQuery).first(where: { $0.id.rawValue == id }) else { return }
             onStartTeammate(person)
@@ -180,6 +185,7 @@ public final class HomeSidebarView: NSView {
     public func setDraftRow(_ title: String?) {
         guard title != draftRowTitle else { return }
         draftRowTitle = title
+        list.closableID = title == nil ? nil : Self.draftRowID.rawValue
         reshow()
     }
 

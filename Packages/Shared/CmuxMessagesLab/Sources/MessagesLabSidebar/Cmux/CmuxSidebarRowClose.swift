@@ -68,7 +68,13 @@ final class CmuxSidebarRowClose: NSResponder {
     /// Places the x on the row under the pointer, or hides it. Also runs after every `show`
     /// (the row can move, go, or come back under a still pointer).
     func refresh() {
-        button.isHidden = true
+        guard let row = rowRect, let pointer, row.contains(pointer) else {
+            button.isHidden = true
+            return
+        }
+        let side = Self.side
+        button.frame = CGRect(x: row.maxX - Self.trailingInset - side, y: (row.midY - side / 2).rounded(), width: side, height: side)
+        button.isHidden = false
     }
 
     @objc private func closeClicked() {

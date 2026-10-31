@@ -187,6 +187,7 @@ final class TopHomePageView: NSView {
             }
         }
         list.onNewMessage = { [weak self] in self?.presentNewMessage() }
+        list.onCloseDraft = { [weak self] in self?.performCloseNewMessage() }
         list.onOpenRequests = { [weak self] in self?.presentRequests() }
         list.composeMenu = { [weak services] in services.map { HomePageMenus.backgroundMenu(registry: $0.registry) } }
     }
@@ -498,13 +499,8 @@ final class TopHomePageView: NSView {
                 openWhenListed(id)
             }
         }
-        // Escape on an empty draft: back to the conversation shown before.
-        page.onEscape = { [weak self] in
-            guard let self else { return }
-            endNewMessage()
-            if let shown { list.select(shown) }
-            focusPrimaryInput()
-        }
+        // Escape in an empty To: field: the same close as the row's x (`home.closeNewMessage`).
+        page.onEscape = { [weak self] in self?.performCloseNewMessage() }
         newMessage = page
         return page
     }
@@ -523,6 +519,30 @@ final class TopHomePageView: NSView {
             split.composing = false
         }
         return true
+    }
+
+    /// A New Message draft is open: its page on screen, or kept with its row while another
+    /// conversation shows.
+    var hasNewMessageDraft: Bool { newMessage != nil }
+
+    /// Close New Message (`home.closeNewMessage`: the draft row's x, Escape in an empty To:, the
+    /// palette, the CLI, MCP): the draft, its page and its row go, whatever was typed, as
+    /// Messages' x does. Back on screen is the conversation shown before; the keyboard moves
+    /// there only when the page had it.
+    func closeNewMessage() {
+        guard let page = newMessage else { return }
+        let wasShowing = !page.isHidden
+        let hadKeyboard = wasShowing && (window?.firstResponder as? NSView).map { $0.isDescendant(of: page) } == true
+        endNewMessage()
+        guard wasShowing else { return }
+        if let shown { list.select(shown) }
+        if hadKeyboard { focusPrimaryInput() }
+    }
+
+    /// Runs `home.closeNewMessage` through the registry (one path for every entrypoint).
+    private func performCloseNewMessage() {
+        guard let services else { return closeNewMessage() }
+        _ = services.registry.perform("home.closeNewMessage", invocation: ActionInvocation(origin: .user))
     }
 
     /// Drops the New Message draft, its page and its row.

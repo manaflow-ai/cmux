@@ -26,6 +26,15 @@ extension AppActions {
             let title = invocation["title"]?.stringValue ?? ""
             runHome(services) { await services.home.startConversation(recipients, title: title) }
         })
+        // Close New Message: the draft row's x, Escape in an empty To:, the palette, the CLI and MCP.
+        // It never opens Home or moves focus elsewhere: it acts only on a draft that is open.
+        registry.bindEffect("home.closeNewMessage", unavailable: {
+            newMessagePage(services) == nil ? RefusalStrings.noNewMessage : nil
+        }, effect: { _ in
+            guard let page = newMessagePage(services) else { return .refused(RefusalStrings.noNewMessage) }
+            page.closeNewMessage()
+            return .done
+        })
         registry.bind("home.invite", invoke: { invocation in
             guard let text = invocation["email"]?.stringValue, !text.isEmpty else {
                 guard services.home.dock.isClassic else { return openDockRoute(HomeDockRoute.newInvite, services) { $0.presentInvite(prefill: "") } }
@@ -165,6 +174,13 @@ extension AppActions {
     /// The Home page of the active window, shown (nil, refused, when no
     /// window may show it). A run that may not change the view (a socket
     /// run without focus) is told so, not that Home is not ready.
+    /// The active window's Home page (the classic top page, else the docked Home's Messages page)
+    /// that holds a New Message draft, or nil.
+    static func newMessagePage(_ services: AppServices) -> TopHomePageView? {
+        let classic = services.windows.active?.topPages.views[.home] as? TopHomePageView
+        return [classic, HomeDockTab.view(services)?.messages].lazy.compactMap { $0 }.first { $0.hasNewMessageDraft }
+    }
+
     static func homePage(_ services: AppServices) -> TopHomePageView? {
         guard ActionRunScope.viewChangeAllowed() else {
             services.registry.refuse(RefusalStrings.homeNeedsFocus)
