@@ -1,10 +1,10 @@
 {
   "id": "realkey-ctrl-cmd-d-probe",
   "priority": "P1",
-  "title": "Proof: what a REAL Ctrl-Cmd-D does in cmux on a Mac with default settings (and a real Cmd-D as the control)",
-  "why": "STATUS 1649, cmux-ad 14:50Z: in the real-key smoke round a real Ctrl-Cmd-D made no New Column, while debug.key Ctrl-Cmd-D passed 10/10; very likely macOS's system hotkey 70 'Look up in Dictionary' (Ctrl-Cmd-D, on by default) takes the key before cmux. This journey records, for a real Cmd-D (control) and then a real Ctrl-Cmd-D: whether cmux's key router saw the key at all, which action ran (the app's action log), which other apps' windows are on screen (a Look Up panel), and a full-display screenshot right after the key. Needs a whole-host lease on a CuaDriver-granted mini.",
+  "title": "Proof: what REAL cmux default keys that macOS also holds do (Ctrl-Cmd-D Look Up, Ctrl-Cmd-S hot key 4, Shift-Cmd-F hot key 157), with a real Cmd-D as the control",
+  "why": "STATUS 1649, cmux-ad 14:50Z: in the real-key smoke round a real Ctrl-Cmd-D made no New Column, while debug.key Ctrl-Cmd-D passed 10/10; very likely macOS's system hotkey 70 'Look up in Dictionary' (Ctrl-Cmd-D, on by default) takes the key before cmux. This journey records, for a real Cmd-D (control) and then a real Ctrl-Cmd-D: whether cmux's key router saw the key at all, which action ran (the app's action log), which other apps' windows are on screen (a Look Up panel), and a full-display screenshot right after the key. Needs a whole-host lease on a CuaDriver-granted mini. Added (New Column key lead aef4f4e6f83f36107, STATUS 1819): the window server's live table also has hot key 4 (Ctrl-Cmd-S, cmux saveLayoutTemplate) and 157 (Shift-Cmd-F, cmux findInDirectory) ON; each probe records the router count, the action log, the windows and a screenshot. The mini's com.apple.symbolichotkeys is never changed.",
   "source": "the smoke gate's real-key step 42-43 (journeys/dogfood/smoke-dogfood.json)",
-  "budget_seconds": 120,
+  "budget_seconds": 180,
   "options": {
     "key_path": "real"
   },
@@ -91,6 +91,40 @@
       "name": "probe-escape",
       "key": "escape",
       "title": "Escape (closes a Look Up panel, if one opened); screenshot after"
+    },
+    {
+      "do": "real_key_probe",
+      "name": "probe-ctrl-cmd-s",
+      "key": "s",
+      "modifiers": [
+        "ctrl",
+        "cmd"
+      ],
+      "expect": "saveLayoutTemplate",
+      "title": "a real Ctrl-Cmd-S (Save Layout Template's default key; macOS hot key 4 is ON in the window server's table)"
+    },
+    {
+      "do": "real_key_probe",
+      "name": "probe-escape-s",
+      "key": "escape",
+      "title": "Escape (closes what Ctrl-Cmd-S opened)"
+    },
+    {
+      "do": "real_key_probe",
+      "name": "probe-shift-cmd-f",
+      "key": "f",
+      "modifiers": [
+        "shift",
+        "cmd"
+      ],
+      "expect": "findInDirectory",
+      "title": "a real Shift-Cmd-F (Find in Directory's default key; macOS hot key 157 is ON)"
+    },
+    {
+      "do": "real_key_probe",
+      "name": "probe-escape-f",
+      "key": "escape",
+      "title": "Escape (closes what Shift-Cmd-F opened)"
     }
   ],
   "finally": [
