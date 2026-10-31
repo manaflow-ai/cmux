@@ -1460,10 +1460,13 @@ impl Hub {
             Some(Value::Array(kinds)) => !kinds.iter().any(transcript),
             Some(kind) => !transcript(kind),
         };
-        // A page of the newest records (`beforeSeq` past every seq: the pane's read-ahead, a read
-        // ahead here, `warm.rs`) is the chat's run as an attach's is.
+        // A page of the newest records (`beforeSeq` past every seq and no `afterSeq`: the pane's
+        // read-ahead, a read ahead here, `warm.rs`) is the chat's run as an attach's is. One with
+        // an `afterSeq` too is the newest `limit` records after it, which need not start there.
         let before = params.get("beforeSeq").filter(|v| !v.is_null());
-        let newest = before.and_then(Value::as_u64).is_some_and(|b| b >= warm::NEWEST);
+        let after = params.get("afterSeq").filter(|v| !v.is_null());
+        let newest =
+            after.is_none() && before.and_then(Value::as_u64).is_some_and(|b| b >= warm::NEWEST);
         if (before.is_some() && !newest) || leaves_out {
             return;
         }

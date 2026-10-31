@@ -138,6 +138,12 @@ fn a_newest_page_is_kept_and_the_store_says_what_it_covers() {
     let page = json!({"events": records("m1", 10..=11), "hasMore": false, "lastSeq": 11,
                       "pageThrough": 11, "createdAt": 42});
     hub.capture_peer_page(on, ("m1", true), &after, &page);
+    // Review of #28626 at a2cc1e2: the newest records after a seq need not start right after it, so
+    // a page asked with both cursors is not kept (it would claim the seqs it skipped).
+    let both = json!({"afterSeq": 2, "beforeSeq": NEWEST, "limit": 2});
+    let page = json!({"events": records("m2", 8..=9), "hasMore": true, "lastSeq": 9,
+                      "pageThrough": 9, "createdAt": 42});
+    hub.capture_peer_page(on, ("m2", true), &both, &page);
     let covers = hub.peer_snapshots.covers(PEER);
     assert_eq!(covers, HashMap::from([("m1".to_owned(), (Some(42), 11))]));
     let got = hub.peer_snapshot(&json!({"sessionId": "far-box/m1"})).unwrap();
@@ -159,4 +165,52 @@ async fn a_daemon_whose_clients_open_no_peer_chat_reads_nothing_ahead() {
     hub.warm_peer_copies(PEER);
     assert!(hub.peer_snapshots.warm.state().due.contains_key(PEER));
     hub.stop_idle_reaper();
+}
+
+/// Review of #28626 at a2cc1e2: new records past a copy that do not fit one page are read on from
+/// the newest one the page held; a newest page, a page that held all there was, or one that held
+/// nothing new ends the chat's reads.
+#[test]
+fn a_page_past_the_copy_that_did_not_fit_is_read_on_from_its_newest_record() {
+    let after = json!({"sessionId": "m1", "afterSeq": 10, "limit": 400, "maxBytes": 1});
+    let page = |more: bool, seqs: &[u64]| {
+        let events: Vec<Value> = seqs.iter().map(|s| json!({"seq": s, "kind": "k"})).collect();
+        json!({"events": events, "hasMore": more})
+    };
+    let next = next_page(&after, &page(true, &[11, 14, 12])).unwrap();
+    assert_eq!(next["afterSeq"], json!(14));
+    assert_eq!((next["limit"].clone(), next["sessionId"].clone()), (json!(400), json!("m1")));
+    assert_eq!(next_page(&after, &page(false, &[11, 14])), None, "it held all there was");
+    assert_eq!(next_page(&after, &page(true, &[])), None, "nothing new: no loop");
+    assert_eq!(next_page(&after, &page(true, &[9, 10])), None);
+    let newest = json!({"sessionId": "m1", "beforeSeq": NEWEST});
+    assert_eq!(next_page(&newest, &page(true, &[11, 14])), None, "a newest page is the tail");
+}
+
+/// Review of #28626 at a2cc1e2: a stopping daemon starts no round and aborts those running.
+#[tokio::test]
+async fn a_stopping_daemon_starts_no_round_and_ends_the_ones_running() {
+    let warm = Warm::default();
+    let now = Instant::now();
+    let running = tokio::spawn(std::future::pending::<()>());
+    warm.state().rounds.push(running.abort_handle());
+    warm.due_by(PEER, now);
+    warm.stop();
+    assert_eq!(warm.take_due(now), (vec![], None));
+    assert!(running.await.unwrap_err().is_cancelled());
+}
+
+/// Review of #28626 at a2cc1e2: a read the link refused ends the round; one the peer refused for
+/// the chat alone passes over to the next chat.
+#[test]
+fn only_a_refusal_of_the_link_ends_a_round() {
+    let (tx, _rx) = tokio::sync::mpsc::channel(8);
+    let peer = crate::peer::Peer::new(PEER, "ws://127.0.0.1:9", None, None, tx);
+    peer.connected.store(true, Ordering::SeqCst);
+    let unreachable =
+        RpcError::internal("peer_unreachable: x").with_data(json!({"reason": "peer_unreachable"}));
+    assert!(link_down(&peer, &unreachable));
+    assert!(!link_down(&peer, &RpcError::invalid_params("no session m1")));
+    peer.connected.store(false, Ordering::SeqCst);
+    assert!(link_down(&peer, &RpcError::internal("peer far-box timed out after 30s")));
 }

@@ -9,9 +9,11 @@
 //!
 //! Bounds: [`WARM_PER_PEER`] chats of each peer, changed in the last [`WARM_WITHIN_MS`]; a read is
 //! the pane's open page ([`WARM_LIMIT`] records within [`WARM_BYTES`]), only past what the copy
-//! covers once it covers some; a chat is read at most once each [`WARM_EVERY`], and its last change
-//! is always read; one round at a time per peer, one read at a time in it, and a round ends at the
-//! first read the link refuses. What is kept stays within the copies' own bounds.
+//! covers once it covers some, and at most [`WARM_PAGES`] such pages in a round; a chat is read
+//! (or tried) at most once each [`WARM_EVERY`], and its last change is always read; one round at a
+//! time per peer, one read at a time in it, and a round ends at the first read the link refuses (a
+//! chat the peer refuses is passed over). What is kept stays within the copies' own bounds. Rounds
+//! stop with the daemon (`Hub::stop_idle_reaper`), before its last flush.
 
 use super::*;
 use std::sync::Weak;
@@ -29,6 +31,9 @@ const WARM_SETTLE: Duration = Duration::from_millis(if cfg!(test) { 20 } else { 
 /// A read's bounds: those of the pane's attach (`OPEN_PAGE_BYTES`, webviews `direct.ts`).
 const WARM_LIMIT: u64 = 400;
 const WARM_BYTES: u64 = 128 << 10;
+/// Pages past a copy one round reads of a chat whose new records do not fit one page; the rest is
+/// read [`WARM_EVERY`] later.
+const WARM_PAGES: usize = 4;
 /// The kinds the pane's attach of a peer chat asks for, at most 8 (an older peer refuses more):
 /// the transcript, the commands, usage, config, bookmarks and secret cards.
 const WARM_KINDS: [&str; 7] = [
@@ -61,6 +66,10 @@ struct State {
     due: HashMap<String, Instant>,
     /// Peers whose round runs.
     running: HashSet<String>,
+    /// The rounds started, to stop them with the daemon (finished ones are pruned as rounds start).
+    rounds: Vec<tokio::task::AbortHandle>,
+    /// The daemon stops: no round starts, and none keeps a page.
+    stopped: bool,
     /// When each chat was last read ahead (only chats of the rounds' plans: pruned each round).
     read_at: HashMap<Key, Instant>,
 }
@@ -73,6 +82,9 @@ impl Warm {
     /// The peers whose round starts now (marked running), and when the next is due.
     fn take_due(&self, now: Instant) -> (Vec<String>, Option<Instant>) {
         let mut s = self.state();
+        if s.stopped {
+            return (vec![], None);
+        }
         let State { due, running, .. } = &mut *s;
         let ready: Vec<String> = due
             .iter()
@@ -85,6 +97,15 @@ impl Warm {
         }
         let next = due.iter().filter(|(peer, _)| !running.contains(*peer)).map(|(_, at)| *at).min();
         (ready, next)
+    }
+
+    /// The daemon stops: every round ends at its next wait, and none keeps a page after this.
+    pub(crate) fn stop(&self) {
+        let mut s = self.state();
+        s.stopped = true;
+        for round in s.rounds.drain(..) {
+            round.abort();
+        }
     }
 
     /// Peer `peer`'s round is due by `at`, unless an earlier one is.
@@ -163,6 +184,11 @@ pub(super) fn plan(
 }
 
 impl PeerSnapshots {
+    /// The daemon stops: no chat is read ahead any more (`Warm::stop`).
+    pub(crate) fn stop_warming(&self) {
+        self.warm.stop();
+    }
+
     /// What the copies of peer `peer` cover: each session's generation and last seq. Empty when
     /// the store does not answer within [`ANSWER_WITHIN`] or the queue is full.
     pub(crate) fn covers(&self, peer: &str) -> HashMap<String, (Option<u64>, u64)> {
@@ -255,22 +281,62 @@ impl Hub {
             s.read_at.retain(|k, _| k.0 != name || planned.contains(&k.1));
             (asks, later)
         };
+        let mut later = later;
         for ask in asks {
-            // The link the page is asked on, read before it, as the forward path does.
-            let link = peer.link_epoch();
-            let read = peer.request_on(method::MUX_EVENTS, ask.params.clone(), Some(link)).await;
-            let Ok(mut page) = read else { break };
+            // Tried counts as read: a chat the peer refuses waits its interval too.
             warm.state().read_at.insert((name.to_owned(), ask.mux.clone()), Instant::now());
-            let held = |r: &Value| r.get("events").and_then(Value::as_array).map(Vec::len);
-            let before = held(&page);
-            crate::server::strip_peer_asks(self, name, &ask.mux, method::MUX_EVENTS, &mut page);
-            if held(&page) == before {
+            let mut params = ask.params;
+            for _ in 0..WARM_PAGES {
+                // The link the page is asked on, read before it, as the forward path does.
+                let link = peer.link_epoch();
+                let read = peer.request_on(method::MUX_EVENTS, params.clone(), Some(link)).await;
+                let mut page = match read {
+                    Ok(page) => page,
+                    // The link is down: nothing else of this peer is read this round.
+                    Err(e) if link_down(peer, &e) => return later,
+                    // This chat only (gone meanwhile, a page it cannot give): the next one is read.
+                    Err(_) => break,
+                };
+                let held = |r: &Value| r.get("events").and_then(Value::as_array).map(Vec::len);
+                let before = held(&page);
+                crate::server::strip_peer_asks(self, name, &ask.mux, method::MUX_EVENTS, &mut page);
+                // Checked as the page is kept: a round of a stopping daemon keeps nothing after its
+                // last flush.
+                if held(&page) != before || warm.state().stopped {
+                    break;
+                }
                 let on = (name, peer.generation, link, Some(ask.generation));
-                self.capture_peer_page(on, (&ask.mux, true), &ask.params, &page);
+                self.capture_peer_page(on, (&ask.mux, true), &params, &page);
+                let Some(next) = next_page(&params, &page) else { break };
+                params = next;
+                // Read past the last of these pages after the interval, if they do not get there.
+                let at = Instant::now() + WARM_EVERY;
+                later = Some(later.map_or(at, |l| l.min(at)));
             }
         }
         later
     }
+}
+
+/// The read after `page`, asked with `params`: records past the copy that did not fit one page
+/// continue from the newest one the page held. None when it held all there was, held nothing new,
+/// or was a newest page (the chat's tail already).
+pub(super) fn next_page(params: &Value, page: &Value) -> Option<Value> {
+    let after = params.get("afterSeq").and_then(Value::as_u64)?;
+    if page.get("hasMore") == Some(&Value::Bool(false)) {
+        return None;
+    }
+    let events = page.get("events").and_then(Value::as_array)?;
+    let newest = events.iter().filter_map(seq_of).max().filter(|n| *n > after)?;
+    let mut next = params.clone();
+    next["afterSeq"] = json!(newest);
+    Some(next)
+}
+
+/// Whether `e` refused a read because peer `peer`'s link is down, not because of the chat.
+fn link_down(peer: &crate::peer::Peer, e: &RpcError) -> bool {
+    let reason = e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str);
+    reason == Some("peer_unreachable") || !peer.connected.load(Ordering::SeqCst)
 }
 
 /// Starts each round when it is due, until the daemon stops or the hub goes.
@@ -284,7 +350,15 @@ async fn warm_loop(hub: Weak<Hub>) {
         let kick = h.peer_snapshots.warm.kick.clone();
         let (ready, next) = h.peer_snapshots.warm.take_due(Instant::now());
         for peer in ready {
-            tokio::spawn(h.clone().warm_round(peer));
+            let round = tokio::spawn(h.clone().warm_round(peer)).abort_handle();
+            let mut s = h.peer_snapshots.warm.state();
+            s.rounds.retain(|r| !r.is_finished());
+            // A stop since `take_due` aborts it here: the stop drained the rounds already.
+            if s.stopped {
+                round.abort();
+            } else {
+                s.rounds.push(round);
+            }
         }
         drop(h);
         // `notify_one` keeps a permit when nothing waits: no kick is lost before this wait.

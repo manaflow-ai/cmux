@@ -124,6 +124,8 @@ impl Hub {
     pub fn stop_idle_reaper(&self) {
         self.stopping.store(true, Ordering::SeqCst);
         self.peer_notices_stop.send_replace(true);
+        // Reads of peer chats ahead of an open end too, before the last flush (`peer_snapshot/warm.rs`).
+        self.peer_snapshots.stop_warming();
         self.idle_wake.notify_one();
     }
 
