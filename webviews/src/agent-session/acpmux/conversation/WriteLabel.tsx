@@ -19,6 +19,7 @@ import { editedPaths } from "../toolPaths";
 import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { fileName } from "./toolGroups";
 import { leadingVerb, ToolLabel } from "./ToolVerb";
+import { useTranscriptReadOnly } from "./readOnly";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -83,7 +84,9 @@ function WriteFileName({ path, cwd }: { path: string; cwd?: string }) {
   const name = fileName(path);
   const folder = cwd?.replace(/\/+$/, "");
   const full = path.startsWith("/") || path.startsWith("~") || !folder ? path : `${folder}/${path}`;
-  if (isDeniedPath(full)) return <span className="cv-tool__file">{name}</span>;
+  // Read only, the file is on the owner's machine: its name, never a link.
+  const readOnly = useTranscriptReadOnly();
+  if (isDeniedPath(full) || readOnly) return <span className="cv-tool__file">{name}</span>;
   const open = (event: MouseEvent | KeyboardEvent) => {
     event.stopPropagation();
     event.preventDefault();
