@@ -89,7 +89,7 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
         <div {...fold.bodyProps}>
           <div className="cv-tool-group" id={detailsId}>
             {items.map((item, index) => (
-              <McpCallRow key={item.tool!.id || index} item={item} />
+              <McpCallRow key={item.tool!.id || index} item={item} grouped />
             ))}
           </div>
         </div>
@@ -98,7 +98,7 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
   );
 }
 
-function McpCallRow({ item }: { item: AcpmuxActivity }) {
+function McpCallRow({ item, grouped = false }: { item: AcpmuxActivity; grouped?: boolean }) {
   const t = useT();
   const names = useContext(McpNamesContext);
   const [open, setOpen] = useState(false);
@@ -137,7 +137,7 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
         onClick={fold.toggle}
       >
         <span className="cv-tool__icon">
-          {running ? <Spinner size={16} /> : <ToolGroup size={16} strokeWidth={1.2} />}
+          {running && !grouped ? <Spinner size={16} /> : <ToolGroup size={16} strokeWidth={1.2} />}
         </span>
         <span className="cv-tool__text" data-find-skip>
           <ToolLabel text={label} />
