@@ -166,6 +166,33 @@ public final class MacHomeFeed {
 
     public init() {}
 
+    #if DEBUG
+    /// The list scroll rig (verify/listperf/): `count` rows shaped like a busy Mac's Home
+    /// (four pinned, some Chiefs working, long Markdown previews), with no link.
+    public func seedStressRows(count: Int, macID: String) {
+        let stamp = ISO8601DateFormatter()
+        let kinds = ["chief", "direct", "channel", "group"]
+        rows = (0..<count).compactMap { (index: Int) -> MacHomeRow? in
+            let isChief = index % 6 == 0
+            var wire: [String: Any] = [:]
+            wire["id"] = "stress-\(index)"
+            wire["kind"] = kinds[index % kinds.count]
+            wire["name"] = "Conversation \(index)"
+            wire["unread"] = index % 3 == 0 ? index % 5 + 1 : 0
+            wire["activity_at"] = stamp.string(from: Date().addingTimeInterval(-Double(index) * 900))
+            wire["preview"] = "**Done (#\(index)).** The dialer now retries with `backoff`, capped at 30 s. [Details](https://cmux.com) and 24 tests pass."
+            if isChief {
+                wire["chief"] = "chief-\(index)"
+                wire["chief_state"] = index % 12 == 0 ? "working" : "idle"
+            }
+            wire["pinned"] = index < 4
+            wire["pin_position"] = index
+            return MacHomeRow(wire: wire)
+        }
+        self.macID = macID
+    }
+    #endif
+
     /// The Mac Chief's own conversation on this Mac (the oldest with the owner and `agent_mux`,
     /// as the Mac's Home picks it), from the owner's list: its row is the Mac Chief.
     public private(set) var macChiefID: String?
