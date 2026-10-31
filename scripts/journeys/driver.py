@@ -1562,6 +1562,8 @@ class Journey:
         result = {"id": self.id, "priority": self.spec.get("priority"), "title": self.spec.get("title"),
                   "status": status, "reason": reason, "started_at": wall, "seconds": round(now() - started, 2),
                   "nonce": self.nonce, "terminal": self.term, "pane": self.pane, "host_pid": self.host_pid,
+                  # run.py's run (--run-id, --run-started-at): run.py takes no result.json without its own (STATUS 1362).
+                  "run_id": RUN["run_id"], "run_started_at": RUN["run_started_at"],
                   "frames": frames.count, "clip_frames": clip, "steps": self.steps, "evidence": self.evidence}
         (self.out / "result.json").write_text(json.dumps(result, indent=1, default=str) + "\n")
         return result
@@ -1605,6 +1607,8 @@ load_extensions(sys.modules[__name__])
 
 # Whether the app was launched active (capture-host launch --activate, a whole-host lease); main sets it.
 ACTIVATE = False
+# The run.py run these results belong to (--run-id, --run-started-at); main sets it.
+RUN = {"run_id": None, "run_started_at": None}
 
 
 def main(argv=None):
@@ -1619,14 +1623,17 @@ def main(argv=None):
     ap.add_argument("--frame-interval", type=float, default=FRAME_INTERVAL)
     ap.add_argument("--activate", action="store_true",
                     help="the app was launched active (capture-host launch --activate): a relaunch opens it in front")
+    ap.add_argument("--run-id", help="run.py's run id, written into each result.json (run.py refuses any other)")
+    ap.add_argument("--run-started-at", help="run.py's run start (UTC, %%Y-%%m-%%dT%%H:%%M:%%SZ), written beside the run id")
     a = ap.parse_args(argv)
     global ACTIVATE
     ACTIVATE = a.activate
+    RUN.update(run_id=a.run_id, run_started_at=a.run_started_at)
     deadline = now() + a.deadline_seconds
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     app = App(a.socket, a.app, a.home, a.ocr)
-    host = {"host": socket.gethostname().split(".")[0], "macos": subprocess.run(["sw_vers", "-productVersion"],
+    host = {"run_id": a.run_id, "host": socket.gethostname().split(".")[0], "macos": subprocess.run(["sw_vers", "-productVersion"],
             capture_output=True, text=True).stdout.strip(), "identify": app.identity, "sessions": app.sessions}
     (out / "host.json").write_text(json.dumps(host, indent=1, default=str) + "\n")
     # Text recognition loads its models on first use (tens of seconds on a cold mini): warm it up

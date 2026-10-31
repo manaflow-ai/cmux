@@ -12,10 +12,17 @@ it in the slot (own HOME, bundle id, socket, settings), and driver.py plays the 
 the control socket, the bundled CLI on the app's daemon, the process table and the app's own
 window snapshots. Journeys that do not fit one lease run in further leases.
 
-Writes OUT (default artifacts/journeys/<job12>-<UTC time>/): results.jsonl (one line per journey:
-id, priority, status pass|fail|not run, evidence, clip, build), <id>/result.json, <id>/check-NN.png
-(each frame a check read), <id>/clip.mp4 (ffmpeg) or <id>/clip.png (an animated PNG; any browser
-plays it). A journey that could not run is "not run" with the reason, never a pass.
+Writes OUT (default artifacts/journeys/<job12>-<run id>/; the run id is <UTC time>-<8 hex>): run.json (the
+run id and start time), results.jsonl (one line per journey: id, priority, status pass|fail|not run, evidence,
+clip, build, run id), <id>/result.json, <id>/check-NN.png (each frame a check read), <id>/clip.mp4 (ffmpeg) or
+<id>/clip.png (an animated PNG; any browser plays it). A journey that could not run is "not run" with the reason,
+never a pass.
+
+Each run writes a new folder (STATUS 1362: a round whose relaunch failed reported an older round's result.json from
+its reused folder). An --out folder that holds an earlier run's results makes every journey "not run" (the earlier
+results.jsonl is kept beside as results.jsonl.earlier-<run id>). The driver writes this run's id and start time into
+each result.json; run.py takes no result.json without them ("not run: stale or foreign result"), and a lease whose
+launch or set-up failed before the driver started is "not run" with that reason, whatever the folder holds.
 Exit 0 when every selected journey passed, 1 when one failed, 75 when none failed but one did not run.
 
 Capture hosts: capture-host reads the fleet registry (~/.ssh/config.d/fleet-registry.json), or
@@ -24,11 +31,13 @@ CAPTURE_HOST_SLOT_HOSTS (--hosts sets it). JOURNEYS_EXCLUDE_HOSTS (default cmux1
 from __future__ import annotations
 
 import argparse
+import calendar
 import hashlib
 import io
 import json
 import os
 import re
+import secrets
 import shutil
 import struct
 import subprocess
@@ -59,6 +68,11 @@ RESULT_FILE = re.compile(r"(?:\./)?((?:[a-z0-9][a-z0-9-]*/)?(?:result\.json|chec
 RESULT_MAX_BYTES = 64 << 20
 RESULT_TAR_MAX_BYTES = 768 << 20
 STEP_NAMES = {name[len("step_"):] for name in dir(driver.Journey) if name.startswith("step_")}
+# The files of a run in its OUT folder: a folder that holds one of them was used by an earlier run.
+EARLIER_RUN_FILES = ("run.json", "results.jsonl", "host.json", "summary.json", "acquire.log")
+# A result.json whose journey started this long before the run started is not this run's (the mini's clock may lag).
+CLOCK_SKEW_SECONDS = 300
+STAMP = "%Y-%m-%dT%H:%M:%SZ"
 
 
 def log(message):
@@ -216,6 +230,42 @@ def build_for_commit(sha, out_root):
     return job
 
 
+# ---- the run's identity --------------------------------------------------------------------
+
+def new_run(started=None):
+    """{"run_id", "run_started_at"}: a run's own id (UTC time and 8 random hex digits) and start time. Every
+    result.json the driver writes carries both; run.py takes no other result.json."""
+    started = time.time() if started is None else started
+    return {"run_id": time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(started)) + "-" + secrets.token_hex(4),
+            "run_started_at": time.strftime(STAMP, time.gmtime(started))}
+
+
+def earlier_run(out):
+    """What in OUT an earlier run wrote (a reused folder), or None when OUT is new or has none of a run's files."""
+    if not out.is_dir():
+        return None
+    found = [name for name in EARLIER_RUN_FILES if (out / name).exists()]
+    found += sorted(str(p.relative_to(out)) for p in out.glob("*/result.json"))
+    return ", ".join(found[:4]) + (f" (and {len(found) - 4} more)" if len(found) > 4 else "") if found else None
+
+
+def stale_reason(result, ident):
+    """Why `result` (a parsed result.json) is not the run `ident`'s, or None when it is."""
+    if not isinstance(result, dict):
+        return "stale or foreign result: result.json is not an object"
+    if result.get("run_id") != ident["run_id"] or result.get("run_started_at") != ident["run_started_at"]:
+        return (f"stale or foreign result: run id {result.get('run_id')!r} started {result.get('run_started_at')!r}, "
+                f"this run is {ident['run_id']!r} started {ident['run_started_at']!r}")
+    try:
+        began = calendar.timegm(time.strptime(str(result.get("started_at")), STAMP))
+    except ValueError:
+        return f"stale or foreign result: journey start {result.get('started_at')!r} is not a UTC time"
+    if began < calendar.timegm(time.strptime(ident["run_started_at"], STAMP)) - CLOCK_SKEW_SECONDS:
+        return (f"stale or foreign result: the journey started {result.get('started_at')}, "
+                f"before this run ({ident['run_started_at']})")
+    return None
+
+
 # ---- one lease ---------------------------------------------------------------------------
 
 def capture_host():
@@ -288,12 +338,14 @@ def acquire_lease(ch, exclusive, log_path=None, whole_host=False):
 HOG_WARMUP_SECONDS = 45  # at least this long from the hog's start (before the download) to the first journey
 
 
-def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.0, whole_host=False):
+def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.0, whole_host=False, run_ident=None):
     """Plays `specs` in one slot (or, whole_host, on the whole mini with the app active); {id: result} (driver results, or not run with the reason). `exclusive`: the
     lease owns the whole mini (`capture-host acquire --slot --exclusive`: no fleet step runs there meanwhile;
-    the fleet rule for any result that is evidence, such as the dogfood smoke gate)."""
+    the fleet rule for any result that is evidence, such as the dogfood smoke gate). `run_ident` ({"run_id",
+    "run_started_at"}, new_run()): the driver stamps it into each result.json and only results with it count."""
     ch = capture_host()
     ids = [s["id"] for s in specs]
+    ident = run_ident or new_run()
     try:
         out.mkdir(parents=True, exist_ok=True)
         set_aside_old_results(out, ids)
@@ -305,12 +357,14 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
     lease, deadline = acquired[-1], time.monotonic() + LEASE_SECONDS
     left = lambda cap: max(10.0, min(cap, deadline - time.monotonic()))
     log(f"leased {lease}")
-    facts, host, hog_started, work = {}, None, None, None
+    facts, host, hog_started, work, drove = {}, None, None, None, None
     try:
         info = dict(kv.split("=", 1) for kv in run([ch, "slot-info", lease]).stdout.decode().split() if "=" in kv)
         host, root = info["host"], info["root"]
         work = f"{root}/journeys"
-        remote(host, f"mkdir -p {q(work + '/kit')} && tar x -C {q(work + '/kit')}", input=kit_tar(specs), timeout=left(120))
+        # A slot root the mini reuses (a whole-host lease) may still hold an earlier run's out/: never fetch it.
+        remote(host, f"rm -rf {q(work + '/out')} && mkdir -p {q(work + '/kit')} && tar x -C {q(work + '/kit')}",
+               input=kit_tar(specs), timeout=left(120))
         if hog_swap_gb > 0:
             # Memory pressure (the Austin's-day hog), from before the download and launch to the end of the
             # journeys: it holds incompressible memory until swap used is hog_swap_gb above the start, gives
@@ -363,7 +417,8 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         drove = remote(host, f"/usr/bin/python3 -I {q(work + '/kit/driver.py')} --socket {q(facts['socket'])} "
                              f"--app {q(facts.get('app', app))} --home {q(root + '/home')} "
                              f"--journeys {q(work + '/kit/journeys.json')} --out {q(work + '/out')} --ocr {ocr} "
-                             f"--deadline-seconds {budget} --frame-interval {frame_interval}"
+                             f"--deadline-seconds {budget} --frame-interval {frame_interval} "
+                             f"--run-id {q(ident['run_id'])} --run-started-at {q(ident['run_started_at'])}"
                              + (" --activate" if whole_host else ""),
                        timeout=budget + 90, check=False)
         for line in drove.stdout.decode(errors="replace").splitlines():
@@ -379,7 +434,11 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
     except (RuntimeError, subprocess.TimeoutExpired, KeyError, ValueError) as error:
         log(f"lease {lease}: {error}")
         reason = f"{host or lease}: {str(error)[-400:]}"
-        return collect(out, ids, host, missing_reason=reason)
+        if drove is None:
+            # The launch (or a relaunch in a capture-host wrapper) or the set-up failed: no journey started, so no
+            # result.json in OUT can be this run's (STATUS 1362: a failed relaunch reported an older round's result).
+            return {i: {"status": "not run", "reason": reason, "host": host} for i in ids}
+        return collect(out, ids, host, missing_reason=reason, ident=ident)
     finally:
         if hog_started and host:
             # Our own hog only: the pid it wrote, checked to still be smoke_hog.py (its deadline ends it anyway).
@@ -393,7 +452,7 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         log(f"released {lease}" if released.returncode == 0 else
             f"release of {lease} exited {released.returncode} (it expires within 10 minutes)")
     return collect(out, ids, host, missing_reason=f"{host}: the driver wrote no result (driver exit {drove.returncode}: "
-                                                  f"{drove.stderr.decode(errors='replace').strip()[-300:]})")
+                                                  f"{drove.stderr.decode(errors='replace').strip()[-300:]})", ident=ident)
 
 
 def take_results(files, out, ids):
@@ -423,16 +482,27 @@ def set_aside_old_results(out, ids):
             old.rename(out / f"{i}.old-{time.strftime('%Y%m%dT%H%M%S', time.gmtime())}-{os.getpid()}")
 
 
-def collect(out, ids, host, missing_reason):
+def collect(out, ids, host, missing_reason, ident):
+    """{id: this run's result.json}, or not run: with missing_reason when there is none, "stale or foreign result"
+    when its run id or start time is not `ident`'s (an earlier round's file, or one from a reused slot)."""
     results = {}
     for i in ids:
         path = out / i / "result.json"
-        if path.is_file():
-            result = json.loads(path.read_text())
-            result["host"] = host
-            results[i] = result
-        else:
+        if not path.is_file():
             results[i] = {"status": "not run", "reason": missing_reason, "host": host}
+            continue
+        try:
+            result = json.loads(path.read_text())
+        except ValueError as error:
+            results[i] = {"status": "not run", "reason": f"result.json does not parse: {error}", "host": host}
+            continue
+        why = stale_reason(result, ident)
+        if why:
+            log(f"{i}: {why}")
+            results[i] = {"status": "not run", "reason": why, "host": host}
+            continue
+        result["host"] = host
+        results[i] = result
     return results
 
 
@@ -570,33 +640,46 @@ def main(argv=None):
     exclude = os.environ.get("JOURNEYS_EXCLUDE_HOSTS", "cmux16")
     os.environ["CAPTURE_HOST_EXCLUDE"] = " ".join(x for x in (os.environ.get("CAPTURE_HOST_EXCLUDE", ""), exclude) if x)
 
+    this_run = new_run()
     out_root = ROOT / "artifacts" / "journeys"
     job = opts.build or build_for_commit(opts.commit, out_root)
     status = wait_build(job, opts.build_wait_minutes * 60)
     build = {"id": status.get("id", job), "commit": status.get("ref") or status.get("commit"), "tag": status.get("tag"),
              "state": status.get("state")}
-    out = Path(opts.out) if opts.out else out_root / f"{build['id'][:12]}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}"
+    out = Path(opts.out) if opts.out else out_root / f"{build['id'][:12]}-{this_run['run_id']}"
+    earlier = earlier_run(out)
     out.mkdir(parents=True, exist_ok=True)
-    log(f"build {build['id']} ({build['state']}) of {str(build['commit'])[:12]} tag {build['tag']}; results in {out}")
+    if earlier and (out / "results.jsonl").exists():
+        # Kept beside, never read again: a caller that reads results.jsonl sees this run's not-run lines.
+        (out / "results.jsonl").rename(out / f"results.jsonl.earlier-{this_run['run_id']}")
+    (out / "run.json").write_text(json.dumps(dict(this_run, build_job=build["id"], pid=os.getpid()), indent=1) + "\n")
+    log(f"build {build['id']} ({build['state']}) of {str(build['commit'])[:12]} tag {build['tag']}; run {this_run['run_id']}; "
+        f"results in {out}")
 
     results = {}
-    if build["state"] != "done":
+    if earlier:
+        why = f"--out {out} holds an earlier run's results ({earlier}): each run needs a new folder"
+        log(why)
+        results = {s["id"]: {"status": "not run", "reason": why} for s in chosen}
+    elif build["state"] != "done":
         why = f"build {build['id']} is {build['state']}" + ("" if build["state"] in ("failed", "cancelled") else " (still building)")
         results = {s["id"]: {"status": "not run", "reason": why} for s in chosen}
     else:
         for group in batches(chosen):
             results.update(run_lease(group, build, out, opts.frame_interval, exclusive=opts.exclusive,
-                                     hog_swap_gb=opts.hog_swap_gb, whole_host=opts.whole_host))
+                                     hog_swap_gb=opts.hog_swap_gb, whole_host=opts.whole_host, run_ident=this_run))
 
     lines = []
     for spec in chosen:
         result = results.get(spec["id"], {"status": "not run", "reason": "no result"})
-        clip = make_clip(out / spec["id"], opts.frame_interval) if (out / spec["id"]).is_dir() else None
+        clip = make_clip(out / spec["id"], opts.frame_interval) if (out / spec["id"]).is_dir() and not earlier else None
         line = {"id": spec["id"], "priority": spec["priority"], "status": result.get("status", "not run"),
                 "reason": result.get("reason", ""), "evidence": compact(result.get("evidence")),
-                "clip": str(clip) if clip else None, "checks": sorted(str(p) for p in (out / spec["id"]).glob("check-*.png")),
+                "clip": str(clip) if clip else None,
+                "checks": [] if earlier else sorted(str(p) for p in (out / spec["id"]).glob("check-*.png")),
                 "build_job": build["id"], "commit": build["commit"], "tag": build["tag"], "host": result.get("host"),
                 "path": spec["_path"], "nonce": result.get("nonce"), "seconds": result.get("seconds"),
+                "run_id": this_run["run_id"], "run_started_at": this_run["run_started_at"],
                 "run_at": result.get("started_at") or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
         lines.append(line)
     with open(out / "results.jsonl", "w") as f:
