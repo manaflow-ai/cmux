@@ -574,6 +574,28 @@ mod chief_tests {
     }
 
     #[test]
+    fn the_chief_is_never_the_automatic_default_harness() {
+        // `chief` sorts before `claude`: with no configured default, every new chat on a Mac
+        // would start on the person's Chief (seen in the fleet capture, 2026-10-30).
+        let mut found = BTreeMap::new();
+        add_chief(&mut found, Some((PathBuf::from("/App/bin/acpmux"), false)), &bundle);
+        let mut claude = found[CHIEF_PROFILE].clone();
+        claude.argv = vec!["claude".into()];
+        claude.family = Some("claude".into());
+        found.insert("claude".into(), claude);
+        let mut cfg = crate::config::Config::default();
+        cfg.join_discovered(found.clone());
+        cfg.pick_auto_default_for_tests();
+        assert_eq!(cfg.default_harness.as_deref(), Some("claude"));
+        // With the Chief alone there is no automatic default at all.
+        let mut alone = crate::config::Config::default();
+        found.remove("claude");
+        alone.join_discovered(found);
+        alone.pick_auto_default_for_tests();
+        assert_eq!(alone.default_harness, None);
+    }
+
+    #[test]
     fn the_chief_harness_draws_the_ch_monogram_not_a_picture() {
         let mut found = BTreeMap::new();
         add_chief(&mut found, Some((PathBuf::from("/App/bin/acpmux"), false)), &bundle);

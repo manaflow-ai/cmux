@@ -136,6 +136,8 @@ jobs:
       - name: Run only while an owned Mac is free
         id: decide
         env:
+          # Even fling creates a virtual display and needs a drawing console.
+          CMUX_CI_GUI_REQUIRED: 'true'
           GH_TOKEN: ${{ github.token }}
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           GH_REPO: ${{ github.repository }}
