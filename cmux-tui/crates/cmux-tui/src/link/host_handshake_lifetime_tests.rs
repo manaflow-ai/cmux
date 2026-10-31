@@ -119,7 +119,7 @@ async fn receiver_handshake_unsigned_complete_hello_still_fails() {
 }
 
 #[tokio::test]
-async fn receiver_handshake_signed_hello_reaches_the_real_ssh_copy() {
+async fn receiver_handshake_repeated_failures_release_slots_before_signed_ssh_copy() {
     let fixture: serde_json::Value =
         serde_json::from_str(include_str!("../../../../../schemas/link-token/native.json"))
             .unwrap();
@@ -133,6 +133,26 @@ async fn receiver_handshake_signed_hello_reaches_the_real_ssh_copy() {
         session_socket: &session,
         sshd: sshd.local_addr().unwrap(),
     };
+    let source = SocketAddr::new(IpAddr::V6(overlay_address("inst_00000000000000000001")), 40000);
+    // More than the verifier's simultaneous-stream capacity, within one policy
+    // lease: failed hellos must not prevent a later authenticated connection.
+    for attempt in 0..5_000 {
+        let (line, expected) = match attempt % 3 {
+            0 => ("not-json\n", HostRefused::Inbound(InboundRefused::BadHello)),
+            1 => ("{\"service\":\"ssh\",\"epoch\":4}\n", HostRefused::Token),
+            _ => (
+                "{\"service\":\"ssh\",\"epoch\":4,\"link_token\":\"invalid\"}\n",
+                HostRefused::Token,
+            ),
+        };
+        let (mut client, stream) = tokio::io::duplex(1024);
+        client.write_all(line.as_bytes()).await.unwrap();
+        assert_eq!(
+            serve_host_inbound(stream, [b'a'; 32], source, &verifier, &me).await,
+            Err(expected),
+            "handshake {attempt} retained a reservation or changed refusal behavior"
+        );
+    }
     let (mut client, stream) = tokio::io::duplex(65536);
     client
         .write_all(
@@ -144,7 +164,6 @@ async fn receiver_handshake_signed_hello_reaches_the_real_ssh_copy() {
         )
         .await
         .unwrap();
-    let source = SocketAddr::new(IpAddr::V6(overlay_address("inst_00000000000000000001")), 40000);
     let serve = serve_host_inbound(stream, [b'a'; 32], source, &verifier, &me);
     let check = async {
         let (mut ssh, _) = sshd.accept().await.unwrap();
