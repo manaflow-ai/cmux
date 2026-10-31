@@ -300,7 +300,13 @@ def leave_agent_chat_in_folder():
         original = None
     ACPMUX_CONFIG.append((path, original))
     config = json.loads(original) if original else {}
-    lister = f'/bin/ls -la "$PWD" > /dev/null 2>&1; exec python3 {json.dumps(os.path.abspath(FAKE_AGENT))}'
+    # It lists its folder only once ARMED exists: the setup's own start (the person's action) must
+    # not leave a macOS prompt up that blocks session/new; a start after the relaunch lists it.
+    armed = os.path.join(home, "tcc-lister-armed")
+    if os.path.exists(armed):
+        os.remove(armed)
+    lister = (f'[ -e {json.dumps(armed)} ] && /bin/ls -la "$PWD" > /dev/null 2>&1; '
+              f'exec python3 {json.dumps(os.path.abspath(FAKE_AGENT))}')
     config.setdefault("harnesses", {})["tcc-lister"] = {"argv": ["/bin/sh", "-c", lister]}
     with open(path + ".tcc", "w") as f:
         f.write(json.dumps(config, indent=2))
@@ -319,6 +325,7 @@ def leave_agent_chat_in_folder():
     client.post("session/prompt", {"sessionId": session, "prompt": text("queued"), "_meta": {"acpmux": {"promptId": "tcc-queued"}}})
     accepted = client.until(lambda m: m.get("method") == "_acpmux/prompt_accepted")
     check(accepted is not None and (accepted.get("params") or {}).get("queued") is True, "agent chat: a prompt waits behind it")
+    open(armed, "w").close()
     print("agent chat", session, "in", FOLDER, flush=True)
 
 
