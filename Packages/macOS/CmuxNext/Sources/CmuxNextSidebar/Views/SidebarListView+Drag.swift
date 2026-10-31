@@ -76,7 +76,7 @@ extension SidebarListViewComponents {
         // The document's acceptance table: the drag's one reducer call before its drop.
         if let doc = model.docDrag, let items = doc.items(payload) {
             drag.docItems = items
-            drag.docAcceptance = doc.begin(items)
+            drag.docAcceptance = keepingFixed(doc.begin(items))
         }
         // A group drag freezes its base and cuts its card here (`SidebarListView+GroupDrag`).
         if case .group = payload { beginGroupDrag(drag, lifted: rows, card: rowFrame) }
@@ -125,6 +125,9 @@ extension SidebarListViewComponents {
         if let group = drag.group, group.slot == group.plan.origin || group.drops[group.slot] == nil { return cancelDrag() }
         if let items = drag.docItems, let doc = model.docDrag {
             guard let target = drag.docTarget else { return cancelDrag() }
+            // Released where it started: a move there changes nothing the list shows (it may still re-key the items,
+            // a change no reload shows, so no settle would ever end). It goes back as for a cancel, sending nothing.
+            if dropKeepsPlace(items, target) { return cancelDrag() }
             // The list keeps the drop's look until the move lands; the card settles into the slot it shows.
             settling = SidebarSettlingDrop(drag: drag, revision: model.sectionsRevision, blocks: blocks)
             self.drag = nil
@@ -195,6 +198,13 @@ extension SidebarListViewComponents {
             guard let edge = geometry.edgeY(top: top, bottom: top + height, x: point.x, movingUp: drag.movingUp, gapY: displayed.gapY,
                                             gapHeight: displayed.gapShift, current: drag.docTarget, reversing: reversing) else { return }
             if let hit = geometry.hit(CGPoint(x: point.x, y: edge)), rows[hit.slot.key] != nil { y = edge }
+        }
+        // A block item's card back over its own slot drops where it came from. The base has the dragged items out, so
+        // that slot's centre is the next item's middle there, and a point either way picked a neighbour's half: a
+        // release where the drag started moved the item one place (Lawrence 2026-10-30, the stuck Home drag).
+        if let source = drag.tileSource, displayY >= drag.restFrame.minY, displayY < drag.restFrame.maxY,
+           let home = originHit(geometry, source: source, items: drag.docItems ?? [], x: point.x) {
+            y = home
         }
         guard let hit = geometry.hit(CGPoint(x: point.x, y: y)) else {
             // Nowhere to drop: no gap shows.
