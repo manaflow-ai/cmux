@@ -21,6 +21,9 @@ BASE_APP_NAME="cmux DEV"
 BUILD_CONFIGURATION="Debug"
 # --config bench: Release optimization with the debug control surface compiled in (BENCH_HOOKS=1).
 BENCH_HOOKS=0
+# 1 when the last configuration flag was --release (the fleet's `cmux-ci build cmux --release`), not --config:
+# a dogfood tag then builds bench (Resources/build/cmux-next.dogfood.conf).
+RELEASE_FLAG=0
 PRODUCT_APP_NAME="$BASE_APP_NAME"
 DERIVED_DATA=""
 NAME_SET=0
@@ -1140,7 +1143,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --release)
-      BUILD_CONFIGURATION="Release"
+      BUILD_CONFIGURATION="Release" BENCH_HOOKS=0 RELEASE_FLAG=1
       shift
       ;;
     --config|--config=*)
@@ -1151,6 +1154,7 @@ while [[ $# -gt 0 ]]; do
         bench) BUILD_CONFIGURATION="Release" BENCH_HOOKS=1 ;;
         *) echo "error: --config takes debug, release or bench (got '${config_name}')" >&2; exit 1 ;;
       esac
+      RELEASE_FLAG=0
       ;;
     --credentials-file)
       AUTH_CREDENTIALS_FILE="${2:-}"
@@ -1699,6 +1703,24 @@ if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
   XCODEBUILD_ARGS+=(CMUX_SKIP_ZIG_BUILD=1)
 fi
 SWIFT_OTHER_FLAGS='$(inherited)'
+# A dogfood tag's --release is the bench configuration (Release optimization plus the debug.* control surface the
+# dogfood smoke gate and the journeys drive): the fleet recipe passes only --release, so the checked-in
+# Resources/build/cmux-next.dogfood.conf names the tags (as on the cp/dogfood-v2-2-*-opt line). --config release
+# stays plain Release. check-no-bench-hooks.sh --expect proves the marker; the release pipelines refuse it.
+dogfood_conf="$SCRIPT_DIR/../Resources/build/cmux-next.dogfood.conf"
+if [[ "$RELEASE_FLAG" -eq 1 && -f "$dogfood_conf" ]]; then
+  release_bench_tags="$(sed -n 's/^release_bench_tags=//p' "$dogfood_conf" | tail -1)"
+  read -r -a release_bench_globs <<<"$release_bench_tags"
+  for release_bench_glob in ${release_bench_globs[@]+"${release_bench_globs[@]}"}; do
+    # shellcheck disable=SC2053 # the conf's value is a glob
+    if [[ "$TAG" == $release_bench_glob ]]; then
+      BUILD_CONFIGURATION="Release" BENCH_HOOKS=1
+      echo "==> --release of dogfood tag '$TAG' (release_bench_tags '$release_bench_glob'): the bench configuration"
+      break
+    fi
+  done
+fi
+
 if [[ "$BENCH_HOOKS" -eq 1 ]]; then
   # Optimized as shipped, without DEBUG. CMUX_BENCH_HOOKS compiles in only the debug.* control surface
   # and the counters it reads (`#if DEBUG || CMUX_BENCH_HOOKS`); every other DEBUG-only block (logging,
