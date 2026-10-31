@@ -216,7 +216,10 @@ impl Hub {
                 .into_records()
                 .into_iter()
                 .filter(|q| {
-                    q.msg.get("awaitingOwner").and_then(Value::as_bool) == Some(true)
+                    // A link guest's record waits whatever it says (`author::awaits_owner`), as a
+                    // restore here holds it; an older target reads only `awaitingOwner`.
+                    (q.msg.get("awaitingOwner").and_then(Value::as_bool) == Some(true)
+                        || crate::author::awaits_owner(q.msg.pointer("/_meta/provenance")))
                         && q.msg.get("turnId").and_then(Value::as_str).is_none_or(|turn| {
                             q.msg
                                 .get("revision")
