@@ -71,23 +71,35 @@ pub(super) enum OutboundItem {
 
 #[derive(Clone)]
 pub(super) struct ConnectionPermit {
-    pub(super) _lease: Arc<ConnectionPermitLease>,
-}
-
-pub(super) struct ConnectionPermitLease(Arc<crate::diagnostics::ConnectionStats>);
-
-impl Drop for ConnectionPermitLease {
-    fn drop(&mut self) {
-        self.0.release();
-    }
+    pub(super) _lease: Arc<crate::diagnostics::ConnectionLease>,
 }
 
 pub(super) fn claim_connection(
     connections: &Arc<crate::diagnostics::ConnectionStats>,
 ) -> Option<ConnectionPermit> {
-    connections
-        .try_claim(MAX_SERVER_CONNECTIONS as u64)
-        .then(|| ConnectionPermit { _lease: Arc::new(ConnectionPermitLease(connections.clone())) })
+    claim_connection_watching(connections, None)
+}
+
+/// A slot for a local client, taken back if the client hangs up while its
+/// thread is still parked (`diagnostics::ConnectionLease`, #27669).
+pub(super) fn claim_watched_connection(
+    connections: &Arc<crate::diagnostics::ConnectionStats>,
+    stream: &dyn transport::Stream,
+) -> Option<ConnectionPermit> {
+    let peer: Option<crate::diagnostics::PeerClosed> = match stream.try_clone_box() {
+        Ok(peer) => Some(Box::new(move || peer.peer_closed())),
+        Err(_) => None,
+    };
+    claim_connection_watching(connections, peer)
+}
+
+fn claim_connection_watching(
+    connections: &Arc<crate::diagnostics::ConnectionStats>,
+    peer_closed: Option<crate::diagnostics::PeerClosed>,
+) -> Option<ConnectionPermit> {
+    connections.try_claim(MAX_SERVER_CONNECTIONS as u64).then(|| ConnectionPermit {
+        _lease: crate::diagnostics::ConnectionLease::new(connections.clone(), peer_closed),
+    })
 }
 
 impl BoundedOutbound {

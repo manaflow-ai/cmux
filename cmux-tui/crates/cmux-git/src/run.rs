@@ -401,14 +401,17 @@ fn drain_window(
         match reader.read(&mut chunk) {
             Ok(0) => break,
             Ok(read) => {
-                if snapshot.write_all(&chunk[..read]).is_err() {
+                // `read` never exceeds the buffer, so a miss is a broken reader.
+                let Some(bytes) = chunk.get(..read) else { return (Vec::new(), true, None) };
+                if snapshot.write_all(bytes).is_err() {
                     return (Vec::new(), true, None);
                 }
-                hash.update(&chunk[..read]);
-                let skip = offset.saturating_sub(total).min(read as u64) as usize;
-                let take = (read - skip).min(limit.saturating_sub(kept.len()));
-                kept.extend_from_slice(&chunk[skip..skip + take]);
-                total = total.saturating_add(read as u64);
+                hash.update(bytes);
+                let before = usize::try_from(offset.saturating_sub(total)).unwrap_or(usize::MAX);
+                let rest = bytes.get(before.min(bytes.len())..).unwrap_or_default();
+                let take = rest.len().min(limit.saturating_sub(kept.len()));
+                kept.extend_from_slice(rest.get(..take).unwrap_or_default());
+                total = total.saturating_add(bytes.len() as u64);
             }
             Err(error) if error.kind() == ErrorKind::Interrupted => {}
             Err(_) => return (Vec::new(), true, None),
