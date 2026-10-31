@@ -36,10 +36,10 @@ first sight: nothing is ever idle on arrival (an upgrade does not archive the wh
 
 | Style | Background | What the person sees | For |
 | --- | --- | --- | --- |
-| `suggest` (**default**) | at the deadline, if any are idle | A sidebar card: "N workspaces look idle", up to 5 names, **Archive** / **Not Now** (Not Now waits a day) | Everyone: no row moves without a click |
+| `suggest` | at the deadline, if any are idle | A sidebar card: "N idle workspaces", up to 5 names, **Archive** and an inline **Always** switch (switches to `quiet`); the x is Not Now (waits a day) | People who want a nudge |
 | `quiet` | archives the idle ones | A toast "Archived N idle workspaces" with **Undo** (Cmd-Z) | People who want a self-tidying sidebar |
 | `groups` | archives only members of groups with their own rule | Toast with Undo | Per-project policy: CI and scratch groups tidy, the rest never |
-| `manual` | nothing | **Archive Idle Workspaces** (sidebar background menu, palette, `cmux workspace archive-idle`) archives now, with Undo | Tidy on demand |
+| `manual` (**default**, Lawrence 18515/18517: the card popping up on its own was annoying) | nothing | **Archive Idle Workspaces** (sidebar background menu, palette, `cmux workspace archive-idle`) archives now, with Undo | Tidy on demand |
 | `off` | nothing; group rules ignored | The sweep still works when asked | Opt out |
 
 `workspaces.autoArchive.idleDays` (1 to 365, default 3: a long weekend away is not "done").

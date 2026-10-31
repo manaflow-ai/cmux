@@ -516,17 +516,14 @@ class FeatWriterCase(unittest.TestCase):
         self.addCleanup(environment.stop)
         self.pr_media = load_script("pr_media_feat_writer_test", ROOT / "scripts/pr-media.py")
         self.puts: list[str] = []
-        real_run = subprocess.run
 
-        def run(argv, *args, **kwargs):
-            if argv[:2] != ["gh", "api"]:
-                return real_run(argv, *args, **kwargs)
-            if "PUT" in argv:
-                self.puts.append(argv[4].split("/contents/", 1)[1].split("?", 1)[0])
-                return subprocess.CompletedProcess(argv, 0, stdout="{}", stderr="")
-            return subprocess.CompletedProcess(argv, 1, stdout="", stderr="gh: Not Found (HTTP 404)")
+        # The branch write itself (a git commit and push, tests/test_pr_media.py covers it) is recorded here
+        # instead: these tests are about what reaches it.
+        def put(store, files, message, expect=None):
+            self.puts.extend(files)
+            return "0" * 40
 
-        patched = mock.patch.object(self.pr_media.subprocess, "run", side_effect=run)
+        patched = mock.patch.object(self.pr_media.MediaBranch, "put", put)
         patched.start()
         self.addCleanup(patched.stop)
 
