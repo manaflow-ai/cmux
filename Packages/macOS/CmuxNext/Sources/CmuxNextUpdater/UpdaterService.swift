@@ -60,6 +60,7 @@ public final class UpdaterService {
     /// The pulled-build banner (made on first use; it needs `self`).
     @ObservationIgnored public private(set) lazy var pulledWatch = PulledBuildWatch(updater: self)
     /// The app-owned per-PR kill-switch reader; retaining it cancels its observation with the updater.
+    /// ``startKillSwitchReader()`` stops the one before through this property.
     @ObservationIgnored var killSwitchReader: KillSwitchReader?
     /// The notice whose timeout is pending, and its one-shot deadline on the
     /// injected clock (no `asyncAfter`).
@@ -327,6 +328,14 @@ public final class UpdaterService {
         updateSnooze = UpdateSnooze(defaults: defaults)
     }
 
+    /// Makes this updater's kill-switch reader and follows it; the reader started before stops.
+    func startKillSwitchReader() {
+        killSwitchReader?.stop()
+        let reader = KillSwitchReader(updater: self)
+        killSwitchReader = reader
+        reader.follow()
+    }
+
     /// Why Sparkle does not run right now, or nil.
     public var disabledReason: UpdateDisabledReason? {
         if controller == nil, let reason = identity.sparkleDisabledReason(managedPolicyDisablesUpdates: policy.disablesUpdates) {
@@ -339,7 +348,7 @@ public final class UpdaterService {
     public func start() {
         guard !started else { return }
         started = true
-        if presentUpdateUI != nil { killSwitchReader = KillSwitchReader.start(updater: self) }
+        if presentUpdateUI != nil { startKillSwitchReader() }
         observeFlowPhase()
         refreshAnnouncements()
         refreshTip()
