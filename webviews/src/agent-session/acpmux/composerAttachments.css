@@ -276,7 +276,6 @@
   font: inherit;
   font-size: var(--text-detail);
   line-height: 1.4;
-  cursor: pointer;
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-attachment-original-retry:hover {
