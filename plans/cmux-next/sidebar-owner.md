@@ -1,5 +1,15 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-31: record the terminal cwd-title change in b648fd2d603 (#28059).
+  The reported defect was: "Two terminal tabs in one workspace are both titled
+  \"Terminal\" / \"~\"." Non-home cwd-derived titles remain visible in sidebar
+  tab rows, so terminals in different folders are distinguishable; explicit user
+  names retain precedence. `SidebarTabLineTests`, `SidebarTabLineMappingTests`,
+  and `TerminalTitleTabItemTests` cover the mapping. The implementation at
+  b7b5b367227e488a4afbedc0c083695bbd831a16 received independent code review:
+  https://github.com/manaflow-ai/cmux/pull/28059#issuecomment-6536962266.
+  This record adds no UI change and does not replace the required capture verdict.
+
 - 2026-10-30 (https://github.com/manaflow-ai/cmux/issues/28663): Settings has a Sidebar category (Look and Feel,
   after Appearance). Its first card, Size and Spacing, holds `sidebar.textSize`, `sidebar.density` and the new
   `sidebar.rowSpacing`; the Sidebar, Sidebar Workspaces, Buttons and Spaces, the two hover-card cards and

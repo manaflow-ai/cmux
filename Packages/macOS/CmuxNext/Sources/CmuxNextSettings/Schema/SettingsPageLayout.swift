@@ -139,7 +139,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
     /// looks for together sits together under one small header, like macOS System Settings.
     public static let sidebarSections: [SidebarSection] = [
         sidebarSection("app", nil, [general, updates]),
-        sidebarSection("look", SettingsText.keyed("settings.sidebarSection.look", "Look and Feel"), [theme, appearance, sidebar]),
+        sidebarSection("look", SettingsText.keyed("settings.sidebarSection.lookAndFeel", "Look and Feel"), [theme, appearance, sidebar]),
         sidebarSection("tools", SettingsText.keyed("settings.sidebarSection.tools", "Tools"), [terminal, editor, browser]),
         sidebarSection("ai", SettingsText.keyed("settings.sidebarSection.ai", "AI"), [agents, chief]),
         sidebarSection("interaction", SettingsText.keyed("settings.sidebarSection.interaction", "Interaction"), [notifications, keyboard, menus]),
