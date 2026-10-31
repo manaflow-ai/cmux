@@ -99,8 +99,18 @@ export async function openSession({ cli, name, dir, allTools, setup = [], noApp 
       `CMUX_TUI_SOCKET=${socket}`, `CMUX_TUI_TERMINAL_ID=${agentEnvRef.CMUX_TUI_TERMINAL_ID}`,
       `CMUX_SOCKET_PATH=${env.CMUX_SOCKET_PATH}`, `CMUX_NEXT_CONFIG_FILE=${env.CMUX_NEXT_CONFIG_FILE}`,
     ];
-    const forward = noApp ? [] : ["-o", "StreamLocalBindUnlink=yes", "-R", `${env.CMUX_SOCKET_PATH}:${env.CMUX_SOCKET_PATH}`];
-    return { command: "ssh", args: [...SSH_OPTS, ...forward, remote.host, "env", ...remoteEnv, remote.cli, "mcp", "serve", ...serveArgs] };
+    const serve = ["env", ...remoteEnv, remote.cli, "mcp", "serve", ...serveArgs];
+    if (noApp) return { command: "ssh", args: [...SSH_OPTS, remote.host, ...serve] };
+    // Tailscale SSH creates a forwarded socket as root, mode 0600, so the MCP server (this
+    // user, which also checks the peer's uid) could not reach the stand-in app: every
+    // remote run so far saw no app. The forward goes to `<app>.fwd`, opened with sudo, and
+    // a relay of this user listens at the app path until the MCP server exits.
+    const app = env.CMUX_SOCKET_PATH;
+    const sq = (text) => `'${String(text).replaceAll("'", "'\\''")}'`;
+    const relay = `import base64;exec(base64.b64decode("${Buffer.from(APP_RELAY).toString("base64")}"))`;
+    const prelude = `sudo -n chmod 666 ${sq(`${app}.fwd`)} && (setsid python3 -c ${sq(relay)} ${sq(app)} ${sq(`${app}.fwd`)} $$ </dev/null >/dev/null 2>&1 &) && sleep 0.3 && exec`;
+    const forward = ["-o", "StreamLocalBindUnlink=yes", "-R", `${app}.fwd:${app}`];
+    return { command: "ssh", args: [...SSH_OPTS, ...forward, remote.host, prelude, ...serve.map(sq)] };
   };
   const agentEnvRef = {};
   /** The markers the stub helpers wrote (on the daemon's host). */
@@ -222,6 +232,37 @@ async function runSetup(cmux, setup, origin, work) {
   if (setup.length) await sleep(setup.some((step) => step.run) ? 2500 : 800);
   return aliases;
 }
+
+/** A unix socket relay (argv: listen path, target path, owner pid): one thread pair per
+ * connection; it exits when the owner process does. */
+const APP_RELAY = `import os,socket,sys,threading,time
+listen,target,owner=sys.argv[1],sys.argv[2],int(sys.argv[3])
+try: os.unlink(listen)
+except OSError: pass
+srv=socket.socket(socket.AF_UNIX); srv.bind(listen); os.chmod(listen,0o600); srv.listen(16)
+def pipe(a,b):
+  try:
+    while True:
+      d=a.recv(65536)
+      if not d: break
+      b.sendall(d)
+  except OSError: pass
+  for s in (a,b):
+    try: s.shutdown(socket.SHUT_RDWR)
+    except OSError: pass
+def serve():
+  while True:
+    c,_=srv.accept(); t=socket.socket(socket.AF_UNIX)
+    try: t.connect(target)
+    except OSError: c.close(); continue
+    threading.Thread(target=pipe,args=(c,t),daemon=True).start(); threading.Thread(target=pipe,args=(t,c),daemon=True).start()
+threading.Thread(target=serve,daemon=True).start()
+while True:
+  time.sleep(2)
+  try: os.kill(owner,0)
+  except OSError: break
+try: os.unlink(listen)
+except OSError: pass`;
 
 /** The app actions that open a viewer tab (a file, a diff, a page), by id and CLI name. */
 const OPEN_ACTIONS = new Map([
