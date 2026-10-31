@@ -16,11 +16,8 @@ import Foundation
 /// the app names them are deleted.
 @MainActor
 struct AgentChatUploads {
-    private struct Stage { var folder: URL; var file: URL; var name: String; var size: Int; var received: Int; var owner: Owner; var expires: Date }
-    private struct Batch { var owner: Owner; var remaining: [AgentPaneUploadBatchEntry]; var expires: Date }
-    /// An upload's tab and chat: one begun with no session ("new") goes on once the chat starts (the prompt was sent
-    /// while it streamed, #28647), and only in its own tab, by its store id (a new tab's provisional id is rekeyed).
-    private struct Owner { var session: String; var tab: String }
+    private struct Stage { var folder: URL; var file: URL; var name: String; var size: Int; var received: Int; var session: String; var tab: String; var expires: Date }
+    private struct Batch { var session: String; var tab: String; var remaining: [AgentPaneUploadBatchEntry]; var expires: Date }
     private static var stages: [String: Stage] = [:]
     private static var batches: [String: Batch] = [:]
     /// How long an upload is kept: acpmux's `uploadsMaxAgeDays` default for its own (`config.rs`).
@@ -50,17 +47,19 @@ struct AgentChatUploads {
     static func stager(tab: String, services: AppServices) -> AgentPaneUploadStager? {
         guard services.agentTabs.gitLink?(tab)?.isLocal == true, let root else { return nil }
         let session = services.agentTabs.session(of: tab).flatMap { ChatUploadFolders.isSessionName($0) ? $0 : nil } ?? "new"
-        let mine = { (owner: Owner) in services.agentTabs.resolve(owner.tab) == tab && (owner.session == session || owner.session == "new") }
+        // An upload stays in its own tab, by its store id (a new tab's provisional id is rekeyed). One begun with no session ("new")
+        // goes on once the chat starts (the prompt was sent while it streamed, #28647); another new chat's page never feeds it.
+        let mine = { (made: String, by: String) in services.agentTabs.resolve(by) == tab && (made == session || made == "new") }
         return { request, sessionID in
             batches = batches.filter { $0.value.expires >= Date() }
             guard sessionID == nil || sessionID == session else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
             switch request {
             case .begin(let name, let size, let batchToken, let manifest):
                 if let batchToken {
-                    guard let batch = batches[batchToken], mine(batch.owner), batch.remaining.first?.name == name, batch.remaining.first?.size == size else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
+                    guard let batch = batches[batchToken], mine(batch.session, batch.tab), batch.remaining.first?.name == name, batch.remaining.first?.size == size else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
                     let remaining = Array(batch.remaining.dropFirst())
                     if remaining.isEmpty { batches.removeValue(forKey: batchToken) }
-                    else { batches[batchToken] = Batch(owner: batch.owner, remaining: remaining, expires: Date().addingTimeInterval(10 * 60)) }
+                    else { batches[batchToken] = Batch(session: batch.session, tab: batch.tab, remaining: remaining, expires: Date().addingTimeInterval(10 * 60)) }
                 }
                 guard size >= 0 else { return AgentPaneReply.failure(code: "upload_refused", message: AgentChatUploadStrings.failed) }
                 if let manifest {
@@ -69,23 +68,23 @@ struct AgentChatUploads {
                 }
                 let token = UUID().uuidString.lowercased(), folder = root.appending(path: "staged-" + token, directoryHint: .isDirectory), file = folder.appending(path: name)
                 do { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]); guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw CocoaError(.fileWriteUnknown) } } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
-                stages[token] = Stage(folder: folder, file: file, name: name, size: size, received: 0, owner: Owner(session: session, tab: tab), expires: Date().addingTimeInterval(10 * 60))
+                stages[token] = Stage(folder: folder, file: file, name: name, size: size, received: 0, session: session, tab: tab, expires: Date().addingTimeInterval(10 * 60))
                 expire(token)
                 var reply: [String: Any] = ["token": token, "size": size, "chunkSize": 512 * 1024]
                 if let manifest, batchToken == nil, manifest.count > 1 {
                     let id = UUID().uuidString.lowercased()
-                    batches[id] = Batch(owner: Owner(session: session, tab: tab), remaining: Array(manifest.dropFirst()), expires: Date().addingTimeInterval(10 * 60))
+                    batches[id] = Batch(session: session, tab: tab, remaining: Array(manifest.dropFirst()), expires: Date().addingTimeInterval(10 * 60))
                     reply["batchToken"] = id
                 }
                 return AgentPaneReply.success(reply)
             case .chunk(let token, let offset, let data):
-                guard var stage = stages[token], mine(stage.owner), stage.received == offset, data.count <= stage.size - offset, data.count <= 512 * 1024 else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
+                guard var stage = stages[token], mine(stage.session, stage.tab), stage.received == offset, data.count <= stage.size - offset, data.count <= 512 * 1024 else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
                 do { let handle = try FileHandle(forWritingTo: stage.file); try handle.seekToEnd(); try handle.write(contentsOf: data); try handle.close() } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
                 stage.received += data.count; stage.expires = Date().addingTimeInterval(10 * 60); stages[token] = stage
                 expire(token)
                 return AgentPaneReply.success(["offset": stage.received])
             case .finish(let token):
-                guard let stage = stages[token], mine(stage.owner), stage.received == stage.size else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
+                guard let stage = stages[token], mine(stage.session, stage.tab), stage.received == stage.size else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
                 let base = session == "new" ? root : ChatUploadFolders(root: root).chat(session)
                 let destination = base.appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory).appending(path: "0", directoryHint: .isDirectory).appending(path: stage.name)
                 do {
@@ -96,7 +95,7 @@ struct AgentChatUploads {
                 } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
                 return AgentPaneReply.success(["path": destination.path])
             case .cancel(let token):
-                if let stage = stages[token], mine(stage.owner) {
+                if let stage = stages[token], mine(stage.session, stage.tab) {
                     stages.removeValue(forKey: token)
                     try? FileManager.default.removeItem(at: stage.folder)
                 }

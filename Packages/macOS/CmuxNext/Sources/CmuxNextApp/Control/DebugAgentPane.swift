@@ -202,10 +202,7 @@ enum DebugAgentPane {
             return await DebugAgentPaneClick.click(params, pane: pane, view: view, services: services)
         }
         if action == "set_files" {
-            let paths = params["paths"]?.arrayValue?.compactMap(\.stringValue) ?? []
-            let refused = await view.debugSetFiles(selector: params["selector"]?.stringValue ?? ".acpmux-attach-input", paths: paths)
-            return .object(["pane": .string(pane), refused == nil ? "set" : "error": refused.map(JSONValue.string) ?? .number(Double(paths.count))])
-        }
+            return .object(["pane": .string(pane), "error": await view.debugSetFiles(selector: params["selector"]?.stringValue ?? ".acpmux-attach-input", paths: params["paths"]?.arrayValue?.compactMap(\.stringValue) ?? []).map(JSONValue.string) ?? .null]) }
         if action == "hover" {
             return await DebugAgentPaneClick.hover(params, pane: pane, view: view)
         }
