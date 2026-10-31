@@ -43,10 +43,25 @@ import Testing
         return nil
     }
 
+    /// `sections()` with two tabs on every grouped workspace: what the list draws with `sidebar.showWorkspaceTabs`.
+    static func sectionsWithTabs() -> [SidebarSection] {
+        var sections = sections()
+        for n in sections[0].nodes.indices {
+            guard case var .group(group) = sections[0].nodes[n] else { continue }
+            for w in group.workspaces.indices {
+                let id = group.workspaces[w].id.rawValue
+                group.workspaces[w].tabs = [SidebarTab(id: TabID("\(id)-t0"), title: "t0"), SidebarTab(id: TabID("\(id)-t1"), title: "t1")]
+            }
+            sections[0].nodes[n] = .group(group)
+        }
+        return sections
+    }
+
     /// Folds `steps` one after another (each spliced into the last), comparing each with a full layout.
-    func check(_ steps: [(GroupID, Bool)], active: WorkspaceID?) throws {
-        var sections = Self.sections()
-        var o = SidebarLayoutOptions()
+    func check(_ steps: [(GroupID, Bool)], active: WorkspaceID?, sections start: [SidebarSection] = SidebarLayoutFoldTests.sections(),
+               options: SidebarLayoutOptions = SidebarLayoutOptions()) throws {
+        var sections = start
+        var o = options
         o.activeWorkspaceID = active
         let metrics = SidebarLayoutMetrics.standard
         var shown = SidebarLayout.make(sections: sections, metrics: metrics, options: o)
@@ -79,6 +94,32 @@ import Testing
         var steps: [(GroupID, Bool)] = []
         for i in 0..<(SidebarLayoutKeyIndex.compactAfter * 2 + 5) { steps.append((GroupID("g\(i % 6)"), i % 12 < 6)) }
         try check(steps, active: WorkspaceID("g4-0"))
+    }
+
+    /// Listed tabs (`sidebar.showWorkspaceTabs`, on by default since f32ee25f5a5) are spliced with their workspace,
+    /// one with its tabs folded keeps its disclosure, and a folded group's kept member lists none: as a full layout.
+    /// Before, any listed tabs sent every fold to a full list layout, so a toggle cost every row (SidebarGroupToggleScalingTests).
+    @Test func listedTabsAreSplicedWithTheirWorkspace() throws {
+        var o = SidebarLayoutOptions()
+        o.showWorkspaceTabs = true
+        o.collapsedWorkspaces = [WorkspaceID("g4-1")]
+        var steps: [(GroupID, Bool)] = []
+        for g in 0..<6 { steps.append((GroupID("g\(g)"), true)) }
+        for g in (0..<6).reversed() { steps.append((GroupID("g\(g)"), false)) }
+        try check(steps, active: WorkspaceID("g1-2"), sections: Self.sectionsWithTabs(), options: o)
+    }
+
+    /// The session tree orders a group's members under their parents and sets their depth (`treeOrder`); the splice
+    /// lists them in group order at one depth, so with a tree the fold declines and the list is laid out again
+    /// (`make`, which a full layout draws row for row).
+    @Test func aSessionTreeLaysTheListOutAgain() throws {
+        let sections = Self.sectionsWithTabs()
+        var o = SidebarLayoutOptions()
+        o.showWorkspaceTabs = true
+        o.sessionTree = SidebarSessionTreeState(parents: [WorkspaceID("g1-0"): WorkspaceID("g1-3")])
+        let shown = SidebarLayout.make(sections: sections, metrics: .standard, options: o)
+        let group = try #require(Self.group(GroupID("g1"), in: sections))
+        #expect(shown.folding(group, collapsed: true, in: sections[0], metrics: .standard, options: o) == nil)
     }
 
     /// The chat history's Pinned and Earlier blocks sit where the full layout leaves room; a splice would move the

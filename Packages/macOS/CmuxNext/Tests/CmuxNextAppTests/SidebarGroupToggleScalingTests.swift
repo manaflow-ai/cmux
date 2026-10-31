@@ -207,6 +207,33 @@ import Testing
                 "a toggle at 10,000 workspaces took \(largeCost.p90) ms (p90), over one 8 ms frame scaled to \(calibration.budget(8)) ms")
     }
 
+    /// With the default settings (workspace tabs listed, f32ee25f5a5) a fold splices the group's rows: no full list
+    /// layout. Every fold had laid the whole list out since tabs were listed by default (ratio ~30 at 10,000).
+    @Test func aFoldWithListedTabsSplicesItsRows() {
+        let h = Self.make(100)
+        defer { h.window.close() }
+        #expect(h.model.showWorkspaceTabs, "the harness no longer lists workspace tabs, as the default does")
+        let reloads = SidebarPerfCounters.count(.listReloads), folds = SidebarPerfCounters.count(.groupFolds)
+        let collapsed = h.model.group(h.target)?.isCollapsed ?? false
+        #expect(h.model.setGroupCollapsed(h.target, !collapsed))
+        #expect(SidebarPerfCounters.count(.listReloads) == reloads, "the fold laid the whole list out")
+        #expect(SidebarPerfCounters.count(.groupFolds) == folds + 1, "the fold was not spliced")
+    }
+
+    /// With the session tree drawn (members ordered and nested under their parents, `treeOrder`) a fold lays the
+    /// list out again, once: the splice draws members in group order at one depth.
+    @Test func aFoldWithTheSessionTreeLaysTheListOut() {
+        SidebarSessionTree.shared.state = SidebarSessionTreeState(parents: [WorkspaceID("gt-1"): WorkspaceID("gt-0")])
+        defer { SidebarSessionTree.shared.state = nil }
+        let h = Self.make(100)
+        defer { h.window.close() }
+        let reloads = SidebarPerfCounters.count(.listReloads), folds = SidebarPerfCounters.count(.groupFolds)
+        let collapsed = h.model.group(h.target)?.isCollapsed ?? false
+        #expect(h.model.setGroupCollapsed(h.target, !collapsed))
+        #expect(SidebarPerfCounters.count(.listReloads) == reloads + 1, "the fold with a session tree did not lay the list out")
+        #expect(SidebarPerfCounters.count(.groupFolds) == folds, "the fold with a session tree was spliced")
+    }
+
     /// The first fold after loading sections must not prepare every other group's lookup before the list can
     /// start moving. The warm-click harness above deliberately warms both directions and would miss that delay.
     @Test(arguments: [false, true])

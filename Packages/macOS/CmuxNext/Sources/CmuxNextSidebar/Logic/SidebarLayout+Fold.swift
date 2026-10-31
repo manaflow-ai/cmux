@@ -7,7 +7,9 @@ nonisolated extension SidebarLayout {
     /// A fold is view state the sidebar owns (plans/cmux-next/state-ownership-DESIGN.md), so it never
     /// waits for the daemon and never lays the whole list out: its cost is the group's rows, not the
     /// list's. Nil when the fold cannot be spliced and the list must be laid out again: a filter, a
-    /// drag gap or excluded item, Group by Folder, inline tabs, or a group this layout does not draw.
+    /// drag gap or excluded item, Group by Folder, the session tree (its order and depths, `treeOrder`), or a
+    /// group this layout does not draw. Listed tabs
+    /// (`sidebar.showWorkspaceTabs`, on by default) are spliced with their workspace, as `make` lists them.
     ///
     /// - Parameters:
     ///   - group: The group as the model holds it (its members; `isCollapsed` is ignored).
@@ -26,7 +28,9 @@ nonisolated extension SidebarLayout {
     mutating func fold(_ group: SidebarGroup, collapsed: Bool, in section: SidebarSection, metrics base: SidebarLayoutMetrics,
                        options o: SidebarLayoutOptions) -> Bool {
         guard o.filterMatches == nil, o.gap == nil, gapY == nil, o.excludedGroup == nil, o.excludedItem == nil,
-              !o.showWorkspaceTabs, !o.grouping.isGrouped, !o.hidesWorkspaces,
+              !o.grouping.isGrouped, !o.hidesWorkspaces,
+              // The session tree orders and nests a group's members (`treeOrder`, `treeDepth`): laid out again.
+              o.sessionTree == nil,
               let headerIndex = position(of: .group(group.id)) else { return false }
         // The chat history's blocks sit at places the full layout leaves (`pinnedChatsY`, `earlierChatsY`); a splice
         // moves the rows but not those places, so with history shown the list is laid out again.
@@ -63,17 +67,29 @@ nonisolated extension SidebarLayout {
         var y = header.maxY + m.rowSpacing
         // Members sit one level in from their header (`make`).
         let memberDepth = group.depth + 1
-        func workspaceRow(_ ws: SidebarWorkspace, at childIndex: Int, last: Bool) {
+        // `listsTabs`: an open group's member lists its tabs under it (`make`); a folded group's kept member does not.
+        func workspaceRow(_ ws: SidebarWorkspace, at childIndex: Int, last: Bool, listsTabs: Bool) {
             let content = o.rowContent(ws, machine: machineLabel)
             let h = m.height(for: content)
             built.append(SidebarRow(
                 key: .workspace(ws.id), y: y, height: h, section: section.id,
                 group: group.id, siblingIndex: childIndex, parentIndex: parent,
                 isLastInGroup: last, isCollapsed: false, childCount: 0,
-                groupColor: group.color, tabDisclosure: nil, content: content
+                groupColor: group.color, tabDisclosure: o.disclosure(ws), content: content
             ))
             built[built.count - 1].depth = memberDepth
             y += h + m.rowSpacing
+            guard listsTabs, o.listsTabs(ws) else { return }
+            for tab in ws.tabs {
+                built.append(SidebarRow(
+                    key: .tab(ws.id, tab.id), y: y, height: m.tabRowHeight, section: section.id,
+                    group: group.id, workspace: ws.id, siblingIndex: childIndex, parentIndex: parent,
+                    isLastInGroup: false, isCollapsed: false, childCount: 0,
+                    groupColor: group.color, tabKind: tab.kind
+                ))
+                built[built.count - 1].depth = memberDepth
+                y += m.tabRowHeight + m.rowSpacing
+            }
         }
         if collapsed {
             // The selected workspace, and one selected here before, stay visible members (`make`).
@@ -81,7 +97,7 @@ nonisolated extension SidebarLayout {
                 guard case let .workspace(member) = members[i], o.shown(inCollapsed: group.id).contains(member.id) else { return nil }
                 return shown.first(where: { $0.id == member.id }).map { (i, $0) }
             }
-            for (n, (childIndex, ws)) in kept.enumerated() { workspaceRow(ws, at: childIndex, last: n == kept.count - 1) }
+            for (n, (childIndex, ws)) in kept.enumerated() { workspaceRow(ws, at: childIndex, last: n == kept.count - 1, listsTabs: false) }
         } else if members.isEmpty {
             // Subgroups and filters already sent the full layout above; the empty row is `make`'s.
             if Self.listsEmptyRow(group, filtering: false, hasSubgroups: false) {
@@ -91,7 +107,7 @@ nonisolated extension SidebarLayout {
             for (childIndex, member) in members.enumerated() {
                 switch member {
                 case let .workspace(ws):
-                    workspaceRow(ws, at: childIndex, last: childIndex == members.count - 1)
+                    workspaceRow(ws, at: childIndex, last: childIndex == members.count - 1, listsTabs: true)
                 case let .item(item):
                     let content = WorkspaceRowContent()
                     let h = m.height(for: content)
