@@ -1,5 +1,15 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-31: record the terminal cwd-title change in b648fd2d603 (#28059).
+  The reported defect was: "Two terminal tabs in one workspace are both titled
+  \"Terminal\" / \"~\"." Non-home cwd-derived titles remain visible in sidebar
+  tab rows, so terminals in different folders are distinguishable; explicit user
+  names retain precedence. `SidebarTabLineTests`, `SidebarTabLineMappingTests`,
+  and `TerminalTitleTabItemTests` cover the mapping. The implementation at
+  b7b5b367227e488a4afbedc0c083695bbd831a16 received independent code review:
+  https://github.com/manaflow-ai/cmux/pull/28059#issuecomment-6536962266.
+  This record adds no UI change and does not replace the required capture verdict.
+
 - 2026-10-30: `sidebar.textSize` (Settings > Appearance > Sidebar Text Size; palette, `cmux settings set
   sidebar.textSize larger`, MCP `settings_set`). Lawrence msg 17752 (a ChatGPT sidebar screenshot): "we also need
   option for sidebar text to be very significantly bigger. this is how big chatgpt is by default, let's match them".
@@ -710,3 +720,7 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 ## Runaway session warning badge (2026-10-30)
 
 - PR [#27899](https://github.com/manaflow-ai/cmux/pull/27899). Leo, verbatim: "that visibility into [one agent host's] guys was (and is?) pretty bad i feel like we can make more improvements to acpmux/cmux-next". A workspace row whose agent chats acpmux finds breaking a usage rule (no autocompact cap, context over 400k, more than 40 subagents an hour; acpmux `usageWarnings`) draws a small `exclamationmark.triangle.fill` in the theme's attention color in the trailing cluster, left of the muted bell's slot, the same size as that bell. Its tooltip is each warning's line, and the row's accessibility label says them. It is its own view (`usageWarningMark`), never the working spinner. It never gives way to the hover controls: while the row is hovered it sits just left of the ⋯ and ×, the title fading before it, so a person can still point at it and read its tooltip (the first fleet capture showed the controls in its place). Rows with no warnings are unchanged. Tests: `SidebarUsageWarningTests`; gallery `AAUsageWarningGalleryTests` (before/after, light and dark).
+
+## No tabs inside the sidebar; cmux Classic Mode removed (2026-10-30)
+
+- Lawrence 2026-10-30 (Chief messages 17538 and 17541), verbatim: "wtf is cmux classic mode get rid of it; i think new people get wieird sidebar that has like expandable stuff, get rid of it" and "like i dont want to see tabs expanded inside of sidebar". Before: a fresh profile listed every workspace's tabs under it with a disclosure chevron (`sidebar.showWorkspaceTabs` defaulted on since f32ee25f, Oct 27), while Lawrence's own sidebar hid them through Minimal Mode. Now no setting lists tabs in the sidebar: `sidebar.showWorkspaceTabs` and `tabs.terminalFirst` (cmux Classic Mode) are retired keys, their Settings rows, the Show Tabs Under Workspaces action and both App Store features are gone, and `SidebarModel.showWorkspaceTabs` is never set by settings (tests still set it to cover the tab-row code). This takes back f32ee25f's default ("show everything by default", Oct 27) and leaves the Oct 29 "Disclosed workspace tab hierarchy" entry above test-only. Test: `ClassicModeRemovedTests`.
