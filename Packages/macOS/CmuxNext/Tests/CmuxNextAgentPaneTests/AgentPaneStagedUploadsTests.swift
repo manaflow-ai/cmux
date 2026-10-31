@@ -96,8 +96,9 @@ import Testing
             let answer = await store.finish(begun.token, owns: { _ in true }, work: Self.work, transfer: { _ in delivers },
                                             undo: { delivered in delivered ? { undone.append(name) } : nil })
             #expect(answer == delivers)
+            let before = undone
             await store.cancel(begun.token, owns: { $0 == "other" }, work: Self.work)
-            #expect(undone.isEmpty, "another target's cancel took back \(undone)")
+            #expect(undone == before, "another target's cancel took back \(name)")
             await store.cancel(begun.token, owns: { $0 == "t" }, work: Self.work)
             await store.cancel(begun.token, owns: { $0 == "t" }, work: Self.work)
         }

@@ -129,14 +129,16 @@ nonisolated struct CloudAccessCLI: Sendable {
     /// Removes uploads `ids` (each one's own folder) from the machine. ProcessRunner reaps a stopped
     /// child before returning; this runs outside a cancelled caller's task, so the files are gone
     /// before a cancel answers.
+    /// Every id is tried, a failed one included; it throws after them all when any was not removed.
     func removeUploads(socket: String, remoteRoot: String, ids: [String]) async throws {
+        var removedAll = true
         for id in ids {
             let cleanup = Task.detached(priority: .userInitiated) {
                 try await run(["link", "access", "upload-cancel", "--socket", socket, "--remote-root", remoteRoot, "--upload-id", id], outputTailBytes: Self.uploadOutputTailBytes)
             }
-            let answer = try await cleanup.value
-            guard answer.ok else { throw CancellationError() }
+            if (try? await cleanup.value)?.ok != true { removedAll = false }
         }
+        guard removedAll else { throw CancellationError() }
     }
 
     /// `sync`: copies chat `session`'s granted folders on the machine again.
