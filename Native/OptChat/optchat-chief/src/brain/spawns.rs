@@ -67,7 +67,7 @@ pub(crate) const PAUSE_BACKOFF: [std::time::Duration; 4] = [
 pub(crate) struct PauseRetry {
     failures: u32,
     next_ms: u64,
-    error: String,
+    error: Option<String>,
 }
 
 fn span(d: std::time::Duration) -> String {
@@ -177,7 +177,9 @@ impl Brain {
             // A subagent's own VM pauses as soon as its run ends (its final
             // report); a shared peer after `cloud.autoPauseIdleSeconds`.
             let own = crate::subagents::is_agent_peer(&peer);
-            let wait = if own {
+            // A retry: the peer has had no live subagent since the failure,
+            // so its idle wait is already over; only the backoff applies.
+            let wait = if own || self.cloud_pause_retry.contains_key(&peer) {
                 0
             } else {
                 self.cloud_idle.as_millis() as u64
@@ -522,14 +524,18 @@ impl Brain {
     pub(super) fn cloud_pause_failed(&mut self, peer: &str, error: &str) {
         self.cloud_paused.remove(peer);
         self.cloud_idle_since.remove(peer);
+        // A result that comes back after the VM was deleted starts no streak.
+        if !self.has_vm_peer(peer) {
+            return;
+        }
         let backoff = &self.cloud_pause_backoff;
         let retry = self.cloud_pause_retry.entry(peer.to_owned()).or_default();
-        retry.failures += 1;
+        retry.failures = retry.failures.saturating_add(1);
         let step = (retry.failures as usize - 1).min(backoff.len() - 1);
         let wait = backoff[step];
         retry.next_ms = now_ms().saturating_add(wait.as_millis() as u64);
-        if retry.error != error {
-            retry.error = error.to_owned();
+        if retry.error.as_deref() != Some(error) {
+            retry.error = Some(error.to_owned());
             (self.log)(&format!(
                 "cloud: pause {peer} failed ({} in a row): {error}; next try in {}, then less often up to every {}; the same error is not logged again",
                 retry.failures,
@@ -537,6 +543,15 @@ impl Brain {
                 span(backoff[backoff.len() - 1]),
             ));
         }
+    }
+
+    /// Whether a subagent whose VM is not deleted runs on `peer`.
+    fn has_vm_peer(&self, peer: &str) -> bool {
+        self.state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .any(|s| !s.vm_deleted && s.peer.as_deref() == Some(peer))
     }
 
     /// The pool tool paused `peer`: a failure streak there ends.
@@ -627,6 +642,7 @@ impl Brain {
         for p in chosen.iter().flatten() {
             self.cloud_paused.remove(p);
             self.cloud_idle_since.remove(p);
+            self.cloud_pause_retry.remove(p);
         }
         // Never below an id already handed out: a reset or unreadable
         // counter must not give `a<N>` twice (persistent-ids-DESIGN.md).
@@ -2030,6 +2046,7 @@ impl Brain {
             ));
             self.cloud_paused.remove(&peer);
             self.cloud_idle_since.remove(&peer);
+            self.cloud_pause_retry.remove(&peer);
         }
         if cancelled {
             return Ok(format!(

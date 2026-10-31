@@ -683,11 +683,15 @@ fn a_failing_pause_backs_off_and_is_logged_once_per_change() {
             .count()
     };
     // Ticks every 20 ms for 1.6 s: tries at about 0, 0.3 and 0.9 s (then
-    // 1.8 s), never one per tick.
+    // 1.8 s), never one per tick, and the wait grows.
     let mut ticks = 0;
+    let mut failed_at = Vec::new();
     let until = Instant::now() + Duration::from_millis(1600);
     while Instant::now() < until {
         while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
+            if matches!(input, Input::CloudPauseFailed { .. }) {
+                failed_at.push(Instant::now());
+            }
             h.brain.step(input);
         }
         h.brain.step(Input::CloudTick);
@@ -695,9 +699,15 @@ fn a_failing_pause_backs_off_and_is_logged_once_per_change() {
     }
     let tried = pause_calls();
     assert!(
-        (2..=4).contains(&tried),
-        "{tried} pauses in {ticks} ticks: {:?}",
+        failed_at.len() >= 3 && tried <= 4,
+        "{tried} pauses, {} failures in {ticks} ticks: {:?}",
+        failed_at.len(),
         lines.lock().unwrap()
+    );
+    let (first, second) = (failed_at[1] - failed_at[0], failed_at[2] - failed_at[1]);
+    assert!(
+        first >= Duration::from_millis(300) && second >= first + Duration::from_millis(150),
+        "waits {first:?} then {second:?}: the backoff grows"
     );
     assert_eq!(
         with("cloud: pause cloud1 failed"),
