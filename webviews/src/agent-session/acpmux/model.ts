@@ -35,6 +35,7 @@ import { subsessionCall } from "./conversation/subsessionCalls";
 import type { ChatTool } from "./summary/chatTools";
 import type { TaskGoal } from "./goal";
 import { MessagePlacement } from "./conversation/messagePlacement";
+import { isVisiblyEmptyMessage } from "./conversation/visibleMessage";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
@@ -1585,6 +1586,9 @@ function measuredRowHeight(
     }
     return finish(height + MESSAGE_GAP);
   }
+  // Empty or zero-width message text has no article; attachments and incoming cards returned
+  // above remain visible through `isVisiblyEmptyMessage`'s content checks.
+  if (isVisiblyEmptyMessage(row)) return finish(0);
   // Bookkeeping alone: a turn's start that draws nothing (conversation/turns.ts).
   if (row.incoming?.kind === "hidden") return finish(0);
   // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx).

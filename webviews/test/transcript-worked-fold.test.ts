@@ -7,6 +7,7 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { layoutConversation } from "../src/agent-session/acpmux/model";
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -39,6 +40,26 @@ test("the answer stays open below the fold of the work before it", () => {
 test("a turn that ended on a tool folds its interim text with the rest", () => {
   const rows = [row("u", "user"), text("interim-1"), tool("read"), text("interim-2"), tool("grep"), summary()];
   expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "turnSummary:end"]);
+});
+
+test("empty and zero-width assistant messages between tool groups add no row or footer space", () => {
+  const first = tool("first");
+  const second = tool("second", "execute");
+  const base = [row("u", "user", { text: "Run both checks." }), first, second, summary()];
+  const withEmpty = [
+    row("u", "user", { text: "Run both checks." }),
+    first,
+    row("empty", "assistant", { text: "" }),
+    row("zero-width", "assistant", { text: "\u200B\u200C\u200D\uFEFF\u2060" }),
+    second,
+    summary(),
+  ];
+  const expanded = new Set(["worked-u"]);
+  const normal = turnView(base, expanded);
+  const shaped = turnView(withEmpty, expanded);
+  expect(shaped.filter((entry) => entry.kind === "assistant")).toHaveLength(0);
+  expect(shaped.filter((entry) => entry.kind === "turnSummary")).toHaveLength(1);
+  expect(layoutConversation(shaped, 760).totalHeight).toBe(layoutConversation(normal, 760).totalHeight);
 });
 
 test("a turn stopped mid-tool folds its work under the stop line", () => {
