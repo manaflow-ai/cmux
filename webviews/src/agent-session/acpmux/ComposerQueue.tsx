@@ -628,11 +628,13 @@ export function ComposerQueue({
       // A move into the folded part opens the queue, so the moved row stays in sight.
       if (folded && index >= visible.length) unfold(true);
       refocus.current = entry.id;
-      void onChange(entry.id, { op: "move", index: to }).finally(() =>
-        setTimeout(() => {
-          if (refocus.current === entry.id) refocus.current = undefined;
-        }, 500),
-      );
+      void onChange(entry.id, { op: "move", index: to })
+        .finally(() =>
+          setTimeout(() => {
+            if (refocus.current === entry.id) refocus.current = undefined;
+          }, 500),
+        )
+        .catch(() => undefined);
     });
   // The open edit ends unsaved, its images all kept; focus goes back to its row.
   const cancel = (index: number) => {
@@ -654,9 +656,13 @@ export function ComposerQueue({
     const edit: QueueEdit = removed
       ? { op: "update", text: next, images: kept.map((image) => image.id) }
       : { op: "update", text: next };
-    void onChange(entry.id, edit).then((ok) => {
-      if (!ok) onLost?.(next, entry.id);
-    });
+    // A refused or failed edit (the bridge rejecting counts) hands the typed text back to the prompt.
+    void onChange(entry.id, edit).then(
+      (ok) => {
+        if (!ok) onLost?.(next, entry.id);
+      },
+      () => onLost?.(next, entry.id),
+    );
   };
   const rowKeyDown = (event: React.KeyboardEvent<HTMLElement>, entry: QueuedEntry, index: number) => {
     if (event.target !== event.currentTarget) return;
@@ -948,7 +954,7 @@ export function ComposerQueue({
               <button
                 type="button"
                 className="acpmux-queue-resume"
-                onClick={() => void onChange(queue[0].id, { op: "resume" })}
+                onClick={() => void onChange(queue[0].id, { op: "resume" }).catch(() => undefined)}
               >
                 {t("composer.queueResume")}
               </button>

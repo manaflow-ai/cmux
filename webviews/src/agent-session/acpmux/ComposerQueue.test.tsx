@@ -727,6 +727,43 @@ test("an open edit closes, unsaved, when the row turns out to be a teammate's", 
   expect(actions(container, "p-1")).toEqual([]);
 });
 
+// A bridge failure on Save (the call rejects) leaves nothing unhandled and gives the typed text back to
+// the prompt, as a refused save does.
+test("an edit whose save rejects hands its text back and leaves no unhandled rejection", async () => {
+  const lost: [string, string][] = [];
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown) => unhandled.push(reason);
+  process.on("unhandledRejection", onUnhandled);
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ComposerQueue
+        queue={queue}
+        chat="c"
+        t={t}
+        onChange={() => Promise.reject(new Error("native.not_connected"))}
+        onRemove={async () => true}
+        onLost={(text, id) => lost.push([id, text])}
+      />,
+    );
+  });
+  await startEdit(container, "p-1");
+  const field = container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea')!;
+  await act(async () => {
+    field.value = "first, reworded";
+    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  await act(async () => {
+    field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+  });
+  await settle();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  process.off("unhandledRejection", onUnhandled);
+  expect(lost).toEqual([["p-1", "first, reworded"]]);
+  expect(unhandled).toEqual([]);
+});
+
 // The app's right-click menu is a native one (ui/nativeMenu.ts): it keeps the actions it opened
 // with. Picked after the row turned out to be a teammate's, none runs.
 test("a row menu opened before the row turned out to be a teammate's changes nothing", async () => {
