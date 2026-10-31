@@ -1,8 +1,7 @@
-import AppKit
-import CmuxNextAgentPane
-import CmuxNextSettings
+package import CoreGraphics
+package import CmuxNextSettings
 
-/// The one rule for where a link or path the person opens from a pane lands (``LinkOpener``):
+/// The one rule for where a link or path the person opens from a pane lands (the app’s link opener):
 /// a terminal's Cmd-click, a link in an agent chat, Home, a Markdown or code page, a `cmux://`
 /// path link. The source pane never loses what it shows:
 ///
@@ -23,9 +22,9 @@ import CmuxNextSettings
 ///
 /// `Pane` is the caller's pane identity (`LayoutPaneID` in the app), so the rule runs without a
 /// window or a daemon.
-struct LinkOpenPlacement<Pane: Equatable> {
+package struct LinkOpenPlacement<Pane: Equatable> {
     /// Where the opened item goes.
-    enum Target: Equatable {
+    package enum Target: Equatable {
         /// A new tab in this existing pane.
         case pane(Pane)
         /// A new pane split off the right of this pane.
@@ -38,18 +37,23 @@ struct LinkOpenPlacement<Pane: Equatable> {
         /// the daemon opens it in a new column right of the dock (`pinned-dock-alone-v1`), so the
         /// dock never holds the tab, not even for the moment a split or column move would take.
         case besideDock(Pane)
-        /// Main pane layout (``MainPaneLayout``), from an agent chat alone on its screen: the tab opens
+        /// In the main pane layout, from an agent chat alone on its screen: the tab opens
         /// unselected in this pane, then the chat docks left and the tab's pane stays on its right.
         case dockChat(Pane)
     }
 
-    var setting: LinkPlacement
+    package var setting: LinkPlacement
+
+    /// Uses the caller's configured placement without reading shared settings.
+    package init(setting: LinkPlacement) {
+        self.setting = setting
+    }
 
     /// Where an item opened from `source` lands. `takesTabs`: the source's strip takes new tabs;
     /// `right`: the pane right of the source on its screen, if any; `column`: the right column it
     /// is in, top to bottom, with `sourceWidth` and each pane's `width` (empty: not measured). `kind`:
     /// what opens, which `holds` matches against the column's panes (``RightColumnPlacement/Kind``).
-    func target(source: Pane, takesTabs: Bool, right: Pane?, column: [Pane] = [], sourceWidth: CGFloat? = nil,
+    package func target(source: Pane, takesTabs: Bool, right: Pane?, column: [Pane] = [], sourceWidth: CGFloat? = nil,
                 width: (Pane) -> CGFloat? = { _ in nil }, kind: RightColumnPlacement.Kind? = nil,
                 holds: (Pane, RightColumnPlacement.Kind) -> Bool = { _, _ in false }) -> Target {
         if setting == .samePane, takesTabs { return .pane(source) }
@@ -70,7 +74,7 @@ struct LinkOpenPlacement<Pane: Equatable> {
     /// (lower) open, A again targets the lower pane, so looking only there opened a second A.
     /// An open that lands in the source itself (Same Pane, or a source too narrow to split) reuses
     /// nothing on the right: review of #28044 at c15e0d89, a Same Pane link focused its tab there.
-    static func reusePanes(target: Target, column: [Pane], source: Pane) -> [Pane] {
+    package static func reusePanes(target: Target, column: [Pane], source: Pane) -> [Pane] {
         if case .pane(let pane) = target, pane == source { return [] }
         var panes: [Pane] = []
         switch target {
@@ -85,7 +89,7 @@ struct LinkOpenPlacement<Pane: Equatable> {
     /// over the measured `column` (a split below its one pane, else a tab in its lower pane), or a tab
     /// in `right` when the column was not measured. A `kind` a pane there already `holds` is a tab in
     /// that pane. Main pane layout's strip column uses it too.
-    static func inColumn(right: Pane, column: [Pane], sourceWidth: CGFloat?, width: (Pane) -> CGFloat?,
+    package static func inColumn(right: Pane, column: [Pane], sourceWidth: CGFloat?, width: (Pane) -> CGFloat?,
                          kind: RightColumnPlacement.Kind? = nil,
                          holds: (Pane, RightColumnPlacement.Kind) -> Bool = { _, _ in false }) -> Target {
         guard !column.isEmpty else { return .pane(right) }
@@ -100,7 +104,7 @@ struct LinkOpenPlacement<Pane: Equatable> {
     /// person sees them (each column's panes), `takesTabs` tells which panes take new tabs and
     /// `recency` lists panes newest first. The first column after the source's with a pane that
     /// takes tabs answers, with its most recent such pane (else its first). Nil when none.
-    static func paneRight(of source: Pane, columns: [[Pane]], takesTabs: (Pane) -> Bool, recency: [Pane]) -> Pane? {
+    package static func paneRight(of source: Pane, columns: [[Pane]], takesTabs: (Pane) -> Bool, recency: [Pane]) -> Pane? {
         guard let index = columns.firstIndex(where: { $0.contains(source) }) else { return nil }
         for column in columns[(index + 1)...] {
             let candidates = column.filter { $0 != source && takesTabs($0) }
