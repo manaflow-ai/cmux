@@ -125,8 +125,9 @@ function publishAccount(next: boolean | undefined): void {
   for (const listener of listeners) listener();
 }
 
-/// Reads the app's list again. A failed revalidation clears both snapshots: the previous
-/// account's machines and signed-in state cannot be trusted after a refused read.
+/// Reads the app's list again. A read the app refused clears both snapshots: the previous
+/// account's machines and signed-in state cannot be trusted after it. With no app to ask (outside
+/// the app, or while its bridge reconnects: `native.not_connected`) the list is left as it was.
 export function refreshCloudMachines(call: Call = postNative): Promise<void> {
   const asked = generation;
   inFlight ??= call("cloudMachine.list", {})
@@ -136,7 +137,8 @@ export function refreshCloudMachines(call: Call = postNative): Promise<void> {
         publish(cloudMachinesFromReply(reply));
       }
     })
-    .catch(() => {
+    .catch((error: unknown) => {
+      if ((error as { code?: unknown } | null)?.code === "native.not_connected") return;
       if (asked === generation) {
         publishAccount(undefined);
         publish([]);
