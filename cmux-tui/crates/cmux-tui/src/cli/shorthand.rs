@@ -162,7 +162,7 @@ pub(super) fn normalize(args: &[String]) -> Result<Vec<String>, UsageError> {
             } else {
                 flag.to_string()
             });
-            if inline.is_none() && !super::command::is_boolean_flag(flag.trim_start_matches("--")) {
+            if inline.is_none() && super::command::flag_takes_value(flag.trim_start_matches("--")) {
                 index += 1;
                 options.push(args.get(index).cloned().ok_or_else(|| error(arg))?);
             }
@@ -321,7 +321,7 @@ fn instance_action<'a>(scope: &str, action: &'a str) -> &'a str {
     }
 }
 
-fn child(parent: &str, candidate: &str) -> bool {
+pub(super) fn child(parent: &str, candidate: &str) -> bool {
     matches!(
         (parent, candidate),
         ("workspace", "screen")

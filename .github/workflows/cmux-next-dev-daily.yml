@@ -91,6 +91,11 @@ jobs:
       # SOURCE_SHA is the commit the source run built: a dev daily run of
       # cmux-next.yml on feat-cmux-next whose name carries the SHA it was asked
       # for (cmux-next.yml fails a run whose checkout is not that SHA).
+      # The run may still be in progress: cmux-next.yml requests this publisher
+      # from inside it once its app compile succeeds, before its trailing jobs
+      # end, and the next step requires that app-producing job's success. Only
+      # completed runs resolved before, so every in-run handoff from 17:52Z to
+      # 20:23Z on 2026-10-30 failed here (run 41122647270).
       - name: Resolve the source run
         env:
           GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
@@ -100,11 +105,12 @@ jobs:
           [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || { echo "error: source run id '$SOURCE_RUN_ID' is not a number" >&2; exit 1; }
           sha="$(gh api "repos/$GH_REPO/actions/runs/$SOURCE_RUN_ID" --jq '
             select(.event == "workflow_dispatch" and .head_branch == "feat-cmux-next"
-                   and .path == ".github/workflows/cmux-next.yml" and .status == "completed"
+                   and .path == ".github/workflows/cmux-next.yml"
+                   and (.status == "completed" or .status == "in_progress")
                    and .head_repository.full_name == env.GH_REPO
                    and (.name == "cmux NEXT DEV daily · " + .head_sha or .display_title == "cmux NEXT DEV daily · " + .head_sha))
             | .head_sha')"
-          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "error: run $SOURCE_RUN_ID is not a finished cmux NEXT DEV daily run of cmux-next.yml on feat-cmux-next" >&2; exit 1; }
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "error: run $SOURCE_RUN_ID is not a completed or in-progress cmux NEXT DEV daily run of cmux-next.yml on feat-cmux-next" >&2; exit 1; }
           # head_branch is a short name, the same for a tag called
           # feat-cmux-next: require the commit to be on the branch itself.
           branch_sha="$(gh api "repos/$GH_REPO/git/ref/heads/feat-cmux-next" --jq '.object.sha')"
@@ -284,6 +290,10 @@ jobs:
   # tip-dmg-build, also secret-free, takes `dmg_label`: the same owned pool,
   # but only when it has two machines free now, so it never queues behind
   # verify on one mini; otherwise it stays on Blacksmith macOS.
+  # Only the std class (--owned-classes std): both jobs download the 188 MB
+  # signed app, which took 736-974 s on the light pool's minis (24 h to
+  # 2026-10-30), so verify ran 895 s median there against 41 s on std and
+  # 71 of 90 light runs hit its 15 minute limit.
   runner:
     needs: sign
     if: needs.sign.outputs.signed == 'true'
@@ -358,6 +368,8 @@ jobs:
         timeout-minutes: 2
         env:
           SNAPSHOT_TOKEN: ${{ github.token }}
+          # Its `_dead` marks and live macos_26 member (classic_nightly_build_runner.py).
+          RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
           FIRST: 6vcpu
           ENABLED: '0'
         run: python3 scripts/ci/classic_nightly_build_runner.py
@@ -390,6 +402,7 @@ jobs:
               --owned-slots "$OWNED_SLOTS" \
               --pr-xcode-app "$PR_XCODE_APP" \
               --blacksmith-labels "$BLACKSMITH_LABELS" \
+              --owned-classes std \
               "${@:2}"
           }
           # Two machines free: verify and tip-dmg-build both take the owned

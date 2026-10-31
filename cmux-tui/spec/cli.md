@@ -134,7 +134,17 @@ Both paths send `pane.get`. A direct opaque target ID may omit structural
 ancestors. A name or `current` target requires its complete parent chain. Every
 supplied ancestor is checked for containment before the operation runs.
 
-Run `cmux <resource> --help` for its exact paths and flags. Parser tests
+Run `cmux <resource> --help` for its exact paths, and add `--help` to an action
+(`cmux tab <selector> move --help`, or `cmux help tab <selector> move`) for
+every flag it takes, its value, and whether it is required. One catalog,
+`crates/cmux-tui/src/cli/command/actions.rs`, lists each action's flags: the
+parser rejects a flag the action does not list before reading any value, reports
+all missing required flags in one error, and debug builds fail when the parser
+reads a flag the catalog does not list. Help, usage errors, and `--version` name
+the program as it was invoked (`argv[0]`): `cmux` through the npm launcher,
+`cmux-tui` where the binary is installed under that name.
+
+Parser tests
 map every operational one-shot command and parameter in
 [`resource-operations-v2.json`](resource-operations-v2.json) to a public path.
 Sensitive renderer grants and connection-owned stream/viewer controls remain
