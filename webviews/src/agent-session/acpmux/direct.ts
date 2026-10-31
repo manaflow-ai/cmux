@@ -71,7 +71,7 @@ import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } f
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
-import { failedSendText } from "./sendFailure";
+import { failedSendText, retryHelps, sendCause } from "./sendFailure";
 import { SessionPager, type SessionPage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
 import { isPlumbingCall, showsNothing } from "./hiddenTools";
@@ -98,6 +98,7 @@ import {
 } from "./summary/transcriptPullRequests";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
 import { handoffPromptId, namesHandoffTurn } from "./cloudHandoffTurn";
+import { STALL_CHECK_MS, stallLine } from "./stallLog";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -2751,6 +2752,30 @@ export class AcpmuxDirectClient {
       if (!this.closed && generation === this.selectionGeneration)
         this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
     });
+  }
+
+  /// The pane positions whose stall was checked already (`checkStall`): one check per position.
+  private readonly stallChecked = new Set<string>();
+  /// A send to the shown chat went slow: when acpmux holds an event after the pane's last one that it
+  /// wrote a while ago, the pane missed the chat's events, and the log says so (stallLog.ts). A hidden
+  /// page holds its frames on purpose, so it is not checked; each position is checked once.
+  private checkStall(sessionId: string): void {
+    if (this.closed || this.selectedSessionId !== sessionId || !pageShown()) return;
+    const paneSeq = this.lastSeq;
+    const key = `${sessionId} ${paneSeq}`;
+    if (this.stallChecked.has(key)) return;
+    this.stallChecked.add(key);
+    const connection = this.socket?.readyState === WebSocket.OPEN ? "open" : "not open";
+    void this.typed("_acpmux/events", { sessionId, afterSeq: paneSeq, limit: 1 }, STALL_CHECK_MS).then(
+      (result) => {
+        const line = stallLine(sessionId, paneSeq, records(result?.events)[0], Date.now(), connection);
+        if (line) console.error(line);
+      },
+      (error: unknown) =>
+        console.error(
+          `agent pane stall check: session ${sessionId}: acpmux did not answer its events after seq ${paneSeq}: ${String((error as { code?: unknown } | null)?.code ?? error)}; connection ${connection}`,
+        ),
+    );
   }
 
   /// Pages from its own cursor: live events keep advancing lastSeq meanwhile.
@@ -5939,8 +5964,10 @@ export class AcpmuxDirectClient {
     // deadline, as before: there is no failed row then, so no second copy to send.
     timers.push(
       setTimeout(() => {
-        if (this.deliveries.get(promptId)?.delivery.state === "sending" && this.setDelivery(promptId, { slow: true }))
+        if (this.deliveries.get(promptId)?.delivery.state === "sending" && this.setDelivery(promptId, { slow: true })) {
           this.emit();
+          this.checkStall(sessionId);
+        }
       }, deliveryTiming.slowMs),
     );
     timers.push(
@@ -6073,7 +6100,9 @@ export class AcpmuxDirectClient {
         // says just that, not the generic refusal's pick wording (cx-w2p8r).
         if (held && !isTrustRefusal(error))
           this.notice(
-            code === "transport.gesture_required" ? translate("prompt.notSentAgain") : failedSendText(error, false),
+            code === "transport.gesture_required"
+              ? translate("prompt.notSentAgain")
+              : failedSendText(error, false, sendAttachments),
           );
         else this.emit();
         throw error;
@@ -6103,7 +6132,7 @@ export class AcpmuxDirectClient {
           ...row,
           pending: false,
           failed: true,
-          error: failedSendText(error, this.retriedPrompts.has(promptId)),
+          error: failedSendText(error, this.retriedPrompts.has(promptId), sendAttachments),
           version: row.version + 1,
         });
         this.failedPrompts.set(rowId, { input, attachments, promptId });
@@ -6230,7 +6259,9 @@ export class AcpmuxDirectClient {
   /// prompt id (a trust refusal's kept gesture is bound to that id, heldPrompt.ts). The run's other
   /// rows go.
   async retryPrompts(rowIds: readonly string[], ticket?: string, anchor?: string): Promise<string | undefined> {
-    const run = rowIds.filter((id) => this.failedPrompts.has(id));
+    // A prompt too large to send is refused the same way again, from any Retry (the card, the
+    // message menu): it stays failed until Edit takes an attachment out.
+    const run = rowIds.filter((id) => this.failedPrompts.has(id) && retryHelps(sendCause(this.rows.get(id)?.delivery)));
     const kept = anchor && run.includes(anchor) ? anchor : run[run.length - 1];
     if (!kept) return undefined;
     if (run.length > 1) {
