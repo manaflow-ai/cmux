@@ -282,35 +282,14 @@ final class DebugUnifiedBackdrop: NSView {
         }
         flattenCards(content)
         if let frame = content.superview { for sibling in frame.subviews where sibling !== content { flattenCards(sibling) } }
-        if image {
-            // One veil over the window's picture, so text reads in light and dark (white 62% / black 50%).
-            let veil = (dark ? NSColor.black : NSColor.white).withAlphaComponent(dark ? 0.5 : 0.62)
-            func veilArt(_ view: NSView) {
-                for child in view.subviews {
-                    if let art = child as? WindowMaterialView, art.bounds.width >= wide {
-                        let cover = art.subviews.first { $0.identifier?.rawValue == "debug.variant.veil" } ?? {
-                            let cover = NSView(frame: art.bounds)
-                            cover.identifier = NSUserInterfaceItemIdentifier("debug.variant.veil")
-                            cover.wantsLayer = true
-                            cover.autoresizingMask = [.width, .height]
-                            art.addSubview(cover, positioned: .above, relativeTo: nil)
-                            return cover
-                        }()
-                        cover.frame = art.bounds
-                        cover.layer?.backgroundColor = veil.cgColor
-                        continue
-                    }
-                    veilArt(child)
-                }
-            }
-            veilArt(content)
-        }
         let color = image ? NSColor.clear : background.color(dark: dark)
         guard let color else { return }
         layer?.backgroundColor = color.cgColor
         if !image { window.backgroundColor = color }
         func walk(_ view: NSView) {
             for child in view.subviews where child !== self {
+                // The window's picture and the theme tint over it are the shared background.
+                if child is WindowMaterialView { continue }
                 // A narrow full-height column (the collapsed list strip) counts as a panel too.
                 let big = child.bounds.width >= wide || child.bounds.height >= tall
                 // Over a picture the window's own backdrop views stay: only the panels' fills go.
