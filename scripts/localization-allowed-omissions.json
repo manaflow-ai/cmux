@@ -7025,6 +7025,17 @@
       "es": "ms is the SI symbol for milliseconds, written the same way in Spanish; the other tokens are values. The translated entry is still required."
     }
   },
+  "machines.group.ssh": {
+    "class": "technical",
+    "source": "SSH"
+  },
+  "machines.group.cloud": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "Cloud is the established German UI noun for the product area; an explicit translated entry remains required.",
+      "fr": "Cloud is the established French UI noun for the product area; an explicit translated entry remains required."
+    }
+  },
   "settings.choice.modelRouterDeepSeekV41Flash": {
     "class": "brand",
     "source": "DeepSeek V4.1 Flash"

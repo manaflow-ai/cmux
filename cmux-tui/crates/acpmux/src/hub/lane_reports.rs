@@ -245,7 +245,7 @@ impl Report {
 
 /// Whether a turn's provenance is lane reports only: a report, or a turn of agent messages that
 /// took in nothing else.
-fn reports_only(provenance: Option<&Value>) -> bool {
+pub(super) fn reports_only(provenance: Option<&Value>) -> bool {
     let Some(p) = provenance else { return false };
     match p.get("kind").and_then(Value::as_str) {
         Some(KIND) => true,
@@ -414,10 +414,22 @@ impl Hub {
     /// `session`'s turn started (its turn count counts it), with `provenance` for the whole turn
     /// (`digest.rs`).
     pub(super) fn lane_turn_started(&self, session: &Session, provenance: Option<&Value>) {
-        if reports_only(provenance) {
+        self.lane_turn_on(session, reports_only(provenance));
+    }
+
+    /// `session`'s turn started (its turn count counts it); `reports`: on lane reports only (a
+    /// carried turn's steers, `carried_turn.rs`).
+    pub(super) fn lane_turn_on(&self, session: &Session, reports: bool) {
+        if reports {
             let turn = session.meta().turn_count;
             self.lane_turns().report_only.insert((session.id.clone(), turn));
         }
+    }
+
+    /// Whether turn `turn` of session `id` is counted as one on lane reports only.
+    #[cfg(test)]
+    pub(super) fn lane_turn_reports_only(&self, id: &str, turn: u64) -> bool {
+        self.lane_turns().report_only.contains(&(id.to_owned(), turn))
     }
 
     /// A prompt that is not a lane report is about to be steered into `session`: counted before
@@ -620,6 +632,12 @@ impl Hub {
             "kind": KIND, "from": lane, "fromName": report.name, "to": parent,
             "turn": report.turn, "state": report.state,
         });
+        // The lane's id and harness, for the parent's queue list (`prompt_provenance.rs`).
+        let lane_session =
+            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(lane).cloned();
+        let sender = lane_session
+            .map(|l| crate::prompt_provenance::BoundSender::of_session(&l.id, &l.meta()));
+        let provenance = crate::prompt_provenance::stamp_sender(provenance, sender.as_ref());
         let (tx, rx) = oneshot::channel();
         let opts = PromptOptions {
             prompt_id: Some(prompt_id),

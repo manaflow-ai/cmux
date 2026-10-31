@@ -22,10 +22,10 @@ enum BrowserHandlers {
 
     private static func bindPage(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("browserHardReload", run: { invocation in
-            guard let webKit = try context.page(invocation).tab as? WebKitTab else {
+            guard let tab = try context.page(invocation).tab as? any BrowserCacheBypassingReload else {
                 throw ActionFailure(message: MiscHandlerStrings.hardReloadEngine)
             }
-            webKit.webView.reloadFromOrigin()
+            tab.reloadBypassingCache()
         })
         // Per tab, per window (FocusState.browserFocusMode): every key but
         // tier 0 goes to the page while on.

@@ -17,7 +17,10 @@
 #                        features, rustdoc -D warnings, and the two `cargo package` checks.
 #   sdk-msrv             cmux-tui-sdks.yml `rust-msrv`: the public Rust SDK crates and examples
 #                        on Rust 1.88 (installed with rustup into the step's RUSTUP_HOME).
-#   cef-shim-cpp         cmux-next-shim-cpp.yml: every scripts/cmux-next/test-*-cpp.sh.
+#   cef-shim-cpp         cmux-next-shim-cpp.yml: every scripts/cmux-next/test-*-cpp.sh, then the
+#                        Chromium Host's C++ tests where the commit has them
+#                        (scripts/cmux-next/tests/chromium-host-dispatch.test.sh and
+#                        remote-shim-abi.test.sh, on perf/chrome-parity).
 #   swift-portable PKG   swift-packages-linux.yml for one package its matrix lists:
 #                        `swift build --build-tests`, then `swift test --skip-build --parallel`
 #                        when it has Tests, with CMUX_SWIFTPM_TARGET_LINUX=1. Linux only (the
@@ -25,12 +28,20 @@
 #   web                  ci-web.yml's web/ checks: bun install --frozen-lockfile, the managed
 #                        relay catalog check, typecheck, lint:complexity and the unit tests
 #                        (all four shards in one run), with the bun ci-web.yml pins.
+#   notices              cmux-next-guards.yml rust-notices-tree's "Generate the Rust notices from
+#                        this tree (as the nightly does)": generate-third-party-notices.sh
+#                        --tui-source tree --write-cargo-trees with CMUX_NOTICES_ALLOW_CARGO=1 (cargo
+#                        writes the exact cargo trees). cmux-tui's pinned cargo runs every
+#                        `cargo tree --locked` (a Linux fleet runner's rustup has no default
+#                        toolchain for a tree with no pin). Its crate cache and trees are in the
+#                        step's .build. The caller decides whether the change reaches a notice input
+#                        (the job's "Changed notice inputs" step).
 # Every step of a mode runs, even after a red one; the summary lists each, and the step exits
 # with the first red step's code. Nothing is committed or pushed. Cargo runs only as a fleet
 # step: outside one (CMUX_CI_STEP_KEY) the script refuses.
 set -euo pipefail
 usage() {
-  echo "usage: feat-parity-check.sh rust-workspace ROOT | swift-portable PKG | sdk-rust | sdk-msrv | cef-shim-cpp | web" >&2
+  echo "usage: feat-parity-check.sh rust-workspace ROOT | swift-portable PKG | sdk-rust | sdk-msrv | cef-shim-cpp | web | notices" >&2
   exit 2
 }
 if [[ -z "${CMUX_CI_STEP_KEY:-}" ]]; then
@@ -46,7 +57,7 @@ case "$mode" in
   rust-workspace | swift-portable)
     [[ $# -eq 2 && "$workspace" =~ ^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$ && "/$workspace/" != *"/../"* && "/$workspace/" != *"/./"* ]] || usage
     ;;
-  sdk-rust | sdk-msrv | cef-shim-cpp | web) [[ $# -eq 1 ]] || usage ;;
+  sdk-rust | sdk-msrv | cef-shim-cpp | web | notices) [[ $# -eq 1 ]] || usage ;;
   *) usage ;;
 esac
 umask 022
@@ -92,6 +103,14 @@ use_pinned_cargo() { # DIR
   local cargo_bin
   (cd "$1" && rustup component add clippy rustfmt) || { echo "error: rustup component add clippy rustfmt failed in $1" >&2; return 3; }
   cargo_bin="$(cd "$1" && rustup which cargo)" || { echo "error: rustup which cargo failed in $1" >&2; return 3; }
+  PATH="$(dirname "$cargo_bin"):$PATH"
+  export PATH
+  echo "cargo: $cargo_bin"
+}
+# Puts the cargo rustup selects in ROOT first on PATH, for the rest of the step.
+use_root_cargo() { # ROOT
+  local cargo_bin
+  cargo_bin="$(cd "$root/$1" && rustup which cargo)" || { echo "error: rustup which cargo failed in $1" >&2; return 3; }
   PATH="$(dirname "$cargo_bin"):$PATH"
   export PATH
   echo "cargo: $cargo_bin"
@@ -155,6 +174,11 @@ print(("1" if j.get("ghostty") else "0") + "\t" + (j.get("apt") or ""))
   else
     step "toolchain" bash -c 'cd "$1" && rustup toolchain install && rustup component add clippy && cargo --version' _ "$workspace"
   fi
+  # The toolchain's own cargo first on PATH (its bin dir holds cargo-clippy and cargo-fmt): the
+  # cargo on a fleet step's PATH is not always the rustup proxy, and then `cargo clippy` finds no
+  # cargo-clippy (2026-10-29, step dbb2c454 on cmux8s). rustup picks the root's pin, or
+  # RUSTUP_TOOLCHAIN for an unpinned root, from the root's folder.
+  step "toolchain cargo" use_root_cargo "$workspace"
   step "clippy and tests" python3 .github/scripts/rust-workspaces.py run "$workspace"
   finish
 fi
@@ -197,6 +221,28 @@ if [[ "$mode" == cef-shim-cpp ]]; then
   for t in "${tests[@]}"; do
     step "$(basename "$t" .sh)" "$t"
   done
+  # The Chromium Host's dispatcher and remote shim ABI (C++ and the generated wire cases, no
+  # AppKit), where this commit has them.
+  for t in chromium-host-dispatch remote-shim-abi; do
+    f="$root/scripts/cmux-next/tests/$t.test.sh"
+    if [[ -f "$f" ]]; then
+      step "$t.test" bash "$f"
+    else
+      echo "cef-shim-cpp: no scripts/cmux-next/tests/$t.test.sh at this commit"
+    fi
+  done
+  finish
+fi
+
+if [[ "$mode" == notices ]]; then
+  # The crate cache stays in .build (a warm slot keeps it between steps); the trees are written fresh.
+  notices_dir="$root/.build/notices"
+  rm -rf "$notices_dir/cargo-trees"
+  mkdir -p "$notices_dir"
+  step "pinned cargo" use_pinned_cargo "$root/cmux-tui"
+  step "notices from the tree" env CMUX_NOTICES_ALLOW_CARGO=1 CMUX_NOTICES_CACHE="$notices_dir/cache" \
+    ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
+    --cargo-trees "$notices_dir/cargo-trees" --write-cargo-trees
   finish
 fi
 

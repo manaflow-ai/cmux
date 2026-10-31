@@ -177,7 +177,7 @@ import Testing
     /// A collapsed group holding subgroups shows their unread total and loading on its header.
     @Test func aCollapsedParentRollsUpItsSubtree() throws {
         let list = Self.list(SidebarNestedFixture(scenario: .collapsed).sections)
-        #expect(list.displayed.row(for: .group(GroupID("g-lawrence"))) == nil, "a folded group hides its subgroups")
+        #expect(list.displayed.row(for: .group(GroupID("g-studio"))) == nil, "a folded group hides its subgroups")
         let header = try #require(list.rowViews[.group(GroupID("g-builders"))] as? GroupHeaderRowView)
         #expect(header.debugBadge == .count(1), "DerivedData sweep, two levels under Builders, is unread")
         #expect(header.debugActivityVisible, "Build queue and SwiftPM cache load under it")

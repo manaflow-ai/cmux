@@ -17,6 +17,12 @@ use std::sync::Mutex;
 
 mod compact;
 pub use compact::{CompactMode, Compaction, Staged};
+mod deferred;
+pub use deferred::{Deferral, Keep};
+mod superseded;
+pub use superseded::{Superseded, starts_prompt};
+mod kind_index;
+pub use kind_index::INDEXED_KINDS;
 
 /// One line in the session event log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -106,6 +112,10 @@ pub struct SessionMeta {
     pub schema: String,
     pub id: String,
     pub name: String,
+    /// Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`
+    /// default (`hub/new_request.rs` `unique_name_among`). False in a log from before it was kept.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub name_given: bool,
     #[serde(alias = "harness")]
     pub harness: String,
     #[serde(default, alias = "agent_argv")]
@@ -183,7 +193,9 @@ pub struct SessionMeta {
     pub title: Option<String>,
     /// Who set `title` (`hub/titles.rs`): `prompt` (its first prompt's line),
     /// `harness` (its own `session_info_update`), `asked` (a generated title
-    /// is on its way or came back empty; a later turn asks again, `hub/titles.rs`), `generated` or `adopted`.
+    /// is on its way or came back empty; a later turn asks again, `hub/titles.rs`), `generated`,
+    /// `adopted`, `named` (renamed before a title settled: none is generated) or `launched`
+    /// (started under a name, not yet prompted).
     /// None: a chat titled before acpmux generated titles; kept as is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title_source: Option<String>,
@@ -248,6 +260,12 @@ pub struct SessionMeta {
     /// before the restart, and the wake's log says how long it slept.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub hibernated_ms: u64,
+    /// Where the chat went when it moved to another daemon (`hub/transfer_out.rs` commit:
+    /// `{host?, sessionId, cwd?, branch?, commit?, socket?}`). Set once, never cleared here: a
+    /// moved chat takes no prompt and never starts its agent on this daemon again (one writer),
+    /// and `resolve` follows it there (`hub/locate.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moved_to: Option<Value>,
     /// The profile whose Claude store (its CLAUDE_CONFIG_DIR) holds the current Claude
     /// conversation: the one that started or forked it. A respawn on another profile (a failover)
     /// resumes only when that profile's store has the conversation, else starts fresh (E1).
@@ -357,6 +375,20 @@ pub struct SessionMeta {
     /// that retry. Never copied to a fork.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub subagent_retry_open: bool,
+    /// The session's own turn cap in ms (`hub/turn_cap.rs`): past it, other agents' messages
+    /// wait for the next turn. 0 turns it off; `None` takes the default its settings give
+    /// (`turn_cap::default_turn_cap_ms`). Set by the person only; never copied to a fork.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_cap_ms: Option<u64>,
+    /// The turn the turn cap's notice went into (`hub/turn_cap.rs`), kept so a turn a restart
+    /// adopts gets no second one. Never copied to a fork.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_cap_noticed: Option<String>,
+    /// The session that first gave this chat work (`hub/inbox.rs`): the sender of the first
+    /// message to it before it ran a turn. Its actions wake the idle chat, as its lineage
+    /// parent's do. Never copied to a fork.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delegator: Option<String>,
 }
 
 /// Where a session sits in the tree of sessions that started each other
@@ -686,6 +718,19 @@ pub trait Store: Send + Sync {
             if kinds.contains(&rec.kind.as_str()) { visit(rec) } else { true }
         })
     }
+    /// `scan_kinds`, but strict as `scan_strict` is: a record that cannot be read is an error. A
+    /// file store reads a segment's copy of its kinds (`store/kind_index.rs`) only when every line
+    /// the copy covers read whole.
+    fn scan_kinds_strict(
+        &self,
+        id: &str,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_strict(id, 0, &mut |rec| {
+            if kinds.contains(&rec.kind.as_str()) { visit(rec) } else { true }
+        })
+    }
     /// `scan` from the start, passing each record's head ([`RecordHead`]) until `visit` returns
     /// false; the reader parses only the records it needs (`RecordHead::record`). A file store
     /// reads a head without parsing its line: adopting a host after a restart reads its whole
@@ -697,6 +742,11 @@ pub trait Store: Send + Sync {
     fn flush(&self) -> Result<()> {
         Ok(())
     }
+    /// The daemon's shutdown is done: from now on every write is refused. It lets go of
+    /// `daemon.lock` before its process exits, so the next daemon may already read this store;
+    /// what it reads is the old daemon's last word (`Hub::shutdown_all`). Waits for writes under
+    /// way.
+    fn seal(&self) {}
     /// Close the session's log until it is next written (a closed session's).
     fn close_log(&self, _id: &str) {}
     /// Retention (`store/compact.rs`): the log's last `seq` when it was last compacted.
@@ -929,6 +979,9 @@ pub struct LocalStore {
     root: PathBuf,
     segment_bytes: u64,
     writers: Mutex<Writers>,
+    /// Read-held by every write, true once `seal` ran: a write either lands before the seal
+    /// returns or not at all.
+    sealed: std::sync::RwLock<bool>,
 }
 
 /// The logs held open, at most [`OPEN_LOGS`]: the least recently written one
@@ -972,7 +1025,17 @@ impl LocalStore {
             root,
             segment_bytes: segment_bytes.max(64 * 1024),
             writers: Mutex::new(Writers::default()),
+            sealed: Default::default(),
         })
+    }
+
+    /// Held through a write; refused once the store is sealed (`Store::seal`).
+    fn writable(&self) -> Result<std::sync::RwLockReadGuard<'_, bool>> {
+        let sealed = self.sealed.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if *sealed {
+            anyhow::bail!("the store is sealed: the daemon has shut down");
+        }
+        Ok(sealed)
     }
 
     fn dir(&self, id: &str) -> PathBuf {
@@ -1346,6 +1409,7 @@ impl Store for LocalStore {
     }
 
     fn save(&self, meta: &SessionMeta) -> Result<()> {
+        let _open = self.writable()?;
         let dir = self.dir(&meta.id);
         crate::config::private_state_dir(&dir)?;
         write_atomic(&dir.join("session.json"), serde_json::to_string_pretty(meta)?.as_bytes())
@@ -1368,6 +1432,7 @@ impl Store for LocalStore {
         // closed before this one opens, so no more than `OPEN_LOGS` are ever open, and no other
         // append comes between (a session's records stay in order). Its sync runs under the lock,
         // once per eviction: only while more than `OPEN_LOGS` sessions are written.
+        let _open = self.writable()?;
         let mut writers = self.writers.lock_or_recover();
         if !writers.open.contains_key(id)
             && writers.open.len() >= OPEN_LOGS
@@ -1481,38 +1546,16 @@ impl Store for LocalStore {
         kinds: &[&str],
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        // Debug builds only: `ACPMUX_TEST_SCAN_DELAY_MS` holds each log scan, as a slow disk or a
-        // long log does (`tests/restart_reattach.rs`). Bounded; release builds have no seam.
-        #[cfg(debug_assertions)]
-        if let Some(ms) =
-            std::env::var("ACPMUX_TEST_SCAN_DELAY_MS").ok().and_then(|v| v.parse::<u64>().ok())
-        {
-            std::thread::sleep(std::time::Duration::from_millis(ms.min(1_000)));
-        }
-        let mut line = Vec::new();
-        for (_, path) in self.segments(id)? {
-            let mut reader =
-                BufReader::with_capacity(256 * 1024, crate::config::private_state_file(&path)?);
-            loop {
-                line.clear();
-                if reader.read_until(b'\n', &mut line)? == 0 {
-                    break;
-                }
-                if line.iter().all(u8::is_ascii_whitespace) {
-                    continue;
-                }
-                if record_kind(&line)
-                    .is_some_and(|kind| !kinds.iter().any(|k| k.as_bytes() == kind))
-                {
-                    continue;
-                }
-                let Ok(rec) = serde_json::from_slice::<EventRecord>(&line) else { continue };
-                if kinds.contains(&rec.kind.as_str()) && !visit(rec) {
-                    return Ok(());
-                }
-            }
-        }
-        Ok(())
+        self.scan_kinds_in(id, kinds, false, visit)
+    }
+
+    fn scan_kinds_strict(
+        &self,
+        id: &str,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_kinds_in(id, kinds, true, visit)
     }
 
     /// Segments newest first, so a page from the end reads only the segments it
@@ -1603,14 +1646,23 @@ impl Store for LocalStore {
     }
 
     fn stage_compaction(&self, id: &str, mode: CompactMode) -> Result<Option<Staged>> {
+        // Not under the seal: staging writes only copies beside the log, and a large log's
+        // stage would hold a shutdown's seal for as long as it reads (router review of #28503).
+        // The commit that puts them in place is sealed.
         LocalStore::stage_compaction(self, id, mode)
     }
 
     fn commit_compaction(&self, id: &str, staged: Staged) -> Result<bool> {
+        let _open = self.writable()?;
         LocalStore::commit_compaction(self, id, staged)
     }
 
+    fn seal(&self) {
+        *self.sealed.write().unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+    }
+
     fn delete(&self, id: &str) -> Result<()> {
+        let _open = self.writable()?;
         self.writers.lock_or_recover().open.remove(id);
         let dir = self.dir(id);
         // macOS returns ENOTEMPTY when a file lands mid-removal; retry briefly.
@@ -1672,6 +1724,7 @@ fn sync_directory(_path: &Path) -> Result<()> {
 #[cfg(unix)]
 fn open_private_append(path: &Path) -> Result<File> {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    crate::config::refuse_lost_home(path)?;
 
     let file = OpenOptions::new()
         .create(true)
