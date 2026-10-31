@@ -1384,8 +1384,7 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         self.assertNotIn("vars.", OVERFLOW_FAILOVER.sub("", runs_on), "an ephemeral Linux VM, never a reused mini")
         # The same gate, except that the Mac half also follows the route (MacFastTierFollowsTheRoute).
         self.assertEqual(cargo["if"], mac["if"].replace(
-            " && needs.path_route.outputs.macos != 'false'", "")
-            .replace(" && needs.path_route.outputs.fast_tier != 'false'", ""))
+            " && needs.path_route.outputs.macos != 'false' && needs.path_route.outputs.fast_tier != 'false'", ""))
         self.assertNotEqual(cargo["if"], mac["if"])
         self.assertEqual(cargo["needs"], ["push-head-preflight"])
         self.assertEqual(cargo["concurrency"]["group"], mac["concurrency"]["group"].replace("-fast-tier'", "-fast-tier-cargo'"))
@@ -1548,8 +1547,7 @@ class MacFastTierFollowsTheRoute(unittest.TestCase):
                 out = self.route_outputs(changed)
                 self.assertEqual(out["fast_tier"], "true")
                 self.assertTrue(self.runs("fast-tier", "pull_request", out["macos"], out["fast_tier"]))
-        self.assertTrue(self.runs("fast-tier", "push", "true", "true"))
-        self.assertFalse(self.runs("fast-tier", "push", "true", "false"))
+        self.assertTrue(self.runs("fast-tier", "push", "true", "false"), "a feat-cmux-next push runs it whatever the route")
 
 
 SEED_WORKFLOW = WORKFLOW.parent / "cmux-next-fast-tier-seed.yml"
