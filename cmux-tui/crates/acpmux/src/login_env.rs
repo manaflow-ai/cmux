@@ -1178,6 +1178,12 @@ fn delivered_names() -> Vec<String> {
     delivered_names_in(&home)
 }
 
+/// The machine files' metadata stamp (never a value), for keys that must
+/// change when a delivery or revocation does (the agent pool's).
+pub fn machine_stamp() -> Option<String> {
+    machine_files_stamp()
+}
+
 fn machine_files_stamp() -> Option<String> {
     let home =
         std::env::var_os("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();

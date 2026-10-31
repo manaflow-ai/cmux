@@ -315,6 +315,9 @@ impl Hub {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         spawn.env.hash(&mut h);
         credentials.hash(&mut h);
+        // Delivered machine secrets (metadata only): a host prewarmed before a
+        // delivery or revocation is never served after it.
+        crate::login_env::machine_stamp().hash(&mut h);
         let key = PoolKey {
             origin: if draft.remote_origin { Origin::Remote } else { Origin::Local },
             cwd: draft.cwd.clone(),
