@@ -36,8 +36,13 @@ from typing import Any, Callable
 ROOT = Path(__file__).resolve().parents[3]
 COMMENT_MARKER = "<!-- cmux-next:tour-media -->"
 TOURS_DIR = "scripts/cmux-next/media/tours"
-# Frames are taken about every 0.5 s; played at 4 per second the video runs at 2x.
+# The output rate the reel (reel.py) normalizes every clip to. A tour's frames are read at the rate
+# tour.py took them (its manifest's frame_interval), so its video plays in real time: Leo, 2026-10-31,
+# "you guys always only ever seem to be able to record 5 second videos" (a hard-coded 4 frames a second
+# played 0.5 s frames at 2x and 1.0 s app-window frames at 4x).
 VIDEO_FPS = 4
+# tour.py's FRAME_INTERVAL, for a manifest that names none.
+DEFAULT_FRAME_INTERVAL = 0.5
 GIF_FPS = 4
 VIDEO_SIZE = (1280, 800)
 # tour.py's MAX_FRAMES: a larger artifact does not make a longer video.
@@ -130,6 +135,15 @@ def shot_file(directory: Path, shot: Any) -> Path | None:
     return path
 
 
+def input_framerate(manifest: dict[str, Any]) -> str:
+    """ffmpeg's -framerate for the tour's frames: one over the seconds between them, so the video runs in
+    real time. A missing or unreasonable frame_interval falls back to tour.py's default."""
+    interval = manifest.get("frame_interval")
+    if isinstance(interval, bool) or not isinstance(interval, (int, float)) or not 0.05 <= interval <= 10:
+        interval = DEFAULT_FRAME_INTERVAL
+    return f"{1 / interval:.6g}"
+
+
 def make_video(directory: Path, manifest: dict[str, Any], into: Path, pr_media: Any,
                run: Callable[..., Any] = subprocess.run) -> tuple[Path | None, Path | None]:
     """(mp4, gif) from the tour's frames; (None, None) with fewer than two frames."""
@@ -137,8 +151,8 @@ def make_video(directory: Path, manifest: dict[str, Any], into: Path, pr_media: 
         return None, None
     mp4 = into / "tour.mp4"
     env = pr_media.tool_env()
-    done = run(["ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-framerate", str(VIDEO_FPS),
-                "-i", str(directory / "frames/frame-%05d.jpg"),
+    done = run(["ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-framerate",
+                input_framerate(manifest), "-i", str(directory / "frames/frame-%05d.jpg"),
                 "-frames:v", str(MAX_FRAMES),
                 # A fixed output size: a frame of another size cannot break the stream.
                 "-vf", f"scale={VIDEO_SIZE[0]}:{VIDEO_SIZE[1]}:force_original_aspect_ratio=decrease,"

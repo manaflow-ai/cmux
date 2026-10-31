@@ -1,4 +1,3 @@
-import { PullRequestDock } from "../summary/PullRequestDock";
 // Turn rows for the pane's transcript: the "Worked for" disclosure, tool rows and the
 // footer under an answer. Markup and metrics from reference prototype (messages.tsx,
 // TurnMessage.tsx); each component takes the pane's row and draws one transcript entry.
@@ -11,7 +10,7 @@ import { MessageGroupRow } from "./MessageGroupRow";
 import { DispatchCard } from "./DispatchCard";
 import { McpCallRows } from "./McpCallRows";
 import { SubsessionCallCard } from "./SubsessionCallCard";
-import { AcpmuxSendLine } from "./SentMessageLine";
+import { AcpmuxSendLine, sendKey } from "./SentMessageLine";
 import { mcpNames, McpNamesContext } from "./mcpCalls";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
@@ -44,7 +43,6 @@ import { turnErrorCard } from "./turnErrorCard.experiment";
 import { codeRouterOffer } from "./codeRouterOffer.experiment";
 import { CodeRouterAction, useCodeRouterChoice } from "./CodeRouterOffer";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
-import { ToolVerbColumn } from "./ToolVerb";
 
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
 function WorkedLabel({ row }: { row: AcpmuxRow }) {
@@ -150,7 +148,13 @@ function groupNode(
     case "dispatch":
       return <DispatchCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;
     case "send":
-      return <AcpmuxSendLine key={group.item.tool!.id || index} tool={group.item.tool!} send={group.send} />;
+      return (
+        <AcpmuxSendLine
+          key={sendKey(group.item.tool!.id, group.send.index) || index}
+          tool={group.item.tool!}
+          send={group.send}
+        />
+      );
     case "subsession":
       return <SubsessionCallCard key={group.item.tool!.id || index} call={group.call} tool={group.item.tool!} />;
     case "subsessionGroup":
@@ -292,7 +296,9 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
     <TranscriptDisclosureProvider sessionId={sessionId}>
       <McpNamesContext.Provider value={names}>
         <FindReveal.Provider value={reveal && isRevealRow(row, reveal) ? reveal : undefined}>
-          <ToolVerbColumn className="cv-tools">{nodes}</ToolVerbColumn>
+          {/* No verb column: each row reads icon, verb, then its subject one space after, as Claude Code
+              lists them (Leo, 2026-10-31: "why are these indented for no reason"). */}
+          <div className="cv-tools">{nodes}</div>
         </FindReveal.Provider>
       </McpNamesContext.Provider>
     </TranscriptDisclosureProvider>
@@ -473,7 +479,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           </span>
           <MessageTime at={row.at} className="cv-turn-time" />
         </MessageFooterRow>
-        <PullRequestDock />
       </div>
     </>
   );

@@ -23,6 +23,7 @@ Packages/macOS/CmuxNext CmuxNextAppTests.SleepySceneCostTests
 Packages/macOS/CmuxNext CmuxNextAppTests.SleepySkySnapshotTests
 Packages/macOS/CmuxNext CmuxNextAppTests.TabCloseWidthChangeTests
 Packages/macOS/CmuxNext CmuxNextAppTests.TabStripRapidCloseTests
+Packages/macOS/CmuxNext CmuxNextAppTests.TitlebarDoubleClickTests
 Packages/macOS/CmuxNext CmuxNextAppTests.TooltipSurfaceTests
 Packages/macOS/CmuxNext CmuxNextAppTests.WindowZoomTests
 Packages/macOS/CmuxNext CmuxNextAppTests.WorkspaceRowHoverMotionTests

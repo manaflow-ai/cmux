@@ -3,14 +3,16 @@ import type { ReadResult } from "./owner-do.ts"
 import { personalTeamIdFor } from "./domains/user.ts"
 import { TEAM_MEMBER_LEFT_SOCKETS } from "./domains/team-members.ts"
 import { roleHas } from "./domains/team-roles.ts"
-import { cloudDriver } from "./cloud-driver.ts"
+import { cloudDriver, cloudConfig } from "./cloud-driver.ts"
 import { parseBindRequest, sha256Hex, type BindReply } from "./cloud-link.ts"
 import { parseSigningKeys, publicKeyset } from "./link-token.ts"
 import { connectInfo, machineBySelector, mintLinkToken, type MintReply } from "./cloud-connect.ts"
 import { registerVmInstall, sendEphemeral, VmEventBuckets, vmEventEmit, vmSelfGet, vmStatusReport, type VmReply } from "./cloud-vm.ts"
-import { PLATFORM_IDENTITY_PREFIX, TABLE_LEDGER, TABLE_MACHINE, TABLE_SNAPSHOT, TABLE_TOMBSTONE, type LedgerRow, type MachineRow } from "./domains/cloud.ts"
+import { PLATFORM_IDENTITY_PREFIX, TABLE_LEDGER, TABLE_MACHINE, TABLE_SNAPSHOT, TABLE_TOMBSTONE, type CloudState, type LedgerRow, type MachineRow } from "./domains/cloud.ts"
 import type { SnapshotRow } from "./domains/cloud-snapshot.ts"
-import { platformCall, type PlatformCall, type PlatformReply } from "./cloud-platform.ts"
+import { platformCall, platformShape, type PlatformCall, type PlatformReply, type PlatformHost } from "./cloud-platform.ts"
+import { PlatformOperations } from "./cloud-platform-operations.ts"
+import { directCloudProvider } from "./providers/index.ts"
 import { statusApplied } from "./cloud-do-core.ts"
 import { CloudIdle } from "./cloud-do-idle.ts"
 import { deliverCloudAnswers, readCloudApproval } from "./cloud-approvals.ts"
@@ -19,6 +21,7 @@ import { acpmuxKeyedStartOn, acpmuxPersonHoldsOn, type AcpmuxHost, type AcpmuxRe
 import type { MachineExecReply } from "./automation-machine.ts"
 import { ClientIdentityStore, mintClientSessionOn, sweepClientIdentities, type ClientSessionReply } from "./cloud-client-session.ts"
 import { teamPlan } from "./domains/cloud-plan.ts"
+import { DriverError } from "./providers/contract.ts"
 
 /** How often connect_info and link_token may read a machine's real state from the provider. */
 const STATE_CHECK_EVERY_MS = 30_000
@@ -266,7 +269,14 @@ export class CloudDO extends CloudIdle {
     if (row.status !== "running") return { ok: false, refusal: "not_running" }
     const driver = await Promise.resolve().then(() => this.driverFor(row)).catch(() => null)
     if (!driver) return { ok: false, refusal: "provider_failed" }
-    const r = await driver.execStdin(row.provider_name, { team: entity, machine: row.id }, command, stdin, timeoutMs).catch(() => null)
+    // An answer too large to read is final: the same command answers the same way, so never "retry".
+    const r = await driver.execStdin(row.provider_name, { team: entity, machine: row.id }, command, stdin, timeoutMs).catch((error: unknown) =>
+      error instanceof DriverError && error.code === "cloud.exec.output_limit" ? ("output_limit" as const) : null
+    )
+    if (r === "output_limit") {
+      this.audit.record({ action: audit.action, machine, who: audit.who, at: Date.now(), outcome: "output_limit" })
+      return { ok: false, refusal: "output_limit" }
+    }
     // Never the command or its stdin (a credential or a file's content may be on it).
     this.audit.record({ action: audit.action, machine, who: audit.who, at: Date.now(), outcome: r ? `exit ${r.exitCode}` : "provider_failed" })
     return r ? { ok: true, exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr } : { ok: false, refusal: "provider_failed" }
@@ -343,15 +353,37 @@ export class CloudDO extends CloudIdle {
    * team: boot, exec, snapshot and delete through the person's own ops (cloud-platform.ts). No public
    * route reaches it; only a Worker bound to PlatformMachines does.
    */
-  async platformMachine(entity: string, user: string, call: PlatformCall): Promise<PlatformReply> {
-    const started = Date.now()
+  async platformMachine(entity: string, user: string, call: PlatformCall, recoveryOnly = false): Promise<PlatformReply> {
+    return platformCall(this.platformHost(entity), user, call, recoveryOnly)
+  }
+
+  private readonly platformOperations = new PlatformOperations(this.sqlStore)
+  private platformHost(entity: string): PlatformHost {
     const rows = () => (this.isBound(entity) ? this.bind(entity).rows : undefined)
-    return platformCall({
+    const now = () => Date.now() + this.skewMs
+    return {
       team: entity,
+      operations: this.platformOperations,
+      get now() { return now() },
+      providerInfo: () => ({ protocolVersion: 1, provider: "freestyle", region: "global", available: (this.env.ENVIRONMENT === "development" || this.env.ENVIRONMENT === "test") && this.env.PLATFORM_MACHINES === "on" && (this.env.CLOUD_VM_TRANSPORT === undefined || this.env.CLOUD_VM_TRANSPORT === "direct") && directCloudProvider(this.env).id === "freestyle" && cloudConfig(this.env).image !== null, shapeSelection: "grow-to-fit", minimumShape: null, memoryPause: true, fork: true }),
+      arm: async (at) => {
+        this.bind(entity)
+        const realAt = Math.max(Date.now(), at - this.skewMs)
+        const prior = await this.ctx.storage.getAlarm()
+        if (prior === null || prior > realAt) await this.ctx.storage.setAlarm(realAt)
+      },
       // A shared team: a member with team.resources now, and no departure heard during the read (as automationExec).
-      mayUse: async (u) => entity === personalTeamIdFor(u) || ((await this.creatorIsMember(entity, u)) && (this.leftAt.get(u) ?? -1) < started),
+      mayUse: async (u) => {
+        const started = Date.now()
+        return entity === personalTeamIdFor(u) || ((await this.creatorIsMember(entity, u)) && (this.leftAt.get(u) ?? -1) < started)
+      },
       submit: (p, f) => this.submit(entity, p, f),
       machine: (id) => rows()?.get<MachineRow>(TABLE_MACHINE, id)?.row,
+      resources: async (row) => {
+        const driver = await Promise.resolve().then(() => this.driverFor(row)).catch(() => null)
+        const r = driver ? await driver.resourcesOf(row.provider_name, { team: entity, machine: row.id }).catch(() => null) : null
+        return r ? platformShape({ cpu: r.cpu, memory_mb: r.memory, disk_mb: r.storage }) : null
+      },
       ledger: (key) => rows()?.get<LedgerRow>(TABLE_LEDGER, key)?.row,
       snapshot: (id) => rows()?.get<SnapshotRow>(TABLE_SNAPSHOT, id)?.row,
       platformSnapshot: (u, id) => {
@@ -381,10 +413,36 @@ export class CloudDO extends CloudIdle {
       tombstoned: (machine) => rows()?.get(TABLE_TOMBSTONE, machine) !== undefined,
       exec: async (row, command, stdin, timeoutMs) => {
         const driver = await Promise.resolve().then(() => this.driverFor(row)).catch(() => null)
-        return driver ? driver.execStdin(row.provider_name, { team: entity, machine: row.id }, command, stdin, timeoutMs).catch(() => null) : null
+        return driver ? driver.execStdin(row.provider_name, { team: entity, machine: row.id }, command, stdin, timeoutMs).catch((error: unknown) => {
+          if (error instanceof DriverError && error.code === "cloud.exec.output_limit") throw error
+          return null
+        }) : null
       },
       audit: (e) => this.audit.record(e)
-    }, user, call)
+    }
+  }
+
+  protected override platformStartsAllowed(): boolean {
+    const entity = this.boundEntity()
+    return entity !== null && this.platformHost(entity).providerInfo().available
+  }
+
+  protected override nextWakeAt(state: CloudState, now: number): number | null {
+    const core = super.nextWakeAt(state, now)
+    const due = this.platformOperations.dueAt()
+    if (due === null) return core
+    const operation = due - this.skewMs
+    return core === null ? operation : Math.min(core, operation)
+  }
+
+  protected override async onWake(now: number): Promise<void> {
+    const entity = this.boundEntity()
+    if (entity) {
+      const host = this.platformHost(entity)
+      await this.platformOperations.stopAllocations(host, now + this.skewMs)
+    }
+    await super.onWake(now)
+    if (entity) await this.platformOperations.wake(this.platformHost(entity), now + this.skewMs)
   }
 
   private readonly acpmuxStarting = new Set<string>()

@@ -471,6 +471,7 @@
         "Resources/ghostty/themes/",
         "Resources/markdown-viewer/ondine.min.js",
         "plans/cmux-next/",
+        "schemas/agent-pane/wake-state.json",
         "schemas/keybindings/keybinding-vectors.json",
         "scripts/cmux-next/bundle-ghostty-resources.sh",
         "scripts/cmux-next/pin-cmux-tui.sh",
@@ -523,6 +524,7 @@
         "CmuxNextDaemon",
         "CmuxNextIcons",
         "CmuxNextLayout",
+        "CmuxNextRemote",
         "CmuxNextSidebar",
         "CmuxNextTabs"
       ],
@@ -849,6 +851,7 @@
         "CmuxNextControl",
         "CmuxNextDaemon",
         "CmuxNextSettings",
+        "CmuxNextTestSupport",
         "CmuxNextWakeups",
         "CmuxNextWakeupsTestSupport"
       ],
@@ -912,6 +915,7 @@
         "CmuxNextAgentPane",
         "CmuxNextApps",
         "CmuxNextBridge",
+        "CmuxNextCloud",
         "CmuxNextCompat",
         "CmuxNextControl",
         "CmuxNextDaemon",
@@ -1377,7 +1381,8 @@
         "CmuxNextAgentPane",
         "CmuxNextMobileHost",
         "CmuxNextPages",
-        "CmuxNextSettings"
+        "CmuxNextSettings",
+        "CmuxNextTestSupport"
       ],
       "packages": [],
       "reads": []
@@ -1454,7 +1459,8 @@
         "CmuxNextDesign",
         "CmuxNextPages",
         "CmuxNextPagesTestSupport",
-        "CmuxNextSettings"
+        "CmuxNextSettings",
+        "CmuxNextTestSupport"
       ],
       "packages": [],
       "reads": [
@@ -1545,7 +1551,8 @@
       "targets": [
         "CmuxNextBrowser",
         "CmuxNextDesign",
-        "CmuxNextPopups"
+        "CmuxNextPopups",
+        "CmuxNextTestSupport"
       ],
       "packages": [],
       "reads": []
@@ -1679,7 +1686,8 @@
       "targets": [
         "CmuxNextFileGrid",
         "CmuxNextFiles",
-        "CmuxNextScreenshots"
+        "CmuxNextScreenshots",
+        "CmuxNextTestSupport"
       ],
       "packages": [],
       "reads": []
@@ -1690,7 +1698,8 @@
       "targets": [
         "CmuxNextCloud",
         "CmuxNextDesign",
-        "CmuxNextIcons"
+        "CmuxNextIcons",
+        "CmuxNextRemote"
       ],
       "packages": []
     },
@@ -1887,7 +1896,9 @@
     "CmuxNextTestSupport": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport",
-      "targets": [],
+      "targets": [
+        "CmuxNextTestExitTrace"
+      ],
       "packages": []
     },
     "CmuxNextUiLayerPreview": {
