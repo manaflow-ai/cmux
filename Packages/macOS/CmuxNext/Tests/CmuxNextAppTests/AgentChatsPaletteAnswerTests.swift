@@ -64,6 +64,59 @@ import Testing
         #expect(refused.allSatisfy { $0.isEmpty }, "refused: no rows")
     }
 
+    /// Review 4 note 3: acpmux refuses an older spec of the window after the current one went out: the current
+    /// query's answer is not ended, and its rows still count when they come.
+    @Test(.timeLimit(.minutes(1))) func anOlderRefusalDoesNotEndTheCurrentQuery() async throws {
+        let windows = AcpmuxChatWindows()
+        var sent: [[String: any Sendable]] = []
+        windows.connected { _, params in sent.append(params) }
+        _ = AgentChatsPalettePage.answers("old", windows: windows, open: { _ in })
+        let older = try #require(sent.last?["gen"] as? UInt64)
+        let stream = AgentChatsPalettePage.answers("new", windows: windows, open: { _ in })
+        let current = try #require(sent.last?["gen"] as? UInt64)
+        #expect(current > older)
+        windows.requestFailed(AgentChatsPalettePage.window, generation: older)
+        let row: [String: Any] = ["key": "codex:1", "sessionId": "1", "harness": "codex", "title": "New parser", "updatedMs": 1_000]
+        let message: [String: Any] = ["window": AgentChatsPalettePage.window, "gen": NSNumber(value: current), "revision": 1,
+                                      "full": true, "keys": ["codex:1"], "rows": [row]]
+        windows.apply(try #require(AcpmuxChatWindows.Update(params: message)))
+        var answers: [[PaletteItem]] = []
+        for await answer in stream { answers.append(answer) }
+        #expect(answers.first?.map(\.id) == ["chat:codex:1"], "\(answers)")
+    }
+
+    /// Review 4 note 2: acpmux answers `ready: false` (its index has not started): the query ends at once with no
+    /// rows, as a refusal does, so the palette never waits on a timer.
+    @Test(.timeLimit(.minutes(1))) func aNotReadyAnswerEndsTheQueryAtOnce() async throws {
+        let windows = AcpmuxChatWindows()
+        var sent: [[String: any Sendable]] = []
+        windows.connected { _, params in sent.append(params) }
+        let stream = AgentChatsPalettePage.answers("zebra", windows: windows, open: { _ in })
+        let generation = try #require(sent.last?["gen"] as? UInt64)
+        windows.requestNotReady(AgentChatsPalettePage.window, generation: generation)
+        var answers: [[PaletteItem]] = []
+        for await answer in stream { answers.append(answer) }
+        #expect(answers.allSatisfy { $0.isEmpty }, "\(answers)")
+    }
+
+    /// Review 4 note 6: the chats page asks again when acpmux can answer: a connection comes, or an index that
+    /// was not ready fills the window.
+    @Test func theSourceChangesWhenAcpmuxCanAnswer() throws {
+        let windows = AcpmuxChatWindows()
+        final class Owner {}
+        let owner = Owner()
+        var changes = 0
+        windows.followAvailability(owner) { changes += 1 }
+        var sent: [[String: any Sendable]] = []
+        windows.connected { _, params in sent.append(params) }
+        #expect(changes == 1, "a connection came")
+        windows.open(.init(window: AgentChatsPalettePage.window, limit: 10, query: "zebra"))
+        let generation = try #require(sent.last?["gen"] as? UInt64)
+        windows.requestNotReady(AgentChatsPalettePage.window, generation: generation)
+        windows.apply(.init(window: AgentChatsPalettePage.window, generation: generation, revision: 1, full: true, keys: [], rows: []))
+        #expect(changes == 2, "the index that was not ready answered")
+    }
+
     /// No regression (review of #28090): acpmux ranks every chat and says how many matched; when
     /// more match than the page holds, the page says so in a last row that runs nothing.
     @Test func morePastThePageIsShownAsANoticeRow() async throws {

@@ -219,6 +219,19 @@ public final class AcpmuxChatWindows {
         for spec in specs.values.sorted(by: { $0.window < $1.window }) { ask(spec) }
     }
 
+    /// acpmux refused the request of generation `generation` of window `id`.
+    public func requestFailed(_ id: String, generation: UInt64?) {
+        requestFailed(id)
+    }
+
+    /// acpmux answered the request of generation `generation` of window `id` with `ready: false`: its index
+    /// has not started, and the window fills when it does.
+    public func requestNotReady(_ id: String, generation: UInt64?) {}
+
+    /// Calls `changed` when acpmux can answer again (a connection came, or an index that was not ready answered),
+    /// while `owner` lives.
+    public func followAvailability(_ owner: AnyObject, _ changed: @escaping @MainActor () -> Void) {}
+
     /// acpmux answered window `id`'s request with an error: a busy daemon is asked again at the next
     /// ``retryFailed()`` (the next index change or reconnect), never on a timer.
     public func requestFailed(_ id: String) {

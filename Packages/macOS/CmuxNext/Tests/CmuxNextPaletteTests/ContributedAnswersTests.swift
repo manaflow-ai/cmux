@@ -60,8 +60,7 @@ struct ContributedAnswersTests {
                        item("session:wombat", "Wombat session", ran: ran)] + extraHistory
         sources.searchContributions = [
             PaletteSearchContribution(id: "agentChats", title: "Agent Chats", order: 30, searchesChats: true) {
-                PalettePageSpec(id: "agentChats", title: "Agent Chats", placeholder: "", providers: [],
-                                queryResults: { chats.results($0) }, filtersByQuery: false)
+                Self.chatsPage(chats)
             },
             PaletteSearchContribution(id: "history", title: "History", order: 40, searchesChats: true) {
                 PalettePageSpec(id: "history.search", title: "History", placeholder: "",
@@ -72,6 +71,18 @@ struct ContributedAnswersTests {
         let palette = PaletteController(registry: registry, sources: sources, frecencyPersistence: nil)
         palette.bindRegistryActions()
         return (palette, registry)
+    }
+
+    /// The chats page as Search contributes it: its own query, and the row Search shows when it cuts the answer.
+    static func chatsPage(_ chats: Chats, initialQuery: String = "") -> PalettePageSpec {
+        var page = PalettePageSpec(id: "agentChats", title: "Agent Chats", placeholder: "", providers: [],
+                                   initialQuery: initialQuery, queryResults: { chats.results($0) }, filtersByQuery: false)
+        page.moreRow = { notShown, query in
+            PaletteItem(id: "agentChats.moreInSearch", title: "\(notShown) more matching chats",
+                        primary: PaletteCommand(id: "open", title: "Open", symbol: "return",
+                                                effect: .push(Self.chatsPage(chats, initialQuery: query))))
+        }
+        return page
     }
 
     /// Waits until `check` holds (an answer lands on a later main-actor turn), or gives up.
@@ -229,5 +240,65 @@ struct ContributedAnswersTests {
         await chats.refuse("wombat")
         await Self.until { !ran.ids.isEmpty }
         #expect(ran.ids == ["session:wombat"], "Return ran \(ran.ids)")
+    }
+
+    /// Review 4 F1 (a): 30 matching chats on a Search page with room all show; none is cut.
+    @Test func thirtyChatsOnAPageWithRoomAllShow() async {
+        let chats = Chats(), ran = Ran()
+        let (palette, registry) = Self.palette(chats: chats, ran: ran)
+        defer { palette.closeForTest() }
+        _ = registry.perform("search.chats", invocation: ActionInvocation(arguments: [:], origin: .user))
+        await palette.model.settle()
+        palette.model.send(.setQuery("quokka"))
+        await palette.model.settle()
+        await chats.answer("quokka", (0..<30).map { Self.item("chat:\($0)", "Quokka chat \($0)", ran: ran) })
+        await Self.until { palette.model.rows.contains { $0.id == "chat:0" } }
+        let shown = palette.model.rows.map(\.id).filter { $0.hasPrefix("chat:") }
+        #expect(shown.count == 30, "\(shown.count) of 30 chats show")
+        #expect(!palette.model.rows.contains { $0.id == "agentChats.moreInSearch" }, "nothing is cut, so no more row")
+    }
+
+    /// Review 4 F1 (b): a one-letter query whose ranked rows fill the page shows the best 10 chats and the row that
+    /// says how many more match; that row opens the chats page with the same query.
+    @Test func aFullPageShowsTheBestTenChatsAndTheMoreRow() async {
+        let chats = Chats(), ran = Ran()
+        let many = (0..<450).map { Self.item("history:a\($0)", "a page \($0)", ran: ran) }
+        let (palette, registry) = Self.palette(chats: chats, ran: ran, extraHistory: many)
+        defer { palette.closeForTest() }
+        _ = registry.perform("search.chats", invocation: ActionInvocation(arguments: [:], origin: .user))
+        await palette.model.settle()
+        palette.model.send(.setQuery("a"))
+        await palette.model.settle()
+        await chats.answer("a", (0..<25).map { Self.item("chat:a\($0)", "a chat \($0)", ran: ran) })
+        await Self.until { palette.model.rows.contains { $0.id == "agentChats.moreInSearch" } }
+        let ids = palette.model.rows.map(\.id)
+        #expect(ids.filter { $0.hasPrefix("chat:") } == (0..<10).map { "chat:a\($0)" }, "\(ids.filter { $0.hasPrefix("chat:") })")
+        let more = palette.model.rows.first { $0.id == "agentChats.moreInSearch" }
+        #expect(more?.item.title == "15 more matching chats", "\(more?.item.title ?? "no more row")")
+        #expect(ids.count <= PaletteContributedAnswers.pageRowLimit, "\(ids.count) rows")
+        palette.model.send(.activate("agentChats.moreInSearch"))
+        await palette.model.settle()
+        #expect(palette.model.pageTitle == "Agent Chats", "the more row opens the chats page: \(palette.model.pageTitle)")
+        #expect(palette.model.query == "a", "with the same query: \(palette.model.query)")
+    }
+
+    /// Review 4 note 4: on a full page that still shows an older query's chats, End moves to the last row navigation
+    /// may select (a ranked row), never onto a stand-in it cannot select.
+    @Test func endNeverStopsOnAStandIn() async {
+        let chats = Chats(), ran = Ran()
+        let many = (0..<450).map { Self.item("history:a\($0)", "a page \($0)", ran: ran) }
+        let (palette, registry) = Self.palette(chats: chats, ran: ran, extraHistory: many)
+        defer { palette.closeForTest() }
+        _ = registry.perform("search.chats", invocation: ActionInvocation(arguments: [:], origin: .user))
+        await palette.model.settle()
+        palette.model.send(.setQuery("a"))
+        await palette.model.settle()
+        await chats.answer("a", (0..<5).map { Self.item("chat:a\($0)", "a chat \($0)", ran: ran) })
+        await Self.until { palette.model.rows.contains { $0.id == "chat:a0" } }
+        palette.model.send(.setQuery("a "))
+        await palette.model.settle()
+        #expect(palette.model.rows.contains { $0.id == "chat:a0" }, "the old chats stand in")
+        _ = palette.model.handle(.moveToLast)
+        #expect(palette.model.selectedRowID?.hasPrefix("history:") == true, "selected: \(palette.model.selectedRowID ?? "nil")")
     }
 }
