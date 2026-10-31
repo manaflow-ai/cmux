@@ -67,6 +67,8 @@ public final class PushReplies {
     /// A reply or App Group read belongs to the account generation in which it began.
     @ObservationIgnored private var accountEpoch = 0
     @ObservationIgnored private var foregroundTask: Task<Void, Never>?
+    /// Sign-out's disk wipe must finish before the next account reads that outbox.
+    @ObservationIgnored private var outboxWipe: Task<Void, Never>?
     /// The first drain after a cold attach waits as long as a cold launch does (review #7).
     @ObservationIgnored private var coldAttach = true
     @ObservationIgnored private var activeObserver: NSObjectProtocol?
@@ -136,6 +138,19 @@ public final class PushReplies {
         draining = false
         coldAttach = true
         NotificationRouter.shared.opened()
+    }
+
+    /// Outbox cleanup is disk I/O, following the snapshot write barrier.
+    /// Serialize it with any prior account's wipe. The next account's outbox
+    /// read waits for this task before it opens the shared directory.
+    func clearOutboxForSignOut(after snapshotsCleared: Task<Void, Never>) {
+        let previous = outboxWipe
+        outboxWipe = Task.detached(priority: .utility) {
+            await previous?.value
+            await snapshotsCleared.value
+            let group = await PushAppGroup.resolved(timeout: PushAppGroupResolver.cleanupTimeout)
+            PushOutbox(group: group)?.removeAll()
+        }
     }
 
     /// Waits for a headless delivery to end (RootView calls it before it
@@ -250,7 +265,10 @@ public final class PushReplies {
 
     private func takeOutbox() async {
         let epoch = accountEpoch
+        await outboxWipe?.value
+        guard epoch == accountEpoch else { return }
         guard let outbox = PushOutbox(group: await PushAppGroup.resolved()) else { return }
+        guard epoch == accountEpoch else { return }
         // `take` claims each file by renaming it, so two drains never both take one reply.
         let replies = await Task.detached(priority: .userInitiated) { outbox.takeAll() }.value
         acceptOutbox(replies, epoch: epoch)
