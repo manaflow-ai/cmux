@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 from cmux_next_push_attribution import MAX_COMMENTED_PRS, failed_jobs, last_green, never_passed, should_comment  # noqa: E402
-from cmux_next_route import outputs, route  # noqa: E402
+from cmux_next_route import MAX_PRIORITY_SUITES, outputs, route  # noqa: E402
 
 PACKAGE = "Packages/macOS/CmuxNext"
 GRAPH = json.loads((ROOT / PACKAGE / "ci-target-graph.json").read_text(encoding="utf-8"))
@@ -264,6 +264,14 @@ class PullRequestTiers(unittest.TestCase):
     def test_isolated_suites_are_left_to_their_dedicated_steps(self):
         result = tiers([f"{PACKAGE}/Tests/CmuxNextControlTests/CLISurfaceParityTests.swift"])
         self.assertEqual(result["swift_priority_filter"], "")
+
+    def test_a_diff_past_the_cap_gets_no_priority_shard(self):
+        suites = sorted(path.stem for path in (ROOT / PACKAGE / "Tests/CmuxNextAppTests").glob("*Tests.swift"))
+        changed = [f"{PACKAGE}/Tests/CmuxNextAppTests/{name}.swift" for name in suites]
+        self.assertGreater(len(changed), MAX_PRIORITY_SUITES)
+        self.assertEqual(tiers(changed)["swift_priority_filter"], "")
+        at_cap = tiers(changed[:MAX_PRIORITY_SUITES])["swift_priority_filter"]
+        self.assertEqual(at_cap.count("|") + 1, MAX_PRIORITY_SUITES)
 
     def test_cloud_bring_back_stays_prioritized_for_new_cases(self):
         result = tiers([f"{PACKAGE}/Tests/CmuxNextAppTests/CloudBringBackTests.swift"])
