@@ -384,6 +384,12 @@ jobs:
             --expected-commit "$cmux_tui_commit" \
             --require-capability wireguard-hub
 
+      # The Cloud sidebar's CodeRouter section runs this pinned CLI; without it
+      # the app falls back to whatever version is on PATH, or none.
+      - name: Bundle the CodeRouter CLI
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: ./scripts/install-coderouter-client.sh build-universal/Build/Products/Release/cmux.app --universal
+
       - name: Verify binary architectures
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |

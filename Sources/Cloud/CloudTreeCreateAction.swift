@@ -16,6 +16,9 @@ enum CloudTreeCreateAction: Equatable {
     case newDisplay(SurfaceMachineID, canCreate: Bool)
     /// Leads an account type's group in the CodeRouter section.
     case newCoderouterAccount(CoderouterProvider)
+    /// Leads the CodeRouter section after a failed read: says what is wrong
+    /// and reads again when clicked.
+    case retryCoderouter(CoderouterCLIFailure)
 
     var title: String {
         switch self {
@@ -27,7 +30,15 @@ enum CloudTreeCreateAction: Equatable {
             return String(localized: "cloudTree.menu.newDisplay", defaultValue: "New Display")
         case .newCoderouterAccount(let provider):
             return provider.newAccountTitle
+        case .retryCoderouter(let failure):
+            return failure.message
         }
+    }
+
+    /// The row's leading glyph: create rows add, a failure row retries.
+    var symbol: String {
+        if case .retryCoderouter = self { return "arrow.clockwise" }
+        return "plus"
     }
 
     var accessibilityIdentifier: String {
@@ -36,13 +47,14 @@ enum CloudTreeCreateAction: Equatable {
         case .newTerminal: return "CloudMachineNewTerminalAction"
         case .newDisplay: return "CloudMachineNewDisplayAction"
         case .newCoderouterAccount(let provider): return "CoderouterNew\(provider.title)AccountAction"
+        case .retryCoderouter: return "CoderouterRetryAction"
         }
     }
 
     var machine: SurfaceMachineID {
         switch self {
         case .newWorkspace(let machine), .newTerminal(let machine), .newDisplay(let machine, _): return machine
-        case .newCoderouterAccount: return .cloud("coderouter-section")
+        case .newCoderouterAccount, .retryCoderouter: return .cloud("coderouter-section")
         }
     }
 
@@ -69,6 +81,8 @@ enum CloudTreeCreateAction: Equatable {
             }
         case .newCoderouterAccount(let provider):
             actions.addCoderouterAccount(provider)
+        case .retryCoderouter:
+            actions.refreshCoderouter()
         }
     }
 }
