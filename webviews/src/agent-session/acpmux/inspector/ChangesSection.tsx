@@ -76,6 +76,20 @@ export function headerStatus(pr: HeaderPullRequest | undefined): Record<string, 
   };
 }
 
+function formatCommentCount(count: number): string {
+  if (count < 10_000) return count.toLocaleString();
+  const units = ["K", "M", "B", "T", "Q"];
+  let value = count;
+  let unit = "";
+  for (const candidate of units) {
+    if (value < 1000) break;
+    value /= 1000;
+    unit = candidate;
+  }
+  const rounded = value >= 100 ? Math.round(value) : value.toFixed(1).replace(/\.0$/, "");
+  return `${rounded}${unit}`;
+}
+
 const CHECK_LABELS: Record<string, StringKey> = {
   passing: "rail.checksPassing",
   pending: "rail.checksPending",
@@ -247,7 +261,7 @@ function PullRequestRow({
             {comments > 0 && (
               <span className="acpmux-chat-inspector-pr__comments">
                 <Icon name="agent.chat" size={12} />
-                <span aria-hidden="true">{comments}</span>
+                <span aria-hidden="true">{formatCommentCount(comments)}</span>
                 <span className="acpmux-chat-inspector-sr-only">
                   {t("chatInspector.changes.comments", { count: comments })}
                 </span>

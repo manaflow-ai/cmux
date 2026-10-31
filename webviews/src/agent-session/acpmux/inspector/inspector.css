@@ -654,10 +654,13 @@ button.acpmux-chat-inspector-port:hover,
 }
 /* `repo #N` stays whole (Claude's); the failing checks at the end give way first. */
 .acpmux-chat-inspector-pr__ref {
-  flex: 0 0 auto;
+  /* Long repository names give way to the counts and check status at the trailing edge. */
+  flex: 0 1 auto;
+  min-width: 0;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .acpmux-chat-inspector-pr__counts,
 .acpmux-chat-inspector-pr__line .acpmux-diff-counts {

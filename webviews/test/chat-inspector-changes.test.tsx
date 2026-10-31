@@ -121,6 +121,13 @@ test("each state is the glyph's shape and the row's color, and no row says Merge
   expect(rows(container)[3]!.querySelector(".acpmux-chat-inspector-sr-only")?.textContent).toBe("Merged");
 });
 
+test("abbreviates huge comment counts before trailing checks", async () => {
+  root.render(<ChangesSection pullRequests={[open]} statuses={{ [open.url]: { comments: Number.MAX_SAFE_INTEGER } }} />);
+  await flush();
+  const comments = document.querySelector(".acpmux-chat-inspector-pr__comments");
+  expect(comments?.textContent).toBe("9QComments: 9007199254740991");
+});
+
 test("the title leads, then repo #N, the line counts, the comments, and the failing checks or a green dot", async () => {
   const container = installDom();
   const failing = pr("manaflow-ai/cmux", 22033);
@@ -154,6 +161,14 @@ test("the title leads, then repo #N, the line counts, the comments, and the fail
   // Nothing read yet: its number stands in for the title, and the end of the line is empty.
   expect(third!.querySelector(".acpmux-chat-inspector-pr__title")?.textContent).toBe("#22523");
   expect(third!.querySelector(".acpmux-chat-inspector-pr__checks")).toBeNull();
+});
+
+test("a long repository reference gives way before counts and check status", () => {
+  const css = readFileSync(new URL("../src/agent-session/acpmux/inspector/inspector.css", import.meta.url), "utf8");
+  expect(css).toMatch(
+    /\.acpmux-chat-inspector-pr__ref \{[^}]*flex: 0 1 auto;[^}]*min-width: 0;[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;/s,
+  );
+  expect(css).not.toMatch(/\.acpmux-chat-inspector-pr__ref \{[^}]*flex: 0 0 auto;/s);
 });
 
 test("five rows show, then Show more opens the rest and Show less folds them again", async () => {
