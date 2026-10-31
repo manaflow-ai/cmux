@@ -70,6 +70,7 @@ enum DebugFocus {
         return .object([
             "id": .string(controller.state.id),
             "workspace": state.topology.workspace.map(JSONValue.string) ?? .null,
+            "workspace_name": controller.content.map { .string($0.workspace.displayName) } ?? .null,
             "is_key": .bool(isKey),
             "model": .object([
                 "pane": state.pane.map(JSONValue.string) ?? .null,
@@ -86,9 +87,12 @@ enum DebugFocus {
                 "generation": .number(Double(state.generation)),
             ]),
             "topology": .array(state.topology.panes.map { pane in
-                .object([
+                let selectedIndex = pane.selected.flatMap { selected in pane.tabs.firstIndex { $0.id == selected } }
+                return .object([
                     "pane": .string(pane.id),
                     "selected": pane.selected.map(JSONValue.string) ?? .null,
+                    "selected_index": selectedIndex.map { .number(Double($0)) } ?? .null,
+                    "tab_count": .number(Double(pane.tabs.count)),
                     "tabs": .array(pane.tabs.map { .string("\($0.id):\($0.kind.rawValue)") }),
                 ])
             }),

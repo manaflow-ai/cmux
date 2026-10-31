@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import Testing
 
 /// A pane that a new screen takes over from a screen that goes moves to the new screen inside the
@@ -10,6 +11,7 @@ import Testing
 /// bench with --hang-stacks, 2026-10-24), where the daemon's screen replaces the New Tab page's
 /// stand-in screen. This is the layout's half of that fix: the stand-in pane must also keep its id.
 @MainActor
+@Suite(.closesItsWindows)
 struct ScreenReplaceKeepsTabViewInWindowTests {
     /// A tab's view that counts each time it leaves its window.
     final class TabView: NSView {
@@ -40,6 +42,7 @@ struct ScreenReplaceKeepsTabViewInWindowTests {
         let root = LayoutRootView(model: model, contentProvider: panes)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         window.contentView = root
         root.layoutSubtreeIfNeeded()
         #expect(panes.tab.window === window, "the pane shows the tab")

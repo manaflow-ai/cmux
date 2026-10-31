@@ -373,8 +373,7 @@ impl SubagentTree {
                     // one decides nothing yet: the child keeps any parent it has, and moves under the
                     // sender once that sender's own spawn arrives (`resolve_pending`).
                     let resolved = sender.is_some_and(|sender| {
-                        self.is_root(sender)
-                            || self.parents.contains_key(sender)
+                        self.is_root(sender) || self.parents.contains_key(sender)
                     });
                     let (parent, authoritative) = match sender {
                         Some(sender) if resolved => (self.authoritative_parent(sender), true),
@@ -504,10 +503,7 @@ impl SubagentTree {
         id: &str,
         parent: Option<&str>,
     ) -> Option<Map<String, Value>> {
-        if self.own.as_deref() == Some(id)
-            || self.is_root(id)
-            || self.is_ancestor(id, parent)
-        {
+        if self.own.as_deref() == Some(id) || self.is_root(id) || self.is_ancestor(id, parent) {
             return None;
         }
         self.forget_pending(id);
@@ -525,10 +521,7 @@ impl SubagentTree {
     }
 
     fn spawn_with_parent(&mut self, id: &str, parent: Option<&str>) -> Option<Map<String, Value>> {
-        if self.own.as_deref() == Some(id)
-            || self.is_root(id)
-            || self.is_ancestor(id, parent)
-        {
+        if self.own.as_deref() == Some(id) || self.is_root(id) || self.is_ancestor(id, parent) {
             return None;
         }
         let parent =
