@@ -13,8 +13,13 @@ start with "Review (<reviewer>): SHIP at <HEAD sha>". So no round of an unreview
 
 Symmetric counting: EVERY attempt is one line in /work/tmp/p0csf/attempts.log: pass, fail or not run. A "not run"
 attempt is listed and counted as an attempt, never as a pass or a fail. The driver stops after N judged rounds (pass or
-fail, default 5) or M attempts (default 8), whichever comes first, or when SPEC's spec file is removed."""
-import argparse, json, os, subprocess, sys, time
+fail, default 5) or M attempts (default 8), whichever comes first, or when SPEC's spec file is removed. An attempt gets a
+"start" line before run.py runs and a result line before rounds/SPEC.done is written; a driver error inside a round still
+writes a "not run" line. The counters live in /work/tmp/p0csf/state-SPEC-<kit sha12>.json, so a restarted driver keeps
+them and the limits hold across restarts. A GO the driver cannot use (cmux16 or cmux17) is given back with .done "not
+run", and rounds/SPEC.ready asks for the next GO. Each run.py round is bounded (RUN_TIMEOUT s).
+"""
+import argparse, json, os, re, subprocess, sys, time
 from pathlib import Path
 
 MQ = Path("/work/wt/chrome-parity-design/mini-queue")
@@ -24,6 +29,7 @@ LOG = WORK / "attempts.log"
 KIT = Path(__file__).resolve().parents[2]
 RUN = KIT / "scripts" / "journeys" / "run.py"
 AGENT = "acab353f2b81d32f6"
+RUN_TIMEOUT = 1800
 
 
 def note(line):
@@ -43,10 +49,54 @@ def reviewed_head():
     if subprocess.run(["git", "-C", str(KIT), "symbolic-ref", "-q", "HEAD"], capture_output=True).returncode == 0:
         sys.exit(f"refused: {KIT} is on a branch; run from a detached checkout at the reviewed sha")
     receipt = WORK / "reviews" / f"{head}.md"
-    first = receipt.read_text().splitlines()[0].strip() if receipt.exists() else ""
-    if not (first.startswith("Review (") and first.endswith(f"): SHIP at {head}")):
+    lines = receipt.read_text().splitlines() if receipt.exists() else []
+    first = lines[0].strip() if lines else ""
+    if not re.fullmatch(r"Review \([^()]+\): SHIP at " + head, first):
         sys.exit(f"refused: no SHIP receipt for {head} at {receipt} (first line: {first!r})")
     return head
+
+
+def load_state(path):
+    try:
+        state = json.loads(path.read_text())
+        return int(state["attempts"]), int(state["judged"])
+    except (OSError, ValueError, KeyError):
+        return 0, 0
+
+
+def save_state(path, attempts, judged):
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"attempts": attempts, "judged": judged, "at": int(time.time())}))
+    os.replace(tmp, path)
+
+
+def give_back(spec, go, host, why):
+    """A GO this driver does not use: .done "not run" for that GO, and .ready for the next one."""
+    (ROUNDS / f"{spec}.done").write_text(json.dumps({"at": int(time.time()), "status": "not run", "go": go.get("go"), "host": host}))
+    (ROUNDS / f"{spec}.ready").write_text(json.dumps({"at": int(time.time()), "pid": os.getpid()}))
+    note(f"{spec} GO on {host} given back unused: {why}")
+
+
+def run_round(a, head, host, attempts, out):
+    """Runs one round; returns (exit code, status, reason). Any error is a "not run" status, never a verdict."""
+    env = dict(os.environ, CMUX_AGENT_ID=AGENT, CAPTURE_HOST_POOL="perf-lead", CAPTURE_HOST_HOSTS=host,
+               CAPTURE_HOST_SLOT_HOSTS=host, CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS="600",
+               JOURNEYS_EXCLUDE_HOSTS="cmux16 cmux17")
+    cmd = ["python3", str(RUN), "--build", a.build, "--journey", a.journey, "--exclusive", "--whole-host",
+           "--hosts", host, "--out", str(out)]
+    try:
+        with open(f"{out}.run.log", "w") as log:
+            code = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT, env=env, cwd=str(WORK),
+                                  timeout=RUN_TIMEOUT).returncode
+    except subprocess.TimeoutExpired:
+        return None, "not run", f"run.py passed its {RUN_TIMEOUT} s bound"
+    except OSError as error:
+        return None, "not run", f"run.py could not start: {error}"
+    try:
+        row = json.loads((out / "results.jsonl").read_text().splitlines()[0])
+        return code, row["status"], row.get("reason", "")
+    except (OSError, ValueError, KeyError, IndexError) as error:
+        return code, "no result", f"no results.jsonl row: {error}"
 
 
 def main():
@@ -55,8 +105,11 @@ def main():
     p.add_argument("--judged", type=int, default=5); p.add_argument("--max", type=int, default=8)
     a = p.parse_args()
     head = reviewed_head()
-    note(f"{a.spec} driver start: kit {head} (reviewed), build {a.build}, arm {a.arm}, journey {a.journey}")
-    judged = attempts = 0
+    state = WORK / f"state-{a.spec}-{head[:12]}.json"
+    attempts, judged = load_state(state)
+    note(f"{a.spec} driver start: kit {head} (reviewed), build {a.build}, arm {a.arm}, journey {a.journey}, "
+         f"attempts {attempts}, judged {judged} so far")
+    (ROUNDS / f"{a.spec}.ready").write_text(json.dumps({"at": int(time.time()), "pid": os.getpid()}))
     while judged < a.judged and attempts < a.max:
         if not (MQ / "specs" / f"{a.spec}.json").exists():
             note(f"{a.spec} spec removed; driver stops")
@@ -68,36 +121,30 @@ def main():
             g = json.loads(go.read_text())
         except (OSError, ValueError):
             time.sleep(5); continue
-        host = g.get("host")
-        if not host or host in ("cmux16", "cmux17"):
-            time.sleep(10); continue
         done_file = ROUNDS / f"{a.spec}.done"
         if done_file.exists() and done_file.stat().st_mtime >= go.stat().st_mtime:
             time.sleep(10); continue  # this GO already had its round
+        host = g.get("host")
+        if not host or host in ("cmux16", "cmux17"):
+            give_back(a.spec, g, host, "cmux16 and cmux17 are never used"); continue
         if git("rev-parse", "HEAD") != head:
             note(f"{a.spec} refused: the kit's HEAD moved from {head}; driver stops"); break
         attempts += 1
+        save_state(state, attempts, judged)
         out = WORK / "rounds" / a.spec / f"a{attempts}-{time.strftime('%H%M%S', time.gmtime())}"
         out.parent.mkdir(parents=True, exist_ok=True)
-        env = dict(os.environ, CMUX_AGENT_ID=AGENT, CAPTURE_HOST_POOL="perf-lead", CAPTURE_HOST_HOSTS=host,
-                   CAPTURE_HOST_SLOT_HOSTS=host, CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS="600",
-                   JOURNEYS_EXCLUDE_HOSTS="cmux16 cmux17")
-        cmd = ["python3", str(RUN), "--build", a.build, "--journey", a.journey, "--exclusive", "--whole-host",
-               "--hosts", host, "--out", str(out)]
-        with open(f"{out}.run.log", "w") as log:
-            code = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT, env=env, cwd=str(WORK)).returncode
-        status, reason = "no result", ""
+        note(f"{a.spec} {a.arm} a{attempts} {host} start (GO {g.get('go')}, kit {head[:12]}, out {out})")
+        code, status, reason = None, "not run", "driver error before the result"
         try:
-            row = json.loads((out / "results.jsonl").read_text().splitlines()[0])
-            status, reason = row["status"], row.get("reason", "")
-        except (OSError, ValueError, KeyError, IndexError):
-            pass
-        done = status if status in ("pass", "fail") else "not run"
-        done_file.write_text(json.dumps({"at": int(time.time()), "status": done, "go": g.get("go"), "host": host}))
-        if done in ("pass", "fail"):
-            judged += 1
-        note(f"{a.spec} {a.arm} a{attempts} {host} exit={code} {status} {reason[:300]} "
-             f"(attempt {attempts}, judged {judged}/{a.judged}, kit {head[:12]}, out {out})")
+            code, status, reason = run_round(a, head, host, attempts, out)
+        finally:
+            done = status if status in ("pass", "fail") else "not run"
+            if done in ("pass", "fail"):
+                judged += 1
+            save_state(state, attempts, judged)
+            note(f"{a.spec} {a.arm} a{attempts} {host} exit={code} {status} {reason[:300]} "
+                 f"(attempt {attempts}, judged {judged}/{a.judged}, kit {head[:12]}, out {out})")
+            done_file.write_text(json.dumps({"at": int(time.time()), "status": done, "go": g.get("go"), "host": host}))
     note(f"{a.spec} driver done: {attempts} attempts, {judged} judged, kit {head[:12]}")
 
 
