@@ -162,21 +162,25 @@ describe("/v1/cloud/machines/{machine}/exec and /fs/{op}", { timeout: 60_000 }, 
   it("answers an over-limit answer as a final 413, never a retryable 502, and audits it", async () => {
     const { t, team, machine } = await signedInWithMachine("cloud-guest-1")
     const stub = stubOf(team)
+    // On this instance only, and put back in finally: the later tests create machines through the real driver.
     await inDO(stub, async (instance) => {
-      // On this instance only: the machine's later tests get the class's own driverFor back below.
       instance.driverFor = async () => ({
         execStdin: async () => {
           throw new DriverError("cloud.exec.output_limit", "guest exec: output exceeded the response limit", true)
         }
       })
     })
-    const base = `/v1/cloud/machines/${machine}`
-    expect(await call("POST", `${base}/exec`, t, { command: ECHO })).toMatchObject({ status: 413, header: "vm_output_too_large", body: { ok: false, error: { code: "vm_output_too_large" } } })
-    expect(await call("GET", `${base}/fs/read?path=/home/cmux/big.bin`, t)).toMatchObject({ status: 413, header: "vm_output_too_large" })
-    expect((await stub.fakeControl({})).audit.at(-1)).toMatchObject({ action: "owner.exec", machine, outcome: "output_limit" })
-    await inDO(stub, async (instance) => {
-      delete instance.driverFor
-    })
+    try {
+      const base = `/v1/cloud/machines/${machine}`
+      expect(await call("POST", `${base}/exec`, t, { command: ECHO })).toMatchObject({ status: 413, header: "vm_output_too_large", body: { ok: false, error: { code: "vm_output_too_large" } } })
+      expect(await call("GET", `${base}/fs/read?path=/home/cmux/big.bin`, t)).toMatchObject({ status: 413, header: "vm_output_too_large" })
+      const audit = (await stub.fakeControl({})).audit as Array<{ action: string; machine: string; outcome: string }>
+      expect(audit.filter((e) => e.action === "owner.exec" && e.machine === machine).map((e) => e.outcome)).toEqual(["output_limit", "output_limit"])
+    } finally {
+      await inDO(stub, async (instance) => {
+        delete instance.driverFor
+      })
+    }
   })
 
   it("refuses no auth, another person's machine, a wrong method and invalid bodies before any guest call", async () => {
