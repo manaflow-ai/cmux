@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { freestyleGuestFixture, guestCreateOptions } from "./fixtures/freestyleGuest";
 
-describe("Freestyle guest install result contract (SDK 0.2.10)", () => {
+describe("Freestyle guest install result contract (SDK 0.2.21)", () => {
   test("a reported zero exit publishes a ready machine", async () => {
     const fixture = freestyleGuestFixture();
     const handle = await fixture.createWithGuestInstall(guestCreateOptions);

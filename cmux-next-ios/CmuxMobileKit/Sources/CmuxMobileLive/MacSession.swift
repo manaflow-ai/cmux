@@ -42,6 +42,7 @@ final class MacSession {
     var offlineTask: Task<Void, Never>?
     /// Why the chat (acpmux) channel failed on the current link, shown in the status line.
     var chatsError: String?
+    var daemonError: String?
     var workspacesTimeout: Task<Void, Never>?
     /// The link fed this Mac's data and connection state (cleared when it closes).
     var fedData = false
@@ -71,7 +72,7 @@ final class MacSession {
         guard let tree else { return nil }
         for workspace in tree.workspaces + tree.homeWorkspaces {
             for tab in workspace.tabs where tree.agentTabs[tab.id]?.session == sessionID {
-                return LiveFeed.Place(workspaceID: workspace.id, tabID: tab.id, workspaceTitle: workspace.title)
+                return LiveFeed.Place(workspaceID: workspace.id, tabID: tab.id, workspaceTitle: workspace.title, tabTitle: tab.title)
             }
         }
         return nil

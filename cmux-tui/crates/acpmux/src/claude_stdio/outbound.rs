@@ -150,6 +150,7 @@ impl Translator {
                         let val = p.get("value").and_then(Value::as_str).unwrap_or("").to_owned();
                         match cid {
                             "model" => {
+                                let val = super::model_id(&val);
                                 self.pending.lock().await.insert(
                                     id.to_string(),
                                     Pending::Control(Setting::Model, val.clone()),
@@ -241,11 +242,8 @@ impl Translator {
                         }
                     }
                     method::SESSION_SET_MODEL => {
-                        let val = p
-                            .get("modelId")
-                            .and_then(Value::as_str)
-                            .unwrap_or("default")
-                            .to_owned();
+                        let val = p.get("modelId").and_then(Value::as_str).unwrap_or("default");
+                        let val = super::model_id(val);
                         self.pending
                             .lock()
                             .await
@@ -344,7 +342,7 @@ impl Translator {
                         self.pending.lock().await.insert(id.to_string(), Pending::SideQuestion);
                         let mut request = json!({"subtype": "side_question", "question": question});
                         if !history.is_null() {
-                            request["history"] = history;
+                            request.set("history", history);
                         }
                         Outbound::Lines(vec![json!({
                             "type": "control_request",

@@ -11,6 +11,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test
 import { JSDOM } from "jsdom";
 import { act, useState } from "react";
 import type { Root } from "react-dom/client";
+import { openEffort } from "./support/effortDropdown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -217,11 +218,8 @@ const chipButton = () => host.querySelector<HTMLButtonElement>('[data-menu="Mode
 const menus = () => [...doc().querySelectorAll<HTMLElement>(".acpmux-quick-menu")];
 const menu = () => menus()[0];
 const label = (row: Element) => row.querySelector(".acpmux-menu-label")?.textContent?.trim() ?? "";
-const effortFor = (row: HTMLElement) => [
-  ...(row
-    .closest<HTMLElement>(".acpmux-quick-model-effort")
-    ?.querySelectorAll<HTMLElement>(".acpmux-quick-effort-segment") ?? []),
-];
+/// A model row's effort levels: its side dropdown, opened.
+const effortFor = (row: HTMLElement) => openEffort(row.ownerDocument, label(row));
 /// The model rows the menu itself shows (not its submenus').
 const modelRows = () => [...menu()!.querySelectorAll<HTMLElement>('.acpmux-quick-item[role="menuitemradio"]')];
 const rowText = (row: Element) => row.textContent?.replace("✓", "").trim() ?? "";
@@ -318,9 +316,9 @@ test("the current model's inline effort control checks the level the chat is on"
   await mount({ harness: "claude", family: "claude", effort: "high" });
   await open();
   const model = modelRows().find((row) => label(row) === "Opus 5.5")!;
-  const checked = effortFor(model).find((item) => item.getAttribute("aria-checked") === "true");
+  const checked = (await effortFor(model)).find((item) => item.getAttribute("aria-checked") === "true");
   expect(checked).not.toBeNull();
-  expect(checked!.textContent?.replace(/^✓/, "").trim()).toBe("High");
+  expect((checked!.querySelector(".acpmux-menu-label")?.textContent ?? "").trim()).toBe("High");
 });
 
 test("the Fast mode switch shows whether it is on", async () => {
@@ -365,7 +363,7 @@ test("a sibling no-effort model does not hide Effort for the running model", asy
   });
   await open();
   const model = modelRows().find((row) => label(row) === "Fable 5.1")!;
-  const checked = effortFor(model).find((item) => item.getAttribute("aria-checked") === "true");
+  const checked = (await effortFor(model)).find((item) => item.getAttribute("aria-checked") === "true");
   expect(checked).not.toBeNull();
-  expect(checked!.textContent?.replace(/^✓/, "").trim()).toBe("High");
+  expect((checked!.querySelector(".acpmux-menu-label")?.textContent ?? "").trim()).toBe("High");
 });
