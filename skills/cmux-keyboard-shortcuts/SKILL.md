@@ -124,7 +124,7 @@ done
 
 ### Vim Pane Navigation
 
-Prefix-free pane movement with no arrow keys.
+Prefix-free pane movement with no arrow keys. `cmd+opt+l` replaces Split Browser Right's default key; rebind `splitBrowserRight` too if the user splits browsers from the keyboard.
 
 ```bash
 "$CMUX_SETTINGS" set shortcuts.bindings.focusLeft cmd+opt+h
