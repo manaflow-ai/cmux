@@ -180,6 +180,14 @@ class App:
                 env[key] = value
         return env
 
+    def exec_env(self):
+        """The environment of an exec relaunch: this process's, then the app's whole launch environment, then its
+        CMUX_/HOME/TMPDIR values (the same keys win; dict merges, never keyword arguments, so a key may repeat)."""
+        env = dict(os.environ)
+        env.update(self.full_env)
+        env.update(self.env)
+        return env
+
     def state_outside_slot(self):
         """A daemon of this build whose state dir (CMUX_TUI_STATE_DIR) or chief home is not under the slot's HOME, or
         None. An exec relaunch that lost part of the slot environment (2026-10-31, C4) made the next daemon keep its
@@ -238,7 +246,7 @@ class App:
             # disk I/O throttle (inherited by the daemon the app starts); no host setting changes.
             with open(os.path.join(self.bundle, "Contents", "Info.plist"), "rb") as f:
                 exe = plistlib.load(f).get("CFBundleExecutable")
-            env = dict(os.environ, **self.full_env, **self.env)
+            env = self.exec_env()
 
             def lower():
                 # fd: soft and hard 256 (the app cannot raise it); fdsoft: soft 256 with the hard limit kept, as

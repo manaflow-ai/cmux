@@ -177,6 +177,17 @@ class Evidence(unittest.TestCase):
         self.assertTrue(rf.report_of_build(crash))
 
 
+class ExecEnv(unittest.TestCase):
+    def test_exec_env_merges_repeated_keys(self):
+        # Fleet rounds fgh-h-fdsoft-2032 / slowdisk-2033: a key in both maps raised TypeError at the first relaunch.
+        app = rf.App.__new__(rf.App)
+        app.full_env = {"CMUX_SOCKET_PATH": "/slot/a.sock", "CFFIXED_USER_HOME": "/slot/home", "HOME": "/slot/home"}
+        app.env = {"CMUX_SOCKET_PATH": "/slot/a.sock", "HOME": "/slot/home"}
+        env = app.exec_env()
+        self.assertEqual(env["CMUX_SOCKET_PATH"], "/slot/a.sock")
+        self.assertEqual(env["CFFIXED_USER_HOME"], "/slot/home")
+
+
 class Answers(unittest.TestCase):
     def test_bare_list_answer_is_listed(self):
         # `cmux --json workspace list` answers a bare list (fleet run seed 1004, cmux21).
