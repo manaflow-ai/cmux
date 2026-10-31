@@ -280,6 +280,12 @@ public nonisolated enum SidebarTunables {
         help: "Workspace rows are one line (name, status, pull request), and Cmd-Shift-[ / ] go to the previous or next workspace, wrapping, instead of the previous or next tab (Home keeps its own keys).",
         default: false, code: "SidebarTunables.workspacesAsTabs")
 
+    /// Dogfood the connected group chip and capped rail without changing the shipped look.
+    public static let groupChromeShape = Tunable<Bool>.toggle(
+        "sidebar.groupChromeShape", .sidebar, "Connected group chip and rail",
+        help: "Prototype a group-colored header joined to a thicker rail with a clipped join and rounded end. Collapsed groups show only the header. Applies to the solid band look.",
+        default: false, code: "SidebarTunables.groupChromeShape")
+
     /// Every sidebar tunable, one per line in alphabetical order, so two pull requests that each add
     /// one insert different lines and merge cleanly (#21946). Debug Settings lists them in this order.
     public static var all: [TunableDescriptor] {
@@ -290,6 +296,7 @@ public nonisolated enum SidebarTunables {
             dragThreshold.descriptor,
             evenRowText.descriptor,
             groupByStatus.descriptor,
+            groupChromeShape.descriptor,
             groupEdgeFraction.descriptor,
             groupExitFraction.descriptor,
             groupRowLimit.descriptor,

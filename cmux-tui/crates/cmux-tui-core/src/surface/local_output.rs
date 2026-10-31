@@ -145,7 +145,8 @@ impl LocalOutput {
             // Keep the terminal lock scoped to parser and observer work. A
             // borrowed normalized frame still points into `buf` or Kitty
             // scratch, so journal allocation can happen after releasing term.
-            let journal_output = journal_enabled.then_some(normalized);
+            let journal_output =
+                journal_enabled.then(|| (normalized, crate::output_store::HistoryRows::of(&term)));
             let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
             // Advance the output watermark before releasing
             // the parser lock. Screen snapshots take the same
@@ -155,8 +156,10 @@ impl LocalOutput {
             (generation, journal_output)
         };
         let (generation, journal_output) = generation;
-        if let (Some(journal_target), Some(journal_output)) = (journal_target, journal_output) {
-            pty.record_output(journal_target, journal_output.as_ref());
+        if let (Some(journal_target), Some((journal_output, history))) =
+            (journal_target, journal_output)
+        {
+            pty.record_output(journal_target, journal_output.as_ref(), history);
         }
         drop(journal_update);
         self.pending.push(ParsedOutput {

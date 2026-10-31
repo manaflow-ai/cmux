@@ -11,6 +11,10 @@ extension AgentPaneTransport {
     nonisolated struct Snapshot: Sendable {
         var isFirst: Bool
         var localAppToken: String?
+        /// The local daemon's unix socket. Read-only status requests use this
+        /// path so the page can receive the cached peer health that the app's
+        /// sidebar already reads; it is never sent to the page.
+        var socketPath: String?
         var modeFields: Set<String>?
         var sessions: AcpmuxPaneSessions
         var options: AcpmuxPermissionOptions
@@ -152,6 +156,9 @@ extension AgentPaneTransport {
         case sent(AgentPaneTransportError?)
         /// The main actor decides.
         case decide(Facts, FrameBox)
+        /// `_acpmux/status` is answered from the daemon's unix socket so its
+        /// cached peer health survives the WebSocket's remote redaction.
+        case status(pageID: String, relayID: Int, path: String)
     }
 
     /// Drains the send line in order. Off the main thread, one pass takes every waiting frame of the
@@ -190,7 +197,7 @@ extension AgentPaneTransport {
             // The page's first frame goes alone: the person proof is the connection's second request.
             let wasFirst = !sentFirst
             if wasFirst { texts = Array(texts.prefix(1)) }
-            let snapshot = Snapshot(isFirst: !sentFirst, localAppToken: localAppToken, modeFields: modeFields,
+            let snapshot = Snapshot(isFirst: !sentFirst, localAppToken: localAppToken, socketPath: socketPath, modeFields: modeFields,
                                     sessions: sessions, options: permissionOptions, remoteWire: remoteWire)
             let batch = await Self.analyze(texts, snapshot, socket: socket, ids: ids)
             if batch.firstSent {

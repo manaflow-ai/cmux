@@ -68,6 +68,11 @@ extension SidebarListViewComponents {
         case let (.emptyGroup(id), view as EmptyGroupRowView):
             // The same New Workspace in Group as the header's + (one action path).
             view.onAdd = onGroupEditorItem == nil ? nil : { [weak self] in self?.onGroupEditorItem?(id, "workspaceGroup.newWorkspace") }
+        case (.doneFold, let view as SidebarDoneFoldRowView), (.showMore, let view as SidebarDoneFoldRowView):
+            view.onToggle = { [weak self] in
+                guard let self else { return false }
+                return SidebarFoldAction(list: self).toggle(key)
+            }
         case let (.section(sectionID), view as SectionHeaderRowView):
             if case let .machine(machine) = sectionID {
                 view.allowsAdd = true

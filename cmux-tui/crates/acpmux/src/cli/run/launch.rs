@@ -78,6 +78,12 @@ impl Launch {
                 Some((json!({"name": name, "base": base}), absolute(repo)?))
             }
         };
+        if let (Some(host), Some(from)) = (&args.host, &args.harness_from) {
+            bail!(
+                "--harness-from copies a session on this machine only: run \
+                 `ssh {host} acpmux new --harness-from {from} ...` there instead of --host {host}"
+            );
+        }
         let file_prompt = args.prompt_file.as_deref().map(read_prompt_file).transpose()?;
         if let Some(group) = &args.group {
             validate_group(group)?;
@@ -142,6 +148,28 @@ impl Launch {
         parts.extend(self.file_prompt.clone());
         // The context lines alone are no task: no prompt at all then.
         (has_words || self.file_prompt.is_some()).then(|| parts.join("\n\n"))
+    }
+}
+
+/// `_meta.acpmux` of `new` for the session it takes over from (`hub/lineage/successor.rs`):
+/// `--harness-from`, and `--report-to` (a successor reports to its predecessor).
+pub(super) fn successor_meta(args: &NewArgs, meta: &mut Value) {
+    if let Some(p) = &args.harness_from {
+        meta[crate::hub::lineage::successor::HARNESS_FROM_FIELD] = json!(p);
+    }
+    if let Some(to) = &args.report_to {
+        meta[crate::hub::lineage::successor::REPORT_TO_FIELD] = json!(to);
+    }
+}
+
+/// The warnings in a new session's reply, one line each: started past this host's lane cap
+/// (`hub/admission.rs`), never a refusal, and running unlike the session it takes over from
+/// (`hub/lineage/successor.rs`).
+pub(crate) fn print_new_warnings(created: &Value) {
+    for at in ["/_meta/acpmux/admission/warning", "/_meta/acpmux/successor/warning"] {
+        if let Some(w) = created.pointer(at).and_then(Value::as_str) {
+            eprintln!("acpmux: warning: {w}");
+        }
     }
 }
 
