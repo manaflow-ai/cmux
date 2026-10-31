@@ -528,7 +528,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     func receive(_ message: PageHostMessage) async -> Any? {
         guard PageHostTrust.isTrusted(message, page: descriptor) else {
-            logger.error("page \(self.descriptor.id, privacy: .public) message from an untrusted frame refused")
+            logger.error("page \(self.descriptor.id, privacy: .public) message from an untrusted frame refused: main=\(message.isMainFrame, privacy: .public) url=\(message.frameURL?.absoluteString ?? "-", privacy: .public)")
             return nil
         }
         // The message conversion stays here: `handle` must start in the order the page posted, and

@@ -79,7 +79,7 @@ import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } f
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
-import { failedSendText } from "./sendFailure";
+import { failedSendText, retryHelps, sendCause } from "./sendFailure";
 import { SessionPager, type SessionPage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
 import { isPlumbingCall, showsNothing } from "./hiddenTools";
@@ -6094,7 +6094,9 @@ export class AcpmuxDirectClient {
         // says just that, not the generic refusal's pick wording (cx-w2p8r).
         if (held && !isTrustRefusal(error))
           this.notice(
-            code === "transport.gesture_required" ? translate("prompt.notSentAgain") : failedSendText(error, false),
+            code === "transport.gesture_required"
+              ? translate("prompt.notSentAgain")
+              : failedSendText(error, false, sendAttachments),
           );
         else this.emit();
         throw error;
@@ -6124,7 +6126,7 @@ export class AcpmuxDirectClient {
           ...row,
           pending: false,
           failed: true,
-          error: failedSendText(error, this.retriedPrompts.has(promptId)),
+          error: failedSendText(error, this.retriedPrompts.has(promptId), sendAttachments),
           version: row.version + 1,
         });
         this.failedPrompts.set(rowId, { input, attachments, promptId });
@@ -6251,7 +6253,9 @@ export class AcpmuxDirectClient {
   /// prompt id (a trust refusal's kept gesture is bound to that id, heldPrompt.ts). The run's other
   /// rows go.
   async retryPrompts(rowIds: readonly string[], ticket?: string, anchor?: string): Promise<string | undefined> {
-    const run = rowIds.filter((id) => this.failedPrompts.has(id));
+    // A prompt too large to send is refused the same way again, from any Retry (the card, the
+    // message menu): it stays failed until Edit takes an attachment out.
+    const run = rowIds.filter((id) => this.failedPrompts.has(id) && retryHelps(sendCause(this.rows.get(id)?.delivery)));
     const kept = anchor && run.includes(anchor) ? anchor : run[run.length - 1];
     if (!kept) return undefined;
     if (run.length > 1) {
