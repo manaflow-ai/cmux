@@ -1253,7 +1253,8 @@ export function ModelPicker(props: ModelPickerProps) {
     return id;
   };
   // This folder's harness profiles, as the web picker lists them above the models.
-  if (!searching && !starredView && folderProfiles.length > 0) {
+  // A closed picker describes no rows: its catalog stays unread until the first click.
+  if (open && !searching && !starredView && folderProfiles.length > 0) {
     nativeRows.push({ kind: "section", id: "folder-profiles", label: t("picker.thisFolder") });
     for (const entry of folderProfiles) {
       const note = folderNote(entry);
@@ -1268,7 +1269,9 @@ export function ModelPicker(props: ModelPickerProps) {
     }
     nativeRows.push({ kind: "separator", id: "folder-profiles-end", label: "" });
   }
-  if (selectedOther && selected && loginFor(selected) !== undefined) {
+  if (!open) {
+    // Nothing to describe while closed.
+  } else if (selectedOther && selected && loginFor(selected) !== undefined) {
     nativeRows.push({
       kind: "text",
       id: "signed-out",
@@ -1326,7 +1329,7 @@ export function ModelPicker(props: ModelPickerProps) {
       });
     }
   }
-  if (olderCount > 0 && !(selectedOther && selected?.folder && visible.length === 0))
+  if (open && olderCount > 0 && !(selectedOther && selected?.folder && visible.length === 0))
     nativeRows.push({
       kind: "action",
       id: "more-models",
