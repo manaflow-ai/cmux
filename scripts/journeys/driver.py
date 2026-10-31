@@ -96,6 +96,11 @@ class StepError(Exception):
     pass
 
 
+class TerminalGone(StepError):
+    """A step group's proof that a terminal is gone (its daemon pane, terminal or shell process): a FAIL at once, never
+    a condition that may still hold on a later poll (Journey.evaluate raises it again)."""
+
+
 class Deadline(Exception):
     pass
 
@@ -1347,6 +1352,8 @@ class Journey:
                 image = self.app.snapshot(self.out / f"check-{self.checks:02d}.png")
                 lines = self.app.read_text(image)
                 return ocr_contains(lines, want), {"image": image.name, "text": lines[-12:], "lines": len(lines)}
+        except TerminalGone:
+            raise
         except (StepError, OSError, ValueError, subprocess.TimeoutExpired) as error:
             return False, {"error": str(error)[-300:]}
         return False, {"error": f"unknown condition {name}"}

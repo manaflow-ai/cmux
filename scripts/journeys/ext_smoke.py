@@ -75,6 +75,7 @@ Conditions:
                                       is. A width that is unknown (a pane with no frame) is not judged (not run)
 """
 import json
+import subprocess
 import os
 import time
 
@@ -708,16 +709,23 @@ def _daemon_width_of(widths, members):
     return None
 
 
-def _frame_loss(j, panes):
+def _frame_loss(j, panes, again=True):
     """For each pane with no view frame: is its terminal only hidden (the view unmounted or discarded, the daemon pane,
-    its terminal and the shell process alive) or GONE (no daemon pane or terminal, a dead lifecycle, a failed screen
-    read, or a dead shell process)? Evidence from the app (debug.surfaces), the daemon (topology, terminal process,
-    screen read) and the process table. Returns ({pane: evidence}, [gone panes])."""
+    its terminal and the shell process alive) or GONE? GONE needs a clear answer: the daemon topology has no such pane
+    or no terminal on its selected tab, the topology tab is `dead`, the daemon's terminal list says the terminal is
+    not running (lifecycle) or has exited, or the shell pid the daemon gave is dead. A failed read (no daemon socket,
+    an answer that is not JSON, a timeout) proves nothing: that pane counts as hidden-but-unproven, and the gate
+    reads once more before a GONE verdict. Returns ({pane: evidence}, [gone panes])."""
     rows = {p.get("pane"): p for p in j.app.panes()}
     places = {}
     for _ws, pane, tab, term in j.places(j.topology()):
         if pane.get("id") in panes and pane.get("selected_tab") == tab.get("id"):
-            places[pane.get("id")] = term
+            places[pane.get("id")] = (term, tab)
+    try:
+        registry = {str(r.get("terminal_id") or r.get("id")): r for r in _terminal_rows(j)}
+    except (D.StepError, OSError, ValueError, subprocess.TimeoutExpired) as error:
+        registry = None
+        registry_error = str(error)[:200]
     evidence, gone = {}, []
     for pane in panes:
         row = rows.get(pane) or {}
@@ -725,40 +733,68 @@ def _frame_loss(j, panes):
         ev = {"app": {k: row.get(k) for k in ("presence", "kind", "visible", "blank", "content_installed",
                                                "content_in_window", "content_size", "link", "attach", "host_pid")},
               "app_surface": {k: surface.get(k) for k in ("exists", "replay_applied", "rendering_suspended", "grid")},
-              "in_topology": pane in places, "terminal": places.get(pane)}
-        reasons = []
-        term = places.get(pane)
+              "in_topology": pane in places}
+        reasons, unproven = [], []
+        term, tab = places.get(pane, (None, {}))
+        ev["terminal"], ev["tab_dead"] = term, tab.get("dead") if isinstance(tab, dict) else None
         if pane not in places:
             reasons.append("the daemon topology has no such pane (or no terminal tab selected in it)")
         elif not term:
             reasons.append("the pane's selected tab has no terminal")
         else:
+            if ev["tab_dead"] is True:
+                reasons.append("the topology says the terminal tab is dead")
+            if registry is None:
+                unproven.append(f"the daemon terminal list could not be read: {registry_error}")
+            else:
+                record = registry.get(str(term)) or next((r for r in registry.values()
+                                                           if str(r.get("terminal_key") or "") == str(term)), None)
+                ev["lifecycle"] = record.get("lifecycle") if record else None
+                ev["exit"] = record.get("exit") if record else None
+                if record is None:
+                    unproven.append("the terminal is not in the daemon's terminal list under that id")
+                elif record.get("exit") or (record.get("lifecycle") and record.get("lifecycle") != "running"):
+                    reasons.append(f"the daemon's terminal list says lifecycle {record.get('lifecycle')!r}, "
+                                   f"exit {record.get('exit')!r}")
             try:
                 screen = j.app.screen(term)
                 ev["daemon_screen"] = {"ok": True, "cols": screen.get("cols"), "rows": screen.get("rows")}
-            except D.StepError as error:
+            except (D.StepError, OSError, ValueError, subprocess.TimeoutExpired) as error:
                 ev["daemon_screen"] = {"ok": False, "error": str(error)[:200]}
-                reasons.append("the daemon cannot read the terminal's screen")
+                unproven.append("the daemon screen read failed")
             try:
                 proc = j.app.cmux("terminal", term, "process", "show")
-                proc = proc if isinstance(proc, dict) else {}
-                pid = proc.get("pid")
-                ev["daemon_process"] = {"pid": pid, "foreground_pid": proc.get("foreground_pid")}
+                pid = proc.get("pid") if isinstance(proc, dict) else None
+                ev["daemon_process"] = {"pid": pid}
                 if pid:
                     ev["shell_alive"] = _alive(int(pid))
                     if not ev["shell_alive"]:
                         reasons.append(f"the terminal's process {pid} is not running")
                 else:
-                    reasons.append("the daemon reports no process for the terminal")
-            except D.StepError as error:
+                    unproven.append("the daemon reports no pid for the terminal")
+            except (D.StepError, OSError, ValueError, subprocess.TimeoutExpired) as error:
                 ev["daemon_process"] = {"error": str(error)[:200]}
-                reasons.append("the daemon has no process record for the terminal")
+                unproven.append("the daemon process read failed")
         ev["at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        ev["gone_because"] = reasons
+        ev["gone_because"], ev["unproven"] = reasons, unproven
         evidence[pane] = ev
         if reasons:
             gone.append(pane)
+    if gone and again:
+        # A GONE verdict is final: read once more (one slow answer under memory pressure must not decide it).
+        time.sleep(0.5)
+        evidence2, gone2 = _frame_loss(j, gone, again=False)
+        evidence.update(evidence2)
+        gone = gone2
     return evidence, gone
+
+
+def _terminal_rows(j):
+    """The daemon's terminal list rows (`cmux terminal list`: terminal_id, lifecycle, exit)."""
+    rows = j.app.cmux("terminal", "list")
+    if isinstance(rows, dict):
+        rows = next((rows[k] for k in ("terminals", "value", "result") if isinstance(rows.get(k), list)), [])
+    return [r for r in rows or [] if isinstance(r, dict)]
 
 
 def _no_frame_verdict(j, panes, what):
@@ -766,8 +802,8 @@ def _no_frame_verdict(j, panes, what):
     a person would lose a terminal under memory pressure (cmux-ad, possible P0)."""
     evidence, gone = _frame_loss(j, panes)
     if gone:
-        raise D.StepError(f"TERMINAL GONE under memory pressure ({what}): panes {gone}: "
-                          + json.dumps({p: evidence[p] for p in gone})[:1500])
+        raise getattr(D, "TerminalGone", D.StepError)(
+            f"TERMINAL GONE under memory pressure ({what}): panes {gone}: " + json.dumps({p: evidence[p] for p in gone})[:1500])
     raise D.NotRun(f"{what}: panes {sorted(panes)} have no view frame, but each terminal is alive (daemon pane, screen "
                    f"and shell process): the view is hidden or discarded, not judged: " + json.dumps(evidence)[:1200])
 
@@ -864,6 +900,11 @@ def cond_smoke_same_widths(j, want, cache):
         # instead: the same column (by its panes) before and now. A gone terminal still fails in _no_frame_verdict.
         hidden = sorted({p for v in unknown.values() for p in v["no_frame"]})
         evidence, gone = _frame_loss(j, hidden)
+        if gone:
+            # A terminal is gone: the step ends now, whatever a later poll would show.
+            raise getattr(D, "TerminalGone", D.StepError)(
+                f"TERMINAL GONE under memory pressure (an old pane lost its view frame): panes {gone}: "
+                + json.dumps({p: evidence[p] for p in gone})[:1500])
         if not gone:
             now_daemon = _daemon_widths(j, snap["workspace"])
             resolved = {}
@@ -898,7 +939,7 @@ def cond_smoke_same_widths(j, want, cache):
         first = seen.setdefault(want["since"], D.now())
         if D.now() - first >= float(want.get("unknown_seconds", UNKNOWN_SECONDS)):
             _no_frame_verdict(j, sorted({p for v in unknown.values() for p in v["no_frame"]}),
-                              f"old panes had no view frame for {UNKNOWN_SECONDS:g} s")
+                              f"old panes had no view frame for {float(want.get('unknown_seconds', UNKNOWN_SECONDS)):g} s")
         return False, dict(detail, waiting_for_frames=True)
     seen.pop(want["since"], None)
     if not problems:

@@ -823,7 +823,7 @@ class SettleThroughTheDriver(unittest.TestCase):
     """smoke_same_widths through the real driver.Journey.step_expect (its polls and its settle): an old pane that
     loses its frame after the check held is not judged (not run), never a FAIL; a frame never lost passes."""
 
-    def run_step(self, lose_after):
+    def run_step(self, lose_after, shell_pid=None, back_after=None):
         sys.path.insert(0, str(HERE))
         sys.path.insert(0, str(HERE.parent / "cmux-next"))  # driver.py imports build_names from there
         import driver
@@ -844,10 +844,14 @@ class SettleThroughTheDriver(unittest.TestCase):
                 return {"text": "$", "cols": 80, "rows": 24}
 
             def cmux(self_, *args):
-                return {"pid": os.getpid()}
+                if args[:2] == ("terminal", "list"):
+                    return {"terminals": [{"terminal_id": "T-" + k, "lifecycle": "running", "exit": None}
+                                          for k in ("P1", "P2", "P3")]}
+                return {"pid": shell_pid or os.getpid()}
 
             def panes(self_):
-                lost = lose_after is not None and driver.now() - t0 >= lose_after
+                elapsed = driver.now() - t0
+                lost = lose_after is not None and elapsed >= lose_after and not (back_after and elapsed >= back_after)
                 rows = [{"pane": "P1", "workspace": "W", "grid": {"frame_x": 0.0, "frame_width": 300.0}},
                         {"pane": "P2", "workspace": "W", "grid": {"frame_x": 301.0, "frame_width": 300.0}},
                         {"pane": "P3", "workspace": "W", "grid": {"frame_x": 602.0, "frame_width": 300.0}}]
@@ -862,6 +866,16 @@ class SettleThroughTheDriver(unittest.TestCase):
             j.marks["m"] = driver.now()
             return j.step_expect({"title": "R3b settle", "since": "m", "timeout": 4, "settle": 1.5,
                                   "all": [{"smoke_same_widths": {"since": "c0", "new": 1}}]}), driver
+
+    def test_a_gone_terminal_ends_the_step_through_the_driver_even_if_the_frame_comes_back(self):
+        sys.path.insert(0, str(HERE))
+        sys.path.insert(0, str(HERE.parent / "cmux-next"))
+        import driver
+        # P1's frame is lost at once and its shell pid is dead; the frame comes back after 0.6 s (before the 4 s timeout).
+        with self.assertRaises(driver.TerminalGone) as caught:
+            self.run_step(0.0, shell_pid=999999, back_after=0.6)
+        self.assertIn("TERMINAL GONE", str(caught.exception))
+        self.assertIn("999999", str(caught.exception))
 
     def test_a_frame_never_lost_passes(self):
         result, _driver = self.run_step(None)

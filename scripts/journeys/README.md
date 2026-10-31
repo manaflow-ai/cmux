@@ -338,7 +338,10 @@ process for it, or that shell process is dead): a FAIL, "TERMINAL GONE under mem
 v2.2.11-opt 2026-10-31: the app unmounts the view of a far off-screen column after a second New
 Column). A hidden column is then judged by the daemon's own column width (`cmux screen ID layout
 export`: `columns[].width`, a share of the viewport) before and after; only when the daemon width
-cannot be read is the round not judged.
+cannot be read is the round not judged. The daemon share is the layout MODEL's width: it cannot see a
+hidden column that the app alone draws at another width. GONE needs a clear answer (no daemon pane or
+terminal tab, a `dead` tab, a terminal list lifecycle other than running or an exit, a dead shell pid),
+read twice; a failed read only leaves the pane unproven. A GONE terminal ends the step at once.
 
 Sources of each check: column membership from the app's topology (`snapshot.get`, each pane's
 `column`); column widths from the app's terminal view frames (`debug.surfaces` `grid.frame_x` and
