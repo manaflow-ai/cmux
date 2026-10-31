@@ -7,6 +7,7 @@ import { chromium, type Browser } from "playwright";
 import { GALLERY_NOW } from "../src/gallery/clock";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { openRunningTray } from "./support/openRunningTray";
 
 await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -127,6 +128,8 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           );
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
           await page.waitForFunction(() => document.querySelector(".acpmux-running-tray[data-narrow]"));
+          // A headed tray starts folded; View all is under its open list.
+          await openRunningTray(page);
           // Keep the longest format present while measuring: the gallery clock otherwise
           // advances from 12h 59m 59s to the much shorter 13h during a slow capture.
           await page.clock.setFixedTime(new Date(GALLERY_NOW));
@@ -563,6 +566,34 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         expect(longState.overflow).toBe("hidden");
         expect(longState.textOverflow).toBe("ellipsis");
         expect(longState.whiteSpace).toBe("nowrap");
+      } finally {
+        await page.close();
+      }
+    });
+  }
+  for (const width of [760, 360]) {
+    test(`a subagent line's icons and title keep the row's 8px icon gap (${width}px wide)`, async () => {
+      const port = (server.httpServer!.address() as { port: number }).port;
+      const page = await browser.newPage({ viewport: { width, height: 400 }, reducedMotion: "reduce" });
+      try {
+        await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant: "one-running" })}`);
+        await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+        await page.locator(".acpmux-running-tray .acpmux-agent-line__kind-icon svg").first().waitFor();
+        const gaps = await page.evaluate(() => {
+          const line = document.querySelector<HTMLElement>(".acpmux-running-tray .acpmux-agent-line")!;
+          const box = (selector: string) => line.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
+          const state = box(".acpmux-lineage__icon");
+          const kind = box(".acpmux-agent-line__kind-icon svg");
+          const name = box(".acpmux-summary-agent__name");
+          return {
+            narrow: document.querySelector(".acpmux-running-tray")!.hasAttribute("data-narrow"),
+            iconToIcon: kind.left - state.right,
+            iconToTitle: name.left - kind.right,
+          };
+        });
+        expect(gaps.narrow).toBe(width <= 400);
+        expect(gaps.iconToIcon).toBeCloseTo(8, 0);
+        expect(gaps.iconToTitle).toBeCloseTo(8, 0);
       } finally {
         await page.close();
       }
