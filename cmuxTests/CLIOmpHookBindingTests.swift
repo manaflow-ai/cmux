@@ -317,6 +317,45 @@ struct CLIOmpHookBindingTests {
     }
 
     @Test
+    func bareOMPLaunchCaptureDoesNotCreatePathDependentResumeBinding() throws {
+        let context = try Harness.makeContext(name: "omp-bare-launch")
+        defer { context.cleanup() }
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [Self.liveWorkspaceId: [Self.liveSurfaceId]],
+            pidTarget: nil
+        )
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
+        environment["CMUX_AGENT_LAUNCH_KIND"] = "omp"
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "omp"
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = Self.base64NULSeparated([
+            "omp", "--resume", "bare-omp-session"
+        ])
+        environment["CMUX_AGENT_LAUNCH_CWD"] = context.root.path
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: [
+                "hooks", "omp", "session-start",
+                "--workspace", Self.liveWorkspaceId,
+                "--surface", Self.liveSurfaceId,
+            ],
+            environment: environment,
+            standardInput: #"{"session_id":"bare-omp-session","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        let requests = context.state.snapshot().compactMap(Self.jsonObject)
+        #expect(!requests.contains { $0["method"] as? String == "surface.resume.set" })
+    }
+
+    @Test
     func ambientTTYCannotMoveGenericHookAcrossClaimedWorkspace() throws {
         let context = try Harness.makeContext(name: "generic-tty-boundary")
         defer { context.cleanup() }
