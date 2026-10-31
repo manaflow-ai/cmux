@@ -16,7 +16,6 @@
   the chevron hides first and the + takes the trailing slot alone (the 2026-10-30 titlebar minimum is unchanged).
   Regression: `SidebarNewWorkspaceSplitButtonTests`.
 
-||||||| parent of 036f54893e44 (feat(sidebar): an empty group shows a + at rest and on its header's hover (green, user 17912))
 - 2026-10-30: a workspace row has no second line of its own. Leo, of a row titled "claude-sr2-coord"
   over "local · claude-sr2-coord": "and yes ofc remove the second line". The compact and comfortable
   row's second line used to lead with the computer (another machine in the one-list sidebar), its
