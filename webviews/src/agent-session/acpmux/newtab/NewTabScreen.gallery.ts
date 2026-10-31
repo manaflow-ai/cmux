@@ -6,6 +6,7 @@ import type { PlayContext } from "../../../gallery/play";
 import { CATALOG, CWD, fleetPeers, manySessions, noChat, session } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 import { composerStatePlays } from "../composerStatePlays";
+import { paneLanguage, translateKey } from "../i18n";
 
 /// Favicons as the host sends them (cx-d0d.8): small inline PNGs.
 const SITE_ICON =
@@ -1265,6 +1266,15 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.type("localhost:3000", { selector: ".nt-field" });
         await ctx.waitFor(() => ctx.document.querySelector(".nt-create-strip-item"));
+        // The frame loads the pane's language store before the locale's catalog; a languagechange
+        // moves it to the case's locale (as new-tab-strip-overflow.test.ts does), so the labels are that locale's.
+        ctx.document.defaultView?.dispatchEvent(new Event("languagechange"));
+        const browserLabel = translateKey("newTab.create.browser", {}, paneLanguage());
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll(".nt-create-strip-item .nt-row-title")].some(
+            (title) => title.textContent === browserLabel,
+          ),
+        );
         const popover = ctx.document.querySelector<HTMLElement>(".nt-popover");
         const strip = ctx.document.querySelector<HTMLElement>(".nt-create-strip");
         if (!popover || !strip) throw new Error("the create strip did not render");
