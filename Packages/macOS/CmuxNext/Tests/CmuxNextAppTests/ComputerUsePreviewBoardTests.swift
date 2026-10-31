@@ -86,7 +86,7 @@ struct ComputerUsePreviewBoardTests {
         let chats = [Self.chat("a", agent: "shared", workspace: "w"),
                      Self.chat("b", agent: "shared", workspace: "w")]
         #expect(ComputerUsePreviewRoute.pick(for: session, chats: chats) == nil)
-        #expect(ComputerUsePreviewRoute.pick(for: session, chats: chats.reversed()) == nil)
+        #expect(ComputerUsePreviewRoute.pick(for: session, chats: Array(chats.reversed())) == nil)
     }
 
     @Test func anotherWorkspacesLiveComputerFrameCannotAppearInThisChat() {
