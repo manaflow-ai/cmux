@@ -355,3 +355,20 @@ fn unreadable_holds_and_reservations_hold() {
     reg["reservations"] = Value::Null;
     assert_eq!(place(&both, Some(&reg), Work::Agent)["pick"], "big");
 }
+
+/// The disk floor `session move --host auto` holds a host to: its `lanes.free_gb_floor`, by
+/// name or alias, else the default lane host's.
+#[test]
+fn disk_floor_comes_from_the_registry_lanes_entry() {
+    let reg = json!({"machines": {
+        "lane": {"aliases": ["l1"], "lanes": {"free_gb_floor": 40}},
+        "bare": {"lanes": {}},
+        "none": {}}});
+    assert_eq!(disk_floor(Some(&reg), "lane"), 40_000_000_000);
+    assert_eq!(disk_floor(Some(&reg), "L1.local"), 40_000_000_000);
+    let default = disk_floor(None, "x");
+    assert_eq!(default, 10_000_000_000);
+    for name in ["bare", "none", "unlisted"] {
+        assert_eq!(disk_floor(Some(&reg), name), default, "{name}");
+    }
+}
