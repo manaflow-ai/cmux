@@ -330,13 +330,17 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
       const name = `cmuxnp-dev-vmimg-${options.tag}-smoke-${i}`;
       const { clone, row } = await measureClone(fs, ledger, name, options.snapshotId);
       rows.push(row);
+      // Track the clone before the extra probe so a refused/failed exec still cleans it up.
+      kept.push(clone);
       if (options.nativeReceiver) {
         const receiver = await run(clone.vm, NATIVE_RECEIVER_SMOKE);
         check(report, `native-receiver-root-${i}`, receiver.code === 0, receiver.stdout.trim() || receiver.stderr.slice(-200));
       }
       console.log(`clone ${i} ${clone.vmId}: ${JSON.stringify(row)}`);
-      if (kept.length < 2) kept.push(clone);
-      else await deleteVm(clone.vm, clone.vmId, clone.name, ledger);
+      if (kept.length > 2) {
+        await deleteVm(clone.vm, clone.vmId, clone.name, ledger);
+        kept.pop();
+      }
     }
     report.clones = rows;
     report.latency = summarize(rows);
