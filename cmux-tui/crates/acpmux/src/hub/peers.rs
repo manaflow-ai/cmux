@@ -235,12 +235,12 @@ impl Hub {
         if stopped {
             tracing::warn!(peer = %name, "it stopped before its connect attempt settled");
         } else if !done {
-            tracing::warn!(peer = %name, state = %peer["state"], "its connect attempt had not settled after {}s; answering with how it is now", budget.as_secs());
+            tracing::warn!(peer = %name, state = %peer.get("state").unwrap_or(&Value::Null), "its connect attempt had not settled after {}s; answering with how it is now", budget.as_secs());
         }
         let waited = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         let mut wait = json!({"settled": done, "waitedMs": waited, "peer": peer});
         if stopped {
-            wait["stopped"] = Value::Bool(true);
+            wait.set("stopped", Value::Bool(true));
         }
         wait
     }
