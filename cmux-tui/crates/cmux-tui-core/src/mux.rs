@@ -209,6 +209,7 @@ mod kitty_budget;
 mod kitty_reservation;
 mod launch_identity;
 mod ledger_maintenance;
+mod output_cleanup;
 mod pinned_columns;
 mod pty_reclaim;
 mod workspace_name;
@@ -664,6 +665,8 @@ pub struct Mux {
     /// Periodic checkpoint, segment sealing and incremental vacuum worker
     /// (mux/journal_maintenance.rs); `None` for an in-memory session.
     journal_maintenance: Mutex<Option<journal_maintenance::JournalMaintenance>>,
+    /// The one-time stored-output cleanup worker (mux/output_cleanup.rs).
+    output_cleanup: output_cleanup::OutputCleanupState,
     /// The maintenance worker's stop and journal-change wake; every
     /// published journal event marks it.
     journal_maintenance_control: Arc<journal_maintenance::JournalMaintenanceControl>,
@@ -1029,6 +1032,7 @@ impl Drop for Mux {
         {
             maintenance.stop();
         }
+        self.stop_output_cleanup();
         self.journal_plugin.shutdown();
         self.finalize_terminal_journal("mux drop", false);
         self.journal_kernel.shutdown();
