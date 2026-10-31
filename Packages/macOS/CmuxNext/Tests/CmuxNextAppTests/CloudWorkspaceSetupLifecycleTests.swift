@@ -98,7 +98,7 @@ struct CloudSignedOutCreationContinuationTests {
         let gate = CloudSignInTestGate()
         var starts = 0
         registry.bindEffect("test.create") { _ in
-            ActionTrackedWork.effect(registry: registry, cancellationFailure: ActionWorkFailure("cancelled"), authorize: { nil }) {
+            registry.trackedWorkEffect(cancellationFailure: ActionWorkFailure("cancelled"), authorize: { nil }) {
                 starts += 1
                 registry.track(result: Task {
                     _ = await gate.wait()
@@ -130,7 +130,7 @@ struct CloudSignedOutCreationContinuationTests {
         var creations = 0
         registry.bindEffect("test.create") { _ in
             let expected = handoff.reserve()
-            return ActionTrackedWork.effect(registry: registry, cancellationFailure: ActionWorkFailure("cancelled"), authorize: {
+            return registry.trackedWorkEffect(cancellationFailure: ActionWorkFailure("cancelled"), authorize: {
                 let signedIn = await handoff.perform(expected: expected, signIn: { true }, resume: {})
                 return signedIn ? nil : ActionWorkFailure("sign-in failed")
             }) {
@@ -150,7 +150,7 @@ struct CloudSignedOutCreationContinuationTests {
         let gate = CloudSignInTestGate()
         var child: ActionWork?
         registry.bindEffect("test.create") { _ in
-            ActionTrackedWork.effect(registry: registry, cancellationFailure: ActionWorkFailure("cancelled")) {
+            registry.trackedWorkEffect(cancellationFailure: ActionWorkFailure("cancelled")) {
                 let task: ActionWork = Task {
                     _ = await gate.wait()
                     return Task.isCancelled ? ActionWorkFailure("cancelled") : nil

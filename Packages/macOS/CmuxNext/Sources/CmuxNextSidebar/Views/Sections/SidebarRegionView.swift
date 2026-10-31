@@ -277,6 +277,7 @@ final class SidebarRegionView: NSView {
                 view.configure(info, style: style)
                 view.setAccessibilityIdentifier("cmux.sidebar.item.\(id.rawValue)")
                 view.activatesOnPress = item.ref.activatesOnPress
+                view.isMovable = item.isMovable // Home's press never drags (`LayoutItem.isMovable`)
                 place(view, row.frame, new: new)
                 if id == SidebarListBlocks.gapID { view.alphaValue = 0 } // a drag's gap: the slot the others make way for
                 edit(view, id)
@@ -374,6 +375,8 @@ final class SidebarRegionView: NSView {
         // workspace as a workspace row's x does (SidebarItemRowView+HoverActions).
         view.onMore = { [weak self, weak view] in
             guard let view, let button = view.hoverMore, let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }
+            view.showsMenu = true
+            defer { view.showsMenu = false }
             _ = menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.isFlipped ? button.bounds.maxY : 0), in: button)
         }
         view.onClose = { [weak self, weak view] in

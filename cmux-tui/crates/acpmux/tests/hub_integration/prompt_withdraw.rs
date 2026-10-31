@@ -29,6 +29,8 @@ fn config(env: Value) -> Config {
 fn hub_env(env: Value) -> Arc<Hub> {
     let mut cfg = config(env);
     cfg.store.mode = StoreMode::Memory;
+    // The queue path before the inbox (`hub/inbox.rs`), which these tests cover.
+    cfg.agent_inbox = Some(false);
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
     Hub::new(cfg, store)
 }
@@ -41,6 +43,8 @@ fn hub() -> Arc<Hub> {
 fn durable_hub(dir: &Path) -> Arc<Hub> {
     let mut cfg = config(json!({}));
     cfg.store.mode = StoreMode::Local;
+    // The queue path before the inbox (`hub/inbox.rs`), which these tests cover.
+    cfg.agent_inbox = Some(false);
     let store = acpmux::store::open(&cfg.store, dir).unwrap();
     Hub::new(cfg, store)
 }

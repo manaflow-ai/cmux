@@ -431,7 +431,7 @@ fn chief_zoom_and_date_answer_from_the_live_memory() {
 /// keeps `mux.parent` only.
 #[test]
 fn the_chiefs_turn_and_compactor_sessions_carry_cmux_chief_and_children_do_not() {
-    use optchat_chief::acpmux::{CHIEF_ROLE_TAG, CHIEF_TAG};
+    use optchat_chief::acpmux::{CHIEF_PARTICIPANT_TAG, CHIEF_ROLE_TAG, CHIEF_TAG};
     let mut h = harness_with(settings);
     h.connect();
     h.say("user_local", "hello");
@@ -441,8 +441,13 @@ fn the_chiefs_turn_and_compactor_sessions_carry_cmux_chief_and_children_do_not()
         let tags = &inner.specs[0].tags;
         assert_eq!(tags.get(CHIEF_TAG).map(String::as_str), Some("h0me"));
         assert_eq!(tags.get(CHIEF_ROLE_TAG).map(String::as_str), Some("turn"));
+        // The Chief's participant id, which acpmux stamps as `fromChief` (#27935).
+        assert_eq!(
+            tags.get(CHIEF_PARTICIPANT_TAG).map(String::as_str),
+            Some(cmux_chief::rules::AGENT_MUX)
+        );
         // Plus its names on an approval card (approval_display_tags.rs), never `mux.parent`.
-        assert_eq!(tags.len(), 4);
+        assert_eq!(tags.len(), 5);
         assert!(!tags.contains_key(cmux_chief::rules::PARENT_TAG));
     }
     let dir = tempfile::tempdir().unwrap();

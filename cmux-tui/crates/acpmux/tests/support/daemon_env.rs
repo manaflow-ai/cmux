@@ -51,18 +51,19 @@ pub struct Process {
     agents: Agents,
     keep: &'static [&'static str],
     inject: &'static [(&'static str, &'static str)],
+    tools: &'static [&'static str],
 }
 
 impl Process {
     /// No agent starts in this process or in a daemon it starts without a
     /// choice of its own.
     pub const fn deny() -> Self {
-        Self { agents: Agents::Deny, keep: &[], inject: &[] }
+        Self { agents: Agents::Deny, keep: &[], inject: &[], tools: &[] }
     }
 
     /// The process starts its own stand-in agents (a hub run in process).
     pub const fn stand_in() -> Self {
-        Self { agents: Agents::StandIn, keep: &[], inject: &[] }
+        Self { agents: Agents::StandIn, keep: &[], inject: &[], tools: &[] }
     }
 
     /// Host variables this process truly needs, kept as they are (each one
@@ -76,6 +77,21 @@ impl Process {
     pub const fn with_env(self, inject: &'static [(&'static str, &'static str)]) -> Self {
         Self { inject, ..self }
     }
+
+    /// Host tools (by name) this process runs itself, found on the host's
+    /// PATH before the process goes hermetic, so [`tool_dir`] and
+    /// [`bare_path`] can link them later (the hermetic PATH no longer
+    /// holds them). The host's PATH itself is never kept.
+    pub const fn tools(self, tools: &'static [&'static str]) -> Self {
+        Self { tools, ..self }
+    }
+}
+
+/// The variable that carries a [`Process::tools`] tool's host path into the
+/// hermetic process.
+#[cfg(unix)]
+fn tool_var(name: &str) -> String {
+    format!("ACPMUX_TEST_TOOL_{name}")
 }
 
 /// Test-runner variables every hermetic process keeps: they hold no
@@ -175,6 +191,9 @@ pub fn enter(process: Process, args: Vec<std::ffi::OsString>) {
     env.push((ENTERED.into(), "1".into()));
     // The interpreter found now, so the hermetic process does not look again.
     env.push((PYTHON.into(), host_tool("python3").display().to_string()));
+    for tool in process.tools {
+        env.push((tool_var(tool), host_tool(tool).display().to_string()));
+    }
     let exe = std::env::current_exe().expect("the test binary's path");
     let mut args = args.into_iter();
     let mut cmd = Command::new(&exe);
@@ -183,6 +202,23 @@ pub fn enter(process: Process, args: Vec<std::ffi::OsString>) {
     }
     let err = cmd.args(args).env_clear().envs(env).exec();
     panic!("start {} again with the hermetic environment: {err}", exe.display());
+}
+
+/// The readiness line a `daemon run --ready-fd 1` writes on `stdout`. The daemon's log shares
+/// stdout, so a line it logs first (a startup warning) comes before it; each such line goes on
+/// to this test's stderr.
+pub fn ready_line(stdout: impl std::io::Read) -> String {
+    use std::io::BufRead;
+    let mut stdout = std::io::BufReader::new(stdout);
+    loop {
+        let mut line = String::new();
+        let read = stdout.read_line(&mut line).expect("read the daemon's stdout");
+        assert!(read > 0, "the daemon exited before it was ready");
+        if line.contains("\"ready\":true") {
+            return line;
+        }
+        eprint!("daemon before ready: {line}");
+    }
 }
 
 /// The binary under test. Only for values (a path a daemon passes on, an
@@ -334,6 +370,9 @@ fn host_tool(name: &str) -> PathBuf {
         && let Some(python) = std::env::var_os(PYTHON)
     {
         return PathBuf::from(python);
+    }
+    if let Some(tool) = std::env::var_os(tool_var(name)) {
+        return PathBuf::from(tool);
     }
     let found = std::env::var_os("PATH")
         .iter()
