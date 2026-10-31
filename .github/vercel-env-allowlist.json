@@ -1,0 +1,36 @@
+{
+  "comment": "The only Vercel env variables .github/workflows/vercel-env.yml may set or remove on cmux.com. tests/test_vercel_env_workflow.py keeps the workflow in step with this file. A secret entry is written as a Vercel Sensitive variable (never readable back); a plain entry as Encrypted. Each value comes from a GitHub secret of the same name in the environment below, never from a workflow input. readBy names the file that reads each variable; until the Run model port lands, those files are on feat-cmux-next.",
+  "project": {
+    "name": "cmux",
+    "id": "prj_kH8qcuoliyJ2TLI4vMM03rnNVzr4",
+    "teamId": "team_KndpHsJ15gO2OoAP2SO0thYn",
+    "teamSlug": "manaflow"
+  },
+  "environment": "vercel-env-production",
+  "targets": [
+    "production",
+    "preview"
+  ],
+  "variables": {
+    "CMUX_RUN_SANDBOX_USER_IDS": {
+      "secret": false,
+      "readBy": "web/services/runs/sandbox.ts",
+      "purpose": "Stack user ids allowed to start sandboxed Runs (comma or space separated, * for all; empty allows nobody)."
+    },
+    "CMUX_RUN_WORKER_SECRET": {
+      "secret": true,
+      "readBy": "web/services/runs/workerAuth.ts",
+      "purpose": "HMAC key for per-attempt Run worker tokens."
+    },
+    "CMUX_RUN_WORKER_TOKEN": {
+      "secret": true,
+      "readBy": "web/services/runs/workerAuth.ts",
+      "purpose": "Shared Run worker token, used when no per-attempt scope applies."
+    },
+    "CMUX_VM_ALLOCATION_RATE_LIMIT_ID": {
+      "secret": false,
+      "readBy": "web/services/vms/allocationRateLimit.ts",
+      "purpose": "Vercel Firewall rule id throttling provider-costing VM operations per billing team; deployed routes fail closed without it."
+    }
+  }
+}

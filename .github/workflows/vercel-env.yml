@@ -1,0 +1,90 @@
+name: Vercel env (cmux.com)
+
+# Sets or removes one env variable on the cmux.com Vercel project (manaflow/cmux)
+# without anyone's personal `vercel login`.
+#
+# - Names: only those in .github/vercel-env-allowlist.json (the single source of
+#   truth; tests/test_vercel_env_workflow.py keeps this file in step with it).
+# - Values: never an input (inputs are logged). Each value is a GitHub secret
+#   of the same name in the vercel-env-production environment, which also
+#   holds VERCEL_TOKEN, so only a reviewer-approved run on main reaches either.
+#   GitHub falls back to a repository or organization secret of the same name
+#   when the environment lacks one; keep these names out of those scopes (the
+#   job token cannot list secrets, so the workflow cannot check this itself).
+#   GitHub stores no empty secret: to clear a variable, run remove.
+# - Effect: Vercel applies env changes to new deployments only. The next main
+#   deploy picks the change up; redeploy from the Vercel dashboard to apply it
+#   sooner. This workflow does not deploy.
+
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        description: Variable to change (allowlisted names only)
+        required: true
+        type: choice
+        # A flow list: block list items are runner-selection lines to
+        # tests/test_ci_self_hosted_guard.sh, which reads CMUX_ as a fleet label.
+        options: [CMUX_RUN_SANDBOX_USER_IDS, CMUX_RUN_WORKER_SECRET, CMUX_RUN_WORKER_TOKEN, CMUX_VM_ALLOCATION_RATE_LIMIT_ID]
+      target:
+        description: Vercel target
+        required: true
+        default: production
+        type: choice
+        options: [production, preview]
+      action:
+        description: set writes the environment secret of the same name; remove deletes the variable from the target
+        required: true
+        default: set
+        type: choice
+        options: [set, remove]
+
+permissions: {}
+
+concurrency:
+  # One change at a time; a queued change is never dropped for a newer one.
+  group: vercel-env
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    # Only trusted main code runs with the Vercel token.
+    if: ${{ github.ref == 'refs/heads/main' }}
+    # Pinned, not vars.LINUX_RUNNER: a repository variable changes without a
+    # pull request, and this job holds the Vercel token.
+    # A fork has no Blacksmith runners (and no environment or token).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    environment: vercel-env-production
+    permissions:
+      contents: read
+      # Read the environment's protection rules and branch policies (check step below).
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # GitHub creates a missing environment on first use with no protection,
+      # and the repo-level VERCEL_TOKEN would then reach an unapproved run.
+      - name: Refuse an unprotected environment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/vercel_env.py --check-environment
+
+      - name: Apply and verify
+        env:
+          NAME: ${{ inputs.name }}
+          TARGET: ${{ inputs.target }}
+          ACTION: ${{ inputs.action }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          # Only the selected variable's secret is read, and only for set.
+          VERCEL_ENV_VALUE: >-
+            ${{ inputs.action == 'set' && (
+            inputs.name == 'CMUX_RUN_SANDBOX_USER_IDS' && secrets.CMUX_RUN_SANDBOX_USER_IDS ||
+            inputs.name == 'CMUX_RUN_WORKER_SECRET' && secrets.CMUX_RUN_WORKER_SECRET ||
+            inputs.name == 'CMUX_RUN_WORKER_TOKEN' && secrets.CMUX_RUN_WORKER_TOKEN ||
+            inputs.name == 'CMUX_VM_ALLOCATION_RATE_LIMIT_ID' && secrets.CMUX_VM_ALLOCATION_RATE_LIMIT_ID ||
+            '') || '' }}
+        run: python3 scripts/ci/vercel_env.py --name "$NAME" --target "$TARGET" --action "$ACTION"
