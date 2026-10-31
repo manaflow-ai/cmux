@@ -624,7 +624,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         peers: ["gpu-box"],
         peerKinds: { "gpu-box": "ssh" },
         peerConnected: { "gpu-box": true },
-        localName: thisMacName("office-mac", "kind-aqua-sandpiper", { hostKind: "cloud", host: "kind-aqua-sandpiper" }),
+        localName: thisMacName("office-mac"),
       },
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /^Environment/ });

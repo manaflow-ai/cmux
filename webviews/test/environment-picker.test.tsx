@@ -418,7 +418,7 @@ test("a Cloud machine is never listed under This Mac, and This Mac keeps this Ma
     await mount(true, {
       summary: cloudChat,
       sessions: [{ sessionId: "c", cwd: "/root/work", host: "kind-aqua-sandpiper", hostKind: "cloud", updatedAt: 0 }],
-      localName: thisMacName(localMachineName, "kind-aqua-sandpiper", cloudChat),
+      localName: thisMacName(localMachineName),
     });
     await openPicker();
     const shown = machineRows();
@@ -442,18 +442,14 @@ test("a Cloud machine is never listed under This Mac, and This Mac keeps this Ma
   }
 });
 
-test("This Mac's name is the host's own name, never the machine a seeded chat runs on", async () => {
+test("This Mac's name is the host's own name, never the machine a chat runs on", async () => {
   const { thisMacName } = await import("../src/agent-session/acpmux/environments");
-  expect(thisMacName("cosmic-gray", "kind-aqua-sandpiper", { peer: "kind-aqua-sandpiper" })).toBe("cosmic-gray");
-  // An older host: `machineName` is the chat's peer or Cloud host, so it is not this Mac's.
-  expect(thisMacName(undefined, "kind-aqua-sandpiper", { peer: "kind-aqua-sandpiper" })).toBeUndefined();
-  expect(
-    thisMacName(undefined, "kind-aqua-sandpiper", { hostKind: "cloud", host: "kind-aqua-sandpiper" }),
-  ).toBeUndefined();
-  // An older host's tab on another machine's daemon: that daemon reports the chat as local on its own
-  // host, and `machineName` names that machine, never this Mac.
-  expect(thisMacName(undefined, "build-mini", { hostKind: "local", host: "build-mini" })).toBeUndefined();
-  expect(thisMacName(undefined, undefined)).toBeUndefined();
+  expect(thisMacName("cosmic-gray")).toBe("cosmic-gray");
+  // An older host sends no `localMachineName`. Its `machineName` may be a seeded peer, a Cloud machine,
+  // or another machine whose daemon reports the chat as local there (`build-mini`), so This Mac never
+  // takes it and reads "This Mac".
+  expect(thisMacName(undefined)).toBeUndefined();
+  expect(thisMacName("")).toBeUndefined();
 });
 
 test("with no cloud machine yet, New Cloud Machine heads its own Cloud section and opens the create flow", async () => {
