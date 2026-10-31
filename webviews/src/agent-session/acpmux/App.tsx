@@ -259,7 +259,6 @@ import {
   type SubagentScope,
 } from "./inspector/subagentScope";
 import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
-import { AgentsPill } from "./subagents/AgentsPill";
 import { SubagentTray } from "./subagents/SubagentTray";
 import { BackgroundTasksPanel } from "./backgroundTasks/BackgroundTasksPanel";
 import { backgroundGroups, type TaskCache } from "./backgroundTasks/backgroundTasks";
@@ -7567,10 +7566,9 @@ function AcpmuxPane() {
     (id) => showSubagent(id, false),
     snapshot.clockOffsetMs ?? 0,
   );
-  // The agents pill (subagents/AgentsPill.tsx) and each subagent's color (agentTones.ts), which
-  // the pill's list and the transcript's subagent rows share. A streamed chunk makes a new list of
-  // the same agents: the last one stays while nothing the pill shows changed, so a snapshot that
-  // streams text redraws neither the pill nor a subagent row.
+  // Each subagent's color (agentTones.ts), which the transcript's subagent rows share. A streamed
+  // chunk makes a new list of the same agents: the last one stays while nothing a row shows changed,
+  // so a snapshot that streams text redraws neither the row nor its tone.
   const agentsKey = freshAgents
     .map((agent) =>
       [
@@ -11880,20 +11878,6 @@ function AcpmuxPane() {
         {/* The tray (subagents/SubagentTray.tsx): in the bottom stack, right above the composer, every
           running or recently ended subagent, background command and started chat, one card each. */}
         {trayPlacement === "tray" && trayNode}
-        {/* The agents pill (subagents/AgentsPill.tsx), with the tray off (Debug Settings): in the bottom
-          stack, right above the composer, while the turn works; an agent a cancel or a reconnect left
-          "running" shows none. */}
-        {!subagentTray && !quick && !freshView && snapshot.isWorking && chatTones && chatAgents.some(running) && (
-          <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
-            <AgentsPill
-              key={shownSessionId}
-              agents={chatAgents}
-              waiting={waitingAgents}
-              tones={chatTones}
-              onOpen={showSubagent}
-            />
-          </SubagentClockContext.Provider>
-        )}
         {statusCardOpen && (
           <HarnessStatusCard
             summary={snapshot.summary}
