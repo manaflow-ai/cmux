@@ -1,4 +1,4 @@
-@testable import CmuxNextApp
+@testable import CmuxNextAgentLanes
 import Foundation
 import Testing
 
@@ -6,7 +6,7 @@ import Testing
 /// (lead, review of #28090: a user-visible count string must show the right plural form, and its
 /// test must read the shown text, not compare the function with itself).
 ///
-/// Each case reads one language's table from CmuxNextApp's bundle (`<lang>.lproj`), so it does not
+/// Each case reads one language's table from CmuxNextAgentLanes' bundle (`<lang>.lproj`), so it does not
 /// depend on the test runner's language.
 @Suite struct AgentChatsMoreChatsPluralsTests {
     func table(_ language: String) throws -> (bundle: Bundle, locale: Locale) {

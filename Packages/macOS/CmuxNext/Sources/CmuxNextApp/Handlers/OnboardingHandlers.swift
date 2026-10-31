@@ -45,7 +45,7 @@ enum OnboardingHandlers {
                 }
                 // The caller's acpmux session, by id (O(1)): its title and latest reply.
                 return CookieImportRequester(invocation, among: tabs) { session in
-                    AgentLaneStore.shared.lane(session).map { ($0.title, $0.preview) }
+                    services.agentLanes.lane(session).map { ($0.title, $0.preview) }
                 }
             },
             target: { invocation in

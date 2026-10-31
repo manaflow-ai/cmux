@@ -11,7 +11,7 @@ extension ChatsFeed {
     /// Nil without a local acpmux environment.
     static func started(for services: AppServices) -> ChatsFeed? {
         guard let environment = QuitAgents.environment(services) else { return nil }
-        let turns = AgentTurnStateFeed.shared ?? AgentTurnStateFeed(socketPath: environment.socketPath)
+        let turns = AgentTurnStateFeed.shared ?? AgentTurnStateFeed(socketPath: environment.socketPath, lanes: services.agentLanes)
         AgentTurnStateFeed.shared = turns
         AgentTurnStateFeed.drained = { DebugTimings.turnStatesApplied(lines: $0, $1) }
         // A deleted chat's uploads go with it; any past their age at launch (``AgentChatUploads``).
