@@ -333,6 +333,7 @@ function SendRaw({ tool, reveal, live }: { tool: Tool; reveal: number; live: boo
         call={call}
         raw={mcpRawName(tool, call)}
         output={tool.output}
+        tool={tool}
         strip={false}
         reveal={reveal}
       />
