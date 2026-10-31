@@ -45,6 +45,8 @@ extension WindowManager {
             makeController(for: window)
         }
         repairSelections(previous: previous, preferred: preferred)
+        // A window Home that moved into a window with a Home closes (cmux#27880).
+        services.windowHomes.closeSurplus(previous: previous)
         let closing = controllers.filter { $0.state.id != launchWindowID && value.window($0.state.id)?.isOpen != true }
         let closedKey = closing.contains { $0.window?.isKeyWindow == true }
         for controller in closing { closeProgrammatically(controller) }
@@ -139,6 +141,24 @@ extension WindowManager {
         }
         claim(workspaceID: workspaceID, in: state)
         controller(for: state.id)?.showWorkspace(requested: state.workspaceID)
+    }
+
+    /// Shows `workspaceID` in window `windowID` (taking it there), as a pick in that window's own
+    /// sidebar does; nothing for a window this app does not have.
+    func show(workspaceID: String, inWindow windowID: String) {
+        guard let state = states[windowID] else { return }
+        show(workspaceID: workspaceID, in: state, from: .thisWindow)
+    }
+
+    /// Each registered window's workspaces, by window id.
+    var membersByWindow: [String: [String]] {
+        Dictionary(registry.value.windows.map { ($0.id, $0.workspaceIDs) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// The open window that lists `workspaceID`, if any.
+    func openOwner(of workspaceID: String) -> String? {
+        guard let owner = registry.value.owner(of: workspaceID), registry.value.window(owner)?.isOpen == true else { return nil }
+        return owner
     }
 
     /// Shows `workspaceID` where it lives: its window when open, else the
@@ -407,10 +427,31 @@ extension WindowManager {
     func isDead(_ id: String) -> Bool {
         if pendingClaims[id] != nil || services.machines.workspace(id: id) != nil { return false }
         if let machine = seenMachine[id] {
-            guard let daemon = services.machines.daemon(machine: machine) else { return cloudSettled }
-            return daemon.store.isLoaded
+            // Its machine connected and loaded without it: gone. Connecting or paused: it waits.
+            if let daemon = services.machines.daemon(machine: machine) { return daemon.store.isLoaded }
+            // An SSH machine or server with no session this run was forgotten (it is in no Cloud list).
+            guard MachineRegistry.isCloudMachineID(machine) else { return cloudSettled }
+            // A Cloud machine with no daemon this run is gone only if it left the account, never because
+            // the Cloud is not connected (signed out, turned off, its list not loaded; P-AUSTIN B7b).
+            return Self.remoteMachineLeft(listed: services.machines.anyDaemon(machine: machine) != nil,
+                                          accountListLoaded: accountMachineListLoaded)
         }
         return services.machines.local.store.isLoaded && cloudSettled
+    }
+
+    /// Whether a saved workspace whose machine this run has no daemon for is gone (P-AUSTIN B7b).
+    /// `listed`: the machine registry has the machine, its feature on or off. `accountListLoaded`:
+    /// the signed-in account's machine list has loaded.
+    /// Signed out, Cloud off, the list not loaded, or the machine listed with its feature off: it is
+    /// only not connected, so its workspaces stay in their windows and come back when it connects.
+    static func remoteMachineLeft(listed: Bool, accountListLoaded: Bool) -> Bool {
+        !listed && accountListLoaded
+    }
+
+    /// The signed-in account's Cloud machine list has loaded: a machine it does not list left the account.
+    private var accountMachineListLoaded: Bool {
+        let cloud = services.cloud
+        return cloud.isSignedIn && !cloud.auth.isRestoring && cloud.hasLoadedMachines
     }
 
     /// Where a previous launch last saw each saved workspace (`WindowStateDocument.workspaceMachines`),

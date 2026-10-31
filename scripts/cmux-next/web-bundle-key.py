@@ -12,9 +12,14 @@ fields only: the Xcode verify phase runs with a PATH that may lack bun.
 
 `--inputs` prints the pathspecs the source key hashes, one per line.
 
+The source key includes the pinned Bun and Node toolchain identity. Set CMUX_WEB_BUN_VERSION or
+CMUX_WEB_NODE_VERSION when a workflow computes the key so a toolchain change cannot reuse a
+published manifest for the same sources.
+
 Usage: web-bundle-key.py ROOT [--stamp | --verify-stamp | --source | --outputs | --inputs]
 """
 import hashlib
+import json
 import os
 import re
 import subprocess
@@ -24,11 +29,13 @@ import sys
 # source imports (imported_inputs below finds those). webviews/ includes its scripts, lockfile and
 # xcstrings catalogs (not the strings tables: build output, ignored since #21946, made from those
 # catalogs and the settings schema); schemas/settings is imported by the settings page and read
-# by gen-strings.mjs; the xcstrings catalogs feed gen-strings.mjs; marked.min.js is inlined into the
-# webviews app's agent-session.html.
+# by gen-strings.mjs; the xcstrings catalogs feed gen-strings.mjs; the What's New highlights feed
+# gen-feature-tips.mjs (the agent pane's feature tips, build output gen-strings.mjs makes);
+# marked.min.js is inlined into the webviews app's agent-session.html.
 INPUTS = [
     "webviews",
     "schemas/settings",
+    ":(glob)release-notes/next/highlights/*.md",
     "Resources/markdown-viewer/marked.min.js",
     "scripts/build-webviews-app.sh",
     "scripts/check-webviews-bun-version.sh",
@@ -171,8 +178,34 @@ def file_digest(path):
     return h.hexdigest()
 
 
+def declared_bun_version(root):
+    with open(os.path.join(root, "webviews/package.json"), encoding="utf-8") as f:
+        package_manager = (json.load(f).get("devEngines") or {}).get("packageManager") or {}
+    return package_manager.get("version", "1.4.4") if package_manager.get("name") == "bun" else "1.4.4"
+
+
+def toolchain_identity(root):
+    # Keep these defaults in one place: workflows export the same values before computing keys.
+    bun = normalize_toolchain_version(os.environ.get("CMUX_WEB_BUN_VERSION", declared_bun_version(root)))
+    node = normalize_toolchain_version(os.environ.get("CMUX_WEB_NODE_VERSION", "24.22.1"))
+    return f"bun={bun}\nnode={node}\n"
+
+
+def normalize_toolchain_version(value):
+    """Normalize runtime version output for stable manifest comparisons."""
+    return value.strip().removeprefix("v")
+
+
+def manifest_matches_toolchain(manifest, bun, node):
+    return all(
+        normalize_toolchain_version(manifest.get(name, "")) == normalize_toolchain_version(expected)
+        for name, expected in (("bun", bun), ("node", node))
+    )
+
+
 def source_key(root):
     h = hashlib.sha256()
+    h.update(b"web-bundle-toolchain\0" + toolchain_identity(root).encode())
     for rel in git_files(root, source_inputs(root)):
         path = os.path.join(root, rel)
         # A tracked file deleted in the worktree is listed but absent.

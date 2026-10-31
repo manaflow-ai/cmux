@@ -62,11 +62,28 @@ public final class PageRouter {
 
     // MARK: Page to host
 
+    /// A page's call or subscription id: an integer in 1 ... 2^53 - 1 (the JSON-safe range the protocol
+    /// allows), nil for anything else. The page posts any JSON number (`Infinity` and `1e30` are valid
+    /// script values) and `UInt64(_:)` traps outside 0 ..< 2^64.
+    nonisolated static func wireID(_ value: Double) -> UInt64? {
+        guard value >= 1, value <= 9_007_199_254_740_991, value == value.rounded(.towardZero) else { return nil }
+        return UInt64(value)
+    }
+
     /// Handles one envelope the page posted and returns the reply envelope (or `null` for
     /// messages that need none: `unsub`, and replies to host calls).
     public func handle(_ message: JSONValue) async -> JSONValue {
         guard let type = message["t"]?.stringValue else { return Self.error(id: 0, .invalidParams("missing t")) }
-        let id = message["id"]?.doubleValue.map { UInt64(max(0, $0)) } ?? 0
+        var id: UInt64 = 0
+        if let raw = message["id"]?.doubleValue {
+            guard let valid = Self.wireID(raw) else {
+                // An invalid id names no operation: a call or subscription is refused (never run under
+                // id 0, where invalid ids would collide); anything else needs no reply.
+                guard type == "call" || type == "sub" else { return .null }
+                return Self.error(id: 0, PageError(code: "cmux.protocol.bad_message", message: "id must be an integer from 1 to 2^53 - 1"))
+            }
+            id = valid
+        }
         switch type {
         case "call":
             guard let op = message["op"]?.stringValue else { return Self.error(id: id, .invalidParams("missing op")) }
@@ -101,7 +118,7 @@ public final class PageRouter {
             inFlight[id]?.cancel()
             return .null
         case "unsub":
-            if let sub = message["sub"]?.doubleValue { unsubscribe(UInt64(max(0, sub))) }
+            if let sub = message["sub"]?.doubleValue.flatMap(Self.wireID) { unsubscribe(sub) }
             return .null
         case "ok", "err":
             resolve(id: id, message)
@@ -184,6 +201,11 @@ public final class PageRouter {
         // A provider may send its current state from inside `subscribe` (the icon picker's open
         // session). Those events wait until the reply that names `sub` reaches the page.
         let early = PageEarlyEvents()
+        // One owner frees it on every exit: the posted flush below takes it over; every other exit (a
+        // throw, the page closed meanwhile, nothing held) releases it here, so a provider that keeps
+        // `onEvent` after its subscription ended adds nothing to a list nobody reads.
+        var flushesAfterReply = false
+        defer { if !flushesAfterReply { _ = early.release() } }
         let subscription: PageSubscription
         do {
             subscription = try await provider.subscribe(stream, filter: filter, context: PageCallContext(page: descriptor.id)) { [weak self] data in
@@ -203,13 +225,13 @@ public final class PageRouter {
         }
         activeStreams.remove(sub)
         subscriptions[sub] = subscription
-        // Nothing held: later events go straight to the page. Otherwise they queue behind the held
-        // ones until the flush, which runs after the reply.
-        guard !early.isHolding || provider.eventsAfterSubscribeReply else {
-            if provider.eventsAfterSubscribeReply { return sub }
+        // Nothing held (or a provider that sends only after the reply): later events go straight to
+        // the page. Otherwise they queue behind the held ones until the flush, which runs after the reply.
+        guard early.isHolding, !provider.eventsAfterSubscribeReply else {
             _ = early.release()
             return sub
         }
+        flushesAfterReply = true
         // task-owner: one flush after the reply; ends with the router
         Task { @MainActor [weak self] in
             for data in early.release() { self?.deliver(sub: sub, data, publicationID: provider.eventDeliveryID) }
