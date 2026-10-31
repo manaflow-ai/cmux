@@ -35,12 +35,23 @@ struct PageChromiumAttachmentSourceTests {
         var dropped: [[URL]] = []
         let files = [URL(fileURLWithPath: "/tmp/shot.png"), URL(fileURLWithPath: "/tmp/notes.txt")]
         let drop = FakeChromiumPage.bindingCall(["name": PageChromiumDocumentScripts.pageDropHandler, "body": [String: String]()])
+        let entered = Date(timeIntervalSince1970: 1_793_000_000)
+        view.now = { entered }
         page.onEvent?(.filesDragged(files))
+        view.now = { entered.addingTimeInterval(2) }
+        var enteredAt: Date?
         let first: [URL]? = await PageTestWait.value("drop") { done in
-            view.onFilesDropped = { dropped.append($0); done($0) }
+            view.onFilesDropped = { [weak view] urls in
+                enteredAt = view?.droppedEnteredAt
+                dropped.append(urls)
+                done(urls)
+            }
             page.onEvent?(.devTools(drop))
         }
         #expect(first == files)
+        // The host hears the drop dated by its drag's entry (the source record's time), only then.
+        #expect(enteredAt == entered)
+        #expect(view.droppedEnteredAt == nil)
         // Once: a second message, and one with no drag the host saw, report nothing.
         view.onFilesDropped = { dropped.append($0) }
         page.onEvent?(.devTools(drop))

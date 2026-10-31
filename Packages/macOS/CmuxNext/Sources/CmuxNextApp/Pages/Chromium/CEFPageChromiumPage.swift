@@ -50,9 +50,7 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
 
     private func listen() {
         guard onEvent != nil, !closed else {
-            tab.pageFilesDragged = nil
-            tab.pageUserInput = nil
-            tab.pagePasted = nil
+            tab.clearPageEventHooks()
             tab.agentRelay.set(onMessage: nil, onEnd: nil)
             crashWatch?.cancel()
             crashWatch = nil
@@ -93,9 +91,7 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
 
     func setSeeThrough(_ seeThrough: Bool) { tab.pageSeeThrough = seeThrough }
 
-    func setAnswersFileChooser(_ on: Bool) {
-        tab.pageFilesChosen = on ? { [weak self] urls in self?.onEvent?(.filesChosen(urls)) } : nil
-    }
+    func setAnswersFileChooser(_ on: Bool) { tab.pageFilesChosen = on ? { [weak self] in self?.onEvent?(.filesChosen($0)) } : nil }
 
     func close() {
         guard !closed else { return }
@@ -103,11 +99,7 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         crashWatch?.cancel()
         crashWatch = nil
         tab.agentRelay.set(onMessage: nil, onEnd: nil)
-        tab.pageResources = nil
-        tab.pageFilesDragged = nil
-        tab.pageUserInput = nil
-        tab.pagePasted = nil
-        tab.pageFilesChosen = nil
+        tab.clearPageHooks()
         tab.delegate = nil
         tab.close()
     }

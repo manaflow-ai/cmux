@@ -154,6 +154,21 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         }
     }
 
+    /// Stops telling the page host about the page's drags, input and pastes (it stopped listening).
+    public func clearPageEventHooks() {
+        pageFilesDragged = nil
+        pageUserInput = nil
+        pagePasted = nil
+    }
+
+    /// Clears every page-host hook (the page host closed the page): its events, its dynamic paths,
+    /// and its file chooser goes back to Chromium.
+    public func clearPageHooks() {
+        clearPageEventHooks()
+        pageResources = nil
+        pageFilesChosen = nil
+    }
+
     /// The file URLs of a PAGE_DRAG_ENTER event's JSON array of absolute paths.
     nonisolated static func dragPaths(_ json: String) -> [URL] {
         guard let paths = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String] else { return [] }
