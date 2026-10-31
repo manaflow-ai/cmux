@@ -51,7 +51,7 @@ def gate(plan, tmp, extra=(), env_extra=None, rounds=None):
     runner = os.path.join(tmp, "fake_run.py")
     with open(runner, "w") as f:
         f.write(FAKE)
-    env = {**os.environ, "SMOKE_PLAN": json.dumps(plan), **(env_extra or {})}
+    env = {**os.environ, "SMOKE_PLAN": json.dumps(plan), "SMOKE_GATE_CMUX_CI": "/bin/false", **(env_extra or {})}
     done = subprocess.run([sys.executable, str(GATE), "--build", "job123", "--rounds", str(rounds or len(plan)), "--runner", runner,
                            "--out", os.path.join(tmp, "out"), "--handoff", os.path.join(tmp, "handoff"), *extra],
                           capture_output=True, text=True, env=env, timeout=120)
@@ -123,9 +123,58 @@ class Verdicts(unittest.TestCase):
                 f.write(FAKE)
             done = subprocess.run([sys.executable, str(GATE), "--build", "job123", "--runner", runner,
                                    "--out", os.path.join(tmp, "out"), "--handoff", os.path.join(tmp, "handoff")],
-                                  capture_output=True, text=True, timeout=60)
+                                  capture_output=True, text=True, timeout=60, env={**os.environ, "SMOKE_GATE_CMUX_CI": "/bin/false"})
             self.assertEqual(done.returncode, 2)
             self.assertIn("not empty", done.stderr)
+
+
+class Hosts(unittest.TestCase):
+    def test_idle_minis_are_offered_first_and_a_failed_read_keeps_the_list(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("smoke_gate", GATE)
+        gate_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate_module)
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = os.path.join(tmp, "cmux-ci")
+            with open(fake, "w") as f:
+                f.write("#!/bin/sh\necho '{\"cmux17\": {\"idle\": false}, \"cmux18\": {\"idle\": true}, \"cmux19\": {\"idle\": true}}'\n")
+            os.chmod(fake, 0o755)
+            old = os.environ.get("SMOKE_GATE_CMUX_CI")
+            try:
+                os.environ["SMOKE_GATE_CMUX_CI"] = fake
+                self.assertEqual(gate_module.idle_first("cmux17 cmux18 cmux19"), "cmux18 cmux19")
+                os.environ["SMOKE_GATE_CMUX_CI"] = "/bin/false"
+                self.assertEqual(gate_module.idle_first("cmux17 cmux18"), "cmux17 cmux18")
+            finally:
+                if old is None:
+                    os.environ.pop("SMOKE_GATE_CMUX_CI", None)
+                else:
+                    os.environ["SMOKE_GATE_CMUX_CI"] = old
+
+
+class Acquire(unittest.TestCase):
+    def test_a_timed_out_exclusive_acquire_gets_term_so_its_trap_unreserves(self):
+        sys.path.insert(0, str(HERE))
+        import run as run_module
+        with tempfile.TemporaryDirectory() as tmp:
+            fake, mark = os.path.join(tmp, "capture-host"), os.path.join(tmp, "unreserved")
+            with open(fake, "w") as f:
+                f.write(f"#!/bin/bash\ntrap 'echo yes > {mark}; kill $child; exit 143' TERM\nsleep 30 & child=$!\nwait $child\n")
+            os.chmod(fake, 0o755)
+            saved = {k: os.environ.get(k) for k in ("CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS", "CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS")}
+            slack = run_module.ACQUIRE_SLACK_SECONDS
+            try:
+                os.environ["CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS"] = "1"
+                os.environ["CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS"] = "0"
+                run_module.ACQUIRE_SLACK_SECONDS = 1
+                with self.assertRaises(RuntimeError) as caught:
+                    run_module.acquire_lease(fake, True)
+                self.assertIn("no lease within 2s", str(caught.exception))
+                self.assertTrue(os.path.exists(mark), "the acquire got KILL, not TERM: its reservation would stay")
+            finally:
+                run_module.ACQUIRE_SLACK_SECONDS = slack
+                for k, v in saved.items():
+                    os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
 
 
 class NewTerminals(unittest.TestCase):

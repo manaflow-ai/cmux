@@ -71,6 +71,20 @@ def round_result(out, build, exit_code, started):
     return {"status": "not run", "reason": "results.jsonl has no smoke-dogfood line"}
 
 
+def idle_first(hosts):
+    """Only the hosts with no running fleet step (the controller's `cmux-ci drain` read, no command on a mini), so
+    an exclusive acquire does not drain a mini whose step runs for hours while another is idle. All the given
+    hosts when the read fails or no mini is idle (then the drain waits, within its budget)."""
+    names = hosts.split()
+    try:
+        done = subprocess.run([os.environ.get("SMOKE_GATE_CMUX_CI", "cmux-ci"), "drain", "--hosts", ",".join(names)], capture_output=True, text=True, timeout=60)
+        state = json.loads(done.stdout)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return hosts
+    idle = [h for h in names if isinstance(state.get(h), dict) and state[h].get("idle") is True]
+    return " ".join(idle) if idle else hosts
+
+
 def pressure(out, swap_gb):
     """What the round's hog logs show: samples, the most it held, swap growth and the lowest free level."""
     rows = []
@@ -138,9 +152,14 @@ def main(argv=None):
         started = time.time() - 1
         # An exclusive lease waits for the mini's running fleet steps (the drain): give it the room the fleet
         # rules set (capture-host's default acquire timeout, 120 s, ends the drain first on a busy fleet).
-        env = {**os.environ, "CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS": os.environ.get("CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS", "600")}
+        # The drain budget is bounded too (capture-host's default is an hour per acquire), so a round on a fleet
+        # whose minis run hours-long steps ends as not run instead of waiting for them.
+        env = {**os.environ, "CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS": os.environ.get("CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS", "600"),
+               "CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS": os.environ.get("CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS", "900")}
+        hosts = idle_first(opts.hosts)
+        env["CAPTURE_HOST_HOSTS"] = env["CAPTURE_HOST_SLOT_HOSTS"] = hosts
         done = subprocess.run([sys.executable, opts.runner, "--build", opts.build, "--journey", JOURNEY,
-                               "--exclusive", "--hog-swap-gb", str(opts.swap_gb), "--hosts", opts.hosts,
+                               "--exclusive", "--hog-swap-gb", str(opts.swap_gb), "--hosts", hosts,
                                "--out", str(round_out)], capture_output=True, text=True, env=env)
         (round_out / "run.log").parent.mkdir(parents=True, exist_ok=True)
         (round_out / "run.log").write_text(done.stdout + done.stderr)
@@ -151,7 +170,7 @@ def main(argv=None):
         leases = sorted({w for w in (done.stdout + done.stderr).split() if w.startswith("slot-")})
         record = {"round": n, "status": row.get("status"), "reason": row.get("reason"), "host": row.get("host"),
                   "seconds": round(time.time() - started), "failing_step": failing_step(round_out),
-                  "frames": frames(round_out), "hog_logs": sorted(p.name for p in round_out.glob("hog-*.jsonl")), "pressure": hog,
+                  "frames": frames(round_out), "hog_logs": sorted(p.name for p in round_out.glob("hog-*.jsonl")), "pressure": hog, "hosts_offered": hosts,
                   "known_gap": "known gap" in str(row.get("reason") or ""), "leases": leases}
         rounds.append(record)
         print(f"round {n}: {record['status']}" + (f" ({record['reason'][:160]})" if record.get("reason") else "")

@@ -249,6 +249,39 @@ def launch_facts(text):
     return facts
 
 
+ACQUIRE_SLACK_SECONDS = 60
+
+
+def acquire_lease(ch, exclusive):
+    """`capture-host acquire --slot [--exclusive]`; the lease words it prints. An exclusive acquire waits for the
+    mini's running fleet steps (the drain), and capture-host moves its own acquire deadline on by the time
+    drained, so its bound here is its acquire timeout plus its drain budget. On that bound the acquire gets TERM
+    first: its trap ends the controller reservation the drain made (a KILL would leave it until it expires)."""
+    env_seconds = lambda name, default: int(os.environ.get(name, default))
+    bound = (env_seconds("CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS", 120) + env_seconds("CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS", 3600)
+             + ACQUIRE_SLACK_SECONDS) if exclusive else 330
+    proc = subprocess.Popen([ch, "acquire", "--slot", *(["--exclusive"] if exclusive else [])],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        out, err = proc.communicate(timeout=bound)
+    except subprocess.TimeoutExpired:
+        proc.terminate()  # our own child: capture-host's acquire_interrupted unreserves and exits
+        try:
+            out, err = proc.communicate(timeout=60)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            try:  # a child of the acquire may still hold the pipes: never wait on them without a bound
+                out, err = proc.communicate(timeout=10)
+            except subprocess.TimeoutExpired:
+                out, err = b"", b"(no output: the acquire's children still hold its pipes)"
+        raise RuntimeError(f"capture-host acquire gave no lease within {bound}s: "
+                           f"{err.decode(errors='replace').strip()[-400:]}")
+    if proc.returncode != 0:
+        raise RuntimeError(f"capture-host acquire exited {proc.returncode}: "
+                           f"{(err or out).decode(errors='replace').strip()[-500:]}")
+    return out.decode().split()
+
+
 HOG_WARMUP_SECONDS = 45  # at least this long from the hog's start (before the download) to the first journey
 
 
@@ -259,8 +292,7 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
     ch = capture_host()
     ids = [s["id"] for s in specs]
     try:
-        acquired = run([ch, "acquire", "--slot", *(["--exclusive"] if exclusive else [])],
-                       timeout=630 if exclusive else 330).stdout.decode().split()
+        acquired = acquire_lease(ch, exclusive)
     except (RuntimeError, subprocess.TimeoutExpired) as error:
         return {i: {"status": "not run", "reason": f"no capture slot: {str(error)[-300:]}"} for i in ids}
     if not acquired:
