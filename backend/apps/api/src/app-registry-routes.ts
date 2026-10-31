@@ -155,4 +155,3 @@ export const handleAppRegistry = async (request: Request, env: Env): Promise<Res
   }
   return err(405, "method_not_allowed", "method not allowed")
 }
-
