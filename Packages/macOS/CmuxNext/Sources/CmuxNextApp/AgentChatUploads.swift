@@ -74,11 +74,6 @@ struct AgentChatUploads {
                 if let manifest, batchToken == nil, manifest.count > 1 {
                     let id = UUID().uuidString.lowercased()
                     batches[id] = Batch(owner: Owner(session: session, tab: tab), remaining: Array(manifest.dropFirst()), expires: Date().addingTimeInterval(10 * 60))
-                    Task { @MainActor in
-                        // wakeup-allow: one-shot batch expiry; the next batch request refreshes it.
-                        try? await Task.sleep(for: .seconds(10 * 60))
-                        if let batch = batches[id], batch.expires <= Date() { batches.removeValue(forKey: id) }
-                    }
                     reply["batchToken"] = id
                 }
                 return AgentPaneReply.success(reply)
@@ -116,8 +111,7 @@ struct AgentChatUploads {
             try? await Task.sleep(for: .seconds(10 * 60))
             guard let expired = stages[token], expired.expires <= Date() else { return }
             stages.removeValue(forKey: token)
-            let folder = expired.folder
-            await Task.detached { try? FileManager.default.removeItem(at: folder) }.value
+            await Task.detached(priority: .utility) { [folder = expired.folder] in try? FileManager.default.removeItem(at: folder) }.value
         }
     }
 
