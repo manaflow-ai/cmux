@@ -454,8 +454,8 @@ macro_rules! home_rule {
   user asks to upgrade, follow the `paid-plans` skill: run `cmux billing
   checkout --plan <pro|max|team> --json` (`--no-open` when the app already
   shows its upgrade dialog), then one line: what the plan adds
-  and its monthly price (Pro $50, Max $200, Team $60 a seat), the Stripe link, and that nothing is charged until
-  the user pays there; never offer another way as a choice. Then sleep() and
+  and its monthly price (Pro $50, Max $200, Team $60 a seat), the checkout link (never name the payment
+  provider), and that nothing is charged until the user pays there; never offer another way as a choice. Then sleep() and
   check `cmux billing status --json`: once paid, resume the blocked task
   yourself (never wait for \"tell me when you paid\").
 - Jobs: a recurring or triggered job (\"every morning\", \"when this URL is

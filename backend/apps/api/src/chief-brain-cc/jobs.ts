@@ -3,7 +3,7 @@ import type { OwnerFrame, Principal } from "@cmux/ownership"
 import type { ChiefBrainDO } from "../chief-brain/brain-do.ts"
 import { personalTeamIdFor } from "../domains/user.ts"
 import type { Env } from "../env.ts"
-import { planLink, PRICING_URL } from "../plan-checkout.ts"
+import { planGrantedNote, planLink, PRICING_URL, type PlanNotice } from "../plan-checkout.ts"
 
 /**
  * A Chief's scheduled and triggered jobs (plans/cmux-next/chief-automations-DESIGN.md). Lawrence,
@@ -20,7 +20,8 @@ import { planLink, PRICING_URL } from "../plan-checkout.ts"
  *
  * Upsell: without a paid plan an owner has FREE_CHIEF_JOBS jobs. The next create answers
  * `automation.plan.required` with the plan that lifts it and a Stripe Checkout link (plan-checkout.ts,
- * test mode), which the Chief sends in one line. A plan read that fails lets the job through.
+ * test mode), which the Chief sends in one line. A plan read that fails lets the job through. Once the
+ * person pays, `chiefPlanWake` queues one "[billing]" note here: the Chief confirms and redoes the add.
  */
 export const FREE_CHIEF_JOBS = 1
 export const UPSELL_PLAN = "pro"
@@ -67,6 +68,33 @@ export const chiefJobWake = async (b: ChiefBrainDO, j: ChiefJob): Promise<JobDel
     j.conversation,
     seq,
     jobNote(j)
+  )
+  b.kick()
+  return { ok: true }
+}
+
+/**
+ * ChiefBrainDO side: a plan bought through this Chief's checkout link is on (plan-checkout.ts
+ * grantPlanSession). Queues one note per checkout session and starts a turn, only for this Chief and
+ * only when the plan is on its owner's own team.
+ */
+export const chiefPlanWake = async (b: ChiefBrainDO, n: PlanNotice): Promise<JobDelivery> => {
+  await b.lifecycle.start()
+  const cfg = b.config()
+  if (!cfg.agent || !cfg.owner || cfg.agent !== n.chief) return { ok: false, code: "chief.not_found", message: "this Chief has never answered in that conversation" }
+  if (personalTeamIdFor(cfg.owner) !== n.team) return { ok: false, code: "chief.forbidden", message: "the plan is not on this Chief's owner's team" }
+  const adm = await b.admitted(cfg.agent, cfg.owner, false)
+  if (!adm.ok && adm.reason === "owner.unreachable") return { ok: false, code: "owner.unreachable", message: "the Chief's record could not be read", retry: true }
+  // A memory copy under way ends on its own: the webhook's redelivery brings the note after it.
+  if (!adm.ok && adm.reason === "memory_importing") return { ok: false, code: "chief.memory_importing", message: "the Chief's memory is being copied", retry: true }
+  if (!adm.ok && adm.reason !== "credits_exhausted") return { ok: false, code: `chief.${adm.reason}`, message: `the Chief cannot take a turn (${adm.reason})` }
+  const seq = Number(b.sql.exec<{ seq: number }>(`SELECT seq FROM cb_cursor WHERE conversation = ?`, n.conversation).toArray()[0]?.seq ?? 0)
+  b.sql.exec(
+    `INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, effect_authorized, woke) VALUES (?, ?, ?, 'chief', NULL, ?, 1, 1) ON CONFLICT (message) DO NOTHING`,
+    `plan:${n.session}`,
+    n.conversation,
+    seq,
+    planGrantedNote(n.plan)
   )
   b.kick()
   return { ok: true }
@@ -166,7 +194,7 @@ export const autoCall = async (b: ChiefBrainDO, conversation: string, raw: unkno
   // The upsell gate: on the free plan a Chief has FREE_CHIEF_JOBS jobs (over all its conversations).
   const mine = await ownJobs(env, p, null)
   if (mine.length >= FREE_CHIEF_JOBS && (await ownerPaid(env, cfg.owner)) === "free") {
-    const checkout = env.CLOUD_API_ORIGIN ? await planLink(env, env.CLOUD_API_ORIGIN, p.team!, UPSELL_PLAN) : null
+    const checkout = env.CLOUD_API_ORIGIN ? await planLink(env, env.CLOUD_API_ORIGIN, p.team!, UPSELL_PLAN, { chief: cfg.agent, conversation }) : null
     return {
       status: 402,
       json: {
@@ -201,7 +229,8 @@ export const AUTO_CLIENT = `#!/bin/sh
 #   chief-auto run ID                    run it now
 #   chief-auto rm ID
 # A 402 answer with code automation.plan.required carries "checkout": send the person that link in
-# one line (what the plan adds, its price); nothing is charged until they pay on that page.
+# one line (what the plan adds, its price); nothing is charged until they pay on that page. When they
+# pay, a "[billing]" note starts a turn here: say the plan is on and run the add again.
 set -eu
 call() {
   out=$(curl -sS -m 60 -w '\\n%{http_code}' -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4018/vm) || { echo "chief-auto: no turn is running on this machine (127.0.0.1:4018 does not answer)" >&2; exit 1; }
