@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextTestSupport
 import Testing
 
 /// Leo's never-blank first launch frame: a window is ordered in with its content
@@ -8,7 +9,7 @@ import Testing
 /// 1830 ms (the backdrop alone) because `makeController` presented it in the
 /// turn it was made, and its workspace (the launch snapshot's, else the
 /// connecting state) went in a main-actor hop later.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct LaunchWindowContentFirstTests {
     @MainActor private final class Presented {
         var installed: [Bool] = []

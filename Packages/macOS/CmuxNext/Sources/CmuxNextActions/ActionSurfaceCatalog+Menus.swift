@@ -52,6 +52,11 @@ nonisolated extension ActionSurfaceCatalog {
         "reconnectWorkspace": [p(.workspaceRow, .connection, 401, folder: .options)],
         "disconnectWorkspace": [p(.workspaceRow, .connection, 402, folder: .options)],
         "clearWorkspaceNotifications": [p(.workspaceRow, .identity, 114, folder: .options)],
+        // Classic's row menu has Copy Workspace ID(s) and Copy Workspace Link (#27709); in the top-level Copy ▸
+        // (ContextMenuEssentials.copyFolder), the link first, as on the tab and pane menus. Leo 2026-10-29:
+        // "there's no link to workspace, which is, I mean, that seems pretty important, doesn't it?"
+        "palette.copyWorkspaceLink": [p(.workspaceRow, .inspect, 405, folder: .copy)],
+        "palette.copyWorkspaceID": [p(.workspaceRow, .inspect, 406, folder: .copy)],
         "workspaceGroup.newWorkspace": [p(.workspaceGroup, .create, 0)],
         // In Options ▸: the group menu keeps 12 top-level rows (ActionSurfaceParityTests).
         "workspaceGroup.newSubgroup": [p(.workspaceGroup, .identity, 109, folder: .options)],
@@ -210,11 +215,14 @@ nonisolated extension ActionSurfaceCatalog {
         "tab.muteOtherAudio": [p(.tab, .identity, 209, folder: .options)],
         "agentChat.toggleNotificationMute": [p(.tab, .identity, 205, folder: .options, label: ObjectMenuLabels.toggleChatMute)],
         "disconnectRemoteTab": [p(.tab, .connection, 2, folder: .options)],
-        "palette.copyIdentifiers": [p(.tab, .inspect, 503, folder: .copy)],
-        "palette.copyPaneID": [p(.pane, .inspect, 500, folder: .copy), p(.tab, .inspect, 504, folder: .copy)],
-        "palette.copyPaneLink": [p(.pane, .inspect, 501, folder: .copy), p(.tab, .inspect, 505, folder: .copy)],
+        // The terminal's right-click menu has classic's Copy IDs and Copy Surface Link (#27709), in Tools (13-row cap).
+        // Copy ▸ on a tab and a pane (ContextMenuEssentials.copyFolder): the object's link first, then its ID,
+        // then the pane's (on a tab), then the other identifiers.
+        "palette.copySurfaceLink": [p(.tab, .inspect, 500, folder: .copy), p(.terminalSelection, .inspect, 501, folder: .tools)],
         "palette.copySurfaceID": [p(.tab, .inspect, 501, folder: .copy)],
-        "palette.copySurfaceLink": [p(.tab, .inspect, 502, folder: .copy)],
+        "palette.copyPaneLink": [p(.pane, .inspect, 500, folder: .copy), p(.tab, .inspect, 502, folder: .copy)],
+        "palette.copyPaneID": [p(.pane, .inspect, 501, folder: .copy), p(.tab, .inspect, 503, folder: .copy)],
+        "palette.copyIdentifiers": [p(.tab, .inspect, 504, folder: .copy), p(.terminalSelection, .inspect, 500, folder: .tools)],
         "tab.showResources": [p(.tab, .inspect, 500, folder: .options)],
         "tabGroup.create": [p(.tab, .organize, 300, folder: .group)],
         "tabGroup.addTab": [p(.tab, .organize, 301, folder: .group)],

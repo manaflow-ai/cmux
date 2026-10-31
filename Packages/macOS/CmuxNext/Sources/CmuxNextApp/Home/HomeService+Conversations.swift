@@ -1,6 +1,7 @@
 import CmuxHomeCore
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextFloating
 import CmuxNextChiefPetWiring
 import CmuxNextHome
 import CmuxNextHomeEngine
@@ -284,6 +285,25 @@ extension HomeService {
         chiefs.formUnion(debugChiefs)
         #endif
         return Self.chiefFaces(chiefs: chiefs, own: directory.chiefAvatars) { services.characterPicture(of: $0) }
+    }
+
+    /// Chief `chief` (a participant id) as an agent chat draws a message it sent there
+    /// (`chief.face`, manaflow-ai/cmux#27914): the name and avatar Home and the sidebar show for it.
+    func agentPageFace(of chief: String, avatars: AgentAvatars) async -> [String: String] {
+        // The one name its tile, header and tab show (a rename being saved included): its own
+        // conversation's; else what a conversation or its record calls it.
+        let own = homeStore.rows.first { Self.soleChief(of: $0.summary.participants) == chief }
+        let name = own.flatMap { chiefName(of: $0.summary.id) }
+            ?? homeStore.rows.lazy.flatMap(\.summary.participants).first { $0.id.rawValue == chief }?.displayName
+            ?? directory.chiefs.first { $0.id == chief }?.name
+        // The sidebar draws the default Chief (`agent_mux`) with no id.
+        var picture = services.characterPicture(of: chief == DaemonHomeSource.chief.id ? nil : chief), text: String?
+        switch chiefFaces[chief] {
+        case .picture(let url): picture = url
+        case .text(let own): text = own
+        case nil: break
+        }
+        return await avatars.chiefFace(name: name, picture: picture, text: text)
     }
 
     /// `own` (each Chief's own avatar), with each other Chief in `chiefs` wearing the `picture` of its character.

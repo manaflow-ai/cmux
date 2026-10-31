@@ -151,6 +151,35 @@ fn private_process_modes_run_under_the_cmux_name() {
     }
 }
 
+/// A classic cmux verb that has no route here names its resource command
+/// (tests/tool-evals r3h: an agent tried `rename-workspace` and
+/// `workspace-action --action rename` before finding `workspace rename`).
+#[test]
+fn a_classic_verb_names_its_resource_command() {
+    let names = Names::new("classic-verbs");
+    for (args, command) in [
+        (&["rename-workspace", "shop api"][..], "cmux workspace current rename <name>"),
+        (
+            &["workspace-action", "--action", "rename", "--title", "x"][..],
+            "cmux workspace current rename <name>",
+        ),
+        (&["list-workspaces"][..], "cmux workspace list"),
+        (&["send", "ls"][..], "cmux terminal <terminal> write --text <text>"),
+        (&["list-surfaces"][..], "cmux tab list"),
+        (&["list-pane-surfaces"][..], "cmux tab list"),
+        (&["new-surface"][..], "cmux tab create terminal"),
+        (&["rename-surface", "x"][..], "cmux tab <tab> rename <name>"),
+        (&["close-surface"][..], "cmux tab <tab> close"),
+        (&["rpc", "action.list", "{}"][..], "cmux action list"),
+        (&["rpc", "snapshot.get"][..], "cmux action list"),
+    ] {
+        let output = names.run("cmux", args);
+        let stderr = text(&output.stderr);
+        assert!(!output.status.success(), "{args:?}");
+        assert!(stderr.contains(command), "{args:?}: {stderr}");
+    }
+}
+
 /// A one-connection app socket that answers every request with `result`.
 /// The socket lives in a short directory from the shared helper, so its path
 /// fits sun_path whatever $TMPDIR is. The returned guard removes it.

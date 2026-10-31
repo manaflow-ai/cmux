@@ -16,11 +16,13 @@ public final class LiveFeed: FeedActions {
         public var workspaceID: String
         public var tabID: String
         public var workspaceTitle: String
+        public var tabTitle: String
 
-        public init(workspaceID: String, tabID: String, workspaceTitle: String) {
+        public init(workspaceID: String, tabID: String, workspaceTitle: String, tabTitle: String = "") {
             self.workspaceID = workspaceID
             self.tabID = tabID
             self.workspaceTitle = workspaceTitle
+            self.tabTitle = tabTitle
         }
     }
 
@@ -143,6 +145,7 @@ public final class LiveFeed: FeedActions {
             markdown: markdown, quote: quote, createdAt: now()
         )
         item.macID = macID
+        item.tabTitle = place?.tabTitle ?? ""
         return item
     }
 
@@ -154,7 +157,7 @@ public final class LiveFeed: FeedActions {
     public func refresh() async throws {
         await terminal?.refresh()
         guard let hub else { throw AcpmuxConnection.RPCError(code: 0, message: "Not connected to your Mac", reason: nil) }
-        let watched = try await hub.request("_acpmux/watch", .object(["enabled": .bool(true)]))
+        let watched = try await hub.request("_acpmux/watch", .object(["enabled": .bool(true)]), timeout: .seconds(20))
         let sessions = (watched["sessions"]?.arrayValue ?? []).compactMap(AcpmuxSession.init)
         hydrate(sessions)
         let byID = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
@@ -169,7 +172,7 @@ public final class LiveFeed: FeedActions {
                 "beforeSeq": .number(Double(session.lastSeq + 1)),
                 "limit": .number(200),
                 "kinds": .array([.string("permission_request"), .string("permission_decision")]),
-            ]))
+            ]), timeout: .seconds(20))
             for (permissionID, request) in Self.openRequests(page["events"]?.arrayValue ?? []) {
                 handle(.permissionPending(sessionID: session.id, permissionID: permissionID, request: request), sessions: byID)
             }

@@ -133,6 +133,9 @@ impl Hub {
         if tokio::time::timeout(SHUTDOWN_GRACE + LOCK * 2, fallback).await.is_err() {
             tracing::warn!("agent hosts did not end within {SHUTDOWN_GRACE:?}");
         }
+        for s in &sessions {
+            let _ = self.store_deferred(s);
+        }
         self.flush();
         hosted.len() + unreached
     }

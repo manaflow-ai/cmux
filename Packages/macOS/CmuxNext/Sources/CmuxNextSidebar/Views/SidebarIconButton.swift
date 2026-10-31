@@ -5,7 +5,7 @@ import QuartzCore
 
 /// Small borderless icon button with the shared chrome hover and pressed
 /// fills (`ChromeHover`, no blue).
-final class SidebarIconButton: NSButton {
+final class SidebarIconButton: ClickableButton {
     private(set) lazy var hover = ChromeHover(self, behindContent: true)
     var onPress: (() -> Void)?
     /// A fixed glyph color for a button on a colored surface (the group

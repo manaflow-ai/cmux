@@ -1,3 +1,4 @@
+import CmuxNextAgentLanes
 import Foundation
 import CmuxNextActions
 import CmuxNextAgentPane
@@ -31,6 +32,19 @@ final class AgentPageChats {
     var sandboxRun: (@MainActor (String, String?, String) async -> [String: Any])?
     /// The app-level waiter on every Sandboxed send's Run, and its notification (``SandboxRunNotices``).
     private(set) var runNotices: SandboxRunNotices?
+    /// The app-level waiter on every hand-off of a chat to a Cloud machine, and its notification.
+    private(set) var handoffNotices: HandoffNotices?
+
+    /// A click on banner `id` of a Run or a hand-off; false when it is neither's.
+    func openNotice(banner id: String) -> Bool {
+        runNotices?.open(banner: id) == true || handoffNotices?.open(banner: id) == true
+    }
+
+    /// The app quits: every Run's and hand-off's wait ends (the saved ones resume at the next launch).
+    func stopNotices() {
+        runNotices?.stop()
+        handoffNotices?.stop()
+    }
 
     /// Follows `feed` for every page of `tabs`; cards open through `opener`.
     static func wire(_ tabs: AgentTabStore, to feed: ChatsFeed, opener: ChatsOpenCoordinator) {
@@ -84,6 +98,9 @@ final class AgentPageChats {
         let notices = SandboxRunNotices(services: services)
         tabs.pageChats.runNotices = notices
         notices.start()
+        let handoffs = HandoffNotices(services: services)
+        tabs.pageChats.handoffNotices = handoffs
+        handoffs.start()
         tabs.pageChats.sandboxRun = { [weak services] task, agent, key in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
             // Cloud turned off by policy, or the managed team it requires missing: a definite

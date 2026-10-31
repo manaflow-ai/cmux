@@ -10,19 +10,28 @@ public struct CloudMachineLimits: Sendable, Hashable, Decodable {
     /// The plan that sets the cap (`free`, `go`, `pro`, `max`, `team`); nil when the server sent none.
     public var planId: String?
 
-    public init(maxActiveVms: Int?, activeVmCount: Int, planId: String? = nil) {
+    /// Sizes the server permits this account to create, in MiB; absent on older servers.
+    public var memoryOptionsMb: [Int]?
+    /// Sizes the server offers only with a plan upgrade, in MiB.
+    public var lockedMemoryOptionsMb: [Int]?
+
+    public init(maxActiveVms: Int?, activeVmCount: Int, planId: String? = nil, memoryOptionsMb: [Int]? = nil, lockedMemoryOptionsMb: [Int]? = nil) {
         self.maxActiveVms = maxActiveVms
         self.activeVmCount = activeVmCount
         self.planId = planId
+        self.memoryOptionsMb = memoryOptionsMb
+        self.lockedMemoryOptionsMb = lockedMemoryOptionsMb
     }
 
-    enum CodingKeys: String, CodingKey { case maxActiveVms, activeVmCount, planId }
+    enum CodingKeys: String, CodingKey { case maxActiveVms, activeVmCount, planId, memoryOptionsMb, lockedMemoryOptionsMb }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         maxActiveVms = try c.decodeIfPresent(Int.self, forKey: .maxActiveVms)
         activeVmCount = try c.decodeIfPresent(Int.self, forKey: .activeVmCount) ?? 0
         planId = try? c.decodeIfPresent(String.self, forKey: .planId)
+        memoryOptionsMb = try? c.decodeIfPresent([Int].self, forKey: .memoryOptionsMb)
+        lockedMemoryOptionsMb = try? c.decodeIfPresent([Int].self, forKey: .lockedMemoryOptionsMb)
     }
 }
 

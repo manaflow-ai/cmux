@@ -217,7 +217,7 @@ enum RowDraw {
             let s = Strings.replies(count)
             let w = TextDraw.width(s, font: f, kern: captionKern)
             TextDraw.line(s, font: f, color: Fixture.repliesTint, // cmux: themed link tint
-                          x: outgoing ? m.receiptRight - w : Fixture.labelLeft, baseline: top + 14, in: ctx, kern: captionKern)
+                          x: outgoing ? m.receiptRight - w : Fixture.labelLeft + spec.cmuxIndent, baseline: top + 14, in: ctx, kern: captionKern) // cmux: group indent
         case let .part(p):
             let x = p.cmuxBodyX(rightEdge: m.rightEdge) // cmux: group indent
             let body = CGRect(x: x, y: margin, width: p.size.width, height: p.bodySize.height)
@@ -241,7 +241,7 @@ enum RowDraw {
             if pv.outgoing {
                 PartRenderer.drawOutgoingThreadPreview(ctx, pv, top: top, rightEdge: m.rightEdge)
             } else {
-                PartRenderer.drawThreadPreview(ctx, pv, top: top, width: spec.width)
+                PartRenderer.drawThreadPreview(ctx, pv, top: top, width: spec.width, rowHeight: spec.height)
             }
         }
     }
@@ -580,16 +580,39 @@ enum PartRenderer {
 
     /// cmux: thread preview: the quoted root (a copy of its bubble, `drawQuoteBubble`) at the left edge, then a 2.5 pt
     /// stub at x 33.75 and "N Replies" (2 or more replies).
-    static func drawThreadPreview(_ ctx: CGContext, _ pv: ThreadPreview, top: CGFloat, width: CGFloat) {
-        let box = CGRect(x: Fixture.leftEdge, y: top, width: pv.box.width, height: pv.box.height)
+    /// cmux: a group quote (`ThreadPreview.cmuxGroup`, 2026-10-29 Messages group reference) sits at the bubble column with
+    /// the quoted person's avatar small and faded in the avatar column, and a line from under it down to the reply's bubble
+    /// (`cmuxLineBelow` under the row's `rowHeight`) instead of the stub.
+    static func drawThreadPreview(_ ctx: CGContext, _ pv: ThreadPreview, top: CGFloat, width: CGFloat, rowHeight: CGFloat? = nil) {
+        let box = CGRect(x: pv.cmuxLeft, y: top, width: pv.box.width, height: pv.box.height)
         drawQuoteBubble(ctx, pv, box: box)
-        let stubTop = box.maxY + pv.stubGap
-        let stubH = pv.stubHeight
         Fixture.connector.setFill()
-        UIBezierPath(roundedRect: CGRect(x: 32.5, y: stubTop, width: 2.5, height: stubH), cornerRadius: 1.25).fill()
+        if pv.cmuxGroup {
+            let disc = ThreadPreview.cmuxSenderRect(below: box)
+            if let avatar = pv.cmuxSender {
+                ctx.saveGState()
+                ctx.setAlpha(ThreadPreview.cmuxSenderOpacity)
+                ctx.beginTransparencyLayer(in: disc.insetBy(dx: -1, dy: -1), auxiliaryInfo: nil)
+                // The full avatar scaled down, so its monogram keeps its size relative to the disc.
+                ctx.translateBy(x: disc.minX, y: disc.minY)
+                ctx.scaleBy(x: disc.width / SenderAvatar.diameter, y: disc.height / SenderAvatar.diameter)
+                avatar.draw(in: ctx, rect: CGRect(x: 0, y: 0, width: SenderAvatar.diameter, height: SenderAvatar.diameter))
+                ctx.endTransparencyLayer()
+                ctx.restoreGState()
+            }
+            let lineTop = disc.maxY + ThreadPreview.cmuxLineGap
+            let lineEnd = top + (rowHeight ?? pv.height) + pv.cmuxLineBelow
+            if pv.cmuxLineBelow > 0, lineEnd > lineTop {
+                let w = ThreadPreview.cmuxLineWidth
+                Fixture.connector.setFill()
+                UIBezierPath(roundedRect: CGRect(x: disc.midX - w / 2, y: lineTop, width: w, height: lineEnd - lineTop), cornerRadius: w / 2).fill()
+            }
+        } else {
+            UIBezierPath(roundedRect: CGRect(x: 32.5, y: box.maxY + pv.stubGap, width: 2.5, height: pv.stubHeight), cornerRadius: 1.25).fill()
+        }
         if pv.count >= 2 {
             let f = HomeFonts.system(ofSize: 10, weight: .semibold) // HomeFonts (cx-qpqs)
-            TextDraw.line(Strings.replies(pv.count), font: f, color: Fixture.repliesTint, x: 44.5, baseline: box.maxY + (pv.isText ? 12.5 : 11.5), in: ctx, // cmux: themed link tint
+            TextDraw.line(Strings.replies(pv.count), font: f, color: Fixture.repliesTint, x: box.minX + 24.5, baseline: box.maxY + (pv.isText ? 12.5 : 11.5), in: ctx, // cmux: themed link tint
                           kern: RowDraw.captionKern)
         }
     }
@@ -620,16 +643,18 @@ enum PartRenderer {
         var out = pv.outgoing
         // cmux: a quoted file card keeps the card's neutral fill on either side (HomeFileCard, #26395).
         if case let .attachment(a) = pv.part, HomeFileCard.isCard(a) { out = false }
-        let fill = out ? Fixture.quoteOutline : Fixture.incoming
+        // cmux (2026-10-29, Messages group reference): a group's quote of another person is outlined too, in grey.
+        let outlined = out || pv.cmuxGroup
+        let fill = out ? Fixture.quoteOutline : pv.cmuxGroup ? Fixture.groupQuoteOutline : Fixture.incoming
         // cmux (2026-10-27, Lawrence's 5:54 PM reference; 2026-10-28, macOS 27 Messages at 2x): my root is outlined
         // 1 pt in Messages' dim quote blue with its blue text, a small tail on its side; the Chief's root keeps its gray fill.
         let ink = out ? Fixture.quoteText : Fixture.incomingText
-        let shape = pv.outline(in: out ? box.insetBy(dx: 0.5, dy: 0.5) : box)
+        let shape = pv.outline(in: outlined ? box.insetBy(dx: 0.5, dy: 0.5) : box)
         ctx.saveGState()
-        ctx.setAlpha(out ? 1 : ThreadPreview.quoteOpacity)
+        ctx.setAlpha(out ? 1 : pv.cmuxGroup ? ThreadPreview.cmuxGroupOpacity : ThreadPreview.quoteOpacity)
         // The tail hangs 4 pt under the quote.
         ctx.beginTransparencyLayer(in: box.insetBy(dx: -2, dy: -2).union(box.offsetBy(dx: 0, dy: 6)), auxiliaryInfo: nil)
-        if out {
+        if outlined {
             fill.setStroke()
             shape.lineWidth = 1
             shape.stroke()
