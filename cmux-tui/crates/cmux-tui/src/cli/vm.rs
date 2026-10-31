@@ -98,15 +98,17 @@ pub(super) fn plan(rest: &[String], output: OutputMode) -> Result<Vec<String>, U
 /// [`prepared`] takes one after it, so without this a retried
 /// `cmux vm new --idempotency-key K` reached `cmux-vm` with no key, which then made
 /// a fresh one and a second VM. Only the verbs that take a key get it (`create`,
-/// `fork`, `snapshot create`, `creation …`); for any other verb it is dropped, as
-/// before, rather than refused as an unknown option.
+/// `fork`, `snapshot create`, `creation get|reconcile|cancel`); for any other verb
+/// it is dropped, as before, rather than refused as an unknown option.
 fn plan_with_globals(rest: &[String], global: &GlobalArgs) -> Result<Vec<String>, UsageError> {
     let mut plan = plan(rest, global.output)?;
     if let Some(key) = global.idempotency_key.as_deref() {
         let words: Vec<&str> = plan.iter().map(String::as_str).filter(|w| *w != "--json").collect();
         if matches!(
             words.as_slice(),
-            ["create" | "fork" | "creation", ..] | ["snapshot", "create", ..]
+            ["create" | "fork", ..]
+                | ["snapshot", "create", ..]
+                | ["creation", "get" | "reconcile" | "cancel", ..]
         ) {
             // After the verb's own words, before any `--`.
             let at = plan.iter().position(|word| word == "--").unwrap_or(plan.len());
@@ -176,10 +178,11 @@ fn without_idempotency_key(words: Vec<String>) -> (Vec<String>, Option<String>) 
         if let Some(value) = word.strip_prefix("--idempotency-key=") {
             key = Some(value.to_owned());
         } else if word == "--idempotency-key" {
-            match words.next() {
-                Some(value) => key = Some(value),
-                // No value: cmux-vm reports it.
+            match words.as_slice().first() {
+                // No value (nothing, or the next option or `--`): cmux-vm reports it.
                 None => kept.push(word),
+                Some(next) if next.starts_with("--") => kept.push(word),
+                Some(_) => key = words.next(),
             }
         } else {
             kept.push(word);
