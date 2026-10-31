@@ -277,7 +277,8 @@
               "updates.installOnQuit",
               "updates.notify",
               "updates.keepPreviousVersions",
-              "updates.showWhatsNew"
+              "updates.showWhatsNew",
+              "updates.showFeatureTips"
             ],
             "title" : {
               "key" : "settings.group.updates",
@@ -484,6 +485,7 @@
           {
             "key" : "settings.group.sidebar",
             "rows" : [
+              "sidebar.showWorkspaceTabs",
               "workspaces.newPlacement",
               "sidebar.groupByComputer",
               "workspaces.autoName",
@@ -494,7 +496,6 @@
               "sidebar.topBandMaxShare",
               "sidebar.bottomBandMaxShare",
               "sidebar.pinnedBandsScroll",
-              "sidebar.showWorkspaceTabs",
               "sidebar.sessionTree",
               "sidebar.showProjects",
               "sidebar.groupBy",
@@ -8627,6 +8628,139 @@
       "title" : {
         "key" : "settings.updates.showWhatsNew",
         "text" : "Show What's New After Updates"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.showFeatureTips.help",
+        "text" : "Now and then, a small tip points at a feature an update added. Close it or use the feature and it never comes back."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.showFeatureTips",
+      "keywords" : [
+        "tips",
+        "whats new",
+        "new feature",
+        "hint",
+        "callout"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "updates",
+        "showFeatureTips"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:updates.showFeatureTips"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.updates.showFeatureTips",
+        "text" : "Show Feature Tips"
       },
       "validation" : "portable"
     },
@@ -18792,7 +18926,7 @@
       },
       "help" : {
         "key" : "settings.appearance.theme.help",
-        "text" : "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it."
+        "text" : "Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it."
       },
       "kept_on_reset_all" : true,
       "key" : "appearance.theme",
@@ -18820,7 +18954,7 @@
       "section" : "appearance",
       "summary" : {
         "key" : "settings.appearance.theme.summary",
-        "text" : "Colors for cmux and its terminals"
+        "text" : "Colors for terminals, and cmux unless App Theme is set"
       },
       "surfaces" : {
         "cli" : {
@@ -18933,7 +19067,7 @@
       },
       "help" : {
         "key" : "settings.appearance.appTheme.help",
-        "text" : "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast."
+        "text" : "Colors for the window, sidebar, tabs and cmux's pages. Terminals keep the Terminal Theme. Every color meets WCAG AA contrast."
       },
       "kept_on_reset_all" : true,
       "key" : "appearance.appTheme",
@@ -18960,7 +19094,7 @@
       "section" : "appearance",
       "summary" : {
         "key" : "settings.appearance.appTheme.summary",
-        "text" : "Colors for cmux's own pages"
+        "text" : "Colors for the window, sidebar, tabs and pages"
       },
       "surfaces" : {
         "cli" : {
@@ -48692,7 +48826,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -48707,7 +48841,16 @@
       "keywords" : [
         "sidebar",
         "workspace",
-        "tabs"
+        "workspaces",
+        "tabs",
+        "panes",
+        "under",
+        "beneath",
+        "nested",
+        "expand",
+        "list",
+        "tree",
+        "disclosure"
       ],
       "kind" : "toggle",
       "page_hidden" : false,
