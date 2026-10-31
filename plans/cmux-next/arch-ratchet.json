@@ -509,6 +509,16 @@
   },
   "exceptions": [
     {
+      "date": "2026-10-31",
+      "row": "app_lines",
+      "allow": 9,
+      "why": "First-click fix (user 2026-10-30: buttons need two clicks). All logic is in CmuxNextDesign (FirstClickPolicy, FirstClickAudit); the App keeps only the one call it must own, in ShellWindow.sendEvent (Windows/ShellWindow+Events.swift, 4 lines: a 2-line comment and the call split over 2 lines; a lower package cannot override the App's NSWindow subclass), and the DEBUG-only `debug.first_click` forward in Control/DebugWindowsControl.swift (5 lines, beside the other debug.* routes the App's control router composes).",
+      "author": "first-click subagent (Chief, Buttons respond first click)",
+      "owner": "PL-arch",
+      "receipt": "Review (independent reviewer subagent, read-only): SHIP at 4743358fd681f62ddfd717a7deb0c2b2a983ca69",
+      "expiry": "2026-11-30"
+    },
+    {
       "date": "2026-10-23",
       "row": "assume_isolated_outside_adapters",
       "allow": 1,
@@ -680,16 +690,6 @@
       "author": "audit-rh a261583cabe88fa53 (proposal) and the adding commit 8fb4805d251 (Leo, #27514); gated in 2391c5ec903 (lawrencecchen, audit-rh)",
       "owner": "Performance Lead",
       "receipt": "Review (independent exception reviewer, audit-rh): SHIP at 2391c5ec903a544620ccb6179e4c948adaec9143",
-      "expiry": "2026-11-30"
-    },
-    {
-      "date": "2026-10-30",
-      "row": "app_lines",
-      "allow": 6,
-      "why": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+Cloud.swift registers the `cloud.automation` control method (cmux automation --target cloud, docs/automations-platonic-ideal.md): composition-root wiring only, 6 source lines (5 in AppControl+Cloud.swift, 1 in the AppControl+FeaturePolicy.swift case list) (the .async closure reading the live Cloud feature policy and forwarding JSON to CloudAutomationRelay). The logic is in CmuxNextCloud/Automations/CloudAutomationRelay.swift; a new domain package target was not possible because Packages/macOS/CmuxNext/Package.swift is frozen (WINDOW FREEZE token=none-ask-chief).",
-      "author": "a908",
-      "owner": "a908 (move into a CmuxNextAutomations target once a PKG slot is granted)",
-      "receipt": "Review (independent review subagent, read-only): SHIP at d26bd27f586f4bd66da06ba3ee5fe3efd46fb09f",
       "expiry": "2026-11-30"
     }
   ],

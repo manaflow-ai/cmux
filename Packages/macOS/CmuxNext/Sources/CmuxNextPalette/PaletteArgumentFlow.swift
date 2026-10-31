@@ -32,6 +32,8 @@ struct PaletteArgumentFlow {
             collected.target = target
         }
         switch argument.kind {
+        case .string where argument.suggestions?.allowsMultiple == true:
+            return .push(multipleChoicePage(for: argument, chosen: [], collected: collected))
         case .string where argument.suggestions != nil:
             return .push(withPreview(suggestionPage(for: argument, collected: collected), argument, collected))
         case .string, .int:
@@ -126,7 +128,7 @@ struct PaletteArgumentFlow {
         return nil
     }
 
-    private func adding(_ argument: ActionArgument, _ text: String, to collected: ActionInvocation) -> ActionInvocation? {
+    func adding(_ argument: ActionArgument, _ text: String, to collected: ActionInvocation) -> ActionInvocation? {
         guard let value = argument.parse(text) else { return nil }
         var next = collected
         next.arguments[argument.name] = value
