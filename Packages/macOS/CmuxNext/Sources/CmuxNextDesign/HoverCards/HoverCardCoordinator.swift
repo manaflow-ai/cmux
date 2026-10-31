@@ -356,12 +356,17 @@ public final class HoverCardCoordinator {
         if let active { owners[active]?.source?.hoverCardActivated(active) }
     }
 
+    /// What the card's monitor sees. Presses only, never releases: a control's own tracking
+    /// loop takes its mouse-up, so a press the card accepts (a tab row, Show details) is the
+    /// whole click and its release never dismisses the card.
+    public static let monitoredEvents: NSEvent.EventTypeMask = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
+
     /// Key presses, clicks and wheel scrolls end a card; the monitor exists
     /// only while one is pending or shown.
     private func updateMonitor() {
         let needed = machine.activeTarget != nil
         if needed, monitor == nil {
-            monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]) { [weak self] event in
+            monitor = NSEvent.addLocalMonitorForEvents(matching: Self.monitoredEvents) { [weak self] event in
                 guard let self else { return event }
                 return self.handleMonitoredEvent(event)
             }

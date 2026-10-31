@@ -108,6 +108,30 @@ import CmuxNextWakeupsTestSupport
         try await Self.tearDown(window, coordinator)
     }
 
+    /// Show details is a press the card accepts; its release never reaches the monitor, so the
+    /// card stays and expands in place.
+    @Test func pressingShowDetailsKeepsTheCardAndItsReleaseIsNeverMonitored() async throws {
+        #expect(!HoverCardCoordinator.monitoredEvents.contains(.leftMouseUp), "the card's monitor would dismiss on a release")
+        let clock = ManualClock()
+        let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
+        list.hoverCard.timelineSource = { _, _ in [SidebarTimelineEntry(kind: .prompt, date: Date(), text: "Prompt")] }
+        _ = try await Self.showCard(list, coordinator, clock, row: try #require(rows.first))
+        let shown = try #require(coordinator.machine.shownTarget)
+        let panel = try #require(coordinator.panel)
+        let body = try #require(panel.glass.contentView.subviews.compactMap { $0 as? WorkspaceHoverCardView }.first)
+        let toggle = body.detailsToggle
+        let point = try #require(toggle.window).convertPoint(toScreen: toggle.convert(NSPoint(x: toggle.bounds.midX, y: toggle.bounds.midY), to: nil))
+        coordinator.pointerMoved(to: point)
+        let press = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                    windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        #expect(coordinator.handleMonitoredEvent(press) != nil, "the press on Show details was swallowed")
+        #expect(coordinator.isShowing(shown.id), "pressing Show details dismissed the card (\(coordinator.machine.phase))")
+        toggle.performClick(nil)
+        #expect(body.isDetailsExpanded)
+        #expect(coordinator.isShowing(shown.id), "Show details did not expand the card in place")
+        try await Self.tearDown(window, coordinator)
+    }
+
     @Test func aScrollOffTheCardStillEndsIt() async throws {
         let clock = ManualClock()
         let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
