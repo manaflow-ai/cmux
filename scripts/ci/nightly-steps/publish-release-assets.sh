@@ -3,9 +3,9 @@
 # nightly.yml under GitHub's workflow file size limit; the step's env: still sets every input.
 set -euo pipefail
 if [ "$NIGHTLY_TRACK" = nightly-next ]; then
-  # arm64 only (decide): the x86_64, universal and legacy names keep their last build.
-  variants=(arm64)
-  aliases=("${CHANNEL_DMG_PREFIX}-arm64.dmg")
+  # Thin arm64 and x86_64 (decide): the universal and legacy names keep their last build.
+  variants=(arm64 x86_64)
+  aliases=("${CHANNEL_DMG_PREFIX}-arm64.dmg" "${CHANNEL_DMG_PREFIX}-x86_64.dmg")
 else
   variants=(arm64 x86_64 universal)
   aliases=("${CHANNEL_DMG_PREFIX}-arm64.dmg" "${CHANNEL_DMG_PREFIX}-x86_64.dmg" "${CHANNEL_DMG_PREFIX}-universal.dmg" "${CHANNEL_DMG_PREFIX}.dmg")

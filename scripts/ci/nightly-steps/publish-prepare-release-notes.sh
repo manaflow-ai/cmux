@@ -6,13 +6,15 @@ set -euo pipefail
 read -ra feeds <<< "$NIGHTLY_FEEDS"
 download="https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}"
 arm64_line="- [Apple silicon: ${CHANNEL_DMG_PREFIX}-arm64.dmg](${download}/${CHANNEL_DMG_PREFIX}-arm64.dmg), feed \`appcast-arm64.xml\`"
+intel_line="- [Intel: ${CHANNEL_DMG_PREFIX}-x86_64.dmg](${download}/${CHANNEL_DMG_PREFIX}-x86_64.dmg), feed \`appcast-x86_64.xml\`"
 if [ "$NIGHTLY_TRACK" = nightly-next ]; then
-  downloads="**${NOTES_APP_NAME}** ships for Apple silicon only (bundle ID \`${NOTES_BUNDLE_ID}\`):
-${arm64_line}"
+  downloads="**${NOTES_APP_NAME}** ships one app per architecture (bundle ID \`${NOTES_BUNDLE_ID}\`):
+${arm64_line}
+${intel_line}"
 else
   downloads="**${NOTES_APP_NAME}** ships one app per architecture (bundle ID \`${NOTES_BUNDLE_ID}\`):
 ${arm64_line}
-- [Intel: ${CHANNEL_DMG_PREFIX}-x86_64.dmg](${download}/${CHANNEL_DMG_PREFIX}-x86_64.dmg), feed \`appcast-x86_64.xml\`
+${intel_line}
 - [Universal (any Mac): ${CHANNEL_DMG_PREFIX}.dmg](${download}/${CHANNEL_DMG_PREFIX}.dmg), feed \`appcast.xml\`; the app switches to its architecture's feed on the first update check"
 fi
 # The release metadata steps below list the same downloads.

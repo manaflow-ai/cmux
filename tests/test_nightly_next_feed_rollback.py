@@ -95,6 +95,22 @@ class PlanTests(unittest.TestCase):
         with self.assertRaisesRegex(rollback.Refused, "empty"):
             rollback.plan(LIVE, bad="1")
 
+    def test_above_pulls_everything_newer_even_when_that_build_is_not_on_the_feed(self):
+        # The Intel feed follows the build appcast-arm64.xml now serves, which
+        # an older Intel feed may not carry.
+        live = feed(item("30"), item("20"), item("10"))
+        text, summary = rollback.plan(live, above="25")
+        self.assertEqual(summary["pulled"], ["30"])
+        self.assertEqual(summary["serving"], "20")
+        self.assertEqual(text, feed(item("20"), item("10")))
+        unchanged, summary = rollback.plan(live, above="30")
+        self.assertFalse(summary["changed"])
+        self.assertEqual(unchanged, live)
+        with self.assertRaisesRegex(rollback.Refused, "empty"):
+            rollback.plan(live, above="5")
+        with self.assertRaisesRegex(rollback.Refused, "one of"):
+            rollback.plan(live, to="20", above="25")
+
     def test_refuses_a_to_build_that_is_not_on_the_feed(self):
         with self.assertRaisesRegex(rollback.Refused, "not on the feed"):
             rollback.plan(LIVE, to="5")

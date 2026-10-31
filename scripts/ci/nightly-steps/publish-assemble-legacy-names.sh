@@ -5,9 +5,11 @@ set -euo pipefail
 cd nightly-out
 ls -l
 if [ "$NIGHTLY_TRACK" = nightly-next ]; then
-  # arm64 only (decide): no Intel or universal names to assemble.
-  [ -f "${CHANNEL_DMG_PREFIX}-arm64.dmg" ] || { echo "missing ${CHANNEL_DMG_PREFIX}-arm64.dmg" >&2; exit 1; }
-  [ -f appcast-arm64.xml ] || { echo "missing appcast-arm64.xml" >&2; exit 1; }
+  # Thin arm64 and x86_64 only (decide): no universal names to assemble.
+  for variant in arm64 x86_64; do
+    [ -f "${CHANNEL_DMG_PREFIX}-${variant}.dmg" ] || { echo "missing ${CHANNEL_DMG_PREFIX}-${variant}.dmg" >&2; exit 1; }
+    [ -f "appcast-${variant}.xml" ] || { echo "missing appcast-${variant}.xml" >&2; exit 1; }
+  done
   exit 0
 fi
 for variant in arm64 x86_64; do

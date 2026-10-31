@@ -2,7 +2,11 @@
 # nightly.yml publish-nightly-next-github: "Publish nightly-next release assets". Moved out of the workflow to keep nightly.yml under
 # GitHub's workflow file size limit; the step's env: still sets every input.
 set -euo pipefail
-args=(--immutable "nightly-out/${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg")
+args=()
+for feed in $NIGHTLY_FEEDS; do
+  variant="${feed#appcast-}"
+  args+=(--immutable "nightly-out/${CHANNEL_DMG_PREFIX}-${variant%.xml}-${NIGHTLY_BUILD}.dmg")
+done
 for daemon in linux-arm64 linux-amd64 darwin-arm64 darwin-amd64; do
   args+=(--immutable "nightly-out/cmuxd-remote-${daemon}-${NIGHTLY_BUILD}")
 done
