@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 765,
-    "mcp": 681
+    "verbs": 766,
+    "mcp": 682
   },
   "nouns": [
     {
@@ -465,6 +465,13 @@
           "id": "app.command.run",
           "mcp": true,
           "mcpTool": "app_run_command"
+        },
+        {
+          "command": "cmux app settings",
+          "title": "Settings…",
+          "id": "openSettings",
+          "mcp": true,
+          "mcpTool": "app_settings"
         },
         {
           "command": "cmux app show-pane",
