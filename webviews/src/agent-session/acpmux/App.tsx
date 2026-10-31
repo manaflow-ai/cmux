@@ -5040,12 +5040,6 @@ function AcpmuxPane() {
   const { scrollToBottomOnSend } = useComposerSettings();
   const scrollToBottomOnSendRef = useRef(scrollToBottomOnSend);
   scrollToBottomOnSendRef.current = scrollToBottomOnSend;
-  /// Labs preview features are off until the host explicitly enables them. They gate only the
-  /// session coverage label now: the environment picker, Cloud (Move to Cloud, the account's Cloud
-  /// machines) and Sandboxed runs are not behind Labs (Leo, 2026-10-30: "i dont like putting so
-  /// much stuff in labs"). Cloud's own checks stay: Cloud allowed by policy, a signed-in account,
-  /// and an explicit pick; nothing creates a paid VM without one.
-  const [preview, setPreview] = useState(false);
   /// A new chat's Run as (hq#3367): Persistent is the chat as before; Sandboxed runs the
   /// first message once on a throwaway Cloud VM and shows its receipt instead. The host holds this
   /// tab's one Sandboxed send and the page renders what it says (sandboxRun.ts SandboxTab). A refused
@@ -8439,7 +8433,10 @@ function AcpmuxPane() {
         setShortcuts(readShortcuts(labels));
       },
       applyPreview(on) {
-        setPreview(on === true);
+        // The environment picker, Cloud (Move to Cloud, the account's Cloud machines) and Sandboxed
+        // runs are not behind Labs (Leo, 2026-10-30: "i dont like putting so much stuff in labs").
+        // Cloud's own checks stay: Cloud allowed by policy, a signed-in account, and an explicit
+        // pick; nothing creates a paid VM without one.
         setPromptSurfaces(on === true);
         // The host's existing Advanced > Labs event is the only producer today. Keep workflow
         // visibility as its own state so the summary never changes environment rendering rules;
