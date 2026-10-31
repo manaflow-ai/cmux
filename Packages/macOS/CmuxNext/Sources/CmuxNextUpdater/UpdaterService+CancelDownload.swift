@@ -50,11 +50,17 @@ extension UpdaterService {
     /// Follows Sparkle after a cancel: any move ends the cancelled card; the check that Update
     /// started downloads the update it finds, and ends with its result otherwise.
     func followCancelledDownload(_ phase: UpdateIndicatorPhase) {
+        defer { lastCancelFollowed = phase }
         if phase != .hidden { cancelledDownload = nil }
         guard downloadAfterCheck else { return }
         switch phase {
-        case .checking, .hidden:
+        case .checking:
             break
+        case .hidden:
+            // The check ended with nothing (cancelled, or idle before a result): a later scheduled
+            // check's update never downloads on this old click. A hidden phase before the check
+            // starts (the cancel's own idle) keeps it.
+            if lastCancelFollowed == .checking { downloadAfterCheck = false }
         case .available:
             downloadAfterCheck = false
             send(.downloadRequested)

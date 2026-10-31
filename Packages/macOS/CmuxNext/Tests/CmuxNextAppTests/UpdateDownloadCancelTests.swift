@@ -89,6 +89,27 @@ import Testing
         #expect(downloads == 1, "Update after a cancel did not download the found update")
     }
 
+    @Test func anUpdateClickWhoseCheckEndsEmptyDoesNotDownloadALaterUpdate() {
+        let updater = UpdateLoadingIndicatorTests.updater()
+        updater.cancelDownloadNow = {
+            updater.debugIndicatorPhase = .hidden
+            return true
+        }
+        var downloads = 0
+        updater.acceptAvailable = { downloads += 1 }
+        updater.send(.checkRequested)
+        updater.debugIndicatorPhase = Self.downloading
+        updater.syncFlowPhase()
+        updater.cancelDownloadClicked()
+        updater.performCardAction(.update)
+        // The check that Update started ends with nothing; later a scheduled check finds an update.
+        for phase: UpdateIndicatorPhase in [.checking, .hidden, .checking, .available(version: "1.0.2")] {
+            updater.debugIndicatorPhase = phase
+            updater.syncFlowPhase()
+        }
+        #expect(downloads == 0, "a scheduled check's update downloaded on an old click")
+    }
+
     @Test func aNewCheckEndsTheCancelledCard() {
         let updater = UpdateLoadingIndicatorTests.updater()
         updater.cancelDownloadNow = {

@@ -187,6 +187,8 @@ public final class UpdaterService {
     /// The Update click on a cancelled download's card started a check: the update it finds
     /// downloads (``followCancelledDownload(_:)``).
     @ObservationIgnored var downloadAfterCheck = false
+    /// The phase ``followCancelledDownload(_:)`` saw last.
+    @ObservationIgnored var lastCancelFollowed: UpdateIndicatorPhase = .hidden
     @ObservationIgnored var phaseObservation: Task<Void, Never>?
     @ObservationIgnored var pathMonitor: NWPathMonitor?
     @ObservationIgnored var network: (constrained: Bool, expensive: Bool) = (false, false)
