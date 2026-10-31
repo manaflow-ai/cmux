@@ -88,13 +88,20 @@ export const encodeBase64 = (bytes: Uint8Array): string => {
   return btoa(bin)
 }
 
+/** Numeric semver identifiers have no precision limit. */
+const compareInteger = (a: string, b: string): number => {
+  const x = BigInt(a)
+  const y = BigInt(b)
+  return x === y ? 0 : x < y ? -1 : 1
+}
+
 /** Semver precedence (semver.org 11): build metadata is ignored. Inputs must match SEMVER. */
 export const compareSemver = (a: string, b: string): number => {
   const pa = SEMVER.exec(a)!
   const pb = SEMVER.exec(b)!
   for (let i = 1; i <= 3; i++) {
-    const d = Number(pa[i]) - Number(pb[i])
-    if (d !== 0) return Math.sign(d)
+    const d = compareInteger(pa[i]!, pb[i]!)
+    if (d !== 0) return d
   }
   const ra = pa[4]
   const rb = pb[4]
@@ -107,7 +114,11 @@ export const compareSemver = (a: string, b: string): number => {
     if (x === y) continue
     const nx = /^\d+$/.test(x)
     const ny = /^\d+$/.test(y)
-    if (nx && ny) return Math.sign(Number(x) - Number(y))
+    if (nx && ny) {
+      const d = compareInteger(x, y)
+      if (d !== 0) return d
+      continue
+    }
     if (nx !== ny) return nx ? -1 : 1
     return x < y ? -1 : 1
   }
