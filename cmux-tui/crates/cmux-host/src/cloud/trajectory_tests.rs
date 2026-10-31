@@ -649,7 +649,13 @@ fn a_restore_rejects_generation_changes_and_relists_before_retrying() {
         }
     }
     // Recreate after listing, between event pages, and before/between native chunks.
-    for (action, occurrence, recreate_session) in [("read", 1, true), ("read", 2, true), ("native-read", 1, true), ("native-read", 2, true), ("native-read", 2, false)] {
+    for (action, occurrence, recreate_session) in [
+        ("read", 1, true),
+        ("read", 2, true),
+        ("native-read", 1, true),
+        ("native-read", 2, true),
+        ("native-read", 2, false),
+    ] {
         let mut server = FakeServer::at("m1");
         let _first = first_machine(&mut server);
         server.as_machine("m2", Some("m1"));
@@ -680,12 +686,13 @@ fn a_restore_rejects_generation_changes_and_relists_before_retrying() {
         let events =
             fs::read_to_string(second.session_dir("chat-a").join("events/000001.ndjson")).unwrap();
         if recreate_session {
-        assert!(
-            events
-                .lines()
-                .take(5)
-                .all(|line| serde_json::from_str::<Value>(line).unwrap()["new_generation"] == true)
-        );
+            assert!(
+                events
+                    .lines()
+                    .take(5)
+                    .all(|line| serde_json::from_str::<Value>(line).unwrap()["new_generation"]
+                        == true)
+            );
         }
         assert_eq!(fs::read(second.claude_file()).unwrap(), b"{\"new!\":1}\n{\"new!\":2}\n");
     }
