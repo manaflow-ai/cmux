@@ -215,7 +215,8 @@ test("the trailing column and chevron use the shared flex row contract", () => {
     new RegExp(`(?:^|\\n)${selector.replace(/[.]/g, "\\.")} \\{([^}]*)\\}`).exec(css)?.[1] ?? "";
   expect(block(".cv-tool")).toContain("display: flex");
   expect(block(".cv-tool__chevron")).toContain("order: 3");
-  expect(block(".cv-tool:not(.cv-agentmsg__line) > .cv-command__meta")).toContain("order: 4");
+  expect(css).toContain(".cv-tool:not(.cv-agentmsg__line) > .cv-command__meta,");
+  expect(css).toContain("  order: 4;");
   // Message rows use the same shared flex sentence, with the trailing status outside it.
   const agentCss = readFileSync(new URL("./AgentMessageRow.css", import.meta.url), "utf8");
   const sentence = /\.cv-agentmsg__sentence \{([^}]*)\}/.exec(agentCss)?.[1] ?? "";
@@ -224,7 +225,7 @@ test("the trailing column and chevron use the shared flex row contract", () => {
 });
 
 test("the subagent row's one button reaches its trailing markers", () => {
-  const css = readFileSync(new URL("../../subagents/subagents.css", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../subagents/subagents.css", import.meta.url), "utf8");
   const row = /\.cv-tool\.cv-subagent-done-row \{([^}]*)\}/.exec(css)?.[1] ?? "";
   expect(row).toContain("position: relative");
   expect(row).toContain("isolation: isolate");
