@@ -93,7 +93,7 @@ import Testing
         #expect(spec.buttons.first { $0.id == "deny" }?.role == .normal)
         #expect(spec.buttons.first { $0.id == "allow" }?.key == nil)
         #expect(spec.lines.contains { $0.contains("one") })
-        #expect(spec.lines.contains { $0.contains(Self.phone.identityKey) })
+        #expect(spec.lines.contains { $0.contains(MobileHostPairedDevices.fingerprint(Self.phone.identityKey)) })
         #expect(spec.identifier == IPhoneHostService.phoneAccessDialogIdentifier)
     }
 
