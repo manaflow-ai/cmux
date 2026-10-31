@@ -24,7 +24,7 @@ struct CloudFileRoutingTests {
         }
     }
 
-    private static func fixture() throws -> Fixture {
+    private static func fixture(localPane: Bool = false) throws -> Fixture {
         _ = NSApplication.shared
         let root = FileManager.default.temporaryDirectory.appending(path: "cloud-routing-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -34,17 +34,20 @@ struct CloudFileRoutingTests {
         services.machines.add(machine)
         let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, title: "Cloud terminal")])
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
-        machine.daemon.store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: "cloud-files", name: "Cloud", screens: [screen])]))
+        let daemon = localPane ? services.daemon : machine.daemon
+        daemon.store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: "cloud-files", name: "Cloud", screens: [screen])]))
         services.windows.registry.provisional["cloud-file-window"] = ["cloud-files"]
         let controller = services.windows.makeController(for: WindowRegistry.Window(id: "cloud-file-window"))
         services.windows.select("cloud-files", in: controller.state)
         controller.showWorkspace(requested: controller.state.workspaceID)
         let shown = try #require(controller.focusedPane)
-        try #require(!shown.daemon.isLocal)
+        try #require(shown.daemon.isLocal == localPane)
         let context = AppActionContext(services: services)
         AgentHandlers.bind(into: services.registry, context: context)
         ViewerHandlers.bind(into: services.registry, context: context)
         FilePageHandlers.bind(into: services.registry, context: context)
+        TabHandlers.bind(into: services.registry, context: context)
+        services.linkOpener.placement = { .samePane }
         return Fixture(services: services, controller: controller, pane: shown, root: root)
     }
 
@@ -84,6 +87,74 @@ struct CloudFileRoutingTests {
         #expect(service.file(remote)?.path == file.path)
         #expect(FilePageHandlers.file(ofTab: remote, fixture.services) == nil,
                 "a remote file was offered to this Mac's external-open actions")
+    }
+
+    @Test(arguments: [false, true])
+    func openAsTextShowsCloudMarkdownSource(_ stringArgument: Bool) async throws {
+        let fixture = try Self.fixture()
+        defer { fixture.close() }
+        let services = fixture.services
+        let path = "/home/cmux/\(UUID().uuidString)/notes.md"
+        let invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: fixture.pane.paneKey),
+                                          arguments: ["path": .string(path), "asText": stringArgument ? .string("true") : .bool(true)],
+                                          origin: .cli)
+        var refusal: String?
+        let work = services.registry.capturingWork {
+            refusal = services.registry.reportingRefusal {
+                #expect(services.registry.perform("file.open", invocation: invocation))
+            }
+        }
+        #expect(refusal == nil)
+        for task in work { #expect(await task.value == nil) }
+        let keys = services.pages.tabIDs(in: fixture.pane.paneKey)
+        let key = try #require(keys.first { services.viewers.editorPages.file($0)?.path == path },
+                               "Open as Text must select the Cloud file's code editor")
+        #expect(!keys.contains { services.viewers.markdownPages.file($0)?.path == path })
+        #expect(FilePageHandlers.file(ofTab: key, services) == nil,
+                "the Cloud source must not become a local external-open URL")
+    }
+
+    @Test(arguments: [false, true])
+    func sourcePageRoundTripPreservesCloudOrigin(_ localPane: Bool) throws {
+        let fixture = try Self.fixture(localPane: localPane)
+        defer { fixture.close() }
+        let services = fixture.services
+        let daemon = try #require(services.machines.remoteDaemons.first)
+        let file = fixture.root.appending(path: "notes.md")
+        try Data("local copy must not open".utf8).write(to: file)
+        let rendered = services.viewers.markdownPages.open(file, in: fixture.pane, focus: true, on: daemon)
+        let sourceInvocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: rendered), origin: .cli)
+        #expect(services.registry.action(for: "browser.editSource")?.targetHidden?(sourceInvocation) == false)
+        #expect(services.registry.reportingRefusal {
+            #expect(services.registry.perform("browser.editSource", invocation: sourceInvocation))
+        } == nil)
+        let keys = services.pages.tabIDs(in: fixture.pane.paneKey)
+        let source = try #require(keys.first { services.viewers.editorPages.file($0) == file })
+        #expect(FilePageHandlers.file(ofTab: source, services) == nil, "source opened on this Mac")
+        let pageInvocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: source), origin: .cli)
+        #expect(services.registry.action(for: "file.openAsPage")?.targetHidden?(pageInvocation) == false)
+        #expect(services.registry.reportingRefusal {
+            #expect(services.registry.perform("file.openAsPage", invocation: pageInvocation))
+        } == nil)
+        #expect(services.viewers.markdownPages.debugTabs.filter { $0.file == file }.map(\.key) == [rendered],
+                "the round trip must reuse the Cloud Markdown tab, not create a local copy")
+        #expect(FilePageHandlers.file(ofTab: rendered, services) == nil)
+    }
+
+    @Test(arguments: ["report.html", "logo.svg"])
+    func remoteWebSourceNeverOffersLocalRendering(_ name: String) throws {
+        let fixture = try Self.fixture()
+        defer { fixture.close() }
+        let services = fixture.services
+        let file = fixture.root.appending(path: name)
+        try Data("local copy must not render".utf8).write(to: file)
+        let source = services.viewers.editorPages.open(file, in: fixture.pane, focus: false, on: fixture.pane.daemon)
+        let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: source), origin: .cli)
+        #expect(services.registry.action(for: "file.openAsPage")?.targetHidden?(invocation) == true)
+        #expect(services.registry.reportingRefusal {
+            #expect(services.registry.perform("file.openAsPage", invocation: invocation))
+        } != nil)
+        #expect(FilePageHandlers.file(ofTab: source, services) == nil)
     }
 
     @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"), arguments: FilePageKind.allCases)
