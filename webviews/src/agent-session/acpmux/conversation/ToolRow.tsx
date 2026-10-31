@@ -2,7 +2,7 @@ import { WrittenArtifactButtons } from "./writtenArtifacts";
 // One tool call drawn on its own row: its glyph, its title, and, when it has any, its
 // output, Shell block or diff below once opened.
 import { useFindReveal } from "./chatFind";
-import { memo, useContext, useId, useMemo, useState, type ReactNode } from "react";
+import { memo, useContext, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toolFiles } from "../diff";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
@@ -100,31 +100,41 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
   // Find counts a shell's whole line: a label that is its description or a shortened line is skipped.
   const drawsCommand = !tool.description && shortCommand(tool.command ?? "", ROW_WIDTH) === tool.command?.trim();
   // A shell prints what it printed. Any other call's result is shown without the JSON envelope a
-  // harness wrapped it in and the context a host injects into it (toolResult.ts), read only while
-  // the call is open: a closed row parses nothing.
+  // harness wrapped it in and the context a host injects into it (toolResult.ts). Memoize the
+  // rendered result so the disclosure and its body agree, including image-only envelopes.
   // A finished call's envelope images show in its strip instead of its text (toolImages.ts).
   const strip = stripsEnvelopeImages(tool);
   const result = useMemo(() => {
-    if (shell || !tool.output || !fold.present) return undefined;
+    if (shell || !tool.output) return undefined;
     return toolResult(tool.output, cleanText, strip, {
       kind: tool.kind,
       title: tool.title,
       description: tool.description,
     });
-  }, [shell, tool.description, tool.kind, tool.output, tool.title, fold.present, strip]);
+  }, [shell, tool.description, tool.kind, tool.output, tool.title, strip]);
   const body = shell ? tool.output?.replace(/\n$/, "") : result?.text;
-  // Whether a closed call has anything to open, read once per output, not on every render.
-  const hasOutput = useMemo(() => Boolean(tool.output && cleanText(tool.output).trim()), [tool.output]);
-  const opens = shell ? Boolean(body) : hasOutput;
-  // A label-only row is useful only when the label itself is long enough for the ellipsis to hide
-  // content. Short calls such as "Wait 60000 ms" have no detail to reveal and stay plain rows.
-  const hasLongLabel = !shell && !hasOutput && !hasDiff && label.length > 60;
-  const expandable = opens || shell || hasDiff || hasLongLabel;
+  const hasDetails = shell || hasDiff || Boolean(result?.text.trim());
+  const labelRef = useRef<HTMLSpanElement>(null);
+  const [clipped, setClipped] = useState(false);
+  const expandable = hasDetails || clipped;
+  // Label-only rows disclose only actual overflow, not a guessed character count. While open,
+  // retain the closed measurement so wrapping does not remove the reader's collapse control.
+  useLayoutEffect(() => {
+    const node = labelRef.current;
+    if (hasDetails || open || !node) return;
+    const measure = () => setClipped(node.clientWidth > 0 && node.scrollWidth > node.clientWidth);
+    measure();
+    const Observer = node.ownerDocument.defaultView?.ResizeObserver;
+    if (!Observer) return;
+    const observer = new Observer(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasDetails, open, label, expandable]);
   const images = useMemo(() => toolImages(tool), [tool]);
   const content = (
     <>
       <span className="cv-tool__icon">{toolIcon(tool.kind)}</span>
-      <span className="cv-tool__text" data-find-skip={(shell && (open || !drawsCommand)) || undefined}>
+      <span ref={labelRef} className="cv-tool__text" data-find-skip={(shell && (open || !drawsCommand)) || undefined}>
         {write ? <WriteLabel tool={tool} write={write} t={t} /> : <ToolLabel text={label} whole={plainMcp} />}
         {failure && (
           <span className="cv-tool__failed" data-find-skip>
@@ -149,15 +159,14 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
       )}
     </>
   );
-  // A call with output opens its details. A no-output line opens only when its label is long enough
-  // for the row's ellipsis to hide content (Leo, ask-486cb2cec3); a short status such as "Wait
-  // 60000 ms" stays a plain row because it has no details or hidden label to reveal.
+  // A call opens only to details or a clipped label (Leo, ask-486cb2cec3). A fully visible
+  // status such as "Wait 60000 ms" with no body is a plain row.
   return (
     <>
       {expandable ? (
         <button
           type="button"
-          className={`cv-tool is-toggle${!shell ? " is-whole-open" : ""}${running ? " is-live" : " is-strong"}`}
+          className={`cv-tool is-toggle${shell ? "" : " is-whole-open"}${running ? " is-live" : " is-strong"}`}
           data-tool-id={tool.id}
           aria-expanded={open}
           aria-controls={open && (shell || files.length > 0 || body) ? detailsId : undefined}

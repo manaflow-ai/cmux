@@ -16,6 +16,9 @@ import { ToolRow } from "./ToolRow";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
+let labelWidth = 300;
+let labelScrollWidth = 300;
+const resizeCallbacks = new Set<() => void>();
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
@@ -42,6 +45,34 @@ function installDom(): HTMLElement {
     localStorage: dom.window.localStorage,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
+  Object.defineProperties(dom.window.HTMLElement.prototype, {
+    clientWidth: {
+      configurable: true,
+      get() {
+        return this.classList.contains("cv-tool__text") ? labelWidth : 0;
+      },
+    },
+    scrollWidth: {
+      configurable: true,
+      get() {
+        return this.classList.contains("cv-tool__text") ? labelScrollWidth : 0;
+      },
+    },
+  });
+  Object.defineProperty(dom.window, "ResizeObserver", {
+    value: class {
+      callback: () => void;
+      constructor(callback: () => void) {
+        this.callback = callback;
+      }
+      observe() {
+        resizeCallbacks.add(this.callback);
+      }
+      disconnect() {
+        resizeCallbacks.delete(this.callback);
+      }
+    },
+  });
   return dom.window.document.getElementById("root")!;
 }
 
@@ -56,6 +87,9 @@ afterEach(async () => {
     else scope[key] = value;
   }
   saved.clear();
+  expect(resizeCallbacks.size).toBe(0);
+  labelWidth = 300;
+  labelScrollWidth = 300;
 });
 
 async function render(node: ReactNode): Promise<HTMLElement> {
@@ -86,6 +120,7 @@ for (const [kind, item] of [
   ["without output", search()],
 ] as const) {
   test(`a tool call's line ${kind} opens to its whole label`, async () => {
+    labelScrollWidth = 800;
     const container = await render(<ToolRow item={item} />);
     const line = container.querySelector<HTMLButtonElement>("button.cv-tool")!;
     expect(line).not.toBeNull();
@@ -102,6 +137,34 @@ for (const [kind, item] of [
   });
 }
 
+test("a long label that fits does not offer an empty disclosure", async () => {
+  labelWidth = 1000;
+  labelScrollWidth = 800;
+  const container = await render(<ToolRow item={search()} />);
+  expect(container.querySelector("button.cv-tool")).toBeNull();
+});
+
+test("a label-only row becomes expandable on overflow and stays collapsible while wrapped", async () => {
+  const container = await render(<ToolRow item={search()} />);
+  expect(container.querySelector("button.cv-tool")).toBeNull();
+  await act(async () => {
+    labelWidth = 100;
+    labelScrollWidth = 300;
+    for (const callback of [...resizeCallbacks]) callback();
+  });
+  const line = container.querySelector<HTMLButtonElement>("button.cv-tool")!;
+  expect(line).not.toBeNull();
+  await act(async () => line.click());
+  expect(line.getAttribute("aria-expanded")).toBe("true");
+  await act(async () => {
+    labelScrollWidth = 100;
+    for (const callback of [...resizeCallbacks]) callback();
+  });
+  expect(container.querySelector("button.cv-tool")).toBe(line);
+  await act(async () => line.click());
+  expect(container.querySelector("button.cv-tool")).toBeNull();
+});
+
 test("a shell's line keeps its one line: its Shell block shows the whole command", async () => {
   const shell: AcpmuxActivity = {
     kind: "tool",
@@ -115,6 +178,7 @@ test("a shell's line keeps its one line: its Shell block shows the whole command
 for (const [name, output] of [
   ["without output", undefined],
   ["with whitespace output", " \n\t"],
+  ["with an image-only result", '{"content":[{"type":"image","mimeType":"image/png","data":"aGVsbG8="}]}'],
 ] as const) {
   test(`a short tool call ${name} has no empty disclosure`, async () => {
     const item: AcpmuxActivity = {
@@ -133,6 +197,7 @@ for (const [name, output] of [
     expect(container.querySelector(".cv-tool")?.tagName).toBe("DIV");
     expect(container.querySelector(".cv-tool")?.getAttribute("aria-expanded")).toBeNull();
     expect(container.querySelector(".cv-tool__chevron")).toBeNull();
+    expect(container.querySelector(".cv-tool")?.getAttribute("aria-controls")).toBeNull();
   });
 }
 
