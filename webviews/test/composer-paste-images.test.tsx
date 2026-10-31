@@ -841,3 +841,146 @@ test("a failed attachment left out of a send stays reachable with Retry and its 
   expect(strip()!.querySelector(".acpmux-attachment-retry")).not.toBeNull();
   expect(strip()!.querySelector(".acpmux-attachment-remove")).not.toBeNull();
 });
+
+// Review of #26667 (Astra), finding 1: the composer read the draft's tokens from its markdown, where
+// text typed or pasted in the shape of a placed attachment's token (U+FFFC, its id, U+FFFC) reads
+// the same as the editor's own node of it. That text then took the attachment's place: the prompt
+// sent the pasted marker as the attachment, and once the node itself was deleted the attachment
+// stayed with no chip drawn anywhere. Only the editor's own nodes are attachments; the rest is text.
+const WORD_JOINER = "⁠";
+const blockTexts = (sent: { text: string; attachments: ComposerAttachment[] }) =>
+  promptBlocks(sent.text, sent.attachments).map((block) =>
+    block.type === "text" ? `text:${block.text.replaceAll(WORD_JOINER, "")}` : block.type,
+  );
+
+async function withPlacedImage(id: string) {
+  const { inlineToken } = await import("../src/agent-session/acpmux/attachments");
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const composer = await openComposer(sent);
+  const image: ComposerAttachment = {
+    id,
+    kind: "image",
+    name: "image.png",
+    mimeType: "image/png",
+    size: PNG.length,
+    data: pngBase64,
+  };
+  await act(async () => composer.current!.restore(`see ${inlineToken(image.id)} here`, [image]));
+  await until(() => Boolean(field().querySelector("[data-inline-attachment] img")), "restored inline image");
+  return { composer, sent, image, token: inlineToken(image.id) };
+}
+const settleTurns = async () => {
+  for (let turn = 0; turn < 5; turn++) await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+};
+
+test("text pasted with a placed attachment's token in it stays text, and the attachment keeps its place", async () => {
+  const { composer, sent, image, token } = await withPlacedImage("pasted-marker");
+  await act(async () => markdownField().setCaret(0));
+  await act(async () => markdownField().pasteText(`look ${token} `));
+  await settleTurns();
+  const nodes = [...field().querySelectorAll("[data-inline-attachment]")].map((node) =>
+    node.getAttribute("data-inline-attachment"),
+  );
+  expect(nodes).toEqual([image.id]);
+  expect(field().querySelectorAll("[data-inline-attachment] img")).toHaveLength(1);
+  await act(async () => composer.current!.send());
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.attachments.map((attachment) => attachment.id)).toEqual([image.id]);
+  // The image goes where its chip is, between "see" and "here"; the pasted marker goes as the text it was.
+  expect(blockTexts(sent[0]!)).toEqual([`text:look ${token} see `, "image", "text: here"]);
+});
+
+test("text typed with a placed attachment's token in it after the attachment goes as text", async () => {
+  const { composer, sent, image, token } = await withPlacedImage("typed-marker");
+  await act(async () => markdownField().setCaret(Number.MAX_SAFE_INTEGER));
+  await act(async () => markdownField().insertTyped(` ${token}`));
+  await settleTurns();
+  expect(field().querySelectorAll("[data-inline-attachment] img")).toHaveLength(1);
+  await act(async () => composer.current!.send());
+  expect(sent[0]!.attachments.map((attachment) => attachment.id)).toEqual([image.id]);
+  expect(blockTexts(sent[0]!)).toEqual(["text:see ", "image", `text: here ${token}`]);
+});
+
+test("deleting a placed attachment with its token pasted as text beside it takes the attachment out", async () => {
+  const { composer, sent, image, token } = await withPlacedImage("deleted-beside-marker");
+  await act(async () => markdownField().setCaret(0));
+  await act(async () => markdownField().pasteText(`${token} `));
+  await settleTurns();
+  // The person deletes the attachment's own chip.
+  await act(async () => markdownField().removeInline(image.id));
+  await settleTurns();
+  expect(field().querySelector("[data-inline-attachment]")).toBeNull();
+  // No attachment hides behind the pasted text: none is left, in the text or the strip.
+  expect(composer.current!.wakeState().attachments ?? []).toEqual([]);
+  await act(async () => composer.current!.send());
+  expect(sent[0]!.attachments).toEqual([]);
+  expect(blockTexts(sent[0]!)).toEqual([`text:${token} see  here`]);
+});
+
+// Review of #26667 (Astra), finding 2: a file still streaming to the session's machine does not
+// hold a send; it stays for the next prompt (attachmentIntake.tsx useSendWhenAttached). The send's
+// clear took its node out of the text as an edit, and the edit cancelled it: its upload was dropped
+// and the next prompt went without it. A node the person deletes is still cancelled.
+async function withUploadingFile(onSend?: ComposerProps["onSend"]) {
+  let finish: ((paths: string[]) => void) | undefined;
+  const upload = () =>
+    new Promise<{ paths: string[] }>((resolve) => {
+      finish = (paths) => resolve({ paths });
+    });
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const composer = await openComposer(sent, { upload, ...(onSend ? { onSend } : {}) });
+  await act(async () => composer.current!.restore("see", []));
+  await act(async () => markdownField().setCaret(Number.MAX_SAFE_INTEGER));
+  const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+  const archive = new File([new Uint8Array(64)], "notes.bin", { type: "application/octet-stream" });
+  Object.defineProperty(event, "clipboardData", {
+    value: { files: [archive], types: ["Files"], getData: () => "" },
+  });
+  await act(async () => {
+    field().dispatchEvent(event);
+  });
+  await until(
+    () => finish !== undefined && Boolean(field().querySelector("[data-inline-attachment]")),
+    "the uploading placeholder in the text",
+  );
+  const id = field().querySelector("[data-inline-attachment]")!.getAttribute("data-inline-attachment")!;
+  return { composer, sent, id, finish: (paths: string[]) => act(async () => finish!(paths)) };
+}
+
+test("a file still uploading when the prompt is sent stays, and goes with the next prompt", async () => {
+  // The host takes the prompt a moment later; the person types on meanwhile.
+  let take: (() => void) | undefined;
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const upload = await withUploadingFile((text, attachments) => {
+    sent.push({ text, attachments: attachments ?? [] });
+    return new Promise<void>((resolve) => {
+      take = resolve;
+    });
+  });
+  await act(async () => upload.composer.current!.send());
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.attachments).toEqual([]);
+  await act(async () => markdownField().setCaret(Number.MAX_SAFE_INTEGER));
+  await act(async () => markdownField().insertTyped(" next"));
+  await act(async () => take!());
+  await settleTurns();
+  await upload.finish(["/tmp/notes.bin"]);
+  await until(
+    () => (upload.composer.current!.wakeState().attachments ?? []).some((each) => each.id === upload.id),
+    "the uploaded file, kept for the next prompt",
+  );
+  await act(async () => upload.composer.current!.send());
+  expect(sent).toHaveLength(2);
+  expect(sent[1]!.attachments.map((each) => [each.id, each.path])).toEqual([[upload.id, "/tmp/notes.bin"]]);
+});
+
+test("a file still uploading whose node the person deletes is cancelled", async () => {
+  const upload = await withUploadingFile();
+  await act(async () => markdownField().removeInline(upload.id));
+  await settleTurns();
+  await upload.finish(["/tmp/notes.bin"]);
+  await settleTurns();
+  expect(upload.composer.current!.wakeState().attachments ?? []).toEqual([]);
+  expect(field().querySelector("[data-inline-attachment]")).toBeNull();
+  expect(host.querySelector('[aria-busy="true"]')).toBeNull();
+});
