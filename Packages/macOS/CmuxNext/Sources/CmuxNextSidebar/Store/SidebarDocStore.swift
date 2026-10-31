@@ -31,7 +31,10 @@ public final class SidebarDocStore {
     /// it. False keeps the older path.
     public private(set) var isActive = false
     /// What the sidebar draws from the document (`show(live:)`); nil while inactive.
-    public internal(set) var shown: SidebarDocProjection?
+    public internal(set) var shown: SidebarDocProjection? { didSet { shownChanges &+= 1 } }
+    /// Counts the changes of `shown`. A window records the count its rows were built at: its rows pass runs a hop
+    /// after `show`, so a caught-up document says nothing about one window's rows.
+    @ObservationIgnored public private(set) var shownChanges: UInt64 = 0
     /// The `version` `shown` was built at: behind `version` while an applied change (a Cmd-N move) waits for the next
     /// `show`, a hop later.
     @ObservationIgnored public internal(set) var shownVersion: UInt64 = 0

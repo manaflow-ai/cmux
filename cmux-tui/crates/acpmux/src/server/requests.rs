@@ -2023,7 +2023,15 @@ async fn dispatch_request(
             let page_filter =
                 filter.omitting_superseded(params.get("maxBytes").is_some_and(|b| !b.is_null()));
             let read = || {
-                hub.events_page(&s.id, after.unwrap_or(0), before, limit, max_bytes, newest, &page_filter)
+                hub.events_page(
+                    &s.id,
+                    after.unwrap_or(0),
+                    before,
+                    limit,
+                    max_bytes,
+                    newest,
+                    &page_filter,
+                )
             };
             let page = if hidden { read() } else { crate::qos::on_screen(read) }
                 .map_err(|e| RpcError::internal(e.to_string()))?;
