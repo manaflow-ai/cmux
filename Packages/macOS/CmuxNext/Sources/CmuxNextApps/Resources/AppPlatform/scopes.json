@@ -421,6 +421,14 @@
       "scope": "cloud:execute",
       "class": "mutation"
     },
+    "cloud.vm.network_policy": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.vm.receiver.lifecycle": {
+      "scope": "cloud:execute",
+      "class": "mutation"
+    },
     "cloud.vm.self.get": {
       "scope": "cloud:read",
       "class": "read"
@@ -2000,6 +2008,8 @@
     "home.settings.set",
     "host.enroll",
     "host.network.bind",
+    "host.network.policy",
+    "host.network.target",
     "host.remove",
     "host.replica.purge",
     "install.list",
