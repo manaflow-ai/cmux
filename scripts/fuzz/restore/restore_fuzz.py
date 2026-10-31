@@ -605,6 +605,15 @@ def evidence(tag):
     return copied
 
 
+def safe_evidence(tag):
+    """evidence(), but a failure to collect never hides the problem it records (review low item at 5dcb6b7929d)."""
+    try:
+        return evidence(tag)
+    except Exception as error:  # noqa: BLE001 - evidence is best effort; the iteration's problem stands
+        say(f"  evidence {tag} failed: {type(error).__name__}: {error}")
+        return []
+
+
 def restore(target, killed_at, old_daemons):
     """Brings the build back after the kill and waits for it to settle; (state, timings, problem)."""
     timings = {}
@@ -801,11 +810,11 @@ def iteration(seed, targets, keep=None, label="i"):
         sys.exit(75)
     if problem:
         rec["problems"].append(problem)
-        rec["crash_reports"] = evidence(f"{label}-{seed}")
+        rec["crash_reports"] = safe_evidence(f"{label}-{seed}")
     else:
         rec["problems"] += judge(state, confirmed, inflight)
         if rec["problems"]:
-            rec["crash_reports"] = evidence(f"{label}-{seed}")
+            rec["crash_reports"] = safe_evidence(f"{label}-{seed}")
     rec["verdict"] = "fail" if rec["problems"] else "pass"
     return rec
 
