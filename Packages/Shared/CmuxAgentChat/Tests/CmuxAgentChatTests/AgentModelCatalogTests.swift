@@ -12,6 +12,7 @@ struct AgentModelCatalogTests {
         ("claude-opus-5-5", "Opus 5.5", 1_000_000),
         ("claude-haiku-4-5-20251001", "Haiku 4.5", 200_000),
         ("claude-haiku-4-5@20251001", "Haiku 4.5", 200_000),
+        ("claude-sonnet-5-5", "Sonnet 5.5", 1_000_000),
         ("claude-sonnet-4-5-20250929", "Sonnet 4.5", 200_000),
         ("claude-sonnet-4-5-20250929[1m]", "Sonnet 4.5", 1_000_000),
         ("us.anthropic.claude-opus-4-1-20250805-v1:0", "Opus 4.1", 200_000),
