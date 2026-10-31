@@ -126,32 +126,34 @@ struct GatherWindowsTests {
         #expect(here.state.profileID == Self.rooms[1])
     }
 
-    /// A workspace being created in a window the move closes (claimed, not reported yet) lands in
-    /// this window when it arrives: its claim follows the move, so the closed window never reopens.
-    @Test func aWorkspaceBeingCreatedInAClosedWindowFollowsTheMove() throws {
+    /// A window with a workspace still being created (claimed, a sidebar placement, a queued
+    /// create, a provisional row) is not closed under it: a move that would empty it is refused
+    /// and nothing changes. A source window the move leaves open does not block it.
+    @Test func aWindowStillCreatingAWorkspaceIsNotGathered() throws {
         let services = try Self.services()
         defer { Self.closeAll(services) }
         let here = try Self.open(["k0"], services), there = try Self.open(["k2"], services)
-        let other = try Self.open(["k1"], services)
+        let other = try Self.open(["k1", "k3"], services)
         services.windows.claimNew(workspaceID: "k-new-1", window: there.state.id)
-        services.windows.claimNew(workspaceID: "k-new-2", window: other.state.id)
-        services.windows.pendingPlacements["k-new-1"] = PendingPlacement(window: there.state.id, slot: nil, byDefault: nil, then: nil)
-        services.windows.pendingPlacements["k-new-2"] = PendingPlacement(window: other.state.id, slot: nil, byDefault: nil, then: nil)
+        let before = services.windows.registry.value
 
+        #expect(throws: ActionFailure.self) { try services.windows.bringSpace(Self.rooms[1], into: here.state) }
+        #expect(throws: ActionFailure.self) { try services.windows.mergeWindows(into: here.state) }
+        #expect(services.windows.registry.value == before, "a refused move changed windows")
+        #expect(here.state.profileID == Self.rooms[0])
+
+        services.windows.pendingClaims["k-new-1"] = nil
+        services.windows.pendingPlacements["k-new-2"] = PendingPlacement(window: there.state.id, slot: nil, byDefault: nil, then: nil)
+        #expect(throws: ActionFailure.self) { try services.windows.mergeWindows(into: here.state) }
+        services.windows.pendingPlacements["k-new-2"] = nil
+
+        // A create in a window the move leaves open (k1 stays in `other`) does not block it.
+        services.windows.claimNew(workspaceID: "k-new-3", window: other.state.id)
         try services.windows.bringSpace(Self.rooms[1], into: here.state)
-        #expect(services.windows.registry.value.window(there.state.id) == nil, "the emptied window stayed")
-        #expect(services.windows.pendingClaims["k-new-1"] == here.state.id, "the claim still names the closed window")
-        #expect(services.windows.pendingPlacements["k-new-1"]?.window == here.state.id, "the placement still names the closed window")
-        // A create queued before the move (WorkspaceLanes) claims the closed window only later.
-        services.windows.claimNew(workspaceID: "k-new-3", window: there.state.id)
-        #expect(services.windows.pendingClaims["k-new-3"] == here.state.id, "a later claim reopened the closed window")
-
-        try services.windows.mergeWindows(into: here.state)
-        #expect(services.windows.registry.value.window(other.state.id) == nil)
-        #expect(services.windows.pendingClaims["k-new-2"] == here.state.id, "the claim still names the merged window")
-        #expect(services.windows.pendingPlacements["k-new-2"]?.window == here.state.id, "the placement still names the merged window")
-        services.windows.claimNew(workspaceID: "k-new-4", window: other.state.id)
-        #expect(services.windows.pendingClaims["k-new-4"] == here.state.id, "a later claim reopened the merged window")
+        let registry = services.windows.registry.value
+        #expect(registry.window(there.state.id) == nil)
+        #expect(registry.window(other.state.id)?.workspaceIDs == ["k1"])
+        #expect(services.windows.pendingClaims["k-new-3"] == other.state.id)
     }
 
     /// An incognito space, or an incognito window, takes part in no move (rule 2).
