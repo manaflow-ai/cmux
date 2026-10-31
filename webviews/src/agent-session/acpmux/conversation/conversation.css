@@ -1957,7 +1957,6 @@ pre.cv-math-source {
   justify-content: center;
   width: var(--cv-glyph-slot);
   height: var(--cv-glyph-line);
-  margin-right: -1.5px;
 }
 .cv-tool__text {
   flex: 0 1 auto;
