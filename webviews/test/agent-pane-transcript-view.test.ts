@@ -229,6 +229,15 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
           [...document.querySelectorAll(".cv-shell__body")].every((body) => body.getAttribute("data-wrap") !== was),
         before,
       );
+      // A second click in the same open menu flips it back: the row reads the choice when clicked,
+      // not the one the menu opened with (HQ#5600).
+      await toggle.click();
+      await page.waitForFunction(
+        (was) =>
+          [...document.querySelectorAll(".cv-shell__body")].every((body) => body.getAttribute("data-wrap") === was),
+        before,
+      );
+      expect(await toggle.getAttribute("aria-checked")).toBe(before);
       await page.close();
     });
 

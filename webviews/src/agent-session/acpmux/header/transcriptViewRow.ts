@@ -22,7 +22,12 @@ import type { ChatMenuChild, ChatMenuItem } from "./ChatHeaderTools";
 /// and each block shows its own Wrap lines only on hover or focus (conversation.css .cv-shell__wrap).
 export function wrapOutputRow(t: Translate): ChatMenuChild {
   const on = blockWrapOf("output");
-  return { key: "transcriptView.wrap", label: t("changes.wrapLines"), on, onSelect: () => setBlockWrap("output", !on) };
+  return {
+    key: "transcriptView.wrap",
+    label: t("changes.wrapLines"),
+    on,
+    onSelect: () => setBlockWrap("output", !blockWrapOf("output")),
+  };
 }
 
 export const TRANSCRIPT_VIEW_NAMES: Record<TranscriptView, StringKey> = {
