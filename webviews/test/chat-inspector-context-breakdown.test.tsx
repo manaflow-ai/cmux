@@ -251,9 +251,7 @@ test("with Claude's /context, the tokens until auto-compact sit beside Compact s
     ),
   );
   const actions = container.querySelector(".acpmux-chat-inspector-context__actions")!;
-  expect(actions.querySelector(".acpmux-chat-inspector-context__until")?.textContent).toBe(
-    "146.7K until auto-compact",
-  );
+  expect(actions.querySelector(".acpmux-chat-inspector-context__until")?.textContent).toBe("146.7K until auto-compact");
   // Without a buffer row the harness does not say when it compacts: the button alone.
   await act(async () =>
     root!.render(<ContextSection usage={{ used: 94_000, size: 200_000 }} percent={47} onCompact={() => {}} />),

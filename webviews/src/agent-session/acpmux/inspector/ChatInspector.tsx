@@ -1120,12 +1120,7 @@ export function ChatInspector({
         </>
       }
     >
-      <ContextSection
-        usage={usage}
-        percent={percent}
-        breakdown={summary?.contextBreakdown}
-        onCompact={onCompact}
-      />
+      <ContextSection usage={usage} percent={percent} breakdown={summary?.contextBreakdown} onCompact={onCompact} />
     </InspectorSection>
   ) : (
     progress.length > 0 && (
