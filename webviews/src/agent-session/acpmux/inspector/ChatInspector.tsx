@@ -68,7 +68,7 @@ import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { ConnectorsSection } from "./ConnectorsSection";
 import { ContextSection } from "./ContextSection";
 import { EnvironmentSection, type ProjectRowLook } from "./EnvironmentSection";
-import { InspectorGroup } from "./InspectorGroup";
+import { InspectorSectionList } from "./InspectorGroup";
 import { InspectorSection } from "./InspectorSection";
 import { SourcesSection } from "./SourcesSection";
 import { SUBAGENT_HEADER, SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
@@ -1256,16 +1256,19 @@ export function ChatInspector({
   return (
     <div ref={body} className="acpmux-chat-inspector__body" data-layout={layout}>
       {banner}
-      {/* Where it runs. */}
-      <InspectorGroup group="about" sections={{ environment, context, connectors }} />
-      {/* What it made. */}
-      {(changes || sourcesSection || outputsSection) && (
-        <InspectorGroup group="made" sections={{ changes, sources: sourcesSection, outputs: outputsSection }} />
-      )}
-      {/* What it runs. */}
-      {(subagentsSection || tasks) && (
-        <InspectorGroup group="running" sections={{ subagents: subagentsSection, tasks }} />
-      )}
+      {/* Where it runs, what it made, what it runs: one order the person drags (InspectorGroup.tsx). */}
+      <InspectorSectionList
+        sections={{
+          environment,
+          context,
+          connectors,
+          changes,
+          sources: sourcesSection,
+          outputs: outputsSection,
+          subagents: subagentsSection,
+          tasks,
+        }}
+      />
       {gallery && (
         <GalleryDialog
           rows={rows}
