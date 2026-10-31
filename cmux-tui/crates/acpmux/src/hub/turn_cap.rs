@@ -203,15 +203,16 @@ impl Hub {
         });
     }
 
-    /// Sets or clears (`None`) the session's own cap, in ms; 0 turns the cap off. Read at each
-    /// message and turn start, so a running turn takes the new cap at once; its timer starts with
-    /// the next turn.
+    /// [`Hub::set_turn_cap_answered`] for the tests (`turn_cap_tests.rs`).
+    #[cfg(test)]
     pub(crate) fn set_turn_cap(&self, session: &Session, cap_ms: Option<u64>) {
         // A failed save is logged there; no request waits for this one.
         let _ = self.set_turn_cap_answered(session, cap_ms);
     }
 
-    /// [`Hub::set_turn_cap`] for `_acpmux/set_turn_cap`: answered only once the cap is saved
+    /// Sets or clears (`None`) the session's own cap, in ms; 0 turns the cap off. Read at each
+    /// message and turn start, so a running turn takes the new cap at once; its timer starts with
+    /// the next turn. `_acpmux/set_turn_cap` is answered only once the cap is saved
     /// (`meta_save.rs`).
     pub(crate) fn set_turn_cap_answered(
         &self,
