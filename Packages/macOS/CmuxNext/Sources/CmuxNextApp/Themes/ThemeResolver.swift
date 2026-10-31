@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextTerminal
 import CmuxNextWakeups
+import Observation
 
 /// Turns a theme spec (room, workspace or terminal) into colors for the
 /// chrome and a Ghostty config for the surfaces, resolved like the global
@@ -11,8 +12,9 @@ import CmuxNextWakeups
 ///
 /// Configs are built once per theme name by `GhosttyRuntime` and dropped on
 /// every config change; `generation` bumps then and on a light/dark switch,
-/// so owners re-resolve.
+/// so owners re-resolve. ``isDark`` is observable (Settings' light/dark pair side follows it).
 @MainActor
+@Observable
 final class ThemeResolver {
     struct Resolved {
         let spec: ThemeSpec
@@ -21,10 +23,12 @@ final class ThemeResolver {
     }
 
     /// Bumps when resolved colors may have changed for the same spec.
-    private(set) var generation = 0
-    var onChange: (() -> Void)?
-    private var isDark: Bool
-    private var appearanceObservation: NSKeyValueObservation?
+    @ObservationIgnored private(set) var generation = 0
+    @ObservationIgnored var onChange: (() -> Void)?
+    /// The Mac's light or dark (`NSApp.effectiveAppearance`), never a window's: windows take their
+    /// theme's appearance, and the side of a light/dark pair follows the system.
+    private(set) var isDark: Bool
+    @ObservationIgnored private var appearanceObservation: NSKeyValueObservation?
 
     init() {
         isDark = Self.systemIsDark()
