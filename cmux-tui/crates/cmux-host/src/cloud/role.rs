@@ -206,15 +206,38 @@ impl Http for PosterHttp {
     }
 }
 
-/// One `identify` on the daemon's control socket, bounded by `timeout`.
+/// One `identify` on the daemon's control socket. `timeout` bounds the whole
+/// exchange, not each read, and the reply line is at most `MAX_LINE`.
 pub fn query_identify(socket: &Path, timeout: Duration) -> io::Result<Value> {
+    let deadline = Instant::now() + timeout;
     let mut stream = UnixStream::connect(socket)?;
-    stream.set_read_timeout(Some(timeout))?;
-    stream.set_write_timeout(Some(timeout))?;
+    let left = deadline.saturating_duration_since(Instant::now());
+    stream.set_write_timeout(Some(left.max(Duration::from_millis(1))))?;
     stream.write_all(b"{\"id\":1,\"cmd\":\"identify\"}\n")?;
-    let mut line = String::new();
-    BufReader::new(stream).read_line(&mut line)?;
-    let reply: Value = serde_json::from_str(&line).map_err(io::Error::other)?;
+    let mut line = Vec::new();
+    let mut chunk = [0u8; 4096];
+    while !line.contains(&b'\n') {
+        if line.len() > MAX_LINE {
+            return Err(io::Error::other("daemon identify line over 64 KB"));
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(io::Error::from(io::ErrorKind::TimedOut));
+        }
+        stream.set_read_timeout(Some(left))?;
+        match stream.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => line.extend_from_slice(read_part(&chunk, n)?),
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
+    }
+    let end = line.iter().position(|b| *b == b'\n').unwrap_or(line.len());
+    if end > MAX_LINE {
+        return Err(io::Error::other("daemon identify line over 64 KB"));
+    }
+    let reply: Value =
+        serde_json::from_slice(line.get(..end).unwrap_or_default()).map_err(io::Error::other)?;
     if *reply.field("ok") == true && reply.field("data").is_object() {
         Ok(reply.field("data").clone())
     } else {
@@ -599,14 +622,10 @@ impl Worker {
         let mut lines = Vec::new();
         for &i in readable {
             let Some(client) = self.clients.get_mut(i) else { continue };
-            match read_available(&mut client.stream, &mut client.buf) {
-                Ok(open) => {
-                    lines.extend(take_lines(&mut client.buf).into_iter().map(|line| (i, line)));
-                    if !open || client.buf.len() > MAX_LINE {
-                        closed.push(i);
-                    }
-                }
-                Err(_) => closed.push(i),
+            let (read, open) = read_lines(&mut client.stream, &mut client.buf);
+            lines.extend(read.into_iter().map(|line| (i, line)));
+            if !open {
+                closed.push(i);
             }
         }
         // A GitHub token ask or a hand-off report takes its connection to
@@ -782,8 +801,8 @@ impl Worker {
 
     fn read_activity(&mut self) {
         let Some(stream) = self.activity.stream.as_mut() else { return };
-        let open = read_available(stream, &mut self.activity.buf).unwrap_or(false);
-        let lines = take_lines(&mut self.activity.buf);
+        // A line over `MAX_LINE` drops the stream like an EOF, so the buffer never grows past it.
+        let (lines, open) = read_lines(stream, &mut self.activity.buf);
         for line in lines {
             let Ok(msg) = serde_json::from_str::<Value>(&line) else {
                 log("activity: unreadable daemon line ignored");
@@ -921,6 +940,15 @@ fn read_available(stream: &mut UnixStream, buf: &mut Vec<u8>) -> io::Result<bool
             Err(e) => return Err(e),
         }
     }
+}
+
+/// The complete lines available now, and whether the stream is still usable:
+/// `false` at end of stream, on a read error, or when the unfinished line is
+/// over `MAX_LINE`. So `buf` never holds more than `MAX_LINE` plus one read.
+fn read_lines(stream: &mut UnixStream, buf: &mut Vec<u8>) -> (Vec<String>, bool) {
+    let open = read_available(stream, buf).unwrap_or(false);
+    let lines = take_lines(buf);
+    (lines, open && buf.len() <= MAX_LINE)
 }
 
 /// The first `n` bytes of a read buffer; a reader that claims more than
