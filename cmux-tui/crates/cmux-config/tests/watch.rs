@@ -5,6 +5,7 @@
 //! create event, so on macOS the daemon never saw acpmux start while its
 //! runtime folder was already there (idle_wakeups.rs
 //! `cmux_next_daemon_idle_has_no_periodic_wakeups`).
+#![cfg(unix)]
 
 use std::fs;
 use std::os::unix::net::UnixListener;
@@ -65,7 +66,7 @@ fn watch_hints_when_a_socket_is_bound_in_a_watched_folder() {
     let listener = UnixListener::bind(&socket).unwrap();
     expect_hint(&hints, "a socket bound at a watched name");
     drop(listener);
-    fs::remove_file(&socket).unwrap();
+    fs::remove_file(socket).unwrap();
     expect_hint(&hints, "a watched socket removed");
 }
 
@@ -80,9 +81,9 @@ fn watch_hints_when_a_watched_file_is_created_written_and_removed() {
     expect_hint(&hints, "a watched file written in place");
     let staged = scratch.0.join("cmux-next.json.tmp");
     fs::write(&staged, "{\"a\": 2}").unwrap();
-    fs::rename(&staged, &file).unwrap();
+    fs::rename(staged, &file).unwrap();
     expect_hint(&hints, "a watched file replaced by rename");
-    fs::remove_file(&file).unwrap();
+    fs::remove_file(file).unwrap();
     expect_hint(&hints, "a watched file removed");
 }
 
@@ -97,9 +98,9 @@ fn watch_ignores_other_entries_of_a_watched_folder() {
     fs::write(&other, "2").unwrap();
     let staged = scratch.0.join("other.tmp");
     fs::write(&staged, "3").unwrap();
-    fs::rename(&staged, &other).unwrap();
+    fs::rename(staged, &other).unwrap();
     let socket = UnixListener::bind(scratch.0.join("other.sock")).unwrap();
-    fs::remove_file(&other).unwrap();
+    fs::remove_file(other).unwrap();
     assert!(hints.recv_timeout(NO_HINT_FOR).is_err(), "a change to an entry nobody watches hinted");
     drop(socket);
 }
