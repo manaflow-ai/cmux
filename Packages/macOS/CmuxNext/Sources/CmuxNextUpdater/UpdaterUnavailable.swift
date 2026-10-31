@@ -34,6 +34,6 @@ nonisolated public struct UpdaterUnavailable: Error, Equatable, CustomStringConv
         // `nightly-next` is an internal feed identity; keep the existing
         // wording for every other track while presenting it as NIGHTLY here.
         let displayTrack = track == .nightlyNext ? UpdateTrack.nightly.rawValue : track.rawValue
-        UpdaterUnavailable(description: UpdaterStrings.cannotSwitch(to: target, from: displayTrack))
+        return UpdaterUnavailable(description: UpdaterStrings.cannotSwitch(to: target, from: displayTrack))
     }
 }
