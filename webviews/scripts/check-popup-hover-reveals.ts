@@ -51,6 +51,8 @@ const NON_POPUP_REVEALS = new Map<string, string>([
     "agent-session/acpmux/composerAttachments.css|.acpmux-attachment:hover .acpmux-attachment-remove",
     "remove affordance",
   ],
+  // An inline attachment chip's ×, Retry and Expand are plain buttons (composer/inlineAttachments.tsx).
+  ["agent-session/acpmux/markdownField.css|.acpmux-md-inline-chip:hover .acpmux-md-inline-remove", "remove affordance"],
   [
     "agent-session/acpmux/composerLook.css|.acpmux-composer:has(.acpmux-composer-foot:hover) .acpmux-look-dots",
     "look affordance",
