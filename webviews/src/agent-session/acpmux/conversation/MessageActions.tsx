@@ -333,7 +333,10 @@ export function ReceivedActions({ row, more }: { row: AcpmuxRow; more?: ReactNod
 export function ReplyActions({ row }: { row: AcpmuxRow }) {
   const text = row.text ?? "";
   return (
-    <div className="cv-turn-actions cv-reply-actions">
+    // Over a status row this line is the reply's whole bottom room (conversation.css
+    // `--cv-status-gap`), so its own blank box, never its buttons, is a transcript gap a drag
+    // can start from (gutterSelect.ts).
+    <div className="cv-turn-actions cv-reply-actions" data-transcript-gap="blank">
       <span className="cv-turn-action-group">
         <MessageCopy text={text} />
         <PinButton rowId={row.id} />
