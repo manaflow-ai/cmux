@@ -11,6 +11,7 @@ import React, { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, u
 import { flushSync } from "react-dom";
 import { type AcpmuxRow, type ConversationLayout } from "../model";
 import { useT } from "../i18n";
+import { layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
 import { MinimapTick } from "../../../ui/MinimapTick";
 import { useRailPlacement } from "./useRailPlacement";
 import { usePromptMarks } from "./promptMarks";
@@ -38,7 +39,6 @@ import { tickRanges } from "./tickWindow";
 import { useThreadMinimapArm } from "../chatDisplay";
 import {
   CARD_DELAY,
-  cardOffset,
   JUMP_CURVE,
   jumpDuration,
   LANDING_OFFSET,
@@ -260,7 +260,6 @@ export function ThreadMinimap({
   const keyed = useRef<{ focused?: KeyedRow; hovered?: KeyedRow; card?: KeyedRow }>({});
   /// The prompt key of the tick the page's focus is on, if one is.
   const [domFocus, setDomFocus] = useState<{ sessionId?: string; key: string } | undefined>(undefined);
-  const [cardHeight, setCardHeight] = useState(0);
   const rail = useRef<HTMLElement>(null);
   const list = useRef<HTMLOListElement>(null);
   const card = useRef<HTMLDivElement>(null);
@@ -355,11 +354,11 @@ export function ThreadMinimap({
     if (!node) return;
     const scrolled = () => {
       const { turns: all, tops, total, viewportHeight: height, onScreen: drawn, sessionId: session } = live.current;
-      domTop.current = { sessionId: session, top: node.scrollTop };
+      domTop.current = { sessionId: session, top: layoutScrollTop(node) };
       restoring.current = undefined;
       // The full-height map moves its own bar; no band to draw here.
       if (!live.current.shown) return;
-      const next = visibleTurns(all, tops, total, node.scrollTop, height);
+      const next = visibleTurns(all, tops, total, layoutScrollTop(node), height);
       // Synchronously: a scroll event or a motion's frame callback is outside React's batch, which
       // would draw the band after this frame paints. Only a scroll that moves the band renders.
       if (next.first !== drawn.first || next.last !== drawn.last) flushSync(() => setBandMoves((count) => count + 1));
@@ -399,10 +398,10 @@ export function ThreadMinimap({
       const node = scroller.current;
       if (!node) return;
       const { turns: all, tops, total, viewportHeight: height, onScreen: drawn, sessionId: session } = live.current;
-      domTop.current = { sessionId: session, top: node.scrollTop };
+      domTop.current = { sessionId: session, top: layoutScrollTop(node) };
       restoring.current = undefined;
       if (!live.current.shown) return;
-      const next = visibleTurns(all, tops, total, node.scrollTop, height);
+      const next = visibleTurns(all, tops, total, layoutScrollTop(node), height);
       if (next.first !== drawn.first || next.last !== drawn.last) setBandMoves((count) => count + 1);
     };
     return () => {
@@ -431,7 +430,10 @@ export function ThreadMinimap({
     const turn = live.current.turns[index];
     if (!node || !turn) return undefined;
     const target = () =>
-      Math.min(turnScrollTop(turn, live.current.tops), Math.max(0, live.current.total - node.clientHeight));
+      physicalScrollTop(
+        node,
+        Math.min(turnScrollTop(turn, live.current.tops), Math.max(0, live.current.total - node.clientHeight)),
+      );
     let row = mountedRow(node, turn.id);
     // Keep the mounted target through the settle. Virtualization may replace it, so a stale
     // element is looked up again; ordinary frames never scan all mounted transcript rows.
@@ -457,13 +459,15 @@ export function ThreadMinimap({
           return box.top - node.getBoundingClientRect().top - LANDING_OFFSET;
         },
         SETTLE_FRAMES,
+        { explicit: true },
       );
     if (how === "scrub" || how === "click" || !row || reducedMotion()) {
       stopScroll(node);
       node.scrollTop = to;
       if (how !== "scrub") settle();
-    } else if (how === "step") animateScroll(node, target, STEP_MS, STEP_CURVE, settle);
-    else animateScroll(node, target, jumpDuration(to - node.scrollTop), JUMP_CURVE, settle);
+    } else if (how === "step") animateScroll(node, target, STEP_MS, STEP_CURVE, settle, undefined, { explicit: true });
+    else
+      animateScroll(node, target, jumpDuration(to - node.scrollTop), JUMP_CURVE, settle, undefined, { explicit: true });
     if (how === "click" || how === "bookmark") {
       if (row) highlightBubble(bubbleOf(row));
       // An unmounted row mounts once the transcript draws its new place.
@@ -488,7 +492,7 @@ export function ThreadMinimap({
       if (!node || !all.length) return undefined;
       const stepping =
         pending.tick !== undefined && performance.now() < pending.until ? tickIndex(keys, pending.tick) : -1;
-      const top = Math.min(node.scrollTop, Math.max(0, total - node.clientHeight));
+      const top = Math.min(layoutScrollTop(node), Math.max(0, total - node.clientHeight));
       let reading = 0;
       if (stepping >= 0) reading = stepping;
       else
@@ -535,10 +539,6 @@ export function ThreadMinimap({
   // A card closed with focus in it (Escape, a click elsewhere) takes no blur: it starts unfocused.
   if (!showCard && cardFocus) setCardFocus(false);
   useEscapeCloses(showCard && cardFocus, dismiss);
-  useLayoutEffect(() => {
-    const node = card.current;
-    if (showCard && node) setCardHeight(node.offsetHeight);
-  }, [showCard, cardTurn]);
 
   // Older turns that load above the reader (the transcript pages them in as it nears the top) add
   // rows above the band and would move it on screen in one frame: 150 px for a 30-turn page. The
@@ -839,10 +839,8 @@ export function ThreadMinimap({
   // reveal the rail over the text only while the strip, rail, card or keyboard focus holds it open.
   const magnified = hovered;
   const cardMarked = cardTurn ? marks.has(cardTurn) : false;
-  const cardTop =
-    cardRow === undefined
-      ? 0
-      : cardOffset(railTop + cardRow * ROW_PITCH + ROW_PITCH / 2 - listTop, cardHeight, viewportHeight);
+  /// The card centers itself on its row and keeps inside the view (PreviewCard `place`).
+  const cardCenter = cardRow === undefined ? 0 : railTop + cardRow * ROW_PITCH + ROW_PITCH / 2 - listTop;
   return (
     <div className="acpmux-minimap" style={{ "--acpmux-rail-left": `${placement.left}px` } as React.CSSProperties}>
       {/* Right-clicking the rail (or its narrow-pane strip) moves it to the other edge. */}
@@ -1028,13 +1026,13 @@ export function ThreadMinimap({
           // card.right == rail.left on the right.
           x={edge + railWidth}
           railLeft={placement.left}
-          y={cardTop}
+          center={cardCenter}
+          viewportHeight={viewportHeight}
           // Out of the scroller: its edge mask would keep the card's blur from the rows (PreviewCard.tsx).
           scroller={scroller.current}
           prompt={cardTurn.prompt}
           reply={cardTurn.reply}
           metadata={cardTurn.metadata}
-          onSizeChange={() => setCardHeight(card.current?.offsetHeight ?? 0)}
           bookmark={marks.can(cardTurn) ? { marked: cardMarked, toggle: () => marks.toggle(cardTurn) } : undefined}
           onPointerLeave={(event) => {
             // Back onto the rail keeps it (its row takes over); anywhere else it goes.

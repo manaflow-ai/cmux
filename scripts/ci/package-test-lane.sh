@@ -34,7 +34,7 @@
 #             scripts/ci/package-test-lane.sh --ref SHA --arg=suite
 #             --arg=Packages/macOS/CmuxNext --arg=SuiteA,SuiteB,SuiteC
 #             --env CMUX_CI_XCODE_APP=/Applications/Xcode_26.6.app
-#   compile-tests MERGE_BASE_SHA
+#   compile-tests MERGE_BASE_SHA [--skip-package=DIR ...]
 #             compile, without running, the test targets this commit's change
 #             can break: scripts/ci/compile_test_plan.py over `git diff
 #             MERGE_BASE_SHA HEAD` (the CmuxNext test targets that depend on a
@@ -47,6 +47,10 @@
 #             compile", anything else when there is no verdict. The marker is
 #             printed as soon as a target fails, so a later package's setup
 #             failure (any exit) never hides an earlier compile failure.
+#             --skip-package=DIR leaves that package out of the plan
+#             (compile_test_plan.py --skip-package); the pull-request check
+#             skips CmuxNext, whose test targets cmux-next.yml's swift test
+#             job already builds.
 #
 # --event and --full-suite default to EVENT_NAME and FULL_SUITE. Run from the
 # repository root; every helper path is relative to it.
@@ -58,11 +62,18 @@ case "${1:-}" in
   prebuild-one) phase="$1"; prebuild_package="$2"; prebuild_log="$3"; shift 3 ;;
   compile-tests)
     phase="$1"
-    if [ "$#" -ne 2 ] || ! [[ "$2" =~ ^[0-9a-f]{40}$ ]]; then
-      echo "usage: package-test-lane.sh compile-tests MERGE_BASE_SHA (the full sha of the change's merge base)" >&2; exit 2
+    if [ "$#" -lt 2 ] || ! [[ "$2" =~ ^[0-9a-f]{40}$ ]]; then
+      echo "usage: package-test-lane.sh compile-tests MERGE_BASE_SHA [--skip-package=DIR ...] (the full sha of the change's merge base)" >&2; exit 2
     fi
     compile_base="$2"
     shift 2
+    compile_skip=()
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --skip-package=?*) compile_skip+=(--skip-package "${1#--skip-package=}"); shift ;;
+        *) echo "usage: package-test-lane.sh compile-tests MERGE_BASE_SHA [--skip-package=DIR ...]: unknown argument $1" >&2; exit 2 ;;
+      esac
+    done
     ;;
   suite)
     phase="$1"; suite_package="${2:-}"
@@ -813,8 +824,12 @@ run_suite() {
   # step, never "passed" or a green "skipped". The line says "required tests did
   # not run", which the per-test classifier (test_reds) reads as a run that is not whole, so
   # the base-red excuse never excuses it.
-  local log filter status started result failed=0 first_failure_status=0 rows=()
-  local ran skipped reason daemon_skips display_skips hint
+  # A suite that ran none of its tests because every one of them needs a display is not a result either
+  # way, and display tests gate nothing (Leo, 2026-10-31: "i dont like doing display tests anymore"): it
+  # reads "skipped (needs a display)" with a notice and does not fail the step, unless the step asked for a
+  # display (CMUX_TEST_REQUIRE_GUI=1, or cmux-ci's --display marks it CMUX_CI_DISPLAY_ROUTED=1).
+  local log filter status started result failed=0 first_failure_status=0 display_only=0 rows=()
+  local ran skipped reason reasons daemon_skips display_skips hint
   for filter in "${suite_filters[@]}"; do
     echo "::group::swift test --filter $filter"
     log="$(mktemp -t swift-suite-test.XXXXXX)"
@@ -831,7 +846,7 @@ run_suite() {
       python3 scripts/ci/require_swift_test_execution.py --log "$log" --skip-report "$log.skips" || status=$?
     fi
     echo "::endgroup::"
-    ran=0 skipped=0 display_skips=0 hint=""
+    ran=0 skipped=0 reasons=0 display_skips=0 hint=""
     # Read from the log itself, whatever the exit status or CMUX_TEST_REQUIRE_GUI: a failing test or a GUI
     # skip beside a missing-cmux-tui skip must not hide the no-result line.
     daemon_skips="$(grep -cE '(Test|Suite) .+ skipped: "needs the same-tree cmux-tui' "$log" || true)"
@@ -843,6 +858,7 @@ run_suite() {
       if [ "$skipped" -gt 0 ]; then
         while IFS= read -r reason; do
           echo "$filter: skipped $reason"
+          reasons=$((reasons + 1))
           # The suites' own display traits: "the drag tests need a display", "needs an awake display ...",
           # "run on a GUI host", "no GUI login session".
           if printf '%s' "$reason" | grep -qiE 'display|screen|GUI'; then display_skips=$((display_skips + 1)); fi
@@ -853,7 +869,13 @@ run_suite() {
       fi
     fi
     rm -f "$log.skips"
-    if [ "$status" -eq 0 ] && { [ "$ran" -eq 0 ] || [ "$daemon_skips" -gt 0 ]; }; then
+    if [ "$status" -eq 0 ] && [ "$ran" -eq 0 ] && [ "$daemon_skips" -eq 0 ] && [ "$reasons" -gt 0 ] &&
+       [ "$display_skips" -eq "$reasons" ] && [ "${CMUX_TEST_REQUIRE_GUI:-}" != 1 ] &&
+       [ "${CMUX_CI_DISPLAY_ROUTED:-}" != 1 ]; then
+      display_only=$((display_only + 1))
+      result="skipped (needs a display)"
+      echo "::notice title=Swift suite needs a display::$filter in $suite_package: none of its $skipped tests ran (each needs a display); display tests gate nothing, so the step goes on. Run it on a display worker with cmux-ci run --display"
+    elif [ "$status" -eq 0 ] && { [ "$ran" -eq 0 ] || [ "$daemon_skips" -gt 0 ]; }; then
       failed=$((failed + 1))
       status=1
       [ "$first_failure_status" -ne 0 ] || first_failure_status="$status"
@@ -866,7 +888,7 @@ run_suite() {
         if [ "$display_skips" -gt 0 ] && [ "${CMUX_CI_DISPLAY_ROUTED:-}" = 1 ]; then
           hint="; this suite needs a display and was sent to a display worker, whose console session was lost (locked or logged out)"
         elif [ "$display_skips" -gt 0 ]; then
-          hint="; this suite needs a display; rerun with CMUX_TEST_REQUIRE_GUI=1"
+          hint="; this suite needs a display; rerun with CMUX_TEST_REQUIRE_GUI=1 (or cmux-ci run --display)"
         fi
         echo "::error title=Swift suite no result::$filter in $suite_package: required tests did not run: none of its $skipped tests ran (all skipped)$hint; no result, never a pass or a base red"
       fi
@@ -897,7 +919,11 @@ run_suite() {
     echo "$failed of ${#suite_filters[@]} suites failed or gave no result."
     exit "$first_failure_status"
   fi
-  echo "All ${#suite_filters[@]} suites passed."
+  if [ "$display_only" -gt 0 ]; then
+    echo "$((${#suite_filters[@]} - display_only)) of ${#suite_filters[@]} suites passed; $display_only skipped (needs a display, not gating)."
+  else
+    echo "All ${#suite_filters[@]} suites passed."
+  fi
 }
 
 # compile_one LOG SWIFT_BUILD_ARGS...: one `swift build` into LOG (and the step
@@ -929,7 +955,7 @@ run_compile_tests() {
   local changed="$work/compile-tests-changed.txt" plan="$work/compile-tests-plan.txt"
   git diff --no-renames --name-only "$compile_base" HEAD > "$changed" \
     || { echo "compile-tests: no diff from $compile_base" >&2; exit 3; }
-  python3 scripts/ci/compile_test_plan.py --changed-files "$changed" > "$plan" \
+  python3 scripts/ci/compile_test_plan.py --changed-files "$changed" ${compile_skip[@]+"${compile_skip[@]}"} > "$plan" \
     || { echo "compile-tests: compile_test_plan.py failed" >&2; exit 3; }
   echo "compile-tests: $(wc -l < "$changed" | tr -d ' ') files changed since ${compile_base:0:12}"
   if [ ! -s "$plan" ]; then
