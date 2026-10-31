@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "build": "4118400110201",
+  "notes": "notes/4118400110201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 29024,
+      "title": "base red: panic ratchet: cmux-rd-link's 7, acpmux's and cmux-tui's new index/slice hits",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29066,
+      "title": "fix(crash ratchet): WindowView.swift index hits from 36a31600f24",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28886,
+      "title": "fix(coderouter): a Codex request with no usable account ends the turn at once",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25981,
+      "title": "Agent pane: a sign-in failure's card offers Sign in again, with Retry after it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28906,
+      "title": "Harnesses and Settings: rows of one list share one text column",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28909,
+      "title": "fix(web): allow signed NEXT DEV auth callbacks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26799,
+      "title": "fix(agent-chat): preserve fractional scroll anchors across transcript and rail",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/26799/after-upward-anchor-webkit.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 28966,
+      "title": "cmux NEXT New Tab: the model menu keeps the harness rail once the page's chat starts behind it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29032,
+      "title": "ci: probe the omnibar field editor's three drag super calls, clearing a base red",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
