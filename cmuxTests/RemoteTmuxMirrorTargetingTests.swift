@@ -134,7 +134,13 @@ struct RemoteTmuxMirrorTargetingTests {
             connectionExited: false,
             sessionId: nil,
             sessionName: "dev"
-        ) == "dev")
+        ) == "=dev")
+        // tmux reads `$dev` as a session id even after `=`, so it is never killed by name.
+        #expect(RemoteTmuxController.workspaceCloseKillTarget(
+            connectionExited: false,
+            sessionId: nil,
+            sessionName: "$dev"
+        ) == nil)
     }
 
     @Test func shouldRefreshTitleChromeDistinguishesDirectAndSurfaceSourcedNotifications() throws {
